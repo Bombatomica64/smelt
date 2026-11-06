@@ -22,16 +22,16 @@
 //!
 //! * `t` is a compiler temporary defined exactly once and read exactly once
 //!   (by the move), so no other statement observes it.
-//! * `u` is defined exactly once (the move), so `u` is a single-assignment
-//!   binding and writing it one statement earlier changes no other read: the
-//!   only statement in between is the move itself.
+//! * `u` has exactly one initializer (the move), so writing it one statement
+//!   earlier changes no other read: the only statement in between is the move
+//!   itself. A later source reassignment is a whole-local `AssignPlace`, which
+//!   leaves the `let mut u = rv` binding intact and does not count.
 //! * `rv` does not read `u`. A self-referencing initializer (a closure that
 //!   captures its own binding) must keep reading the binding's prior state.
 //! * `t` and `u` have the same type, so no conversion was implied by the move.
 //! * Neither is function-typed: callable locals carry ABI decisions
 //!   (`Rc<dyn Fn>` vs. borrowed callbacks) that copy propagation also leaves
 //!   alone.
-//! * `t` appears in no `StorageLive`/`StorageDead` marker.
 //!
 //! Behaviour requirement: unchanged (the same value reaches the same local).
 //! Type-preservation requirement: unchanged types; the generated Rust has one
@@ -39,20 +39,15 @@
 
 use smelt_hir::Type;
 
-use super::local_use::{local_assignment_count, local_decl, local_is_temp, local_read_count, operand_local};
+use super::local_use::local_decl;
 use super::Pass;
-use crate::{Mir, MirFunction, Operand, Rvalue, Statement};
+use crate::{LocalId, Mir, MirFunction, Operand, Place, Rvalue, Statement};
 
 /// The let-temporary elision pass; see the module docs.
 #[derive(Debug, Default)]
 pub struct LetTempElision;
 
 impl Pass for LetTempElision {
-    /// Returns the stable identifier of this pass.
-    fn name(&self) -> &'static str {
-        "let-temp-elision"
-    }
-
     /// Applies the pass to `mir`, returning true if it was modified.
     fn run(&self, mir: &mut Mir) -> bool {
         let mut changed = false;
@@ -122,7 +117,7 @@ fn elidable_pair(
         return None;
     };
     let (temp, user) = (*temp_dest, *user_dest);
-    let moves_temp = operand_local(moved) == Some(temp);
+    let moves_temp = moved.local() == Some(temp);
     if !moves_temp || temp == user {
         return None;
     }
@@ -130,22 +125,32 @@ fn elidable_pair(
     let user_decl = local_decl(function, user)?;
     let reads_user = {
         let mut reads = false;
-        value.for_each_operand(|operand| reads |= super::local_use::operand_reads_local(operand, user));
+        value.reads(|operand| reads |= operand.reads_local(user));
         reads
     };
-    let has_storage_marker = function.blocks.iter().flat_map(|block| &block.statements).any(|statement| {
-        matches!(statement, Statement::StorageLive(local) | Statement::StorageDead(local) if *local == temp)
-    });
     let is_function = |ty| matches!(types.get(ty), Some(Type::Function(_)));
-    (local_is_temp(function, temp)
-        && local_assignment_count(function, temp) == 1
-        && local_read_count(function, temp) == 1
-        && local_assignment_count(function, user) == 1
+    (function.is_temp(temp)
+        && function.assignment_count(temp) == 1
+        && function.read_count(temp) == 1
+        && initializer_count(function, user) == 1
         && !reads_user
         && temp_decl.ty == user_decl.ty
-        && !is_function(temp_decl.ty)
-        && !has_storage_marker)
+        && !is_function(temp_decl.ty))
         .then_some(user)
+}
+
+/// How many definitions of `local` are not source reassignments: everything
+/// [`MirFunction::assignment_count`] counts minus whole-local `AssignPlace`s.
+fn initializer_count(function: &MirFunction, local: LocalId) -> usize {
+    let reassignments = function
+        .blocks
+        .iter()
+        .flat_map(|block| &block.statements)
+        .filter(|statement| {
+            matches!(statement, Statement::AssignPlace { place: Place::Local(target), .. } if *target == local)
+        })
+        .count();
+    function.assignment_count(local).saturating_sub(reassignments)
 }
 
 #[cfg(test)]
@@ -365,14 +370,6 @@ mod tests {
             }));
             mir.functions[0].locals[1].ty = callable;
             mir.functions[0].locals[2].ty = callable;
-        });
-    }
-
-    /// A storage marker on `t` scopes its lifetime; leave it alone.
-    #[test]
-    fn declines_when_temp_has_storage_marker() {
-        assert_declined(|mir| {
-            mir.functions[0].blocks[0].statements.push(Statement::StorageDead(TEMP));
         });
     }
 

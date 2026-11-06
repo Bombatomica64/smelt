@@ -1587,10 +1587,6 @@ impl FunctionEmitter<'_> {
                 out.push_str(&self.throw_terminator_text(operand)?);
                 Ok(())
             }
-            Terminator::Unreachable => {
-                out.push_str("    unreachable!()\n");
-                Ok(())
-            }
         };
         active.pop();
         result

@@ -7,7 +7,7 @@
 #![expect(
     clippy::too_many_lines,
     reason = "the remaining long functions are single exhaustive matches over the full \
-              ExprKind/Rvalue surface (lower_expr, the for_each_operand walkers, the \
+              ExprKind/Rvalue surface (lower_expr, the reads walkers, the \
               format/opt dispatchers); compile-time exhaustiveness keeps them in sync \
               and splitting them per variant family would hide that guarantee"
 )]
@@ -31,6 +31,8 @@
     reason = "MIR structs are constructed across workspace crates during lowering and tests"
 )]
 
+/// The MIR stage as one call: lower, optimize, validate.
+mod compile;
 /// Promote erased-and-mutated record locals to an erased value representation.
 mod erased_record_promote;
 /// Compact MIR formatting utilities.
@@ -41,6 +43,8 @@ pub mod list_escape;
 mod lower;
 /// MIR optimization passes.
 pub mod opt;
+/// The IR's own read/define traversal.
+mod traversal;
 /// MIR operational type normalization.
 mod type_normalize;
 /// MIR core data types.
@@ -48,6 +52,7 @@ mod types;
 /// MIR validation and diagnostics.
 mod validate;
 
+pub use compile::{CompileError, compile, compile_observed};
 pub use erased_record_promote::promote_erased_mutated_records;
 pub use format::format_compact;
 pub use list_escape::{
@@ -55,6 +60,7 @@ pub use list_escape::{
 };
 pub use lower::{LowerError, PENDING_THROWN_LOCAL, lower_hir};
 pub use type_normalize::normalize_operational_types;
+pub use traversal::{Read, ReadMut};
 pub use types::*;
 pub use validate::{ValidationError, validate};
 

@@ -88,9 +88,8 @@
 //! * **container reads** — a list read out of a field, index, `DictGet`,
 //!   `ListPop`/`ListShift`/`ListNext`, or a `find`-shaped search is by
 //!   construction a handle on a buffer that also lives inside the container;
-//! * **`Phi` destinations** and copy destinations — these are recorded as alias
-//!   edges, so the *group* survives, but a group whose members are merged by a
-//!   phi from an unproven source escapes with the source;
+//! * **copy destinations** — these are recorded as alias edges, so the *group*
+//!   survives, but a group merged with an unproven source escapes with it;
 //! * **closure capture targets** — the local inside a closure body that
 //!   receives a capture is treated exactly like a parameter;
 //! * **globals read back** ([`Rvalue::GlobalGet`]) and any other rvalue not in
@@ -650,36 +649,10 @@ impl<'a> BodyWalk<'a> {
         }
 
         for block in self.body.blocks {
-            for phi in &block.phis {
-                self.visit_phi(phi);
-            }
             for statement in &block.statements {
                 self.visit_statement(statement);
             }
             self.visit_terminator(block.terminator.as_ref());
-        }
-    }
-
-    /// A phi merges its incoming names onto one destination buffer.
-    fn visit_phi(&mut self, phi: &crate::Phi) {
-        if !self.is_list(phi.dest) {
-            return;
-        }
-        self.touch(phi.dest);
-        for (_, incoming) in &phi.incoming {
-            match operand_local(incoming) {
-                // Both arms of the merge name the buffer the destination will
-                // name, so they share one group.
-                Some(source) if self.is_list(source) => {
-                    self.touch(source);
-                    self.groups
-                        .union(phi.dest.0, source.0, matches!(incoming, Operand::Copy(_)));
-                }
-                // A constant or a projected read cannot be proven fresh.
-                _ => self
-                    .groups
-                    .escape(phi.dest.0, EscapeReason::UnprovenDefinition),
-            }
         }
     }
 
@@ -746,7 +719,6 @@ impl<'a> BodyWalk<'a> {
                 self.escape_operand(default, EscapeReason::StoredInContainer);
                 self.visit_rvalue(value, None);
             }
-            Statement::StorageLive(_) | Statement::StorageDead(_) => {}
         }
     }
 
@@ -777,13 +749,13 @@ impl<'a> BodyWalk<'a> {
             | Terminator::Match {
                 scrutinee: operand, ..
             } => {
-                if let Some(local) = operand_local(operand)
+                if let Some(local) = operand.local()
                     && self.is_list(local)
                 {
                     self.touch(local);
                 }
             }
-            Terminator::Goto(_) | Terminator::Unreachable => {}
+            Terminator::Goto(_) => {}
         }
     }
 
@@ -852,7 +824,7 @@ impl<'a> BodyWalk<'a> {
     /// Mirrors [`BodyWalk::escape_operand`]'s place handling: a projected read
     /// only touches the base, because the list being passed is not a local.
     fn read_operand(&mut self, operand: &Operand, mutated: bool) {
-        match operand_place(operand) {
+        match operand.place() {
             Some(&Place::Local(named)) if self.is_list(named) => {
                 self.touch(named);
                 if mutated {
@@ -870,7 +842,7 @@ impl<'a> BodyWalk<'a> {
 
     /// Note the operand a [`Terminator::Return`] hands back to the caller.
     fn return_operand(&mut self, operand: &Operand) {
-        match operand_place(operand) {
+        match operand.place() {
             Some(&Place::Local(named)) if self.is_list(named) => {
                 self.touch(named);
                 self.groups.escape_via_return(named.0);
@@ -905,7 +877,7 @@ impl<'a> BodyWalk<'a> {
 
     /// Mark every list local an operand names as escaping for `reason`.
     fn escape_operand(&mut self, operand: &Operand, reason: EscapeReason) {
-        match operand_place(operand) {
+        match operand.place() {
             Some(&Place::Local(named)) if self.is_list(named) => {
                 self.touch(named);
                 self.groups.escape(named.0, reason);
@@ -933,7 +905,7 @@ impl<'a> BodyWalk<'a> {
         let mut alias_sources: Vec<(LocalId, bool)> = Vec::new();
         let mut reads: Vec<(LocalId, OperandRole)> = Vec::new();
         let mut bases: Vec<LocalId> = Vec::new();
-        value.for_each_operand(|operand| {
+        value.reads(|operand| {
             // Any operand the role table did not name is unmodelled, so it
             // escapes. This is what makes a newly added `Rvalue` variant (or a
             // newly added operand on an existing one) fail safe.
@@ -944,7 +916,7 @@ impl<'a> BodyWalk<'a> {
                     OperandRole::Escapes(EscapeReason::UnmodelledUse),
                     |(_, role)| *role,
                 );
-            match operand_place(operand) {
+            match operand.place() {
                 Some(Place::Local(local)) => {
                     if let OperandRole::ResultAlias { .. } = role {
                         alias_sources.push((*local, matches!(operand, Operand::Copy(_))));
@@ -1094,7 +1066,7 @@ impl<'a> BodyWalk<'a> {
                 _ => None,
             })
             .collect();
-        returned.iter().all(|operand| match operand_local(operand) {
+        returned.iter().all(|operand| match operand.local() {
             Some(local) if self.is_list(local) => {
                 let root = self.groups.find(local.0);
                 !self.groups.escaped_external.contains_key(&root)
@@ -1104,22 +1076,6 @@ impl<'a> BodyWalk<'a> {
             // provably minted here.
             _ => false,
         })
-    }
-}
-
-/// The place an operand reads, if it reads one.
-const fn operand_place(operand: &Operand) -> Option<&Place> {
-    match operand {
-        Operand::Copy(place) | Operand::Move(place) => Some(place),
-        Operand::Const(_) => None,
-    }
-}
-
-/// The local an operand names directly, ignoring projected reads.
-const fn operand_local(operand: &Operand) -> Option<LocalId> {
-    match operand_place(operand) {
-        Some(Place::Local(local)) => Some(*local),
-        Some(Place::Field { .. } | Place::Index { .. } | Place::Global { .. }) | None => None,
     }
 }
 
@@ -1149,7 +1105,6 @@ pub const fn rvalue_mints_fresh_list(value: &Rvalue) -> bool {
         | Rvalue::ListWith { .. }
         | Rvalue::ListFlat { .. }
         | Rvalue::ListFromLength { .. }
-        | Rvalue::ListRepeat { .. }
         | Rvalue::ListFromLengthMap { .. }
         // `splice` returns the removed elements as a new array; `toSpliced`
         // (`mutate: false`) returns a new array outright. Both are fresh.
@@ -1185,7 +1140,7 @@ pub const fn rvalue_mints_fresh_list(value: &Rvalue) -> bool {
 /// The role of each operand this rvalue reads, for operands the analysis models.
 ///
 /// Returned as `(&Operand, role)` pairs so [`BodyWalk::visit_rvalue`] can match them
-/// against [`Rvalue::for_each_operand`] by pointer identity — that keeps the
+/// against [`Rvalue::reads`] by pointer identity — that keeps the
 /// canonical operand walk as the single enumeration point while still letting
 /// positions differ in role. **Any operand not named here gets
 /// [`OperandRole::Escapes`]**, including every operand of every variant that
@@ -1211,11 +1166,6 @@ fn operand_roles(value: &Rvalue) -> Vec<(&Operand, OperandRole)> {
         // Plain propagation: the destination names the source's buffer.
         Rvalue::Use(operand) => vec![(operand, ALIAS)],
         // Both arms may become the result.
-        Rvalue::Conditional {
-            cond,
-            then_operand,
-            else_operand,
-        } => vec![(cond, READ), (then_operand, ALIAS), (else_operand, ALIAS)],
         Rvalue::OptionalCoalesce { optional, fallback } => {
             vec![(optional, ALIAS), (fallback, ALIAS)]
         }
@@ -1354,7 +1304,6 @@ fn operand_roles(value: &Rvalue) -> Vec<(&Operand, OperandRole)> {
         }
         Rvalue::ListFromLength { length } => vec![(length, READ)],
         // The repeated value ends up inside the produced list.
-        Rvalue::ListRepeat { value: item, count } => vec![(item, STORED), (count, READ)],
         Rvalue::ListRange { start, end, step } => {
             vec![(start, READ), (end, READ), (step, READ)]
         }

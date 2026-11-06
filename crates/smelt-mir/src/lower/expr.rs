@@ -1791,18 +1791,6 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
-            ExprKind::ListRepeat { value, count } => {
-                let value_operand = self.lower_expr(*value)?;
-                let count_operand = self.lower_expr(*count)?;
-                self.assign_temp(
-                    expr.ty,
-                    expr.span,
-                    Rvalue::ListRepeat {
-                        value: value_operand,
-                        count: count_operand,
-                    },
-                )?
-            }
             ExprKind::ListFromLengthMap { length, callback } => {
                 let length_operand = self.lower_expr(*length)?;
                 let callback_operand = self.lower_expr(*callback)?;

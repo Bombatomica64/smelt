@@ -30,7 +30,7 @@ use std::collections::HashSet;
 
 use smelt_hir::{Type, TypeId};
 use smelt_mir::{
-    Callee, Constant, LocalId, LocalKind, Mir, MirFunction, Operand, Place, Rvalue, Statement,
+    Constant, LocalId, LocalKind, Mir, MirFunction, Operand, Place, Rvalue, Statement,
     Terminator,
 };
 
@@ -80,9 +80,6 @@ fn definition_candidates(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> 
         }
     };
     for block in &function.blocks {
-        for phi in &block.phis {
-            disqualified.insert(phi.dest);
-        }
         for statement in &block.statements {
             match statement {
                 Statement::Assign { dest, value } => {
@@ -111,7 +108,6 @@ fn definition_candidates(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> 
                 Statement::DictEntryUpdate { current, .. } => {
                     disqualified.insert(*current);
                 }
-                Statement::StorageLive(_) | Statement::StorageDead(_) => {}
             }
         }
         if let Some(Terminator::Call { dest, .. } | Terminator::Await { dest, .. }) =
@@ -156,78 +152,36 @@ fn every_read_is_supported(
 ) -> bool {
     let mut total = 0usize;
     let mut supported = 0usize;
-    let count = |reads: &mut usize, operand: &Operand| {
-        if reads_local(operand, local) {
-            *reads = reads.saturating_add(1);
-        }
-    };
     for block in &function.blocks {
-        for phi in &block.phis {
-            for (_, operand) in &phi.incoming {
-                count(&mut total, operand);
-            }
-        }
         for statement in &block.statements {
-            match statement {
-                Statement::Assign { value, .. } => {
-                    value.for_each_operand(|operand| count(&mut total, operand));
-                    if let Rvalue::Binary { op, lhs, rhs } = value
-                        && is_equality_op(*op)
-                    {
-                        for (side, other) in [(lhs, rhs), (rhs, lhs)] {
-                            if reads_local(side, local) && is_comparable_side(other, candidates) {
-                                supported = supported.saturating_add(1);
-                            }
-                        }
+            statement.reads(|read| {
+                let reads = match read {
+                    smelt_mir::Read::Base(base) => base == local,
+                    smelt_mir::Read::Operand(operand) => operand.reads_local(local),
+                };
+                total = total.saturating_add(usize::from(reads));
+            });
+            if let Statement::Assign {
+                value: Rvalue::Binary { op, lhs, rhs },
+                ..
+            } = statement
+                && is_equality_op(*op)
+            {
+                for (side, other) in [(lhs, rhs), (rhs, lhs)] {
+                    if side.reads_local(local) && is_comparable_side(other, candidates) {
+                        supported = supported.saturating_add(1);
                     }
                 }
-                Statement::AssignPlace { place, value } => {
-                    count_place_reads(place, &mut |operand| count(&mut total, operand));
-                    value.for_each_operand(|operand| count(&mut total, operand));
-                }
-                Statement::DictEntryUpdate {
-                    base,
-                    index,
-                    default,
-                    current: _,
-                    value,
-                } => {
-                    if *base == local {
-                        total = total.saturating_add(1);
-                    }
-                    count(&mut total, index);
-                    count(&mut total, default);
-                    value.for_each_operand(|operand| count(&mut total, operand));
-                }
-                Statement::StorageLive(_) | Statement::StorageDead(_) => {}
             }
         }
-        match &block.terminator {
-            None | Some(Terminator::Goto(_) | Terminator::Unreachable) => {}
-            Some(Terminator::Call { callee, args, .. }) => {
-                if let Callee::Indirect(operand) = callee {
-                    count(&mut total, operand);
-                }
-                for arg in args {
-                    count(&mut total, arg);
-                }
-            }
-            Some(
-                Terminator::Await {
-                    future: operand, ..
-                }
-                | Terminator::Switch { cond: operand, .. },
-            ) => {
-                count(&mut total, operand);
-            }
-            Some(Terminator::Match { scrutinee, .. }) => {
-                count(&mut total, scrutinee);
-                if reads_local(scrutinee, local) {
-                    supported = supported.saturating_add(1);
-                }
-            }
-            Some(Terminator::Return(operand) | Terminator::Throw(operand)) => {
-                count(&mut total, operand);
+        if let Some(terminator) = &block.terminator {
+            terminator.reads(|operand| {
+                total = total.saturating_add(usize::from(operand.reads_local(local)));
+            });
+            if let Terminator::Match { scrutinee, .. } = terminator
+                && scrutinee.reads_local(local)
+            {
+                supported = supported.saturating_add(1);
             }
         }
     }
@@ -247,42 +201,6 @@ fn is_comparable_side(operand: &Operand, candidates: &HashSet<LocalId>) -> bool 
             candidates.contains(local)
         }
         _ => false,
-    }
-}
-
-/// Whether an operand is a bare read of `local`.
-fn reads_local(operand: &Operand, local: LocalId) -> bool {
-    match operand {
-        Operand::Copy(place) | Operand::Move(place) => match place {
-            Place::Local(candidate) | Place::Field { base: candidate, .. } => *candidate == local,
-            Place::Index { base, index, .. } => *base == local || reads_local(index, local),
-            // A global-rooted place has no local base -- the root is a
-            // `thread_local!` cell -- so only its index expression can read a
-            // local, and a field projection reads none at all.
-            Place::Global { projection, .. } => match projection {
-                smelt_mir::GlobalProjection::Field(_) => false,
-                smelt_mir::GlobalProjection::Index { index, .. } => reads_local(index, local),
-            },
-        },
-        Operand::Const(_) => false,
-    }
-}
-
-/// Count the local reads an assignment place performs before it writes.
-fn count_place_reads(place: &Place, count: &mut impl FnMut(&Operand)) {
-    match place {
-        Place::Local(_) => {}
-        Place::Field { base, .. } => count(&Operand::Copy(Place::Local(*base))),
-        Place::Index { base, index, .. } => {
-            count(&Operand::Copy(Place::Local(*base)));
-            count(index);
-        }
-        // The base is a global cell rather than a local, so the only read to
-        // count is the index expression a subscript projection evaluates.
-        Place::Global { projection, .. } => match projection {
-            smelt_mir::GlobalProjection::Field(_) => {}
-            smelt_mir::GlobalProjection::Index { index, .. } => count(index),
-        },
     }
 }
 

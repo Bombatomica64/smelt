@@ -15,7 +15,6 @@ pub(super) fn pattern_text(body: &Body, pattern: PatternId) -> String {
         return "<missing-pattern>".to_owned();
     };
     match pattern_value {
-        Pattern::Wildcard => "_".to_owned(),
         Pattern::Binding(local) => local_ref(*local),
         Pattern::Tuple(items) => {
             let tuple_items = items
@@ -25,7 +24,6 @@ pub(super) fn pattern_text(body: &Body, pattern: PatternId) -> String {
                 .join(", ");
             format!("({tuple_items})")
         }
-        Pattern::Literal(literal) => literal_text(literal),
     }
 }
 

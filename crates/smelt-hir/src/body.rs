@@ -374,12 +374,8 @@ pub struct MatchArm {
 /// A pattern in a binding or match.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Pattern {
-    /// A wildcard pattern that matches anything.
-    Wildcard,
     /// A binding pattern that binds to a local variable.
     Binding(LocalId),
     /// A tuple pattern.
     Tuple(Vec<PatternId>),
-    /// A literal pattern.
-    Literal(Literal),
 }

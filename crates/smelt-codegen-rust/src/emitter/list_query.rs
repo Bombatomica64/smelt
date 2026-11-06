@@ -639,40 +639,8 @@ impl FunctionEmitter<'_> {
         // whether this particular `Clone` shares: `(0..n).map(..).collect()` over
         // a `Range` is `TrustedLen`, so it pre-allocates and fills in a tight
         // loop, and a primitive hole costs nothing extra for the uniformity.
-        //
-        // `list_repeat_text` below is deliberately NOT changed: `Array(n).fill(a)`
-        // genuinely is n aliases of the one `a` in JavaScript, so its `vec![x; n]`
-        // is correct precisely because `Clone` shares.
         Ok(format!(
             "{{ let array_from_length = ({length_text} as f64).max(0.0).floor() as usize; (0..array_from_length).map(|_| {hole_text}).collect::<Vec<_>>() }}"
-        ))
-    }
-
-    /// Converts a sized repeated list expression into Rust vector construction.
-    pub(super) fn list_repeat_text(
-        &self,
-        value: &Operand,
-        count: &Operand,
-        dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
-        let Some(Type::List(item_ty)) = self.mir.types.get(dest_ty) else {
-            return Err(EmitError::new("list repeat destination must be a list"));
-        };
-        if self.operand_ty(value)? != *item_ty {
-            return Err(EmitError::new(
-                "list repeat value must match the list item type",
-            ));
-        }
-        if !matches!(
-            self.mir.types.get(self.operand_ty(count)?),
-            Some(Type::Int | Type::Float)
-        ) {
-            return Err(EmitError::new("list repeat count must be numeric"));
-        }
-        let value_text = self.operand_text(value)?;
-        let count_text = self.operand_text(count)?;
-        Ok(format!(
-            "{{ let smelt_repeat_count = ({count_text} as f64).max(0.0).floor() as usize; vec![{value_text}; smelt_repeat_count] }}"
         ))
     }
 

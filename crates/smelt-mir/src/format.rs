@@ -88,16 +88,6 @@ pub fn format_compact(mir: &Mir) -> String {
 
         for block in &function.blocks {
             push_fmt(&mut out, format_args!("  bb{}:\n", block.id.0));
-            for phi in &block.phis {
-                push_fmt(
-                    &mut out,
-                    format_args!(
-                        "    {} = phi {}\n",
-                        local_ref(phi.dest),
-                        type_ref(mir, phi.ty)
-                    ),
-                );
-            }
             for statement in &block.statements {
                 push_fmt(&mut out, format_args!("    {}\n", statement_text(statement)));
             }
@@ -136,16 +126,6 @@ pub fn format_compact(mir: &Mir) -> String {
         }
         for block in &closure.blocks {
             push_fmt(&mut out, format_args!("  bb{}:\n", block.id.0));
-            for phi in &block.phis {
-                push_fmt(
-                    &mut out,
-                    format_args!(
-                        "    {} = phi {}\n",
-                        local_ref(phi.dest),
-                        type_ref(mir, phi.ty)
-                    ),
-                );
-            }
             for statement in &block.statements {
                 push_fmt(&mut out, format_args!("    {}\n", statement_text(statement)));
             }
@@ -200,8 +180,6 @@ fn statement_text(statement: &Statement) -> String {
             local_ref(*current),
             rvalue_text(value)
         ),
-        Statement::StorageLive(local) => format!("StorageLive({})", local_ref(*local)),
-        Statement::StorageDead(local) => format!("StorageDead({})", local_ref(*local)),
     }
 }
 
@@ -316,18 +294,6 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::UnaryOp::Neg => "-",
             };
             format!("{op_text}{}", operand_text(operand))
-        }
-        Rvalue::Conditional {
-            cond,
-            then_operand,
-            else_operand,
-        } => {
-            format!(
-                "if {} {{ {} }} else {{ {} }}",
-                operand_text(cond),
-                operand_text(then_operand),
-                operand_text(else_operand)
-            )
         }
         Rvalue::FunctionTableLookup { key, cases } => {
             let case_text = cases
@@ -1355,16 +1321,6 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
         Rvalue::ListFromLength { length } => {
             format!("list_from_length {}", operand_text(length))
         }
-        Rvalue::ListRepeat {
-            value: repeat_value,
-            count,
-        } => {
-            format!(
-                "list_repeat {}, {}",
-                operand_text(repeat_value),
-                operand_text(count)
-            )
-        }
         Rvalue::ListFromLengthMap { length, callback } => format!(
             "list_from_length_map {}, {}",
             operand_text(length),
@@ -1693,9 +1649,6 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
         Rvalue::JsonStringify { value: json_value } => {
             format!("json_stringify {}", operand_text(json_value))
         }
-        Rvalue::JsonParse { text } => {
-            format!("json_parse {}", operand_text(text))
-        }
         Rvalue::HttpGetText { url } => format!("http_get_text {}", operand_text(url)),
         Rvalue::GlobalGet { global } => format!("global_get #{global}"),
         Rvalue::GlobalSet { global, value: stored } => {
@@ -1975,7 +1928,6 @@ fn terminator_text(terminator: &Terminator) -> String {
         }
         Terminator::Return(operand) => format!("return {}", operand_text(operand)),
         Terminator::Throw(operand) => format!("throw {}", operand_text(operand)),
-        Terminator::Unreachable => "unreachable".to_owned(),
     }
 }
 

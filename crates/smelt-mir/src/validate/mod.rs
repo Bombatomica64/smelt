@@ -10,8 +10,7 @@
 //! - [`structure`] verifies that block, local, and terminator references point
 //!   at entities that actually exist in the function.
 //! - [`operands`] walks each statement/rvalue and confirms the operands it
-//!   reads reference valid places, plus the canonical operand traversal used by
-//!   the rest of the crate.
+//!   reads reference valid places.
 //! - [`assignment`] runs the forward definite-assignment dataflow that catches
 //!   reads of locals before they are provably defined.
 //! - [`closures`] enforces the closure-table and capture ABI invariants.

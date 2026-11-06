@@ -100,9 +100,7 @@ impl LoweringCtx<'_> {
             HirStmt::Let { pat, value, .. } => {
                 let hir_local = match self.hir_pattern(*pat)? {
                     smelt_hir::Pattern::Binding(hir_local) => *hir_local,
-                    smelt_hir::Pattern::Wildcard
-                    | smelt_hir::Pattern::Tuple(_)
-                    | smelt_hir::Pattern::Literal(_) => {
+                    smelt_hir::Pattern::Tuple(_) => {
                         return Err(
                             self.error("only binding let patterns can lower to MIR yet", None)
                         );
@@ -530,9 +528,7 @@ impl LoweringCtx<'_> {
     ) -> Result<(), LowerError> {
         let hir_local = match self.hir_pattern(pat)? {
             smelt_hir::Pattern::Binding(hir_local) => *hir_local,
-            smelt_hir::Pattern::Wildcard
-            | smelt_hir::Pattern::Tuple(_)
-            | smelt_hir::Pattern::Literal(_) => {
+            smelt_hir::Pattern::Tuple(_) => {
                 return Err(self.error("only binding for patterns can lower to MIR yet", None));
             }
         };

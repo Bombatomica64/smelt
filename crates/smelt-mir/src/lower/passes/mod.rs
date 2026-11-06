@@ -7,18 +7,10 @@
 //! widening) live in [`super::closures`], which owns the closure ABI end to
 //! end. This module hosts the general function-throwing propagation in
 //! [`throwing`], whose `can_throw` results the closure widening consumes, as well
-//! as the [`generic_records`] pass and the shared `operand_local` helper.
+//! as the [`generic_records`] pass.
 
 pub(super) mod generic_records;
 pub(super) mod inherited_types;
 pub(super) mod throwing;
 
-use crate::{LocalId, Operand, Place};
 
-/// Return the local behind a plain local operand.
-pub(super) const fn operand_local(operand: &Operand) -> Option<LocalId> {
-    match operand {
-        Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => Some(*local),
-        Operand::Const(_) | Operand::Copy(_) | Operand::Move(_) => None,
-    }
-}

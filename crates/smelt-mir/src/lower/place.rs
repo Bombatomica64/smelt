@@ -3,10 +3,7 @@
 //! Only a handful of expression kinds denote assignable MIR [`Place`]s: locals,
 //! field, optional-field and index, optional-index projections, tuple indexing, and the transparent
 //! `TypeAssert`/`UnknownCast` wrappers. [`LoweringCtx::lower_place`] handles
-//! those; every other [`ExprKind`] is a value expression and is rejected by
-//! [`LoweringCtx::place_unsupported`], whose wildcard-free exhaustive `match`
-//! forces a compile error (and a deliberate decision) whenever a new
-//! `ExprKind` variant is added.
+//! those; every other [`ExprKind`] is a value expression and is rejected there.
 
 use smelt_hir::{ExprId, ExprKind};
 
@@ -19,11 +16,10 @@ impl LoweringCtx<'_> {
     /// Lowers an lvalue expression to a MIR place for assignment targets.
     ///
     /// Only a handful of expression kinds form assignable places; the wildcard
-    /// arm routes everything else to [`Self::place_unsupported`], which owns the
-    /// exhaustive listing that keeps compile-time coverage of new `ExprKind`s.
+    /// arm rejects everything else.
     #[expect(
         clippy::wildcard_enum_match_arm,
-        reason = "compile-time exhaustiveness for non-place kinds is enforced in place_unsupported"
+        reason = "every expression kind not named here is a value, never a place"
     )]
     pub(super) fn lower_place(
         &mut self,
@@ -149,9 +145,14 @@ impl LoweringCtx<'_> {
                 self.lower_place(*value)
             }
             // Every other expression kind produces a value, not an assignable
-            // place. The exhaustive listing that documents and enforces this at
-            // compile time lives in `place_unsupported`, keeping this match short.
-            _ => Err(self.place_unsupported(&expr)),
+            // place.
+            _ => Err(self.error(
+                format!(
+                    "only local, field, and index expressions can be assigned, not `{}`",
+                    Self::expr_kind_name(&expr.kind)
+                ),
+                Some(expr.span),
+            )),
         }
     }
 
@@ -282,269 +283,6 @@ impl LoweringCtx<'_> {
         match &expr.kind {
             ExprKind::GlobalGet { item } => self.global_ids.get(item).copied(),
             _ => None,
-        }
-    }
-
-    /// Builds the rejection error for expression kinds that cannot form a place.
-    ///
-    /// Only [`ExprKind::Local`], [`ExprKind::Field`], [`ExprKind::OptionalField`],
-    /// [`ExprKind::Index`], [`ExprKind::OptionalIndex`], [`ExprKind::TupleIndex`],
-    /// and the transparent [`ExprKind::TypeAssert`] /
-    /// [`ExprKind::UnknownCast`] wrappers lower to assignable places; every other
-    /// kind is a value expression and is rejected here.
-    ///
-    /// The exhaustive `match` below is intentional: it has no wildcard arm, so
-    /// adding a new `ExprKind` variant forces a compile error here and a decision
-    /// about whether that variant can be an assignment target. This is the single
-    /// place-lowering exhaustiveness site that [`Self::lower_place`] delegates to.
-    pub(super) fn place_unsupported(&self, expr: &smelt_hir::Expr) -> LowerError {
-        match &expr.kind {
-            ExprKind::Local(_)
-            | ExprKind::ThisRead
-            | ExprKind::BindThis { .. }
-            | ExprKind::Field { .. }
-            | ExprKind::Index { .. }
-            | ExprKind::TupleIndex { .. }
-            | ExprKind::TypeAssert { .. }
-            | ExprKind::UnknownCast { .. }
-            | ExprKind::Literal(_)
-            | ExprKind::Item(_)
-            // Global reads/writes are values, not assignable places: a write to
-            // a mutable global lowers to `Rvalue::GlobalSet`, never through here.
-            | ExprKind::GlobalGet { .. }
-            | ExprKind::GlobalSet { .. }
-            | ExprKind::Call { .. }
-            | ExprKind::ClosureCall { .. }
-            | ExprKind::Construct { .. }
-            | ExprKind::ClosureCallSpread { .. }
-            | ExprKind::Method { .. }
-            // `OptionalField` / `OptionalIndex` ARE assignable (see
-            // `lower_place`); they reach this exhaustive listing only because it
-            // enumerates every variant, and naming them here keeps that
-            // enumeration complete.
-            | ExprKind::OptionalField { .. }
-            | ExprKind::OptionalIndex { .. }
-            | ExprKind::OptionalMethod { .. }
-            | ExprKind::OptionalCoalesce { .. }
-            | ExprKind::Len { .. }
-            | ExprKind::NumericAbs { .. }
-            | ExprKind::NumericRound { .. }
-            | ExprKind::NumericExtrema { .. }
-            | ExprKind::NumericHypot { .. }
-            | ExprKind::NumericPredicate { .. }
-            | ExprKind::NumericUnaryFunc { .. }
-            | ExprKind::NumericPow { .. }
-            | ExprKind::NumericAtan2 { .. }
-            | ExprKind::NumericRandom
-            | ExprKind::NumericRandomInt { .. }
-            | ExprKind::NumericToStringRadix { .. }
-            | ExprKind::NumericToFixed { .. }
-            | ExprKind::ParseIntRadix { .. }
-            | ExprKind::PrimitiveCast { .. }
-            | ExprKind::StringCase { .. }
-            | ExprKind::StringNormalize { .. }
-            | ExprKind::UriTranscode { .. }
-            | ExprKind::ObjectToStringTag { .. }
-            | ExprKind::StructuredClone { .. }
-            | ExprKind::StringTrim { .. }
-            | ExprKind::StringLocaleCompare { .. }
-            | ExprKind::StringAffix { .. }
-            | ExprKind::StringSearch { .. }
-            | ExprKind::StringReplace { .. }
-            | ExprKind::StringRemoveAffix { .. }
-            | ExprKind::StringRepeat { .. }
-            | ExprKind::StringPad { .. }
-            | ExprKind::StringPredicate { .. }
-            | ExprKind::RegexIsMatch { .. }
-            | ExprKind::RegexReplace { .. }
-            | ExprKind::RegexReplaceCallback { .. }
-            | ExprKind::RegexReplaceFirstMatchUppercase { .. }
-            | ExprKind::RegexSplit { .. }
-            | ExprKind::RegexFind { .. }
-            | ExprKind::EventEmitterNew
-            | ExprKind::ProcessEnvRead { .. }
-            | ExprKind::EventEmitterOp { .. }
-            | ExprKind::HttpCreateServer { .. }
-            | ExprKind::HttpCreateFetchServer { .. }
-            | ExprKind::SqliteOpen { .. }
-            | ExprKind::SqliteOp { .. }
-            | ExprKind::HttpServerOp { .. }
-            | ExprKind::IncomingMessageOp { .. }
-            | ExprKind::ServerResponseOp { .. }
-            | ExprKind::RequestNew { .. }
-            | ExprKind::RequestOp { .. }
-            | ExprKind::ResponseNew { .. }
-            | ExprKind::ResponseOp { .. }
-            | ExprKind::TextEncoderNew
-            | ExprKind::TextDecoderNew { .. }
-            | ExprKind::TextEncoderOp { .. }
-            | ExprKind::TextDecoderOp { .. }
-            | ExprKind::Base64Transcode { .. }
-            | ExprKind::RegExpCompile { .. }
-            | ExprKind::HostModuleCall { .. }
-            | ExprKind::GlobalObject
-            | ExprKind::TypedArrayNew { .. }
-            | ExprKind::DataViewAccess { .. }
-            | ExprKind::BigIntCall { .. }
-            | ExprKind::ByteArrayOp { .. }
-            | ExprKind::UrlSearchParamsNew { .. }
-            | ExprKind::FormDataNew
-            | ExprKind::UrlSearchParamsOp { .. }
-            | ExprKind::UrlNew { .. }
-            | ExprKind::UrlOp { .. }
-            | ExprKind::FormDataOp { .. }
-            | ExprKind::CryptoOp { .. }
-            | ExprKind::AbortSignalOp { .. }
-            | ExprKind::HeadersNew { .. }
-            | ExprKind::HeadersOp { .. }
-            | ExprKind::RegexExec { .. }
-            | ExprKind::RegexTest { .. }
-            | ExprKind::RegexMatchAll { .. }
-            | ExprKind::StringCharAt { .. }
-            | ExprKind::StringCharCodeAt { .. }
-            | ExprKind::StringContains { .. }
-            | ExprKind::StringSlice { .. }
-            | ExprKind::ListContains { .. }
-            | ExprKind::SetContains { .. }
-            | ExprKind::SetDisjoint { .. }
-            | ExprKind::SetRelation { .. }
-            | ExprKind::SetAdd { .. }
-            | ExprKind::SetRemove { .. }
-            | ExprKind::SetClear { .. }
-            | ExprKind::SetCopy { .. }
-            | ExprKind::ListToSet { .. }
-            | ExprKind::ListPairsToDict { .. }
-            | ExprKind::SetBinary { .. }
-            | ExprKind::SetProjection { .. }
-            | ExprKind::ListConcat { .. }
-            | ExprKind::ConcatSpread { .. }
-            | ExprKind::ListSearch { .. }
-            | ExprKind::ListCallback { .. }
-            | ExprKind::ListFromLength { .. }
-            | ExprKind::ListRepeat { .. }
-            | ExprKind::ListFromLengthMap { .. }
-            | ExprKind::ListReduce { .. }
-            | ExprKind::ListSlice { .. }
-            | ExprKind::ListSplice { .. }
-            | ExprKind::ListFill { .. }
-            | ExprKind::ListCopyWithin { .. }
-            | ExprKind::ListWith { .. }
-            | ExprKind::ListFlat { .. }
-            | ExprKind::ListProjection { .. }
-            | ExprKind::ListPush { .. }
-            | ExprKind::GeneratorYield { .. }
-            | ExprKind::GeneratorNext { .. }
-            | ExprKind::GeneratorDone { .. }
-            | ExprKind::GeneratorValue { .. }
-            | ExprKind::GeneratorDelegate { .. }
-            | ExprKind::ListExtend { .. }
-            | ExprKind::ListInsert { .. }
-            | ExprKind::ListUnshift { .. }
-            | ExprKind::ListReverse { .. }
-            | ExprKind::ListClear { .. }
-            | ExprKind::ListCopy { .. }
-            | ExprKind::TupleToList { .. }
-            | ExprKind::ListToTuple { .. }
-            | ExprKind::TupleToSet { .. }
-            | ExprKind::ListCount { .. }
-            | ExprKind::ListSum { .. }
-            | ExprKind::ListBoolFold { .. }
-            | ExprKind::ListSorted { .. }
-            | ExprKind::ListReversed { .. }
-            | ExprKind::ListEnumerate { .. }
-            | ExprKind::ListZip { .. }
-            | ExprKind::ListRange { .. }
-            | ExprKind::ListRandomChoice { .. }
-            | ExprKind::ListIndex { .. }
-            | ExprKind::ListRemove { .. }
-            | ExprKind::ListSort { .. }
-            | ExprKind::ListPop { .. }
-            | ExprKind::ListShift { .. }
-            | ExprKind::ListNext { .. }
-            | ExprKind::IteratorDone { .. }
-            | ExprKind::IteratorValue { .. }
-            | ExprKind::TupleContains { .. }
-            | ExprKind::TupleSlice { .. }
-            | ExprKind::DictContainsKey { .. }
-            | ExprKind::DictSet { .. }
-            | ExprKind::DictRemoveKey { .. }
-            | ExprKind::DictGet { .. }
-            | ExprKind::DictSetDefault { .. }
-            | ExprKind::DictClear { .. }
-            | ExprKind::DictPop { .. }
-            | ExprKind::DictUpdate { .. }
-            | ExprKind::DictAssign { .. }
-            | ExprKind::CallableObjectAssign { .. }
-            | ExprKind::DictCopy { .. }
-            | ExprKind::DictProjection { .. }
-            | ExprKind::StringSplit { .. }
-            | ExprKind::StringChars { .. }
-            | ExprKind::StringJoin { .. }
-            | ExprKind::JsonStringify { .. }
-            | ExprKind::JsonParse { .. }
-            | ExprKind::HttpGetText { .. }
-            | ExprKind::DateNow
-            | ExprKind::DateSetNow { .. }
-            | ExprKind::DateResetNow
-            | ExprKind::VitestRestoreAllMocks
-            | ExprKind::DateTimezoneOffset
-            | ExprKind::DateSetTimezoneOffset { .. }
-            | ExprKind::DateResetTimezoneOffset
-            | ExprKind::VitestMockFn { .. }
-            | ExprKind::VitestMockCalledTimes { .. }
-            | ExprKind::VitestMockCalledWith { .. }
-            | ExprKind::VitestSpyOn { .. }
-            | ExprKind::VitestAsymmetricEqual { .. }
-            | ExprKind::VitestMockLastResolvedWith { .. }
-            | ExprKind::DateTimezoneContext { .. }
-            | ExprKind::DateToIsoString { .. }
-            | ExprKind::DateToString { .. }
-            | ExprKind::DateToUtcString { .. }
-            | ExprKind::JsonIndent { .. }
-            | ExprKind::DateFromParts { .. }
-            | ExprKind::DateFromValue { .. }
-            | ExprKind::DateGetPart { .. }
-            | ExprKind::DateSetPart { .. }
-            | ExprKind::UrlField { .. }
-            | ExprKind::FileReadText { .. }
-            | ExprKind::FileWriteText { .. }
-            | ExprKind::BlobOp { .. }
-            | ExprKind::BlobFromParts { .. }
-            | ExprKind::HostConstruct { .. }
-            | ExprKind::BuiltinNamespace { .. }
-            | ExprKind::ArgumentsObject { .. }
-            | ExprKind::HostGlobalRead { .. }
-            | ExprKind::HostGlobalWrite { .. }
-            | ExprKind::HostGlobalPresent { .. }
-            | ExprKind::BinOp { .. }
-            | ExprKind::UnaryOp { .. }
-            | ExprKind::Conditional { .. }
-            | ExprKind::FunctionTableLookup { .. }
-            | ExprKind::InstanceOf { .. }
-            | ExprKind::InstanceOfValue { .. }
-            | ExprKind::UnknownIs { .. }
-            | ExprKind::TypeofValue { .. }
-            | ExprKind::PrototypeSentinel { .. }
-            | ExprKind::BoxPrimitive { .. }
-            | ExprKind::ObjectFromPrototype { .. }
-            | ExprKind::DefineProperties { .. }
-            | ExprKind::Block(_)
-            | ExprKind::Lambda { .. }
-            | ExprKind::Closure(_)
-            | ExprKind::ListLit(_)
-            | ExprKind::SetLit(_)
-            | ExprKind::DictLit(_)
-            | ExprKind::TupleLit(_)
-            | ExprKind::New { .. }
-            | ExprKind::BaseConstructorInit { .. }
-            | ExprKind::Await(_)
-            | ExprKind::AsyncOp { .. } => self.error(
-                format!(
-                    "only local, field, and index expressions can be assigned, not `{}`",
-                    Self::expr_kind_name(&expr.kind)
-                ),
-                Some(expr.span),
-            ),
         }
     }
 

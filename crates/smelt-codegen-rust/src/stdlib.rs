@@ -120,28 +120,12 @@ fn any_rvalue_needs(mir: &Mir, needs_dependency: impl Fn(&Rvalue) -> bool) -> bo
 pub(crate) fn rvalues(mir: &Mir) -> impl Iterator<Item = &Rvalue> {
     let function_rvalues = mir.functions.iter().flat_map(|function| {
         function.blocks.iter().flat_map(|block| {
-            block
-                .statements
-                .iter()
-                .filter_map(|statement| match statement {
-                    Statement::Assign { value, .. }
-                    | Statement::AssignPlace { value, .. }
-                    | Statement::DictEntryUpdate { value, .. } => Some(value),
-                    Statement::StorageLive(_) | Statement::StorageDead(_) => None,
-                })
+            block.statements.iter().map(Statement::value)
         })
     });
     let closure_rvalues = mir.closures.iter().flat_map(|closure| {
         closure.blocks.iter().flat_map(|block| {
-            block
-                .statements
-                .iter()
-                .filter_map(|statement| match statement {
-                    Statement::Assign { value, .. }
-                    | Statement::AssignPlace { value, .. }
-                    | Statement::DictEntryUpdate { value, .. } => Some(value),
-                    Statement::StorageLive(_) | Statement::StorageDead(_) => None,
-                })
+            block.statements.iter().map(Statement::value)
         })
     });
     function_rvalues.chain(closure_rvalues)
@@ -685,7 +669,7 @@ pub(crate) fn needs_body_host_method(mir: &Mir) -> bool {
                 return false;
             };
             let mut found = false;
-            value.for_each_operand(|operand| {
+            value.reads(|operand| {
                 if let smelt_mir::Operand::Copy(smelt_mir::Place::Index { base, .. })
                 | smelt_mir::Operand::Move(smelt_mir::Place::Index { base, .. }) = operand
                     && body_holder(locals, *base)
@@ -1077,10 +1061,7 @@ fn needs_bigint_json_stringify(mir: &Mir) -> bool {
 
 /// Returns true when a MIR rvalue uses Serde JSON APIs.
 fn rvalue_needs_serde_json(rvalue: &Rvalue) -> bool {
-    matches!(
-        rvalue,
-        Rvalue::JsonStringify { .. } | Rvalue::JsonParse { .. }
-    )
+    matches!(rvalue, Rvalue::JsonStringify { .. })
 }
 
 /// Returns true when a MIR rvalue uses Reqwest APIs.
