@@ -3318,6 +3318,21 @@ impl FunctionEmitter<'_> {
                     self.operand_text(operand)?
                 ),
             ))
+        } else if absent == AbsentSpelling::Undefined
+            && matches!(self.mir.types.get(ty), Some(Type::GeneratorResult { .. }))
+        {
+            // An iterator result is the `{ value, done }` object, and the erased
+            // carrier is what draws an object.
+            self.context.mark_console_inspect_used();
+            Ok((
+                "{}",
+                format!(
+                    "{}::{}(&{})",
+                    crate::console_inspect_prelude::INSPECT_TRAIT,
+                    crate::console_inspect_prelude::CONSOLE_TEXT_METHOD,
+                    self.erase(operand)?
+                ),
+            ))
         } else if matches!(
             self.mir.types.get(ty),
             Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))

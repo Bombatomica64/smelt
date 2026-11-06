@@ -3370,7 +3370,8 @@ impl ModuleBuilder<'_> {
                         Some(item_ty) => item_ty,
                         None => return Ok(None),
                     },
-                    _ => return Ok(None),
+                    // An item that is not an array stays as it is.
+                    _ => element_ty,
                 };
                 let ty = self.ctx.krate.types.intern(Type::List(flat_item_ty));
                 Ok(Some(body.push_expr(Expr {

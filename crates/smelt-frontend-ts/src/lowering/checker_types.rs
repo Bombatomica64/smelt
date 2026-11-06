@@ -45,7 +45,7 @@ use oxc::allocator::Allocator;
 use oxc::ast::ast::Statement;
 use oxc::parser::Parser;
 use oxc::span::SourceType;
-use smelt_hir::{Item, Type, TypeId};
+use smelt_hir::{ErasureReason, Item, Type, TypeId};
 use smelt_ts_model::model::{TsObjectType, TsSymbolRef, TsTupleElement, TsTupleElementKind};
 use smelt_ts_model::{TsTypeFacts, TsTypeId, TsTypeKind};
 
@@ -103,6 +103,81 @@ impl ModuleBuilder<'_> {
         let facts = self.ts_facts?;
         let id = facts.evolved_array_type_id_at(&self.path, start, end)?;
         self.respell_and_lower(facts, id, start, end)
+    }
+
+    /// The type of the generic call at `start..end`: `inferred`, the
+    /// instantiation Smelt derived from the lowered arguments, unless the
+    /// checker resolved the same call to something wider.
+    ///
+    /// The checker saw every candidate position of the call, including ones the
+    /// lowered arguments no longer show, so `inferred` must not promise more
+    /// than it does. Its `unknown` is the source-level dynamic boundary and is
+    /// taken as such. `any` makes no such claim (an unresolved import answers
+    /// `any` too).
+    ///
+    /// Only a widening is taken. `inferred` is what the emitted definition
+    /// answers at this site, and a claim narrower than it would describe a
+    /// value the definition never returns: `fork([], f)` is `never[]` to the
+    /// checker, and `reduceAsync` with an unbound `U` hands back `undefined`
+    /// where an overload promises `number`.
+    pub(in crate::lowering) fn checker_call_type(&mut self, start: u32, end: u32, inferred: TypeId) -> TypeId {
+        let Some(facts) = self.ts_facts else {
+            return inferred;
+        };
+        let Some(id) = facts.type_id_at(&self.path, start, end) else {
+            return inferred;
+        };
+        let resolved = if matches!(facts.types.get(id).map(|ty| &ty.kind), Some(TsTypeKind::Unknown)) {
+            self.unknown_type()
+        } else {
+            match self.respell_and_lower(facts, id, start, end) {
+                Some(resolved) => resolved,
+                None => return inferred,
+            }
+        };
+        if resolved == inferred || !self.type_accepts_all_of(resolved, inferred) {
+            return inferred;
+        }
+        if matches!(self.ctx.krate.types.get(resolved), Some(Type::Unknown)) {
+            return self.erase(ErasureReason::SourceUnknown);
+        }
+        resolved
+    }
+
+    /// Whether every value of `narrow` is a value of `wide`, position by position.
+    pub(in crate::lowering) fn type_accepts_all_of(&self, wide: TypeId, narrow: TypeId) -> bool {
+        if wide == narrow {
+            return true;
+        }
+        let (Some(wide_ty), Some(narrow_ty)) = (self.ctx.krate.types.get(wide), self.ctx.krate.types.get(narrow)) else {
+            return false;
+        };
+        match (wide_ty, narrow_ty) {
+            (_, Type::Unknown) => false,
+            (Type::Unknown, _) => true,
+            (Type::Optional(_), Type::None) => true,
+            (Type::Optional(wide_item), Type::Optional(narrow_item)) => self.type_accepts_all_of(*wide_item, *narrow_item),
+            (Type::Optional(wide_item), _) => self.type_accepts_all_of(*wide_item, narrow),
+            (_, Type::Union(members)) => members.iter().all(|member| self.type_accepts_all_of(wide, *member)),
+            (Type::Union(members), _) => members.iter().any(|member| self.type_accepts_all_of(*member, narrow)),
+            (Type::List(wide_item), Type::List(narrow_item))
+            | (Type::Set(wide_item), Type::Set(narrow_item))
+            | (Type::Future(wide_item), Type::Future(narrow_item)) => self.type_accepts_all_of(*wide_item, *narrow_item),
+            (Type::Dict(wide_key, wide_value), Type::Dict(narrow_key, narrow_value))
+            | (Type::JsMap(wide_key, wide_value), Type::JsMap(narrow_key, narrow_value)) => {
+                self.type_accepts_all_of(*wide_key, *narrow_key) && self.type_accepts_all_of(*wide_value, *narrow_value)
+            }
+            (Type::Tuple(wide_items), Type::Tuple(narrow_items)) => {
+                wide_items.len() == narrow_items.len()
+                    && wide_items.iter().zip(narrow_items).all(|(wide, narrow)| self.type_accepts_all_of(*wide, *narrow))
+            }
+            (Type::Class { name: wide_name, args: wide_args }, Type::Class { name: narrow_name, args: narrow_args }) => {
+                wide_name == narrow_name
+                    && wide_args.len() == narrow_args.len()
+                    && wide_args.iter().zip(narrow_args).all(|(wide, narrow)| self.type_accepts_all_of(*wide, *narrow))
+            }
+            _ => false,
+        }
     }
 
     /// Re-spells checker type `id` in this scope and lowers it; `None` for a

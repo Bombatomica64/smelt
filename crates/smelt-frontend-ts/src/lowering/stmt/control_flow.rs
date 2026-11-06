@@ -593,12 +593,27 @@ impl ModuleBuilder<'_> {
                     span: self.expression_span(source),
                 }))
             }
-            Some(Type::Unknown | Type::Class { .. } | Type::TypeParam { .. } |
-Type::Optional(_)) => {
+            Some(
+                Type::Unknown
+                | Type::Class { .. }
+                | Type::TypeParam { .. }
+                | Type::Optional(_)
+                | Type::List(_)
+                | Type::Tuple(_),
+            ) => {
                 // A `for...in` over an erased object surface — an unconstrained
                 // generic `T`, an erased object, or an optional object —
                 // iterates string-keyed properties, so it is cast to
-                // `Record<string, unknown>`.
+                // `Record<string, unknown>`. An array's property names are its
+                // indices, which the erased array answers.
+                if matches!(self.ctx.krate.types.get(object_ty), Some(Type::List(_) | Type::Tuple(_))) {
+                    let ty = self.erase_with(ErasureReason::DynamicOperator, "for-in");
+                    object = body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value: object },
+                        ty,
+                        span: self.expression_span(source),
+                    });
+                }
                 let key_ty = self.ctx.krate.types.intern(Type::String);
                 let value_ty = self.callback_erase_unless_unknown(
                     object_ty,

@@ -79,3 +79,27 @@ fn closure_parameter_defaults() -> TestResult {
 fn callback_bodies() -> TestResult {
     verify_node_parity("callback_bodies")
 }
+
+/// `T` is what TypeScript infers across every candidate position of a call.
+#[test]
+fn generic_call_candidates() -> TestResult {
+    verify_node_parity("generic_call_candidates")
+}
+
+/// A declared function type is what a call through the binding sees.
+#[test]
+fn declared_function_types() -> TestResult {
+    verify_node_parity("declared_function_types")
+}
+
+/// `value` and `done` are ordinary fields except on an iterator result.
+#[test]
+fn iterator_results_and_fields() -> TestResult {
+    verify_node_parity("iterator_results_and_fields")
+}
+
+/// An operation after narrowing a union reads the real value.
+#[test]
+fn narrowed_union_receivers() -> TestResult {
+    verify_node_parity("narrowed_union_receivers")
+}
