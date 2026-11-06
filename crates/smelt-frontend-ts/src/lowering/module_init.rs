@@ -4156,13 +4156,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             // matcher erasure can stand in for `node:sqlite`.
             let modeled_module = smelt_stdlib::is_host_module(&candidate.module);
             let blocker = match blocker {
-                Some(blocker)
-                    if modeled_module
-                        || (!test_module
-                            && smelt_stdlib::unmodeled_package_use_blocks()) =>
-                {
-                    Some(blocker)
-                }
+                Some(blocker) if modeled_module || !test_module => Some(blocker),
                 _ => None,
             };
             if let Some(blocker) = blocker {

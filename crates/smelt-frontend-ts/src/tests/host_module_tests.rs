@@ -148,12 +148,10 @@ export function healthy(value: number): number {
 
 /// Using a value imported from an unmodeled bare package is a named blocker.
 ///
-/// This is the second half of the policy documented on
-/// `smelt_stdlib::host_modules::unmodeled_package_use_blocks`, enabled after
-/// one pass with it off. The framework that drives a program is exactly the
-/// surface whose erasure produced the express false green, so a program module
-/// that calls into an unmodeled package now fails by name rather than emitting
-/// a crate with the framework silently missing.
+/// The framework that drives a program is exactly the surface whose erasure
+/// produced the express false green, so a program module that calls into an
+/// unmodeled package fails by name rather than emitting a crate with the
+/// framework silently missing.
 #[test]
 fn unmodeled_package_value_blocks_at_first_use() -> Result<(), String> {
     let mut ctx = HirCtx::new();

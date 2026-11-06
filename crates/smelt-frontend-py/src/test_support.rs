@@ -1,4 +1,4 @@
-//! Pytest test-discovery and public API recognition helpers.
+//! Pytest test-discovery helpers.
 //!
 //! Smelt treats pytest as a source-language test API surface. These helpers
 //! keep filename and symbol rules out of the main Python lowering logic so the
@@ -21,16 +21,4 @@ pub fn is_pytest_file(path: &str) -> bool {
 #[must_use]
 pub fn is_pytest_test_function(name: &str) -> bool {
     name.starts_with("test_")
-}
-
-/// Return whether a pytest mark name is recognized by the v1 test API surface.
-#[must_use]
-pub fn is_recognized_pytest_mark(name: &str) -> bool {
-    matches!(name, "parametrize" | "skip" | "skipif" | "xfail")
-}
-
-/// Return whether a pytest attribute is part of the recognized public API.
-#[must_use]
-pub fn is_recognized_pytest_api(name: &str) -> bool {
-    name == "raises" || name == "fixture" || is_recognized_pytest_mark(name)
 }

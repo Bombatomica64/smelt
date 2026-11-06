@@ -45,7 +45,6 @@ pub use host_modules::{
     HOST_MODULES, HostExport, HostExportKind, HostModule, HostModuleId, HostSurface, host_module,
     host_module_export, host_module_id, host_value_blocker,
     is_host_module,
-    unmodeled_package_use_blocks,
 };
 pub use host_object::{
     ByteBufferRole, HOST_OBJECTS, HostKind, HostObject, TypedArrayElement,
