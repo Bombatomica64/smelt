@@ -2094,13 +2094,19 @@ impl FunctionEmitter<'_> {
                 }
                 self.value_at_type_text(&rendered_call_text, source_ty, dest_ty, &self.render_scope())
             }
-            Rvalue::ClosureCallSpread { callee, args } => {
+            Rvalue::ClosureCallSpread { callee, .. } | Rvalue::ClosureCallRest { callee, .. } => {
                 let callee_text = self.operand_text(callee)?;
                 let unknown_ty = self.type_id(Type::Unknown)?;
                 let args_ty = self.type_id(Type::List(unknown_ty))?;
-                let args_text = self
-                    .inline_list_concat_operand_text(args)?
-                    .unwrap_or(self.value_at_type(args, args_ty)?);
+                let args_text = match value {
+                    Rvalue::ClosureCallRest { items, .. } => {
+                        self.rvalue_text_for_dest(&Rvalue::List(items.clone()), args_ty)?
+                    }
+                    Rvalue::ClosureCallSpread { args, .. } => self
+                        .inline_list_concat_operand_text(args)?
+                        .unwrap_or(self.value_at_type(args, args_ty)?),
+                    _ => return Err(EmitError::new("not a spread or rest call")),
+                };
                 if let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callee)?)
                 {
                     let callee_is_erased_rest =

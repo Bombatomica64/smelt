@@ -17,7 +17,8 @@
 //!   `ListIndex`, `TupleIndex` and `DictGet`, classified by the type of the
 //!   local the read lands in;
 //! - **calls** — every `Call` terminator and every call of a closure value
-//!   lowered as a statement (`ClosureCall`, `ClosureCallSpread`), classified
+//!   lowered as a statement (`ClosureCall`, `ClosureCallSpread`,
+//!   `ClosureCallRest`), classified
 //!   by its result type and, for a call through a value, by the type of the
 //!   callee value (the worse of the two wins). Both spellings count because
 //!   lowering picks between them by context alone: inside a `try` a closure
@@ -298,7 +299,9 @@ fn measure_body(
             if let Statement::Assign {
                 dest,
                 value:
-                    Rvalue::ClosureCall { callee, .. } | Rvalue::ClosureCallSpread { callee, .. },
+                    Rvalue::ClosureCall { callee, .. }
+                    | Rvalue::ClosureCallSpread { callee, .. }
+                    | Rvalue::ClosureCallRest { callee, .. },
             } = statement
             {
                 let result =

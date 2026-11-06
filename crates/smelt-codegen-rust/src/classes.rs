@@ -495,6 +495,7 @@ fn rvalue_preserves_opacity(rvalue: &Rvalue) -> bool {
             // this list.
             | Rvalue::ClosureCall { .. }
             | Rvalue::ClosureCallSpread { .. }
+            | Rvalue::ClosureCallRest { .. }
             | Rvalue::ListCallback { .. }
             // Handing a `SmeltFuture<T>` to the executor moves it; the future is
             // an opaque handle here and its `T` is never read. The other async

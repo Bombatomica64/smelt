@@ -19,6 +19,7 @@ mod local_use;
 pub use local_use::inline_absent_constant_temps;
 mod let_temp_elision;
 mod move_on_last_use;
+mod rest_call_fusion;
 mod shared_locals;
 mod temp_copy_forwarding;
 mod unobserved_receiver_bind;
@@ -28,6 +29,7 @@ pub use dict_entry_mutation::DictEntryInPlaceMutation;
 pub use dict_entry_update::DictEntryUpdate;
 pub use integer_range::IntegerRange;
 pub use let_temp_elision::LetTempElision;
+pub use rest_call_fusion::RestCallFusion;
 pub use move_on_last_use::MoveOnLastUse;
 pub use temp_copy_forwarding::TempCopyForwarding;
 pub use unobserved_receiver_bind::UnobservedReceiverBind;
@@ -68,6 +70,7 @@ fn fixpoint_passes() -> Vec<Box<dyn Pass>> {
         Box::<MoveOnLastUse>::default(),
         Box::<LetTempElision>::default(),
         Box::<TempCopyForwarding>::default(),
+        Box::<RestCallFusion>::default(),
         Box::<DictEntryInPlaceMutation>::default(),
         Box::<DictEntryUpdate>::default(),
         Box::<DictDefaultInsertElision>::default(),

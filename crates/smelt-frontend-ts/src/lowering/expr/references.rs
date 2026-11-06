@@ -470,6 +470,16 @@ impl ModuleBuilder<'_> {
         {
             return Self::projected_optional_arm(local, inner, ty, span, body);
         }
+        // A type parameter narrowed to a list: the method takes the list, not `T`.
+        if matches!(self.ctx.krate.types.get(base_ty), Some(Type::TypeParam { .. }))
+            && matches!(self.ctx.krate.types.get(ty), Some(Type::List(_) | Type::Tuple(_)))
+        {
+            return body.push_expr(Expr {
+                kind: ExprKind::UnknownCast { value: receiver, target: ty },
+                ty,
+                span,
+            });
+        }
         receiver
     }
 

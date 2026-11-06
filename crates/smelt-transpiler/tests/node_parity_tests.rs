@@ -88,6 +88,18 @@ fn rest_value_calls() -> TestResult {
     verify_node_parity("rest_value_calls")
 }
 
+/// A list packed for a callee that is all rest goes inside the call, in order.
+#[test]
+fn rest_call_fusion() -> TestResult {
+    verify_node_parity("rest_call_fusion")
+}
+
+/// An imported `value is T` narrows where it answers true, and only there.
+#[test]
+fn imported_type_predicate() -> TestResult {
+    verify_node_parity_with("imported_type_predicate", &["predicates.ts"])
+}
+
 /// A parameter does not hide a module constant from other functions.
 #[test]
 fn parameter_shadows_module_const() -> TestResult {

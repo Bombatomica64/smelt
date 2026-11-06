@@ -1248,6 +1248,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 exports.insert(alias.clone(), *item_id);
             }
         }
+        self.publish_exported_predicates(&exports);
         self.ctx
             .module_exports
             .insert(self.path.clone(), exports.clone());
@@ -1260,6 +1261,70 @@ impl<'ctx> ModuleBuilder<'ctx> {
             self.ctx.module_exports.insert(canonical, exports);
         }
         self.record_module_global_object_aliases();
+    }
+
+    /// Publish what each exported type predicate proves, for importing modules.
+    ///
+    /// A predicate whose target has no concrete carrier (`value is any[]`,
+    /// `value is PropertyKey`) gives an importer no type to read at, only a cast
+    /// into one more erased value per read, so it stays with the module that
+    /// spells it.
+    fn publish_exported_predicates(&mut self, exports: &HashMap<String, smelt_hir::ItemId>) {
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "keyed inserts, one per exported item"
+        )]
+        for (exported, item) in exports {
+            let local = self.export_renames.get(exported).unwrap_or(exported);
+            let proof = self
+                .functions
+                .predicate(local)
+                .map(|narrowing| (false, narrowing))
+                .or_else(|| self.functions.assertion(local).map(|narrowing| (true, narrowing)));
+            if let Some((is_assertion, narrowing)) = proof
+                && self.has_concrete_carrier(narrowing.target)
+            {
+                self.ctx.item_predicates.insert(
+                    *item,
+                    crate::context::ItemPredicate {
+                        is_assertion,
+                        param_index: narrowing.param_index,
+                        target: narrowing.target,
+                    },
+                );
+            }
+        }
+    }
+
+    /// Whether a value of `ty` reaches Rust at a concrete type: a primitive, a
+    /// class this crate declares, or a list or option of one.
+    fn has_concrete_carrier(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::String | Type::Float | Type::Int | Type::Bool) => true,
+            Some(Type::List(item) | Type::Optional(item)) => self.has_concrete_carrier(*item),
+            Some(Type::Class { name, args }) => {
+                args.is_empty()
+                    && source_spelling(&self.ctx.krate, *name)
+                        .is_some_and(|class| self.classes.item(class).is_some())
+            }
+            _ => false,
+        }
+    }
+
+    /// Adopt the type predicate of an imported item under its local name.
+    fn adopt_imported_predicate(&mut self, item: smelt_hir::ItemId, local: &str) {
+        let Some(predicate) = self.ctx.item_predicates.get(&item).copied() else {
+            return;
+        };
+        let narrowing = AssertionNarrowing {
+            param_index: predicate.param_index,
+            target: predicate.target,
+        };
+        if predicate.is_assertion {
+            self.functions.set_assertion(local.to_owned(), narrowing);
+        } else {
+            self.functions.set_imported_predicate(local.to_owned(), narrowing);
+        }
     }
 
     /// Publish this module's global-object alias names for importing modules.
@@ -4310,6 +4375,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             && let Some(item) = exports.get(imported).copied()
         {
             self.items.insert(local.to_owned(), item);
+            self.adopt_imported_predicate(item, local);
             match self.item_ref(item) {
                 Item::Class(_) => {
                     self.classes.register(local.to_owned(), item);

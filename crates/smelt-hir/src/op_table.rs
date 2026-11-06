@@ -243,6 +243,16 @@ macro_rules! op_group_transcribed {
                 args: one @CALLED,
             }
                 => (format!("closure_call {callee}(...{args})"));
+            /// Call a function value whose whole signature is one rest parameter,
+            /// with that rest list written out: `items` are its elements. Packed
+            /// by a frontend; see `RestCallFusion`.
+            ClosureCallRest {
+                /// Closure value to call.
+                callee: one @CALLED,
+                /// The elements of the rest list.
+                items: many @CALLED,
+            }
+                => (format!("closure_call {callee}(rest {})", items.join(", ")));
             /// Read a field through a TypeScript optional-chain receiver.
             OptionalField {
                 /// Receiver operand, either `T` or `Option<T>`.
