@@ -1926,7 +1926,7 @@ impl FunctionEmitter<'_> {
         // bound reads `Fn(..) -> SmeltUnknown` (E0271), and the result local
         // `SmeltRecord<String, f64>` against a returned `SmeltJsMap<SmeltUnknown,
         // f64>` (E0308).
-        let liftable = crate::classes::liftable_type_params(
+        let liftable = crate::generic_lifting::liftable_type_params(
             self.mir,
             function,
             &self.context.owned_callback_params,

@@ -129,6 +129,11 @@ impl RustIdent {
     }
 }
 
+/// Sanitizes an identifier into a Rust-safe spelling.
+pub(crate) fn sanitize_ident(name: &str) -> String {
+    RustIdent::new(name).into_string()
+}
+
 impl std::fmt::Display for RustIdent {
     /// Writes the rendered identifier text.
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -189,7 +189,7 @@ impl FunctionEmitter<'_> {
     /// Copy primitives read through `Cell::get`; strings clone the borrowed
     /// `RefCell<String>` contents.
     pub(super) fn global_get_text(&self, global: u32) -> Result<String, EmitError> {
-        let name = crate::global_static_name(self.mir, global);
+        let name = crate::globals::global_static_name(self.mir, global);
         let ty = self.global_ty(global)?;
         if Self::global_uses_copy_cell(self.mir.types.get(ty)) {
             Ok(format!("{name}.with(::std::cell::Cell::get)"))
@@ -202,7 +202,7 @@ impl FunctionEmitter<'_> {
     /// its value: `NAME.with(|_| ())`. Used for a slot read whose result is
     /// never consumed.
     pub(super) fn global_touch_text(&self, global: u32) -> String {
-        format!("{}.with(|_| ())", crate::global_static_name(self.mir, global))
+        format!("{}.with(|_| ())", crate::globals::global_static_name(self.mir, global))
     }
 
     /// Whether a mutable global of this type is backed by a `Cell` rather than
@@ -238,7 +238,7 @@ impl FunctionEmitter<'_> {
         value: &Operand,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
-        let name = crate::global_static_name(self.mir, global);
+        let name = crate::globals::global_static_name(self.mir, global);
         let ty = self.global_ty(global)?;
         let value_text = self.value_at_type(value, ty)?;
         let result_text = self.value_at_type_text("smelt_global_value", ty, dest_ty, &self.render_scope())?;
@@ -282,7 +282,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         use smelt_mir::GlobalProjection;
 
-        let name = crate::global_static_name(self.mir, global);
+        let name = crate::globals::global_static_name(self.mir, global);
         let ty = self.global_ty(global)?;
         if Self::global_uses_copy_cell(self.mir.types.get(ty)) {
             return Err(EmitError::new(

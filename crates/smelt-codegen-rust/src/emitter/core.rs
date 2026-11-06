@@ -477,7 +477,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let generics = if self.role.own_generics_erased() {
             String::new()
         } else {
-            let mut parts = crate::classes::function_impl_generics_list(
+            let mut parts = crate::generic_lifting::function_impl_generics_list(
                 self.mir,
                 self.function,
                 &self.context.owned_callback_params,
@@ -611,7 +611,7 @@ impl<'mir> FunctionEmitter<'mir> {
         // `SmeltUnknown` by design, so they touch the carrier legitimately and
         // would demote the whole function, which is the all-or-nothing behaviour
         // per-parameter lifting exists to remove.
-        let liftable = crate::classes::liftable_type_params(
+        let liftable = crate::generic_lifting::liftable_type_params(
             self.mir,
             self.function,
             &self.context.owned_callback_params,

@@ -1481,7 +1481,7 @@ impl FunctionEmitter<'_> {
         if !matches!(self.function.origin, HirOrigin::Body(_)) {
             return Ok(Vec::new());
         }
-        crate::classes::callback_generic_params(
+        crate::generic_lifting::callback_generic_params(
             self.mir,
             self.function,
             &self.context.owned_callback_params,
@@ -1681,7 +1681,7 @@ impl FunctionEmitter<'_> {
                 // Increment 5: this is the *subset* that lifts, not all-or-
                 // nothing. A parameter absent from it lowers through the same
                 // erasure path a fully-erased function uses.
-                return crate::classes::liftable_type_params(
+                return crate::generic_lifting::liftable_type_params(
                     self.mir,
                     self.function,
                     &self.context.owned_callback_params,

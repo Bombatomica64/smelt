@@ -14,6 +14,8 @@
 //!
 //! See CONTEXT.md (## Coercion).
 
+pub(crate) mod record;
+
 use super::*;
 use crate::emitter::rendered_value::{borrowed_value_text, cloned_value_text};
 use crate::erased_list_alias;
@@ -2538,14 +2540,14 @@ impl FunctionEmitter<'_> {
         // (see `view_write_through`); the generated `into_smelt_unknown`
         // installs the same hook.
         let write_through = match crate::classes::find_class(self.mir, *name) {
-            Some(class) if crate::field_setter_host(self.mir, self.context, class).is_some() => {
+            Some(class) if crate::reference_storage::field_setter_host(self.mir, self.context, class).is_some() => {
                 view_write_through::erased_view_entry_text(
                     "smelt_struct_value",
                     "smelt_object_entries",
                     view_write_through::has_live_callable_fields(
                         self.mir,
                         self.context.program_reads_this(),
-                        &crate::effective_class_fields(self.mir, class),
+                        &crate::classes::effective_class_fields(self.mir, class),
                     ),
                 )
             }

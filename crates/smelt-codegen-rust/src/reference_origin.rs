@@ -114,7 +114,7 @@ pub(crate) fn emit_reference_from_smelt_unknown_impl(
     let mut assigns = Vec::new();
     for field in fields {
         if !field.visibility.is_own_property()
-            || !crate::type_supports_from_unknown(mir, context, field.ty)
+            || !crate::emitter::record_coercion::type_supports_from_unknown(mir, context, field.ty)
         {
             continue;
         }

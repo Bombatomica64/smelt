@@ -55,8 +55,9 @@ use smelt_mir::{FuncId, HirOrigin, LocalId, Mir, MirClass, MirFunction};
 
 use crate::emitter::{EmitContext, method_mutates_this};
 use crate::{
-    EmitError, classes::effective_class_methods, record_field_unknown_text, sanitize_ident,
-    type_supports_from_unknown,
+    EmitError, classes::effective_class_methods,
+    emitter::record_coercion::{record_field_unknown_text, type_supports_from_unknown},
+    sanitize_ident,
 };
 
 /// Name of the generated inherent method that lists a class's prototype members.
@@ -214,7 +215,7 @@ fn method_adapter_text(
         // for the blanket `SmeltFromUnknown` regardless — the declaration was
         // fetched and discarded — which does not compile for a parameter type
         // that has no such impl. See `record_field_from_unknown_text`.
-        args.push(crate::record_field_from_unknown_text(
+        args.push(crate::emitter::record_coercion::record_field_from_unknown_text(
             mir,
             &format!(
                 "smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"

@@ -241,7 +241,7 @@ impl FunctionEmitter<'_> {
         let Some(target_param) = param else {
             return;
         };
-        let generated = crate::classes::callback_generic_params(
+        let generated = crate::generic_lifting::callback_generic_params(
             self.mir,
             function,
             &self.context.owned_callback_params,

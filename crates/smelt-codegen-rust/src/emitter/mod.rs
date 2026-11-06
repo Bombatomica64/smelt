@@ -113,6 +113,7 @@ mod capture_analysis;
 mod cfg_queries;
 mod closures;
 mod coercion;
+pub(crate) use coercion::record as record_coercion;
 mod control_flow;
 mod console_inspect;
 mod construct;
@@ -214,6 +215,12 @@ impl FreeFunctionVisibility {
         }
     }
 }
+
+/// Proof that [`EmitContext::populate_generic_functions`] has run.
+///
+/// Only that method constructs one, and the crate builder cannot start without
+/// it, so no body renders before the generic decision is made.
+pub(crate) struct GenericsDecided(());
 
 pub(crate) struct EmitContext {
     /// The type ID of the None type.
@@ -677,7 +684,7 @@ impl EmitContext {
     /// predicate: a callee's answer changes how its callers render), so the loop is capped and falls back to
     /// the first round's answer — the historical one — if it oscillates. In
     /// practice both compat corpora settle in two rounds.
-    pub(crate) fn populate_generic_functions(&self, mir: &Mir) -> Result<(), EmitError> {
+    pub(crate) fn populate_generic_functions(&self, mir: &Mir) -> Result<GenericsDecided, EmitError> {
         /// Bound on the demotion rounds; each round holds out at least one more
         /// function, so the bound is never reached by a finite crate in
         /// practice and only caps a pathological one.
@@ -688,7 +695,7 @@ impl EmitContext {
             .iter()
             .filter(|function| matches!(function.origin, HirOrigin::Body(_)))
             .filter(|function| {
-                crate::classes::function_emits_rust_generics(
+                crate::generic_lifting::function_emits_rust_generics(
                     mir,
                     function,
                     &self.owned_callback_params,
@@ -708,7 +715,7 @@ impl EmitContext {
             self.demote_unforwardable_bounded_callees(mir, &mut settled);
             if settled.len() == before {
                 *self.generic_functions.borrow_mut() = settled;
-                return Ok(());
+                return Ok(GenericsDecided(()));
             }
             // A demoted callee changes how its lifted callers render their
             // calls, so the trials are rerun with it held out.
@@ -721,7 +728,7 @@ impl EmitContext {
             );
             *self.generic_functions.borrow_mut() = settled;
         }
-        Ok(())
+        Ok(GenericsDecided(()))
     }
 
     /// The body-cleanliness trial iterated to a fixed point (see
@@ -801,12 +808,12 @@ impl EmitContext {
                     let Some(function) = usize::try_from(id.0).ok().and_then(|index| mir.functions.get(index)) else {
                         return false;
                     };
-                    crate::classes::bound_forwarding_callers(mir, function)
+                    crate::generic_lifting::bound_forwarding_callers(mir, function)
                         .into_iter()
                         .any(|(caller_id, caller_param)| {
                             !generic.contains(&caller_id)
                                 || usize::try_from(caller_id.0).ok().and_then(|index| mir.functions.get(index)).is_none_or(|caller| {
-                                    !crate::classes::liftable_type_params(
+                                    !crate::generic_lifting::liftable_type_params(
                                         mir,
                                         caller,
                                         &self.owned_callback_params,
