@@ -2250,17 +2250,6 @@ impl FunctionEmitter<'_> {
             Rvalue::ListPop { list } => self.list_pop_text(list, dest_ty),
             Rvalue::ListShift { list } => self.list_shift_text(list, dest_ty),
             Rvalue::ListNext { list } => self.list_next_text(list, dest_ty),
-            Rvalue::IteratorDone { result } => {
-                Ok(format!("{}.is_none()", self.operand_text(result)?))
-            }
-            Rvalue::IteratorValue { result } => {
-                let text = self.operand_text(result)?;
-                if self.mir.types.get(dest_ty) == Some(&Type::Unknown) {
-                    self.erase_value_text(&text, self.operand_ty(result)?)
-                } else {
-                    self.value_at_type(result, dest_ty)
-                }
-            }
             Rvalue::TupleContains { tuple, item } => self.tuple_contains_text(tuple, item),
             Rvalue::TupleIndex { tuple, index } => self.tuple_index_text(tuple, *index, dest_ty),
             Rvalue::TupleSlice { tuple, start, end } => {

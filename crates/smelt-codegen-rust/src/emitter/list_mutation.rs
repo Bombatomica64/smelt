@@ -607,10 +607,10 @@ impl FunctionEmitter<'_> {
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list next receiver must be a list"));
         };
-        if !matches!(self.mir.types.get(dest_ty), Some(Type::Optional(inner)) if *inner == *item_ty)
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::GeneratorResult { yield_ty, .. }) if *yield_ty == *item_ty)
         {
             return Err(EmitError::new(
-                "list next destination must be an optional item",
+                "list next destination must be an iterator result of the item",
             ));
         }
         let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
@@ -619,7 +619,7 @@ impl FunctionEmitter<'_> {
         let list_text = self.local_value_text(*local)?;
         let list_mut = list_write_text(&list_text);
         Ok(format!(
-            "if {list_text}.is_empty() {{ None }} else {{ Some({list_mut}.remove(0)) }}"
+            "if {list_text}.is_empty() {{ SmeltGeneratorResult::Complete(()) }} else {{ SmeltGeneratorResult::Yielded({list_mut}.remove(0)) }}"
         ))
     }
 

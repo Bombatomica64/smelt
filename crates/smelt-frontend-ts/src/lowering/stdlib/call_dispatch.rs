@@ -747,13 +747,7 @@ impl<'builder> ModuleBuilder<'builder> {
                 _ => None,
             };
             let ty = match item {
-                Some(item) => self.instantiated_item_value_call_result(
-                    item,
-                    &function,
-                    &args,
-                    call.span,
-                    body,
-                ),
+                Some(item) => self.instantiated_item_value_call_result(item, &function, &args, call, body)?,
                 None => function.return_ty,
             };
             return Ok(body.push_expr(Expr {
@@ -1217,8 +1211,13 @@ impl<'builder> ModuleBuilder<'builder> {
                     lowered[index] = Some(self.lower_call_arg(*arg, hint, body)?);
                 }
                 if !deferred.is_empty() {
-                    let mut substitutions = HashMap::new();
+                    let explicit = self.explicit_call_type_bindings(&callee_type_params, call)?;
+                    let inferred_from_values = explicit.is_none();
+                    let mut substitutions = explicit.unwrap_or_default();
                     for (index, lowered_arg) in lowered.iter().enumerate() {
+                        if !inferred_from_values {
+                            break;
+                        }
                         let (Some(param), Some(lowered_arg)) =
                             (params.get(index).copied(), *lowered_arg)
                         else {
@@ -1269,61 +1268,8 @@ impl<'builder> ModuleBuilder<'builder> {
             // return still carries the raw `TypeParam`. Instantiate it from
             // the lowered argument types the same way overload selection
             // does, so `shuffle([1, 2]).sort()` sees `number[]`, not `T[]`.
-            let return_ty = if selected_overload.is_none()
-                && self.overload_constraint_contains_unresolved_type_param(return_ty)
-            {
-                let mut substitutions = HashMap::new();
-                let mut inference_inputs = params.iter().zip(&args).collect::<Vec<_>>();
-                // Infer naked type-parameter arguments before structural
-                // callback/container arguments. A direct value such as
-                // `initValue: T` is a stronger constraint than a callback body
-                // whose contextual `T` is still unresolved; processing the
-                // callback first can prematurely bind `T` from an incidental
-                // operation and then reject the concrete initializer.
-                inference_inputs.sort_by_key(|(param, _)| {
-                    !matches!(self.ctx.krate.types.get(**param), Some(Type::TypeParam { .. }))
-                });
-                for (param, arg) in inference_inputs {
-                    let arg_ty = Self::expr_ty(body, *arg);
-                    let _ = self.infer_callee_type_bindings(
-                        &callee_type_params,
-                        *param,
-                        arg_ty,
-                        &mut substitutions,
-                    );
-                }
-                // What the arguments left unbound, a type assertion around
-                // the call may bind (`differenceBy(a, b, f) as T[]`); see
-                // `bind_from_asserted_return`.
-                self.bind_from_asserted_return(
-                    &callee_type_params,
-                    return_ty,
-                    call.span,
-                    &mut substitutions,
-                );
-                // Parameters no argument bound instantiate to `unknown`, the
-                // type the emitted definition returns for them, so the result
-                // never carries a raw callee `TypeParam` that would alias a
-                // same-named caller parameter.
-                self.complete_callee_type_substitution(&callee_type_params, &mut substitutions);
-                if substitutions.is_empty() {
-                    return_ty
-                } else {
-                    let substituted = self.substitute_type_params(return_ty, &substitutions);
-                    // A returned function with erased-unknown-rest parameters
-                    // (`(...args: unknown[]) => T`, e.g. `constant`) lowers to
-                    // the fully-erased `SmeltErasedFunction`, whose calls yield
-                    // `unknown` regardless of the declared payload. Concretizing
-                    // its return from the argument types would desync the value's
-                    // runtime shape (`SmeltErasedFunction::call -> unknown`) from
-                    // the concrete type its call sites would then expect, so keep
-                    // the erased signature for such curried generics.
-                    if self.renders_as_erased_function(substituted) {
-                        return_ty
-                    } else {
-                        substituted
-                    }
-                }
+            let return_ty = if selected_overload.is_none() {
+                self.instantiated_call_return(&callee_type_params, &params, &args, return_ty, call, body)?
             } else {
                 return_ty
             };
@@ -1489,7 +1435,12 @@ impl<'builder> ModuleBuilder<'builder> {
             let receiver = self.expression(object, body)?;
             let receiver_ty = Self::expr_ty(body, receiver);
             if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(receiver_ty) {
-                let ty = self.ctx.krate.types.intern(Type::Optional(*item_ty));
+                // An iterator result is a type of its own: `IteratorResult<T, undefined>`.
+                // `.done` and `.value` read that protocol, and a field of those
+                // names on an `Optional` value is that value's own field.
+                let yield_ty = *item_ty;
+                let return_ty = self.ctx.krate.types.intern(Type::None);
+                let ty = self.ctx.krate.types.intern(Type::GeneratorResult { yield_ty, return_ty });
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::ListNext { list: receiver },
                     ty,
@@ -5849,30 +5800,175 @@ impl<'builder> ModuleBuilder<'builder> {
         item: smelt_hir::ItemId,
         function: &FunctionType,
         args: &[smelt_hir::ExprId],
-        call_span: oxc::span::Span,
+        call: &oxc::ast::ast::CallExpression<'_>,
         body: &Body,
-    ) -> smelt_hir::TypeId {
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
         let type_params = self.callee_own_type_params(item);
-        if type_params.is_empty()
-            || !self.overload_constraint_contains_unresolved_type_param(function.return_ty)
-        {
-            return function.return_ty;
+        self.instantiated_call_return(&type_params, &function.params, args, function.return_ty, call, body)
+    }
+
+    /// The result type of one call of a generic callee: `return_ty` with the
+    /// callee's own type parameters instantiated for this call.
+    ///
+    /// Every direct spelling of a call reaches this one rule, because the
+    /// instantiation does not depend on how the callee was named
+    /// (`iterate(..)`, `_.iterate(..)`, `(iterate as any)(..)`):
+    ///
+    /// 1. TypeScript's inference applies, approximated from the lowered
+    ///    arguments ([`Self::infer_call_type_bindings`]): every position is a
+    ///    candidate;
+    /// 2. an explicit type argument wider than that replaces it. A narrower one
+    ///    does not: Rust binds the callee from its arguments alone, so the
+    ///    arguments decide what the emitted call returns;
+    /// 3. a type assertion around the call may bind what the arguments left
+    ///    unbound;
+    /// 4. a parameter nothing bound instantiates to `unknown`, the type the
+    ///    emitted definition returns for it, so the result never carries a raw
+    ///    callee `TypeParam` that would alias a same-named caller parameter;
+    /// 5. the checker resolved the very same call, so the result may not
+    ///    promise more than it did ([`Self::checker_call_type`]).
+    ///
+    /// A returned function with erased-unknown-rest parameters
+    /// (`(...args: unknown[]) => T`, e.g. `constant`) lowers to the
+    /// fully-erased `SmeltErasedFunction`, whose calls yield `unknown`
+    /// regardless of the declared payload. Concretizing its return from the
+    /// argument types would desync the value's runtime shape from the concrete
+    /// type its call sites would then expect, so such a curried generic keeps
+    /// its declared erased signature.
+    pub(in crate::lowering) fn instantiated_call_return(
+        &mut self,
+        type_params: &[TypeParamDef],
+        params: &[smelt_hir::TypeId],
+        args: &[smelt_hir::ExprId],
+        return_ty: smelt_hir::TypeId,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &Body,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        if type_params.is_empty() || !self.overload_constraint_contains_unresolved_type_param(return_ty) {
+            return Ok(return_ty);
         }
-        let mut substitutions = HashMap::new();
-        for (param, arg) in function.params.iter().zip(args) {
-            let arg_ty = Self::expr_ty(body, *arg);
-            let _ = self.infer_callee_type_bindings(&type_params, *param, arg_ty, &mut substitutions);
+        let mut substitutions = self.infer_call_type_bindings(type_params, params, args, body);
+        for (name, explicit) in self.explicit_call_type_bindings(type_params, call)?.unwrap_or_default() {
+            if substitutions.get(&name).is_some_and(|bound| self.type_accepts_all_of(explicit, *bound)) {
+                substitutions.insert(name, explicit);
+            }
         }
-        // What the arguments left unbound, an assertion around the call may
-        // bind (`(flatten as any)(array, depth) as T[]` instantiates
-        // `flatten`'s `T` as the caller's `T`).
-        self.bind_from_asserted_return(&type_params, function.return_ty, call_span, &mut substitutions);
-        self.complete_callee_type_substitution(&type_params, &mut substitutions);
-        let substituted = self.substitute_type_params(function.return_ty, &substitutions);
+        self.bind_from_asserted_return(type_params, return_ty, call.span, &mut substitutions);
+        self.complete_callee_type_substitution(type_params, &mut substitutions);
+        let substituted = self.substitute_type_params(return_ty, &substitutions);
         if self.renders_as_erased_function(substituted) {
-            function.return_ty
-        } else {
-            substituted
+            return Ok(return_ty);
+        }
+        Ok(self.checker_call_type(call.span.start, call.span.end, substituted))
+    }
+
+    /// The bindings a call's explicit type arguments spell, if it has any.
+    fn explicit_call_type_bindings(
+        &mut self,
+        type_params: &[TypeParamDef],
+        call: &oxc::ast::ast::CallExpression<'_>,
+    ) -> Result<Option<HashMap<smelt_hir::Symbol, smelt_hir::TypeId>>, SmeltError> {
+        let Some(explicit) = &call.type_arguments else {
+            return Ok(None);
+        };
+        let explicit = explicit
+            .params
+            .iter()
+            .map(|argument| self.ts_type_to_hir(argument))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.type_argument_substitution(type_params, &explicit, self.span(call.span.start, call.span.end))
+            .map(Some)
+    }
+
+    /// Bind a callee's own type parameters from one call's lowered arguments,
+    /// the way TypeScript's inference does: every position is a candidate.
+    ///
+    /// Naked type-parameter arguments go first. A direct value such as
+    /// `initValue: T` is a stronger constraint than a callback body whose
+    /// contextual `T` is still unresolved; processing the callback first can
+    /// prematurely bind `T` from an incidental operation and then reject the
+    /// concrete initializer.
+    ///
+    /// The first candidate only opens the binding. Once all were seen, a later
+    /// wider one replaces it ([`Self::widen_call_binding`]): `T` in
+    /// `iterate(5, handler, 0)` is `unknown` when `handler` returns `unknown`,
+    /// although `0` came first.
+    fn infer_call_type_bindings(
+        &mut self,
+        type_params: &[TypeParamDef],
+        params: &[smelt_hir::TypeId],
+        args: &[smelt_hir::ExprId],
+        body: &Body,
+    ) -> HashMap<smelt_hir::Symbol, smelt_hir::TypeId> {
+        let mut substitutions = HashMap::new();
+        let mut inference_inputs = params.iter().zip(args).collect::<Vec<_>>();
+        inference_inputs.sort_by_key(|(param, _)| {
+            !matches!(self.ctx.krate.types.get(**param), Some(Type::TypeParam { .. }))
+        });
+        for (param, arg) in &inference_inputs {
+            let arg_ty = Self::expr_ty(body, **arg);
+            let _ = self.infer_callee_type_bindings(type_params, **param, arg_ty, &mut substitutions);
+        }
+        for (param, arg) in inference_inputs {
+            self.widen_call_binding(type_params, *param, Self::expr_ty(body, *arg), &mut substitutions);
+        }
+        substitutions
+    }
+
+    /// Replace a type parameter's binding with a wider candidate at one
+    /// `expected`/`actual` position, walking the covariant positions: a
+    /// callback's return is a candidate, and its parameters are not, because
+    /// TypeScript prefers covariant candidates (`(acc: unknown) => number`
+    /// with an init of `0` is `T = number`).
+    ///
+    /// A candidate is wider when it is `unknown`, or a union or optional holding
+    /// the binding. tsc already rejected unrelated candidates, so no other pair
+    /// reaches here for a valid program.
+    pub(in crate::lowering) fn widen_call_binding(
+        &mut self,
+        type_params: &[TypeParamDef],
+        expected: smelt_hir::TypeId,
+        actual: smelt_hir::TypeId,
+        substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    ) {
+        let (Some(expected_ty), Some(actual_ty)) = (
+            self.ctx.krate.types.get(expected).cloned(),
+            self.ctx.krate.types.get(actual).cloned(),
+        ) else {
+            return;
+        };
+        match (expected_ty, actual_ty) {
+            (Type::TypeParam { name }, actual_ty) => {
+                let Some(bound) = substitutions.get(&name).copied() else {
+                    return;
+                };
+                let wider = match actual_ty {
+                    Type::Unknown => true,
+                    Type::Union(members) => members.contains(&bound),
+                    Type::Optional(item) => item == bound,
+                    _ => false,
+                };
+                if wider && type_params.iter().any(|param| param.name == name) {
+                    substitutions.insert(name, actual);
+                }
+            }
+            (Type::Function(declared), Type::Function(given)) => {
+                self.widen_call_binding(type_params, declared.return_ty, given.return_ty, substitutions);
+            }
+            (Type::List(declared), Type::List(given))
+            | (Type::Set(declared), Type::Set(given))
+            | (Type::Future(declared), Type::Future(given)) => {
+                self.widen_call_binding(type_params, declared, given, substitutions);
+            }
+            (Type::Optional(declared), Type::Optional(given)) => {
+                self.widen_call_binding(type_params, declared, given, substitutions);
+            }
+            (Type::Tuple(declared), Type::Tuple(given)) if declared.len() == given.len() => {
+                for (declared, given) in declared.into_iter().zip(given) {
+                    self.widen_call_binding(type_params, declared, given, substitutions);
+                }
+            }
+            _ => {}
         }
     }
 

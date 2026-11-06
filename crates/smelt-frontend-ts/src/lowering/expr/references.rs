@@ -419,34 +419,30 @@ impl ModuleBuilder<'_> {
             }));
         }
         // Narrowing an OPTIONAL UNION local to one CONCRETE arm takes two
-        // steps, and only both together are a value the backend can call a
-        // method on. `string | File | undefined` narrowed to `File` — the shape
-        // a `FormData` entry read has after a null check and a
-        // `typeof === "string"` check — needs the `Option` unwrapped AND the
-        // surviving union arm projected out of the payload. Each step alone is
-        // already supported: a bare local read at the payload type is the
-        // narrowing unwrap the backend renders as `.expect(..)`, and an
-        // `UnknownCast` off the payload is the arm projection. Emitting the
-        // read at the narrowed arm type directly left the local's
-        // `Option<SmeltUnion…>` in place and the generated Rust called the
-        // arm's methods straight on the `Option`.
+        // steps, and only both together are a value the backend can operate on.
+        // `string | File | undefined` narrowed to `File`, the shape a `FormData`
+        // entry read has after a null check and a `typeof === "string"` check,
+        // needs the `Option` unwrapped AND the surviving union arm projected out
+        // of the payload. A bare local read at the payload type is the narrowing
+        // unwrap the backend renders as `.expect(..)`, and an `UnknownCast` off
+        // the payload is the arm projection.
         //
-        // Only a NOMINAL CLASS arm takes this path, and the seam is what
-        // decides that. A class member is rendered as an INHERENT Rust method
-        // call on the raw receiver text — `blob_op_text` is
-        // `format!("{receiver}.file_name()")` — so nothing downstream can fix
-        // up a receiver of the wrong type, and the value has to already BE the
-        // arm. Every other arm shape reaches its members through a
-        // type-directed coercion (`value_at_type`) that unwraps the optional
-        // payload itself, so a second HIR step there buys nothing and its extra
-        // temporary just holds an erased value: 85 of those across es-toolkit's
-        // optional erased callbacks, which the erasure ratchet counts as
-        // avoidable.
+        // A class member and a list operation both read their receiver as it
+        // stands, so the value has to already BE the arm: `blob_op_text` is
+        // `format!("{receiver}.file_name()")`, and `chars.flatMap(..)` after
+        // `Array.isArray(chars)` needs a list. A callable arm is the exception.
+        // It reaches its call through a type-directed coercion
+        // (`value_at_type`) that unwraps the optional payload itself, so a second
+        // HIR step there buys nothing and its extra temporary just holds an
+        // erased value.
         if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(base_ty).cloned()
             && ty != inner
             && ty != base_ty
-            && matches!(self.ctx.krate.types.get(inner), Some(Type::Union(_)))
-            && matches!(self.ctx.krate.types.get(ty), Some(Type::Class { .. }))
+            && matches!(self.ctx.krate.types.get(inner), Some(Type::Union(_) | Type::Unknown))
+            && matches!(
+                self.ctx.krate.types.get(ty),
+                Some(Type::Class { .. } | Type::List(_) | Type::Tuple(_) | Type::Dict(..) | Type::JsMap(..) | Type::Set(_))
+            )
         {
             let payload = body.push_expr(Expr {
                 kind: ExprKind::Local(local),

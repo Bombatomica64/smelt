@@ -387,6 +387,8 @@ impl RuntimeDemand {
                 // Unions render as the carrier, and a dict literal can erase its
                 // entries without interning `Unknown`.
                 Type::Unknown | Type::Never | Type::Union(_) => self.add(Need::Unknown),
+                // A list's iterator protocol steps through the generator result.
+                Type::GeneratorResult { .. } => self.add(Need::Generator),
                 Type::Class { name, .. } => {
                     if crate::classes::class_name_renders_erased(mir, *name) {
                         self.add(Need::Unknown);

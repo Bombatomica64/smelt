@@ -31,9 +31,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Int) => "i64",
             Some(Type::Float) => "f64",
             Some(Type::FixedInt(width)) => width.rust_name(),
-            _ => {
-                return self.inferred_default_text(dest_ty);
-            }
+            _ => return Err(EmitError::new("length destination must be numeric")),
         };
         let receiver_text = self.len_operand_text(operand)?;
         let operand_ty = self.operand_ty(operand)?;

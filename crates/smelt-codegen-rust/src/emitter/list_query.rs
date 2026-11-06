@@ -115,7 +115,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(list_element_ty)) = self.mir.types.get(list_ty) else {
-            return self.inferred_default_text(dest_ty);
+            return Err(EmitError::new("list callback receiver must be a list"));
         };
         let element_ty = *list_element_ty;
         self.list_callback_closure_text(op, list, list_ty, element_ty, callback, dest_ty)
@@ -147,7 +147,7 @@ impl FunctionEmitter<'_> {
         }
         let Some(Type::Function(function_ty)) = self.mir.types.get(self.operand_ty(callback)?)
         else {
-            return self.inferred_default_text(dest_ty);
+            return Err(EmitError::new("list callback receiver must be a list"));
         };
         let closure_text = match self.closure_operand_text_for_declared_type(callback) {
             Ok(closure_text) => closure_text,
@@ -265,7 +265,7 @@ impl FunctionEmitter<'_> {
         };
         let Some(Type::Function(function_ty)) = self.mir.types.get(self.operand_ty(callback)?)
         else {
-            return self.inferred_default_text(dest_ty);
+            return Err(EmitError::new("list callback must be a function"));
         };
         let closure_text = match self.closure_operand_text_for_declared_type(callback) {
             Ok(closure_text) => closure_text,
@@ -305,7 +305,7 @@ impl FunctionEmitter<'_> {
         }
         let Some(Type::Function(function_ty)) = self.mir.types.get(self.operand_ty(callback)?)
         else {
-            return self.inferred_default_text(dest_ty);
+            return Err(EmitError::new("list callback must be a function"));
         };
         let closure_text = match self.closure_operand_text_for_declared_type(callback) {
             Ok(closure_text) => closure_text,
@@ -335,7 +335,7 @@ impl FunctionEmitter<'_> {
         };
         let Some(Type::Function(function_ty)) = self.mir.types.get(self.operand_ty(callback)?)
         else {
-            return self.inferred_default_text(dest_ty);
+            return Err(EmitError::new("list callback must be a function"));
         };
         let closure_text = match self.closure_operand_text_for_declared_type(callback) {
             Ok(closure_text) => closure_text,
@@ -555,7 +555,7 @@ impl FunctionEmitter<'_> {
         let length_text = self.operand_text(length)?;
         let Some(Type::Function(function_ty)) = self.mir.types.get(self.operand_ty(callback)?)
         else {
-            return self.inferred_default_text(dest_ty);
+            return Err(EmitError::new("Array.from mapper must be a function"));
         };
         if self.mir.types.get(dest_ty) != Some(&Type::List(function_ty.return_ty)) {
             return Err(EmitError::new(

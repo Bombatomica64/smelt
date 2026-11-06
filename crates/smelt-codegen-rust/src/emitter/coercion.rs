@@ -2175,10 +2175,34 @@ impl FunctionEmitter<'_> {
                 "{}.clone().into_smelt_unknown()",
                 value.parenthesized_if_needed()
             ))),
-            Some(Type::GeneratorResult { .. }) => Err(EmitError::new(
-                "generator results require typed done/value projection before erasure",
-            )),
+            Some(Type::GeneratorResult { yield_ty, return_ty }) => {
+                self.erased_iterator_result_text(&value.parenthesized_if_needed(), *yield_ty, *return_ty)
+            }
         }
+    }
+
+    /// An iterator result as the `{ value, done }` object JavaScript hands out.
+    fn erased_iterator_result_text(
+        &self,
+        result_text: &str,
+        yield_ty: TypeId,
+        return_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let yielded = self.erase_value_text("value", yield_ty)?;
+        let returned = if return_ty == self.none_ty {
+            self.carrier_text("SmeltUnknown::Undefined")
+        } else {
+            self.erase_value_text("value", return_ty)?
+        };
+        let object = |value: &str, done: bool| {
+            format!(
+                "SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"value\".to_owned(), {value}), (\"done\".to_owned(), SmeltUnknown::Bool({done}))])))"
+            )
+        };
+        let (yielded, returned) = (object(&yielded, false), object(&returned, true));
+        Ok(self.carrier_format(format_args!(
+            "match {result_text}.clone() {{ SmeltGeneratorResult::Yielded(value) => {yielded}, SmeltGeneratorResult::Complete(value) => {returned} }}"
+        )))
     }
 
     /// The erased `null` tag of `SmeltUnknown`.
@@ -3085,6 +3109,17 @@ impl FunctionEmitter<'_> {
         Ok(has_call.then_some(keys))
     }
 
+    /// Rebuilds generated record `target` from erased `text` through its own
+    /// `SmeltFromUnknown` impl. This is the conversion for a program whose type
+    /// table lacks what the string-dict adapter needs; a record default in its
+    /// place would drop every field the value holds.
+    fn generated_record_from_unknown_text(&self, text: &str, target: TypeId) -> Result<String, EmitError> {
+        let target_text = self.type_text(target)?;
+        Ok(self.carrier_format(format_args!(
+            "<{target_text} as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())"
+        )))
+    }
+
     /// `__smelt_from_unknown_record_<n>((text).into_smelt_unknown())`, the call
     /// to the hoisted conversion for `target`, registering its body on first use.
     ///
@@ -3121,10 +3156,10 @@ impl FunctionEmitter<'_> {
             let Some(body) =
                 self.inline_record_conversion("smelt_value", target, &module_scope)?
             else {
-                // Nothing to hoist, and a body that is only a default cannot
-                // have called its own reservation.
+                // Nothing to hoist, and the caller's fallback cannot have
+                // called this reservation.
                 drop(reservation);
-                return Ok(Some("Default::default()".to_owned()));
+                return Ok(None);
             };
             reservation.commit(body)
         };
@@ -3393,18 +3428,20 @@ impl FunctionEmitter<'_> {
                 // body. Answering `Default::default()` here dropped the inner
                 // value (`p.swap()` read `0 0`).
                 if self.record_conversion_stack.borrow().contains(&target) {
-                    return Ok(self
-                        .hoisted_record_conversion(text, target)?
-                        .unwrap_or_else(|| "Default::default()".to_owned()));
+                    return match self.hoisted_record_conversion(text, target)? {
+                        Some(call) => Ok(call),
+                        None => self.generated_record_from_unknown_text(text, target),
+                    };
                 }
                 if self.record_conversion_stack.borrow().is_empty()
                     && let Some(call) = self.hoisted_record_conversion(text, target)?
                 {
                     return Ok(call);
                 }
-                Ok(self
-                    .inline_record_conversion(text, target, scope)?
-                    .unwrap_or_else(|| "Default::default()".to_owned()))
+                match self.inline_record_conversion(text, target, scope)? {
+                    Some(conversion) => Ok(conversion),
+                    None => self.generated_record_from_unknown_text(text, target),
+                }
             }
             // A source `Set` recovers through `SmeltJsSet`'s `SmeltFromUnknown`
             // impl, which round-trips the `__smelt_set` marker (rebuilding members

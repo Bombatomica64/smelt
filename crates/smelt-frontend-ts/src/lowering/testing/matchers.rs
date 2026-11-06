@@ -4747,11 +4747,14 @@ impl ModuleBuilder<'_> {
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?;
-            let contextual_return =
-                self.closure_contextual_return(contextual_function.as_ref(), arrow.r#async);
-            let no_return_hint = return_ty.is_none() && contextual_return.is_none();
+            // The binding's annotation is the type every reader of the binding
+            // sees, `unknown` included: TypeScript infers a call through
+            // `handler` from what it declares, not from the arrow behind it. The
+            // body may be narrower, and its value widens to the declared return.
+            let declared_return = contextual_function.as_ref().map(|function| function.return_ty);
+            let no_return_hint = return_ty.is_none() && declared_return.is_none();
             let mut return_ty = return_ty
-                .or(contextual_return)
+                .or(declared_return)
                 // not a new erasure: "no return hint" sentinel; recorded after
                 // closure-body lowering if the return stays erased
                 .unwrap_or_else(|| self.unknown_type());
@@ -4801,7 +4804,7 @@ impl ModuleBuilder<'_> {
             // the erased spelling: `promise.then(res)` typed itself
             // `Promise<unknown>` over a continuation that resolves a `Response`
             // (E0271 in Hono's `context.rs` slice of `main.rs`).
-            let fn_ty = if arrow.return_type.is_none() && contextual_return.is_none() {
+            let fn_ty = if no_return_hint {
                 self.inferred_return_function_ty(fn_ty, Self::expr_ty(body, value))
             } else {
                 fn_ty
@@ -5489,6 +5492,16 @@ impl ModuleBuilder<'_> {
                         let omitted_key =
                             self.object_destructuring_static_key_expr(&property.key, body)?;
                         let receiver_ty = Self::expr_ty(body, receiver);
+                        let field_span = self.span(property.span.start, property.span.end);
+                        let field_name = self.ctx.krate.symbols.get(field).unwrap_or_default().to_owned();
+                        if let Some(extracted) =
+                            self.iterator_result_member(receiver, receiver_ty, &field_name, field_span, body)
+                        {
+                            omitted_keys.push(omitted_key);
+                            let ty = Self::expr_ty(body, extracted);
+                            self.binding_declaration(&property.value, Some(extracted), Some(ty), mutable, body, block)?;
+                            continue;
+                        }
                         let is_stdlib_len = self.ctx.krate.symbols.get(field) == Some("length")
                             && self.supports_stdlib_length(receiver_ty);
                         let is_stdlib_size = self.ctx.krate.symbols.get(field) == Some("size")

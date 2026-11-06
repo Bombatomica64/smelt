@@ -2795,13 +2795,14 @@ impl ModuleBuilder<'_> {
         let receiver = self.expression(&binary.right, body)?;
         let receiver_ty = Self::expr_ty(body, receiver);
         let mut key = self.expression(&binary.left, body)?;
-        if matches!(
-            self.ctx.krate.types.get(receiver_ty),
-            Some(Type::Optional(_))
-        ) && matches!(&binary.left, Expression::StringLiteral(value) if value.value == "done")
+        // An iterator result's own properties are fixed by the protocol, so a
+        // literal key is answered without erasing the typed result.
+        if matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::GeneratorResult { .. }))
+            && let Expression::StringLiteral(name) = &binary.left
         {
+            let present = name.value == "done" || name.value == "value";
             return Ok(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::Bool(true)),
+                kind: ExprKind::Literal(Literal::Bool(present)),
                 ty: bool_ty,
                 span,
             }));
@@ -2850,6 +2851,7 @@ impl ModuleBuilder<'_> {
                             | Type::Tuple(_)
                             | Type::String
                             | Type::Union(_)
+                            | Type::GeneratorResult { .. }
                     )
                 )
             {

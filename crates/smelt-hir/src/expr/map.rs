@@ -876,8 +876,6 @@ impl ExprKind {
             Self::ListPop { list } => Self::ListPop { list: f(list)? },
             Self::ListShift { list } => Self::ListShift { list: f(list)? },
             Self::ListNext { list } => Self::ListNext { list: f(list)? },
-            Self::IteratorDone { result } => Self::IteratorDone { result: f(result)? },
-            Self::IteratorValue { result } => Self::IteratorValue { result: f(result)? },
             Self::TupleContains { tuple, item } => Self::TupleContains {
                 tuple: f(tuple)?,
                 item: f(item)?,

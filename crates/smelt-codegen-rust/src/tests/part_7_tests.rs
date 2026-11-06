@@ -1086,7 +1086,7 @@ export function fromEntries(...args: readonly unknown[]): unknown {
 }
 
 #[test]
-fn emits_array_iterator_next_as_typed_option() {
+fn emits_array_iterator_next_as_typed_result() {
     let source = source_for(
         r#"
 export function firstEntry(values: string[]): string | undefined {
@@ -1102,13 +1102,18 @@ export function firstEntry(values: string[]): string | undefined {
 
     assert!(
         source.contains(
-            "if iterator.is_empty() { None } else { Some(iterator.borrow_mut().remove(0)) }"
+            "if iterator.is_empty() { SmeltGeneratorResult::Complete(()) } else { SmeltGeneratorResult::Yielded(iterator.borrow_mut().remove(0)) }"
         ),
-        "iterator next should consume into a typed Option: {source}"
+        "iterator next should consume into a typed result: {source}"
     );
     assert!(
-        source.contains("result.clone().is_none()"),
-        "iterator done should inspect the typed Option: {source}"
+        emitted_function_body(&source, "fn first_entry(")
+            .contains("matches!(result.clone(), SmeltGeneratorResult::Complete(_))"),
+        "iterator done should inspect the typed result: {source}"
+    );
+    assert!(
+        !emitted_function_body(&source, "fn first_entry(").contains("SmeltUnknown"),
+        "the iterator protocol stays typed: {source}"
     );
 }
 
