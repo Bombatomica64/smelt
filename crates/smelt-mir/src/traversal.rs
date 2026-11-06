@@ -1409,7 +1409,7 @@ mod tests {
         let span = Span::new(FileId(0), 0, 0);
         let mut function =
             MirFunction::new(FuncId(0), Symbol(0), HirOrigin::Body(BodyId(0)), TypeId(0), span);
-        for _ in 0..3 {
+        for _ in 0_i32..3_i32 {
             function.push_local(LocalDecl { ty: TypeId(0), kind: LocalKind::Temp, span });
         }
         function.blocks[0].statements = statements;

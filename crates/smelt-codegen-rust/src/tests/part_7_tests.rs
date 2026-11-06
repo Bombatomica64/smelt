@@ -9306,9 +9306,10 @@ fn plain_local_mut_list_argument_to_erased_callee_converts_in_place() {
     // local list into a callee whose mutable list parameter is erased
     // (`&mut SmeltList<SmeltUnknown>`). `&mut` is invariant, so the elements must
     // be erased into a temporary, the callee must mutate that temporary, and the
-    // result must be un-erased back into the caller's local. The write-back must
-    // assign the local directly — the place is not a reference, so `*xs = ..`
-    // would not compile and `(*xs).clone()` would clone a slice.
+    // result must be un-erased back into the caller's array. The write-back goes
+    // through the local's own buffer, so an alias of `xs` observes it; the place
+    // is not a reference, so `*xs = ..` would not compile and `(*xs).clone()`
+    // would clone a slice.
     let source = source_for(
         r"
 function eraseInto(target: unknown[], value: unknown): void {
@@ -9327,12 +9328,12 @@ export function useErase(): number[] {
         "the concrete local must be erased into the adapter temporary: {source}"
     );
     assert!(
-        source.contains("xs = smelt_mut_arg_0")
+        source.contains("xs.clone().replace_all(smelt_mut_arg_0")
             && source.contains("smelt_from_unknown")
             && !source.contains("*xs = ")
             && !source.contains("(*xs).clone()"),
-        "the mutated temporary must be un-erased back into the owned local, not \
-         written through a reference: {source}"
+        "the mutated temporary must be un-erased back into the owned local's \
+         buffer, not written through a reference: {source}"
     );
 }
 

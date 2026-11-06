@@ -2485,6 +2485,187 @@ console.log(negative === null ? "none" : negative.ok(), parser.run("x") === null
 }
 
 #[test]
+fn build_adapts_a_callback_typed_at_the_callee_parameter_of_a_namespace_call() -> TestResult {
+    // radash `_.iterate(5, (acc, idx) => acc + idx, 0)`. Through a namespace
+    // import the arrow's parameter keeps the callee's own `T`, which is out of
+    // scope at the call and renders erased, while the initial value pins the
+    // site at `T = number`. Passing the closure unadapted was E0271.
+    // Behaviour: Node prints 15. Types: the adapter is declared at the pinned
+    // `f64`, and the initial value stays a plain `f64`.
+    let files: &[(&str, &str)] = &[
+        (
+            "src/lib.ts",
+            r"export const iterate = <T>(
+  count: number,
+  func: (currentValue: T, iteration: number) => T,
+  initValue: T,
+) => {
+  let value = initValue;
+  for (let i = 1; i <= count; i++) {
+    value = func(value, i);
+  }
+  return value;
+};
+",
+        ),
+        (
+            "src/main.ts",
+            r#"import * as lib from "./lib";
+console.log(lib.iterate(5, (acc, idx) => acc + idx, 0));
+"#,
+        ),
+    ];
+    let (project, manifest) = multi_module_project("namespace-generic-callback", true, files)?;
+    smelt(&["--manifest-path", &manifest, "build"])?;
+    let generated = generated_rust_text(project.path())?;
+    ensure(
+        generated.contains("move |arg0: &f64, arg1: f64| -> f64"),
+        "the callback adapter is declared at the pinned T = f64",
+    )?;
+    ensure(
+        generated.contains(" } }, 0.0)"),
+        "the initial value is passed as a plain f64",
+    )?;
+    let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
+    ensure_eq(&stdout, &"15\n".to_owned(), "unexpected stdout")
+}
+
+#[test]
+fn build_keeps_a_callback_result_that_widens_the_type_parameter() -> TestResult {
+    // `iterate(2, handler, 0)` with a `handler` returning `unknown`: TypeScript
+    // infers `T = unknown` from the callback's return, so the string survives.
+    // Pinning the site at the initial value's `number` converted it to `NaN`.
+    // Behaviour: Node prints `word`. Types: `T` really is `unknown` here, which
+    // the source says itself, so the call instantiates at `SmeltUnknown`.
+    let files: &[(&str, &str)] = &[(
+        "src/main.ts",
+        r#"const iterate = <T>(count: number, func: (value: T, i: number) => T, init: T) => {
+  let value = init;
+  for (let i = 1; i <= count; i++) {
+    value = func(value, i);
+  }
+  return value;
+};
+const handler: (acc: unknown, i: number) => unknown = (acc, i) => (i > 1 ? "word" : acc);
+console.log(iterate(2, handler, 0));
+"#,
+    )];
+    let (project, manifest) = multi_module_project("callback-widens-type-param", true, files)?;
+    smelt(&["--manifest-path", &manifest, "build"])?;
+    let generated = generated_rust_text(project.path())?;
+    ensure(
+        generated.contains("move |arg0: &SmeltUnknown, arg1: f64"),
+        "the site instantiates at the unknown TypeScript infers",
+    )?;
+    let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
+    ensure_eq(&stdout, &"word\n".to_owned(), "unexpected stdout")
+}
+
+#[test]
+fn build_writes_an_erased_list_call_back_through_every_alias() -> TestResult {
+    // remeda `heapSiftDown<T>` calling `swapInPlace(data: unknown[], ..)`. The
+    // `T[]`/`number[]` argument reaches the `unknown[]` parameter as a converted
+    // copy, and the callee's writes must land in the caller's array. Rebinding
+    // the caller's place to a new list left every other handle on the old
+    // buffer, so `dropFirstBy`'s heap never saw its swaps.
+    // Behaviour: Node prints the two lines below. Types: the generic stays a
+    // real Rust generic and the concrete local stays `SmeltList<f64>`.
+    let files: &[(&str, &str)] = &[(
+        "src/main.ts",
+        r#"function swap(data: unknown[], i: number, j: number): void {
+  [data[i], data[j]] = [data[j], data[i]];
+}
+function sift<T>(heap: T[]): void {
+  swap(heap, 0, 1);
+}
+function reversed<T>(data: readonly T[]): T[] {
+  const heap = data.slice();
+  sift(heap);
+  return heap;
+}
+const xs: number[] = [1, 2, 3];
+const alias = xs;
+swap(xs, 0, 2);
+console.log(xs.join(","), alias.join(","));
+console.log(reversed(["a", "b"]).join(","), reversed([1, 2]).join(","));
+"#,
+    )];
+    let (project, manifest) = multi_module_project("erased-list-alias", true, files)?;
+    smelt(&["--manifest-path", &manifest, "build"])?;
+    let generated = generated_rust_text(project.path())?;
+    ensure(
+        generated.contains("fn sift<T"),
+        "`sift` stays a real Rust generic",
+    )?;
+    ensure(
+        generated.contains("let xs: SmeltList<f64>") || generated.contains("let mut xs: SmeltList<f64>"),
+        "the concrete local keeps its element type",
+    )?;
+    let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
+    ensure_eq(&stdout, &"3,2,1 3,2,1\nb,a 2,1\n".to_owned(), "unexpected stdout")
+}
+
+#[test]
+fn build_erases_a_base_parameter_inside_a_closure_of_an_inherited_copy() -> TestResult {
+    // hono `RegExpRouter<T>`: `.map(([h]) => [h, ..])` in a base method, whose
+    // inherited copy lands in `class<T> extends RegExpRouter<T>`. The closure
+    // is spelled in the base's scope, so its `h` has the BASE's `T`, which
+    // renders as the receiving class's generic. Judged out of scope, that value
+    // skipped its erasure into the `unknown` array slot (E0308). Behaviour:
+    // Node prints `a 7 8`. Types: the copy keeps the receiving class's own
+    // parameter, and the concrete subclass keeps `f64`.
+    let files: &[(&str, &str)] = &[(
+        "src/main.ts",
+        r#"class Base<T> {
+  items: [T, string][] = [];
+  add(h: T, label: string): void {
+    this.items.push([h, label]);
+  }
+  build(): [T, number][] {
+    return this.items.map(([h]) => [h, 1]);
+  }
+}
+class Renamed<U> extends Base<U> {
+  exported(): [U, number][] {
+    return this.build();
+  }
+}
+class Fixed extends Base<number> {
+  exported(): number {
+    return this.build()[0][0] + 1;
+  }
+}
+const make = () => {
+  const Local = class<T> extends Base<T> {
+    exported() {
+      return this.build();
+    }
+  };
+  const router = new Local<string>();
+  router.add("a", "x");
+  return router.exported();
+};
+const renamed = new Renamed<number>();
+renamed.add(7, "y");
+const fixed = new Fixed();
+fixed.add(7, "z");
+console.log(make()[0][0], renamed.exported()[0][0], fixed.exported());
+"#,
+    )];
+    let (project, manifest) = multi_module_project("inherited-closure-scope", true, files)?;
+    smelt(&["--manifest-path", &manifest, "build"])?;
+    let generated = generated_rust_text(project.path())?;
+    let heads = generated_lines_with(&generated, "fn build(&self)");
+    ensure(
+        heads.iter().any(|head| head.contains("SmeltList<(U, f64)>"))
+            && heads.iter().any(|head| head.contains("SmeltList<(f64, f64)>")),
+        format!("each copy of `build` is typed in its receiving class, got {heads:?}"),
+    )?;
+    let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
+    ensure_eq(&stdout, &"a 7 8\n".to_owned(), "unexpected stdout")
+}
+
+#[test]
 #[expect(
     clippy::too_many_lines,
     reason = "end-to-end CLI fixture: the program and its assertions are one scenario"

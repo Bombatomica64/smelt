@@ -2033,8 +2033,13 @@ impl FunctionEmitter<'_> {
             // rustc still has a direct argument to infer from. (`sumBy(items,
             // item => ..)` inside `meanBy<T>`: the one-argument arrow is
             // adapted to the two-argument callback, and `T` comes from `items`.)
-            let adapted_callback = matches!(self.mir.types.get(*target_ty), Some(Type::Function(_)))
-                && matches!(self.mir.types.get(actual_ty), Some(Type::Function(_)))
+            //
+            // Only its parameters may differ. A parameter accepts more than the
+            // pinned type, but a return is a further candidate for `T`:
+            // TypeScript widens `T` to `unknown` for a callback returning
+            // `unknown`, and the adapter would convert that value to the pinned
+            // type instead of carrying it.
+            let adapted_callback = callback_return_fits(self.mir, *target_ty, actual_ty, &bindings)
                 && type_params_pinned_by_values(self.mir, &declared, &actual, *target_ty, &bindings);
             if self.type_mentions_any(*target_ty, &own_params)
                 && !adapted_callback
@@ -2367,9 +2372,13 @@ impl FunctionEmitter<'_> {
                             access.read
                         ));
                         rendered_args.push(format!("&mut {temp}"));
+                        // The temporary is a converted copy, so the callee's
+                        // writes come back through the caller's own buffer:
+                        // every alias of this JS array must observe them, which
+                        // rebinding the place to a new list would not do.
                         writebacks.push_str(&format!(
-                            "{} = {temp}.into_iter().map(|smelt_element| <{caller_elem} as SmeltFromUnknown>::smelt_from_unknown(smelt_element)).collect::<SmeltList<_>>(); ",
-                            access.assign_target
+                            "{}.replace_all({temp}.into_iter().map(|smelt_element| <{caller_elem} as SmeltFromUnknown>::smelt_from_unknown(smelt_element)).collect::<Vec<_>>()); ",
+                            access.read
                         ));
                     }
                     MutListArgKind::UnionInjected => {
@@ -2396,8 +2405,8 @@ impl FunctionEmitter<'_> {
                         ));
                         rendered_args.push(format!("&mut {temp}"));
                         writebacks.push_str(&format!(
-                            "{} = {temp}.into_iter().map(|smelt_element| {project}).collect::<SmeltList<_>>(); ",
-                            access.assign_target
+                            "{}.replace_all({temp}.into_iter().map(|smelt_element| {project}).collect::<Vec<_>>()); ",
+                            access.read
                         ));
                     }
                 }
@@ -3940,6 +3949,22 @@ impl FunctionEmitter<'_> {
         false
     }
 
+}
+
+/// Whether both types are functions and the actual callback returns exactly
+/// the declared return under `bindings`.
+fn callback_return_fits(
+    mir: &Mir,
+    declared: TypeId,
+    actual: TypeId,
+    bindings: &CalleeTypeParamBindings,
+) -> bool {
+    let (Some(Type::Function(declared)), Some(Type::Function(actual))) =
+        (mir.types.get(declared), mir.types.get(actual))
+    else {
+        return false;
+    };
+    substitution_matches(mir, declared.return_ty, actual.return_ty, bindings)
 }
 
 /// Whether every type parameter `callback_ty` mentions is pinned at this call
