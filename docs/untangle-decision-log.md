@@ -109,3 +109,7 @@ Restating ~3-4%; 1,539 `///` lines emitted into every generated crate; history n
 
 ## Status
 - R2/R8/R9 first pass merged (`bbf5831d`): surplus, `smelt-transpiler` lib target, `report`, `source_files`, gates. Corpus oracle: only the two hash-order date-fns files differ, and base flips them too.
+- R1 traversal slice + R2 dead IR merged (`5ad1fddc`): `traversal.rs`, `Rvalue::mutated_receiver`, `smelt_mir::compile`, one assignment/read count. Corpus oracle: 0 of 3,104 rows differ. Fixed `fs.push(closure)` E0425.
+- Removed by decision: `third_party/strapi`, 68 unreferenced logs/docs, `smelt-test`, `smelt-python`, `lcov.info` from git.
+- Base is red on main at `afcbce68`: `corpus`, `coverage`, `hono`, `radash-regression`, `remeda-regression`. Needs its own stream.
+- Follow-ups from R1: `splice` with a closure hits E0271; `Object.assign(this.data, o)` printed 0 where 1 is expected (same at base); dead `ListCallback` closure bindings; `specs/mir.md` still describes `Phi`/`Storage*`/`Unreachable`.
