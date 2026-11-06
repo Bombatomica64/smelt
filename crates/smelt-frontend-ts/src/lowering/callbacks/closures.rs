@@ -186,6 +186,10 @@ impl ModuleBuilder<'_> {
         })?;
         // A callee that is all rest takes the array as that rest list.
         if let Some(Type::Function(function)) = self.ctx.krate.types.get(receiver_ty).cloned()
+            && matches!(
+                self.ctx.krate.types.get(Self::expr_ty(body, callee)),
+                Some(Type::Function(_))
+            )
             && function.params.len() == 1
             && let Some(rest) = self.list_rest_param(&function)
             && rest.index == 0

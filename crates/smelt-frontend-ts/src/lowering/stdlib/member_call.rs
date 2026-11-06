@@ -31,8 +31,7 @@ impl ModuleBuilder<'_> {
     /// protocol's `next()` on a list receiver, `ExprKind::OptionalMethod` when
     /// either the access or the receiver type is optional, and
     /// `ExprKind::Method` otherwise. A call that resolved to neither a concrete
-    /// method item nor a typed return is a dynamic boundary and yields
-    /// `undefined`, matching the surrounding erased-receiver behaviour.
+    /// method item nor a typed return is a dynamic boundary: an erased member call.
     pub(in crate::lowering) fn member_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -133,12 +132,28 @@ impl ModuleBuilder<'_> {
             && self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown)
             && !self.receiver_declares_in_progress_method(access_receiver_ty, method, member_span)?
         {
+            // No declaration answers this method, so the value decides at run
+            // time through the erased call ABI.
             // not a new erasure: the resolved method already returns `unknown`
             let ty = self.unknown_type();
-            return Ok(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::None),
+            let span = self.span(call.span.start, call.span.end);
+            let value = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: receiver },
                 ty,
-                span: self.span(call.span.start, call.span.end),
+                span,
+            });
+            let callee = body.push_expr(Expr {
+                kind: ExprKind::Field {
+                    receiver: value,
+                    field: method,
+                },
+                ty,
+                span,
+            });
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::ClosureCall { callee, args },
+                ty,
+                span,
             }));
         }
         if optional_access {
@@ -872,8 +887,17 @@ impl ModuleBuilder<'_> {
                     .skip(usize::from(!receiver_is_positional))
                     .map(Argument::is_spread)
                     .collect::<Vec<_>>();
-                let args =
-                    self.pack_value_call_arguments(&function, args, &spread_positions, span, body);
+                // Binding `this` erases the callee, and an erased call takes one
+                // operand per argument.
+                let callable_is_typed = matches!(
+                    self.ctx.krate.types.get(Self::expr_ty(body, callable)),
+                    Some(Type::Function(_))
+                );
+                let args = if callable_is_typed {
+                    self.pack_value_call_arguments(&function, args, &spread_positions, span, body)
+                } else {
+                    args
+                };
                 return Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::ClosureCall {
                         callee: callable,

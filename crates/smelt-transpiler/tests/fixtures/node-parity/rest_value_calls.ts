@@ -20,3 +20,7 @@ console.log(arr[0](4, 5, 6), arr[0]());
 function mk() { return (...xs: number[]) => xs.length; }
 console.log(mk()(1, 2), mk()());
 setTimeout((...xs: number[]) => console.log("t", xs.length), 0, 1, 2);
+function bound(fn: (...args: any[]) => any, self: unknown, x: unknown): unknown { return fn.call(self, x); }
+function boundApply(fn: (...args: any[]) => any, self: unknown, xs: unknown[]): unknown { return fn.apply(self, xs); }
+const countArgs = function (...xs: unknown[]): number { return xs.length; };
+console.log(bound(countArgs, null, 5), boundApply(countArgs, null, [1, 2, 3]));
