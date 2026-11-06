@@ -1368,8 +1368,10 @@ impl FunctionEmitter<'_> {
                 self.url_search_params_op_text(*op, params, args, dest_ty)
             }
             Rvalue::UrlOp { op, url, args } => self.url_op_text(*op, url, args, dest_ty),
+            Rvalue::PythonDivision { op, lhs, rhs, .. } => self.python_division_text(*op, lhs, rhs),
             // Lowering gives each of these a call terminator (`fallible_op`).
             Rvalue::Base64Transcode { .. }
+            | Rvalue::PythonDictRead { .. }
             | Rvalue::RegExpCompile { .. }
             | Rvalue::DataViewAccess { .. }
             | Rvalue::BigIntCall { .. }

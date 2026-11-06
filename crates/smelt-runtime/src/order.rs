@@ -32,6 +32,8 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("smelt_mono_ms"),
     Entry::Item("smelt_virtual_advance_to"),
     Entry::Item("smelt_math_round"),
+    Entry::Item("smelt_py_floor_div_int"),
+    Entry::Item("smelt_py_key_error"),
     Entry::Item("SmeltHostOverride"),
     Entry::Item("SMELT_NEXT_CAPTURE_SCOPE"),
     Entry::Item("smelt_next_capture_scope"),

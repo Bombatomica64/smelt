@@ -125,6 +125,10 @@ pub(crate) enum Need {
     Sqlite,
     /// `atob`/`btoa`.
     Base64,
+    /// Python's `/`, `//` and `%` helpers.
+    PythonDivision,
+    /// Python's raising `d[k]` read.
+    PythonDictRead,
     /// `globalThis` as a value.
     GlobalObject,
     /// A record write through an erased target.

@@ -842,6 +842,29 @@ impl Base64Op {
     }
 }
 
+/// One of Python's division operators over two `int`s or two `float`s.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PythonDivisionOp {
+    /// `a / b`: true division, over two `float`s.
+    TrueDiv,
+    /// `a // b`: the quotient rounded toward negative infinity.
+    FloorDiv,
+    /// `a % b`: the remainder with the sign of the divisor.
+    Mod,
+}
+
+impl PythonDivisionOp {
+    /// The operator as Python spells it, which is also how both dumps print it.
+    #[must_use]
+    pub const fn source_text(self) -> &'static str {
+        match self {
+            Self::TrueDiv => "/",
+            Self::FloorDiv => "//",
+            Self::Mod => "%",
+        }
+    }
+}
+
 /// A call into a modeled Node host module (`node:path`, `node:crypto`'s hasher).
 ///
 /// One node for every host-module function whose implementation is a runtime

@@ -4,11 +4,8 @@
     reason = "the crate root constructs the lowering builder"
 )]
 
-mod callback_expr;
 mod stdlib;
 mod stdlib_dispatch;
-
-use callback_expr::{CallbackExpr, CallbackExprKind};
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -29,7 +26,7 @@ use smelt_hir::{
     Function, FunctionOwner, FunctionType, Import, Item, ItemId, Language, ListCallbackOp, Literal,
     LocalDecl, MatchArm, MethodSig, Module, ModuleId, NumericExtremaOp, NumericPredicateOp,
     NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig, Pattern as HirPattern, PrimitiveCastOp,
-    PropertyLookup, RegexMatchOp, SetProjectionOp, SourceFile, Span, Stmt as HirStmt, StringAffixOp, StringCaseOp,
+    PropertyLookup, PythonDivisionOp, RegexMatchOp, SetProjectionOp, SourceFile, Span, Stmt as HirStmt, StringAffixOp, StringCaseOp,
     StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, Symbol, Type, TypeId,
     TypeParamDef, UnaryOp, Visibility,
 };
@@ -176,25 +173,29 @@ struct FnScope {
     locals: HashMap<String, smelt_hir::LocalId>,
     /// The kind of body being lowered.
     kind: FnKind,
-    /// Local lambda callbacks with explicit callable annotations, by name.
+    /// Call-packing metadata of callable locals, by name.
     local_callbacks: HashMap<String, LocalCallback>,
 }
 
-/// A local Python lambda value that can be consumed by callback APIs without escaping.
+/// How a call site packs its arguments for a callable local: what a `Callable`
+/// type alone cannot say about a lambda or nested `def` bound to that name.
 #[derive(Debug, Clone)]
 struct LocalCallback {
-    /// Lowered callback expression tree.
-    callback: CallbackExpr,
-    /// Parameter types in source order.
-    params: Vec<TypeId>,
-    /// Default argument expressions in source order.
+    /// Default argument expressions in source order, in the defining body.
     defaults: Vec<Option<smelt_hir::ExprId>>,
     /// Positional vararg metadata when the source closure uses `*args`.
     vararg: Option<VarArgParam>,
     /// Keyword vararg metadata when the source closure uses `**kwargs`.
     kwarg: Option<KwArgParam>,
-    /// Return type produced by the callback.
-    return_ty: TypeId,
+}
+
+/// What a Python arithmetic operator lowers to.
+#[derive(Debug, Clone, Copy)]
+enum PythonArithmetic {
+    /// An operator whose meaning a plain HIR binary op already has.
+    Plain(BinOp),
+    /// `/`, `//` or `%`, with Python's division rules.
+    Division(PythonDivisionOp),
 }
 
 /// A Python `*args` parameter represented as one list argument.
@@ -518,6 +519,9 @@ include!("lowering/literals.rs");
 include!("lowering/call.rs");
 // Collection constructor and list/set/dict helpers.
 include!("lowering/list.rs");
+
+// Python lambdas and nested `def`s as closures.
+include!("lowering/closure.rs");
 // Numeric/math operation lowering helpers.
 include!("lowering/math.rs");
 // String formatting and manipulation lowering helpers.
