@@ -95,6 +95,10 @@ impl PresenceTestedLocalCollector {
         let Some(frame) = self.frames.pop() else {
             return;
         };
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "`max` per span commutes"
+        )]
         for name in &frame.keyed {
             let Some(test) = frame.tested.get(name).copied() else {
                 continue;

@@ -119,9 +119,17 @@ impl InterfaceRegistry {
 
     /// Record the interface names the current module declares.
     pub(in crate::lowering) fn declare_module_scope(&mut self, declared: HashSet<String>) {
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "resets a field on every entry"
+        )]
         for entry in self.names.values_mut() {
             entry.declared = false;
         }
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "keyed inserts of one value"
+        )]
         for name in declared {
             self.names.entry(name).or_default().declared = true;
         }

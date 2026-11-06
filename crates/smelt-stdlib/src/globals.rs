@@ -27,6 +27,11 @@ pub const ERROR_CLASS_NAMES: &[&str] = &[
     "AggregateError",
 ];
 
+/// The names the ambient global object answers to in the non-DOM profile.
+///
+/// `window` is absent: it is DOM-only.
+pub const GLOBAL_OBJECT_ALIASES: &[&str] = &["globalThis", "global", "self"];
+
 /// The Node.js release the deterministic non-DOM, Node-compatible target
 /// profile reports.
 ///
@@ -43,9 +48,7 @@ pub const NODE_PROFILE_VERSION_STRING: &str = "v20.0.0";
 /// The IANA time zone the deterministic target profile runs in.
 ///
 /// The zone is fixed at compile time rather than read from the host at run
-/// time: `process.env.TZ` is this zone and
-/// `Intl.DateTimeFormat().resolvedOptions().timeZone` reports it. Every other
-/// `process.env` variable is read from the real environment at run time, as
+/// time: `process.env.TZ` is this zone. Every other `process.env` variable is read from the real environment at run time, as
 /// Node does. Comparing a generated program against `node` (the end-to-end
 /// oracle) therefore means running `node` with `TZ` set to this zone and
 /// nothing else that the program reads.
@@ -119,16 +122,13 @@ pub fn is_error_class_name(name: &str) -> bool {
 /// (ECMAScript intrinsics plus widely available Web/Node runtime globals).
 #[must_use]
 pub fn is_javascript_global_builtin(name: &str) -> bool {
-    matches!(
+    is_error_class_name(name) || GLOBAL_OBJECT_ALIASES.contains(&name) || matches!(
         name,
         // Core constructors and namespaces.
         "Array" | "Object" | "Number" | "String" | "Boolean" | "BigInt"
         | "Symbol" | "Function" | "Math" | "JSON" | "Reflect" | "Proxy"
         | "Date" | "RegExp" | "Promise" | "Map" | "Set" | "WeakMap"
         | "WeakSet" | "WeakRef" | "Iterator" | "Generator" | "Intl"
-        // Error constructors.
-        | "Error" | "TypeError" | "RangeError" | "SyntaxError"
-        | "ReferenceError" | "EvalError" | "URIError" | "AggregateError"
         // Binary data / typed arrays.
         | "ArrayBuffer" | "SharedArrayBuffer" | "DataView" | "Int8Array"
         | "Uint8Array" | "Uint8ClampedArray" | "Int16Array" | "Uint16Array"
@@ -140,7 +140,7 @@ pub fn is_javascript_global_builtin(name: &str) -> bool {
         | "queueMicrotask" | "setTimeout" | "clearTimeout" | "setInterval"
         | "clearInterval"
         // Ambient globals and environment objects.
-        | "globalThis" | "global" | "self" | "window" | "console" | "process"
+        | "window" | "console" | "process"
         // Common Web / Node runtime classes.
         | "TextEncoder" | "TextDecoder" | "URL" | "URLSearchParams" | "Blob"
         | "File" | "FormData" | "Headers" | "Request" | "Response" | "Buffer"

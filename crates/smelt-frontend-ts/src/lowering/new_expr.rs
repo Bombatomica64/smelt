@@ -48,9 +48,6 @@ impl ModuleBuilder<'_> {
             return Ok(expr);
         }
         let Expression::Identifier(callee) = &new_expr.callee else {
-            if let Some(expr) = self.intl_date_time_format_constructor_expression(new_expr, body)? {
-                return Ok(expr);
-            }
             if let Some(expr) = self.intl_namespace_constructor_expression(new_expr, body)? {
                 return Ok(expr);
             }
@@ -310,7 +307,7 @@ impl ModuleBuilder<'_> {
         if callee.name == "DOMException" && !self.classes.contains("DOMException") {
             return self.domexception_object_constructor_expression(new_expr, body);
         }
-        if Self::is_builtin_error_constructor(callee.name.as_str()) {
+        if smelt_stdlib::is_error_class_name(callee.name.as_str()) {
             return self.error_object_constructor_expression(new_expr, body);
         }
         if let Some(expr) = self.dynamic_identifier_constructor_expression(new_expr, body)? {
@@ -846,7 +843,7 @@ impl ModuleBuilder<'_> {
         if self.scope.is_bound(name) {
             return Ok(None);
         }
-        let is_error_builtin = Self::is_builtin_error_constructor(name);
+        let is_error_builtin = smelt_stdlib::is_error_class_name(name);
         let is_user_class = self.classes.is_known(name) || self.source_contains_class(name);
         if !is_error_builtin && !is_user_class {
             return Ok(None);
@@ -1192,21 +1189,6 @@ impl ModuleBuilder<'_> {
             "WeakMap" | "WeakSet" | "Request" => smelt_stdlib::host_object_marker(name),
             _ => None,
         }
-    }
-
-    /// Return true for built-in JavaScript Error constructors with Error identity.
-    pub(super) fn is_builtin_error_constructor(class_text: &str) -> bool {
-        matches!(
-            class_text,
-            "Error"
-                | "EvalError"
-                | "RangeError"
-                | "ReferenceError"
-                | "SyntaxError"
-                | "TypeError"
-                | "URIError"
-                | "AggregateError"
-        )
     }
 
     /// Lower a built-in Error constructor used as a value to an erased Error object.

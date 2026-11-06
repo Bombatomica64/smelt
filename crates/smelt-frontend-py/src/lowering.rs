@@ -10,6 +10,8 @@ mod stdlib_dispatch;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
+use indexmap::IndexMap;
+
 use ruff_python_ast::{
     BoolOp, CmpOp, ElifElseClause, ExceptHandler, Expr, ModModule, Number, Operator,
     Pattern as RuffPattern, PatternMatchAs, Singleton, Stmt, StmtAnnAssign, StmtAssert, StmtAssign,
@@ -118,8 +120,10 @@ pub(crate) struct ModuleBuilder<'ctx> {
     type_param_names: Vec<String>,
     /// Imported module/package namespaces available by local module name.
     module_namespaces: HashMap<String, HashMap<String, ItemId>>,
+    /// What each imported local name is bound to, as a fully qualified name.
+    import_aliases: HashMap<String, String>,
     /// Pytest fixture functions available to tests in this module.
-    pytest_fixtures: HashMap<String, PytestFixture>,
+    pytest_fixtures: IndexMap<String, PytestFixture>,
     /// Whether this module should use pytest-specific test discovery rules.
     pytest_mode: bool,
     /// Variadic parameter metadata for top-level Python function items.
@@ -324,7 +328,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             type_aliases: HashMap::new(),
             type_param_names: Vec::new(),
             module_namespaces,
-            pytest_fixtures: HashMap::new(),
+            import_aliases: HashMap::new(),
+            pytest_fixtures: IndexMap::new(),
             function_variadics: HashMap::new(),
             specialization,
             resolved_types: analysis.resolved_types,

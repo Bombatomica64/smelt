@@ -160,7 +160,7 @@ impl ModuleBuilder<'_> {
         if self.binding_is_known_not_url(&member.object, body) {
             return Ok(None);
         }
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         let span = self.span(member.span.start, member.span.end);
@@ -209,7 +209,7 @@ impl ModuleBuilder<'_> {
         {
             return Ok(None);
         }
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         let span = self.span(call.span.start, call.span.end);
@@ -242,7 +242,7 @@ impl ModuleBuilder<'_> {
         if self.binding_is_known_not_url(&member.object, body) {
             return Ok(None);
         }
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         if !self.is_url_type(Self::expr_ty(body, receiver)) {

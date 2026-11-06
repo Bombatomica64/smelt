@@ -4,6 +4,7 @@ impl ModuleBuilder<'_> {
 
     /// Lower a Python `import module [as alias]` statement to HIR metadata.
     fn import_stmt(&mut self, stmt: &StmtImport, hir_module: &mut Module) {
+        self.record_import_aliases(stmt);
         let span = self.span(stmt.range);
         for alias in &stmt.names {
             let module_name = alias.name.as_str();
@@ -31,6 +32,7 @@ impl ModuleBuilder<'_> {
 
     /// Lower a Python `from module import name [as alias]` statement to HIR metadata.
     fn import_from_stmt(&mut self, stmt: &StmtImportFrom, hir_module: &mut Module) {
+        self.record_import_from_aliases(stmt);
         let span = self.span(stmt.range);
         let module = stmt
             .module

@@ -15,7 +15,7 @@ use smelt_hir::{
     ErasureReason, GeneratorResumeKind, Item, Literal, LocalDecl, Param, Pattern, Span, Stmt, Type,
     TypeParamDef,
 };
-use smelt_stdlib::RuleId;
+use smelt_stdlib::{DiagnosticCategory, RuleId};
 use std::collections::HashMap;
 
 /// Render the opaque runtime string that stands for a *unique* `Symbol(...)`.
@@ -69,6 +69,38 @@ enum StrippedGlobalCallee<'a> {
         /// Method invoked on the normalized namespace.
         method: &'a str,
     },
+}
+
+/// The receiver of one member call while its builtin handlers run.
+#[derive(Debug)]
+pub(in crate::lowering) struct ReceiverFrame {
+    /// The receiver's source span, or `None` for a call with no member callee.
+    object: Option<oxc::span::Span>,
+    /// What lowering the receiver answered, once a handler asked.
+    lowered: DispatchedReceiver,
+}
+
+/// The answer one lowering of a dispatched receiver gave.
+#[derive(Debug, Clone, Copy)]
+enum DispatchedReceiver {
+    /// No handler asked yet.
+    Unasked,
+    /// The receiver has no value of its own (a namespace, a class name).
+    NoValue,
+    /// The lowered receiver.
+    Value(smelt_hir::ExprId),
+}
+
+impl ReceiverFrame {
+    /// The empty frame of `call`.
+    fn of(call: &oxc::ast::ast::CallExpression<'_>) -> Self {
+        let object = match &call.callee {
+            Expression::StaticMemberExpression(member) => Some(member.object.span()),
+            Expression::ComputedMemberExpression(member) => Some(member.object.span()),
+            _ => None,
+        };
+        Self { object, lowered: DispatchedReceiver::Unasked }
+    }
 }
 
 impl<'builder> ModuleBuilder<'builder> {
@@ -715,17 +747,7 @@ impl<'builder> ModuleBuilder<'builder> {
             }));
         }
         if let Expression::Identifier(callee_ident) = &call.callee {
-            if matches!(
-                callee_ident.name.as_str(),
-                "Error"
-                    | "EvalError"
-                    | "RangeError"
-                    | "ReferenceError"
-                    | "SyntaxError"
-                    | "TypeError"
-                    | "URIError"
-                    | "AggregateError"
-            ) {
+            if smelt_stdlib::is_error_class_name(callee_ident.name.as_str()) {
                 return self.error_function_call(call, body);
             }
             if self.scope.is_bound(callee_ident.name.as_str()) {
@@ -2317,12 +2339,56 @@ impl<'builder> ModuleBuilder<'builder> {
         {
             return Ok(None);
         }
-        for handler in Self::builtin_call_handlers() {
-            if let Some(expr) = handler(self, call, body)? {
-                return Ok(Some(expr));
+        self.receiver_frames.push(ReceiverFrame::of(call));
+        let lowered = Self::builtin_call_handlers()
+            .into_iter()
+            .find_map(|handler| handler(self, call, body).transpose())
+            .transpose();
+        self.receiver_frames.pop();
+        lowered
+    }
+
+    /// The receiver of the call being dispatched, lowered once for all handlers.
+    ///
+    /// Most handlers gate on the receiver's type, so the first one to ask lowers
+    /// it and the rest read that answer. `None` is a receiver with no value of
+    /// its own (a namespace, a class name), which later rules own. A missing
+    /// host surface is a blocker whichever handler meets it, so it propagates.
+    pub(in crate::lowering) fn dispatched_receiver(
+        &mut self,
+        object: &Expression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let span = object.span();
+        if let Some(frame) = self.receiver_frames.last()
+            && frame.object == Some(span)
+        {
+            match frame.lowered {
+                DispatchedReceiver::Unasked => {}
+                DispatchedReceiver::NoValue => return Ok(None),
+                DispatchedReceiver::Value(receiver) => return Ok(Some(receiver)),
             }
         }
-        Ok(None)
+        let lowered = match self.expression(object, body) {
+            Ok(receiver) => Some(receiver),
+            Err(error) if error.category == DiagnosticCategory::MissingStdlib => {
+                return Err(error);
+            }
+            Err(_) => None,
+        };
+        if let Some(frame) = self.receiver_frames.last_mut()
+            && frame.object == Some(span)
+        {
+            frame.lowered = lowered.map_or(DispatchedReceiver::NoValue, DispatchedReceiver::Value);
+        }
+        Ok(lowered)
+    }
+
+    /// Forget the dispatched receiver after a handler rolled its lowering back.
+    pub(in crate::lowering) fn forget_dispatched_receiver(&mut self) {
+        if let Some(frame) = self.receiver_frames.last_mut() {
+            frame.lowered = DispatchedReceiver::Unasked;
+        }
     }
 
     /// Whether a receiver expression is statically ERASED (`any`), decided
@@ -2576,15 +2642,6 @@ impl<'builder> ModuleBuilder<'builder> {
         self.type_test_call(call, body)
     }
 
-    /// Adapter so the infallible node-process-version handler fits the registry shape.
-    pub(in crate::lowering) fn node_process_version_match_call_entry(
-        &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        body: &mut Body,
-    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        Ok(self.node_process_version_match_call(call, body))
-    }
-
     /// Ordered builtin/stdlib call lowering handlers.
     ///
     /// The order is load-bearing: earlier handlers win when two could match the
@@ -2596,7 +2653,6 @@ impl<'builder> ModuleBuilder<'builder> {
             Self::type_test_call_entry,
             Self::typed_test_value_call_entry,
             Self::date_call,
-            Self::intl_call,
             Self::regex_replace_call,
             Self::object_assign_call,
             Self::vitest_async_expect_call,
@@ -2617,11 +2673,8 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::timer_call,
         Self::number_to_string_call,
         Self::number_to_fixed_call,
-        Self::node_process_version_match_call_entry,
-        Self::node_process_cwd_call,
         Self::commonjs_require_call,
         Self::object_metadata_mutation_call,
-        Self::lodash_has_call,
         Self::object_get_own_property_symbols_call,
         Self::object_projection_call,
         Self::object_has_own_call,
@@ -2664,9 +2717,6 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::string_trim_call,
         Self::string_locale_compare_call,
         Self::string_affix_call,
-        Self::lodash_for_each_call,
-        Self::strapi_async_map_call,
-        Self::lodash_fp_curried_call,
         Self::list_callback_call,
         Self::list_reduce_call,
         Self::list_search_call,
@@ -2691,77 +2741,22 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::string_contains_call,
         Self::string_split_call,
         Self::namespace_member_call,
+        Self::unmodeled_host_namespace_call,
             Self::function_bind_call,
         ]
     }
 
-    /// Return whether the module source declares a callable with this local name
-    /// AT MODULE LEVEL.
+    /// Return whether the module declares a callable with this name, at any depth.
     ///
-    /// The caller uses this to resolve a name that is not in scope yet as a
-    /// module global, which for `Type::Unknown` FABRICATES an empty object.
-    /// That is defensible for a module-level binding lowered later in the file
-    /// (`module_global_expression` recreates its value), and wrong for a
-    /// FUNCTION-LOCAL one: a local read before its declaration is a binding,
-    /// not a host global, and answering `{}` for it turned
-    /// `clearTimeout(timeoutId)` into a silent no-op. Such a local is
-    /// predeclared by `predeclare_forward_referenced_locals` and never reaches
-    /// here; if one still does, it must fail loudly as an unresolved name.
-    ///
-    /// Module level is read off the declaration's INDENTATION, which is what
-    /// distinguishes the two in source text: a top-level declaration starts a
-    /// line (optionally after `export `/`declare `), a function-local one is
-    /// indented inside a block.
+    /// The caller uses this to resolve a name that is not in scope yet: a later
+    /// declaration, or a nested function naming itself in its own body.
     pub(in crate::lowering) fn source_contains_forward_callable(&self, name: &str) -> bool {
-        let const_prefix = format!("const {name}");
-        let function_prefix = format!("function {name}(");
-        self.source_declaration_is_module_level(&function_prefix, |_| true)
-            || self.source_declaration_is_module_level(&const_prefix, |suffix| {
-                suffix.starts_with(" =") || suffix.starts_with(':')
-            })
-    }
-
-    /// Return whether `prefix` occurs at the start of a line (module level).
-    ///
-    /// `suffix_is_declaration` inspects the text right after the prefix, so a
-    /// caller can require `=` or `:` and not match a longer name.
-    fn source_declaration_is_module_level(
-        &self,
-        prefix: &str,
-        suffix_is_declaration: impl Fn(&str) -> bool,
-    ) -> bool {
-        let mut searched = 0usize;
-        while let Some(offset) = self.source.get(searched..).and_then(|rest| {
-            rest.find(prefix)
-                .map(|relative| searched.saturating_add(relative))
-        }) {
-            searched = offset.saturating_add(prefix.len());
-            if !self
-                .source
-                .get(searched..)
-                .is_some_and(&suffix_is_declaration)
-            {
-                continue;
-            }
-            // Everything between the line start and the declaration keyword must
-            // be a modifier, not indentation: `export`/`declare` keep a
-            // declaration at module level, leading whitespace does not.
-            let line_start = self.source[..offset]
-                .rfind('\n')
-                .map_or(0, |newline| newline.saturating_add(1));
-            let lead = self.source[line_start..offset].trim_end();
-            if lead.is_empty() || matches!(lead, "export" | "declare" | "export declare") {
-                return true;
-            }
-        }
-        false
+        self.source_facts.declares_forward_callable(name)
     }
 
     /// Return whether the module source declares a class with this local name.
     pub(in crate::lowering) fn source_contains_class(&self, name: &str) -> bool {
-        let class_prefix = format!("class {name}");
-        let exported_class_prefix = format!("export class {name}");
-        self.source.contains(&class_prefix) || self.source.contains(&exported_class_prefix)
+        self.source_facts.declares_class(name)
     }
 
     /// Rewrites the receiver for `value[index]?.method()` to optional indexing.
@@ -5121,6 +5116,21 @@ impl<'builder> ModuleBuilder<'builder> {
         }
     }
 
+    /// The stdlib rule a call denotes: the recognition table's answer, unless a
+    /// program binding shadows the callee's root name.
+    ///
+    /// The one question every exact rule asks, so a recognized spelling is
+    /// matched once and a shadowed global gives way however it is reached.
+    pub(in crate::lowering) fn recognized_call(
+        &self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+    ) -> Option<RuleId> {
+        let rule = stdlib_dispatch::call_rule(call)?;
+        let shadowed = stdlib_dispatch::callee_root(&call.callee)
+            .is_some_and(|root| self.builtin_call_identifier_is_shadowed(root));
+        (!shadowed).then_some(rule)
+    }
+
     /// Route exact global and static namespace calls through shared recognition metadata.
     ///
     /// Receiver-, shape-, plugin-, and test-framework-dependent handlers remain
@@ -5131,7 +5141,7 @@ impl<'builder> ModuleBuilder<'builder> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Some(rule) = stdlib_dispatch::call_rule(call) else {
+        let Some(rule) = self.recognized_call(call) else {
             return Ok(None);
         };
         match rule {

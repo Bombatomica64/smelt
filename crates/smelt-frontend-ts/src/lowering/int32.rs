@@ -1084,6 +1084,10 @@ impl ModuleBuilder<'_> {
         for guard in guards {
             let mut candidate = HashMap::new();
             self.refine_from(body, guard.cond, guard.sense, &mut candidate);
+            #[expect(
+                clippy::iter_over_hash_type,
+                reason = "intersecting ranges per local commutes"
+            )]
             for (local, range) in candidate {
                 let own_write = matches!(
                     &body.stmts[statement.0 as usize],

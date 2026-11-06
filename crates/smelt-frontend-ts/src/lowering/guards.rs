@@ -1,7 +1,7 @@
 //! Lowering helpers for `instanceof`, `typeof`, nullish comparisons, type
 //! assertions, call-argument lowering, and `Promise` construction.
 
-use super::{ModuleBuilder, ambient_globals, stdlib_dispatch, unknown_kind_from_typeof};
+use super::{ModuleBuilder, ambient_globals, unknown_kind_from_typeof};
 use crate::SmeltError;
 use crate::lowering::js_text::js_str_text;
 use oxc::ast::ast::{Argument, BindingPattern, Expression, Statement, TSType, TSTypeName};
@@ -27,8 +27,23 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let value = self.expression(&binary.left, body)?;
+        self.instanceof_test(value, binary.left.span(), &binary.right, binary.span, body)
+    }
+
+    /// Build the `instanceof` predicate of an already lowered `value`.
+    ///
+    /// Shared by the source operator and `expect(value).toBeInstanceOf(Ctor)`.
+    /// `value_span` locates the value and `span` the whole test.
+    pub(in crate::lowering) fn instanceof_test(
+        &mut self,
+        value: smelt_hir::ExprId,
+        value_span: oxc::span::Span,
+        target: &Expression<'_>,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         let value_ty = Self::expr_ty(body, value);
-        if let Expression::StaticMemberExpression(member) = &binary.right
+        if let Expression::StaticMemberExpression(member) = target
             && (self
                 .namespace_member_name(member)
                 .is_some_and(|(namespace, _)| self.imports.is_namespace(namespace))
@@ -41,12 +56,12 @@ impl ModuleBuilder<'_> {
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Bool(false)),
                 ty,
-                span: self.span(binary.span.start, binary.span.end),
+                span: self.span(span.start, span.end),
             }));
         }
-        let Expression::Identifier(class_ident) = &binary.right else {
+        let Expression::Identifier(class_ident) = target else {
             return Err(SmeltError::unsupported(
-                self.span(binary.right.span().start, binary.right.span().end),
+                self.span(target.span().start, target.span().end),
                 "TypeScript instanceof requires a direct class constructor on the right side",
             ));
         };
@@ -72,13 +87,26 @@ impl ModuleBuilder<'_> {
                         kind: UnknownKind::Array,
                     },
                     ty,
-                    span: self.span(binary.span.start, binary.span.end),
+                    span: self.span(span.start, span.end),
                 }));
             };
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Bool(result)),
                 ty,
-                span: self.span(binary.span.start, binary.span.end),
+                span: self.span(span.start, span.end),
+            }));
+        }
+        // A `Future` is the Rust side of a `Promise`, so its static type settles
+        // `x instanceof Promise`.
+        if class_text == "Promise"
+            && !self.classes.contains("Promise")
+            && matches!(self.ctx.krate.types.get(value_ty), Some(Type::Future(_)))
+        {
+            let ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(true)),
+                ty,
+                span: self.span(span.start, span.end),
             }));
         }
         if Self::is_ts_stdlib_class_name(class_text, smelt_stdlib::StdlibClass::Date)
@@ -88,7 +116,7 @@ impl ModuleBuilder<'_> {
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Bool(true)),
                 ty,
-                span: self.span(binary.span.start, binary.span.end),
+                span: self.span(span.start, span.end),
             }));
         }
         // `Date` and `RegExp` both erase to marker-bearing objects
@@ -127,13 +155,13 @@ impl ModuleBuilder<'_> {
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Bool(false)),
                 ty,
-                span: self.span(binary.span.start, binary.span.end),
+                span: self.span(span.start, span.end),
             }));
         }
         let builtin_target = Self::instanceof_builtin_target(class_text);
         if !self.instanceof_supported_left_operand(value_ty) {
             return Err(SmeltError::unsupported(
-                self.span(binary.left.span().start, binary.left.span().end),
+                self.span(value_span.start, value_span.end),
                 "TypeScript instanceof requires a concrete class-typed left operand",
             ));
         }
@@ -183,7 +211,7 @@ impl ModuleBuilder<'_> {
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::Bool(false)),
                     ty,
-                    span: self.span(binary.span.start, binary.span.end),
+                    span: self.span(span.start, span.end),
                 }));
             }
             if target_is_function_value {
@@ -197,7 +225,7 @@ impl ModuleBuilder<'_> {
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::InstanceOfValue { value, target },
                     ty,
-                    span: self.span(binary.span.start, binary.span.end),
+                    span: self.span(span.start, span.end),
                 }));
             }
             return Err(SmeltError::for_unresolved_name(
@@ -211,7 +239,7 @@ impl ModuleBuilder<'_> {
         Ok(body.push_expr(Expr {
             kind: ExprKind::InstanceOf { value, class },
             ty,
-            span: self.span(binary.span.start, binary.span.end),
+            span: self.span(span.start, span.end),
         }))
     }
 
@@ -235,6 +263,7 @@ impl ModuleBuilder<'_> {
             // `Buffer`, `DataView`) all carry a registry marker their `instanceof`
             // resolves through.
             || smelt_stdlib::byte_buffer_role(target).is_some()
+            || smelt_stdlib::is_error_class_name(target)
             || matches!(
                 target,
                 "Promise"
@@ -261,14 +290,6 @@ impl ModuleBuilder<'_> {
                     | "Symbol"
                     | "AbortController"
                     | "AbortSignal"
-                    | "Error"
-                    | "EvalError"
-                    | "RangeError"
-                    | "ReferenceError"
-                    | "SyntaxError"
-                    | "TypeError"
-                    | "URIError"
-                    | "AggregateError"
                     // Host `DOMException`: es-toolkit's `AbortError`/`TimeoutError`
                     // tests probe `value instanceof DOMException`. A `new
                     // DOMException(...)` erases to a record carrying
@@ -2361,13 +2382,7 @@ impl ModuleBuilder<'_> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsFetch) {
-            return Ok(None);
-        }
-        let Expression::Identifier(callee) = &call.callee else {
-            return Ok(None);
-        };
-        if callee.name != "fetch" {
+        if self.recognized_call(call) != Some(RuleId::TsFetch) {
             return Ok(None);
         }
         if !(1..=2).contains(&call.arguments.len()) {
@@ -2466,7 +2481,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         if matches!(&call.callee, Expression::StaticMemberExpression(_))
-            && stdlib_dispatch::call_rule(call) == Some(RuleId::TsDateNow)
+            && self.recognized_call(call) == Some(RuleId::TsDateNow)
         {
             if !call.arguments.is_empty() {
                 return Err(SmeltError::unsupported(
@@ -2491,7 +2506,7 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.date_member_call(member, call, body)? {
             return Ok(Some(expr));
         }
-        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsDateToIsoString) {
+        if self.recognized_call(call) != Some(RuleId::TsDateToIsoString) {
             return Ok(None);
         }
         let Expression::NewExpression(new_expr) = &member.object else {

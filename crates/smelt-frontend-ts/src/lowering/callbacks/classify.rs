@@ -6,7 +6,7 @@ use crate::lowering::js_text::js_str_text;
 use crate::lowering::{
     Argument, BinOp, BindingPattern, Body, CallbackCallArg, CallbackExpr, CallbackExprKind,
     CaptureMode, ClosureCapture, Expr, ExprKind, Expression, FunctionType, HashMap, Item,
-    Literal, LocalDecl, ModuleBuilder, Param, SmeltError, Span, Type, UnaryOp,
+    Literal, LocalDecl, ModuleBuilder, Param, SmeltError, Span, Type,
 };
 use smelt_hir::ErasureReason;
 use oxc::span::GetSpan;
@@ -498,11 +498,6 @@ impl ModuleBuilder<'_> {
             return Ok(callback);
         }
         let Argument::ArrowFunctionExpression(arrow) = argument else {
-            if let Some(callback) =
-                self.known_callback_factory_predicate(argument, expected_param_tys)?
-            {
-                return Ok(callback);
-            }
             // A callback produced by a call (`xs.filter(negate(isEven))`) is
             // deliberately NOT modeled here. The compact callback IR can only
             // stand in a fabricated callee for it, which silently replaces the
@@ -677,9 +672,23 @@ impl ModuleBuilder<'_> {
             }
         }
         if self.is_opaque_callback_value(name) {
+            self.reject_unresolved_callback_import(name, start, end)?;
             return Ok(Some(self.opaque_member_callback(expected_param_tys)));
         }
         Ok(None)
+    }
+
+    /// Report a callback that names an import no source file or host module
+    /// provides, instead of standing a null callee in for it.
+    pub(in crate::lowering) fn reject_unresolved_callback_import(
+        &self,
+        name: &str,
+        span_start: u32,
+        span_end: u32,
+    ) -> Result<(), SmeltError> {
+        self.imports.unresolved_value_import(name).map_or(Ok(()), |blocker| {
+            Err(SmeltError::missing_stdlib(self.span(span_start, span_end), blocker.to_owned()))
+        })
     }
 
     /// Lower the lodash array iteratee shorthand `[path, srcValue]` passed as a
@@ -733,148 +742,6 @@ impl ModuleBuilder<'_> {
             },
             ty: bool_ty,
         }))
-    }
-
-    /// Lower common lodash/fp predicate factories when they are passed as array callbacks.
-    pub(in crate::lowering) fn known_callback_factory_predicate(
-        &mut self,
-        argument: &Argument<'_>,
-        expected_param_tys: &[smelt_hir::TypeId],
-    ) -> Result<Option<CallbackExpr>, SmeltError> {
-        let Argument::CallExpression(call) = argument else {
-            return Ok(None);
-        };
-        let Some(item_ty) = expected_param_tys.first().copied() else {
-            return Ok(None);
-        };
-        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        if Self::is_identifier_callee(&call.callee, "has")
-            && let [Argument::StringLiteral(field)] = call.arguments.as_slice()
-        {
-            let field = self.intern_source_name(&js_str_text(field.value));
-            return Ok(Some(CallbackExpr {
-                kind: CallbackExprKind::HasField {
-                    receiver: Box::new(CallbackExpr {
-                        kind: CallbackExprKind::Param(0),
-                        ty: item_ty,
-                    }),
-                    field,
-                },
-                ty: bool_ty,
-            }));
-        }
-        if Self::is_identifier_callee(&call.callee, "omit") && call.arguments.len() == 1 {
-            return Ok(Some(CallbackExpr {
-                kind: CallbackExprKind::Param(0),
-                ty: item_ty,
-            }));
-        }
-        if Self::is_identifier_callee(&call.callee, "isNot")
-            && let [Argument::Identifier(predicate)] = call.arguments.as_slice()
-            && let Some(item) = self.items.get(predicate.name.as_str()).copied()
-        {
-            let function = match self.item_ref(item) {
-                Item::Function(function) => function.clone(),
-                _ => return Ok(None),
-            };
-            if function.params.is_empty() {
-                return Ok(None);
-            }
-            let function_name = function.name;
-            let return_ty = function.return_ty;
-            let function_ty =
-                self.item_expr_type(item, self.span(predicate.span.start, predicate.span.end))?;
-            return Ok(Some(CallbackExpr {
-                kind: CallbackExprKind::Unary {
-                    op: UnaryOp::Not,
-                    operand: Box::new(CallbackExpr {
-                        kind: CallbackExprKind::Call {
-                            callee: Box::new(CallbackExpr {
-                                kind: CallbackExprKind::Function(function_name),
-                                ty: function_ty,
-                            }),
-                            args: vec![CallbackCallArg {
-                                expr: CallbackExpr {
-                                    kind: CallbackExprKind::Param(0),
-                                    ty: item_ty,
-                                },
-                                spread: false,
-                            }],
-                        },
-                        ty: return_ty,
-                    }),
-                },
-                ty: bool_ty,
-            }));
-        }
-        if let Expression::StaticMemberExpression(member) = &call.callee
-            && member.property.name == "prop"
-            && self.imported_utility_object(&member.object)
-            && let [Argument::StringLiteral(field)] = call.arguments.as_slice()
-        {
-            return Ok(Some(CallbackExpr {
-                kind: CallbackExprKind::Field {
-                    receiver: Box::new(CallbackExpr {
-                        kind: CallbackExprKind::Param(0),
-                        ty: item_ty,
-                    }),
-                    field: self.intern_source_name(&js_str_text(field.value)),
-                },
-                ty: self.erase_with(ErasureReason::ByName, &js_str_text(field.value)),
-            }));
-        }
-        if Self::is_identifier_callee(&call.callee, "emitEvent") && call.arguments.len() == 1 {
-            return Ok(Some(CallbackExpr {
-                kind: CallbackExprKind::Literal(Literal::None),
-                ty: self.ctx.krate.types.intern(Type::None),
-            }));
-        }
-        if Self::is_static_member_callee(&call.callee, "async", "pipe") {
-            return Ok(Some(CallbackExpr {
-                kind: CallbackExprKind::Literal(Literal::None),
-                ty: self.erase_with(ErasureReason::UntypedPackage, "async.pipe"),
-            }));
-        }
-        if Self::is_static_member_callee(&call.callee, "_", "negate")
-            && let [Argument::StaticMemberExpression(inner)] = call.arguments.as_slice()
-            && matches!(&inner.object, Expression::Identifier(object) if object.name == "_")
-            && inner.property.name == "isNil"
-        {
-            return Ok(Some(CallbackExpr {
-                kind: CallbackExprKind::Binary {
-                    op: BinOp::NotEq,
-                    lhs: Box::new(CallbackExpr {
-                        kind: CallbackExprKind::Param(0),
-                        ty: item_ty,
-                    }),
-                    rhs: Box::new(CallbackExpr {
-                        kind: CallbackExprKind::Literal(Literal::None),
-                        ty: self.ctx.krate.types.intern(Type::None),
-                    }),
-                },
-                ty: bool_ty,
-            }));
-        }
-        Ok(None)
-    }
-
-    /// Return whether a call callee is a bare identifier with the given name.
-    pub(in crate::lowering) fn is_identifier_callee(callee: &Expression<'_>, expected: &str) -> bool {
-        matches!(callee, Expression::Identifier(identifier) if identifier.name == expected)
-    }
-
-    /// Return whether a call callee is `object.property`.
-    pub(in crate::lowering) fn is_static_member_callee(
-        callee: &Expression<'_>,
-        object_name: &str,
-        property_name: &str,
-    ) -> bool {
-        matches!(
-            callee,
-            Expression::StaticMemberExpression(member)
-                if matches!(&member.object, Expression::Identifier(object) if object.name == object_name)
-                    && member.property.name == property_name
-        )
     }
 
     /// Lower callbacks wrapped in erased TypeScript assertion syntax.
@@ -1213,8 +1080,8 @@ impl ModuleBuilder<'_> {
     /// interceptor keeps firing unchanged.
     pub(in crate::lowering) fn builtin_call_identifier_is_shadowed(&self, name: &str) -> bool {
         self.scope.is_bound(name)
-            || self.items.contains_key(name)
-            || self.imports.is_value(name)
+            || self.source_facts.declares_module_value(name)
+            || (self.imports.is_value(name) && self.host_module_identifier_export_path(name).is_none())
     }
 
     /// Lower a function-expression callback after expected parameter types are known.

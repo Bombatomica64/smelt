@@ -6,11 +6,12 @@ use crate::lowering::js_text::js_str_text;
 use crate::lowering::{
     Argument, ArrayExpressionElement, AssignmentOperator, AssignmentTarget, BinOp, BinaryOperator,
     Body, CallbackCallArg, CallbackExpr, CallbackExprKind, ClosureCallback, ConstCollectionValue,
-    Expr, ExprKind, Expression, LocalCallback, FunctionType, HashMap, Item, Literal, LogicalOperator, ModuleBuilder,
+    ExprKind, Expression, LocalCallback, HashMap, Item, Literal, LogicalOperator, ModuleBuilder,
     ObjectPropertyKind, PropertyKey, SmeltError, Span, Type, UnaryOp, UnaryOperator, UnknownKind,
 };
 use crate::{ObjectConst, ObjectConstValue};
 use smelt_hir::ErasureReason;
+use smelt_stdlib::DiagnosticCategory;
 use oxc::span::GetSpan;
 use std::borrow::Cow;
 
@@ -214,37 +215,6 @@ impl ModuleBuilder<'_> {
             let return_ty = self.closure_value_return_ty(expr, body);
             return Ok(ClosureCallback { expr, return_ty });
         }
-        // Imported es-toolkit/lodash predicates whose bodies are opaque here
-        // but whose `(value) => bool` shape is known. These are not builtins,
-        // so they are gated on being a value import.
-        if matches!(
-            name,
-            "isEmpty" | "isArray" | "isString" | "isObject" | "trim"
-        ) && self.imports.is_value(name)
-        {
-            let param_ty = expected_param_tys
-                .first()
-                .copied()
-                .unwrap_or_else(|| {
-                    self.erase_with(ErasureReason::MissingAnnotation, "callback parameter")
-                });
-            let return_ty = self.ctx.krate.types.intern(Type::Bool);
-            let function_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
-                params: vec![param_ty],
-                rest: None,
-                required_params: None,
-                mutable_params: Vec::new(),
-                return_ty,
-                is_async: false,
-                may_throw: false,
-            }));
-            let expr = body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::None),
-                ty: function_ty,
-                span: self.span(span_start, span_end),
-            });
-            return Ok(ClosureCallback { expr, return_ty });
-        }
         if self.is_opaque_callback_value(name) {
             // The callback names an imported or forward-declared callable
             // whose body is opaque here. Lower it like an opaque member
@@ -252,6 +222,7 @@ impl ModuleBuilder<'_> {
             // element arguments. This matches how a direct call to the same
             // value lowers, and lets array methods accept named-local
             // callbacks instead of requiring an inline arrow.
+            self.reject_unresolved_callback_import(name, span_start, span_end)?;
             let callback = self.opaque_member_callback(expected_param_tys);
             let return_ty = callback.ty;
             let expr = self.callback_expr_to_closure(
@@ -418,10 +389,14 @@ impl ModuleBuilder<'_> {
         ) {
             // A callback factory whose callee is only *declared* here has no
             // lowerable value, so a failed attempt falls through to the opaque
-            // callback below instead of failing the whole call.
+            // callback below instead of failing the whole call. A missing host
+            // surface is a blocker the opaque callback must not absorb.
             let direct = match self.argument(argument, body) {
                 Ok(expr) => Some(expr),
-                Err(error) if matches!(argument, Argument::CallExpression(_)) => {
+                Err(error)
+                    if matches!(argument, Argument::CallExpression(_))
+                        && error.category != DiagnosticCategory::MissingStdlib =>
+                {
                     drop(error);
                     None
                 }
@@ -567,9 +542,13 @@ impl ModuleBuilder<'_> {
                 if matches!(argument, Argument::CallExpression(_)) {
                     // The factory's value when it can be lowered; the opaque
                     // callback when the callee is only declared here.
-                    let callback = self
-                        .argument(argument, body)
-                        .ok()
+                    let direct = match self.argument(argument, body) {
+                        Err(error) if error.category == DiagnosticCategory::MissingStdlib => {
+                            return Err(error);
+                        }
+                        direct => direct.ok(),
+                    };
+                    let callback = direct
                         .and_then(|direct_expr| {
                             let direct_ty = Self::expr_ty(body, direct_expr);
                             self.bound_callable_value_callback(
@@ -1435,7 +1414,7 @@ impl ModuleBuilder<'_> {
             Expression::NewExpression(new_expr) if matches!(
                 &new_expr.callee,
                 Expression::Identifier(callee)
-                    if Self::is_builtin_error_constructor(callee.name.as_str())
+                    if smelt_stdlib::is_error_class_name(callee.name.as_str())
             ) =>
             {
                 self.callback_error_object_expression(new_expr, params, body)

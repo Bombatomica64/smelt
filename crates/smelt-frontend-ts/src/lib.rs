@@ -4,6 +4,7 @@
 //! Intermediate Representation). It handles type annotations, classes, interfaces, functions,
 //! and various control flow constructs.
 
+#![cfg_attr(not(test), deny(clippy::iter_over_hash_type))]
 #![expect(
     clippy::too_many_lines,
     reason = "TypeScript lowering is still organized around large AST match functions"

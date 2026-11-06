@@ -70,7 +70,7 @@ impl ModuleBuilder<'_> {
         call: &ruff_python_ast::ExprCall,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        if stdlib_dispatch::call_rule(call) != Some(RuleId::PyRequestsGet) {
+        if self.stdlib_call_rule(call) != Some(RuleId::PyRequestsGet) {
             return Ok(None);
         }
         let span = self.span(call.range());

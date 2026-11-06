@@ -3006,6 +3006,7 @@ dependencies = [
 name = "smelt-frontend-py"
 version = "0.1.1"
 dependencies = [
+ "indexmap",
  "pico-args",
  "ruff_python_ast",
  "ruff_python_parser",
@@ -3020,6 +3021,7 @@ dependencies = [
 name = "smelt-frontend-ts"
 version = "0.1.1"
 dependencies = [
+ "indexmap",
  "oxc",
  "pico-args",
  "smelt-hir",

@@ -159,38 +159,32 @@ module examples/typescript/end-to-end/153_this_param_function_as_method/input.ts
     #138: App = new App()
     #139: App = %8
     #140: App = %8
-    #141: App = %8
+    #141: fn(String) -> Float = #140.get
     #142: App = %8
-    #143: App = %8
-    #144: fn(String) -> Float = #143.get
-    #145: App = %8
-    #146: String = "/a"
-    #147: fn(String) -> Float = bind_this #144, #143
-    #148: Float = closure_call #147(#146)
-    #149: App = %8
-    #150: fn(String) -> Float = #149.post
-    #151: App = %8
-    #152: String = "/b"
-    #153: fn(String) -> Float = bind_this #150, #149
-    #154: Float = closure_call #153(#152)
+    #143: String = "/a"
+    #144: fn(String) -> Float = bind_this #141, #140
+    #145: Float = closure_call #144(#143)
+    #146: App = %8
+    #147: fn(String) -> Float = #146.post
+    #148: App = %8
+    #149: String = "/b"
+    #150: fn(String) -> Float = bind_this #147, #146
+    #151: Float = closure_call #150(#149)
+    #152: App = %8
+    #153: App = %8
+    #154: fn(String) -> Float = #153.get
     #155: App = %8
-    #156: App = %8
-    #157: App = %8
-    #158: App = %8
-    #159: App = %8
-    #160: fn(String) -> Float = #159.get
+    #156: String = "/c"
+    #157: fn(String) -> Float = bind_this #154, #153
+    #158: Float = closure_call #157(#156)
+    #159: None = @25(console_log)
+    #160: None = call #159(#145, #151, #158)
     #161: App = %8
-    #162: String = "/c"
-    #163: fn(String) -> Float = bind_this #160, #159
-    #164: Float = closure_call #163(#162)
-    #165: None = @25(console_log)
-    #166: None = call #165(#148, #154, #164)
-    #167: App = %8
-    #168: fn() -> String = #167.routes
-    #169: App = %8
-    #170: String = #169.routes()
-    #171: None = @26(console_log)
-    #172: None = call #171(#170)
+    #162: fn() -> String = #161.routes
+    #163: App = %8
+    #164: String = #163.routes()
+    #165: None = @26(console_log)
+    #166: None = call #165(#164)
   stmts
     s0: let %0: TableRouter = #0
     s1: #7
@@ -215,8 +209,8 @@ module examples/typescript/end-to-end/153_this_param_function_as_method/input.ts
     s20: #134
     s21: let %7: List<String> = #137
     s22: let %8: App = #138
-    s23: #166
-    s24: #172
+    s23: #160
+    s24: #166
 
 interned types
   t0 = TableRouter

@@ -414,37 +414,6 @@ pub fn host_value_blocker(specifier: &str, name: &str) -> Option<String> {
     }
 }
 
-/// Whether *using* a value imported from an unmodeled bare package blocks.
-///
-/// Both halves of the unresolved-import policy are enabled:
-///
-/// - a **modeled** host module whose export is [`HostSurface::Declared`] blocks.
-///   Smelt knows the module and knows it has no implementation, so erasing the
-///   binding would be a false green with no upside;
-/// - an **unmodeled** bare package (`express`, `lodash`, `yup`) blocks too, at
-///   the point its imported value is *used* as a value.
-///
-/// The second half returned `false` for one pass, because erased-library
-/// interop is a real capability and turning it on had to be a deliberate
-/// decision rather than a side effect. It is now `true`: a framework import
-/// that drives a program is precisely the false green this classification
-/// exists to stop, and a program that lowers to a crate with the framework
-/// silently erased is not a program a hand-writing Rust team would ship.
-///
-/// Two carve-outs keep the honest cases honest, and they are what make the flip
-/// safe (see `classify_pending_host_imports`): a **relative specifier** never
-/// blocks, because it names a source file the manifest resolver owns; and a
-/// **test module** never blocks, because assertion and fixture libraries
-/// (`chai`, `yup`) only ever flow into already-erased matchers, which
-/// `CLAUDE.md` sanctions explicitly.
-///
-/// This stays a named constant rather than being inlined: it is the one place
-/// the policy is stated, and the doc above is the argument for it.
-#[must_use]
-pub const fn unmodeled_package_use_blocks() -> bool {
-    true
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

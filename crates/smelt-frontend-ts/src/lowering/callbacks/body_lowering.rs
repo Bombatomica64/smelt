@@ -849,7 +849,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<CallbackExpr, SmeltError> {
         if matches!(argument, Expression::NewExpression(new_expr)
             if !matches!(&new_expr.callee, Expression::Identifier(callee)
-                if Self::is_builtin_error_constructor(callee.name.as_str())))
+                if smelt_stdlib::is_error_class_name(callee.name.as_str())))
         {
             let ty = self.ctx.krate.types.intern(Type::String);
             return Ok(CallbackExpr {

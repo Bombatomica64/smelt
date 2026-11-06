@@ -53,7 +53,10 @@ impl ModuleBuilder<'_> {
         if !Self::is_collection_method_name(member_name) {
             return Ok(None);
         }
-        let receiver = self.expression(&member.object, body)?;
+        let receiver = match self.dispatched_receiver(&member.object, body)? {
+            Some(receiver) => receiver,
+            None => self.expression(&member.object, body)?,
+        };
         let receiver_ty = self.type_param_constraint_or_self(Self::expr_ty(body, receiver));
         // A `recv?.method(args)` call whose receiver is `T | undefined` for a
         // modeled receiver `T` (Map/Set) desugars to the same modeled operation

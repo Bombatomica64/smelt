@@ -13,6 +13,7 @@ use crate::lowering::{
     ModuleBuilder, RestParam, ambient_globals, stdlib_dispatch,
 };
 use crate::SmeltError;
+use smelt_stdlib::MathFunction;
 use oxc::ast::ast::{
     Argument, BindingPattern, Expression,
 };
@@ -21,7 +22,7 @@ use oxc::syntax::operator::{
     BinaryOperator, UnaryOperator,
 };
 use smelt_hir::{
-    Body, ErasureReason, Expr, ExprKind, Function, FunctionOwner, FunctionType, Item, Literal, LocalDecl, Param, Span, Stmt, Type,
+    Body, ErasureReason, Expr, ExprKind, Function, FunctionOwner, FunctionType, Item, Literal, LocalDecl, Param, Stmt, Type,
 };
 use std::borrow::Cow;
 
@@ -501,15 +502,7 @@ impl ModuleBuilder<'_> {
         qualify_private_name: bool,
     ) -> Option<(smelt_hir::ItemId, Option<smelt_hir::ItemId>)> {
         let return_ty = declared_return_ty?;
-        let body_span = arrow.body.span();
-        let body_text = self
-            .source
-            .get(
-                usize::try_from(body_span.start).unwrap_or(usize::MAX)
-                    ..usize::try_from(body_span.end).unwrap_or(usize::MAX),
-            )
-            .unwrap_or_default();
-        if !Self::mentions_identifier(body_text, name_text) {
+        if !self.source_facts.mentions(arrow.body.span(), name_text) {
             return None;
         }
         let name = self.arrow_item_symbol(name_text, preserve_source_name, qualify_private_name);
@@ -686,223 +679,6 @@ return_ty,
                 }
             }
             _ => {}
-        }
-    }
-
-    /// Lower date-fns-style `export const fpName = convertToFP(fn, arity)` wrappers.
-    ///
-    /// `convertToFP` reverses the first `arity` arguments before invoking the
-    /// target function. Smelt does not model generic runtime currying yet, so
-    /// this helper emits the direct uncurried wrapper shape used by generated
-    /// date-fns `src/fp` entrypoints while preserving the real target return
-    /// type and parameter types.
-    pub(in crate::lowering) fn fp_wrapper_const_declaration(
-        &mut self,
-        name_text: &str,
-        init: &Expression<'_>,
-    ) -> Result<Option<smelt_hir::ItemId>, SmeltError> {
-        let Expression::CallExpression(call) = init else {
-            return Ok(None);
-        };
-        let Expression::Identifier(callee) = &call.callee else {
-            return Ok(None);
-        };
-        if callee.name != "convertToFP" {
-            return Ok(None);
-        }
-        let [target_arg, arity_arg] = call.arguments.as_slice() else {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "convertToFP exported const wrappers require function and arity arguments",
-            ));
-        };
-        let Argument::Identifier(target_ident) = target_arg else {
-            return Err(SmeltError::unsupported(
-                self.span(target_arg.span().start, target_arg.span().end),
-                "convertToFP exported const wrappers require an identifier function argument",
-            ));
-        };
-        let arity = Self::fp_wrapper_arity(arity_arg, self.span(call.span.start, call.span.end))?;
-        let Some(target_item) = self.items.get(target_ident.name.as_str()).copied() else {
-            return Err(SmeltError::unsupported(
-                self.span(target_ident.span.start, target_ident.span.end),
-                format!(
-                    "convertToFP exported const wrapper references unresolved function `{}`",
-                    target_ident.name
-                ),
-            ));
-        };
-        self.pad_fp_wrapper_target_params(target_item, arity, self.span(call.span.start, call.span.end))?;
-        let Item::Function(target_function) = self.item_ref(target_item).clone() else {
-            return Err(SmeltError::unsupported(
-                self.span(target_ident.span.start, target_ident.span.end),
-                "convertToFP exported const wrappers require a function item argument",
-            ));
-        };
-
-        let span = self.span(call.span.start, call.span.end);
-        let mut body = Body::new(None, span);
-        let mut wrapper_params = Vec::new();
-        let mut wrapper_arg_locals = Vec::new();
-        for target_param in target_function.params.iter().take(arity).rev() {
-            let local = body.push_local(LocalDecl {
-                name: Some(target_param.name),
-                ty: target_param.ty,
-                mutable: false,
-                span,
-            });
-            body.params.push(local);
-            wrapper_arg_locals.push(local);
-            wrapper_params.push(Param {
-                name: target_param.name,
-                local,
-                ty: target_param.ty,
-                span,
-            });
-        }
-
-        let callee_expr = body.push_expr(Expr {
-            kind: ExprKind::Item(target_item),
-            ty: self.ctx.krate.types.intern(Type::Function(FunctionType {
-                params: target_function
-                    .params
-                    .iter()
-                    .map(|param| param.ty)
-                    .collect(),
-                rest: target_function.rest,
-                required_params: None,
-                    mutable_params: Vec::new(),
-return_ty: target_function.return_ty,
-                is_async: target_function.is_async,
-                            may_throw: false,
-            })),
-            span,
-        });
-        let mut args = Vec::new();
-        for (target_param, local) in target_function
-            .params
-            .iter()
-            .take(arity)
-            .zip(wrapper_arg_locals.into_iter().rev())
-        {
-            args.push(body.push_expr(Expr {
-                kind: ExprKind::Local(local),
-                ty: target_param.ty,
-                span,
-            }));
-        }
-        let call_expr = body.push_expr(Expr {
-            kind: ExprKind::Call {
-                callee: callee_expr,
-                args,
-            },
-            ty: target_function.return_ty,
-            span,
-        });
-        body.push_stmt(Stmt::Return(Some(call_expr)));
-
-        let body_id = self.ctx.krate.push_body(body);
-        let name = self.intern_source_name(name_text);
-        let item = self.ctx.krate.push_item(Item::Function(Function {
-            name,
-            span,
-            // Synthetic wrapper item carries no free-function type params.
-            type_params: Vec::new(),
-            params: wrapper_params,
-            rest: target_function.rest,
-            required_params: None,
-return_ty: target_function.return_ty,
-            is_async: target_function.is_async,
-            is_test: false,
-            body: Some(body_id),
-            owner: FunctionOwner::Module,
-        }));
-        self.items.insert(name_text.to_owned(), item);
-        self.ctx.export_aliases.insert(name_text.to_owned(), item);
-        Ok(Some(item))
-    }
-
-    /// Pad a date-fns FP target function when an optional tail parameter was erased.
-    ///
-    /// Generated date-fns `WithOptions` FP modules use `convertToFP(fn, 3)` even
-    /// when Smelt has only retained the target's required parameters. Keeping a
-    /// synthetic unknown slot preserves the callable arity and lets the wrapper
-    /// pass all collected FP arguments through in the original order.
-    pub(in crate::lowering) fn pad_fp_wrapper_target_params(
-        &mut self,
-        target_item: smelt_hir::ItemId,
-        arity: usize,
-        span: Span,
-    ) -> Result<(), SmeltError> {
-        let item_index = usize::try_from(target_item.0).unwrap_or(usize::MAX);
-        let current_len = match self.ctx.krate.items.get(item_index) {
-            Some(Item::Function(function)) => function.params.len(),
-            _ => return Ok(()),
-        };
-        if current_len >= arity {
-            return Ok(());
-        }
-        let body_id = match self.ctx.krate.items.get(item_index) {
-            Some(Item::Function(function)) => function.body.ok_or_else(|| {
-                SmeltError::unsupported(
-                    span,
-                    "convertToFP exported const wrapper target must have a body when arity padding is required",
-                )
-            })?,
-            _ => return Ok(()),
-        };
-        let unknown_ty = self.erase(ErasureReason::MissingAnnotation);
-        let body_index = usize::try_from(body_id.0).unwrap_or(usize::MAX);
-        let body = self.ctx.krate.bodies.get_mut(body_index).ok_or_else(|| {
-            SmeltError::unsupported(
-                span,
-                "convertToFP exported const wrapper target body was not found",
-            )
-        })?;
-        let mut padded_params = Vec::new();
-        for index in current_len..arity {
-            let name = self
-                .ctx
-                .krate
-                .symbols
-                .intern(format!("__fp_arg{index}").as_str());
-            let local = body.push_local(LocalDecl {
-                name: Some(name),
-                ty: unknown_ty,
-                mutable: false,
-                span,
-            });
-            body.params.push(local);
-            padded_params.push(Param {
-                name,
-                local,
-                ty: unknown_ty,
-                span,
-            });
-        }
-        if let Some(Item::Function(function)) = self.ctx.krate.items.get_mut(item_index) {
-            function.params.extend(padded_params);
-        }
-        Ok(())
-    }
-
-    /// Extract the literal arity used by generated date-fns `convertToFP` calls.
-    pub(in crate::lowering) fn fp_wrapper_arity(argument: &Argument<'_>, fallback_span: Span) -> Result<usize, SmeltError> {
-        let Argument::NumericLiteral(literal) = argument else {
-            return Err(SmeltError::unsupported(
-                fallback_span,
-                "convertToFP exported const wrappers require a numeric literal arity",
-            ));
-        };
-        match literal.value {
-            1.0_f64 => Ok(1),
-            2.0_f64 => Ok(2),
-            3.0_f64 => Ok(3),
-            4.0_f64 => Ok(4),
-            _ => Err(SmeltError::unsupported(
-                fallback_span,
-                "convertToFP exported const wrapper arity must be one of date-fns FP arities 1 through 4",
-            )),
         }
     }
 
@@ -1107,8 +883,8 @@ return_ty: target_function.return_ty,
         let Expression::Identifier(object) = &member.object else {
             return false;
         };
-        matches!(object.name.as_str(), "globalThis" | "global" | "self")
-            && matches!(member.property.name.as_str(), "DOMException")
+        smelt_stdlib::GLOBAL_OBJECT_ALIASES.contains(&object.name.as_str())
+            && member.property.name == "DOMException"
     }
 
     /// Fold a supported unary expression inside an exported const initializer.
@@ -1170,23 +946,10 @@ return_ty: target_function.return_ty,
             return Ok(value);
         }
         if let Expression::Identifier(object) = &member.object {
-            let value = match (object.name.as_str(), member.property.name.as_str()) {
-                ("Number", "NaN") => Some(f64::NAN),
-                ("Number", "POSITIVE_INFINITY") => Some(f64::INFINITY),
-                ("Number", "NEGATIVE_INFINITY") => Some(f64::NEG_INFINITY),
-                ("Number", "MAX_VALUE") => Some(f64::MAX),
-                ("Number", "MIN_VALUE") => Some(f64::MIN_POSITIVE),
-                ("Number", "MAX_SAFE_INTEGER") => Some(9_007_199_254_740_991.0_f64),
-                ("Number", "MIN_SAFE_INTEGER") => Some(-9_007_199_254_740_991.0_f64),
-                ("Number", "EPSILON") => Some(f64::EPSILON),
-                ("Math", "PI") => Some(std::f64::consts::PI),
-                ("Math", "E") => Some(std::f64::consts::E),
-                ("Math", "LN2") => Some(std::f64::consts::LN_2),
-                ("Math", "LN10") => Some(std::f64::consts::LN_10),
-                ("Math", "LOG2E") => Some(std::f64::consts::LOG2_E),
-                ("Math", "LOG10E") => Some(std::f64::consts::LOG10_E),
-                ("Math", "SQRT2") => Some(std::f64::consts::SQRT_2),
-                ("Math", "SQRT1_2") => Some(std::f64::consts::FRAC_1_SQRT_2),
+            let property = member.property.name.as_str();
+            let value = match object.name.as_str() {
+                "Number" => smelt_stdlib::number_constant(property),
+                "Math" => smelt_stdlib::math_constant(property),
                 _ => None,
             };
             if let Some(value) = value {
@@ -1360,38 +1123,38 @@ return_ty: target_function.return_ty,
     }
 
     /// Fold one pure numeric Math operation using JavaScript-compatible f64 behavior.
-    pub(in crate::lowering) fn fold_pure_math_const(op: stdlib_dispatch::PureMathCall, args: &[f64]) -> Option<f64> {
-        use stdlib_dispatch::PureMathCall;
+    pub(in crate::lowering) fn fold_pure_math_const(op: MathFunction, args: &[f64]) -> Option<f64> {
         match op {
-            PureMathCall::Abs => single_arg(args).map(f64::abs),
-            PureMathCall::Floor => single_arg(args).map(f64::floor),
-            PureMathCall::Ceil => single_arg(args).map(f64::ceil),
-            PureMathCall::Round => single_arg(args).map(f64::round),
-            PureMathCall::Trunc => single_arg(args).map(f64::trunc),
-            PureMathCall::Max => Some(args.iter().copied().fold(f64::NEG_INFINITY, f64::max)),
-            PureMathCall::Min => Some(args.iter().copied().fold(f64::INFINITY, f64::min)),
-            PureMathCall::Hypot => Some(args.iter().map(|arg| arg * arg).sum::<f64>().sqrt()),
-            PureMathCall::Sqrt => single_arg(args).map(f64::sqrt),
-            PureMathCall::Cbrt => single_arg(args).map(f64::cbrt),
-            PureMathCall::Sign => single_arg(args).map(|arg| {
+            MathFunction::Abs => single_arg(args).map(f64::abs),
+            MathFunction::Floor => single_arg(args).map(f64::floor),
+            MathFunction::Ceil => single_arg(args).map(f64::ceil),
+            MathFunction::Round => single_arg(args).map(f64::round),
+            MathFunction::Trunc => single_arg(args).map(f64::trunc),
+            MathFunction::Max => Some(args.iter().copied().fold(f64::NEG_INFINITY, f64::max)),
+            MathFunction::Min => Some(args.iter().copied().fold(f64::INFINITY, f64::min)),
+            MathFunction::Hypot => Some(args.iter().map(|arg| arg * arg).sum::<f64>().sqrt()),
+            MathFunction::Sqrt => single_arg(args).map(f64::sqrt),
+            MathFunction::Cbrt => single_arg(args).map(f64::cbrt),
+            MathFunction::Sign => single_arg(args).map(|arg| {
                 if arg.is_nan() || arg == 0.0_f64 {
                     arg
                 } else {
                     arg.signum()
                 }
             }),
-            PureMathCall::Sin => single_arg(args).map(f64::sin),
-            PureMathCall::Cos => single_arg(args).map(f64::cos),
-            PureMathCall::Tan => single_arg(args).map(f64::tan),
-            PureMathCall::Asin => single_arg(args).map(f64::asin),
-            PureMathCall::Acos => single_arg(args).map(f64::acos),
-            PureMathCall::Atan => single_arg(args).map(f64::atan),
-            PureMathCall::Log => single_arg(args).map(f64::ln),
-            PureMathCall::Log10 => single_arg(args).map(f64::log10),
-            PureMathCall::Log2 => single_arg(args).map(f64::log2),
-            PureMathCall::Exp => single_arg(args).map(f64::exp),
-            PureMathCall::Pow => two_args(args).map(|(base, exponent)| base.powf(exponent)),
-            PureMathCall::Atan2 => two_args(args).map(|(y, x)| y.atan2(x)),
+            MathFunction::Sin => single_arg(args).map(f64::sin),
+            MathFunction::Cos => single_arg(args).map(f64::cos),
+            MathFunction::Tan => single_arg(args).map(f64::tan),
+            MathFunction::Asin => single_arg(args).map(f64::asin),
+            MathFunction::Acos => single_arg(args).map(f64::acos),
+            MathFunction::Atan => single_arg(args).map(f64::atan),
+            MathFunction::Log => single_arg(args).map(f64::ln),
+            MathFunction::Log10 => single_arg(args).map(f64::log10),
+            MathFunction::Log2 => single_arg(args).map(f64::log2),
+            MathFunction::Exp => single_arg(args).map(f64::exp),
+            MathFunction::Pow => two_args(args).map(|(base, exponent)| base.powf(exponent)),
+            MathFunction::Atan2 => two_args(args).map(|(y, x)| y.atan2(x)),
+            _ => None,
         }
     }
 

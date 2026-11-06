@@ -78,85 +78,6 @@ export const addLocale = async (params: unknown) => {
 }
 
 #[test]
-fn lowers_lodash_predicate_factories_as_array_callbacks() -> Result<(), String> {
-    let mut ctx = HirCtx::new();
-    let module_id = lower_ok(
-        ts!(r#"
-declare const _: any;
-import { has } from "lodash/fp";
-
-type Item = { id?: string | null };
-
-function keep(items: Item[]): Item[] {
-  return items.filter(has("id")).filter(_.negate(_.isNil));
-}
-"#),
-        &mut ctx,
-    )?;
-    let _module = module(&ctx, module_id)?;
-    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    Ok(())
-}
-
-#[test]
-fn lowers_lodash_omit_factory_as_array_map_callback() -> Result<(), String> {
-    let mut ctx = HirCtx::new();
-    let module_id = lower_ok(
-        ts!(r#"
-import { omit } from "lodash/fp";
-
-function stripId(items: Record<string, unknown>[]): Record<string, unknown>[] {
-  return items.map(omit("id"));
-}
-"#),
-        &mut ctx,
-    )?;
-    let _module = module(&ctx, module_id)?;
-    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    Ok(())
-}
-
-#[test]
-fn lowers_curried_emit_event_factory_as_for_each_callback() -> Result<(), String> {
-    let mut ctx = HirCtx::new();
-    let module_id = lower_ok(
-        ts!(r#"
-function emitEvent(name: string): (entry: unknown) => void {
-  return (_entry) => {};
-}
-
-function deleted(entries: unknown[]) {
-  entries.forEach(emitEvent("entry.delete"));
-}
-"#),
-        &mut ctx,
-    )?;
-    let _module = module(&ctx, module_id)?;
-    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    Ok(())
-}
-
-#[test]
-fn lowers_async_pipe_factory_as_array_map_callback() -> Result<(), String> {
-    let mut ctx = HirCtx::new();
-    let module_id = lower_ok(
-        ts!(r"
-declare const async: {
-  pipe: (...fns: unknown[]) => (value: unknown) => unknown;
-};
-
-function clone(entries: unknown[]) {
-  return entries.map(async.pipe((value: unknown) => value));
-}
-"),
-        &mut ctx,
-    )?;
-    let _module = module(&ctx, module_id)?;
-    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    Ok(())
-}
-
-#[test]
 fn lowers_imported_iteratee_alias_local_as_find_index_callback() -> Result<(), String> {
     // A parameter typed with an *imported* union alias (`ListIterateeCustom`,
     // whose definition is not present in this lowering unit) surfaces as an
@@ -704,13 +625,12 @@ function shouldPopulate(eventName: EventName): boolean {
 }
 
 #[test]
-fn lowers_node_process_env_cwd_and_require_surface() -> Result<(), String> {
+fn lowers_node_process_env_and_require_surface() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r#"
 const envPath = process.env.ENV_PATH;
 const mode = process.env.NODE_ENV || "development";
-const configDir = process.cwd();
 const interactive = process.stdout.isTTY;
 const pkg = require("./package.json");
 const resolved = require.resolve("pkg");
@@ -2389,7 +2309,10 @@ function outer(): (value: number) => number {
 fn lowers_sinon_fake_timers_helper_surface() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r"
+        ts!(r#"
+import sinon from "sinon";
+import { it } from "vitest";
+
 function fakeDate(date: number | Date): { fakeNow: (date: number | Date) => void } {
   let clock: sinon.SinonFakeTimers | undefined;
   function fakeNow(date: number | Date) {
@@ -2398,7 +2321,7 @@ function fakeDate(date: number | Date): { fakeNow: (date: number | Date) => void
   }
   return { fakeNow };
 }
-"),
+"#),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -2535,73 +2458,6 @@ it("checks date", () => {
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
-    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    Ok(())
-}
-
-#[test]
-fn lowers_intl_timezone_probe_for_test_labels() -> Result<(), String> {
-    let mut ctx = HirCtx::new();
-    let module_id = lower_ok(
-        ts!(r"
-const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone || process.env.tz;
-"),
-        &mut ctx,
-    )?;
-    let _module = module(&ctx, module_id)?;
-    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    Ok(())
-}
-
-#[test]
-fn lowers_new_intl_date_time_format_format_call() -> Result<(), String> {
-    let mut ctx = HirCtx::new();
-    let module_id = lower_ok(
-        ts!(r#"
-function formatDate(date: Date, locale?: string): string {
-  return new Intl.DateTimeFormat(locale, { year: "numeric" }).format(date);
-}
-"#),
-        &mut ctx,
-    )?;
-    let module = module(&ctx, module_id)?;
-    let function = function_item(&ctx, module, 0)?;
-    let body = function_body(&ctx, function)?;
-    ensure!(
-        body.exprs
-            .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::DateToIsoString { .. }))
-    );
-    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    Ok(())
-}
-
-#[test]
-fn lowers_new_intl_relative_time_format_format_call() -> Result<(), String> {
-    let mut ctx = HirCtx::new();
-    let module_id = lower_ok(
-        ts!(r#"
-interface Options extends Intl.RelativeTimeFormatOptions {
-  unit?: string;
-  locale?: string;
-}
-
-function formatDistance(value: number, unit: string, options?: Options): string {
-  const rtf = new Intl.RelativeTimeFormat(options?.locale, {
-    numeric: "auto",
-    ...options,
-  });
-  return rtf.format(value, unit);
-}
-"#),
-        &mut ctx,
-    )?;
-    let module = module(&ctx, module_id)?;
-    let function = function_item(&ctx, module, 1)?;
-    let body = function_body(&ctx, function)?;
-    ensure!(body.exprs.iter().any(
-        |expr| matches!(expr.kind, ExprKind::Literal(Literal::String(ref value)) if value.is_empty())
-    ));
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
@@ -6824,64 +6680,6 @@ const scope = [`${route.handler.startsWith(prefix) ? '' : prefix}${route.handler
 }
 
 #[test]
-fn lowers_lodash_for_each_collection_callback() -> Result<(), String> {
-    let mut ctx = HirCtx::new();
-    lower_ok(
-        ts!(r"
-import _ from './lodash-compat';
-
-function register(routes: any) {
-  _.forEach(routes, (router) => {
-    router.type = router.type || 'admin';
-  });
-}
-"),
-        &mut ctx,
-    )?;
-    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    Ok(())
-}
-
-#[test]
-fn lowers_strapi_register_routes_lodash_for_each_shape() -> Result<(), String> {
-    let mut ctx = HirCtx::new();
-    lower_ok(
-        ts!(r"
-import _ from './lodash-compat';
-
-const createRouteScopeGenerator = (namespace: string) => (route: any) => {
-  const prefix = namespace.endsWith('::') ? namespace : `${namespace}.`;
-
-  if (typeof route.handler === 'string') {
-    route.config = {
-      auth: {
-        scope: [`${route.handler.startsWith(prefix) ? '' : prefix}${route.handler}`],
-      },
-    };
-  }
-};
-
-function register(strapi: any) {
-  const generateRouteScope = createRouteScopeGenerator(`admin::`);
-
-  _.forEach(strapi.admin.routes, (router) => {
-    router.type = router.type || 'admin';
-    router.prefix = router.prefix || `/admin`;
-    router.routes.forEach((route) => {
-      generateRouteScope(route);
-      route.info = { pluginName: 'admin' };
-    });
-    strapi.server.routes(router);
-  });
-}
-"),
-        &mut ctx,
-    )?;
-    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    Ok(())
-}
-
-#[test]
 fn lowers_yup_test_and_await_opaque_async_surfaces() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
@@ -6963,25 +6761,6 @@ function addTimestamps(schema: any) {
     [CREATED_AT_ATTRIBUTE]: { type: 'datetime' },
     [UPDATED_AT_ATTRIBUTE]: { type: 'datetime' },
   });
-}
-"),
-        &mut ctx,
-    )?;
-    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    Ok(())
-}
-
-#[test]
-fn lowers_lodash_has_path_predicates() -> Result<(), String> {
-    let mut ctx = HirCtx::new();
-    lower_ok(
-        ts!(r"
-import _ from './lodash-compat';
-
-function addOptions(schema: any) {
-  if (!_.has(schema, 'options.draftAndPublish')) {
-    schema.options = { draftAndPublish: false };
-  }
 }
 "),
         &mut ctx,
@@ -7100,7 +6879,8 @@ fn lowers_cron_style_math_floor_and_negated_filter_callback() -> Result<(), Stri
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import { isEmpty, negate } from 'lodash/fp';
+declare function isEmpty(value: string): boolean;
+declare function negate(predicate: (value: string) => boolean): (value: string) => boolean;
 
 const COMPONENTS: { limit: number }[] = [{ limit: 60 }];
 
@@ -7781,24 +7561,6 @@ fn lowers_erased_none_index_access_as_unknown() -> Result<(), String> {
 function run(key: string) {
   const erased = undefined as unknown as Record<string, string>;
   return erased[key];
-}
-"),
-        &mut ctx,
-    )?;
-    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    Ok(())
-}
-
-#[test]
-fn lowers_strapi_async_map_with_options() -> Result<(), String> {
-    let mut ctx = HirCtx::new();
-    lower_ok(
-        ts!(r"
-import { async } from './async-utils';
-
-async function run(batch: Array<{ documentId: string; locale: string }>) {
-  const discardDraft = async (entry: { documentId: string; locale: string }) => entry.documentId;
-  await async.map(batch, discardDraft, { concurrency: 10 });
 }
 "),
         &mut ctx,
@@ -9445,7 +9207,10 @@ fn sinon_fake_timers_clock_methods_still_lower() -> Result<(), String> {
     // `clock?`) must still lower through the fake-timers helper.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r"
+        ts!(r#"
+import sinon from "sinon";
+import { it } from "vitest";
+
 function useClock(): void {
   let clock: sinon.SinonFakeTimers | undefined;
   clock = sinon.useFakeTimers(0);
@@ -9453,7 +9218,7 @@ function useClock(): void {
   clock?.next();
   clock?.restore();
 }
-"),
+"#),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;

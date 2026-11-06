@@ -178,8 +178,16 @@ impl ModuleBuilder<'_> {
             // `pass` — no HIR equivalent; silently skip.
             Stmt::Pass(_) => Ok(()),
 
-            // Imports are collected at the module level in a future pass.
-            Stmt::Import(_) | Stmt::ImportFrom(_) => Ok(()),
+            // A function-level import binds its names for stdlib recognition;
+            // module metadata is collected at the module level.
+            Stmt::Import(import) => {
+                self.record_import_aliases(import);
+                Ok(())
+            }
+            Stmt::ImportFrom(import) => {
+                self.record_import_from_aliases(import);
+                Ok(())
+            }
 
             // Nested functions become local closure values when their
             // signature and body can be represented by the closure IR.

@@ -42,13 +42,6 @@
 use oxc::ast::ast::Expression;
 use oxc::syntax::operator::UnaryOperator;
 
-/// Identifier names that denote the ambient global object in the non-DOM profile.
-///
-/// `window` is intentionally excluded: it is DOM-only and absent in this profile,
-/// and `typeof window` feature detection is folded by the existing
-/// describe-condition handling rather than treated as a live global alias.
-const GLOBAL_ALIAS_NAMES: &[&str] = &["globalThis", "global", "self"];
-
 /// Return whether a bare identifier name is an ambient global-object alias.
 ///
 /// This is the syntactic alias set (`globalThis`, `global`, `self`); it does not
@@ -56,7 +49,7 @@ const GLOBAL_ALIAS_NAMES: &[&str] = &["globalThis", "global", "self"];
 /// considered for global-path normalization and probe erasure.
 #[must_use]
 pub(super) fn is_global_alias_name(name: &str) -> bool {
-    GLOBAL_ALIAS_NAMES.contains(&name)
+    smelt_stdlib::GLOBAL_OBJECT_ALIASES.contains(&name)
 }
 
 /// Return the typeof operand identifier name when `expression` is `typeof <ident>`.
@@ -97,7 +90,7 @@ const ABSENT_GLOBAL_ALIAS_NAMES: &[&str] = &["window"];
 /// never evaluates the right operand of a `&&` whose guard is statically `false`.
 #[must_use]
 pub(super) fn global_alias_object_presence(name: &str) -> Option<bool> {
-    if GLOBAL_ALIAS_NAMES.contains(&name) {
+    if smelt_stdlib::GLOBAL_OBJECT_ALIASES.contains(&name) {
         return Some(true);
     }
     if ABSENT_GLOBAL_ALIAS_NAMES.contains(&name) {

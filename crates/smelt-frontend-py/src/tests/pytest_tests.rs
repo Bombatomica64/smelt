@@ -437,3 +437,55 @@ def test_runs():
     )?;
     Ok(())
 }
+
+#[test]
+fn pytest_autouse_fixtures_run_in_declaration_order() -> TestResult {
+    let source = py!(r"
+import pytest
+
+@pytest.fixture(autouse=True)
+def zulu() -> int:
+    return 1
+
+@pytest.fixture(autouse=True)
+def alpha() -> int:
+    return 2
+
+@pytest.fixture(autouse=True)
+def papa() -> int:
+    return 3
+
+@pytest.fixture(autouse=True)
+def kilo() -> int:
+    return 4
+
+@pytest.fixture(autouse=True)
+def bravo() -> int:
+    return 5
+
+@pytest.fixture(autouse=True)
+def mike() -> int:
+    return 6
+
+def test_uses_autouse():
+    assert True
+");
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_module(source, "tests/test_autouse_order.py", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let Item::Function(function) = item(&ctx, module.items[6])? else {
+        return Err("expected pytest test function item".to_owned());
+    };
+    let body = body(&ctx, function.body.ok_or("expected test body")?)?;
+    let mut called = Vec::new();
+    for expr in &body.exprs {
+        if let ExprKind::Item(callee) = &expr.kind
+            && let Item::Function(fixture) = item(&ctx, *callee)?
+        {
+            called.push(ctx.krate.symbols.get(fixture.name).unwrap_or_default().to_owned());
+        }
+    }
+    let expected = ["zulu", "alpha", "papa", "kilo", "bravo", "mike"];
+    ensure(called == expected, format!("autouse order was {called:?}"))?;
+    Ok(())
+}

@@ -328,17 +328,7 @@ impl ModuleBuilder<'_> {
             if self.is_ambient_global_alias(name) {
                 return Ok(self.global_object_value_expression(start, end, body));
             }
-            if matches!(
-                name,
-                "Error"
-                    | "EvalError"
-                    | "RangeError"
-                    | "ReferenceError"
-                    | "SyntaxError"
-                    | "TypeError"
-                    | "URIError"
-                    | "AggregateError"
-            ) {
+            if smelt_stdlib::is_error_class_name(name) {
                 let ty = self.ctx.krate.types.intern(Type::String);
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::String(name.to_owned())),
@@ -369,7 +359,7 @@ impl ModuleBuilder<'_> {
             }
             if matches!(
                 name,
-                "AbortSignal" | "Object" | "Symbol" | "process" | "strapi" | "require"
+                "AbortSignal" | "Object" | "Symbol" | "process" | "require"
             ) {
                 let ty = self.erase_with(ErasureReason::ByName, "ambient global");
                 return self.module_global_expression(name, ty, start, end, body);

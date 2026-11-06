@@ -905,7 +905,7 @@ impl ModuleBuilder<'_> {
 
     /// Collect explicit captures from a Python callback expression tree.
     fn callback_captures(&mut self, callback: &CallbackExpr, body: &Body) -> Vec<ClosureCapture> {
-        let mut captures = HashMap::new();
+        let mut captures = IndexMap::new();
         self.collect_callback_captures(callback, body, &mut captures);
         captures.into_values().collect()
     }
@@ -915,7 +915,7 @@ impl ModuleBuilder<'_> {
         &mut self,
         callback: &CallbackExpr,
         body: &Body,
-        captures: &mut HashMap<smelt_hir::LocalId, ClosureCapture>,
+        captures: &mut IndexMap<smelt_hir::LocalId, ClosureCapture>,
     ) {
         match &callback.kind {
             CallbackExprKind::Capture(local) => {

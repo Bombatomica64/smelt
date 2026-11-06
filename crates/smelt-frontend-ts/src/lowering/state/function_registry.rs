@@ -112,6 +112,10 @@ impl FunctionRegistry {
     /// removed, so a later lookup sees "declared here, no overloads" instead of
     /// falling back to the imported surface.
     pub(in crate::lowering) fn shadow_implementations(&mut self, implemented: &HashSet<String>) {
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "keyed inserts of one value"
+        )]
         for name in implemented {
             self.overloads.insert(name.clone(), Vec::new());
         }

@@ -3262,22 +3262,8 @@ impl ModuleBuilder<'_> {
         // covers modeled host constructors; the error and collection builtins below
         // are a hard-coded name list kept alongside it.
         let allowed_builtin = smelt_stdlib::host_object_by_class(name).is_some()
-            || matches!(
-                name,
-                "Date"
-                    | "Error"
-                    | "EvalError"
-                    | "RangeError"
-                    | "ReferenceError"
-                    | "SyntaxError"
-                    | "TypeError"
-                    | "URIError"
-                    | "AggregateError"
-                    | "Map"
-                    | "ReadonlyMap"
-                    | "Set"
-                    | "ReadonlySet"
-            );
+            || smelt_stdlib::is_error_class_name(name)
+            || matches!(name, "Date" | "Map" | "ReadonlyMap" | "Set" | "ReadonlySet");
         if !allowed_builtin
             && !self.classes.contains(name)
             && !self.imports.is_value(name)

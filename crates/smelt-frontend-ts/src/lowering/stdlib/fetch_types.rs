@@ -33,26 +33,12 @@ use smelt_hir::{
     Body, ErasureReason, EventEmitterOp, Expr, ExprKind, HeadersOp, RequestInitMember, RequestOp, ResponseOp,
     Type,
 };
-use smelt_stdlib::RuleId;
+use smelt_stdlib::{FetchInitKey, REQUEST_INIT_KEYS, RESPONSE_INIT_KEYS, RuleId};
 
 
-/// The `ResponseInit` keys Smelt models.
-const RESPONSE_INIT_KEYS: &[&str] = &["status", "statusText", "headers"];
-
-/// The `RequestInit` keys Smelt models.
-///
-/// The first four feed the request's transport identity (or, for `signal`, a
-/// dependent-signal follow); the rest are the STORED members of
-/// [`RequestInitMember`], appended from that table so the key set and the
-/// stored surface cannot drift apart.
-fn request_init_keys() -> Vec<&'static str> {
-    let mut keys = vec!["method", "headers", "body", "signal"];
-    keys.extend(
-        RequestInitMember::ALL
-            .into_iter()
-            .map(RequestInitMember::property_name),
-    );
-    keys
+/// The spellings of a fetch init key table, in table order.
+fn init_key_names(table: &[FetchInitKey]) -> Vec<&'static str> {
+    table.iter().map(|(name, _)| *name).collect()
 }
 
 /// Collect the stored `RequestInit` members an init supplied, in table order.
@@ -151,7 +137,7 @@ impl ModuleBuilder<'_> {
         // The receiver is lowered before its type can be inspected, so bail out
         // on a receiver that cannot lower rather than reporting a `Headers`
         // diagnostic for an unrelated expression.
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         // A modeled method call on an OPTIONAL receiver is a call on the inner
@@ -215,7 +201,7 @@ impl ModuleBuilder<'_> {
         ) else {
             return Ok(None);
         };
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         // Same presence assertion as the `Headers` dispatch above, for the same
@@ -584,7 +570,7 @@ impl ModuleBuilder<'_> {
         };
         let mut fields = InitFields::default();
         if let Some(init_argument) = new_expr.arguments.get(1) {
-            self.lower_fetch_init(init_argument, RESPONSE_INIT_KEYS, "Response", &mut fields, body)?;
+            self.lower_fetch_init(init_argument, &init_key_names(RESPONSE_INIT_KEYS), "Response", &mut fields, body)?;
         }
         let (status, status_text, headers) = (
             fields.take("status"),
@@ -625,7 +611,7 @@ impl ModuleBuilder<'_> {
         ) else {
             return Ok(None);
         };
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         let span = self.span(member.span.start, member.span.end);
@@ -728,7 +714,7 @@ impl ModuleBuilder<'_> {
             "body" => Some(ResponseOp::Body),
             _ => return Ok(None),
         };
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         // A receiver the source narrowed to present keeps its modeled member
@@ -871,7 +857,7 @@ impl ModuleBuilder<'_> {
         let input = self.url_href_of(input, input_span, body).unwrap_or(input);
         let mut fields = InitFields::default();
         if let Some(init_argument) = new_expr.arguments.get(1) {
-            self.lower_fetch_init(init_argument, &request_init_keys(), "Request", &mut fields, body)?;
+            self.lower_fetch_init(init_argument, &init_key_names(REQUEST_INIT_KEYS), "Request", &mut fields, body)?;
         }
         let (method, headers, body_expr, signal) = (
             fields.take("method"),
@@ -909,7 +895,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(init_argument.span().start, init_argument.span().end);
         let mut fields = InitFields::default();
-        self.lower_fetch_init(init_argument, &request_init_keys(), "fetch", &mut fields, body)?;
+        self.lower_fetch_init(init_argument, &init_key_names(REQUEST_INIT_KEYS), "fetch", &mut fields, body)?;
         let (method, headers, body_expr, signal) = (
             fields.take("method"),
             fields.take("headers"),
@@ -948,7 +934,7 @@ impl ModuleBuilder<'_> {
         ) else {
             return Ok(None);
         };
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         let span = self.span(member.span.start, member.span.end);
@@ -1014,7 +1000,7 @@ impl ModuleBuilder<'_> {
                 None => return Ok(None),
             },
         };
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         let span = self.span(member.span.start, member.span.end);
@@ -1486,7 +1472,7 @@ impl ModuleBuilder<'_> {
         {
             return Ok(None);
         }
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         let receiver_ty = Self::expr_ty(body, receiver);
