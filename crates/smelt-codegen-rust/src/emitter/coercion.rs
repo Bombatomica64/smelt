@@ -17,7 +17,7 @@
 //! See CONTEXT.md (## Coercion).
 
 use super::*;
-use crate::emitter::rendered_text_rewrite::{borrowed_value_text, cloned_value_text};
+use crate::emitter::rendered_value::{borrowed_value_text, cloned_value_text};
 use crate::erased_list_alias;
 use crate::rust::{RustIdent, RustShape};
 use smelt_hir::FunctionType;
@@ -1003,27 +1003,9 @@ impl FunctionEmitter<'_> {
         {
             return Ok(wrapped);
         }
-        // A bare `Default::default()` is an ambiguous inference source for the
-        // collection adapters below, which drive `.clone().into_iter().map(…)`
-        // off the receiver and cannot infer its element type (E0282). When the
-        // source is a collection, substitute its concrete typed default (e.g.
-        // `SmeltList::new(Vec::new())`): the same value, but element-typed so the
-        // adapter's iterator resolves.
-        let normalized_default;
-        let value_text = if value_text == "Default::default()"
-            && matches!(
-                self.mir.types.get(source),
-                Some(Type::List(_) | Type::Set(_) | Type::Dict(_, _))
-            ) {
-            normalized_default = self.default_value(source)?;
-            normalized_default.as_str()
-        } else {
-            value_text
-        };
         // `value_text` is usually already an owned temporary (an operand render clones
         // the local it reads), so take an owned copy rather than deep-copying it a
-        // second time. Bound AFTER the `Default::default()` normalization above, which
-        // rebinds `value_text`.
+        // second time.
         let smelt_owned_value = cloned_value_text(value_text);
         if source == target && !matches!(self.mir.types.get(target), Some(Type::Function(_))) {
             return Ok(value_text.to_owned());
@@ -1180,11 +1162,6 @@ impl FunctionEmitter<'_> {
             } else {
                 Ok(format!("{{ {prefix}{value_text}; {tuple_text} }}"))
             };
-        }
-        if matches!(self.mir.types.get(target), Some(Type::Function(_)))
-            && value_text == "Default::default()"
-        {
-            return self.default_value(target);
         }
         if let Some(slot) = self.callable_object_call_slot_text(value_text, source, target, scope)? {
             return Ok(slot);
@@ -2100,9 +2077,6 @@ impl FunctionEmitter<'_> {
         let smelt_owned_value = cloned_value_text(value_text);
         match self.mir.types.get(ty) {
             Some(Type::Unknown) => Ok(value_text.to_owned()),
-            Some(Type::TypeParam { .. }) if value_text == "Default::default()" => {
-                Ok(self.carrier_text("SmeltUnknown::Null"))
-            }
             // Unconditional, and correct for both spellings of a type
             // parameter: a monomorphized `T` converts through the
             // `IntoSmeltUnknown` bound its signature declares, and an erased one
@@ -2118,11 +2092,6 @@ impl FunctionEmitter<'_> {
             Some(Type::None | Type::Never) | None => Ok(self.carrier_text("SmeltUnknown::Null")),
             Some(Type::Bool) => Ok(self.carrier_format(format_args!("SmeltUnknown::Bool({value_text})"))),
             Some(Type::BigInt) => Ok(self.carrier_format(format_args!("SmeltUnknown::BigInt({smelt_owned_value})"))),
-            Some(Type::Int | Type::FixedInt(_) | Type::Float)
-                if value_text == "Default::default()" || value_text == "(Default::default())" =>
-            {
-                Ok(self.carrier_text("SmeltUnknown::Number(0.0)"))
-            }
             Some(Type::Int | Type::FixedInt(_) | Type::Float) => {
                 // Cast operand: a loose top-level operator must be parenthesized
                 // so `as f64` does not reassociate across it.
@@ -3165,7 +3134,12 @@ impl FunctionEmitter<'_> {
     /// field with its own nested conversion. `extract_value_text` either
     /// inlines this or, for an outermost conversion, hoists it into one
     /// generated helper per type (`hoisted_record_conversion`).
-    fn inline_record_conversion(&self, text: &str, target: TypeId, scope: &RenderScope) -> Result<String, EmitError> {
+    fn inline_record_conversion(
+        &self,
+        text: &str,
+        target: TypeId,
+        scope: &RenderScope,
+    ) -> Result<Option<String>, EmitError> {
         // The string-dict record adapter needs the prelude `String` and
         // `SmeltUnknown` types interned in this program's type table. A
         // program that never uses them (e.g. a concrete class union whose
@@ -3176,7 +3150,7 @@ impl FunctionEmitter<'_> {
             self.find_type_id(&Type::String),
             self.find_type_id(&Type::Unknown),
         ) else {
-            return Ok("Default::default()".to_owned());
+            return Ok(None);
         };
         let conversion_entry = helper_reservation::push_entry(&self.record_conversion_stack, target);
         let adapter_result = self.string_dict_record_adapter_text(
@@ -3223,11 +3197,11 @@ impl FunctionEmitter<'_> {
             } else {
                 String::new()
             };
-            return Ok(self.carrier_format(format_args!(
+            return Ok(Some(self.carrier_format(format_args!(
                 "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(values) => {{ let smelt_record_map = {record_view}; {adapter} }},{function_arm} _ => Default::default() }}"
-            )));
+            ))));
         }
-        Ok("Default::default()".to_owned())
+        Ok(None)
     }
 
     /// The source keys of a callable-object struct's data fields (every
@@ -3290,13 +3264,14 @@ impl FunctionEmitter<'_> {
                 module_text,
             );
             let module_scope = self.render_scope();
-            let body = self.inline_record_conversion("smelt_value", target, &module_scope)?;
-            if body == "Default::default()" {
+            let Some(body) =
+                self.inline_record_conversion("smelt_value", target, &module_scope)?
+            else {
                 // Nothing to hoist, and a body that is only a default cannot
                 // have called its own reservation.
                 drop(reservation);
-                return Ok(Some(body));
-            }
+                return Ok(Some("Default::default()".to_owned()));
+            };
             reservation.commit(body)
         };
         drop(hoisted);
@@ -3324,25 +3299,6 @@ impl FunctionEmitter<'_> {
         // `text` is usually already an owned temporary (an operand render clones the local
         // it reads), so take an owned copy rather than deep-copying it a second time.
         let smelt_owned_text = cloned_value_text(text);
-        if text == "Default::default()" {
-            return match self.mir.types.get(target) {
-                Some(Type::None) => Ok("()".to_owned()),
-                Some(Type::Bool) => Ok("false".to_owned()),
-                Some(Type::Float) => Ok("0.0".to_owned()),
-                Some(Type::Int) => Ok("0_i64".to_owned()),
-                Some(Type::String) => Ok("String::new()".to_owned()),
-                Some(Type::List(_)) => Ok("Vec::new()".to_owned()),
-                Some(Type::Dict(key, _)) if self.dict_uses_smelt_record(*key) => {
-                    Ok(self.carrier_text("SmeltRecord::new()"))
-                }
-                Some(Type::Dict(key, _)) if self.dict_uses_js_key_map(*key) => {
-                    Ok(self.carrier_text("SmeltJsMap::new()"))
-                }
-                Some(Type::Dict(_, _)) => Ok("::std::collections::HashMap::new()".to_owned()),
-                Some(Type::Optional(_)) => Ok("None".to_owned()),
-                _ => self.default_value(target),
-            };
-        }
         match self.mir.types.get(target) {
             Some(Type::Unknown) => Ok(text.to_owned()),
             // An erased `Date` keeps the marker record; the concrete `SmeltDate`
@@ -3592,7 +3548,9 @@ impl FunctionEmitter<'_> {
                 {
                     return Ok(call);
                 }
-                self.inline_record_conversion(text, target, scope)
+                Ok(self
+                    .inline_record_conversion(text, target, scope)?
+                    .unwrap_or_else(|| "Default::default()".to_owned()))
             }
             // A source `Set` recovers through `SmeltJsSet`'s `SmeltFromUnknown`
             // impl, which round-trips the `__smelt_set` marker (rebuilding members

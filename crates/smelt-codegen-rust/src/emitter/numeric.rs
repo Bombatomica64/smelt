@@ -32,7 +32,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Float) => "f64",
             Some(Type::FixedInt(width)) => width.rust_name(),
             _ => {
-                return Ok("Default::default()".to_owned());
+                return self.inferred_default_text(dest_ty);
             }
         };
         let receiver_text = self.len_operand_text(operand)?;

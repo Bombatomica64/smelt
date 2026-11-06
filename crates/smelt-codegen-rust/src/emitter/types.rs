@@ -2121,6 +2121,19 @@ impl FunctionEmitter<'_> {
         self.default_value(item_ty)
     }
 
+    /// The default an rvalue with no value of its own answers at `dest_ty`.
+    ///
+    /// Left to inference where the destination pins it. A list goes through the
+    /// `Into` of `rvalue_text_for_dest`, which is ambiguous on an inferred default
+    /// (both `Vec` and `SmeltList` satisfy it), and a callable has no `Default`.
+    pub(super) fn inferred_default_text(&self, dest_ty: TypeId) -> Result<String, EmitError> {
+        match self.mir.types.get(dest_ty) {
+            Some(Type::List(_)) => Ok("SmeltList::default()".to_owned()),
+            Some(Type::Function(_)) => self.default_value(dest_ty),
+            _ => Ok("Default::default()".to_owned()),
+        }
+    }
+
     /// Gets the default value for a given type.
     pub(super) fn default_value(&self, ty: TypeId) -> Result<String, EmitError> {
         match self

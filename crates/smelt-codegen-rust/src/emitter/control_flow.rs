@@ -386,7 +386,7 @@ impl FunctionEmitter<'_> {
                 // A `typeof` whose destination was narrowed to `&'static str`
                 // skips the owned copy entirely -- the borrowed spelling IS the
                 // value. See `emitter::typeof_str_locals`.
-                let raw_rendered_value = match value {
+                let rendered_value = match value {
                     // A base initializer copy is handed its instance: the
                     // constructor's allocation of `this` becomes the receiver.
                     Rvalue::Struct { .. } if self.is_base_initializer_receiver(*dest) => {
@@ -399,14 +399,6 @@ impl FunctionEmitter<'_> {
                     }
                     _ => self.rvalue_text_for_dest(value, local.ty)?,
                 };
-                let rendered_value =
-                    if matches!(self.mir.types.get(local.ty), Some(Type::Function(_)))
-                        && raw_rendered_value == "Default::default()"
-                    {
-                        self.default_value(local.ty)?
-                    } else {
-                        raw_rendered_value
-                    };
                 if self.deferred_capture_cells.borrow().contains(dest) {
                     // The cell was declared without a value; its one
                     // assignment creates it (see `capture_cell_created_at_assignment`).

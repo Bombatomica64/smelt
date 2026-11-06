@@ -1,7 +1,7 @@
 //! Call Runtime emission helpers.
 
 use super::*;
-use crate::emitter::rendered_text_rewrite::cloned_value_text;
+use crate::emitter::rendered_value::cloned_value_text;
 use smelt_hir::FunctionType;
 
 impl FunctionEmitter<'_> {
@@ -373,28 +373,14 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let text = self.rvalue_text_for_dest_inner(value, dest_ty)?;
-        // An rvalue that emits a bare `SmeltUnknown` constructor (`SmeltUnknown::
-        // Number(..)` from arithmetic, a boxed literal) but is assigned to a
-        // concrete-union destination is reconstructed into the tagged union.
-        // Guarding on the literal `SmeltUnknown::` prefix keeps values that
-        // already produced the tagged union (`SmeltUnion…::M0(..)`, a `Use` of a
-        // union local) untouched, avoiding a double wrap.
-        if text.starts_with("SmeltUnknown::") && self.concrete_union_members(dest_ty).is_some() {
-            return Ok(format!(
-                "{}::from_smelt_unknown({text})",
-                union::union_name(dest_ty)
-            ));
-        }
         // List-producing operations (concat/slice/flat/map/copy/…) emit a bare
         // `Vec`, but `Type::List` now lowers to the identity-bearing `SmeltList`.
         // Coerce through `Into` at this single choke point: it is a no-op when the
         // rvalue already produced a `SmeltList` (the blanket `From<T> for T`) and
         // wraps a fresh-identity list otherwise (`From<Vec<T>>`).
         if matches!(self.mir.types.get(dest_ty), Some(Type::List(_))) {
-            // `Default::default()` is an ambiguous `Into` source (both Vec and
-            // SmeltList satisfy it); emit the SmeltList default directly.
-            if text == "Default::default()" {
-                    return Ok("SmeltList::default()".to_owned());
+            if text == "SmeltList::default()" {
+                return Ok(text);
             }
             return Ok(format!("Into::<SmeltList<_>>::into({text})"));
         }
@@ -949,7 +935,16 @@ impl FunctionEmitter<'_> {
                         .map(|item| self.erase(&self.list_literal_operand(item)))
                         .collect::<Result<Vec<_>, _>>()?
                         .join(", ");
-                    return Ok(self.erase_array_text(&items_text));
+                    let erased = self.erase_array_text(&items_text);
+                    // A concrete-union destination rebuilds the tagged union from
+                    // the erased array.
+                    if self.concrete_union_members(dest_ty).is_some() {
+                        return Ok(format!(
+                            "{}::from_smelt_unknown({erased})",
+                            union::union_name(dest_ty)
+                        ));
+                    }
+                    return Ok(erased);
                 }
                 if let Some(&Type::List(item_ty)) = self.mir.types.get(dest_ty) {
                     let items_text = items

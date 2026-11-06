@@ -98,7 +98,7 @@ impl FunctionEmitter<'_> {
                 let unknown_ty = self.type_id(Type::Unknown)?;
                 return self.value_at_type_text(&unknown_value, unknown_ty, dest_ty, &self.render_scope());
             }
-            return Ok("Default::default()".to_owned());
+            return self.inferred_default_text(dest_ty);
         };
         let Some(item_ty) = items.get(index) else {
             return Err(EmitError::new("tuple index is out of bounds"));

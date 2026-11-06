@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::emitter::local_binding::PlaceTarget;
-use crate::emitter::rendered_text_rewrite::cloned_value_text;
+use crate::emitter::rendered_value::cloned_value_text;
 
 impl FunctionEmitter<'_> {
     /// Render a dotted property name as the concrete key type of a dictionary.

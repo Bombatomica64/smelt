@@ -1172,7 +1172,7 @@ impl FunctionEmitter<'_> {
                     // drops each guard before the call runs (JavaScript
                     // evaluates arguments before the call anyway).
                     let prebound = if self.is_reference_class_type(self.operand_ty(receiver)?) {
-                        self.prebind_ref_cell_arguments(rest, &mut rendered_args)?
+                        self.prebind_ref_cell_arguments(function, rest, &mut rendered_args)?
                     } else {
                         Vec::new()
                     };
@@ -3139,6 +3139,7 @@ impl FunctionEmitter<'_> {
     /// [`Self::operand_reads_through_ref_cell`] for which reads hold a guard.
     fn prebind_ref_cell_arguments(
         &self,
+        function: &MirFunction,
         args: &[Operand],
         rendered_args: &mut [String],
     ) -> Result<Vec<String>, EmitError> {
@@ -3146,7 +3147,18 @@ impl FunctionEmitter<'_> {
         for (index, (arg, rendered)) in args.iter().zip(rendered_args.iter_mut()).enumerate() {
             // A by-reference argument (`&mut` in-place ABI, borrowed callback)
             // borrows INTO the read; binding it would outlive its temporary.
-            if !self.operand_reads_through_ref_cell(arg) || rendered.starts_with('&') {
+            let param = function.params.get(index.saturating_add(1)).copied();
+            let by_reference = match param {
+                Some(param) => {
+                    self.parameter_needs_mutable_reference_in(function, param)
+                        || (matches!(
+                            self.mir.types.get(self.function_local_decl(function, param)?.ty),
+                            Some(Type::Function(_))
+                        ) && !self.function_parameter_requires_owned_in(function, param)?)
+                }
+                None => false,
+            };
+            if !self.operand_reads_through_ref_cell(arg) || by_reference {
                 continue;
             }
             let name = format!("smelt_call_arg_{index}");

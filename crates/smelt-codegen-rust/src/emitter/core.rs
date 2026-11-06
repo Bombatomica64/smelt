@@ -1,7 +1,7 @@
 //! Core emission helpers.
 
 use super::*;
-use crate::emitter::rendered_text_rewrite::cloned_value_text;
+use crate::emitter::rendered_value::cloned_value_text;
 use crate::emitter::local_binding::{CellUpgrade, LocalBinding, SELF_OWNED_NAME, SharedCell};
 use crate::emitter::typeof_str_locals;
 use std::borrow::Cow;
@@ -4260,15 +4260,7 @@ impl<'mir> FunctionEmitter<'mir> {
         };
         let converted_return_text =
             self.value_at_type_text(&call_value, call_return_ty, target_function.return_ty, &self.render_scope())?;
-        let default_adjusted_return_text = if converted_return_text == "Default::default()"
-            && matches!(
-                self.mir.types.get(target_function.return_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            ) {
-            self.null_value_text()
-        } else {
-            converted_return_text
-        };
+        let default_adjusted_return_text = converted_return_text;
         let return_text = if self.mir.types.get(target_function.return_ty) == Some(&Type::None)
             && !source_returns_future
         {
@@ -4993,15 +4985,7 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             converted_return_text
         };
-        let default_adjusted_return_text = if field_adjusted_return_text == "Default::default()"
-            && matches!(
-                self.mir.types.get(target_return_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            ) {
-            self.null_value_text()
-        } else {
-            field_adjusted_return_text
-        };
+        let default_adjusted_return_text = field_adjusted_return_text;
         let return_text = if self.mir.types.get(target_return_ty) == Some(&Type::None)
             && !source_returns_future
         {

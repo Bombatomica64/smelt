@@ -539,7 +539,7 @@ impl FunctionEmitter<'_> {
             return self.unknown_list_slice_text(list, start, end, dest_ty);
         }
         let Some(Type::List(source_item_ty)) = self.mir.types.get(list_ty) else {
-            return Ok("Default::default()".to_owned());
+            return self.inferred_default_text(dest_ty);
         };
         self.validate_optional_numeric_index(start, "list slice start index")?;
         self.validate_optional_numeric_index(end, "list slice end index")?;
@@ -852,7 +852,7 @@ impl FunctionEmitter<'_> {
         if self.has_dynamic_shape(list_ty)
         {
             let Some(Type::List(item_ty)) = self.mir.types.get(dest_ty) else {
-                return Ok("Default::default()".to_owned());
+                return self.inferred_default_text(dest_ty);
             };
             if self.mir.types.get(*item_ty) != Some(&Type::Unknown) {
                 return Err(EmitError::new(
@@ -873,7 +873,7 @@ impl FunctionEmitter<'_> {
             )));
         }
         let Some(Type::List(nested_ty)) = self.mir.types.get(list_ty) else {
-            return Ok("Default::default()".to_owned());
+            return self.inferred_default_text(dest_ty);
         };
         if self.mir.types.get(*nested_ty) == Some(&Type::Unknown)
             && self.mir.types.get(dest_ty) == Some(&Type::List(*nested_ty))
@@ -915,7 +915,7 @@ impl FunctionEmitter<'_> {
             return self.union_list_flat_text(list, *nested_ty, depth, dest_ty);
         }
         let Some(Type::List(item_ty)) = self.mir.types.get(*nested_ty) else {
-            return Ok("Default::default()".to_owned());
+            return self.inferred_default_text(dest_ty);
         };
         if depth.is_some() {
             return Err(EmitError::new(

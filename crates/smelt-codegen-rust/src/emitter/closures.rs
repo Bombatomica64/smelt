@@ -6,6 +6,16 @@ use local_binding::{CellUpgrade, LocalBinding, SELF_CAPTURE_NAME, SharedCell};
 use std::borrow::Cow;
 use smelt_hir::FunctionType;
 
+/// A rendered closure literal.
+struct RenderedClosure {
+    /// The closure expression.
+    text: String,
+    /// Whether the text already binds its captures: it is `move` or wrapped in a
+    /// block that clones them. A caller that hands the closure out binds them
+    /// otherwise.
+    binds_captures: bool,
+}
+
 impl FunctionEmitter<'_> {
     /// The MIR closure an `Rvalue::Closure` names.
     pub(super) fn mir_closure(&self, id: smelt_mir::ClosureId) -> Result<&MirClosure, EmitError> {
@@ -17,7 +27,7 @@ impl FunctionEmitter<'_> {
 
     /// Converts a non-escaping MIR closure into a Rust closure literal.
     pub(super) fn closure_text(&self, id: smelt_mir::ClosureId) -> Result<String, EmitError> {
-        self.closure_text_with_extra_params(id, &[], &[], None, None)
+        Ok(self.closure_text_with_extra_params(id, &[], &[], None, None)?.text)
     }
 
     /// Whether a contextual `target_ty` re-types a closure parameter whose own
@@ -130,11 +140,9 @@ impl FunctionEmitter<'_> {
             target_return_ty,
             target_function.as_ref(),
         )?;
+        let RenderedClosure { text: closure, binds_captures } = closure;
         if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
-            let adjusted_closure = if !has_captures
-                || closure.starts_with("move ")
-                || closure.starts_with('{')
-            {
+            let adjusted_closure = if !has_captures || binds_captures {
                 closure
             } else {
                 let source_closure = self.mir_closure(id)?;
@@ -433,7 +441,7 @@ impl FunctionEmitter<'_> {
         target_param_tys: &[TypeId],
         return_override: Option<TypeId>,
         target_function: Option<&FunctionType>,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RenderedClosure, EmitError> {
         // `&` for a parameter the contextual callback type passes by shared
         // reference, empty otherwise. Every parameter-rendering site below goes
         // through this, so the closure's signature cannot drift from the `dyn Fn`
@@ -494,12 +502,15 @@ impl FunctionEmitter<'_> {
                     self.type_text(*extra_ty)?
                 ));
             }
-            return Ok(format!(
-                "|{}| -> {} {{ {} }}",
-                param_decls.join(", "),
-                self.type_text(return_ty)?,
-                self.default_value(return_ty)?
-            ));
+            return Ok(RenderedClosure {
+                text: format!(
+                    "|{}| -> {} {{ {} }}",
+                    param_decls.join(", "),
+                    self.type_text(return_ty)?,
+                    self.default_value(return_ty)?
+                ),
+                binds_captures: false,
+            });
         }
         let closure_param_names = closure
             .params
@@ -1000,7 +1011,7 @@ impl FunctionEmitter<'_> {
             ""
         };
         if capture_prefix.is_empty() {
-            return Ok(body);
+            return Ok(RenderedClosure { text: body, binds_captures: false });
         }
         let mut cloned_captures = HashSet::new();
         let capture_prelude = closure
@@ -1089,14 +1100,15 @@ impl FunctionEmitter<'_> {
                 })
             })
             .collect::<Vec<_>>();
-        if capture_prelude.is_empty() {
-            Ok(format!("{capture_prefix}{body}"))
+        let text = if capture_prelude.is_empty() {
+            format!("{capture_prefix}{body}")
         } else {
-            Ok(format!(
+            format!(
                 "{{\n    {}\n    {capture_prefix}{body}\n}}",
                 capture_prelude.join("\n    ")
-            ))
-        }
+            )
+        };
+        Ok(RenderedClosure { text, binds_captures: true })
     }
 
     /// Return whether this closure's own MIR body performs an `await`.

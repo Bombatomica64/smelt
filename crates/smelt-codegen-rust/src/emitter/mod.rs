@@ -150,7 +150,6 @@ mod post_dominance;
 mod receiver_bound_slot;
 mod record_slot_abi;
 mod render_scope;
-mod rendered_text_rewrite;
 mod rendered_value;
 /// Debug-only emitter self-consistency checks; the module does not exist in a
 /// release build, so neither do its assertions or their call sites.

@@ -1,7 +1,7 @@
 //! JavaScript optional-chaining and nullish-coalescing access: optional field, index, method, and coalesce text emission over Option-wrapped receivers.
 
 use super::*;
-use crate::emitter::rendered_text_rewrite::cloned_value_text;
+use crate::emitter::rendered_value::cloned_value_text;
 use smelt_hir::CLASS_INDEX_STORE_FIELD;
 
 impl FunctionEmitter<'_> {
