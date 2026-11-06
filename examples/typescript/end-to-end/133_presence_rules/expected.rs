@@ -4227,7 +4227,7 @@ impl IntoSmeltUnknown for SmeltUnion4 {
 impl SmeltUnion4 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
         if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltRequest>() { return Self::M0(smelt_origin); } }
-        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(map) if map.contains_key("raw")) && matches!(&value, SmeltUnknown::Object(map) if map.contains_key("count"))) { return Self::M1(Default::default()); }
+        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(map) if map.contains_key("raw")) && matches!(&value, SmeltUnknown::Object(map) if map.contains_key("count"))) { return Self::M1(<Wrapper as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown())); }
         Self::M0(<SmeltRequest as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
     }
 }
@@ -4403,11 +4403,11 @@ pub(crate) fn segments(path: String) -> SmeltList<String> {
     let mut next: Option<String>;
     let mut _smelt_tmp_10: usize;
     let mut _smelt_tmp_11: bool;
-    let mut _smelt_tmp_13: bool;
-    let mut _smelt_tmp_14: String;
+    let mut _smelt_tmp_14: bool;
     let mut _smelt_tmp_15: String;
     let mut _smelt_tmp_16: String;
-    let mut _smelt_tmp_17: f64;
+    let mut _smelt_tmp_17: String;
+    let mut _smelt_tmp_18: f64;
     let parts: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_haystack = path.clone(); let smelt_separator = "/".to_owned(); if smelt_separator.is_empty() { if smelt_haystack.is_empty() { Vec::new() } else { smelt_haystack.chars().map(|ch| ch.to_string()).collect::<Vec<_>>() } } else { smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() } });
     let mut out: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
     let mut i: f64 = 0.0;
@@ -4420,17 +4420,17 @@ pub(crate) fn segments(path: String) -> SmeltList<String> {
     __smelt_update_tmp = i + 1.0;
     i = __smelt_update_tmp;
     next = parts.borrow().get({ let smelt_normalized = __smelt_update_tmp as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned();
-    _smelt_tmp_13 = next.is_none();
-    if _smelt_tmp_13 {
-    _smelt_tmp_15 = "".to_owned() + &p;
-    _smelt_tmp_16 = _smelt_tmp_15 + &"<last>".to_owned();
-    _smelt_tmp_14 = _smelt_tmp_16;
-    _smelt_tmp_17 = { let smelt_push_item = _smelt_tmp_14; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
+    _smelt_tmp_14 = next.is_none();
+    if _smelt_tmp_14 {
+    _smelt_tmp_16 = "".to_owned() + &p;
+    _smelt_tmp_17 = _smelt_tmp_16 + &"<last>".to_owned();
+    _smelt_tmp_15 = _smelt_tmp_17;
+    _smelt_tmp_18 = { let smelt_push_item = _smelt_tmp_15; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
     _smelt_tmp_9 = _smelt_tmp_9 + 1;
     continue;
     } else {
-    _smelt_tmp_14 = p;
-    _smelt_tmp_17 = { let smelt_push_item = _smelt_tmp_14; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
+    _smelt_tmp_15 = p;
+    _smelt_tmp_18 = { let smelt_push_item = _smelt_tmp_15; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
     _smelt_tmp_9 = _smelt_tmp_9 + 1;
     continue;
     }

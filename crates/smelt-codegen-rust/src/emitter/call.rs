@@ -1648,7 +1648,9 @@ impl FunctionEmitter<'_> {
                 .and_then(|params| params.get(index).copied())
                 .unwrap_or(substituted)
         };
-        let mut rendered_args = args
+        let packed_rest = self.packed_rest_arg_text(args, Some(function))?;
+        let positional_args = packed_rest.as_ref().and_then(|(index, _)| args.get(..*index)).unwrap_or(args);
+        let mut rendered_args = positional_args
             .iter()
             .enumerate()
             .map(|(index, arg)| {
@@ -1671,12 +1673,17 @@ impl FunctionEmitter<'_> {
                 }
             })
             .collect::<Result<Vec<_>, _>>()?;
+        if let Some((index, list)) = packed_rest
+            && let Some(param) = function.params.get(index)
+        {
+            rendered_args.push(self.callback_call_arg_text(function, index, abi_param(index, *param), list));
+        }
         for (index, target_ty) in function
             .params
             .iter()
             .copied()
             .enumerate()
-            .skip(args.len())
+            .skip(rendered_args.len())
         {
             // A by-reference (`mutable_params`) parameter lowers to `&mut T`,
             // which has no value-shaped default expression to pad with; such a

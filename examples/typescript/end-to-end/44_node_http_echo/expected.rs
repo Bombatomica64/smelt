@@ -5510,8 +5510,8 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let smelt_capture_received = smelt_capture_received.clone();
     move |closure_arg_0: String| {
-    let _smelt_tmp_2: String = (*smelt_capture_received.borrow()).clone() + &closure_arg_0.clone();
-    (*smelt_capture_received.borrow_mut()) = _smelt_tmp_2.clone();
+    let _smelt_tmp_3: String = (*smelt_capture_received.borrow()).clone() + &closure_arg_0.clone();
+    (*smelt_capture_received.borrow_mut()) = _smelt_tmp_3.clone();
     ()
     }
 });
@@ -5528,15 +5528,16 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_9: SmeltServerResponse;
     let _smelt_tmp_10: String;
     let _smelt_tmp_11: String;
-    let _smelt_tmp_12: f64;
-    let _smelt_tmp_13: String;
-    let _smelt_tmp_14: Option<String>;
-    let _smelt_tmp_15: String;
-    let _smelt_tmp_16: Option<String>;
-    let _smelt_tmp_17: String;
-    let _smelt_tmp_18: SmeltRecord<String, String>;
-    let _smelt_tmp_19: String;
-    let _smelt_tmp_20: SmeltServerResponse;
+    let _smelt_tmp_12: String;
+    let _smelt_tmp_13: f64;
+    let _smelt_tmp_14: String;
+    let _smelt_tmp_15: Option<String>;
+    let _smelt_tmp_16: String;
+    let _smelt_tmp_17: Option<String>;
+    let _smelt_tmp_18: String;
+    let _smelt_tmp_19: SmeltRecord<String, String>;
+    let _smelt_tmp_20: String;
+    let _smelt_tmp_21: SmeltServerResponse;
     let _smelt_tmp_3: String = smelt_weak_closure_arg_0.smelt_emitter().clone().method();
     let _smelt_tmp_4: bool = _smelt_tmp_3.clone() == "POST".to_owned();
     if _smelt_tmp_4 {
@@ -5549,15 +5550,16 @@ smelt_local.block_on(&smelt_runtime, async move {
     }
     _smelt_tmp_10 = smelt_weak_closure_arg_0.smelt_emitter().clone().method();
     _smelt_tmp_11 = smelt_weak_closure_arg_0.smelt_emitter().clone().url();
-    _smelt_tmp_12 = closure_arg_1.clone().status_code();
-    _smelt_tmp_13 = "".to_owned() + &smelt_number_to_string(_smelt_tmp_12);
-    _smelt_tmp_14 = closure_arg_1.clone().get_header(&"content-type".to_owned());
-    _smelt_tmp_15 = _smelt_tmp_14.clone().unwrap_or("".to_owned());
-    _smelt_tmp_16 = closure_arg_1.clone().get_header(&"x-set-first".to_owned());
-    _smelt_tmp_17 = _smelt_tmp_16.clone().unwrap_or("".to_owned());
-    _smelt_tmp_18 = SmeltRecord::from([("method".to_owned(), _smelt_tmp_10.clone()), ("url".to_owned(), _smelt_tmp_11.clone()), ("body".to_owned(), (*smelt_capture_received.borrow()).clone()), ("status".to_owned(), _smelt_tmp_13.clone()), ("sentType".to_owned(), _smelt_tmp_15.clone()), ("kept".to_owned(), _smelt_tmp_17.clone())]);
-    _smelt_tmp_19 = serde_json::to_string(&{ let smelt_record = _smelt_tmp_18.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect())) }).expect("JSON serialization failed");
-    _smelt_tmp_20 = closure_arg_1.clone().end(Some(_smelt_tmp_19.clone()));
+    _smelt_tmp_12 = (*smelt_capture_received.borrow()).clone();
+    _smelt_tmp_13 = closure_arg_1.clone().status_code();
+    _smelt_tmp_14 = "".to_owned() + &smelt_number_to_string(_smelt_tmp_13);
+    _smelt_tmp_15 = closure_arg_1.clone().get_header(&"content-type".to_owned());
+    _smelt_tmp_16 = _smelt_tmp_15.clone().unwrap_or("".to_owned());
+    _smelt_tmp_17 = closure_arg_1.clone().get_header(&"x-set-first".to_owned());
+    _smelt_tmp_18 = _smelt_tmp_17.clone().unwrap_or("".to_owned());
+    _smelt_tmp_19 = SmeltRecord::from([("method".to_owned(), _smelt_tmp_10.clone()), ("url".to_owned(), _smelt_tmp_11.clone()), ("body".to_owned(), _smelt_tmp_12.clone()), ("status".to_owned(), _smelt_tmp_14.clone()), ("sentType".to_owned(), _smelt_tmp_16.clone()), ("kept".to_owned(), _smelt_tmp_18.clone())]);
+    _smelt_tmp_20 = serde_json::to_string(&{ let smelt_record = _smelt_tmp_19.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect())) }).expect("JSON serialization failed");
+    _smelt_tmp_21 = closure_arg_1.clone().end(Some(_smelt_tmp_20.clone()));
     ()
     }
 });

@@ -4004,10 +4004,15 @@ impl<'mir> FunctionEmitter<'mir> {
                 // spreading its elements and dropping `arg1..` — which panics on
                 // non-iterable values and corrupts multi-argument adapters (see
                 // `partial`/`partialRight` two-argument callbacks).
+                //
+                // A target's rest parameter holds zero or more arguments, so it
+                // spreads into the vector rather than arriving as one array.
+                let rest_slot = target_function.rest;
                 let packed = target_function
                     .params
                     .iter()
                     .enumerate()
+                    .filter(|(index, _)| rest_slot != Some(*index))
                     .map(|(index, target_param)| {
                         // The adapter's own parameters are declared with the
                         // by-reference ABI (`function_type_param_text` renders
@@ -4031,7 +4036,12 @@ impl<'mir> FunctionEmitter<'mir> {
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
-                format!("smelt_callback.call(vec![{packed}])")
+                match self.rest_spread_text(target_function)? {
+                    Some(spread) => format!(
+                        "smelt_callback.call({{ let mut smelt_packed: Vec<SmeltUnknown> = vec![{packed}]; {spread} smelt_packed }})"
+                    ),
+                    None => format!("smelt_callback.call(vec![{packed}])"),
+                }
             }
         } else {
             format!("(smelt_callback)({forwarded})")
@@ -4094,6 +4104,28 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(Some(format!(
             "{{ let smelt_callback = {value_text}.clone(); let smelt_adapted: {target_text} = ::std::rc::Rc::new(move |{}| {returned}); smelt_adapted }}",
             arg_decls.join(", ")
+        )))
+    }
+
+    /// The statement appending an adapter's rest parameter, element by element and
+    /// erased, to the packed vector `smelt_packed`. `None` when `function` declares
+    /// no list-typed rest parameter.
+    fn rest_spread_text(&self, function: &FunctionType) -> Result<Option<String>, EmitError> {
+        let Some(index) = function.rest else {
+            return Ok(None);
+        };
+        let Some(param) = function.params.get(index).copied() else {
+            return Ok(None);
+        };
+        let Some(Type::List(item)) = self.mir.types.get(param) else {
+            return Ok(None);
+        };
+        let by_reference = function.mutable_params.contains(&index)
+            || self.callback_param_is_shared_reference(function, index, param);
+        let list = if by_reference { format!("arg{index}.clone()") } else { format!("arg{index}") };
+        let erased = self.erase_value_text("smelt_item", *item)?;
+        Ok(Some(format!(
+            "let smelt_rest: Vec<_> = {list}.into(); smelt_packed.extend(smelt_rest.into_iter().map(|smelt_item| {erased}));"
         )))
     }
 

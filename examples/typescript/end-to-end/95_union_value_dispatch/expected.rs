@@ -4709,8 +4709,8 @@ impl IntoSmeltUnknown for SmeltUnion2 {
 }
 impl SmeltUnion2 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(map) if map.contains_key("kind"))) { return Self::M0(Default::default()); }
-        Self::M1(Default::default())
+        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(map) if map.contains_key("kind"))) { return Self::M0(<Keyed as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown())); }
+        Self::M1(<Noted as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown()))
     }
 }
 impl PartialEq for SmeltUnion2 {

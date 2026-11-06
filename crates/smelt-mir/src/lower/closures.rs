@@ -128,6 +128,7 @@ impl LoweringCtx<'_> {
         let shared = LoweringShared {
             krate: self.krate,
             item_functions: self.item_functions,
+            volatile_locals: self.volatile_locals,
             global_ids: self.global_ids,
             languages: self.languages,
             loop_index_ty: self.loop_index_ty,

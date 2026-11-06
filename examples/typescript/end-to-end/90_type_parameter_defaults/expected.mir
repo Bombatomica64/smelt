@@ -7,16 +7,18 @@ fn relabel (FuncId(0)) -> Slot<Bool, String, Float>
   locals
     %0 param slot: Slot<Bool, String, Float>
     %1 param label: String
-    %2 temp: Float
+    %2 temp: Bool
     %3 temp: Float
-    %4 temp: Slot<Bool, String, Float>
+    %4 temp: Float
+    %5 temp: Slot<Bool, String, Float>
   bb0:
-    %2 = call fn4(copy %0) -> bb1
+    %2 = copy %0.field16
+    %3 = call fn4(copy %0) -> bb1
   bb1:
-    %3 = move %2 * 2.0
-    %4 = call fn2(copy %0.field16, copy %1, move %3) -> bb2
+    %4 = move %3 * 2.0
+    %5 = call fn2(move %2, copy %1, move %4) -> bb2
   bb2:
-    return move %4
+    return move %5
 
 fn read_config (FuncId(1)) -> String
   locals
@@ -155,10 +157,11 @@ fn main (FuncId(12)) -> None
     %18 temp: None
     %19 temp: List<Bool>
     %20 temp: Pair<Bool, List<Bool>>
-    %21 temp: List<Bool>
-    %22 temp: Float
-    %23 temp: List<Bool>
-    %24 temp: None
+    %21 temp: Bool
+    %22 temp: List<Bool>
+    %23 temp: Float
+    %24 temp: List<Bool>
+    %25 temp: None
   bb0:
     %4 = call fn2(true, "one", 1.0) -> bb1
   bb1:
@@ -196,12 +199,13 @@ fn main (FuncId(12)) -> None
     %20 = call fn10(true, move %19) -> bb15
   bb15:
     %3 = move %20
-    %21 = call fn11(copy %3) -> bb16
+    %21 = copy %3.field27
+    %22 = call fn11(copy %3) -> bb16
   bb16:
-    %22 = len move %21
-    %23 = call fn11(copy %3) -> bb17
+    %23 = len move %22
+    %24 = call fn11(move %3) -> bb17
   bb17:
-    %24 = call @console_log(copy %3.field27, move %22, copy %23[1.0]) -> bb18
+    %25 = call @console_log(move %21, move %23, copy %24[1.0]) -> bb18
   bb18:
     return none
 

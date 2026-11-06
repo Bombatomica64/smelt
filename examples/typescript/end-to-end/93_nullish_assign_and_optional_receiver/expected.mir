@@ -10,20 +10,22 @@ fn write (FuncId(0)) -> None
     %5 user headers: Optional<Headers>
     %6 temp: Bool
     %7 temp: Optional<Headers>
-    %8 temp: Bool
-    %9 temp: Headers
+    %8 temp: Optional<Headers>
+    %9 temp: Bool
     %10 temp: Headers
-    %11 temp: None
+    %11 temp: Headers
+    %12 temp: None
   bb0:
     %6 = copy %0.field6 != none
     switch move %6 ? bb1 : bb2
   bb1:
-    %7 = copy %0.field6
+    %8 = copy %0.field6
+    %7 = move %8
     goto bb6
   bb2:
     %3 = undefined
-    %8 = copy %0.field5 == none
-    switch move %8 ? bb3 : bb4
+    %9 = copy %0.field5 == none
+    switch move %9 ? bb3 : bb4
   bb3:
     %4 = headers_new
     %0.field5 = copy %4
@@ -37,8 +39,8 @@ fn write (FuncId(0)) -> None
     goto bb6
   bb6:
     %5 = move %7
-    %10 = move %5
-    %11 = headers_set move %10, copy %1, copy %2
+    %11 = move %5
+    %12 = headers_set move %11, copy %1, copy %2
     return none
 
 fn peek (FuncId(1)) -> String

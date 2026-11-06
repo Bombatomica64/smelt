@@ -9670,8 +9670,8 @@ export function pick(cond: boolean, xs: number[], y: number): number {
     let function = function_item(&ctx, module, 0)?;
     let body = function_body(&ctx, function)?;
 
-    // Locate the ternary and confirm its consequent is a block-wrapped arm whose
-    // block carries the increment store (a `Let`/`Assign`), not a bare index.
+    // Locate the ternary and confirm the increment store (a `Let`/`Assign`) sits in
+    // a block inside its consequent, so it runs only when that arm is taken.
     let then_expr = body
         .exprs
         .iter()
@@ -9680,11 +9680,25 @@ export function pick(cond: boolean, xs: number[], y: number): number {
             _ => None,
         })
         .ok_or_else(|| "no Conditional expression lowered".to_owned())?;
-    let ExprKind::Block(arm_block) = body.exprs[then_expr.0 as usize].kind else {
-        return Err("ternary consequent was not wrapped in an arm block".to_owned());
-    };
+    let mut pending = vec![then_expr];
+    let mut arm_store = None;
+    while let Some(expr) = pending.pop() {
+        let kind = &body.exprs[expr.0 as usize].kind;
+        if let ExprKind::Block(block) = kind {
+            arm_store = Some(*block);
+            break;
+        }
+        drop(kind.clone().try_map_child_exprs(&mut |child| {
+            pending.push(child);
+            Ok::<_, std::convert::Infallible>(child)
+        }));
+    }
+    let arm_block = arm_store.ok_or_else(|| "the ternary consequent holds no statement block".to_owned())?;
     ensure!(
-        !body.blocks[arm_block.0 as usize].stmts.is_empty(),
+        body.blocks[arm_block.0 as usize]
+            .stmts
+            .iter()
+            .any(|stmt_id| matches!(body.stmts[stmt_id.0 as usize], Stmt::Assign { .. })),
         "consequent arm block does not carry the `k++` increment store",
     );
 

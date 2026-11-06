@@ -2895,9 +2895,19 @@ impl ModuleBuilder<'_> {
         // a `never`-returning function (`c ? rethrow : (e) => handle(e)`): its
         // return says nothing about the alternate's. The outer hint is the
         // right one there.
+        //
+        // A non-empty array literal has a shape of its own, and a literal takes
+        // its hint on trust because a checked program's hint is always right.
+        // This one is only the other arm's type: `c ? ["a"] : [1]` would type
+        // `[1]` as `string[]`. The arms join below instead.
         let then_ty = Self::expr_ty(body, then_expr);
+        let alternate_has_own_shape = matches!(
+            Self::unparenthesized_expression(&conditional.alternate),
+            Expression::ArrayExpression(array) if !array.elements.is_empty()
+        );
         let branch_hint = if self.ctx.krate.types.get(then_ty) == Some(&Type::None)
             || self.function_returns_never(then_ty)
+            || alternate_has_own_shape
         {
             type_hint
         } else {

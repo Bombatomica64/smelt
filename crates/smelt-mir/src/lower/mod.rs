@@ -31,6 +31,8 @@ use crate::{
 
 /// The `LoweringCtx` state machine, its constructors, and shared accessors.
 mod context;
+/// Locals that can change while one expression is evaluated.
+mod volatile_locals;
 /// Expression lowering: the core `lower_expr` dispatcher and call helpers.
 mod expr;
 /// Interface field flattening and generic type-parameter substitution.
@@ -223,6 +225,7 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
         .iter()
         .map(|module| (module.source.file, module.source.path.clone()))
         .collect();
+    let volatile = volatile_locals::VolatileLocals::of(krate);
     let helpers = HelperTypes {
         none: mir.types.intern(Type::None),
         loop_index_ty: mir.types.intern(Type::Float),
@@ -255,6 +258,7 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
     let languages = index_source_languages(krate);
     let tables = LoweringTables {
         item_functions: &item_functions,
+        volatile_locals: &volatile,
         global_ids: &global_ids,
         languages: &languages,
     };
@@ -311,6 +315,8 @@ fn assign_function_ids(
 struct LoweringTables<'hir> {
     /// Mapping of HIR function items to their assigned MIR function ids.
     item_functions: &'hir FunctionIds,
+    /// Locals that can change while one expression is evaluated.
+    volatile_locals: &'hir volatile_locals::VolatileLocals,
     /// Mapping of mutable-global HIR items to their `Mir::globals` index.
     global_ids: &'hir HashMap<smelt_hir::ItemId, u32>,
     /// Source language of every file in the crate, keyed by the `FileId` that
@@ -584,6 +590,7 @@ fn lower_item_functions(
         let shared = LoweringShared {
             krate,
             item_functions: tables.item_functions,
+            volatile_locals: tables.volatile_locals,
             global_ids: tables.global_ids,
             languages: tables.languages,
             loop_index_ty: helpers.loop_index_ty,
@@ -658,6 +665,7 @@ fn lower_module_bodies(
         let shared = LoweringShared {
             krate,
             item_functions: tables.item_functions,
+            volatile_locals: tables.volatile_locals,
             global_ids: tables.global_ids,
             languages: tables.languages,
             loop_index_ty: helpers.loop_index_ty,

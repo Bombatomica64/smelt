@@ -66,6 +66,7 @@ fn main (FuncId(1)) -> None throws
 closure ClosureId(0) -> Float
   locals
     %0 user count: Float
+    %1 temp: Float
   bb0:
     return copy %0
 
@@ -73,14 +74,17 @@ closure ClosureId(1) -> Float
   locals
     %0 user count: Float
     %1 temp: Float
+    %2 temp: Float
+    %3 temp: Float
   bb0:
-    %1 = copy %0 + 1.0
-    %0 = copy %1
+    %2 = copy %0 + 1.0
+    %0 = copy %2
     return copy %0
 
 closure ClosureId(2) -> Float
   locals
     %0 user count: Float
+    %1 temp: Float
   bb0:
     return copy %0
 

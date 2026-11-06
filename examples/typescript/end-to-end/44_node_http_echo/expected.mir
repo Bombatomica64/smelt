@@ -131,9 +131,10 @@ closure ClosureId(1) -> None
     %0 param chunk: String
     %1 user received: String
     %2 temp: String
+    %3 temp: String
   bb0:
-    %2 = copy %1 + copy %0
-    %1 = copy %2
+    %3 = copy %1 + copy %0
+    %1 = copy %3
     return none
 
 closure ClosureId(2) -> None
@@ -150,15 +151,16 @@ closure ClosureId(2) -> None
     %9 temp: ServerResponse
     %10 temp: String
     %11 temp: String
-    %12 temp: Float
-    %13 temp: String
-    %14 temp: Optional<String>
-    %15 temp: String
-    %16 temp: Optional<String>
-    %17 temp: String
-    %18 temp: Dict<String, String>
-    %19 temp: String
-    %20 temp: ServerResponse
+    %12 temp: String
+    %13 temp: Float
+    %14 temp: String
+    %15 temp: Optional<String>
+    %16 temp: String
+    %17 temp: Optional<String>
+    %18 temp: String
+    %19 temp: Dict<String, String>
+    %20 temp: String
+    %21 temp: ServerResponse
   bb0:
     %3 = incoming_message_method copy %1
     %4 = copy %3 == "POST"
@@ -175,15 +177,16 @@ closure ClosureId(2) -> None
   bb3:
     %10 = incoming_message_method copy %1
     %11 = incoming_message_url copy %1
-    %12 = server_response_status_code copy %2
-    %13 = "" + copy %12
-    %14 = server_response_get_header copy %2 "content-type"
-    %15 = copy %14 ?? ""
-    %16 = server_response_get_header copy %2 "x-set-first"
-    %17 = copy %16 ?? ""
-    %18 = {"method": copy %10, "url": copy %11, "body": copy %0, "status": copy %13, "sentType": copy %15, "kept": copy %17}
-    %19 = json_stringify copy %18
-    %20 = server_response_end copy %2 copy %19
+    %12 = copy %0
+    %13 = server_response_status_code copy %2
+    %14 = "" + copy %13
+    %15 = server_response_get_header copy %2 "content-type"
+    %16 = copy %15 ?? ""
+    %17 = server_response_get_header copy %2 "x-set-first"
+    %18 = copy %17 ?? ""
+    %19 = {"method": copy %10, "url": copy %11, "body": copy %12, "status": copy %14, "sentType": copy %16, "kept": copy %18}
+    %20 = json_stringify copy %19
+    %21 = server_response_end copy %2 copy %20
     return none
 
 closure ClosureId(3) -> None
