@@ -2,6 +2,7 @@
 
 mod ambient_globals;
 mod bigint;
+mod body_arena;
 mod checker_types;
 mod null_absent;
 mod open_array_hint;
@@ -15,6 +16,8 @@ mod function_statics;
 mod hoisting;
 mod int32;
 mod js_text;
+mod narrowing;
+mod peel;
 mod postfix_deferral;
 mod presence_tested_locals;
 mod type_param_owners;
@@ -52,12 +55,11 @@ use oxc::parser::{ParseOptions, Parser};
 use oxc::span::SourceType;
 use oxc::syntax::operator::{BinaryOperator, LogicalOperator, UnaryOperator};
 use smelt_hir::{
-    AsyncOp, BinOp, Body, CaptureMode, Class,
-    ClosureCapture, ConstItem, DictProjectionOp, Expr, ExprKind, Field, FileId, Function,
-    FunctionOwner, FunctionType, Item, Language, ListCallbackOp, ListSearchOp, Literal, LocalDecl,
-    MethodSig, Module, ModuleId, Param, ParamSig, Pattern, PrimitiveCastOp, SetProjectionOp,
-    SourceFile, Span, Stmt, StringPadOp, Type, UnaryOp, UnknownKind,
-    Visibility,
+    BinOp, Body, CaptureMode, Class, ClosureCapture, ConstItem, DictProjectionOp, Expr, ExprKind,
+    Field, FileId, Function, FunctionOwner, FunctionType, Item, Language, ListCallbackOp,
+    ListSearchOp, Literal, LocalDecl, MethodSig, Module, ModuleId, Param, ParamSig, Pattern,
+    PrimitiveCastOp, SetProjectionOp, SourceFile, Span, Stmt, StringPadOp, Type, UnaryOp,
+    UnknownKind, Visibility,
 };
 
 /// Vitest expectation matchers that can lower to direct HIR checks.
@@ -874,7 +876,7 @@ struct ModuleBuilder<'ctx> {
     export_renames: HashMap<String, String>,
     /// Object constants that act as namespace-like API surfaces, each with its
     /// entries in source order.
-    object_namespaces: HashMap<String, IndexMap<String, smelt_hir::ItemId>>,
+    object_namespaces: crate::context::Published<HashMap<String, IndexMap<String, smelt_hir::ItemId>>>,
     /// Folded constant values visible to this module: literals, `enum` members,
     /// `RegExp` literals, object constants, collections and object-value
     /// projections.

@@ -35,6 +35,7 @@
 //! the lexical class scopes of test suites and test cases, so rolling a scope
 //! back can never forget that the module declares a name.
 
+use crate::context::Published;
 use std::collections::{HashMap, HashSet};
 
 use smelt_hir::{Field, ItemId, MethodSig, Symbol, TypeId};
@@ -87,6 +88,12 @@ pub(in crate::lowering) enum ClassState {
 pub(in crate::lowering) struct ClassRegistry {
     /// Every class name the module knows: its declaration and its item.
     names: HashMap<String, ClassName>,
+    /// The class scopes local declarations shadowed, innermost last.
+    shadows: Vec<ClassScopeSnapshot>,
+    /// How many function and closure bodies enclose the code being lowered.
+    body_depth: usize,
+    /// Interfaces declaring a numeric index signature.
+    array_like: HashSet<Symbol>,
     /// Fields for each class, keyed by emitted class name.
     fields: HashMap<String, Vec<Field>>,
     /// Method signatures for classes that are visible before their item is
@@ -111,7 +118,7 @@ pub(in crate::lowering) struct ClassRegistry {
     ///
     /// Member and computed access fall back to it when no declared named field
     /// or method matches.
-    index_values: HashMap<Symbol, TypeId>,
+    index_values: Published<HashMap<Symbol, TypeId>>,
     /// Lexically scoped class type symbols keyed by their source binding name.
     ///
     /// Test suites are flattened into one Rust module, so sibling suites may
@@ -131,7 +138,7 @@ impl ClassRegistry {
     /// filled by [`Self::declare_module_scope`].
     pub(in crate::lowering) fn new(
         visible: HashMap<String, ItemId>,
-        index_values: HashMap<Symbol, TypeId>,
+        index_values: Published<HashMap<Symbol, TypeId>>,
     ) -> Self {
         Self {
             names: visible
@@ -323,7 +330,7 @@ impl ClassRegistry {
 
     /// Record the index-signature value type of the class symbol `name`.
     pub(in crate::lowering) fn set_index_value(&mut self, name: Symbol, value_ty: TypeId) {
-        self.index_values.insert(name, value_ty);
+        self.index_values.write().insert(name, value_ty);
     }
 
     /// Return the lexically scoped type symbol bound to the source name `name`.
@@ -339,6 +346,56 @@ impl ClassRegistry {
     /// The registered items by name.
     fn items_by_name(&self) -> HashMap<String, ItemId> {
         self.entries().map(|(name, item)| (name.clone(), item)).collect()
+    }
+
+    /// Record that the interface `name` declares a numeric index signature.
+    pub(in crate::lowering) fn mark_array_like(&mut self, name: Symbol) {
+        self.array_like.insert(name);
+    }
+
+    /// Whether `name` is an interface with a numeric index signature.
+    pub(in crate::lowering) fn is_array_like(&self, name: Symbol) -> bool {
+        self.array_like.contains(&name)
+    }
+
+    /// Whether lowering is inside a function or closure body.
+    pub(in crate::lowering) const fn in_body(&self) -> bool {
+        self.body_depth > 0
+    }
+
+    /// Note entering (`true`) or leaving (`false`) a function or closure body.
+    pub(in crate::lowering) const fn note_body(&mut self, entering: bool) {
+        if entering {
+            self.body_depth += 1;
+        } else {
+            self.body_depth -= 1;
+        }
+    }
+
+    /// Open a shadow of `name` for the current lexical scope: the outer class of
+    /// that name is out of sight.
+    ///
+    /// [`Self::close_shadows`] undoes it when that scope ends.
+    pub(in crate::lowering) fn open_shadow(&mut self, name: &str) {
+        let scope = self.snapshot_scope();
+        self.shadows.push(scope);
+        if let Some(entry) = self.names.get_mut(name) {
+            entry.item = None;
+        }
+    }
+
+    /// How many shadows are open, the mark [`Self::close_shadows`] returns to.
+    pub(in crate::lowering) fn shadow_depth(&self) -> usize {
+        self.shadows.len()
+    }
+
+    /// Undo every shadow opened since `depth`.
+    pub(in crate::lowering) fn close_shadows(&mut self, depth: usize) {
+        while self.shadows.len() > depth {
+            if let Some(scope) = self.shadows.pop() {
+                self.restore_scope(scope);
+            }
+        }
     }
 
     /// Capture the whole class scope so a nested lexical scope can be undone.
@@ -435,7 +492,7 @@ pub(in crate::lowering) struct ClassScopeSnapshot {
     /// Lexically scoped class type symbols visible before the suite body.
     scoped_type_names: HashMap<String, Symbol>,
     /// Class index-signature value types visible before the suite body.
-    index_values: HashMap<Symbol, TypeId>,
+    index_values: Published<HashMap<Symbol, TypeId>>,
 }
 
 /// Registered class names captured before lowering one test case.
@@ -532,7 +589,7 @@ mod tests {
     fn restoring_a_scope_restores_items_only() {
         let mut registry = ClassRegistry::new(
             std::collections::HashMap::from([("Imported".to_owned(), ItemId(5))]),
-            std::collections::HashMap::new(),
+            crate::context::Published::default(),
         );
         registry.declare_module_scope(names(&["Declared"]), HashSet::new());
         let scope = registry.snapshot_scope();

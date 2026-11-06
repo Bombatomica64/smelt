@@ -39,12 +39,6 @@ impl ModuleBuilder<'_> {
         })
     }
 
-    /// Return whether a lowered type is the modeled `URL` class.
-    pub(in crate::lowering) fn is_url_type(&self, ty: smelt_hir::TypeId) -> bool {
-        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::Url)
-            && !self.source_shadows_global("URL")
-    }
-
     /// Lower `new URL(input, base?)` to a parsed URL value.
     ///
     /// The constructor throws a `TypeError` for text that is not a URL, which
@@ -125,7 +119,7 @@ impl ModuleBuilder<'_> {
         span: smelt_hir::Span,
         body: &mut Body,
     ) -> Option<smelt_hir::ExprId> {
-        if !self.is_url_type(Self::expr_ty(body, value)) {
+        if !self.is_modeled_class(Self::expr_ty(body, value), smelt_stdlib::StdlibClass::Url) {
             return None;
         }
         let ty = self.ctx.krate.types.intern(Type::String);
@@ -169,7 +163,7 @@ impl ModuleBuilder<'_> {
         } else {
             self.present_receiver(receiver, span, body)
         };
-        if !self.is_url_type(receiver_ty) {
+        if !self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::Url) {
             return Ok(None);
         }
         let ty = match op {
@@ -245,7 +239,7 @@ impl ModuleBuilder<'_> {
         let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
-        if !self.is_url_type(Self::expr_ty(body, receiver)) {
+        if !self.is_modeled_class(Self::expr_ty(body, receiver), smelt_stdlib::StdlibClass::Url) {
             return Ok(None);
         }
         let span = self.span(assign.span.start, assign.span.end);
@@ -312,7 +306,7 @@ impl ModuleBuilder<'_> {
             _ => ty,
         };
         !matches!(self.ctx.krate.types.get(ty), Some(Type::Unknown | Type::TypeParam { .. }))
-            && !self.is_url_type(ty)
+            && !self.is_modeled_class(ty, smelt_stdlib::StdlibClass::Url)
     }
 
     /// Whether evaluating a receiver twice is evaluating it once: a binding or

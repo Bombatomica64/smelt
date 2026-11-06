@@ -1,5 +1,5 @@
-//! `ModuleBuilder` lowering methods (part 05): test-suite (`describe`/hooks)
-//! lowering and related HIR construction helpers split out of `lowering.rs`.
+//! Test suites: `describe` blocks, hooks, table tests and the test functions they
+//! declare.
 
 use crate::lowering::js_text::js_str_text;
 use crate::lowering::state::fn_ctx::BodyKind;

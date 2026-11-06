@@ -32,9 +32,9 @@ impl FunctionEmitter<'_> {
             ));
         }
         // Each branch below appends its own `.clone()` to get the mutable copy it
-        // sorts, so reading by borrow leaves exactly one copy where cloning on the
-        // read made it `x.clone().clone()`.
-        let list_text = self.operand_borrow_expr(list)?;
+        // sorts. The copy is of the backing `Vec`: cloning the `SmeltList` handle
+        // shares the array, and `sorted` must leave its input alone.
+        let list_text = list_read_expr(&self.operand_borrow_expr(list)?);
         if key.is_some() || reverse {
             let (prefix, closure) = self.list_sort_by(key, reverse, element_ty)?;
             return Ok(RustExpr::atom(format!(
@@ -76,6 +76,11 @@ impl FunctionEmitter<'_> {
                 return Err(EmitError::new("sort key must be a closure"));
             };
             let return_ty = function_ty.return_ty;
+            let unwrap_throw = if function_ty.may_throw {
+                ".unwrap_or_else(|error: Box<dyn ::std::error::Error>| smelt_panic_throw(error))"
+            } else {
+                ""
+            };
             let param_ty = function_ty.params.first().copied().unwrap_or(element_ty);
             let left_arg = self.rendered_at_type(&RustExpr::chain("left.clone()").ending_in_clone(), element_ty, param_ty, &self.render_scope())?;
             let right_arg = self.rendered_at_type(&RustExpr::chain("right.clone()").ending_in_clone(), element_ty, param_ty, &self.render_scope())?;
@@ -101,7 +106,7 @@ impl FunctionEmitter<'_> {
             };
             let prefix = format!("let mut smelt_sort_key = {closure_expr}; ");
             let closure = format!(
-                "|left, right| {{ let left_key = (smelt_sort_key)({left_arg}); let right_key = (smelt_sort_key)({right_arg}); {comparison} }}"
+                "|left, right| {{ let left_key = (smelt_sort_key)({left_arg}){unwrap_throw}; let right_key = (smelt_sort_key)({right_arg}){unwrap_throw}; {comparison} }}"
             );
             return Ok((prefix, closure));
         }

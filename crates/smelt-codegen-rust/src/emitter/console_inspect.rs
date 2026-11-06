@@ -25,7 +25,7 @@
 //!
 //! The predicate rejects: generic records and unions (their impls would need
 //! bounds the generic-elision pass decides), functions, futures, generators,
-//! type parameters, host classes (`Request`, `Error`, …) whose Node rendering
+//! type parameters kept as Rust generics, host classes (`Request`, `Error`, …) whose Node rendering
 //! is not a field listing, a class whose base chain leaves the program, and a
 //! string-keyed `Record` stored in a `HashMap` (its iteration order is not
 //! JavaScript's insertion order, so no faithful rendering exists).
@@ -127,6 +127,11 @@ impl FunctionEmitter<'_> {
                 true
             }
             Some(Type::Unknown) => needs_unknown,
+            // A type parameter this body renders as the erased carrier holds what
+            // the carrier holds; one kept as a Rust generic has no `SmeltInspect`.
+            Some(Type::TypeParam { .. }) => {
+                needs_unknown && self.renders_erased(ty).unwrap_or(false)
+            }
             Some(Type::Optional(inner)) => {
                 self.inspectable_in(self.flatten_optional_inner(*inner), records, visiting)
             }

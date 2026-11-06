@@ -391,7 +391,7 @@ impl Respeller<'_, '_> {
         if is_this {
             return None;
         }
-        self.builder.type_parameter_type(name).map(|_| name.to_owned())
+        self.builder.types.param_type(name).map(|_| name.to_owned())
     }
 
     /// `[A, B?, ...C[]]`, optionally `readonly`.

@@ -63,7 +63,10 @@ impl ModuleBuilder<'_> {
             let unknown_ty = this.erase_at(ErasureReason::TestHarness, span, "toThrow class");
             let caught = this.caught_local(unknown_ty, span, target);
             let value = Self::caught_read(caught, unknown_ty, span, target);
-            let class = this.intern_type_name(name);
+            let class = this
+                .classes
+                .scoped_type_name(name)
+                .unwrap_or_else(|| this.intern_type_name(name));
             let test = target.push_expr(Expr {
                 kind: ExprKind::InstanceOf { value, class },
                 ty: bool_ty,
@@ -85,11 +88,7 @@ impl ModuleBuilder<'_> {
             Err(error) => return Err(error),
         };
         let expected_ty = Self::expr_ty(body, expected);
-        let is_regexp = matches!(
-            self.ctx.krate.types.get(expected_ty),
-            Some(Type::Class { name, .. })
-                if self.ctx.krate.symbols.get(*name).is_some_and(|name| name == "RegExp")
-        );
+        let is_regexp = self.stdlib_class_of_type(expected_ty) == Some(smelt_stdlib::StdlibClass::RegExp);
         let is_string = matches!(self.ctx.krate.types.get(expected_ty), Some(Type::String));
         if !is_regexp && !is_string {
             return Ok(imported_class_candidate.map(|name| instance_of(self, name, body)));

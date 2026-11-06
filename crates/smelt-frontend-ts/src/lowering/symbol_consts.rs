@@ -22,7 +22,7 @@
 use crate::HirCtx;
 use crate::lowering::js_text::js_str_text;
 use crate::lowering::ModuleBuilder;
-use crate::lowering::stdlib::call_dispatch::unique_symbol_spelling;
+use crate::lowering::stdlib::symbols::unique_symbol_spelling;
 use oxc::ast::ast::{
     Argument, BindingPattern, Declaration, Expression, Program, Statement, VariableDeclarationKind,
 };

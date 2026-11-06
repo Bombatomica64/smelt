@@ -50,6 +50,7 @@
 //! the modeled shapes, the whole read falls back to the erased path, so this
 //! can only remove erasure, never add a half-typed value.
 
+use crate::lowering::support::source_spelling;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use smelt_hir::{Body, Expr, ExprKind, Literal, ResponseOp, Symbol, Type, TypeId, UnknownKind};
@@ -218,7 +219,7 @@ impl ModuleBuilder<'_> {
         // A modeled `Response` arm reads its data properties through the
         // runtime accessor, never as a struct field: `SmeltResponse` keeps them
         // behind methods.
-        if self.is_response_type(arm_ty) {
+        if self.is_modeled_class(arm_ty, smelt_stdlib::StdlibClass::Response) {
             let name = self.ctx.krate.symbols.get(field)?.to_owned();
             let op = match name.as_str() {
                 "status" => ResponseOp::Status,
@@ -278,12 +279,7 @@ impl ModuleBuilder<'_> {
         {
             return true;
         }
-        let Some(class_name) = self
-            .ctx
-            .krate
-            .names
-            .get(name)
-            .or_else(|| self.ctx.krate.symbols.get(name))
+        let Some(class_name) = source_spelling(&self.ctx.krate, name)
             .map(str::to_owned)
         else {
             return false;

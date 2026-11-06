@@ -4,12 +4,24 @@
 //! resolution, interface satisfaction checks, and small accessors for looking
 //! up expression, local, and item types.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::js_text::js_str_text;
 use crate::lowering::{ModuleBuilder, field_type_satisfies};
 use crate::SmeltError;
 use oxc::ast::ast::{Expression, PropertyKey, TSTypeName};
 use oxc::span::GetSpan;
 use smelt_hir::{Body, Expr, ExprKind, Interface, Item, Literal, Type};
+
+/// The members a class gets from its base chain.
+#[derive(Debug, Default)]
+struct InheritedMembers {
+    /// Inherited instance fields.
+    fields: Vec<smelt_hir::Field>,
+    /// Inherited instance methods.
+    methods: Vec<smelt_hir::ItemId>,
+    /// Whether the chain reaches a base whose members are not known here.
+    open: bool,
+}
 
 impl ModuleBuilder<'_> {
     /// Convert a TypeScript property key into the interned HIR symbol it names.
@@ -358,7 +370,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let local_name = name.name.as_str();
-        let qualified_name = self.qualified_type_declaration_name(local_name);
+        let qualified_name = self.types.qualify(local_name);
         let parent = self.intern_type_name(&qualified_name);
         if !self.interfaces.resolves_locally(local_name, parent) {
             return Ok(None);
@@ -485,6 +497,7 @@ impl ModuleBuilder<'_> {
         let Item::Class(class) = self.item_ref(class_item).clone() else {
             return Ok(());
         };
+        let inherited = self.inherited_class_members(&class);
         for implemented in &class.implements {
             if !self.interfaces.is_lowered_locally(implemented.parent) {
                 continue;
@@ -514,9 +527,10 @@ impl ModuleBuilder<'_> {
                 let Some(actual) = class
                     .fields
                     .iter()
+                    .chain(&inherited.fields)
                     .find(|field| field.name == required.name)
                 else {
-                    if required.optional {
+                    if required.optional || inherited.open {
                         continue;
                     }
                     let name = self
@@ -562,7 +576,11 @@ impl ModuleBuilder<'_> {
                 // field's function type must accept the method's parameters
                 // and return an assignable value, the same check the method
                 // path below makes.
-                if let Some(field) = class.fields.iter().find(|field| field.name == required.name)
+                if let Some(field) = class
+                    .fields
+                    .iter()
+                    .chain(&inherited.fields)
+                    .find(|field| field.name == required.name)
                     && let Some(Type::Function(function)) = self.ctx.krate.types.get(field.ty).cloned()
                 {
                     let parameters_match = function.params.len() == required.params.len()
@@ -573,9 +591,12 @@ impl ModuleBuilder<'_> {
                         continue;
                     }
                 }
-                let Some(actual_item) = class.methods.iter().find(|method_item| {
+                let Some(actual_item) = class.methods.iter().chain(&inherited.methods).find(|method_item| {
                     matches!(self.item_ref(**method_item), Item::Function(function) if function.name == required.name)
                 }) else {
+                    if inherited.open {
+                        continue;
+                    }
                     let name = self.ctx.krate.symbols.get(required.name).unwrap_or("<unknown>");
                     return Err(SmeltError::unsupported(required.span, format!("class is missing implemented interface method `{name}`")));
                 };
@@ -621,20 +642,40 @@ impl ModuleBuilder<'_> {
         Ok(())
     }
 
+    /// What `class` inherits, nearest base first, for checking `implements`.
+    ///
+    /// A generic base's member types need its arguments applied, and a base with
+    /// no lowered class here (a host class, one declared later) has unknown
+    /// members: both end the walk as `open`, leaving what they supply to `tsc`.
+    fn inherited_class_members(&self, class: &smelt_hir::Class) -> InheritedMembers {
+        let mut inherited = InheritedMembers::default();
+        let mut next = class.base;
+        while let Some(base) = next {
+            let found = self.ctx.krate.items.iter().find_map(|item| match item {
+                Item::Class(candidate) if candidate.name == base => Some(candidate),
+                _ => None,
+            });
+            let Some(found) = found.filter(|found| found.type_params.is_empty()) else {
+                inherited.open = true;
+                break;
+            };
+            inherited.fields.extend(found.fields.iter().cloned());
+            inherited.methods.extend(found.methods.iter().copied());
+            next = found.base;
+        }
+        inherited
+    }
+
     /// Look up the type of an existing expression.
     pub(in crate::lowering) fn expr_ty(body: &Body, expr: smelt_hir::ExprId) -> smelt_hir::TypeId {
-        let index = usize::try_from(expr.0).expect("expr id should fit into usize");
-        body.exprs
-            .get(index)
+        body.expr_at(expr)
             .expect("expr id should point to an existing expression")
             .ty
     }
 
     /// Look up the type of an existing local.
     pub(in crate::lowering) fn local_ty(body: &Body, local: smelt_hir::LocalId) -> smelt_hir::TypeId {
-        let index = usize::try_from(local.0).expect("local id should fit into usize");
-        body.locals
-            .get(index)
+        body.local_at(local)
             .expect("local id should point to an existing local")
             .ty
     }
@@ -652,8 +693,7 @@ impl ModuleBuilder<'_> {
         body: &Body,
         local: smelt_hir::LocalId,
     ) -> Option<smelt_hir::TypeId> {
-        let index = usize::try_from(local.0).ok()?;
-        body.locals.get(index).map(|decl| decl.ty)
+        body.local_at(local).map(|decl| decl.ty)
     }
 
     /// Look up a lowered item by id.

@@ -646,6 +646,13 @@ impl FunctionEmitter<'_> {
                 // (see `place.rs`'s `Type::Union` arm).
                 let scrutinee =
                     self.erase_concrete_union_expr(&receiver_text.cloned_value(), receiver_ty);
+                // A string key is a property name on every arm: `arr["1"]` reads an
+                // element, `arr["length"]` a property, `arr["x"]` nothing.
+                if self.mir.types.get(self.operand_ty(index)?) == Some(&Type::String) {
+                    return Ok(RustExpr::atom(self.carrier_format(format_args!(
+                        "match {scrutinee} {{ smelt_indexed @ (SmeltUnknown::String(_) | SmeltUnknown::Array(_)) => match smelt_get_unknown_field(&smelt_indexed, &{key_text}).clone() {{ SmeltUnknown::Undefined => None, _smelt_element => Some({element_text}) }}, SmeltUnknown::Object(values) => {object_some}, {primitive_none}, }}"
+                    ))));
+                }
                 Ok(RustExpr::atom(format!(
                     r"match {scrutinee} {{
                         SmeltUnknown::String(value) => {{

@@ -1,5 +1,8 @@
 //! TypeScript AST lowering methods for `ModuleBuilder`.
 
+use crate::lowering::body_arena::BodyArena;
+use crate::lowering::support::source_spelling;
+use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::js_text::js_str_text;
 use std::collections::{HashMap, HashSet};
 
@@ -60,13 +63,9 @@ use smelt_hir::{
 /// module binding, and counting it would lift a binding nothing outside the
 /// module body ever looks at.
 ///
-/// The subtraction ignores the block structure that would make shadowing exact,
-/// so the error is one-directional: a name both bound somewhere in the item AND
-/// read as the module binding elsewhere in it is treated as not read. That
-/// shape — one identifier meaning two different things in one function, one of
-/// them a module-level class instance — leaves the read on the old path, which
-/// is now a NAMED BLOCKER rather than a fabricated empty record, so the honest
-/// failure is what a miss produces.
+/// Bindings are subtracted per lexical scope: each function and block keeps its
+/// own, and what stays free in it reaches the enclosing scope. A parameter of one
+/// function says nothing about what its neighbour reads.
 struct ReadNameCollector {
     /// Identifier names referenced inside the item.
     names: HashSet<String>,
@@ -75,6 +74,16 @@ struct ReadNameCollector {
 }
 
 impl ReadNameCollector {
+    /// Run `visit` as one lexical scope: what it leaves free joins this scope's
+    /// reads, and what it binds stays inside.
+    fn in_own_scope(&mut self, visit: impl FnOnce(&mut Self)) {
+        let names = std::mem::take(&mut self.names);
+        let bound = std::mem::take(&mut self.bound);
+        visit(self);
+        let inner = std::mem::replace(self, Self { names, bound });
+        self.names.extend(inner.into_free_names());
+    }
+
     /// The names read but not bound by the item.
     fn into_free_names(self) -> HashSet<String> {
         let Self { names, bound } = self;
@@ -93,6 +102,27 @@ impl<'a> oxc::ast_visit::Visit<'a> for ReadNameCollector {
 
     fn visit_binding_identifier(&mut self, binding: &oxc::ast::ast::BindingIdentifier<'a>) {
         self.bound.insert(binding.name.as_str().to_owned());
+    }
+
+    fn visit_function(
+        &mut self,
+        function: &oxc::ast::ast::Function<'a>,
+        flags: oxc::semantic::ScopeFlags,
+    ) {
+        self.in_own_scope(|this| oxc::ast_visit::walk::walk_function(this, function, flags));
+    }
+
+    fn visit_arrow_function_expression(
+        &mut self,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'a>,
+    ) {
+        self.in_own_scope(|this| {
+            oxc::ast_visit::walk::walk_arrow_function_expression(this, arrow);
+        });
+    }
+
+    fn visit_block_statement(&mut self, block: &oxc::ast::ast::BlockStatement<'a>) {
+        self.in_own_scope(|this| oxc::ast_visit::walk::walk_block_statement(this, block));
     }
 }
 
@@ -276,7 +306,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 .collect::<Vec<_>>();
             fields.extend(members);
             if !fields.is_empty() {
-                self.ctx.type_alias_fields.insert(name, fields);
+                self.ctx.type_alias_fields.write().insert(name, fields);
             }
         }
     }
@@ -338,7 +368,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 .collect::<Result<Vec<_>, _>>();
             self.pop_type_parameter_scope();
             if let Ok(lowered) = lowered {
-                self.ctx.interface_call_signatures.insert(name, lowered);
+                self.ctx.interface_call_signatures.write().insert(name, lowered);
             }
         }
     }
@@ -1519,7 +1549,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     self.consts.set_object_value_collection(binding.name.as_str().to_owned(), collection.clone());
                     self.ctx
                         .object_value_collections
-                        .insert(binding.name.as_str().to_owned(), collection);
+                        .write().insert(binding.name.as_str().to_owned(), collection);
                 }
                 self.consts.set_object(binding.name.as_str().to_owned(), value);
             } else if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
@@ -1530,7 +1560,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.consts.set_object_value_collection(binding.name.as_str().to_owned(), collection.clone());
                 self.ctx
                     .object_value_collections
-                    .insert(binding.name.as_str().to_owned(), collection);
+                    .write().insert(binding.name.as_str().to_owned(), collection);
             }
             if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
                 && !self.consts.has_object(binding.name.as_str())
@@ -1597,7 +1627,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         self.consts.set_collection(binding.name.as_str().to_owned(), collection.clone());
                         self.ctx
                             .const_collections
-                            .insert(binding.name.as_str().to_owned(), collection);
+                            .write().insert(binding.name.as_str().to_owned(), collection);
                     }
                 }
                 if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
@@ -1629,7 +1659,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     self.consts.set_collection(binding.name.as_str().to_owned(), collection.clone());
                     self.ctx
                         .const_collections
-                        .insert(binding.name.as_str().to_owned(), collection);
+                        .write().insert(binding.name.as_str().to_owned(), collection);
                 }
             }
         }
@@ -1646,7 +1676,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let lifted: Vec<String> = self.mutable_global_items.keys().cloned().collect();
         for name in lifted {
             if self.consts.forget_collection(&name) {
-                self.ctx.const_collections.remove(&name);
+                self.ctx.const_collections.write().remove(&name);
             }
         }
     }
@@ -2820,7 +2850,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 &new_expr.callee,
                 Expression::Identifier(callee)
                     if matches!(callee.name.as_str(), "Set" | "Map")
-                        || Self::is_numeric_typed_array_constructor(callee.name.as_str())
+                        || smelt_stdlib::is_typed_array_class_name(callee.name.as_str())
             ),
             Expression::CallExpression(call) => {
                 Self::object_values_identifier_argument(call).is_some()
@@ -3233,7 +3263,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 .push_overload(id.name.to_string(), signature.clone());
             self.ctx
                 .overloads
-                .entry(id.name.to_string())
+                .write().entry(id.name.to_string())
                 .or_default()
                 .push(signature);
         }
@@ -3387,7 +3417,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 .set_forward_type(id.name.to_string(), symbol, ty);
             if let Some(rest) = rest {
                 self.functions.set_rest(id.name.to_string(), rest);
-                self.ctx.function_rests.insert(id.name.to_string(), rest);
+                self.ctx.function_rests.write().insert(id.name.to_string(), rest);
             }
         }
     }
@@ -3740,7 +3770,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             self.functions.set_rest(name_text.to_owned(), rest_param);
             self.ctx
                 .function_rests
-                .insert(name_text.to_owned(), rest_param);
+                .write().insert(name_text.to_owned(), rest_param);
             params.push(Param {
                 name: self.intern_source_name(binding.name.as_str()),
                 local: smelt_hir::LocalId(u32::try_from(index).unwrap_or(u32::MAX)),
@@ -3881,13 +3911,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if let Some(namespace) = self.object_namespaces.get(&exported).cloned() {
                 self.ctx
                     .object_namespaces
-                    .insert(exported.clone(), namespace);
+                    .write().insert(exported.clone(), namespace);
             }
             if let Some(value) = self.consts.object(exported.as_str()).cloned() {
-                self.ctx.object_consts.insert(exported.clone(), value);
+                self.ctx.object_consts.write().insert(exported.clone(), value);
             }
             if let Some(overloads) = self.functions.overloads(&exported).cloned() {
-                self.ctx.overloads.insert(exported, overloads);
+                self.ctx.overloads.write().insert(exported, overloads);
             }
         }
     }
@@ -4349,7 +4379,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         // One call rebinds every constant kind the imported name carries.
         self.consts.rebind_import(local, imported);
         if let Some(namespace) = self.object_namespaces.get(imported).cloned() {
-            self.object_namespaces.insert(local.to_owned(), namespace);
+            self.object_namespaces.write().insert(local.to_owned(), namespace);
         }
         if let Some(overloads) = self.functions.overloads(imported).cloned() {
             self.functions.set_overloads(local.to_owned(), overloads);
@@ -4360,28 +4390,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
             self.functions.set_rest(local.to_owned(), rest);
         } else if let Some(rest) = self.ctx.function_rests.get(imported).copied() {
             self.functions.set_rest(local.to_owned(), rest);
-        }
-    }
-
-    /// Peel transparent TypeScript wrappers (parens, `as`, `satisfies`, `!`)
-    /// off an expression, returning the underlying value expression.
-    pub(super) fn peel_transparent_expression<'a>(
-        expression: &'a Expression<'a>,
-    ) -> &'a Expression<'a> {
-        match expression {
-            Expression::ParenthesizedExpression(parenthesized) => {
-                Self::peel_transparent_expression(&parenthesized.expression)
-            }
-            Expression::TSAsExpression(as_expr) => {
-                Self::peel_transparent_expression(&as_expr.expression)
-            }
-            Expression::TSSatisfiesExpression(satisfies) => {
-                Self::peel_transparent_expression(&satisfies.expression)
-            }
-            Expression::TSNonNullExpression(non_null) => {
-                Self::peel_transparent_expression(&non_null.expression)
-            }
-            _ => expression,
         }
     }
 
@@ -4432,7 +4440,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             // transparent TS wrappers (parens, `as`, `satisfies`, `!`) so the
             // arrow/function-initializer dispatch below sees the value
             // expression, matching how the literal folder already unwraps.
-            let init = Self::peel_transparent_expression(init);
+            let init = peel(init, Wrappers::Transparent);
             if let Some(object) = Self::direct_object_initializer(init) {
                 if self.object_namespace_const_declaration(
                     binding.name.as_str(),
@@ -4454,7 +4462,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         self.consts.set_object_value_collection(binding.name.as_str().to_owned(), collection.clone());
                         self.ctx
                             .object_value_collections
-                            .insert(binding.name.as_str().to_owned(), collection);
+                            .write().insert(binding.name.as_str().to_owned(), collection);
                     }
                     self.dynamic_object_const_declaration(binding.name.as_str(), object, type_hint)?
                 };
@@ -4624,7 +4632,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             self.consts.set_collection(name_text.to_owned(), collection.clone());
             self.ctx
                 .const_collections
-                .insert(name_text.to_owned(), collection);
+                .write().insert(name_text.to_owned(), collection);
         }
         Ok(item)
     }
@@ -5370,7 +5378,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         &mut self,
         expression: &Expression<'_>,
     ) -> Option<ObjectConst> {
-        let Expression::NewExpression(new_expr) = Self::peel_transparent_expression(expression)
+        let Expression::NewExpression(new_expr) = peel(expression, Wrappers::Transparent)
         else {
             return None;
         };
@@ -5503,10 +5511,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
             members.insert(key_text, item);
         }
         self.object_namespaces
-            .insert(name_text.to_owned(), members.clone());
+            .write().insert(name_text.to_owned(), members.clone());
         self.ctx
             .object_namespaces
-            .insert(name_text.to_owned(), members);
+            .write().insert(name_text.to_owned(), members);
         Ok(true)
     }
 
@@ -5578,10 +5586,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
             self.consts.set_object_value_collection(name_text.to_owned(), collection.clone());
             self.ctx
                 .object_value_collections
-                .insert(name_text.to_owned(), collection);
+                .write().insert(name_text.to_owned(), collection);
         }
         self.consts.set_object(name_text.to_owned(), value.clone());
-        self.ctx.object_consts.insert(name_text.to_owned(), value);
+        self.ctx.object_consts.write().insert(name_text.to_owned(), value);
         Ok(item)
     }
 
@@ -5617,7 +5625,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             self.consts.set_object_value_collection(name_text.to_owned(), collection.clone());
             self.ctx
                 .object_value_collections
-                .insert(name_text.to_owned(), collection);
+                .write().insert(name_text.to_owned(), collection);
         }
         Ok(item)
     }
@@ -5797,9 +5805,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let mut body = Body::new(None, span);
             let expr = self.expression(expression, &mut body)?;
             let value_ty = Self::expr_ty(&body, expr);
-            let kind = body
-                .exprs
-                .get(usize::try_from(expr.0).ok().unwrap_or(usize::MAX))
+            let kind = body.expr_at(expr)
                 .map(|expr| expr.kind.clone())
                 .ok_or_else(|| {
                     SmeltError::unsupported(
@@ -5956,11 +5962,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             && let Ok(Some(fields)) = self.plain_record_fields(ty)
             && entries.iter().all(|entry| {
                 fields.iter().any(|field| {
-                    self.ctx
-                        .krate
-                        .names
-                        .get(field.name)
-                        .or_else(|| self.ctx.krate.symbols.get(field.name))
+                    source_spelling(&self.ctx.krate, field.name)
                         == Some(entry.key.as_str())
                 })
             })

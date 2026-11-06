@@ -3241,18 +3241,16 @@ impl FunctionEmitter<'_> {
             // A source `Set` recovers through `SmeltJsSet`'s `SmeltFromUnknown`
             // impl, which round-trips the `__smelt_set` marker (rebuilding members
             // and the stable id) and tolerantly accepts a bare array. This is the
-            // inverse of the `SmeltJsSet` erasure adapter, so an `unknown -> Set`
-            // cast (e.g. `data as unknown as Set` in a deep-equality walk) recovers
-            // the real members instead of an empty set. Only `SmeltJsSet`-backed
-            // sets have this impl; a `HashSet`-backed primitive set keeps the
-            // `Default::default()` fallback below.
-            Some(Type::Set(item)) if !self.type_is_hash_set_key_safe(*item) => {
+            // inverse of the erasure adapter, so an `unknown -> Set` cast (e.g.
+            // `data as unknown as Set` in a deep-equality walk) recovers the real
+            // members instead of an empty set. `SmeltPrimSet` has the same impl.
+            Some(Type::Set(_)) => {
                 let target_text = self.rendered_type(target)?;
                 Ok(RustExpr::loose(self.carrier_format(format_args!(
                     "<{target_text} as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())"
                 ))))
             }
-            Some(Type::Set(_) | Type::Class { .. }) => {
+            Some(Type::Class { .. }) => {
                 Ok(RustExpr::atom("Default::default()"))
             }
             Some(Type::Function(function)) => {

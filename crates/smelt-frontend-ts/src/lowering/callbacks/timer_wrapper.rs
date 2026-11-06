@@ -174,6 +174,8 @@ impl ModuleBuilder<'_> {
             ty: callback_ty,
             span,
         });
+        let arg_exprs =
+            self.pack_value_call_arguments(&callback_fn, arg_exprs, &[], span, &mut closure_body);
         let call_expr = closure_body.push_expr(Expr {
             kind: ExprKind::ClosureCall {
                 callee: callee_expr,

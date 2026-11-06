@@ -64,7 +64,7 @@ enum MutListArgKind {
 
 /// A rendered call, and whether it propagates the callee's error.
 ///
-/// `call_text` keeps the `?` apart from the call: a caller that cannot propagate
+/// `rendered_call` keeps the `?` apart from the call: a caller that cannot propagate
 /// (a body with no error channel, a `try` block with a catch arm) handles the
 /// `Result` itself.
 #[derive(Clone, Debug)]
@@ -1330,21 +1330,14 @@ impl FunctionEmitter<'_> {
                         self.erased_call_argument_vector_expr(indirect_callee, args)?
                     )).into());
                 }
-                // A rest-only callee invoked with positional arguments takes them
-                // packed into its single rest `SmeltList` parameter; without this
-                // the per-parameter mapping below would report "too many
-                // arguments".
                 let declared_abi = self
                     .class_field_declared_function_type(indirect_callee)
                     .map(|declared| declared.params);
-                let rendered_args = match self.rest_vector_call_args(args, Some(function))? {
-                    Some(packed) => packed.join(", "),
-                    None => self.indirect_call_args_text_with_abi(
-                        function,
-                        args,
-                        declared_abi.as_deref(),
-                    )?,
-                };
+                let rendered_args = self.indirect_call_args_text_with_abi(
+                    function,
+                    args,
+                    declared_abi.as_deref(),
+                )?;
                 let suffix = if self.function_value_call_is_fallible(function) {
                     "?"
                 } else {
@@ -1566,9 +1559,7 @@ impl FunctionEmitter<'_> {
                 .and_then(|params| params.get(index).copied())
                 .unwrap_or(substituted)
         };
-        let packed_rest = self.packed_rest_arg(args, Some(function))?;
-        let positional_args = packed_rest.as_ref().and_then(|(index, _)| args.get(..*index)).unwrap_or(args);
-        let mut rendered_args = positional_args
+        let mut rendered_args = args
             .iter()
             .enumerate()
             .map(|(index, arg)| {
@@ -1591,11 +1582,6 @@ impl FunctionEmitter<'_> {
                 }
             })
             .collect::<Result<Vec<_>, _>>()?;
-        if let Some((index, list)) = packed_rest
-            && let Some(param) = function.params.get(index)
-        {
-            rendered_args.push(self.callback_call_arg_expr(function, index, abi_param(index, *param), list));
-        }
         for (index, target_ty) in function
             .params
             .iter()
@@ -2676,7 +2662,7 @@ impl FunctionEmitter<'_> {
             return Ok(adapter);
         }
         // Seam 2 (`emitter::seam_assertions`): the argument half of this call
-        // site is rendered inside `call_text` and the return half inside
+        // site is rendered inside `rendered_call` and the return half inside
         // `call_emitted_source_ty`, each recomputing the monomorphization
         // decision for itself. Sample it on both sides of the argument
         // rendering and compare.
@@ -2826,7 +2812,7 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         }
         // The receiver is `args[0]` for every emitted method call; see the
-        // `ClassMethod` arm of `call_text`, which splits it off first.
+        // `ClassMethod` arm of `rendered_call`, which splits it off first.
         let Some(receiver) = args.first() else {
             return Ok(None);
         };
@@ -3197,6 +3183,25 @@ impl FunctionEmitter<'_> {
         {
             // An iterator result is the `{ value, done }` object, and the erased
             // carrier is what draws an object.
+            self.context.mark_console_inspect_used();
+            Ok((
+                "{}",
+                format!(
+                    "{}::{}(&{})",
+                    crate::console_inspect_prelude::INSPECT_TRAIT,
+                    crate::console_inspect_prelude::CONSOLE_TEXT_METHOD,
+                    self.erase(operand)?
+                ),
+            ))
+        } else if absent == AbsentSpelling::Undefined
+            && matches!(
+                self.mir.types.get(ty),
+                Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))
+            )
+            && self.type_mentions_any(ty, &self.current_function_type_params())
+        {
+            // A container of a Rust generic has no `SmeltInspect` impl: its
+            // elements print through the erased carrier their bound provides.
             self.context.mark_console_inspect_used();
             Ok((
                 "{}",

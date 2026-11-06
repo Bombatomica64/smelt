@@ -146,7 +146,7 @@ impl FunctionEmitter<'_> {
     /// Seam 2: one call site monomorphizes its arguments and its return under
     /// one decision.
     ///
-    /// `call_expr_for_dest` renders the arguments (inside `call_text`) and then
+    /// `call_expr_for_dest` renders the arguments (inside `rendered_call`) and then
     /// the return (inside `call_emitted_source_ty`), and each recomputes
     /// `static_call_monomorphization` for itself. The whole design rests on that
     /// recomputation being a pure function of `(function, args)`: if emitter

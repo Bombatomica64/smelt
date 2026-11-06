@@ -2433,9 +2433,9 @@ export function replaceAll(str: string, table: unknown): string {
     );
 
     assert!(source.contains("replace_all"), "{source}");
-    // The replacement is wrapped in the SmeltUnknown -> String match.
+    // The replacement is JavaScript ToString of the erased answer.
     assert!(
-        source.contains("|caps: &fancy_regex::Captures<'_>| match ("),
+        source.contains("|caps: &fancy_regex::Captures<'_>| smelt_erased_to_js_string(&"),
         "{source}"
     );
     assert!(
@@ -12577,7 +12577,7 @@ export function guardedViaLocal(cb: (...args: unknown[]) => unknown): unknown {
 ///
 /// `Rvalue::ClosureCall` (statement form) had an explicit precedence ladder —
 /// function-parameter place, function-parameter name, borrowed callback capture,
-/// *then* erased-rest — while `call_text`'s `Callee::Indirect` (terminator form)
+/// *then* erased-rest — while `rendered_call`'s `Callee::Indirect` (terminator form)
 /// had none and emitted `.call(..)` for any erased-rest callee type. Routing a
 /// call from one form to the other therefore flipped its ABI: a borrowed
 /// `&dyn Fn` parameter is not the `SmeltErasedFunction` struct, so `.call(..)` on
@@ -12657,7 +12657,7 @@ export function fireAndForget(cb: () => Promise<string>): void {
 /// `try`.
 ///
 /// The `try` matters: it routes the call through the throwing-call terminator,
-/// which renders its callee with `call_text` instead of the statement path that
+/// which renders its callee with `rendered_call` instead of the statement path that
 /// receives an already-padded argument list from MIR. The load-bearing
 /// assertion is the emitted `None` padding inside `catch_unwind`: the
 /// static-call ladder has always padded missing trailing parameters, and this

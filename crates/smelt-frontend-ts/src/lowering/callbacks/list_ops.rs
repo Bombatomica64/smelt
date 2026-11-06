@@ -10,45 +10,6 @@ use smelt_hir::ErasureReason;
 use oxc::span::GetSpan;
 
 impl ModuleBuilder<'_> {
-    /// Lower direct TypeScript `Array.prototype.concat` calls with any number of arguments, widening element types.
-    ///
-    /// Two shapes reach this rule. `ns.concat(collection, ...values)` on a utility
-    /// *namespace* object (a `import * as _` star import or a registered object
-    /// namespace) is the lodash free-function form: its first argument is the base
-    /// array and the rest are appended, so the receiver identifier is not a value
-    /// itself. Everything else — including an ordinary named value import that
-    /// resolves to an erased array, e.g. `import { falsey } from './falsey'` used
-    /// as `falsey.concat(true, 1)` — is real `Array.prototype.concat`, where the
-    /// member object is the receiver array and every argument is concatenated onto
-    /// it. Only genuine namespace/utility objects take the free-function path;
-    /// plain value imports flow through the erased-receiver arms of
-    /// [`Self::finish_list_concat_call`], which already coerce an `Unknown`/union
-    /// receiver into a concrete list instead of rejecting it.
-    pub(in crate::lowering) fn list_concat_call(
-        &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        body: &mut Body,
-    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expression::StaticMemberExpression(member) = &call.callee else {
-            return Ok(None);
-        };
-        if member.property.name != "concat" {
-            return Ok(None);
-        }
-        if self.imported_utility_object(&member.object) {
-            let Some((left_argument, right_arguments)) = call.arguments.split_first() else {
-                return Err(SmeltError::unsupported(
-                    self.span(call.span.start, call.span.end),
-                    "static array concat requires a receiver argument",
-                ));
-            };
-            let left = self.argument(left_argument, body)?;
-            return self.finish_list_concat_call(call, left, right_arguments, true, body);
-        }
-        let left = self.expression(&member.object, body)?;
-        self.finish_list_concat_call(call, left, &call.arguments, false, body)
-    }
-
     /// Finish array concat lowering after the receiver and the list of
     /// `concat(...)` arguments are known.
     ///
@@ -1130,5 +1091,4 @@ impl ModuleBuilder<'_> {
         self.require_callback_ty(callback_return_ty, seed_ty, call, "array reduce")?;
         Ok(seed_ty)
     }
-
 }

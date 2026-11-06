@@ -25,6 +25,7 @@
 //!   way to read it, so a type declared inside `namespace A.B` cannot be
 //!   registered under an unqualified name by accident.
 
+use crate::context::Published;
 use std::collections::{HashMap, HashSet};
 
 use smelt_hir::{Field, Symbol, TypeId};
@@ -35,11 +36,11 @@ use smelt_hir::{Field, Symbol, TypeId};
 #[derive(Debug, Default)]
 pub(in crate::lowering) struct TypeScope {
     /// Fields carried by structural type aliases.
-    alias_fields: HashMap<Symbol, Vec<Field>>,
+    alias_fields: Published<HashMap<Symbol, Vec<Field>>>,
     /// Fields attached to callable intersection types.
-    callable_fields: HashMap<TypeId, Vec<Field>>,
+    callable_fields: Published<HashMap<TypeId, Vec<Field>>>,
     /// Type aliases whose source surface is a callable object intersection.
-    callable_object_aliases: HashSet<Symbol>,
+    callable_object_aliases: Published<HashSet<Symbol>>,
     /// Namespace path currently qualifying type-only declarations.
     namespace_prefix: Vec<String>,
     /// Active generic type parameter scopes, innermost last.
@@ -62,9 +63,9 @@ impl TypeScope {
     /// `alias_fields`, `callable_fields` and `callable_object_aliases` carry the
     /// type surface published by earlier modules; the stacks start empty.
     pub(in crate::lowering) fn new(
-        alias_fields: HashMap<Symbol, Vec<Field>>,
-        callable_fields: HashMap<TypeId, Vec<Field>>,
-        callable_object_aliases: HashSet<Symbol>,
+        alias_fields: Published<HashMap<Symbol, Vec<Field>>>,
+        callable_fields: Published<HashMap<TypeId, Vec<Field>>>,
+        callable_object_aliases: Published<HashSet<Symbol>>,
     ) -> Self {
         Self {
             alias_fields,
@@ -81,7 +82,7 @@ impl TypeScope {
 
     /// Record the structural fields of the type alias `name`.
     pub(in crate::lowering) fn set_alias_fields(&mut self, name: Symbol, fields: Vec<Field>) {
-        self.alias_fields.insert(name, fields);
+        self.alias_fields.write().insert(name, fields);
     }
 
     /// Return the fields attached to a callable intersection type.
@@ -91,7 +92,7 @@ impl TypeScope {
 
     /// Record the fields attached to a callable intersection type.
     pub(in crate::lowering) fn set_callable_fields(&mut self, ty: TypeId, fields: Vec<Field>) {
-        self.callable_fields.insert(ty, fields);
+        self.callable_fields.write().insert(ty, fields);
     }
 
     /// Return whether an alias spells a callable-object intersection surface.
@@ -101,7 +102,7 @@ impl TypeScope {
 
     /// Record that an alias spells a callable-object intersection surface.
     pub(in crate::lowering) fn mark_callable_object_alias(&mut self, name: Symbol) {
-        self.callable_object_aliases.insert(name);
+        self.callable_object_aliases.write().insert(name);
     }
 
     /// Record the type names the current module declares at top level.

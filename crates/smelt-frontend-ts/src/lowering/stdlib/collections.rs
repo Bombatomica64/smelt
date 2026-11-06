@@ -3,12 +3,13 @@
 //! Lowers standard-library `Map` and `Set` receiver methods into typed HIR
 //! dict/set operations. The impl block below documents the concern in detail.
 
-use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
+use crate::lowering::{ArrayExpressionElement, ModuleBuilder};
 use oxc::ast::ast::{Argument, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{
-    Body, DictProjectionOp, ErasureReason, Expr, ExprKind, PropertyLookup, SetProjectionOp, SetRemoveOp, Type,
+    Body, DictProjectionOp, ErasureReason, Expr, ExprKind, PropertyLookup, SetProjectionOp,
+    SetRemoveOp, Type,
 };
 use smelt_stdlib::RuleId;
 
@@ -804,5 +805,441 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Recover a concrete `Set<T>` type from a contextual type hint.
+    ///
+    /// A `Set` construction is often assigned to a variable whose annotation
+    /// wraps the set in `Optional`/`Union` (`Set<T> | undefined`, common when a
+    /// set is conditionally initialized). The set element type is still fully
+    /// determined by that annotation, so unwrap those wrappers to find the set
+    /// arm rather than treating the wrapped hint as an unannotated construction.
+    /// Returns the interned `Type::Set` `TypeId` when exactly one set arm is
+    /// present, otherwise `None`.
+    fn set_type_from_hint(&self, hint: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+        match self.ctx.krate.types.get(hint) {
+            Some(Type::Set(_)) => Some(hint),
+            Some(Type::Optional(inner)) => self.set_type_from_hint(*inner),
+            Some(Type::Union(items)) => {
+                let mut found = None;
+                for item in items {
+                    if let Some(set_ty) = self.set_type_from_hint(*item) {
+                        if found.is_some() {
+                            return None;
+                        }
+                        found = Some(set_ty);
+                    }
+                }
+                found
+            }
+            _ => None,
+        }
+    }
+
+    /// Lower `new Set(...)` from an array literal or annotated empty constructor.
+    pub(in crate::lowering) fn set_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::Identifier(callee) = &new_expr.callee else {
+            return Ok(None);
+        };
+        if !Self::is_ts_stdlib_class_name(callee.name.as_str(), smelt_stdlib::StdlibClass::Set) {
+            return Ok(None);
+        }
+        let (items, ty) = match new_expr.arguments.as_slice() {
+            [] => {
+                // Prefer an explicit `new Set<T>()` argument, then the element
+                // type recovered from the contextual type hint (including hints
+                // wrapped in `Optional`/`Union`, e.g. `let s: Set<T> | undefined
+                // = new Set()`), then an erased empty set. An empty `new Set()`
+                // with no usable element type mirrors the graceful `new Map()`
+                // fallback: it never rejects the construction, it produces an
+                // empty `Set<unknown>` whose element type is refined by later
+                // `.add(...)` calls, rather than forcing an inline annotation.
+                let ty = if let Some(type_args) = &new_expr.type_arguments
+                    && let [item] = type_args.params.as_slice()
+                {
+                    let item_ty = self.ts_type_to_hir(item)?;
+                    self.ctx.krate.types.intern(Type::Set(item_ty))
+                } else if let Some(set_ty) =
+                    type_hint.and_then(|hint| self.set_type_from_hint(hint))
+                {
+                    set_ty
+                } else {
+                    let item_ty = self.erase_with(ErasureReason::MissingAnnotation, "new Set()");
+                    self.ctx.krate.types.intern(Type::Set(item_ty))
+                };
+                (Vec::new(), ty)
+            }
+            [Argument::ArrayExpression(array)] => {
+                if array
+                    .elements
+                    .iter()
+                    .any(|element| matches!(element, ArrayExpressionElement::SpreadElement(_)))
+                {
+                    let list = self.array_expression(array, body, None)?;
+                    let list_ty = self.type_param_constraint_or_self(Self::expr_ty(body, list));
+                    let Some(Type::List(item_ty)) = self.ctx.krate.types.get(list_ty) else {
+                        return Err(SmeltError::unsupported(
+                            self.span(array.span.start, array.span.end),
+                            "new Set([...spread]) requires an array literal argument",
+                        ));
+                    };
+                    // A surrounding non-Set hint (e.g. a spread context hinting
+                    // `T[]` in `[...new Set(xs)]`) describes the outer
+                    // expression, not this constructor: fall back to the
+                    // inferred set type instead of rejecting.
+                    let ty = if let Some(hint) = type_hint
+                        && matches!(self.ctx.krate.types.get(hint), Some(Type::Set(_)))
+                    {
+                        hint
+                    } else {
+                        self.ctx.krate.types.intern(Type::Set(*item_ty))
+                    };
+                    return Ok(Some(body.push_expr(Expr {
+                        kind: ExprKind::ListToSet { list },
+                        ty,
+                        span: self.span(new_expr.span.start, new_expr.span.end),
+                    })));
+                }
+                let items = array
+                    .elements
+                    .iter()
+                    .map(|element| self.array_element(element, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                // Only honor the hint when it is a Set; a non-Set hint comes
+                // from the surrounding expression (spread, argument slot) and
+                // must not reject the constructor.
+                let ty = if let Some(hint) = type_hint
+                    && matches!(self.ctx.krate.types.get(hint), Some(Type::Set(_)))
+                {
+                    hint
+                } else if let Some(first_item) = items.first().copied() {
+                    let item_ty = Self::expr_ty(body, first_item);
+                    self.ctx.krate.types.intern(Type::Set(item_ty))
+                } else if let Some(type_args) = &new_expr.type_arguments
+                    && let [item] = type_args.params.as_slice()
+                {
+                    let item_ty = self.ts_type_to_hir(item)?;
+                    self.ctx.krate.types.intern(Type::Set(item_ty))
+                } else {
+                    let item_ty = self.erase_with(ErasureReason::MissingAnnotation, "new Set([])");
+                    self.ctx.krate.types.intern(Type::Set(item_ty))
+                };
+                (items, ty)
+            }
+            [argument] => {
+                let mut list = self.argument(argument, body)?;
+                let raw_ty = Self::expr_ty(body, list);
+                let list_ty = self.type_param_constraint_or_self(raw_ty);
+                // `new Set(iterable)` accepts arrays directly. Optional arrays are
+                // asserted to their inner list, an existing Set is already in set
+                // shape, and erased/union surfaces (e.g. a generic helper return
+                // typed `unknown`) are asserted to `List<Unknown>` so the
+                // list-to-set conversion can proceed instead of being rejected.
+                let item_ty = match self.ctx.krate.types.get(list_ty).cloned() {
+                    Some(Type::List(item_ty)) => item_ty,
+                    Some(Type::Optional(inner)) => {
+                        if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(inner).cloned()
+                        {
+                            list = body.push_expr(Expr {
+                                kind: ExprKind::TypeAssert { value: list },
+                                ty: inner,
+                                span: self.span(argument.span().start, argument.span().end),
+                            });
+                            item_ty
+                        } else {
+                            return Err(SmeltError::unsupported(
+                                self.span(argument.span().start, argument.span().end),
+                                "new Set(iterable) currently requires an array argument",
+                            ));
+                        }
+                    }
+                    Some(Type::Set(item_ty)) => {
+                        // `new Set(otherSet)` copies an existing set: keep its
+                        // element type and short-circuit (no list conversion).
+                        let ty = if let Some(hint) = type_hint
+                            && matches!(self.ctx.krate.types.get(hint), Some(Type::Set(_)))
+                        {
+                            hint
+                        } else {
+                            self.ctx.krate.types.intern(Type::Set(item_ty))
+                        };
+                        return Ok(Some(body.push_expr(Expr {
+                            kind: ExprKind::TypeAssert { value: list },
+                            ty,
+                            span: self.span(new_expr.span.start, new_expr.span.end),
+                        })));
+                    }
+                    // A string is an iterable of its characters, so
+                    // `new Set('abc')` is the three-element set JavaScript
+                    // builds — Hono's `new Set('.\\+*[^]$()')` (the regexp
+                    // meta-character set in `reg-exp-router/node.ts`) is exactly
+                    // this. The conversion is not written here: it goes through
+                    // `list_expr_from_spread_value`, the same helper that lowers
+                    // `[...iterable]`, so `new Set(x)` and `new Set([...x])`
+                    // cannot disagree about what iterating `x` means.
+                    Some(Type::String) => {
+                        let string_ty = self.ctx.krate.types.intern(Type::String);
+                        let chars_ty = self.ctx.krate.types.intern(Type::List(string_ty));
+                        list = self.list_expr_from_spread_value(
+                            list,
+                            chars_ty,
+                            argument.span(),
+                            body,
+                        )?;
+                        string_ty
+                    }
+                    _ if self.erased_or_union_surface(list_ty) => {
+                        let item_ty = if matches!(
+                            self.ctx.krate.types.get(list_ty),
+                            Some(Type::Unknown)
+                        ) {
+                            // not a new erasure: the iterable is already erased
+                            self.unknown_type()
+                        } else {
+                            self.erase_with(ErasureReason::DynamicOperator, "new Set(union)")
+                        };
+                        let asserted_list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                        list = body.push_expr(Expr {
+                            kind: ExprKind::TypeAssert { value: list },
+                            ty: asserted_list_ty,
+                            span: self.span(argument.span().start, argument.span().end),
+                        });
+                        item_ty
+                    }
+                    _ => {
+                        return Err(SmeltError::unsupported(
+                            self.span(argument.span().start, argument.span().end),
+                            "new Set(iterable) currently requires an array argument",
+                        ));
+                    }
+                };
+                // Same hint rule as the literal forms: only a Set-shaped hint
+                // overrides the inferred element type.
+                let ty = if let Some(hint) = type_hint
+                    && matches!(self.ctx.krate.types.get(hint), Some(Type::Set(_)))
+                {
+                    hint
+                } else {
+                    self.ctx.krate.types.intern(Type::Set(item_ty))
+                };
+                return Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::ListToSet { list },
+                    ty,
+                    span: self.span(new_expr.span.start, new_expr.span.end),
+                })));
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(new_expr.span.start, new_expr.span.end),
+                    "new Set currently supports no arguments or one array argument",
+                ));
+            }
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::SetLit(items),
+            ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        })))
+    }
+
+    /// Lower `new Map(...)` to a dictionary literal.
+    pub(in crate::lowering) fn map_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::Identifier(callee) = &new_expr.callee else {
+            return Ok(None);
+        };
+        if !Self::is_ts_stdlib_class_name(callee.name.as_str(), smelt_stdlib::StdlibClass::Map) {
+            return Ok(None);
+        }
+        let (entries, ty) = match new_expr.arguments.as_slice() {
+            [] => {
+                // `new Map()` always produces a `Type::JsMap` so erasure can
+                // stamp the `__smelt_map` marker. Explicit `new Map<K, V>()`
+                // type arguments and a `Map<K, V>` (or interchangeable `Record`)
+                // type hint only refine the key/value component types; the
+                // source-spelled Map identity is preserved regardless.
+                let ty = if let Some(type_args) = &new_expr.type_arguments
+                    && let [key, value] = type_args.params.as_slice()
+                {
+                    let key_ty = self.ts_type_to_hir(key)?;
+                    let value_ty = self.ts_type_to_hir(value)?;
+                    self.ctx.krate.types.intern(Type::JsMap(key_ty, value_ty))
+                } else if let Some(hint) = type_hint
+                    && let Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) =
+                        self.ctx.krate.types.get(hint)
+                {
+                    let (key_ty, value_ty) = (*key_ty, *value_ty);
+                    self.ctx.krate.types.intern(Type::JsMap(key_ty, value_ty))
+                } else {
+                    let unknown = self.erase_with(ErasureReason::MissingAnnotation, "new Map()");
+                    self.ctx.krate.types.intern(Type::JsMap(unknown, unknown))
+                };
+                (Vec::new(), ty)
+            }
+            [Argument::ArrayExpression(array)] => {
+                let entries = self.map_constructor_entries(array, body)?;
+                let ty = if let Some(hint) = type_hint {
+                    let Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) =
+                        self.ctx.krate.types.get(hint)
+                    else {
+                        return Err(SmeltError::unsupported(
+                            self.span(new_expr.span.start, new_expr.span.end),
+                            "new Map([...]) requires a Map<K, V> type annotation when annotated",
+                        ));
+                    };
+                    // The declared `Map<K, V>` annotation states the intended
+                    // entry key/value types, so each entry only needs to be
+                    // *assignable* to those declared types rather than exactly
+                    // equal. This mirrors array literals with a type hint: a
+                    // union annotation (`Map<string, string | number>`) accepts
+                    // heterogeneous entries, and the emitter coerces each entry
+                    // to the declared type (erasing to the union ABI) when the
+                    // dict literal is emitted.
+                    let (key_ty, value_ty) = (*key_ty, *value_ty);
+                    for (key, value) in &entries {
+                        let entry_key_ty = Self::expr_ty(body, *key);
+                        let entry_value_ty = Self::expr_ty(body, *value);
+                        if !self.type_assignable_to(entry_key_ty, key_ty)
+                            || !self.type_assignable_to(entry_value_ty, value_ty)
+                        {
+                            return Err(SmeltError::unsupported(
+                                self.span(new_expr.span.start, new_expr.span.end),
+                                "new Map entry key and value types must match the Map<K, V> annotation",
+                            ));
+                        }
+                    }
+                    // Preserve the source Map identity: even when the annotation
+                    // spelled a `Record` (interchangeable with `Map` internally),
+                    // a `new Map([...])` value must stamp the `__smelt_map`
+                    // marker, so re-intern the declared components as `JsMap`.
+                    self.ctx.krate.types.intern(Type::JsMap(key_ty, value_ty))
+                } else if entries.is_empty() {
+                    let unknown = self.erase_with(ErasureReason::MissingAnnotation, "new Map([])");
+                    self.ctx.krate.types.intern(Type::JsMap(unknown, unknown))
+                } else {
+                    // Without an annotation, infer the key and value component
+                    // types the same way an array literal infers its element
+                    // type: a single shared type when the entries are
+                    // homogeneous, otherwise the union of the observed types
+                    // (falling back to the erased `Unknown` surface for shapes
+                    // that do not form a clean union). This matches how
+                    // TypeScript widens a mixed `new Map([...])` to a union
+                    // entry type and keeps Map inference consistent with the
+                    // array-literal path.
+                    let keys = entries.iter().map(|(key, _)| *key).collect::<Vec<_>>();
+                    let values = entries.iter().map(|(_, value)| *value).collect::<Vec<_>>();
+                    let key_ty = self.array_literal_item_type(&keys, body);
+                    let value_ty = self.array_literal_item_type(&values, body);
+                    self.ctx.krate.types.intern(Type::JsMap(key_ty, value_ty))
+                };
+                (entries, ty)
+            }
+            _ => {
+                for argument in &new_expr.arguments {
+                    let _ = self.argument(argument, body)?;
+                }
+                let unknown = self.erase_with(ErasureReason::UntypedBuiltin, "new Map(iterable)");
+                (
+                    Vec::new(),
+                    self.ctx.krate.types.intern(Type::JsMap(unknown, unknown)),
+                )
+            }
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::DictLit(entries),
+            ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        })))
+    }
+
+    /// Lower `new Object()` / `Object(...)` to a concrete record value.
+    ///
+    /// JavaScript `Object()` is the plain-object constructor. Smelt models plain
+    /// objects with the same concrete record representation as an object literal
+    /// `{}` (a `Type::Dict` carrying `ExprKind::DictLit`), so no value is routed
+    /// through `SmeltUnknown`:
+    ///
+    /// - `new Object()` / `Object()` / `Object(null)` / `Object(undefined)`
+    ///   produce a fresh empty record, exactly like `{}`.
+    /// - `Object(value)` where `value` is already an object/record (a `Dict`,
+    ///   `Class`, or `unknown` surface) returns that value unchanged, matching
+    ///   `Object(obj) === obj`.
+    /// - Boxing a primitive (`Object(42)` -> a boxed `Number` object) has no
+    ///   concrete Smelt model yet and is rejected as an unsupported lowering
+    ///   rather than erased, so the boundary stays explicit.
+    pub(in crate::lowering) fn object_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(new_expr.span.start, new_expr.span.end);
+        let argument = match new_expr.arguments.as_slice() {
+            [] => None,
+            [Argument::NullLiteral(_)] => None,
+            [Argument::Identifier(ident)] if ident.name == "undefined" => None,
+            [argument] => Some(self.argument(argument, body)?),
+            _ => {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "Object constructor supports at most one argument",
+                ));
+            }
+        };
+        if let Some(value) = argument {
+            let value_ty = self.type_param_constraint_or_self(Self::expr_ty(body, value));
+            if matches!(
+                self.ctx.krate.types.get(value_ty),
+                Some(Type::Dict(_, _) | Type::Class { .. } | Type::Unknown)
+            ) {
+                return Ok(value);
+            }
+            return Err(SmeltError::unsupported(
+                span,
+                "Object(value) boxing of non-object values is not lowered yet",
+            ));
+        }
+        let ty = self.object_literal_type(&[], type_hint, body);
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::DictLit(Vec::new()),
+            ty,
+            span,
+        }))
+    }
+
+    /// Lower the entry array passed to `new Map([[key, value], ...])`.
+    pub(in crate::lowering) fn map_constructor_entries(
+        &mut self,
+        array: &oxc::ast::ast::ArrayExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Vec<(smelt_hir::ExprId, smelt_hir::ExprId)>, SmeltError> {
+        let mut entries = Vec::new();
+        for element in &array.elements {
+            let ArrayExpressionElement::ArrayExpression(pair) = element else {
+                return Err(SmeltError::unsupported(
+                    self.span(element.span().start, element.span().end),
+                    "new Map entries must be [key, value] array pairs",
+                ));
+            };
+            let [key_element, value_element] = pair.elements.as_slice() else {
+                return Err(SmeltError::unsupported(
+                    self.span(pair.span.start, pair.span.end),
+                    "new Map entries must contain exactly key and value",
+                ));
+            };
+            let key = self.array_element(key_element, body)?;
+            let value = self.array_element(value_element, body)?;
+            entries.push((key, value));
+        }
+        Ok(entries)
     }
 }

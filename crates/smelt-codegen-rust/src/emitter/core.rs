@@ -3327,7 +3327,7 @@ impl<'mir> FunctionEmitter<'mir> {
     ///
     /// This is the single authority for that question. Two call-emitting sites
     /// used to answer it independently — `Rvalue::ClosureCall` with an explicit
-    /// precedence ladder, and `call_text`'s `Callee::Indirect` with none — so
+    /// precedence ladder, and `rendered_call`'s `Callee::Indirect` with none — so
     /// routing one call from the statement form to the terminator form silently
     /// flipped its ABI (E0658 `fn_traits` plus E0308).
     ///
@@ -4151,7 +4151,7 @@ impl<'mir> FunctionEmitter<'mir> {
     ) -> Result<RustExpr, EmitError> {
         // The caller's `value_text` is usually already an owned temporary (an
         // `operand_expr` render clones the local it reads), so ask for an owned
-        // copy through `cloned_value_text` rather than appending `.clone()`
+        // copy through `cloned_value` rather than appending `.clone()`
         // unconditionally: a property key is read once per element in every
         // `groupBy`/`countBy`/`keyBy` loop, and the second copy bought nothing.
         let owned_value_text = value_text.cloned_value();
@@ -6304,7 +6304,7 @@ struct AdapterSource {
 /// awaits them and the source's concurrency silently disappears. Hoisting the
 /// call keeps the start eager and defers only the output conversion.
 ///
-/// `call_text` is the inner call expression; `awaited_text` converts the binding
+/// `rendered_call` is the inner call expression; `awaited_text` converts the binding
 /// `smelt_async_output` to the adapter's output type.
 fn async_adapter_future_expr(call_text: &RustExpr, awaited_text: &RustExpr) -> RustExpr {
     RustExpr::atom(format!(
