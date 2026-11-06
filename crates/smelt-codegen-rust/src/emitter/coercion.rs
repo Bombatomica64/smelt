@@ -198,7 +198,7 @@ impl FunctionEmitter<'_> {
         {
             let (field_text, field_source_ty) =
                 self.string_field_read(&self.local_value(*base)?, *field)?;
-            return self.erase_rendered(&RustExpr::opaque(&field_text), field_source_ty);
+            return self.erase_rendered(&RustExpr::opaque(field_text), field_source_ty);
         }
         if source_ty == target
             && !matches!(self.mir.types.get(target), Some(Type::Function(_)))
@@ -763,7 +763,7 @@ impl FunctionEmitter<'_> {
             if view_ty == target {
                 return Ok(Some(view));
             }
-            return self.rendered_at_type(&view, view_ty, target, scope).map(|typed| Some(typed));
+            return self.rendered_at_type(&view, view_ty, target, scope).map(Some);
         }
         if self.mir.types.get(*target_item) == Some(&Type::String) {
             return Ok(Some(RustExpr::atom(format!(
@@ -1492,7 +1492,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Generator { .. }) => Ok(RustExpr::postfix_on(&smelt_owned_text, self.carrier_format(format_args!("{smelt_owned_text}.into_smelt_unknown()")))),
             Some(Type::Never) | None => Ok(self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null"))),
             // The rest has nothing to read from the operand itself.
-            Some(_) => self.erase_value(&RenderedValue::new(text.clone(), ty)),
+            Some(_) => self.erase_value(&RenderedValue::new(text, ty)),
         }
     }
 
@@ -1967,7 +1967,7 @@ impl FunctionEmitter<'_> {
                 value.parenthesized_if_needed()
             )))),
             Some(Type::GeneratorResult { yield_ty, return_ty }) => {
-                self.erased_iterator_result_expr(&RustExpr::opaque(&value.parenthesized_if_needed()), *yield_ty, *return_ty)
+                self.erased_iterator_result_expr(&RustExpr::opaque(value.parenthesized_if_needed()), *yield_ty, *return_ty)
             }
         }
     }

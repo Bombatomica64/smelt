@@ -465,7 +465,7 @@ impl FunctionEmitter<'_> {
             } else {
                 RustExpr::postfix_on(&rhs_text, format!("{rhs_text}.is_none()"))
             }
-        } else { if let Some(inner) = lhs_inner
+        } else if let Some(inner) = lhs_inner
             && rhs_inner.is_none()
         {
             RustExpr::loose(format!(
@@ -483,7 +483,7 @@ impl FunctionEmitter<'_> {
             ))
         } else {
             return Ok(None);
-        } };
+        };
         Ok(Some(if negate { RustExpr::loose(format!("!({text})")) } else { text }))
     }
 
@@ -910,8 +910,8 @@ impl FunctionEmitter<'_> {
                 // `.len()` is the list's own inherent method; `.iter()` reads
                 // the shared buffer. Both are shared borrows, so comparing a
                 // list against itself is fine.
-                let left_read = list_read_expr(&RustExpr::opaque(&left));
-                let right_read = list_read_expr(&RustExpr::opaque(&right));
+                let left_read = list_read_expr(&RustExpr::opaque(left));
+                let right_read = list_read_expr(&RustExpr::opaque(right));
                 RustExpr::loose(format!(
                     "{left}.len() == {right}.len() && {left_read}.iter().zip({right_read}.iter()).all(|(left_item, right_item)| {item_equal})"
                 ))

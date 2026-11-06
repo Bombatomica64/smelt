@@ -843,7 +843,7 @@ impl FunctionEmitter<'_> {
             let is_callable = matches!(self.mir.types.get(member), Some(Type::Function(_)));
             let extracted = if is_callable {
                 self.extract_rendered(&RustExpr::path("value"), member, &RenderScope::lexical(member_scope.clone()))?
-            } else { if member_params
+            } else if member_params
                 .iter()
                 .any(|param| substitution.spells(*param))
             {
@@ -851,7 +851,7 @@ impl FunctionEmitter<'_> {
                 RustExpr::loose(self.carrier_format(format_args!("<{member_text} as SmeltFromUnknown>::smelt_from_unknown(value)")))
             } else {
                 self.extract_rendered(&RustExpr::path("value"), member, &self.render_scope())?
-            } };
+            };
             if Some(position) == order.len().checked_sub(1) {
                 body.push_str(&format!("        Self::M{index}({extracted})\n"));
             } else {

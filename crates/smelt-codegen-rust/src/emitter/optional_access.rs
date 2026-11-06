@@ -607,13 +607,13 @@ impl FunctionEmitter<'_> {
                 };
                 let array_some = if result_is_string {
                     self.carrier_expr(&RustExpr::chain("values.get(index).cloned().map(|value| match value { SmeltUnknown::String(value) => value.to_string(), other => other.to_string() })"))
-                } else { if result_is_erased {
+                } else if result_is_erased {
                     RustExpr::chain("values.get(index).cloned()")
                 } else {
                     RustExpr::chain(format!(
                         "values.get(index).cloned().map(|_smelt_element| {element_text})"
                     ))
-                } };
+                };
                 // Read the OBJECT arm through `smelt_get_object_field`, the same
                 // helper the erased static field read uses, so `o?.[k]` answers
                 // what `o.k` answers: `o` may be a marker record whose property

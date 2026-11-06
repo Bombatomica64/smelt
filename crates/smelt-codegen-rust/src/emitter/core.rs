@@ -2362,7 +2362,7 @@ impl<'mir> FunctionEmitter<'mir> {
             };
             let value = if let Some(value) = receiver_bound {
                 value
-            } else { if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty)
+            } else if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty)
                 && self.record_value_misses_concrete_union(source_value, *inner)
             {
                 // The record's values cannot be this field's type, so the key
@@ -2408,7 +2408,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     field.ty,
                     &TypeSubstitution::erased(),
                 )?
-            } };
+            };
             // A callable slot keeps the ABI its DECLARATION gave it, whatever
             // the record was instantiated at (`emitter::record_slot_abi`).
             let value = self.record_field_value_at_slot_abi(value.into_string(), target, &field)?;
@@ -3080,7 +3080,7 @@ impl<'mir> FunctionEmitter<'mir> {
         // Preserved verbatim here because replacing it with an explicitly empty
         // substitution changes emitted output whenever `functions[0]` is
         // generic; fixing it needs its own byte-verified change.
-        .rendered_type(ty).map(|text| text.into_string())
+        .rendered_type(ty).map(RustType::into_string)
     }
 
     /// Converts a type ID to Rust text under an explicitly supplied
@@ -4299,13 +4299,13 @@ impl<'mir> FunctionEmitter<'mir> {
                     async_adapter_future_expr(&async_call, &awaited)
                 ))
             }
-        } else { if source.may_throw && !source_returns_future && target_function.may_throw {
+        } else if source.may_throw && !source_returns_future && target_function.may_throw {
             RustExpr::atom(format!("{call}?"))
         } else if source.may_throw && !source_returns_future {
             RustExpr::postfix_on(&call, format!("{call}.unwrap_or_else(|error| smelt_panic_throw(error))"))
         } else {
             call
-        } };
+        };
         // `SmeltErasedFunction::call` answers `SmeltUnknown` whatever the source's
         // DECLARED return type is — `is_erased_unknown_rest_function` keys only on
         // the parameter shape — so the call's value is already erased and its
@@ -4964,7 +4964,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 // return type and calling `Option` methods on a `SmeltUnknown`.
                 let unknown_ty = self.type_id(Type::Unknown)?;
                 self.rendered_at_type(call_value, unknown_ty, target_return_ty, &self.render_scope())?
-            } else { if self.mir.types.get(source.return_ty) == Some(&Type::None)
+            } else if self.mir.types.get(source.return_ty) == Some(&Type::None)
                 && matches!(
                     self.mir.types.get(target_return_ty),
                     Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
@@ -4978,7 +4978,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 RustExpr::atom(self.carrier_format(format_args!("{{ {call_value}; SmeltUnknown::Undefined }}")))
             } else {
                 self.rendered_at_type(call_value, source.return_ty, target_return_ty, &self.render_scope())?
-            } };
+            };
             let field_adjusted_return_text = if !source_returns_future
                 && matches!(
                     self.mir.types.get(target_return_ty),
@@ -5156,7 +5156,7 @@ impl<'mir> FunctionEmitter<'mir> {
         }
         let source_ty = self.place_ty(place)?;
         let source_text = { let receiver = self.place_expr(place)?; RustExpr::postfix_on(&receiver, format!("{receiver}.clone()")) }.ending_in_clone();
-        self.erase_rendered(&source_text, source_ty).map(|erased| Some(erased))
+        self.erase_rendered(&source_text, source_ty).map(Some)
     }
 
     /// If `operand` is a bare function-item-as-value wrapper, return its crate
@@ -5265,7 +5265,7 @@ impl<'mir> FunctionEmitter<'mir> {
             .count();
         let (ordinal, _) = accessors
             .entry((key, module_text.into_string()))
-            .or_insert((next_ordinal, wrapper.into_string()));
+            .or_insert_with(|| (next_ordinal, wrapper.into_string()));
         Ok(Some(format!("__smelt_fn_typed_{key}_{ordinal}()")))
     }
 

@@ -296,7 +296,7 @@ impl FunctionEmitter<'_> {
                         .function_item_erased_fn_accessors
                         .borrow_mut()
                         .entry(key)
-                        .or_insert(erased_function.into_string());
+                        .or_insert_with(|| erased_function.into_string());
                     return Ok(RustExpr::chain(format!("__smelt_fn_erased_{key}()")));
                 }
                 return Ok(erased_function);

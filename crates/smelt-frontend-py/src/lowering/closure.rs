@@ -159,6 +159,7 @@ impl ModuleBuilder<'_> {
     /// expression means inside a closure what it means anywhere else. A captured
     /// callable keeps its call-packing metadata, without defaults: those are
     /// expressions of the defining body.
+    #[expect(clippy::iter_over_hash_type, reason = "each entry is cleared on its own, so order cannot show")]
     fn python_closure(
         &mut self,
         closure: &PythonClosure<'_>,

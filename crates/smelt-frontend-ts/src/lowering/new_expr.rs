@@ -895,8 +895,8 @@ impl ModuleBuilder<'_> {
             _ => None,
         });
         let class = lowered.as_ref().map_or_else(|| self.intern_type_name(name), |class| class.name);
-        let params = lowered.as_ref().map(|lowered| match lowered.constructor {
-            Some(item) => match self.item_ref(item) {
+        let params = lowered.as_ref().map(|lowered| {
+            lowered.constructor.map_or_else(Vec::new, |item| match self.item_ref(item) {
                 Item::Function(function) => function
                     .params
                     .iter()
@@ -904,8 +904,7 @@ impl ModuleBuilder<'_> {
                     .map(|param| param.ty)
                     .collect(),
                 _ => Vec::new(),
-            },
-            None => Vec::new(),
+            })
         });
         let constructor = match params {
             Some(params) => {

@@ -102,9 +102,9 @@ impl FunctionEmitter<'_> {
         // The write guard is a statement-local temporary, so it is released
         // before `{result}` reads the length back through the slot.
         let push_text = list_write_expr(&RustExpr::path("smelt_slot"));
-        return Ok(RustExpr::atom(format!(
+        Ok(RustExpr::atom(format!(
             "{{ let smelt_push_item = {item_text}; let smelt_slot = {accessor}; {push_text}.push(smelt_push_item); {result} }}"
-        )));
+        )))
     }
 
     /// Converts a list push operation to Rust text.

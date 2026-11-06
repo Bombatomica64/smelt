@@ -473,6 +473,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Bind a callable local to its closure value and record how calls pack.
+    #[expect(clippy::too_many_arguments, reason = "the binding's facts beside the lowering position")]
     fn bind_callable_local(
         &mut self,
         name: &str,

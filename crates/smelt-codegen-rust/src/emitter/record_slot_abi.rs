@@ -268,6 +268,6 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         Ok(self
             .record_slot_abi_adapter(&RustExpr::opaque(&value_text), record_ty, field)?
-            .unwrap_or(RustExpr::from(value_text)))
+            .unwrap_or_else(|| RustExpr::from(value_text)))
     }
 }

@@ -121,7 +121,7 @@ impl FunctionEmitter<'_> {
                 "tuple index destination must match the tuple field type",
             ));
         }
-        Ok({ let receiver = self.operand_expr(tuple)?; RustExpr::postfix_on(&receiver, format!("{receiver}.{}.clone()", index)) }.ending_in_clone())
+        Ok({ let receiver = self.operand_expr(tuple)?; RustExpr::postfix_on(&receiver, format!("{receiver}.{index}.clone()")) }.ending_in_clone())
     }
 
     /// Converts a statically-known tuple slice operation to Rust text.

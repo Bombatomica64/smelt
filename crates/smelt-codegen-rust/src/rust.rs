@@ -747,6 +747,10 @@ mod tests {
 /// `RustType` an internal representation later is a change behind these same
 /// constructors.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent facts about what one rendered type spells"
+)]
 pub struct RustType {
     /// The rendered Rust text.
     text: String,

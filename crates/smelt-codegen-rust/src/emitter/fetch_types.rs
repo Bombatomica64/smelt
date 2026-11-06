@@ -521,11 +521,11 @@ impl FunctionEmitter<'_> {
         init_members: &[(smelt_hir::RequestInitMember, Operand)],
         init_is_non_empty: bool,
     ) -> Result<RustExpr, EmitError> {
-        let method_expr = self.init_scalar_expr(method, &RustExpr::opaque(&method_default))?;
-        let headers_expr = self.init_headers_expr(headers, &RustExpr::opaque(&headers_default))?;
+        let method_expr = self.init_scalar_expr(method, &RustExpr::opaque(method_default))?;
+        let headers_expr = self.init_headers_expr(headers, &RustExpr::opaque(headers_default))?;
         // A `Request` at the REQUEST INIT's `body` slot shares its handle;
         // see the flag's documentation for the Node measurement behind it.
-        let body_expr = self.init_body_expr(body, &RustExpr::opaque(&body_default), true)?;
+        let body_expr = self.init_body_expr(body, &RustExpr::opaque(body_default), true)?;
         let init_expr = self.request_init_expr(init_default, init_members, init_is_non_empty)?;
         Ok(RustExpr::atom(format!(
             "SmeltRequest::from_parts_with_init(&{url_text}, {method_expr}, {headers_expr}, {body_expr}, {init_expr})"
@@ -1171,7 +1171,7 @@ impl FunctionEmitter<'_> {
             if shares_a_request_body && self.is_request_class_type(body_ty)? {
                 return Ok(format!("{body_text}.body()"));
             }
-            self.body_conversion_expr(&RustExpr::opaque(&body_text), body_ty).map(RustExpr::into_string)
+            self.body_conversion_expr(&RustExpr::opaque(body_text), body_ty).map(RustExpr::into_string)
         };
         let ty = self.operand_ty(operand)?;
         if let Some(&Type::Optional(inner)) = self.mir.types.get(ty) {

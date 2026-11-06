@@ -192,7 +192,7 @@ impl FunctionEmitter<'_> {
         // `unknown`) crosses the boundary through the ordinary erasure.
         let result_ty = self.type_id(result)?;
         if result_ty != dest_ty && self.mir.types.get(dest_ty) == Some(&Type::Unknown) {
-            return Ok(Some(self.erase_rendered(&RustExpr::opaque(&rendered), result_ty)?));
+            return Ok(Some(self.erase_rendered(&RustExpr::opaque(rendered), result_ty)?));
         }
         Ok(Some(RustExpr::from(rendered)))
     }

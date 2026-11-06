@@ -534,7 +534,7 @@ impl FunctionEmitter<'_> {
         }
         // The substitution is ToString of the answer: `undefined` is the text
         // `undefined`, which a string extraction would read as empty.
-        let erased = self.erase_rendered(&RustExpr::opaque(&call_expr), return_ty)?;
+        let erased = self.erase_rendered(&RustExpr::opaque(call_expr), return_ty)?;
         Ok(format!("smelt_erased_to_js_string(&{erased})"))
     }
 
@@ -1151,7 +1151,7 @@ impl FunctionEmitter<'_> {
             let receiver_text = SMELT_STRING;
             let len_source = RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.chars().count()"));
             let start_text = self.slice_start_expr(start, &len_source)?;
-            let len_expr = self.slice_len_expr(&RustExpr::opaque(&receiver_text), start, end, SliceLenKind::Chars)?;
+            let len_expr = self.slice_len_expr(&RustExpr::opaque(receiver_text), start, end, SliceLenKind::Chars)?;
             RustExpr::atom(format!(
                 "{{ let {receiver_text} = {operand_expr}; {receiver_text}.chars().skip({start_text}).take({len_expr}).collect::<String>() }}"
             ))

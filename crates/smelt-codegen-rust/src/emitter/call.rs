@@ -555,7 +555,7 @@ impl FunctionEmitter<'_> {
                 let future_text = self.await_operand_expr(future)?;
                 let (prelude, callback_expr) = self.promise_callback_hoist(callback)?;
                 let invocation =
-                    self.promise_callback_invocation_with(callback, &RustExpr::opaque(&callback_expr), &RustExpr::path("smelt_value"))?;
+                    self.promise_callback_invocation_with(callback, &RustExpr::opaque(callback_expr), &RustExpr::path("smelt_value"))?;
                 let Some(Type::Future(output_ty)) = self.mir.types.get(dest_ty) else {
                     return Err(EmitError::new("Promise.then result must be a future"));
                 };
@@ -585,7 +585,7 @@ impl FunctionEmitter<'_> {
                 // answer as they do in the source.
                 let invocation = self.promise_callback_invocation_with(
                     callback,
-                    &RustExpr::opaque(&callback_expr),
+                    &RustExpr::opaque(callback_expr),
                     &crate::thrown::thrown_value_expr("smelt_error"),
                 )?;
                 // `catch` RECOVERS: the promise it answers settles with the
@@ -618,7 +618,7 @@ impl FunctionEmitter<'_> {
                 // `onFinally` takes no argument; the invocation helper drops the
                 // placeholder for a zero-parameter callback.
                 let invocation =
-                    self.promise_callback_invocation_with(callback, &RustExpr::opaque(&callback_expr), &RustExpr::unit())?;
+                    self.promise_callback_invocation_with(callback, &RustExpr::opaque(callback_expr), &RustExpr::unit())?;
                 // The settle step awaits a returned promise and propagates a
                 // throw or rejection with `?` — which is exactly the case where
                 // `finally`'s own rejection replaces the original outcome.
@@ -1841,10 +1841,10 @@ impl FunctionEmitter<'_> {
                 if self.current_function_type_params().contains(bound_name) {
                     Ok(None)
                 } else {
-                    self.erase(arg).map(|erased| Some(erased))
+                    self.erase(arg).map(Some)
                 }
             }
-            Some(_) => self.value_at_type(arg, bound).map(|typed| Some(typed)),
+            Some(_) => self.value_at_type(arg, bound).map(Some),
             None => Ok(None),
         }
     }

@@ -212,9 +212,9 @@ impl FunctionEmitter<'_> {
             (_, Some(Type::Optional(dest_inner))) if dest_inner == value_ty => {
                 if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
                     || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
-                    Ok({ let receiver = self.operand_borrow_expr(dict)?; RustExpr::postfix_on(&receiver, format!("{receiver}.get({})", key_text)) })
+                    Ok({ let receiver = self.operand_borrow_expr(dict)?; RustExpr::postfix_on(&receiver, format!("{receiver}.get({key_text})")) })
                 } else {
-                    Ok({ let receiver = self.operand_expr(dict)?; RustExpr::postfix_on(&receiver, format!("{receiver}.get({}).cloned()", key_text)) })
+                    Ok({ let receiver = self.operand_expr(dict)?; RustExpr::postfix_on(&receiver, format!("{receiver}.get({key_text}).cloned()")) })
                 }
             }
             _ => Err(EmitError::new(

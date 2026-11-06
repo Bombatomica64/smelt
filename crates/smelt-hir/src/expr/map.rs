@@ -37,11 +37,14 @@ fn map_opt<E>(
     item.map(f).transpose()
 }
 
+/// Key-value pairs whose values are expressions.
+type ExprPairs<K> = Vec<(K, ExprId)>;
+
 /// Map the value of every key-value pair through `f`, preserving the keys.
 fn map_pairs<K, E>(
-    items: Vec<(K, ExprId)>,
+    items: ExprPairs<K>,
     f: &mut impl FnMut(ExprId) -> Result<ExprId, E>,
-) -> Result<Vec<(K, ExprId)>, E> {
+) -> Result<ExprPairs<K>, E> {
     items
         .into_iter()
         .map(|(key, value)| Ok((key, f(value)?)))

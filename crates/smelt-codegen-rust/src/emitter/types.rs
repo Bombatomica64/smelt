@@ -269,7 +269,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         match mutability {
             MutablePrefix::Apply => {
-                self.function_type_param(function, index, param, substitution).map(|text| text.into_string())
+                self.function_type_param(function, index, param, substitution).map(RustType::into_string)
             }
             // `Ignore` drops only the `&mut ` axis. The shared-reference axis is
             // independent of it and must NOT be dropped: an arity-widening adapter
