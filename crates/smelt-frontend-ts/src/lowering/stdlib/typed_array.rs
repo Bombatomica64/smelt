@@ -117,15 +117,10 @@ impl ModuleBuilder<'_> {
         self.typed_array_class_type("ArrayBuffer")
     }
 
-    /// Return whether a lowered type is an element VIEW of the family.
-    pub(in crate::lowering) fn is_typed_array_view_type(&self, ty: smelt_hir::TypeId) -> bool {
-        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::TypedArray)
-    }
-
     /// Return whether a lowered type is a `BigInt64Array` / `BigUint64Array`
     /// view, whose elements are bigints rather than numbers.
     pub(in crate::lowering) fn is_bigint_view_type(&self, ty: smelt_hir::TypeId) -> bool {
-        if !self.is_typed_array_view_type(ty) {
+        if !self.is_modeled_class(ty, smelt_stdlib::StdlibClass::TypedArray) {
             return false;
         }
         let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(ty) else {
@@ -137,18 +132,6 @@ impl ModuleBuilder<'_> {
             .get(*name)
             .and_then(smelt_stdlib::typed_array_element)
             .is_some_and(smelt_stdlib::TypedArrayElement::is_bigint)
-    }
-
-    /// Return whether a lowered type is the family's byte STORAGE.
-    pub(in crate::lowering) fn is_array_buffer_type(&self, ty: smelt_hir::TypeId) -> bool {
-        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::ArrayBuffer)
-            && !self.source_shadows_global("ArrayBuffer")
-    }
-
-    /// Return whether a lowered type is a `DataView`.
-    pub(in crate::lowering) fn is_data_view_type(&self, ty: smelt_hir::TypeId) -> bool {
-        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::DataView)
-            && !self.source_shadows_global("DataView")
     }
 
     /// Dispatch a `DataView` element accessor: `getInt16`, `setFloat64`, ...
@@ -184,7 +167,7 @@ impl ModuleBuilder<'_> {
         let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
-        if !self.is_data_view_type(Self::expr_ty(body, receiver)) {
+        if !self.is_modeled_class(Self::expr_ty(body, receiver), smelt_stdlib::StdlibClass::DataView) {
             return Ok(None);
         }
         let Some((write, element)) = smelt_stdlib::data_view_accessor(member_name) else {
@@ -240,13 +223,13 @@ impl ModuleBuilder<'_> {
         receiver_ty: smelt_hir::TypeId,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let is_view = self.is_typed_array_view_type(receiver_ty);
-        let is_storage = self.is_array_buffer_type(receiver_ty);
+        let is_view = self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::TypedArray);
+        let is_storage = self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::ArrayBuffer);
         // A `DataView` has `byteLength`, `byteOffset` and `buffer` and no
         // `length`: it addresses BYTES, so an element count would be a
         // different number for every accessor width. The three it does have
         // are the same ops with the same names on its own runtime type.
-        let is_data_view = self.is_data_view_type(receiver_ty);
+        let is_data_view = self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::DataView);
         if !is_view && !is_storage && !is_data_view {
             return Ok(None);
         }
@@ -312,8 +295,8 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let receiver_ty = Self::expr_ty(body, receiver);
-        let is_view = self.is_typed_array_view_type(receiver_ty);
-        if !is_view && !self.is_array_buffer_type(receiver_ty) {
+        let is_view = self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::TypedArray);
+        if !is_view && !self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::ArrayBuffer) {
             return Ok(None);
         }
         // `subarray`, `set` and `fill` are VIEW members: byte storage has no
@@ -394,10 +377,10 @@ impl ModuleBuilder<'_> {
         // addresses BYTES through accessors and has no own enumerable
         // properties, which is why `JSON.stringify(dataView)` is `{}` where a
         // typed array's is its element indices.
-        if self.is_array_buffer_type(receiver_ty) || self.is_data_view_type(receiver_ty) {
+        if self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::ArrayBuffer) || self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::DataView) {
             return self.empty_projection_expression(op, span, body);
         }
-        if !self.is_typed_array_view_type(receiver_ty) {
+        if !self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::TypedArray) {
             return None;
         }
         let span = self.span(span.start, span.end);
@@ -482,7 +465,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Option<smelt_hir::ExprId> {
         let value_ty = Self::expr_ty(body, value);
-        if !self.is_typed_array_view_type(value_ty) {
+        if !self.is_modeled_class(value_ty, smelt_stdlib::StdlibClass::TypedArray) {
             return None;
         }
         Some(self.typed_array_elements_expression(value, span, body))

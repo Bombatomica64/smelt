@@ -1,6 +1,7 @@
 //! The statement dispatcher: one source statement into the current block, and the
 //! statement forms too small for a module of their own.
 
+use crate::lowering::peel::{Wrappers, peel};
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use crate::lowering::support::statement_terminates;
@@ -629,7 +630,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
-        let expression = Self::unparenthesized_expression(expression);
+        let expression = peel(expression, Wrappers::Parens);
         // `void X;` discards X's result, which a statement does anyway: lower
         // it as the statement `X;`, so a floating promise it starts
         // (`void handle(req, res);`) is driven exactly as a bare `handle(..);`
@@ -784,7 +785,7 @@ impl ModuleBuilder<'_> {
         )>,
         SmeltError,
     > {
-        let test = Self::unparenthesized_expression(&while_stmt.test);
+        let test = peel(&while_stmt.test, Wrappers::Parens);
         let Expression::BinaryExpression(binary) = test else {
             return Ok(None);
         };
@@ -795,7 +796,7 @@ impl ModuleBuilder<'_> {
         {
             return Ok(None);
         }
-        let left = Self::unparenthesized_expression(&binary.left);
+        let left = peel(&binary.left, Wrappers::Parens);
         let Expression::AssignmentExpression(assign) = left else {
             return Ok(None);
         };
@@ -825,17 +826,6 @@ impl ModuleBuilder<'_> {
         }
         let (update_target, update_value) = self.assignment_parts(assign, body)?;
         Ok(Some((cond, loop_body, update_target, update_value)))
-    }
-
-    /// Strip transparent parentheses from a TypeScript expression.
-    pub(in crate::lowering) fn unparenthesized_expression<'a>(
-        expression: &'a Expression<'a>,
-    ) -> &'a Expression<'a> {
-        let mut current = expression;
-        while let Expression::ParenthesizedExpression(parenthesized) = current {
-            current = &parenthesized.expression;
-        }
-        current
     }
 
     /// Return whether this is a top-level `await import("...")` side-effect load.

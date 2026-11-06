@@ -97,7 +97,7 @@ impl ModuleBuilder<'_> {
             // `map`), so the walk follows `extends` to the root.
             Some(Type::Class { name, .. }) => {
                 let mut current = Some(*name);
-                let mut seen = std::collections::HashSet::new();
+                let mut seen = HashSet::new();
                 while let Some(class_name) = current
                     && seen.insert(class_name)
                 {

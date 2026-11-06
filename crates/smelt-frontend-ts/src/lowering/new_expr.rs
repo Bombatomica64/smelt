@@ -3,6 +3,7 @@
 //! Lowers `new ...` expressions, including standard-library container
 //! constructors and user class construction, into typed HIR.
 
+use crate::lowering::peel::{Wrappers, peel};
 use std::collections::HashMap;
 use super::ModuleBuilder;
 use crate::SmeltError;
@@ -2508,7 +2509,7 @@ impl ModuleBuilder<'_> {
                 // the logical operand as a condition.
                 if unary.operator == UnaryOperator::LogicalNot
                     && matches!(
-                        Self::unparenthesized_expression(&unary.argument),
+                        peel(&unary.argument, Wrappers::Parens),
                         Expression::LogicalExpression(_)
                     )
                 {
@@ -2912,7 +2913,7 @@ impl ModuleBuilder<'_> {
         // `[1]` as `string[]`. The arms join below instead.
         let then_ty = Self::expr_ty(body, then_expr);
         let alternate_has_own_shape = matches!(
-            Self::unparenthesized_expression(&conditional.alternate),
+            peel(&conditional.alternate, Wrappers::Parens),
             Expression::ArrayExpression(array) if !array.elements.is_empty()
         );
         let branch_hint = if self.ctx.krate.types.get(then_ty) == Some(&Type::None)
@@ -3467,7 +3468,7 @@ impl ModuleBuilder<'_> {
         // operand's truthiness, which distributes over the operator, so lower
         // the condition form directly to a boolean instead of building a union
         // value just to test it.
-        if let Expression::LogicalExpression(logical) = Self::unparenthesized_expression(expression)
+        if let Expression::LogicalExpression(logical) = peel(expression, Wrappers::Parens)
             && let Some(cond) = self.logical_condition_expression(logical, body)?
         {
             return Ok(cond);

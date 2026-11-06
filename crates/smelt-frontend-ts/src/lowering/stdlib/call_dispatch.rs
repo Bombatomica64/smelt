@@ -1,6 +1,7 @@
 //! Call-expression lowering hub: the order in which a call's decisions are taken,
 //! and the builtin registry that routes a call to its standard-library family.
 
+use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::{ModuleBuilder, stdlib_dispatch};
 use crate::SmeltError;
 use oxc::ast::ast::{Argument, Expression};
@@ -1191,10 +1192,7 @@ impl<'builder> ModuleBuilder<'builder> {
 
     /// Strip transparent wrappers around an asserted function-call callee.
     pub(in crate::lowering) fn transparent_asserted_callee<'a>(callee: &'a Expression<'a>) -> Option<&'a Expression<'a>> {
-        match callee {
-            Expression::ParenthesizedExpression(parenthesized) => {
-                Self::transparent_asserted_callee(&parenthesized.expression)
-            }
+        match peel(callee, Wrappers::Parens) {
             Expression::TSAsExpression(as_expr) => Some(&as_expr.expression),
             Expression::TSSatisfiesExpression(satisfies) => Some(&satisfies.expression),
             Expression::TSNonNullExpression(non_null) => Some(&non_null.expression),

@@ -73,7 +73,7 @@ impl ModuleBuilder<'_> {
     /// Lower supported TypeScript `Date` calls.
     pub(in crate::lowering) fn date_call(
         &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
+        call: &CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         if matches!(&call.callee, Expression::StaticMemberExpression(_))
@@ -133,7 +133,7 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn date_utc_call(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
-        call: &oxc::ast::ast::CallExpression<'_>,
+        call: &CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let Expression::Identifier(object) = &member.object else {
@@ -374,7 +374,7 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn date_member_call(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
-        call: &oxc::ast::ast::CallExpression<'_>,
+        call: &CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let method = member.property.name.as_str();

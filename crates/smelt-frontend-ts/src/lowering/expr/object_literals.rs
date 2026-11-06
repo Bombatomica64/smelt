@@ -1,6 +1,7 @@
 //! Object literals: keys, accessors, spreads and the record type a literal takes from
 //! its context.
 
+use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::{
     Body, Expr, ExprKind, Expression, Field, FunctionType, HashSet, Literal, LogicalOperator,
     ModuleBuilder, ObjectPropertyKind, PropertyKey, PropertyKind, SmeltError, Statement, Type,
@@ -413,7 +414,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         span: oxc::span::Span,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let argument = Self::object_spread_condition_source(argument);
+        let argument = peel(argument, Wrappers::Transparent);
         let Expression::LogicalExpression(logical) = argument else {
             return Ok(None);
         };
@@ -447,27 +448,6 @@ impl ModuleBuilder<'_> {
             ty: source_ty,
             span: self.span(span.start, span.end),
         })))
-    }
-
-    /// Strip transparent wrappers around an object-spread source condition.
-    pub(in crate::lowering) fn object_spread_condition_source<'a>(
-        argument: &'a Expression<'a>,
-    ) -> &'a Expression<'a> {
-        match argument {
-            Expression::ParenthesizedExpression(parenthesized) => {
-                Self::object_spread_condition_source(&parenthesized.expression)
-            }
-            Expression::TSAsExpression(as_expr) => {
-                Self::object_spread_condition_source(&as_expr.expression)
-            }
-            Expression::TSSatisfiesExpression(satisfies) => {
-                Self::object_spread_condition_source(&satisfies.expression)
-            }
-            Expression::TSNonNullExpression(non_null) => {
-                Self::object_spread_condition_source(&non_null.expression)
-            }
-            _ => argument,
-        }
     }
 
     /// Resolve a contextual field type for an object-literal property value.

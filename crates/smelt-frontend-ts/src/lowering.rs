@@ -16,6 +16,7 @@ mod hoisting;
 mod int32;
 mod js_text;
 mod narrowing;
+mod peel;
 mod postfix_deferral;
 mod presence_tested_locals;
 mod type_param_owners;

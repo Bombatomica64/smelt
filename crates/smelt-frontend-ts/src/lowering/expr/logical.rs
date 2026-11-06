@@ -1,6 +1,7 @@
 //! Logical and nullish operators in value position: `&&`, `||`, `??` and the types
 //! their fallbacks join to.
 
+use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::{
     BinOp, Body, Expr, ExprKind, Expression, Literal, LocalDecl, LogicalOperator, ModuleBuilder,
     Pattern, PrimitiveCastOp, SmeltError, Stmt, Type,
@@ -406,14 +407,14 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
         if let Expression::LogicalExpression(left_logical) =
-            Self::unparenthesized_expression(&logical.left)
+            peel(&logical.left, Wrappers::Parens)
             && let Some(value) =
                 self.logical_and_value_fallback_expression(logical, left_logical, body)?
         {
             return Ok(Some(value));
         }
         if let Expression::LogicalExpression(left_logical) =
-            Self::unparenthesized_expression(&logical.left)
+            peel(&logical.left, Wrappers::Parens)
             && let Some(value) = self.logical_and_numeric_value_expression(left_logical, body)?
         {
             let value_ty = Self::expr_ty(body, value);

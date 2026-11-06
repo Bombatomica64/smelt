@@ -28,7 +28,7 @@ impl ModuleBuilder<'_> {
         {
             return Some((key_ty, value_ty));
         }
-        if self.is_form_data_type(iter_ty) {
+        if self.is_modeled_class(iter_ty, smelt_stdlib::StdlibClass::FormData) {
             let string_ty = self.ctx.krate.types.intern(Type::String);
             let value_ty = self.form_data_value_type();
             return Some((string_ty, value_ty));
@@ -48,7 +48,7 @@ impl ModuleBuilder<'_> {
         span: smelt_hir::Span,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
-        if self.is_form_data_type(iter_ty) {
+        if self.is_modeled_class(iter_ty, smelt_stdlib::StdlibClass::FormData) {
             return body.push_expr(Expr {
                 kind: ExprKind::FormDataOp {
                     op: smelt_hir::FormDataOp::Entries,
@@ -269,7 +269,7 @@ impl ModuleBuilder<'_> {
             // its VALUES, the same answer the record arm below gives. Placed
             // before it because a host collection is a `Type::Class`, which no
             // structural arm matches.
-            Some(Type::Class { .. }) if self.is_form_data_type(iter_ty) => {
+            Some(Type::Class { .. }) if self.is_modeled_class(iter_ty, smelt_stdlib::StdlibClass::FormData) => {
                 let value_ty = self.form_data_value_type();
                 let list_ty = self.ctx.krate.types.intern(Type::List(value_ty));
                 iter = body.push_expr(Expr {

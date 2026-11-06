@@ -1328,14 +1328,14 @@ impl ModuleBuilder<'_> {
         // storage is not. The disjunction below is for an erased value, whose
         // markers are the only thing left to ask.
         let value_ty = Self::expr_ty(body, value);
-        if self.is_typed_array_view_type(value_ty)
-            || self.is_array_buffer_type(value_ty)
-            || self.is_data_view_type(value_ty)
+        if self.is_modeled_class(value_ty, smelt_stdlib::StdlibClass::TypedArray)
+            || self.is_modeled_class(value_ty, smelt_stdlib::StdlibClass::ArrayBuffer)
+            || self.is_modeled_class(value_ty, smelt_stdlib::StdlibClass::DataView)
         {
             // A `DataView` is a VIEW, which is the whole reason es-toolkit's
             // `isTypedArray` has to exclude it separately.
             let is_view =
-                self.is_typed_array_view_type(value_ty) || self.is_data_view_type(value_ty);
+                self.is_modeled_class(value_ty, smelt_stdlib::StdlibClass::TypedArray) || self.is_modeled_class(value_ty, smelt_stdlib::StdlibClass::DataView);
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Bool(is_view)),
                 ty,

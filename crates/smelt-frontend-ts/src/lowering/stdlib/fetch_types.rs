@@ -84,6 +84,29 @@ impl InitFields {
     }
 }
 
+/// The global name that rebinding in source hides modeled class `class`, or `None`
+/// when no source declaration can stand for the class.
+const fn modeled_class_global(class: smelt_stdlib::StdlibClass) -> Option<&'static str> {
+    use smelt_stdlib::StdlibClass;
+    match class {
+        StdlibClass::ArrayBuffer => Some("ArrayBuffer"),
+        StdlibClass::DataView => Some("DataView"),
+        StdlibClass::FormData => Some("FormData"),
+        StdlibClass::Headers => Some("Headers"),
+        StdlibClass::HttpServer => Some("Server"),
+        StdlibClass::IncomingMessage => Some("IncomingMessage"),
+        StdlibClass::NodeHash => Some("Hash"),
+        StdlibClass::Request => Some("Request"),
+        StdlibClass::Response => Some("Response"),
+        StdlibClass::ServerResponse => Some("ServerResponse"),
+        StdlibClass::TextDecoder => Some("TextDecoder"),
+        StdlibClass::TextEncoder => Some("TextEncoder"),
+        StdlibClass::Url => Some("URL"),
+        StdlibClass::UrlSearchParams => Some("URLSearchParams"),
+        _ => None,
+    }
+}
+
 impl ModuleBuilder<'_> {
     /// Lower `new Headers(init?)` into a concrete `Headers` value.
     ///
@@ -149,7 +172,7 @@ impl ModuleBuilder<'_> {
         // METHOD as a field (E0615).
         let (receiver, receiver_ty) =
             self.present_receiver(receiver, self.span(call.span.start, call.span.end), body);
-        if !self.is_headers_type(receiver_ty) {
+        if !self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::Headers) {
             return Ok(None);
         }
         let Some(op) = Self::headers_method_op(rule, member_name) else {
@@ -207,7 +230,7 @@ impl ModuleBuilder<'_> {
         // reason: the two are one rule about modeled receivers.
         let (receiver, receiver_ty) =
             self.present_receiver(receiver, self.span(call.span.start, call.span.end), body);
-        if !self.is_url_search_params_type(receiver_ty) {
+        if !self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::UrlSearchParams) {
             return Ok(None);
         }
         let Some(op) = Self::url_search_params_method_op(rule, member_name) else {
@@ -245,12 +268,6 @@ impl ModuleBuilder<'_> {
             name,
             args: Vec::new(),
         })
-    }
-
-    /// Return whether a lowered type is the modeled `URLSearchParams` class.
-    pub(in crate::lowering) fn is_url_search_params_type(&self, ty: smelt_hir::TypeId) -> bool {
-        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::UrlSearchParams)
-            && !self.source_shadows_global("URLSearchParams")
     }
 
     /// Whether this module's own source binds a global type or class `name`.
@@ -343,7 +360,7 @@ impl ModuleBuilder<'_> {
         &self,
         ty: smelt_hir::TypeId,
     ) -> bool {
-        self.is_url_search_params_type(ty)
+        self.is_modeled_class(ty, smelt_stdlib::StdlibClass::UrlSearchParams)
     }
 
     /// Resolve a call receiver's modeled class WITHOUT lowering it.
@@ -386,13 +403,18 @@ impl ModuleBuilder<'_> {
         let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(ty) else {
             return None;
         };
-        let class_name = self
-            .ctx
-            .krate
-            .names
-            .get(*name)
-            .or_else(|| self.ctx.krate.symbols.get(*name))?;
-        smelt_stdlib::typescript_stdlib_class(class_name)
+        self.stdlib_class_of_symbol(*name)
+    }
+
+    /// Whether a lowered type is modeled class `class`, and this module's source
+    /// has not rebound that class's global name.
+    pub(in crate::lowering) fn is_modeled_class(
+        &self,
+        ty: smelt_hir::TypeId,
+        class: smelt_stdlib::StdlibClass,
+    ) -> bool {
+        self.stdlib_class_of_type(ty) == Some(class)
+            && modeled_class_global(class).is_none_or(|name| !self.source_shadows_global(name))
     }
 
     /// The type of a modeled host class's primitive data property read off a
@@ -467,12 +489,6 @@ impl ModuleBuilder<'_> {
             name,
             args: Vec::new(),
         })
-    }
-
-    /// Return whether a lowered type is the modeled `Headers` class.
-    pub(in crate::lowering) fn is_headers_type(&self, ty: smelt_hir::TypeId) -> bool {
-        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::Headers)
-            && !self.source_shadows_global("Headers")
     }
 
     /// Map a recognized rule and member spelling to its header operation.
@@ -615,7 +631,7 @@ impl ModuleBuilder<'_> {
         } else {
             self.present_receiver(receiver, span, body)
         };
-        if !self.is_response_type(receiver_ty) {
+        if !self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::Response) {
             return Ok(None);
         }
         // One rule covers both body readers, because they ARE one reader in
@@ -720,7 +736,7 @@ impl ModuleBuilder<'_> {
         } else {
             self.present_receiver(receiver, span, body)
         };
-        if !self.is_response_type(receiver_ty) {
+        if !self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::Response) {
             return Ok(None);
         }
         // Every remaining name in the match above resolves to an operation;
@@ -745,12 +761,6 @@ impl ModuleBuilder<'_> {
             name,
             args: Vec::new(),
         })
-    }
-
-    /// Return whether a lowered type is the modeled `Response` class.
-    pub(in crate::lowering) fn is_response_type(&self, ty: smelt_hir::TypeId) -> bool {
-        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::Response)
-            && !self.source_shadows_global("Response")
     }
 
     /// The modeled `ReadableStream` class: a body HANDLE.
@@ -938,7 +948,7 @@ impl ModuleBuilder<'_> {
         } else {
             self.present_receiver(receiver, span, body)
         };
-        if !self.is_request_type(receiver_ty) {
+        if !self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::Request) {
             return Ok(None);
         }
         let op = match rule {
@@ -1004,7 +1014,7 @@ impl ModuleBuilder<'_> {
         } else {
             self.present_receiver(receiver, span, body)
         };
-        if !self.is_request_type(receiver_ty) {
+        if !self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::Request) {
             return Ok(None);
         }
         // Every remaining name in the match above resolves to an operation;
@@ -1029,12 +1039,6 @@ impl ModuleBuilder<'_> {
             name,
             args: Vec::new(),
         })
-    }
-
-    /// Return whether a lowered type is the modeled `Request` class.
-    pub(in crate::lowering) fn is_request_type(&self, ty: smelt_hir::TypeId) -> bool {
-        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::Request)
-            && !self.source_shadows_global("Request")
     }
 
     /// The HIR type a `Request` operation answers.
@@ -1175,13 +1179,13 @@ impl ModuleBuilder<'_> {
         // and body are copied into the new request. Its members are modeled
         // operations rather than struct fields, so they are read through those
         // rather than through the field path below.
-        if self.is_request_type(source_ty) {
+        if self.is_modeled_class(source_ty, smelt_stdlib::StdlibClass::Request) {
             return self.request_init_fields(source, keys, span, fields, body);
         }
         // Symmetrically, a `Response` is allowed at the `ResponseInit` position:
         // WebIDL converts the object to the dictionary by reading its own
         // `status`, `statusText` and `headers` properties.
-        if self.is_response_type(source_ty) {
+        if self.is_modeled_class(source_ty, smelt_stdlib::StdlibClass::Response) {
             return self.response_init_fields(source, keys, span, fields, body);
         }
         if matches!(self.ctx.krate.types.get(source_ty), Some(Type::Unknown)) {
@@ -1477,7 +1481,7 @@ impl ModuleBuilder<'_> {
         // `fetch(request)`: the spec's other input form, and now that the
         // transport can carry a method, headers and a body it is the same
         // operand the two-argument form builds.
-        if self.is_request_type(url_ty) {
+        if self.is_modeled_class(url_ty, smelt_stdlib::StdlibClass::Request) {
             let response_ty = self.response_type();
             let ty = self.ctx.krate.types.intern(Type::Future(response_ty));
             return Ok(Some(body.push_expr(Expr {

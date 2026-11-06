@@ -443,13 +443,7 @@ impl ModuleBuilder<'_> {
                     | Argument::ComputedMemberExpression(_)
             ),
             Some(Type::None) => matches!(argument, Argument::NullLiteral(_)),
-            Some(Type::Class { name, .. }) if self
-                .ctx
-                .krate
-                .symbols
-                .get(name)
-                .is_some_and(|name| name == "RegExp") =>
-            {
+            Some(Type::Class { name, .. }) if self.stdlib_class_of_symbol(name) == Some(smelt_stdlib::StdlibClass::RegExp) => {
                 matches!(
                     argument,
                     Argument::RegExpLiteral(_)

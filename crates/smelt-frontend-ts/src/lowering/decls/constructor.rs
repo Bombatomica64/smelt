@@ -6,6 +6,7 @@
 //! adds instance methods. This module materializes that shape once so ordinary
 //! class construction and `instanceof` lowering need no special use-site path.
 
+use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::state::local_scope::ScopeGroups;
 use crate::lowering::{
@@ -368,27 +369,11 @@ impl ModuleBuilder<'_> {
         // Constructor functions are frequently cast, e.g.
         // `const Foo = function () {} as any as FooConstructor`.
         let Expression::FunctionExpression(function) =
-            Self::peel_cast_wrappers(declarator.init.as_ref()?)
+            peel(declarator.init.as_ref()?, Wrappers::Casts)
         else {
             return None;
         };
         Some((binding.name.as_str(), function.as_ref()))
-    }
-
-    /// Strip the `as`, `satisfies` and parenthesized wrappers around a
-    /// constructor function or class expression.
-    ///
-    /// Narrower than `peel_transparent_expression`: a non-null assertion is not
-    /// peeled here.
-    fn peel_cast_wrappers<'a>(mut expression: &'a Expression<'a>) -> &'a Expression<'a> {
-        loop {
-            expression = match expression {
-                Expression::TSAsExpression(as_expr) => &as_expr.expression,
-                Expression::TSSatisfiesExpression(satisfies) => &satisfies.expression,
-                Expression::ParenthesizedExpression(parenthesized) => &parenthesized.expression,
-                _ => return expression,
-            };
-        }
     }
 
     /// Match `const Foo = class { … }`, answering the binding name and the class.
@@ -410,7 +395,7 @@ impl ModuleBuilder<'_> {
             return None;
         };
         let Expression::ClassExpression(class) =
-            Self::peel_cast_wrappers(declarator.init.as_ref()?)
+            peel(declarator.init.as_ref()?, Wrappers::Casts)
         else {
             return None;
         };

@@ -1,6 +1,7 @@
 //! Runtime tests as expressions: `instanceof`, `typeof`, nullish comparisons and
 //! type assertions.
 
+use crate::lowering::peel::{Wrappers, peel};
 use super::{ModuleBuilder, ambient_globals, unknown_kind_from_typeof};
 use crate::SmeltError;
 use crate::lowering::js_text::js_str_text;
@@ -736,7 +737,7 @@ impl ModuleBuilder<'_> {
     /// the AST is what lets [`Self::logical_expression`] short-circuit before any
     /// of the value-shape helpers lower the right operand.
     pub(super) fn static_guard_value(&self, expression: &Expression<'_>) -> Option<bool> {
-        let Expression::BinaryExpression(binary) = Self::unparenthesized_expression(expression)
+        let Expression::BinaryExpression(binary) = peel(expression, Wrappers::Parens)
         else {
             return None;
         };
@@ -1064,10 +1065,7 @@ impl ModuleBuilder<'_> {
         }
         // A call asserted to `target` instantiates its callee's unbound type
         // parameters from it (see `bind_from_asserted_return`).
-        let mut operand = expression;
-        while let Expression::ParenthesizedExpression(parenthesized) = operand {
-            operand = &parenthesized.expression;
-        }
+        let operand = peel(expression, Wrappers::Parens);
         let previous = std::mem::replace(
             &mut self.asserted_call_return,
             match operand {

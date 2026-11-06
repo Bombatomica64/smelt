@@ -218,7 +218,7 @@ impl ModuleBuilder<'_> {
         // A modeled `Response` arm reads its data properties through the
         // runtime accessor, never as a struct field: `SmeltResponse` keeps them
         // behind methods.
-        if self.is_response_type(arm_ty) {
+        if self.is_modeled_class(arm_ty, smelt_stdlib::StdlibClass::Response) {
             let name = self.ctx.krate.symbols.get(field)?.to_owned();
             let op = match name.as_str() {
                 "status" => ResponseOp::Status,

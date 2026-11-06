@@ -390,13 +390,7 @@ impl ModuleBuilder<'_> {
         let needle = self.argument(pattern_argument, body)?;
         let needle_ty = Self::expr_ty(body, needle);
         let needle_is_pattern = self.ctx.krate.types.get(needle_ty) == Some(&Type::String)
-            || matches!(
-                self.ctx.krate.types.get(needle_ty),
-                Some(Type::Class { name, .. })
-                    if smelt_stdlib::typescript_stdlib_class(
-                        self.ctx.krate.symbols.get(*name).unwrap_or_default()
-                    ) == Some(smelt_stdlib::StdlibClass::RegExp)
-            );
+            || self.stdlib_class_of_type(needle_ty) == Some(smelt_stdlib::StdlibClass::RegExp);
         if !needle_is_pattern {
             return Ok(None);
         }
@@ -1179,7 +1173,7 @@ impl ModuleBuilder<'_> {
             let operand_ty = Self::expr_ty(body, operand);
             let float_ty = self.ctx.krate.types.intern(Type::Float);
             let codes_ty = self.ctx.krate.types.intern(Type::List(float_ty));
-            let operand = if operand_ty == codes_ty || self.is_typed_array_view_type(operand_ty) {
+            let operand = if operand_ty == codes_ty || self.is_modeled_class(operand_ty, smelt_stdlib::StdlibClass::TypedArray) {
                 operand
             } else if matches!(
                 self.ctx.krate.types.get(operand_ty),
@@ -1364,12 +1358,7 @@ impl ModuleBuilder<'_> {
             .get(self.type_param_constraint_or_self(ty))
         {
             Some(Type::String | Type::Unknown | Type::TypeParam { .. }) => true,
-            Some(Type::Class { name, .. }) => self
-                .ctx
-                .krate
-                .symbols
-                .get(*name)
-                .is_some_and(|name| name == "RegExp"),
+            Some(Type::Class { name, .. }) => self.stdlib_class_of_symbol(*name) == Some(smelt_stdlib::StdlibClass::RegExp),
             Some(Type::Optional(item)) => self.string_split_separator_type_is_supported(*item),
             Some(Type::Union(items)) => items
                 .iter()

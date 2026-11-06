@@ -477,7 +477,7 @@ impl ModuleBuilder<'_> {
         // signedness. Asked before the `Type::Class` arm below, which would
         // otherwise assert the view into an erased list and lose both the
         // element type and the decode.
-        if self.is_typed_array_view_type(iter_ty) {
+        if self.is_modeled_class(iter_ty, smelt_stdlib::StdlibClass::TypedArray) {
             let span = self.expression_span(source);
             return self.typed_array_elements_expression(iter, span, body);
         }
@@ -494,7 +494,7 @@ impl ModuleBuilder<'_> {
         // erased list: Hono's `for (const [k, v] of new Headers(init))` in
         // `Context#newResponse` then panicked "unknown is not iterable" on the
         // erased record.
-        if self.is_headers_type(iter_ty) {
+        if self.is_modeled_class(iter_ty, smelt_stdlib::StdlibClass::Headers) {
             let ty = self.headers_op_result_type(smelt_hir::HeadersOp::Entries);
             return body.push_expr(Expr {
                 kind: ExprKind::HeadersOp {

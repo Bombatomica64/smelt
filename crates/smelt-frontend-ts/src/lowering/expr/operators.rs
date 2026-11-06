@@ -1,5 +1,6 @@
 //! Operator expressions: binary, unary, `in`, `delete` and `void`.
 
+use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::js_text::js_str_text;
 use smelt_hir::{ErasureReason, PropertyLookup};
 use crate::lowering::{
@@ -500,7 +501,7 @@ impl ModuleBuilder<'_> {
         // the union of both operands and erases when they differ.
         if matches!(op, UnaryOp::Not)
             && matches!(
-                Self::unparenthesized_expression(&unary.argument),
+                peel(&unary.argument, Wrappers::Parens),
                 Expression::LogicalExpression(_)
             )
         {

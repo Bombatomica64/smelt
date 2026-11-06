@@ -1,5 +1,6 @@
 //! TypeScript AST lowering methods for `ModuleBuilder`.
 
+use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::js_text::js_str_text;
 use std::collections::{HashMap, HashSet};
 
@@ -4363,28 +4364,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
-    /// Peel transparent TypeScript wrappers (parens, `as`, `satisfies`, `!`)
-    /// off an expression, returning the underlying value expression.
-    pub(super) fn peel_transparent_expression<'a>(
-        expression: &'a Expression<'a>,
-    ) -> &'a Expression<'a> {
-        match expression {
-            Expression::ParenthesizedExpression(parenthesized) => {
-                Self::peel_transparent_expression(&parenthesized.expression)
-            }
-            Expression::TSAsExpression(as_expr) => {
-                Self::peel_transparent_expression(&as_expr.expression)
-            }
-            Expression::TSSatisfiesExpression(satisfies) => {
-                Self::peel_transparent_expression(&satisfies.expression)
-            }
-            Expression::TSNonNullExpression(non_null) => {
-                Self::peel_transparent_expression(&non_null.expression)
-            }
-            _ => expression,
-        }
-    }
-
     /// Lower exported const declarations into importable HIR items by initializer shape.
     pub(super) fn const_item_declarations(
         &mut self,
@@ -4432,7 +4411,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             // transparent TS wrappers (parens, `as`, `satisfies`, `!`) so the
             // arrow/function-initializer dispatch below sees the value
             // expression, matching how the literal folder already unwraps.
-            let init = Self::peel_transparent_expression(init);
+            let init = peel(init, Wrappers::Transparent);
             if let Some(object) = Self::direct_object_initializer(init) {
                 if self.object_namespace_const_declaration(
                     binding.name.as_str(),
@@ -5370,7 +5349,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         &mut self,
         expression: &Expression<'_>,
     ) -> Option<ObjectConst> {
-        let Expression::NewExpression(new_expr) = Self::peel_transparent_expression(expression)
+        let Expression::NewExpression(new_expr) = peel(expression, Wrappers::Transparent)
         else {
             return None;
         };

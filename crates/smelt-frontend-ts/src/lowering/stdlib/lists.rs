@@ -1219,7 +1219,7 @@ impl ModuleBuilder<'_> {
     /// Lower direct TypeScript array containment.
     pub(in crate::lowering) fn list_contains_call(
         &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
+        call: &CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
@@ -1295,7 +1295,7 @@ impl ModuleBuilder<'_> {
     /// Lower direct TypeScript `Array.prototype.entries` calls.
     pub(in crate::lowering) fn list_entries_call(
         &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
+        call: &CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
@@ -1344,7 +1344,7 @@ impl ModuleBuilder<'_> {
     /// so generated Rust uses checked normalized indexes for misses.
     pub(in crate::lowering) fn collection_at_call(
         &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
+        call: &CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
@@ -1387,7 +1387,7 @@ impl ModuleBuilder<'_> {
     /// receiver into a concrete list instead of rejecting it.
     pub(in crate::lowering) fn list_concat_call(
         &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
+        call: &CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let Expression::StaticMemberExpression(member) = &call.callee else {

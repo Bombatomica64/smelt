@@ -1772,11 +1772,7 @@ impl ModuleBuilder<'_> {
             // value's type rather than its spelling.
             TestMatcher::Match => {
                 let expected_ty = Self::expr_ty(body, expected);
-                let is_regexp = matches!(
-                    self.ctx.krate.types.get(expected_ty),
-                    Some(Type::Class { name, .. })
-                        if self.ctx.krate.symbols.get(*name).is_some_and(|name| name == "RegExp")
-                );
+                let is_regexp = self.stdlib_class_of_type(expected_ty) == Some(smelt_stdlib::StdlibClass::RegExp);
                 let holds = if is_regexp {
                     let bool_ty = self.ctx.krate.types.intern(Type::Bool);
                     body.push_expr(Expr {

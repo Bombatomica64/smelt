@@ -263,7 +263,7 @@ impl ModuleBuilder<'_> {
         let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
-        if !self.is_node_hash_type(Self::expr_ty(body, receiver)) {
+        if !self.is_modeled_class(Self::expr_ty(body, receiver), smelt_stdlib::StdlibClass::NodeHash) {
             return Ok(None);
         }
         let span = self.span(call.span.start, call.span.end);
@@ -467,12 +467,6 @@ impl ModuleBuilder<'_> {
         })
     }
 
-    /// Return whether a lowered type is the modeled `Hash` class.
-    pub(in crate::lowering) fn is_node_hash_type(&self, ty: smelt_hir::TypeId) -> bool {
-        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::NodeHash)
-            && !self.source_shadows_global("Hash")
-    }
-
     /// Lower `new Intl.<Constructor>(...)` to a marker-only host-object record.
     ///
     /// ECMA-402 defines the `Intl` namespace constructors (`Intl.Locale`,
@@ -520,7 +514,7 @@ impl ModuleBuilder<'_> {
     /// `undefined` call in place of the host behaviour the source asked for.
     pub(in crate::lowering) fn unmodeled_host_namespace_call(
         &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
+        call: &CallExpression<'_>,
         _body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let Expression::StaticMemberExpression(member) = &call.callee else {

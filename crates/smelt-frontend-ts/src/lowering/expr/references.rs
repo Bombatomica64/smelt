@@ -1,5 +1,6 @@
 //! Identifier, constant-expression, and source-location lowering helpers.
 
+use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::{ConstCollectionItem, ConstCollectionValue, ModuleBuilder, ambient_globals};
 use crate::{SmeltError, camel_to_snake};
 use oxc::ast::ast::{Expression, Statement};
@@ -1199,7 +1200,7 @@ impl ModuleBuilder<'_> {
         &self,
         expression: &Expression<'_>,
     ) -> bool {
-        match Self::unparenthesized_expression(expression) {
+        match peel(expression, Wrappers::Parens) {
             Expression::LogicalExpression(logical) if logical.operator == LogicalOperator::Or => {
                 self.or_chain_resolves_to_global(&logical.left)
                     || self.clause_is_present_global_guard(&logical.right)
@@ -1222,7 +1223,7 @@ impl ModuleBuilder<'_> {
         &self,
         expression: &Expression<'_>,
     ) -> bool {
-        match Self::unparenthesized_expression(expression) {
+        match peel(expression, Wrappers::Parens) {
             Expression::LogicalExpression(logical) if logical.operator == LogicalOperator::Or => {
                 // `(left) || (right)`: a present global anywhere in the spine wins.
                 self.or_chain_resolves_to_global(&logical.left)
@@ -1243,7 +1244,7 @@ impl ModuleBuilder<'_> {
         &self,
         expression: &Expression<'_>,
     ) -> bool {
-        let Expression::LogicalExpression(clause) = Self::unparenthesized_expression(expression)
+        let Expression::LogicalExpression(clause) = peel(expression, Wrappers::Parens)
         else {
             return false;
         };
@@ -1251,11 +1252,11 @@ impl ModuleBuilder<'_> {
             return false;
         }
         // Right operand must be a bare alias identifier.
-        let Expression::Identifier(value) = Self::unparenthesized_expression(&clause.right) else {
+        let Expression::Identifier(value) = peel(&clause.right, Wrappers::Parens) else {
             return false;
         };
         // Left operand must be `typeof <same-alias> === 'object'`.
-        let Expression::BinaryExpression(guard) = Self::unparenthesized_expression(&clause.left)
+        let Expression::BinaryExpression(guard) = peel(&clause.left, Wrappers::Parens)
         else {
             return false;
         };

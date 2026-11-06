@@ -10,6 +10,27 @@ use smelt_hir::{
 };
 use smelt_stdlib::RuleId;
 
+/// The callee, arguments and span of a `new X(..)` or `X(..)` expression: the two
+/// spellings of constructing a `RegExp`.
+fn regexp_construction<'e, 'a>(
+    expression: &'e Expression<'a>,
+) -> Option<(&'e Expression<'a>, &'e [Argument<'a>], oxc::span::Span)> {
+    match expression {
+        Expression::NewExpression(new_expr) => {
+            Some((&new_expr.callee, new_expr.arguments.as_slice(), new_expr.span))
+        }
+        Expression::CallExpression(call_expr) => {
+            Some((&call_expr.callee, call_expr.arguments.as_slice(), call_expr.span))
+        }
+        _ => None,
+    }
+}
+
+/// Whether a callee is the bare global `RegExp`.
+fn callee_is_regexp(callee: &Expression<'_>) -> bool {
+    matches!(callee, Expression::Identifier(callee) if callee.name == "RegExp")
+}
+
 impl ModuleBuilder<'_> {
     /// Resolve which ECMA-262 replacer arguments a `.replace(re, fn)` callback
     /// declared.
@@ -137,7 +158,7 @@ impl ModuleBuilder<'_> {
     /// Lower supported JavaScript regular-expression replacement calls.
     pub(in crate::lowering) fn regex_replace_call(
         &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
+        call: &CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
@@ -273,54 +294,49 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Reject flags a replacement cannot honour.
+    fn require_replacement_flags(
+        &self,
+        flags: &str,
+        span: oxc::span::Span,
+    ) -> Result<(), SmeltError> {
+        if flags
+            .chars()
+            .any(|flag| !matches!(flag, 'g' | 'i' | 'm' | 's'))
+        {
+            return Err(SmeltError::unsupported(
+                self.span(span.start, span.end),
+                "regex replacement supports only g/i/m/s RegExp literal flags",
+            ));
+        }
+        Ok(())
+    }
+
     /// Extract a string pattern from regex replacement pattern forms.
     pub(in crate::lowering) fn regex_replacement_pattern(
         &mut self,
         argument: &Argument<'_>,
         body: &mut Body,
     ) -> Result<Option<(smelt_hir::ExprId, Option<StringReplaceOp>)>, SmeltError> {
-        match argument {
-            Argument::NewExpression(pattern_new) => {
-                let Expression::Identifier(callee) = &pattern_new.callee else {
-                    return Ok(None);
-                };
-                if callee.name != "RegExp" {
-                    return Ok(None);
-                }
-                let [regex_pattern_arg] = pattern_new.arguments.as_slice() else {
-                    return Err(SmeltError::unsupported(
-                        self.span(pattern_new.span.start, pattern_new.span.end),
-                        "regex replacement supports RegExp(pattern) without flags",
-                    ));
-                };
-                Ok(Some((self.argument(regex_pattern_arg, body)?, None)))
+        let Some(expression) = argument.as_expression() else {
+            return Ok(None);
+        };
+        if let Some((callee, arguments, span)) = regexp_construction(expression) {
+            if !callee_is_regexp(callee) {
+                return Ok(None);
             }
-            Argument::CallExpression(pattern_call) => {
-                let Expression::Identifier(callee) = &pattern_call.callee else {
-                    return Ok(None);
-                };
-                if callee.name != "RegExp" {
-                    return Ok(None);
-                }
-                let [regex_pattern_arg] = pattern_call.arguments.as_slice() else {
-                    return Err(SmeltError::unsupported(
-                        self.span(pattern_call.span.start, pattern_call.span.end),
-                        "regex replacement supports RegExp(pattern) without flags",
-                    ));
-                };
-                Ok(Some((self.argument(regex_pattern_arg, body)?, None)))
-            }
-            Argument::RegExpLiteral(literal) => {
+            let [regex_pattern_arg] = arguments else {
+                return Err(SmeltError::unsupported(
+                    self.span(span.start, span.end),
+                    "regex replacement supports RegExp(pattern) without flags",
+                ));
+            };
+            return Ok(Some((self.argument(regex_pattern_arg, body)?, None)));
+        }
+        match expression {
+            Expression::RegExpLiteral(literal) => {
                 let flags = literal.regex.flags.to_string();
-                if flags
-                    .chars()
-                    .any(|flag| !matches!(flag, 'g' | 'i' | 'm' | 's'))
-                {
-                    return Err(SmeltError::unsupported(
-                        self.span(literal.span.start, literal.span.end),
-                        "regex replacement supports only g/i/m/s RegExp literal flags",
-                    ));
-                }
+                self.require_replacement_flags(&flags, literal.span)?;
                 let op = flags
                     .contains('g')
                     .then_some(StringReplaceOp::All);
@@ -333,21 +349,13 @@ impl ModuleBuilder<'_> {
                     span: self.span(literal.span.start, literal.span.end),
                 }), op)))
             }
-            Argument::Identifier(identifier) => {
+            Expression::Identifier(identifier) => {
                 let Some((pattern, flags, _ty)) =
                     self.consts.regexp(identifier.name.as_str()).cloned()
                 else {
                     return Ok(None);
                 };
-                if flags
-                    .chars()
-                    .any(|flag| !matches!(flag, 'g' | 'i' | 'm' | 's'))
-                {
-                    return Err(SmeltError::unsupported(
-                        self.span(identifier.span.start, identifier.span.end),
-                        "regex replacement supports only g/i/m/s RegExp literal flags",
-                    ));
-                }
+                self.require_replacement_flags(&flags, identifier.span)?;
                 let op = flags.contains('g').then_some(StringReplaceOp::All);
                 let ty = self.ctx.krate.types.intern(Type::String);
                 let pattern = if flags.chars().any(|flag| matches!(flag, 'i' | 'm' | 's')) {
@@ -410,19 +418,9 @@ impl ModuleBuilder<'_> {
             Expression::RegExpLiteral(literal) => {
                 !has_stateful_flag(&literal.regex.flags.to_string())
             }
-            Expression::NewExpression(new_expr) => {
-                let Expression::Identifier(callee) = &new_expr.callee else {
-                    return false;
-                };
-                callee.name == "RegExp" && is_flagless_construction(&new_expr.arguments)
-            }
-            Expression::CallExpression(call_expr) => {
-                let Expression::Identifier(callee) = &call_expr.callee else {
-                    return false;
-                };
-                callee.name == "RegExp" && is_flagless_construction(&call_expr.arguments)
-            }
-            _ => false,
+            _ => regexp_construction(receiver).is_some_and(|(callee, arguments, _)| {
+                callee_is_regexp(callee) && is_flagless_construction(arguments)
+            }),
         }
     }
 
@@ -551,11 +549,8 @@ impl ModuleBuilder<'_> {
     /// middleware: `findMiddleware` asks `buildWildcardRegExp(k).test(path)`).
     fn could_be_regexp_test_receiver(&mut self, expression: &Expression<'_>, body: &Body) -> bool {
         let syntactic = match expression {
-            Expression::NewExpression(new_expr) => {
-                matches!(&new_expr.callee, Expression::Identifier(callee) if callee.name == "RegExp")
-            }
-            Expression::CallExpression(call_expr) => {
-                matches!(&call_expr.callee, Expression::Identifier(callee) if callee.name == "RegExp")
+            Expression::NewExpression(_) | Expression::CallExpression(_) => {
+                regexp_construction(expression).is_some_and(|(callee, _, _)| callee_is_regexp(callee))
             }
             Expression::RegExpLiteral(_) => true,
             Expression::Identifier(identifier) => self
@@ -615,11 +610,7 @@ impl ModuleBuilder<'_> {
     /// value), so both are consulted — the receiver gate and the post-lowering
     /// check of [`Self::regexp_test_call`] must agree on this.
     fn is_regexp_class_type(&self, ty: smelt_hir::TypeId) -> bool {
-        matches!(
-            self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)),
-            Some(Type::Class { name, .. })
-                if self.ctx.krate.symbols.get(*name).or_else(|| self.ctx.krate.names.get(*name)) == Some("RegExp")
-        )
+        self.stdlib_class_of_type(self.type_param_constraint_or_self(ty)) == Some(smelt_stdlib::StdlibClass::RegExp)
     }
 
     /// Lower TypeScript `pattern.exec(text)` to an optional match array.
@@ -777,13 +768,7 @@ impl ModuleBuilder<'_> {
         let expr = body.exprs.get(usize::try_from(pattern.0).ok()?)?;
         match &expr.kind {
             ExprKind::New { class, args }
-                if self
-                    .ctx
-                    .krate
-                    .names
-                    .get(*class)
-                    .or_else(|| self.ctx.krate.symbols.get(*class))
-                    == Some("RegExp") =>
+                if self.stdlib_class_of_symbol(*class) == Some(smelt_stdlib::StdlibClass::RegExp) =>
             {
                 match args.as_slice() {
                     [_] => Some(String::new()),
@@ -825,7 +810,7 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn match_array_view(
         &mut self,
         value: smelt_hir::ExprId,
-        span: smelt_hir::Span,
+        span: Span,
         body: &mut Body,
     ) -> Option<smelt_hir::ExprId> {
         let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(Self::expr_ty(body, value))
@@ -946,65 +931,26 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         require_regexp_receiver: bool,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if let Some((callee, arguments, span)) = regexp_construction(expression) {
+            if !callee_is_regexp(callee) {
+                if !require_regexp_receiver {
+                    return Ok(None);
+                }
+                return Err(SmeltError::unsupported(
+                    self.span(span.start, span.end),
+                    "RegExp.test() requires a RegExp receiver",
+                ));
+            }
+            let ([pattern_argument] | [pattern_argument, _]) = arguments else {
+                return Err(SmeltError::unsupported(
+                    self.span(span.start, span.end),
+                    "RegExp construction requires a string pattern and optional flags",
+                ));
+            };
+            let pattern = self.argument(pattern_argument, body)?;
+            return self.regexp_pattern_operand(pattern, body);
+        }
         match expression {
-            Expression::NewExpression(new_expr) => {
-                let Expression::Identifier(callee) = &new_expr.callee else {
-                    if !require_regexp_receiver {
-                        return Ok(None);
-                    }
-                    return Err(SmeltError::unsupported(
-                        self.span(new_expr.span.start, new_expr.span.end),
-                        "RegExp.test() requires a RegExp receiver",
-                    ));
-                };
-                if callee.name != "RegExp" {
-                    if !require_regexp_receiver {
-                        return Ok(None);
-                    }
-                    return Err(SmeltError::unsupported(
-                        self.span(new_expr.span.start, new_expr.span.end),
-                        "RegExp.test() requires a RegExp receiver",
-                    ));
-                }
-                let ([pattern_argument] | [pattern_argument, _]) = new_expr.arguments.as_slice()
-                else {
-                    return Err(SmeltError::unsupported(
-                        self.span(new_expr.span.start, new_expr.span.end),
-                        "RegExp construction requires a string pattern and optional flags",
-                    ));
-                };
-                let pattern = self.argument(pattern_argument, body)?;
-                self.regexp_pattern_operand(pattern, body)
-            }
-            Expression::CallExpression(call_expr) => {
-                let Expression::Identifier(callee) = &call_expr.callee else {
-                    if !require_regexp_receiver {
-                        return Ok(None);
-                    }
-                    return Err(SmeltError::unsupported(
-                        self.span(call_expr.span.start, call_expr.span.end),
-                        "RegExp.test() requires a RegExp receiver",
-                    ));
-                };
-                if callee.name != "RegExp" {
-                    if !require_regexp_receiver {
-                        return Ok(None);
-                    }
-                    return Err(SmeltError::unsupported(
-                        self.span(call_expr.span.start, call_expr.span.end),
-                        "RegExp.test() requires a RegExp receiver",
-                    ));
-                }
-                let ([pattern_argument] | [pattern_argument, _]) = call_expr.arguments.as_slice()
-                else {
-                    return Err(SmeltError::unsupported(
-                        self.span(call_expr.span.start, call_expr.span.end),
-                        "RegExp construction requires a string pattern and optional flags",
-                    ));
-                };
-                let pattern = self.argument(pattern_argument, body)?;
-                self.regexp_pattern_operand(pattern, body)
-            }
             Expression::RegExpLiteral(literal) => {
                 let ty = self.ctx.krate.types.intern(Type::String);
                 Ok(Some(body.push_expr(Expr {
