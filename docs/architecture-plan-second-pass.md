@@ -139,7 +139,7 @@ real deferred cleanups belonging to a deliberate byte-changing commit.
 ### STATUS 2026-11-06 — the runtime is compiled Rust
 
 The indivisible move has landed. All generated runtime text lives in
-`crates/smelt-runtime/src/runtime/`: 176 marked items in 62 family files, about
+`crates/smelt-runtime/src/runtime/`: 176 marked items in 65 family files, about
 13,700 lines, compiled as one flat module in the all-gates-on configuration and
 exercised by 93 unit tests. `writer.line` in `smelt-codegen-rust` fell from 4,836
 to 84, and what remains writes program types. Generated crates still inline the
