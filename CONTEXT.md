@@ -19,6 +19,14 @@ Smelt lowers source through four stages, each behind a small interface:
 - **MIR** — mid-level IR with an explicit CFG and a flat `Rvalue` algebra (`lower_hir`).
 - **codegen-rust** — emits Rust source text from MIR (`emit_source`).
 
+## Runtime
+
+- **Runtime item** — a marked region of real Rust in `smelt-runtime`, rendered
+  into a generated crate under the program's flags. The crate is the source of
+  truth; generated crates inline the text and do not depend on it.
+- **Runtime demand** — what a program needs of the runtime: root needs from one
+  scan of the MIR, closed over the declared `requires` graph (`runtime_demand.rs`).
+
 ## SmeltUnknown
 
 The erased runtime value type. It is the ABI for genuinely dynamic boundaries:

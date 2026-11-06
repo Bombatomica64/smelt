@@ -136,6 +136,35 @@ because satisfying them would edit emitted text. Two `clippy::all` members
 (`type_complexity`, `clone_on_ref_ptr`) are allowed for the same reason and are
 real deferred cleanups belonging to a deliberate byte-changing commit.
 
+### STATUS 2026-11-06 — the runtime is compiled Rust
+
+The indivisible move has landed. All generated runtime text lives in
+`crates/smelt-runtime/src/runtime/`: 176 marked items in 62 family files, about
+13,700 lines, compiled as one flat module in the all-gates-on configuration and
+exercised by 93 unit tests. `writer.line` in `smelt-codegen-rust` fell from 4,836
+to 84, and what remains writes program types. Generated crates still inline the
+text and depend on nothing.
+
+Selection is `RuntimeDemand` (`runtime_demand.rs`): one scan of the MIR, closed
+over a declared `requires` graph, computed in `EmitContext::new`. A debug check
+fails the build when a finished crate names a runtime symbol nothing defines.
+
+Variation between configurations is marked rather than assembled: `// @smelt:if`
+for lines and `/*@if flag*/` for part of a line, both comments, so one text
+compiles. The marker language is documented in `smelt_runtime::source`.
+
+Still open:
+
+- 11 `//=` lines are `else` arms the all-on configuration cannot hold, so
+  `smelt-runtime` does not compile them. Generated crates do.
+- The `#[allow]` list on `mod runtime` names 20 clippy lints whose fixes change
+  bytes. `incompatible_msrv` among them is a real finding: `extract_if` needs Rust
+  1.88 and the workspace declares 1.85.
+- The duplicates R3 lists are repeated in emitted text, so they need a
+  byte-changing commit.
+- `emitter/weak_receiver.rs` keeps its text as raw strings, and per-program
+  `SmeltInspect` impls are still spliced above the prelude marker.
+
 ### B · The type lattice cannot name a host object
 
 `Type` has 20 variants. `JsMap` exists *solely* to preserve a source spelling,
