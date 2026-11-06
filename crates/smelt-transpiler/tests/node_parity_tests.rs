@@ -154,3 +154,9 @@ fn narrowed_union_receivers() -> TestResult {
 fn namespace_generic_calls() -> TestResult {
     verify_node_parity_with("namespace_generic_calls", &["lib.ts"])
 }
+
+/// A spread fills a rest parameter element by element through a function value.
+#[test]
+fn spread_into_rest() -> TestResult {
+    verify_node_parity("spread_into_rest")
+}

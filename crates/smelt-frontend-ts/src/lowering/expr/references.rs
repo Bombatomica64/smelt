@@ -438,11 +438,8 @@ impl ModuleBuilder<'_> {
         if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(base_ty).cloned()
             && ty != inner
             && ty != base_ty
-            && matches!(self.ctx.krate.types.get(inner), Some(Type::Union(_) | Type::Unknown))
-            && matches!(
-                self.ctx.krate.types.get(ty),
-                Some(Type::Class { .. } | Type::List(_) | Type::Tuple(_) | Type::Dict(..) | Type::JsMap(..) | Type::Set(_))
-            )
+            && matches!(self.ctx.krate.types.get(inner), Some(Type::Union(_)))
+            && matches!(self.ctx.krate.types.get(ty), Some(Type::Class { .. }))
         {
             return Ok(self.projected_optional_arm(local, inner, ty, self.span(start, end), body));
         }

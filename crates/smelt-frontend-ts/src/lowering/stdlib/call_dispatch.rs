@@ -6938,7 +6938,7 @@ impl<'builder> ModuleBuilder<'builder> {
         Ok(args)
     }
 
-    /// Convert an erased array spread argument to the statically required rest-list type.
+    /// Convert an array spread argument to the statically required rest-list type.
     ///
     /// Generic array parameters are represented as erased runtime values even
     /// when their source constraint is an array. A rest call still needs their
@@ -6971,7 +6971,15 @@ impl<'builder> ModuleBuilder<'builder> {
                 span: self.span(span.start, span.end),
             }));
         }
-        Ok(value)
+        // A concrete list converts element by element: `g(...numbers)` into
+        // `(...args: any[])` is a `List<Float>` for a `List<Unknown>` slot, and
+        // the emitter reads a lone operand of another type as one element of the
+        // rest, not all of it.
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value },
+            ty: rest_ty,
+            span: self.span(span.start, span.end),
+        }))
     }
 
     /// Lower a small positional index as the numeric literal used by JS indexing.

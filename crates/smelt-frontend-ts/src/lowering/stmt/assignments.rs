@@ -154,8 +154,6 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             }));
         }
-        let type_params = self.callee_own_type_params(item);
-        let call_ty = self.instantiated_call_return(&type_params, &params, &args, return_ty, call, body)?;
         let callee = body.push_expr(Expr {
             kind: ExprKind::Item(item),
             ty: self.ctx.krate.types.intern(Type::Function(FunctionType {
@@ -171,7 +169,7 @@ impl ModuleBuilder<'_> {
         });
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::Call { callee, args },
-            ty: call_ty,
+            ty: return_ty,
             span: self.span(call.span.start, call.span.end),
         })))
     }
