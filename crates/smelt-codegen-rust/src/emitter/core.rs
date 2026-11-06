@@ -441,7 +441,7 @@ impl<'mir> FunctionEmitter<'mir> {
             // attribute; it now builds its own runtime inside the body, so the
             // two questions are answered separately.
             if self.function.can_throw {
-                out.push_str(&format!("{visibility}fn main() -> Result<(), Box<dyn std::error::Error>> {{\n"));
+                out.push_str(&format!("{visibility}fn main() -> Result<(), {ERROR_BOX}> {{\n"));
             } else {
                 out.push_str(&format!("{visibility}fn main() {{\n"));
             }
@@ -465,24 +465,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let mut body = String::new();
         self.emit_body(&mut body)?;
 
-        let fn_params = self
-            .function
-            .params
-            .iter()
-            .map(|param| {
-                let mutability = if self.local_binding_needs_mut(*param) {
-                    "mut "
-                } else {
-                    ""
-                };
-                Ok(format!(
-                    "{mutability}{}: {}",
-                    self.local_name(*param)?,
-                    self.parameter_decl_type_text(*param)?
-                ))
-            })
-            .collect::<Result<Vec<_>, EmitError>>()?
-            .join(", ");
+        let fn_params = self.param_decls_text(0)?;
         // A generic free function emits real Rust generics
         // (`fn identity<T: ..>(x: T) -> T`); the suffix is empty otherwise,
         // including when the body-cleanliness trial forced a fall back to
@@ -518,23 +501,7 @@ impl<'mir> FunctionEmitter<'mir> {
             self.return_type_text(self.function.return_ty)?
         ));
         if self.function.is_generator {
-            out.push_str("    let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None));\n");
-            out.push_str("    let smelt_generator_producer_input = smelt_generator_input.clone();\n");
-            out.push_str("    let smelt_generator = genawaiter::rc::Gen::new(move |co| { let smelt_generator_input = smelt_generator_producer_input; async move {\n");
-            out.push_str(&body);
-            out.push_str("    } });\n");
-            if self.function.is_async {
-                out.push_str("    let smelt_generator = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_generator));\n");
-                out.push_str("    SmeltAsyncGenerator::new(move |value| { *smelt_generator_input.borrow_mut() = Some(value); let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_state = { let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }; Ok::<_, Box<dyn std::error::Error>>(match smelt_state { genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value?) }) })) })\n");
-            } else {
-                out.push_str("    let mut smelt_generator = smelt_generator;\n");
-                let completion = if self.function.can_throw {
-                "value.unwrap_or_else(|error| smelt_panic_throw(error))"
-                } else {
-                    "value"
-                };
-                out.push_str(&format!("    SmeltGenerator::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); match smelt_generator.resume() {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete({completion}) }} }})\n"));
-            }
+            self.emit_generator_wrapper(&body, out);
         } else {
             out.push_str(&body);
         }
@@ -661,6 +628,142 @@ impl<'mir> FunctionEmitter<'mir> {
     /// (see [`Self::trial_generic_function`]).
     pub(super) fn callee_emits_generics(&self, id: FuncId) -> bool {
         self.trial_generic_function() == Some(id) || self.context.is_generic_function(id)
+    }
+
+    /// The body of a callback adapter around `call_value`, once its value has
+    /// been converted to `converted_text`: what the target's return type asks of
+    /// a void, future or fallible result.
+    ///
+    /// `forward_thrown_future` hands a fallible source's future straight through
+    /// to a fallible future target, for an adapter whose call value is that future.
+    #[expect(clippy::too_many_arguments, reason = "the adapter's own facts, named")]
+    fn adapter_return_text(
+        &self,
+        source: &FunctionType,
+        target_function: &FunctionType,
+        target_return_ty: TypeId,
+        call_value: &str,
+        default_adjusted_return_text: String,
+        adapter_source: AdapterSource,
+        forward_thrown_future: bool,
+    ) -> Result<String, EmitError> {
+        let AdapterSource {
+            returns_future: source_returns_future,
+            output_may_throw: source_async_output_may_throw,
+        } = adapter_source;
+        Ok(if self.mir.types.get(target_return_ty) == Some(&Type::None)
+            && !source_returns_future
+        {
+            if target_function.may_throw {
+                format!("{{ {call_value}; Ok::<(), {ERROR_BOX}>(()) }}")
+            } else {
+                format!("{{ {call_value}; () }}")
+            }
+        } else if self.mir.types.get(target_return_ty) == Some(&Type::None)
+            && source_returns_future
+        {
+            if target_function.may_throw {
+                format!(
+                    "{{ {spawn_promise_task}(Box::pin(async move {{ let _ = {call_value}.await; }})); Ok::<(), {ERROR_BOX}>(()) }}",
+                    spawn_promise_task = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK,
+                )
+            } else {
+                format!(
+                    "{{ {spawn_promise_task}(Box::pin(async move {{ let _ = {call_value}.await; }})); () }}",
+                    spawn_promise_task = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK,
+                )
+            }
+        } else if target_function.may_throw
+            && source_returns_future
+            && !source_async_output_may_throw
+            && let Some(Type::Future(item)) = self.mir.types.get(source.return_ty)
+        {
+            let item_text = self.type_text(*item)?;
+            format!(
+                "SmeltFuture::from_future(Box::pin(async move {{ Ok::<{item_text}, {ERROR_BOX}>({default_adjusted_return_text}.await?) }}))"
+            )
+        } else if target_function.may_throw
+            && default_adjusted_return_text.contains("SmeltFuture::")
+        {
+            default_adjusted_return_text
+        } else if target_function.may_throw
+            && let Some(Type::Future(item)) = self.mir.types.get(target_return_ty)
+            && !(source.may_throw && source_returns_future)
+        {
+            let item_text = self.type_text(*item)?;
+            format!(
+                "SmeltFuture::from_future(Box::pin(async move {{ Ok::<{item_text}, {ERROR_BOX}>({default_adjusted_return_text}.await?) }}))"
+            )
+        } else if forward_thrown_future
+            && target_function.may_throw
+            && matches!(
+                self.mir.types.get(target_return_ty),
+                Some(Type::Future(_))
+            )
+            && source.may_throw
+            && source_returns_future
+        {
+            // A callback that returns a future renders its Rust type as
+            // `-> SmeltFuture<..>` with NO outer `Result` — the possible throw is
+            // carried inside the future's `Result` output (see the `Type::Function`
+            // arm in the default-value emitter). So when both the source and the
+            // fallible target return a future, forward the future value directly
+            // rather than re-wrapping it in `Ok(..)`. Wrapping here would make the
+            // adapter closure return `Result<Future, _>`, and a chain of such
+            // adapters (or a later erasure into a promise) would then observe a
+            // nested `Result<Result<Future, _>, _>` at its await seam (was E0277).
+            default_adjusted_return_text
+        } else if target_function.may_throw {
+            format!("Ok::<_, {ERROR_BOX}>({default_adjusted_return_text})")
+        } else {
+            default_adjusted_return_text
+        })
+    }
+
+    /// Wraps a generator's rendered `body` in the `genawaiter` producer and the
+    /// `SmeltGenerator` or `SmeltAsyncGenerator` handle a call returns.
+    fn emit_generator_wrapper(&self, body: &str, out: &mut String) {
+        out.push_str("    let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None));\n");
+        out.push_str("    let smelt_generator_producer_input = smelt_generator_input.clone();\n");
+        out.push_str("    let smelt_generator = genawaiter::rc::Gen::new(move |co| { let smelt_generator_input = smelt_generator_producer_input; async move {\n");
+        out.push_str(body);
+        out.push_str("    } });\n");
+        if self.function.is_async {
+            out.push_str("    let smelt_generator = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_generator));\n");
+            out.push_str(&format!("    SmeltAsyncGenerator::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_state = {{ let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }}; Ok::<_, {ERROR_BOX}>(match smelt_state {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value?) }}) }})) }})\n"));
+        } else {
+            out.push_str("    let mut smelt_generator = smelt_generator;\n");
+            let completion = if self.function.can_throw {
+            "value.unwrap_or_else(|error| smelt_panic_throw(error))"
+            } else {
+                "value"
+            };
+            out.push_str(&format!("    SmeltGenerator::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); match smelt_generator.resume() {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete({completion}) }} }})\n"));
+        }
+    }
+
+    /// The declarations of this function's parameters after the first `skip`,
+    /// comma separated.
+    fn param_decls_text(&self, skip: usize) -> Result<String, EmitError> {
+        Ok(self
+            .function
+            .params
+            .iter()
+            .skip(skip)
+            .map(|param| {
+                let mutability = if self.local_binding_needs_mut(*param) {
+                    "mut "
+                } else {
+                    ""
+                };
+                Ok(format!(
+                    "{mutability}{}: {}",
+                    self.local_name(*param)?,
+                    self.parameter_decl_type_text(*param)?
+                ))
+            })
+            .collect::<Result<Vec<_>, EmitError>>()?
+            .join(", "))
     }
 
     /// Emits shared cells for parameters mutated through lexical closures.
@@ -1905,14 +2008,14 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.value_at_type_text(&call, function_ty.return_ty, function_ty.return_ty, &self.render_scope())?;
             let return_ty = if function_ty.may_throw {
                 format!(
-                    "Result<{}, Box<dyn std::error::Error>>",
+                    "Result<{}, {ERROR_BOX}>",
                     self.type_text(function_ty.return_ty)?
                 )
             } else {
                 self.type_text(function_ty.return_ty)?
             };
             let wrapped_body = if function_ty.may_throw {
-                format!("Ok::<_, Box<dyn std::error::Error>>({body})")
+                format!("Ok::<_, {ERROR_BOX}>({body})")
             } else {
                 body
             };
@@ -2067,14 +2170,14 @@ impl<'mir> FunctionEmitter<'mir> {
             self.value_at_type_text(&adjusted_call, source_return_ty, function_ty.return_ty, &self.render_scope())?;
         let return_ty = if function_ty.may_throw {
             format!(
-                "Result<{}, Box<dyn std::error::Error>>",
+                "Result<{}, {ERROR_BOX}>",
                 self.type_text(function_ty.return_ty)?
             )
         } else {
             self.type_text(function_ty.return_ty)?
         };
         let wrapped_body = if function_ty.may_throw && !source_can_throw {
-            format!("Ok::<_, Box<dyn std::error::Error>>({body})")
+            format!("Ok::<_, {ERROR_BOX}>({body})")
         } else {
             body
         };
@@ -2749,26 +2852,9 @@ impl<'mir> FunctionEmitter<'mir> {
     fn emit_method_definition(&mut self, out: &mut String) -> Result<(), EmitError> {
         match self.function.origin {
             HirOrigin::ClassConstructor { .. } => {
-                let method_params = self
-                    .function
-                    .params
-                    .iter()
-                    .map(|param| {
-                        let mutability = if self.local_binding_needs_mut(*param) {
-                            "mut "
-                        } else {
-                            ""
-                        };
-                        Ok(format!(
-                            "{mutability}{}: {}",
-                            self.local_name(*param)?,
-                            self.parameter_decl_type_text(*param)?
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, EmitError>>()?
-                    .join(", ");
+                let method_params = self.param_decls_text(0)?;
                 let return_text = if self.function.can_throw {
-                    "Result<Self, Box<dyn std::error::Error>>"
+                    crate::thrown::RESULT_SELF
                 } else {
                     "Self"
                 };
@@ -2791,25 +2877,7 @@ impl<'mir> FunctionEmitter<'mir> {
             }
             HirOrigin::ClassMethod { method, .. } => {
                 let name = sanitize_ident(self.symbol_name(method)?);
-                let method_params = self
-                    .function
-                    .params
-                    .iter()
-                    .skip(1)
-                    .map(|param| {
-                        let mutability = if self.local_binding_needs_mut(*param) {
-                            "mut "
-                        } else {
-                            ""
-                        };
-                        Ok(format!(
-                            "{mutability}{}: {}",
-                            self.local_name(*param)?,
-                            self.parameter_decl_type_text(*param)?
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, EmitError>>()?
-                    .join(", ");
+                let method_params = self.param_decls_text(1)?;
                 // Reference classes carry interior mutability, so every method
                 // takes `&self` uniformly; the `&mut self` decision only applies
                 // to by-value value classes. An async method never takes
@@ -2848,7 +2916,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     && self.returns_the_receiver_at_its_own_class()
                 {
                     if self.function.can_throw {
-                        "Result<Self, Box<dyn std::error::Error>>".to_owned()
+                        crate::thrown::RESULT_SELF.to_owned()
                     } else {
                         "Self".to_owned()
                     }
@@ -2863,24 +2931,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 // A static method takes no receiver: emit every parameter and no
                 // `self`, producing an associated function `Class::name(..)`.
                 let name = sanitize_ident(self.symbol_name(method)?);
-                let method_params = self
-                    .function
-                    .params
-                    .iter()
-                    .map(|param| {
-                        let mutability = if self.local_binding_needs_mut(*param) {
-                            "mut "
-                        } else {
-                            ""
-                        };
-                        Ok(format!(
-                            "{mutability}{}: {}",
-                            self.local_name(*param)?,
-                            self.parameter_decl_type_text(*param)?
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, EmitError>>()?
-                    .join(", ");
+                let method_params = self.param_decls_text(0)?;
                 out.push_str(&format!(
                     "    {}fn {name}({method_params}) -> {} {{\n",
                     if self.function.is_async && !self.function.is_generator {
@@ -2908,23 +2959,7 @@ impl<'mir> FunctionEmitter<'mir> {
             if self.binding_uses.self_owned_used() {
                 out.push_str(&format!("    let {SELF_OWNED_NAME} = self.clone();\n"));
             }
-            out.push_str("    let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None));\n");
-            out.push_str("    let smelt_generator_producer_input = smelt_generator_input.clone();\n");
-            out.push_str("    let smelt_generator = genawaiter::rc::Gen::new(move |co| { let smelt_generator_input = smelt_generator_producer_input; async move {\n");
-            out.push_str(&body);
-            out.push_str("    } });\n");
-            if self.function.is_async {
-                out.push_str("    let smelt_generator = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_generator));\n");
-                out.push_str("    SmeltAsyncGenerator::new(move |value| { *smelt_generator_input.borrow_mut() = Some(value); let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_state = { let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }; Ok::<_, Box<dyn std::error::Error>>(match smelt_state { genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value?) }) })) })\n");
-            } else {
-                out.push_str("    let mut smelt_generator = smelt_generator;\n");
-                let completion = if self.function.can_throw {
-                    "value.unwrap_or_else(|error| smelt_panic_throw(error))"
-                } else {
-                    "value"
-                };
-                out.push_str(&format!("    SmeltGenerator::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); match smelt_generator.resume() {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete({completion}) }} }})\n"));
-            }
+            self.emit_generator_wrapper(&body, out);
         } else {
             if self.method_owner_is_reference_class() {
                 self.emit_shared_parameter_preludes(out)?;
@@ -3769,7 +3804,7 @@ impl<'mir> FunctionEmitter<'mir> {
             .join(", ");
         let return_value = self.default_value(function.return_ty)?;
         let return_text = if function.may_throw {
-            format!("Ok::<_, Box<dyn std::error::Error>>({return_value})")
+            format!("Ok::<_, {ERROR_BOX}>({return_value})")
         } else {
             return_value
         };
@@ -4031,7 +4066,7 @@ impl<'mir> FunctionEmitter<'mir> {
             self.value_at_type_text(&call_value, call_return_ty, target_function.return_ty, scope)?
         };
         let returned = if target_function.may_throw && !source_function.may_throw {
-            format!("Ok::<_, Box<dyn std::error::Error>>({converted})")
+            format!("Ok::<_, {ERROR_BOX}>({converted})")
         } else {
             converted
         };
@@ -4261,72 +4296,15 @@ impl<'mir> FunctionEmitter<'mir> {
         let converted_return_text =
             self.value_at_type_text(&call_value, call_return_ty, target_function.return_ty, &self.render_scope())?;
         let default_adjusted_return_text = converted_return_text;
-        let return_text = if self.mir.types.get(target_function.return_ty) == Some(&Type::None)
-            && !source_returns_future
-        {
-            if target_function.may_throw {
-                format!("{{ {call_value}; Ok::<(), Box<dyn std::error::Error>>(()) }}")
-            } else {
-                format!("{{ {call_value}; () }}")
-            }
-        } else if self.mir.types.get(target_function.return_ty) == Some(&Type::None)
-            && source_returns_future
-        {
-            if target_function.may_throw {
-                format!(
-                    "{{ {spawn_promise_task}(Box::pin(async move {{ let _ = {call_value}.await; }})); Ok::<(), Box<dyn std::error::Error>>(()) }}",
-                    spawn_promise_task = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK,
-                )
-            } else {
-                format!(
-                    "{{ {spawn_promise_task}(Box::pin(async move {{ let _ = {call_value}.await; }})); () }}",
-                    spawn_promise_task = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK,
-                )
-            }
-        } else if target_function.may_throw
-            && source_returns_future
-            && !source_async_output_may_throw
-            && let Some(Type::Future(item)) = self.mir.types.get(source.return_ty)
-        {
-            let item_text = self.type_text(*item)?;
-            format!(
-                "SmeltFuture::from_future(Box::pin(async move {{ Ok::<{item_text}, Box<dyn std::error::Error>>({default_adjusted_return_text}.await?) }}))"
-            )
-        } else if target_function.may_throw
-            && default_adjusted_return_text.contains("SmeltFuture::")
-        {
-            default_adjusted_return_text
-        } else if target_function.may_throw
-            && let Some(Type::Future(item)) = self.mir.types.get(target_function.return_ty)
-            && !(source.may_throw && source_returns_future)
-        {
-            let item_text = self.type_text(*item)?;
-            format!(
-                "SmeltFuture::from_future(Box::pin(async move {{ Ok::<{item_text}, Box<dyn std::error::Error>>({default_adjusted_return_text}.await?) }}))"
-            )
-        } else if target_function.may_throw
-            && matches!(
-                self.mir.types.get(target_function.return_ty),
-                Some(Type::Future(_))
-            )
-            && source.may_throw
-            && source_returns_future
-        {
-            // A callback that returns a future renders its Rust type as
-            // `-> SmeltFuture<..>` with NO outer `Result` — the possible throw is
-            // carried inside the future's `Result` output (see the `Type::Function`
-            // arm in the default-value emitter). So when both the source and the
-            // fallible target return a future, forward the future value directly
-            // rather than re-wrapping it in `Ok(..)`. Wrapping here would make the
-            // adapter closure return `Result<Future, _>`, and a chain of such
-            // adapters (or a later erasure into a promise) would then observe a
-            // nested `Result<Result<Future, _>, _>` at its await seam (was E0277).
-            default_adjusted_return_text
-        } else if target_function.may_throw {
-            format!("Ok::<_, Box<dyn std::error::Error>>({default_adjusted_return_text})")
-        } else {
-            default_adjusted_return_text
-        };
+        let return_text = self.adapter_return_text(
+            source,
+            target_function,
+            target_function.return_ty,
+            &call_value,
+            default_adjusted_return_text,
+            AdapterSource { returns_future: source_returns_future, output_may_throw: source_async_output_may_throw },
+            true,
+        )?;
         // Match the adapter's parameter to its cast target: a pure-rest callback
         // whose first param is a list is `Fn(SmeltList<..>)`, not `Fn(Vec<..>)`.
         // The body reads `smelt_args` only through `.iter()`/`.get()`/`.skip()`,
@@ -4986,54 +4964,15 @@ impl<'mir> FunctionEmitter<'mir> {
             converted_return_text
         };
         let default_adjusted_return_text = field_adjusted_return_text;
-        let return_text = if self.mir.types.get(target_return_ty) == Some(&Type::None)
-            && !source_returns_future
-        {
-            if target_function.may_throw {
-                format!("{{ {call_value}; Ok::<(), Box<dyn std::error::Error>>(()) }}")
-            } else {
-                format!("{{ {call_value}; () }}")
-            }
-        } else if self.mir.types.get(target_return_ty) == Some(&Type::None)
-            && source_returns_future
-        {
-            if target_function.may_throw {
-                format!(
-                    "{{ {spawn_promise_task}(Box::pin(async move {{ let _ = {call_value}.await; }})); Ok::<(), Box<dyn std::error::Error>>(()) }}",
-                    spawn_promise_task = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK,
-                )
-            } else {
-                format!(
-                    "{{ {spawn_promise_task}(Box::pin(async move {{ let _ = {call_value}.await; }})); () }}",
-                    spawn_promise_task = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK,
-                )
-            }
-        } else if target_function.may_throw
-            && source_returns_future
-            && !source_async_output_may_throw
-            && let Some(Type::Future(item)) = self.mir.types.get(source.return_ty)
-        {
-            let item_text = self.type_text(*item)?;
-            format!(
-                "SmeltFuture::from_future(Box::pin(async move {{ Ok::<{item_text}, Box<dyn std::error::Error>>({default_adjusted_return_text}.await?) }}))"
-            )
-        } else if target_function.may_throw
-            && default_adjusted_return_text.contains("SmeltFuture::")
-        {
-            default_adjusted_return_text
-        } else if target_function.may_throw
-            && let Some(Type::Future(item)) = self.mir.types.get(target_return_ty)
-            && !(source.may_throw && source_returns_future)
-        {
-            let item_text = self.type_text(*item)?;
-            format!(
-                "SmeltFuture::from_future(Box::pin(async move {{ Ok::<{item_text}, Box<dyn std::error::Error>>({default_adjusted_return_text}.await?) }}))"
-            )
-        } else if target_function.may_throw {
-            format!("Ok::<_, Box<dyn std::error::Error>>({default_adjusted_return_text})")
-        } else {
-            default_adjusted_return_text
-        };
+        let return_text = self.adapter_return_text(
+            source,
+            target_function,
+            target_return_ty,
+            &call_value,
+            default_adjusted_return_text,
+            AdapterSource { returns_future: source_returns_future, output_may_throw: source_async_output_may_throw },
+            false,
+        )?;
         // Invariant: an adapter body that does not mention the wrapped callback
         // has silently discarded it. Such a closure still type-checks and still
         // returns a plausible value, so the defect is invisible in the generated
@@ -5248,7 +5187,7 @@ impl<'mir> FunctionEmitter<'mir> {
         // carry `Function.prototype.length`, and this accessor is the only place a
         // function *item*'s erased value is built.
         let body = self.carrier_format(format_args!(
-            "SmeltUnknown::Function({{ let smelt_callback = {wrapper_text}; let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = {inner}; {register}(&smelt_erased_fn, {length}.0); smelt_erased_fn }})",
+            "SmeltUnknown::Function({{ let smelt_callback = {wrapper_text}; let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, {ERROR_BOX}>> = {inner}; {register}(&smelt_erased_fn, {length}.0); smelt_erased_fn }})",
             register = smelt_stdlib::runtime_symbols::function_length::REGISTER,
             length = self.operand_function_length(operand)?,
         ));
@@ -5360,14 +5299,14 @@ impl<'mir> FunctionEmitter<'mir> {
             // JavaScript `undefined`, not `null`.
             if source.may_throw {
                 self.carrier_format(format_args!(
-                    "{{ {call}?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}"
+                    "{{ {call}?; Ok::<SmeltUnknown, {ERROR_BOX}>(SmeltUnknown::Undefined) }}"
                 ))
             } else {
-                self.carrier_format(format_args!("{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}"))
+                self.carrier_format(format_args!("{{ {call}; Ok::<SmeltUnknown, {ERROR_BOX}>(SmeltUnknown::Undefined) }}"))
             }
         } else if matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_))) {
             let value = self.erase_value_text(&call, source.return_ty)?;
-            self.carrier_format(format_args!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})"))
+            self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({value})"))
         } else if self.is_erased_class_type(source.return_ty) {
             // A return value skips erasure only when its Rust
             // representation already IS `SmeltUnknown`
@@ -5378,14 +5317,14 @@ impl<'mir> FunctionEmitter<'mir> {
             if source.may_throw {
                 call
             } else {
-                self.carrier_format(format_args!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({call})"))
+                self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({call})"))
             }
         } else if source.may_throw {
             let value = self.erase_value_text(&format!("{call}?"), source.return_ty)?;
-            self.carrier_format(format_args!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})"))
+            self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({value})"))
         } else {
             let value = self.erase_value_text(&call, source.return_ty)?;
-            self.carrier_format(format_args!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})"))
+            self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({value})"))
         };
         Ok(self.carrier_format(format_args!(
             "::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text})"
@@ -5489,14 +5428,14 @@ impl<'mir> FunctionEmitter<'mir> {
             // JavaScript `undefined`, not `null`.
             if source.may_throw {
                 self.carrier_format(format_args!(
-                    "{{ {call}?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}"
+                    "{{ {call}?; Ok::<SmeltUnknown, {ERROR_BOX}>(SmeltUnknown::Undefined) }}"
                 ))
             } else {
-                self.carrier_format(format_args!("{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}"))
+                self.carrier_format(format_args!("{{ {call}; Ok::<SmeltUnknown, {ERROR_BOX}>(SmeltUnknown::Undefined) }}"))
             }
         } else if matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_))) {
             let value = self.erase_value_text(&call, source.return_ty)?;
-            self.carrier_format(format_args!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})"))
+            self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({value})"))
         } else if self.is_erased_class_type(source.return_ty) {
             // A return value skips erasure only when its Rust
             // representation already IS `SmeltUnknown`
@@ -5507,14 +5446,14 @@ impl<'mir> FunctionEmitter<'mir> {
             if source.may_throw {
                 call
             } else {
-                self.carrier_format(format_args!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({call})"))
+                self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({call})"))
             }
         } else if source.may_throw {
             let value = self.erase_value_text(&format!("{call}?"), source.return_ty)?;
-            self.carrier_format(format_args!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})"))
+            self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({value})"))
         } else {
             let value = self.erase_value_text(&call, source.return_ty)?;
-            self.carrier_format(format_args!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})"))
+            self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({value})"))
         };
         Ok(Some(self.carrier_format(format_args!(
             "::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text})"
@@ -6352,6 +6291,14 @@ fn emitted_tail_returns(out: &str) -> bool {
 
 // Constant formatting continues in `literals.rs`.
 
+/// What an adapter knows about the callable it wraps.
+struct AdapterSource {
+    /// Whether the source's call yields a future.
+    returns_future: bool,
+    /// Whether that future's output can be an error.
+    output_may_throw: bool,
+}
+
 /// Renders an async callback adapter: an inner async call whose settled output is
 /// re-typed for the adapter's own return type.
 ///
@@ -6370,7 +6317,7 @@ fn emitted_tail_returns(out: &str) -> bool {
 /// `smelt_async_output` to the adapter's output type.
 fn async_adapter_future_text(call_text: &str, awaited_text: &str) -> String {
     format!(
-        "{{ let smelt_async_source = {call_text}; SmeltFuture::from_future(Box::pin(async move {{ let smelt_async_output = smelt_async_source.await?; Ok::<_, Box<dyn std::error::Error>>({awaited_text}) }})) }}"
+        "{{ let smelt_async_source = {call_text}; SmeltFuture::from_future(Box::pin(async move {{ let smelt_async_output = smelt_async_source.await?; Ok::<_, {ERROR_BOX}>({awaited_text}) }})) }}"
     )
 }
 

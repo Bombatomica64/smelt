@@ -193,13 +193,7 @@ fn host_instance_markers(class_name: &str) -> Option<Vec<&'static str>> {
     // entries now (`HostObject::helper_backed_methods`), so the branch above
     // answers for them and their internal keys are hidden from `for...in` like
     // every other host record's.
-    let subsystem = match class_name {
-        "Date" => SMELT_DATE,
-        "RegExp" => SMELT_REGEXP,
-        "Map" => SMELT_MAP,
-        "Set" => SMELT_SET,
-        _ => return None,
-    };
+    let subsystem = smelt_stdlib::subsystem_instance_marker(class_name)?;
     Some(vec![subsystem])
 }
 
@@ -226,11 +220,11 @@ impl FunctionEmitter<'_> {
                     let item_is_erased = self.is_erased_future_type(item_ty);
                     if item_is_erased {
                         return Ok(format!(
-                            "SmeltFuture::from_future(Box::pin(async move {{ let mut __smelt_pending = Vec::new(); for __smelt_future in {list} {{ __smelt_pending.push(__smelt_future.await?); }} let mut __smelt_values = Vec::with_capacity(__smelt_pending.len()); for __smelt_value in __smelt_pending {{ __smelt_values.push(smelt_await_flatten(__smelt_value).await?); }} Ok::<_, Box<dyn std::error::Error>>(SmeltList::from(__smelt_values)) }}))"
+                            "SmeltFuture::from_future(Box::pin(async move {{ let mut __smelt_pending = Vec::new(); for __smelt_future in {list} {{ __smelt_pending.push(__smelt_future.await?); }} let mut __smelt_values = Vec::with_capacity(__smelt_pending.len()); for __smelt_value in __smelt_pending {{ __smelt_values.push(smelt_await_flatten(__smelt_value).await?); }} Ok::<_, {ERROR_BOX}>(SmeltList::from(__smelt_values)) }}))"
                         ));
                     }
                     return Ok(format!(
-                        "SmeltFuture::from_future(Box::pin(async move {{ let mut __smelt_values = Vec::new(); for __smelt_future in {list} {{ __smelt_values.push(__smelt_future.await?); }} Ok::<_, Box<dyn std::error::Error>>(SmeltList::from(__smelt_values)) }}))"
+                        "SmeltFuture::from_future(Box::pin(async move {{ let mut __smelt_values = Vec::new(); for __smelt_future in {list} {{ __smelt_values.push(__smelt_future.await?); }} Ok::<_, {ERROR_BOX}>(SmeltList::from(__smelt_values)) }}))"
                     ));
                 }
                 let rendered_args = args
@@ -277,7 +271,7 @@ impl FunctionEmitter<'_> {
                     }
                 };
                 Ok(format!(
-                    "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({body}) }}))"
+                    "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>({body}) }}))"
                 ))
             }
             smelt_hir::AsyncOp::Race => {
@@ -311,18 +305,18 @@ impl FunctionEmitter<'_> {
                             .collect::<Vec<_>>()
                             .join(" ");
                         format!(
-                            "{{ let mut smelt_racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<_, Box<dyn std::error::Error>>>>>> = Vec::new(); {pushes} {promise_race}(smelt_racers).await? }}",
+                            "{{ let mut smelt_racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<_, {ERROR_BOX}>>>>> = Vec::new(); {pushes} {promise_race}(smelt_racers).await? }}",
                             promise_race =
                                 smelt_stdlib::runtime_symbols::timers::PROMISE_RACE,
                         )
                     }
                 };
                 Ok(format!(
-                    "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({body}) }}))"
+                    "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>({body}) }}))"
                 ))
             }
             smelt_hir::AsyncOp::ExitDrain => Ok(format!(
-                "SmeltFuture::from_future(Box::pin(async move {{ {exit_drain}().await; Ok::<_, Box<dyn std::error::Error>>(()) }}))",
+                "SmeltFuture::from_future(Box::pin(async move {{ {exit_drain}().await; Ok::<_, {ERROR_BOX}>(()) }}))",
                 exit_drain = smelt_stdlib::runtime_symbols::timers::RUN_UNTIL_EXIT,
             )),
             smelt_hir::AsyncOp::Sleep => {
@@ -330,7 +324,7 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("async sleep requires a duration operand"));
                 };
                 Ok(format!(
-                    "SmeltFuture::from_future(Box::pin(async move {{ {sleep_ms}({} as f64).await; Ok::<_, Box<dyn std::error::Error>>(()) }}))",
+                    "SmeltFuture::from_future(Box::pin(async move {{ {sleep_ms}({} as f64).await; Ok::<_, {ERROR_BOX}>(()) }}))",
                     self.operand_text(duration)?,
                     sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
                 ))
@@ -358,7 +352,7 @@ impl FunctionEmitter<'_> {
                     None => "()".to_owned(),
                 };
                 Ok(format!(
-                    "SmeltFuture::from_future(Box::pin(async move {{ {sleep_ms}({duration_text} as f64).await; Ok::<_, Box<dyn std::error::Error>>({value_text}) }}))",
+                    "SmeltFuture::from_future(Box::pin(async move {{ {sleep_ms}({duration_text} as f64).await; Ok::<_, {ERROR_BOX}>({value_text}) }}))",
                     sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
                 ))
             }
@@ -380,7 +374,7 @@ impl FunctionEmitter<'_> {
                     None => self.undefined_thrown_payload_text(),
                 };
                 Ok(format!(
-                    "SmeltFuture::from_future(Box::pin(async move {{ {sleep_ms}({duration_text} as f64).await; Err::<_, Box<dyn std::error::Error>>({payload}) }}))",
+                    "SmeltFuture::from_future(Box::pin(async move {{ {sleep_ms}({duration_text} as f64).await; Err::<_, {ERROR_BOX}>({payload}) }}))",
                     sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
                 ))
             }
@@ -531,7 +525,7 @@ impl FunctionEmitter<'_> {
                 // `message`, so a string-typed `catch` observes the same text this
                 // site used to build by hand.
                 Ok(format!(
-                    "{{ let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<{output_text}, Box<dyn std::error::Error>>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn({resolve_input_text}) -> ()> = ::std::rc::Rc::new(move |value: {resolve_input_text}| {{ *smelt_resolve_result.borrow_mut() = Some(Ok({resolve_value})); }}); let smelt_reject: ::std::rc::Rc<dyn Fn({reject_input_text}) -> ()> = ::std::rc::Rc::new(move |error: {reject_input_text}| {{ *smelt_reject_result.borrow_mut() = Some(Err({throw_fn}({reject_value}))); }}); {executor_call} SmeltFuture::from_future(Box::pin(async move {{ loop {{ if let Some(result) = smelt_promise_result.borrow_mut().take() {{ break result; }} tokio::task::yield_now().await; {sleep_ms}(0.0).await; }} }})) }}",
+                    "{{ let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<{output_text}, {ERROR_BOX}>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn({resolve_input_text}) -> ()> = ::std::rc::Rc::new(move |value: {resolve_input_text}| {{ *smelt_resolve_result.borrow_mut() = Some(Ok({resolve_value})); }}); let smelt_reject: ::std::rc::Rc<dyn Fn({reject_input_text}) -> ()> = ::std::rc::Rc::new(move |error: {reject_input_text}| {{ *smelt_reject_result.borrow_mut() = Some(Err({throw_fn}({reject_value}))); }}); {executor_call} SmeltFuture::from_future(Box::pin(async move {{ loop {{ if let Some(result) = smelt_promise_result.borrow_mut().take() {{ break result; }} tokio::task::yield_now().await; {sleep_ms}(0.0).await; }} }})) }}",
                     sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
                     throw_fn = crate::thrown::THROW_FN,
                 ))
@@ -556,7 +550,7 @@ impl FunctionEmitter<'_> {
                 let output =
                     self.value_at_type_text("smelt_callback_value", settled_ty, *output_ty, &self.render_scope())?;
                 Ok(format!(
-                    "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ let smelt_value = {future_text}.await?; {settle} Ok::<_, Box<dyn std::error::Error>>({output}) }})) }}"
+                    "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ let smelt_value = {future_text}.await?; {settle} Ok::<_, {ERROR_BOX}>({output}) }})) }}"
                 ))
             }
             smelt_hir::AsyncOp::Catch => {
@@ -594,7 +588,7 @@ impl FunctionEmitter<'_> {
                 let recovered =
                     self.value_at_type_text("smelt_callback_value", settled_ty, *output_ty, &self.render_scope())?;
                 Ok(format!(
-                    "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ match {future_text}.await {{ Ok(smelt_value) => Ok::<_, Box<dyn std::error::Error>>(smelt_value), Err(smelt_error) => {{ {settle} Ok::<_, Box<dyn std::error::Error>>({recovered}) }} }} }})) }}"
+                    "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ match {future_text}.await {{ Ok(smelt_value) => Ok::<_, {ERROR_BOX}>(smelt_value), Err(smelt_error) => {{ {settle} Ok::<_, {ERROR_BOX}>({recovered}) }} }} }})) }}"
                 ))
             }
             smelt_hir::AsyncOp::Finally => {
@@ -679,7 +673,7 @@ impl FunctionEmitter<'_> {
                 // `text/plain;charset=UTF-8`, and a fetched response's content
                 // type belongs to the server, not to how Smelt read it.
                 Ok(format!(
-                    "SmeltFuture::from_future(Box::pin(async move {{                      let smelt_http = reqwest::get({}).await.expect(\"HTTP request failed\");                      let smelt_status = f64::from(smelt_http.status().as_u16());                      let smelt_reason = smelt_http.status().canonical_reason().unwrap_or_default().to_owned();                      let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect();                      let smelt_bytes = smelt_http.bytes().await.expect(\"HTTP response body read failed\").to_vec();                      Ok::<_, Box<dyn std::error::Error>>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }}))",
+                    "SmeltFuture::from_future(Box::pin(async move {{                      let smelt_http = reqwest::get({}).await.expect(\"HTTP request failed\");                      let smelt_status = f64::from(smelt_http.status().as_u16());                      let smelt_reason = smelt_http.status().canonical_reason().unwrap_or_default().to_owned();                      let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect();                      let smelt_bytes = smelt_http.bytes().await.expect(\"HTTP response body read failed\").to_vec();                      Ok::<_, {ERROR_BOX}>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }}))",
                     self.operand_text(url)?
                 ))
             }
@@ -694,7 +688,7 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("async HTTP GET URL must be a string"));
                 }
                 Ok(format!(
-                    "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(reqwest::get({}).await.expect(\"HTTP GET failed\").text().await.expect(\"HTTP response body read failed\")) }}))",
+                    "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(reqwest::get({}).await.expect(\"HTTP GET failed\").text().await.expect(\"HTTP response body read failed\")) }}))",
                     self.operand_text(url)?
                 ))
             }
@@ -721,8 +715,7 @@ impl FunctionEmitter<'_> {
             return Ok(if self.function_value_call_is_fallible(function) {
                 "(smelt_timer_callback)().map(|_| ())".to_owned()
             } else {
-                "Ok::<(), Box<dyn std::error::Error>>({ (smelt_timer_callback)(); () })"
-                    .to_owned()
+                format!("Ok::<(), {ERROR_BOX}>({{ (smelt_timer_callback)(); () }})")
             });
         }
         // A callback with a statically-known function type (e.g. `delay`'s
@@ -778,7 +771,7 @@ impl FunctionEmitter<'_> {
         if self.is_erased_unknown_rest_function(function) && !function.may_throw {
             let call = format!("smelt_timer_callback.call({args_source}.clone())");
             return Ok(format!(
-                "{{ {prelude}let _ = {call}; Ok::<(), Box<dyn std::error::Error>>(()) }}"
+                "{{ {prelude}let _ = {call}; Ok::<(), {ERROR_BOX}>(()) }}"
             ));
         }
         let mut call_args = Vec::new();
@@ -800,7 +793,7 @@ impl FunctionEmitter<'_> {
             Ok(format!("{{ {prelude}({call}).map(|_| ()) }}"))
         } else {
             Ok(format!(
-                "{{ {prelude}let _ = {call}; Ok::<(), Box<dyn std::error::Error>>(()) }}"
+                "{{ {prelude}let _ = {call}; Ok::<(), {ERROR_BOX}>(()) }}"
             ))
         }
     }
@@ -3625,7 +3618,7 @@ impl FunctionEmitter<'_> {
             // does) only the markers survive, so its erasure stamps
             // `__smelt_error` with the nearest builtin error base's name — see
             // `host_base_markers` — and answers these same probes.
-            let marker_probe = if class_name == "Error" {
+            let marker_probe = if smelt_stdlib::instance_of_rule(class_name) == Some(smelt_stdlib::InstanceOfRule::Error) {
                 "value.contains_key(\"__smelt_error\")".to_owned()
             } else {
                 self.carrier_format(format_args!(
@@ -3646,7 +3639,7 @@ impl FunctionEmitter<'_> {
         // are static answers about storage, which is why the two keep an arm; the
         // dynamic case falls through to the shared marker probe below, where
         // `__smelt_map` / `__smelt_set` answer it like any other identity marker.
-        if class_name == "Map" {
+        if smelt_stdlib::instance_of_rule(class_name) == Some(smelt_stdlib::InstanceOfRule::Map) {
             if matches!(self.mir.types.get(value_ty), Some(Type::JsMap(_, _))) {
                 return Ok("true".to_owned());
             }
@@ -3654,7 +3647,7 @@ impl FunctionEmitter<'_> {
                 return Ok("false".to_owned());
             }
         }
-        if class_name == "Set" {
+        if smelt_stdlib::instance_of_rule(class_name) == Some(smelt_stdlib::InstanceOfRule::Set) {
             if matches!(self.mir.types.get(value_ty), Some(Type::Set(_))) {
                 return Ok("true".to_owned());
             }
@@ -3668,7 +3661,7 @@ impl FunctionEmitter<'_> {
         if let Some(check) = self.typed_array_instance_of_text(value, class_name)? {
             return Ok(check);
         }
-        if class_name == "ArrayBuffer"
+        if smelt_stdlib::instance_of_rule(class_name) == Some(smelt_stdlib::InstanceOfRule::ArrayBuffer)
             && matches!(
                 self.mir.types.get(value_ty),
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
@@ -3693,12 +3686,12 @@ impl FunctionEmitter<'_> {
             .is_some_and(smelt_stdlib::StdlibClass::is_blob_runtime_type)
             && self.is_blob_class_type(value_ty)?
         {
-            if class_name == "File" {
+            if smelt_stdlib::instance_of_rule(class_name) == Some(smelt_stdlib::InstanceOfRule::File) {
                 return Ok(format!("{}.is_file()", self.operand_text(value)?));
             }
             return Ok("true".to_owned());
         }
-        if class_name == "Blob"
+        if smelt_stdlib::instance_of_rule(class_name) == Some(smelt_stdlib::InstanceOfRule::Blob)
             && matches!(
                 self.mir.types.get(value_ty),
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
@@ -3714,7 +3707,7 @@ impl FunctionEmitter<'_> {
                 "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"{SMELT_BLOB}\"))"
             )));
         }
-        if class_name == "Number"
+        if smelt_stdlib::instance_of_rule(class_name) == Some(smelt_stdlib::InstanceOfRule::Number)
             && matches!(
                 self.mir.types.get(value_ty),
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
@@ -3730,7 +3723,7 @@ impl FunctionEmitter<'_> {
                 "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"{SMELT_NUMBER}\"))"
             )));
         }
-        if class_name == "Promise"
+        if smelt_stdlib::instance_of_rule(class_name) == Some(smelt_stdlib::InstanceOfRule::Promise)
             && matches!(
                 self.mir.types.get(value_ty),
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))

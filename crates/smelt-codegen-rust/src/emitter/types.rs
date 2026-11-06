@@ -995,13 +995,11 @@ impl FunctionEmitter<'_> {
                 if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
                     && self.is_regexp_class_symbol(*name)?
                 {
-                    return match self.symbol_name(*field)? {
-                        "source" | "flags" => self.type_id(Type::String),
-                        "global" | "ignoreCase" | "ignore_case" | "multiline" | "sticky"
-                        | "unicode" | "dotAll" | "dot_all" => self.type_id(Type::Bool),
-                        "lastIndex" | "last_index" => self.type_id(Type::Float),
-                        other => self.erased_fallback_ty(|| {
-                            format!("the read of `{other}` on a `RegExp`")
+                    let member = self.symbol_name(*field)?;
+                    return match smelt_stdlib::regexp_member(member) {
+                        Some(kind) => self.regexp_member_ty(kind),
+                        None => self.erased_fallback_ty(|| {
+                            format!("the read of `{member}` on a `RegExp`")
                         }),
                     };
                 }
@@ -1367,7 +1365,7 @@ impl FunctionEmitter<'_> {
             .into_string();
         if function.may_throw {
             return Ok(format!(
-                "Result<{inner_return_ty}, Box<dyn std::error::Error>>"
+                "Result<{inner_return_ty}, {ERROR_BOX}>"
             ));
         }
         Ok(inner_return_ty)
@@ -2100,7 +2098,7 @@ impl FunctionEmitter<'_> {
         if (self.function.is_async || self.function.can_throw)
             && !self.function.is_generator
         {
-            Ok(format!("Result<{inner}, Box<dyn std::error::Error>>"))
+            Ok(format!("Result<{inner}, {ERROR_BOX}>"))
         } else {
             Ok(inner)
         }
@@ -2119,6 +2117,18 @@ impl FunctionEmitter<'_> {
             return Ok(self.carrier_text("SmeltUnknown::Undefined"));
         }
         self.default_value(item_ty)
+    }
+
+    /// The type a read of a `RegExp` member yields.
+    pub(super) fn regexp_member_ty(
+        &self,
+        member: smelt_stdlib::RegExpMember,
+    ) -> Result<TypeId, EmitError> {
+        self.type_id(match member {
+            smelt_stdlib::RegExpMember::Text => Type::String,
+            smelt_stdlib::RegExpMember::Flag => Type::Bool,
+            smelt_stdlib::RegExpMember::LastIndex => Type::Float,
+        })
     }
 
     /// The default an rvalue with no value of its own answers at `dest_ty`.
@@ -2377,7 +2387,7 @@ impl FunctionEmitter<'_> {
                     format!("SmeltFuture<{}>", self.type_text(*item)?)
                 } else if function.may_throw {
                     format!(
-                        "Result<{}, Box<dyn std::error::Error>>",
+                        "Result<{}, {ERROR_BOX}>",
                         self.type_text(function.return_ty)?
                     )
                 } else {
@@ -2390,7 +2400,7 @@ impl FunctionEmitter<'_> {
                     let item_value = self.default_value(*item)?;
                     format!("SmeltFuture::resolved({item_value})")
                 } else if function.may_throw {
-                    format!("Ok::<_, Box<dyn std::error::Error>>({return_value})")
+                    format!("Ok::<_, {ERROR_BOX}>({return_value})")
                 } else {
                     return_value
                 };
@@ -2482,7 +2492,7 @@ impl FunctionEmitter<'_> {
                     .join(", ");
                 let return_ty = if function.may_throw {
                     format!(
-                        "Result<{}, Box<dyn std::error::Error>>",
+                        "Result<{}, {ERROR_BOX}>",
                         self.rust_type(function.return_ty, false, substitution)?
                     )
                 } else {
@@ -2492,7 +2502,7 @@ impl FunctionEmitter<'_> {
                 let return_value =
                     self.default_value_with_scoped_type_params(function.return_ty, substitution)?;
                 let body = if function.may_throw {
-                    format!("Ok::<_, Box<dyn std::error::Error>>({return_value})")
+                    format!("Ok::<_, {ERROR_BOX}>({return_value})")
                 } else {
                     return_value
                 };

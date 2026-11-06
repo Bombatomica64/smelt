@@ -2457,7 +2457,7 @@ impl FunctionEmitter<'_> {
                     && self.mir.types.get(*item) != Some(&Type::None)
                 {
                     return Ok(format!(
-                        "SmeltFuture::from_future(Box::pin(async move {{ {text}.await?; Ok::<_, Box<dyn std::error::Error>>({}) }}))",
+                        "SmeltFuture::from_future(Box::pin(async move {{ {text}.await?; Ok::<_, {ERROR_BOX}>({}) }}))",
                         self.default_value(*item)?,
                     ));
                 }
@@ -2578,12 +2578,9 @@ impl FunctionEmitter<'_> {
         if let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty)
             && self.is_regexp_class_symbol(*name)?
         {
-            return match self.symbol_name(field)? {
-                "source" | "flags" => self.type_id(Type::String),
-                "global" | "ignoreCase" | "ignore_case" | "multiline" | "sticky" | "unicode"
-                | "dotAll" | "dot_all" => self.type_id(Type::Bool),
-                "lastIndex" | "last_index" => self.type_id(Type::Float),
-                _ => self.type_id(Type::Unknown),
+            return match smelt_stdlib::regexp_member(self.symbol_name(field)?) {
+                Some(kind) => self.regexp_member_ty(kind),
+                None => self.type_id(Type::Unknown),
             };
         }
         // A concrete match-result receiver reached through an optional chain
@@ -3189,11 +3186,11 @@ impl FunctionEmitter<'_> {
         // equality to compare two unrelated addresses.
         let Some(identity) = crate::class_proto::method_identity_text(self.mir, function)? else {
             return Ok(Some(self.carrier_format(format_args!(
-                "{{ let smelt_receiver = {receiver_clone}; SmeltUnknown::Function(::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>({wrapped_returned}))) }}"
+                "{{ let smelt_receiver = {receiver_clone}; SmeltUnknown::Function(::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, {ERROR_BOX}>({wrapped_returned}))) }}"
             ))));
         };
         Ok(Some(self.carrier_format(format_args!(
-            "{{ let smelt_receiver = {receiver_clone}; let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>({wrapped_returned})); smelt_link_function_identity_key(&smelt_method, {identity}); SmeltUnknown::Function(smelt_method) }}"
+            "{{ let smelt_receiver = {receiver_clone}; let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, {ERROR_BOX}>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, {ERROR_BOX}>({wrapped_returned})); smelt_link_function_identity_key(&smelt_method, {identity}); SmeltUnknown::Function(smelt_method) }}"
         ))))
     }
 
@@ -3218,7 +3215,7 @@ impl FunctionEmitter<'_> {
         {
             return Ok(None);
         }
-        Ok(Some(self.carrier_text("SmeltUnknown::Function(::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Null)))")))
+        Ok(Some(self.carrier_format(format_args!("SmeltUnknown::Function(::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, {ERROR_BOX}>(SmeltUnknown::Null)))"))))
     }
 
     /// Emits a concrete clone of `self` without relying on generic `Clone` bounds.

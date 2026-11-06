@@ -78,6 +78,7 @@ use std::{
 };
 
 use crate::classes::{NominalStorage, type_holds_function};
+use crate::thrown::ERROR_BOX;
 use crate::{rust::erased_string, type_substitution::TypeSubstitution};
 use smelt_hir::{BodyId, Type, TypeId};
 use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction, MirGlobalInit};
@@ -3009,7 +3010,7 @@ fn erased_function_field_text(
     };
     let adapter = |callable: &str| {
         format!(
-            "{{ let smelt_function_value: {rendered} = {callable}; let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(({call}).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }}"
+            "{{ let smelt_function_value: {rendered} = {callable}; let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, {ERROR_BOX}>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, {ERROR_BOX}>(({call}).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }}"
         )
     };
     Some(if optional {
@@ -3321,7 +3322,7 @@ fn emit_mutable_globals(mir: &Mir, context: &EmitContext) -> Result<String, Emit
 fn emit_module_init_failed(writer: &mut CodeWriter) {
     writer.line("/// A module global's initializer threw during module evaluation: report it as `main` does and exit 1.");
     writer.block(
-        "fn smelt_module_init_failed(error: Box<dyn std::error::Error>) -> !",
+        format!("fn smelt_module_init_failed(error: {ERROR_BOX}) -> !"),
         |fn_writer| {
             fn_writer.line("let _ = ::std::io::Write::flush(&mut ::std::io::stdout());");
             fn_writer.line("eprintln!(\"Error: {error:?}\");");

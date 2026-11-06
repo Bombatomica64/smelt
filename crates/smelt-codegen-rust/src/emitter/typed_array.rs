@@ -37,7 +37,7 @@ impl FunctionEmitter<'_> {
         // constructor with no element kind at all: the kind arrives with each
         // accessor instead, so the construction takes a window and nothing
         // more. It is asked before the kind lookup because it has none.
-        if class_name == "DataView" {
+        if smelt_stdlib::is_data_view_class(class_name) {
             return self.data_view_new_text(args);
         }
         let Some(kind) = crate::typed_array_prelude::kind_expression(class_name) else {

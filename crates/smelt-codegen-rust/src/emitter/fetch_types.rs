@@ -658,7 +658,7 @@ impl FunctionEmitter<'_> {
             // Same handle-clone-into-the-block shape as `Response::text`; see
             // the comment there for why the receiver is not moved.
             smelt_hir::RequestOp::Text => format!(
-                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(smelt_request.take_text()?) }})) }}"
+                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(smelt_request.take_text()?) }})) }}"
             ),
             // Same `text()` + fallible `JSON.parse` shape as `Response::json`.
             smelt_hir::RequestOp::Json => format!(
@@ -669,15 +669,15 @@ impl FunctionEmitter<'_> {
             // OWN `Content-Type` to the parser: the encoding (and a multipart
             // boundary) is a header, not a property of the bytes.
             smelt_hir::RequestOp::FormData => format!(
-                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_content_type = smelt_request.headers().get(\"content-type\"); Ok::<_, Box<dyn std::error::Error>>(smelt_form_data_from_body(smelt_content_type, smelt_request.body().take_bytes()?)?) }})) }}"
+                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_content_type = smelt_request.headers().get(\"content-type\"); Ok::<_, {ERROR_BOX}>(smelt_form_data_from_body(smelt_content_type, smelt_request.body().take_bytes()?)?) }})) }}"
             ),
             // The two BYTE readers; see the `Response` pair for why they are
             // two members rather than one.
             smelt_hir::RequestOp::ArrayBuffer => self.carrier_format(format_args!(
-                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(SmeltArrayBuffer::from_bytes(smelt_request.body().take_bytes()?)) }})) }}"
+                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltArrayBuffer::from_bytes(smelt_request.body().take_bytes()?)) }})) }}"
             )),
             smelt_hir::RequestOp::Bytes => format!(
-                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(SmeltTypedArray::from_bytes(smelt_request.body().take_bytes()?)) }})) }}"
+                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltTypedArray::from_bytes(smelt_request.body().take_bytes()?)) }})) }}"
             ),
         })
     }
@@ -917,7 +917,7 @@ impl FunctionEmitter<'_> {
             // the body through the future is observable on the original, which
             // is exactly what the spec says happens.
             smelt_hir::ResponseOp::Text => format!(
-                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) }})) }}"
+                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(smelt_response.take_text()?) }})) }}"
             ),
             // `json()` is `text()` followed by the fallible `JSON.parse`
             // adapter, so malformed text rejects with the same catchable
@@ -930,15 +930,15 @@ impl FunctionEmitter<'_> {
             // bytes, a view is an element window over them. Both consume the
             // body, like every other reader.
             smelt_hir::ResponseOp::ArrayBuffer => self.carrier_format(format_args!(
-                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(SmeltArrayBuffer::from_bytes(smelt_response.body().take_bytes()?)) }})) }}"
+                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltArrayBuffer::from_bytes(smelt_response.body().take_bytes()?)) }})) }}"
             )),
             smelt_hir::ResponseOp::Bytes => format!(
-                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(SmeltTypedArray::from_bytes(smelt_response.body().take_bytes()?)) }})) }}"
+                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltTypedArray::from_bytes(smelt_response.body().take_bytes()?)) }})) }}"
             ),
             // Same shape as `Request::formData`; see the comment there for why
             // the parser is handed the header rather than only the bytes.
             smelt_hir::ResponseOp::FormData => format!(
-                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_content_type = smelt_response.headers().get(\"content-type\"); Ok::<_, Box<dyn std::error::Error>>(smelt_form_data_from_body(smelt_content_type, smelt_response.body().take_bytes()?)?) }})) }}"
+                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_content_type = smelt_response.headers().get(\"content-type\"); Ok::<_, {ERROR_BOX}>(smelt_form_data_from_body(smelt_content_type, smelt_response.body().take_bytes()?)?) }})) }}"
             ),
         })
     }

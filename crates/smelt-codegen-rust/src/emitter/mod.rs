@@ -13,6 +13,7 @@ use crate::generic_bindings::CalleeTypeParamBindings;
 use crate::runtime_demand::{Need, RuntimeDemand};
 use smelt_stdlib::runtime_symbols::markers::*;
 use crate::rust::RustType;
+use crate::thrown::ERROR_BOX;
 use crate::type_substitution::{Resolved, TypeSubstitution};
 use render_scope::RenderScope;
 use crate::{EmitError, compact_index, id_index, sanitize_ident};

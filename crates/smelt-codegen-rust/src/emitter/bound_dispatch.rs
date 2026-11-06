@@ -27,7 +27,7 @@ use crate::rust::RustIdent;
 use crate::type_substitution::TypeSubstitution;
 
 /// The error type every generated `Result` carries.
-const ERROR_TYPE: &str = "Box<dyn std::error::Error>";
+const ERROR_TYPE: &str = crate::thrown::ERROR_BOX;
 
 /// Write every planned bound trait and its implementations.
 ///

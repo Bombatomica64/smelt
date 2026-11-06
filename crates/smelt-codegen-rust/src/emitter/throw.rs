@@ -38,7 +38,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn throw_terminator_text(&self, operand: &Operand) -> Result<String, EmitError> {
         let payload = self.thrown_payload_text(operand)?;
         Ok(format!(
-            "    return Err::<_, Box<dyn std::error::Error>>({payload});\n"
+            "    return Err::<_, {ERROR_BOX}>({payload});\n"
         ))
     }
 

@@ -209,28 +209,10 @@ impl FunctionEmitter<'_> {
         if let Some((cond, then_block, else_block, cond_statement_idx)) =
             self.while_header(block)?
         {
-            let has_header_work = block
-                .statements
-                .iter()
-                .enumerate()
-                .any(|(idx, _)| idx != cond_statement_idx);
             let then = self.block(then_block)?;
             let else_ = self.block(else_block)?;
             let loop_declared = self.declared_scope();
-            if has_header_work {
-                out.push_str("    loop {\n");
-                for statement in &block.statements {
-                    self.emit_statement_for_block(block, statement, out)?;
-                }
-                out.push_str(&format!(
-                    "    if !({}) {{ break; }}\n",
-                    self.truthy_operand_text(&Operand::Copy(Place::Local(
-                        self.switch_cond_local(block)?
-                    )))?
-                ));
-            } else {
-                out.push_str(&format!("    while {cond} {{\n"));
-            }
+            self.open_while_loop(block, &cond, cond_statement_idx, out)?;
             self.emit_block_until_goto(
                 then,
                 block.id,
@@ -247,29 +229,11 @@ impl FunctionEmitter<'_> {
         if let Some((cond, then_block, latch_block, else_block, cond_statement_idx)) =
             self.while_header_with_latch(block)?
         {
-            let has_header_work = block
-                .statements
-                .iter()
-                .enumerate()
-                .any(|(idx, _)| idx != cond_statement_idx);
             let then = self.block(then_block)?;
             let latch = self.block(latch_block)?;
             let else_ = self.block(else_block)?;
             let loop_declared = self.declared_scope();
-            if has_header_work {
-                out.push_str("    loop {\n");
-                for statement in &block.statements {
-                    self.emit_statement_for_block(block, statement, out)?;
-                }
-                out.push_str(&format!(
-                    "    if !({}) {{ break; }}\n",
-                    self.truthy_operand_text(&Operand::Copy(Place::Local(
-                        self.switch_cond_local(block)?
-                    )))?
-                ));
-            } else {
-                out.push_str(&format!("    while {cond} {{\n"));
-            }
+            self.open_while_loop(block, &cond, cond_statement_idx, out)?;
             self.emit_block_until_goto(
                 then,
                 latch_block,
@@ -889,6 +853,36 @@ impl FunctionEmitter<'_> {
         Ok(())
     }
 
+    /// Opens the loop of a `while` header: a plain `while cond` when the header
+    /// block computes nothing but the condition, or a `loop` that re-runs its
+    /// statements and breaks on the condition when it does.
+    fn open_while_loop(
+        &self,
+        block: &BasicBlock,
+        cond: &str,
+        cond_statement_idx: usize,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        let has_header_work = block
+            .statements
+            .iter()
+            .enumerate()
+            .any(|(idx, _)| idx != cond_statement_idx);
+        if !has_header_work {
+            out.push_str(&format!("    while {cond} {{\n"));
+            return Ok(());
+        }
+        out.push_str("    loop {\n");
+        for statement in &block.statements {
+            self.emit_statement_for_block(block, statement, out)?;
+        }
+        out.push_str(&format!(
+            "    if !({}) {{ break; }}\n",
+            self.truthy_operand_text(&Operand::Copy(Place::Local(self.switch_cond_local(block)?)))?
+        ));
+        Ok(())
+    }
+
     /// Emits a block terminator.
     pub(super) fn emit_terminator(
         &self,
@@ -1023,9 +1017,7 @@ impl FunctionEmitter<'_> {
                     if self.function.can_throw || self.function.is_async {
                         if self.function.is_generator {
                             self.binding_uses.record_early_return();
-                            out.push_str(
-                                "    return Ok::<(), Box<dyn std::error::Error>>(());\n",
-                            );
+                            out.push_str(&format!("    return Ok::<(), {ERROR_BOX}>(());\n"));
                         } else {
                             self.binding_uses.record_early_return();
                             out.push_str("    return Ok(());\n");
@@ -1049,7 +1041,7 @@ impl FunctionEmitter<'_> {
                                 self.type_text(body_return_ty)?;
                             self.binding_uses.record_early_return();
                             out.push_str(&format!(
-                                "    return Ok::<{return_ty_text}, Box<dyn std::error::Error>>({value});\n"
+                                "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n"
                             ));
                         } else {
                             self.binding_uses.record_early_return();
@@ -1062,7 +1054,7 @@ impl FunctionEmitter<'_> {
                                 self.type_text(body_return_ty)?;
                             self.binding_uses.record_early_return();
                             out.push_str(&format!(
-                                "    return Ok::<{return_ty_text}, Box<dyn std::error::Error>>({value});\n"
+                                "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n"
                             ));
                         } else {
                             self.binding_uses.record_early_return();
@@ -3675,27 +3667,9 @@ impl FunctionEmitter<'_> {
             ) {
                 return Ok(false);
             }
-            let has_header_work = block
-                .statements
-                .iter()
-                .enumerate()
-                .any(|(idx, _)| idx != cond_statement_idx);
             let then = self.block(then_block)?;
             let loop_declared = self.declared_scope();
-            if has_header_work {
-                out.push_str("    loop {\n");
-                for statement in &block.statements {
-                    self.emit_statement_for_block(block, statement, out)?;
-                }
-                out.push_str(&format!(
-                    "    if !({}) {{ break; }}\n",
-                    self.truthy_operand_text(&Operand::Copy(Place::Local(
-                        self.switch_cond_local(block)?
-                    )))?
-                ));
-            } else {
-                out.push_str(&format!("    while {cond} {{\n"));
-            }
+            self.open_while_loop(block, &cond, cond_statement_idx, out)?;
             self.emit_block_until_goto(
                 then,
                 block.id,
@@ -3721,28 +3695,10 @@ impl FunctionEmitter<'_> {
             ) {
                 return Ok(false);
             }
-            let has_header_work = block
-                .statements
-                .iter()
-                .enumerate()
-                .any(|(idx, _)| idx != cond_statement_idx);
             let then = self.block(then_block)?;
             let latch = self.block(latch_block)?;
             let loop_declared = self.declared_scope();
-            if has_header_work {
-                out.push_str("    loop {\n");
-                for statement in &block.statements {
-                    self.emit_statement_for_block(block, statement, out)?;
-                }
-                out.push_str(&format!(
-                    "    if !({}) {{ break; }}\n",
-                    self.truthy_operand_text(&Operand::Copy(Place::Local(
-                        self.switch_cond_local(block)?
-                    )))?
-                ));
-            } else {
-                out.push_str(&format!("    while {cond} {{\n"));
-            }
+            self.open_while_loop(block, &cond, cond_statement_idx, out)?;
             self.emit_block_until_goto(
                 then,
                 latch_block,
@@ -3788,7 +3744,7 @@ impl FunctionEmitter<'_> {
         if self.function.can_throw {
             self.binding_uses.record_early_return();
             Ok(format!(
-                "    return Ok::<_, Box<dyn std::error::Error>>({value});\n"
+                "    return Ok::<_, {ERROR_BOX}>({value});\n"
             ))
         } else {
             Ok(format!("    return {value};\n"))

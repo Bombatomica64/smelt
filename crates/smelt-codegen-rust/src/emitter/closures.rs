@@ -790,7 +790,7 @@ impl FunctionEmitter<'_> {
                 };
                 if function.is_async {
                     format!(
-                        "|{params_text}| {{ {owned_param_prelude}{capture_lines} let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_generator_producer_input = smelt_generator_input.clone(); let smelt_generator = genawaiter::rc::Gen::new(move |co| {{ let smelt_generator_input = smelt_generator_producer_input; async move {{\n{body_text}    }} }}); let smelt_generator = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_generator)); SmeltAsyncGenerator{generator_turbofish}::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_state = {{ let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }}; Ok::<_, Box<dyn std::error::Error>>(match smelt_state {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value?) }}) }})) }}){erase_suffix} }}"
+                        "|{params_text}| {{ {owned_param_prelude}{capture_lines} let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_generator_producer_input = smelt_generator_input.clone(); let smelt_generator = genawaiter::rc::Gen::new(move |co| {{ let smelt_generator_input = smelt_generator_producer_input; async move {{\n{body_text}    }} }}); let smelt_generator = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_generator)); SmeltAsyncGenerator{generator_turbofish}::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_state = {{ let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }}; Ok::<_, {ERROR_BOX}>(match smelt_state {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value?) }}) }})) }}){erase_suffix} }}"
                     )
                 } else {
                     let completion = if closure.can_throw {
@@ -808,7 +808,7 @@ impl FunctionEmitter<'_> {
                     _ => function.return_ty,
                 };
                 let output_text = emitter.type_text(output_ty)?;
-                let return_ty = format!("Result<{output_text}, Box<dyn std::error::Error>>");
+                let return_ty = format!("Result<{output_text}, {ERROR_BOX}>");
                 // Whether `smelt_async_value` is itself a future to await is read
                 // from the MIR return operand types, not from the emitted text.
                 //
@@ -830,10 +830,10 @@ impl FunctionEmitter<'_> {
                         Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                     ) || emitter.is_erased_class_type(output_ty)
                     {
-                        self.carrier_text("let smelt_async_output = smelt_async_value?.await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_async_output.into_smelt_unknown())")
+                        self.carrier_format(format_args!("let smelt_async_output = smelt_async_value?.await?; Ok::<SmeltUnknown, {ERROR_BOX}>(smelt_async_output.into_smelt_unknown())"))
                     } else {
                         format!(
-                            "let smelt_async_output = smelt_async_value?.await?; Ok::<{output_text}, Box<dyn std::error::Error>>(smelt_async_output)"
+                            "let smelt_async_output = smelt_async_value?.await?; Ok::<{output_text}, {ERROR_BOX}>(smelt_async_output)"
                         )
                     }
                 } else if closure.can_throw {
@@ -842,10 +842,10 @@ impl FunctionEmitter<'_> {
                         Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                     ) || emitter.is_erased_class_type(output_ty)
                     {
-                        self.carrier_text("Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_async_value?.into_smelt_unknown())")
+                        self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>(smelt_async_value?.into_smelt_unknown())"))
                     } else {
                         format!(
-                            "Ok::<{output_text}, Box<dyn std::error::Error>>(smelt_async_value?)"
+                            "Ok::<{output_text}, {ERROR_BOX}>(smelt_async_value?)"
                         )
                     }
                 } else if matches!(
@@ -854,16 +854,16 @@ impl FunctionEmitter<'_> {
                 ) || emitter.is_erased_class_type(output_ty)
                 {
                     if async_value_needs_await {
-                        self.carrier_text("let smelt_async_output = smelt_async_value.await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_async_output.into_smelt_unknown())")
+                        self.carrier_format(format_args!("let smelt_async_output = smelt_async_value.await?; Ok::<SmeltUnknown, {ERROR_BOX}>(smelt_async_output.into_smelt_unknown())"))
                     } else {
-                        self.carrier_text("Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_async_value.into_smelt_unknown())")
+                        self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>(smelt_async_value.into_smelt_unknown())"))
                     }
                 } else if async_value_needs_await {
                     format!(
-                        "let smelt_async_output = smelt_async_value.await?; Ok::<{output_text}, Box<dyn std::error::Error>>(smelt_async_output)"
+                        "let smelt_async_output = smelt_async_value.await?; Ok::<{output_text}, {ERROR_BOX}>(smelt_async_output)"
                     )
                 } else {
-                    format!("Ok::<{output_text}, Box<dyn std::error::Error>>(smelt_async_value)")
+                    format!("Ok::<{output_text}, {ERROR_BOX}>(smelt_async_value)")
                 };
                 // Pin the type of the `smelt_async_value` binding for the fallible,
                 // non-awaited branches. When the closure body only ever throws
@@ -893,7 +893,7 @@ impl FunctionEmitter<'_> {
                         } else {
                             output_text.as_str()
                         };
-                        Some(format!(": Result<{ok_ty_text}, Box<dyn std::error::Error>>"))
+                        Some(format!(": Result<{ok_ty_text}, {ERROR_BOX}>"))
                     } else {
                         None
                     };
@@ -959,7 +959,7 @@ impl FunctionEmitter<'_> {
                 let return_ty_text =
                     emitter.type_text(function.return_ty)?;
                 format!(
-                    "|{params_text}| -> Result<{return_ty_text}, Box<dyn std::error::Error>> {{{owned_param_prelude_block}\n{body_text}    }}"
+                    "|{params_text}| -> Result<{return_ty_text}, {ERROR_BOX}> {{{owned_param_prelude_block}\n{body_text}    }}"
                 )
             } else if matches!(
                 emitter.mir.types.get(function.return_ty),
@@ -1193,7 +1193,7 @@ impl FunctionEmitter<'_> {
             }
             if self.function.can_throw || self.function.is_async {
                 self.binding_uses.record_early_return();
-                out.push_str("    return Ok::<(), Box<dyn std::error::Error>>(());\n");
+                out.push_str(&format!("    return Ok::<(), {ERROR_BOX}>(());\n"));
             } else {
                 out.push_str("    return ();\n");
             }
@@ -1213,7 +1213,7 @@ impl FunctionEmitter<'_> {
             let return_ty_text = self.type_text(return_ty)?;
             self.binding_uses.record_early_return();
             out.push_str(&format!(
-                "    return Ok::<{return_ty_text}, Box<dyn std::error::Error>>({value});\n"
+                "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n"
             ));
         } else {
             out.push_str(&format!("    return {value};\n"));
@@ -1357,7 +1357,7 @@ impl FunctionEmitter<'_> {
                         out.push_str(&format!("    {};\n", self.operand_text(operand)?));
                     }
                     if self.function.can_throw {
-                        out.push_str("    Ok::<(), Box<dyn std::error::Error>>(())\n");
+                        out.push_str(&format!("    Ok::<(), {ERROR_BOX}>(())\n"));
                     } else {
                         out.push_str("    ()\n");
                     }
@@ -1388,7 +1388,7 @@ impl FunctionEmitter<'_> {
                     if self.function.can_throw {
                         let return_ty_text = self.type_text(return_ty)?;
                         out.push_str(&format!(
-                            "    Ok::<{return_ty_text}, Box<dyn std::error::Error>>({value})\n"
+                            "    Ok::<{return_ty_text}, {ERROR_BOX}>({value})\n"
                         ));
                     } else {
                         out.push_str(&format!("    {value}\n"));

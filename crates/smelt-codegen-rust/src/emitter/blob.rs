@@ -88,13 +88,13 @@ impl FunctionEmitter<'_> {
             // bytes are already in memory: the source awaits them, so the value
             // has to be a real future or the `await` has nothing to poll.
             smelt_hir::BlobOp::Text => Ok(format!(
-                "{{ let smelt_blob = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(smelt_blob.to_text()) }})) }}"
+                "{{ let smelt_blob = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(smelt_blob.to_text()) }})) }}"
             )),
             smelt_hir::BlobOp::ArrayBuffer => Ok(self.carrier_format(format_args!(
-                "{{ let smelt_blob = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(SmeltArrayBuffer::from_bytes(smelt_blob.to_bytes())) }})) }}"
+                "{{ let smelt_blob = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltArrayBuffer::from_bytes(smelt_blob.to_bytes())) }})) }}"
             ))),
             smelt_hir::BlobOp::Bytes => Ok(format!(
-                "{{ let smelt_blob = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(SmeltTypedArray::from_bytes(smelt_blob.to_bytes())) }})) }}"
+                "{{ let smelt_blob = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltTypedArray::from_bytes(smelt_blob.to_bytes())) }})) }}"
             )),
             smelt_hir::BlobOp::Slice => {
                 let float_ty = self.type_id(Type::Float)?;

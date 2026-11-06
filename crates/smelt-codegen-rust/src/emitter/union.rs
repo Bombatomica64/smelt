@@ -722,14 +722,15 @@ impl FunctionEmitter<'_> {
         let Ok(class_name) = self.symbol_name(class) else {
             return false;
         };
+        let rule = smelt_stdlib::instance_of_rule(class_name);
         match self.mir.types.get(member) {
             Some(Type::Class { name, .. }) => {
                 self.symbol_name(*name).is_ok_and(|name| name == class_name)
             }
-            Some(Type::Future(_)) => class_name == "Promise",
-            Some(Type::List(_) | Type::Tuple(_)) => class_name == "Array",
-            Some(Type::JsMap(_, _)) => class_name == "Map",
-            Some(Type::Set(_)) => class_name == "Set",
+            Some(Type::Future(_)) => rule == Some(smelt_stdlib::InstanceOfRule::Promise),
+            Some(Type::List(_) | Type::Tuple(_)) => rule == Some(smelt_stdlib::InstanceOfRule::Array),
+            Some(Type::JsMap(_, _)) => rule == Some(smelt_stdlib::InstanceOfRule::Map),
+            Some(Type::Set(_)) => rule == Some(smelt_stdlib::InstanceOfRule::Set),
             _ => false,
         }
     }
