@@ -521,6 +521,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
         path.ends_with(".test-d.ts") || path.ends_with(".test.ts")
     }
 
+    /// Install the module's facts and publish the member names it declares.
+    pub(super) fn adopt_source_facts(&mut self, facts: super::source_facts::SourceFacts) {
+        self.ctx.declared_member_names.extend(facts.declared_members().cloned());
+        self.source_facts = facts;
+    }
+
     /// Collect items already present in the shared crate for cross-module references.
     pub(super) fn visible_items(
         ctx: &HirCtx,
@@ -537,6 +543,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let Some(name) = item_name(&ctx.krate, item) else {
                 continue;
             };
+            if matches!(item, Item::Class(class) if ctx.local_class_expressions.contains(&class.name)) {
+                continue;
+            }
             insert_visible_item(
                 &mut items,
                 &mut classes,

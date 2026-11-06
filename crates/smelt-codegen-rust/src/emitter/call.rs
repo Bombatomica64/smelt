@@ -3549,7 +3549,11 @@ impl FunctionEmitter<'_> {
             // `__smelt_error` with the nearest builtin error base's name — see
             // `host_base_markers` — and answers these same probes.
             let marker_probe = if class_name == "Error" {
-                "value.contains_key(\"__smelt_error\")".to_owned()
+                std::iter::once(SMELT_ERROR)
+                    .chain(smelt_stdlib::host_markers_extending(class_name))
+                    .map(|marker| format!("value.contains_key(\"{marker}\")"))
+                    .collect::<Vec<_>>()
+                    .join(" || ")
             } else {
                 format!(
                     "matches!(value.get(\"{SMELT_ERROR}\"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == {class_name:?})"
@@ -3925,19 +3929,25 @@ impl FunctionEmitter<'_> {
     /// Walks the declared base chain, which is how a statically typed
     /// `instanceof` between two generated classes is answered.
     pub(super) fn class_extends_or_equals(&self, source: Symbol, target: Symbol) -> bool {
-        let mut current = Some(source);
-        while let Some(class_name) = current {
-            if class_name == target {
+        let mut current = source;
+        loop {
+            if current == target {
                 return true;
             }
-            current = self
-                .mir
-                .classes
-                .iter()
-                .find(|class| class.name == class_name)
-                .and_then(|class| class.base);
+            let Some(class) = self.mir.classes.iter().find(|class| class.name == current) else {
+                break;
+            };
+            let Some(base) = class.base else {
+                return false;
+            };
+            current = base;
         }
-        false
+        // The chain left the program at a builtin (`class X extends
+        // DOMException`), whose own ancestors are the registry's to answer.
+        match (self.symbol_name(current), self.symbol_name(target)) {
+            (Ok(builtin), Ok(ancestor)) => smelt_stdlib::builtin_class_extends(builtin, ancestor),
+            _ => false,
+        }
     }
 
 }

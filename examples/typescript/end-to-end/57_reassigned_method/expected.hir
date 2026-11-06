@@ -38,8 +38,8 @@ module examples/typescript/end-to-end/57_reassigned_method/input.ts (ModuleId(0)
 
 interned types
   t0 = Router
-  t1 = String
-  t2 = Unknown
+  t1 = Unknown
+  t2 = String
   t3 = Dict<String, Unknown>
   t4 = fn(String) -> Unknown
   t5 = fn(String) -> String

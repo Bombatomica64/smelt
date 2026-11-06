@@ -53,8 +53,8 @@ pub use host_modules::{
 pub use host_object::{
     ByteBufferRole, HOST_OBJECTS, HostKind, HostObject, TypedArrayElement,
     UNMODELED_CALL_NAMESPACES, UNMODELED_HOST_CONSTRUCTORS, byte_buffer_host_objects,
-    byte_buffer_role, data_view_accessor, host_object_by_class, host_object_marker,
-    host_object_markers,
+    builtin_base_class, builtin_class_extends, byte_buffer_role, data_view_accessor,
+    host_markers_extending, host_object_by_class, host_object_marker, host_object_markers,
     reflectively_constructible, typed_array_element, typed_array_host_objects,
 };
 pub use recognition::{

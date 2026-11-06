@@ -1504,6 +1504,7 @@ impl ModuleBuilder<'_> {
         // disambiguation exists for the Rust type system, not for the program.
         let symbol = self.ctx.krate.symbols.intern(&internal_name);
         self.ctx.krate.names.record(symbol, class_source_name);
+        self.ctx.local_class_expressions.insert(symbol);
         Some(symbol)
     }
 

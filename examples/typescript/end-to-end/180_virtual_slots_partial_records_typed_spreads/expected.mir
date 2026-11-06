@@ -408,9 +408,9 @@ fn main (FuncId(26)) -> None throws
   bb23:
     %33 = call fn0(1.0, 2.0) -> bb24
   bb24:
-    %2 = closure_call copy %33.field22()
-    %35 = closure_call copy %2.field22()
-    %36 = call @console_log(copy %2.field18, copy %2.field19, copy %35.field18) -> bb25
+    %2 = closure_call copy %33.field10()
+    %35 = closure_call copy %2.field10()
+    %36 = call @console_log(copy %2.field19, copy %2.field20, copy %35.field19) -> bb25
   bb25:
     %37 = closure ClosureId(2) []
     %38 = call fn1(move %37) -> bb26

@@ -1720,6 +1720,19 @@ impl ModuleBuilder<'_> {
                         ));
                     }
                     let method = self.intern_source_name(member.property.name.as_str());
+                    // The compact IR dispatches on the member's name. A member
+                    // only a type declaration names (an interface signature,
+                    // a function-typed field) needs the closure body's ordinary
+                    // member call to keep the declared member ahead of the
+                    // builtin of that name.
+                    if self.receiver_owns_member(receiver.ty, method)
+                        && !self.receiver_declares_method(receiver.ty, method)
+                    {
+                        return Err(SmeltError::unsupported(
+                            self.span(member.span.start, member.span.end),
+                            "callback expression kind is not supported yet",
+                        ));
+                    }
                     let declared_method_return = self
                         .class_field_type(receiver.ty, method)
                         .ok()

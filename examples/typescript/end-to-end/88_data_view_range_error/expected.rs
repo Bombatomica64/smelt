@@ -4405,7 +4405,7 @@ pub(crate) fn brand_of(target: SmeltDataView) -> String {
     _smelt_tmp_3 = matches!(error.clone().clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "RangeError"));
     _smelt_tmp_4 = "".to_owned() + &_smelt_tmp_3.to_string();
     _smelt_tmp_5 = _smelt_tmp_4 + &" ".to_owned();
-    _smelt_tmp_6 = matches!(error.clone(), SmeltUnknown::Object(value) if value.contains_key("__smelt_error"));
+    _smelt_tmp_6 = matches!(error.clone(), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") || value.contains_key("__smelt_domexception"));
     _smelt_tmp_7 = _smelt_tmp_5 + &_smelt_tmp_6.to_string();
     return _smelt_tmp_7;
         }
@@ -4415,7 +4415,7 @@ pub(crate) fn brand_of(target: SmeltDataView) -> String {
     _smelt_tmp_3 = matches!(error.clone().clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "RangeError"));
     _smelt_tmp_4 = "".to_owned() + &_smelt_tmp_3.to_string();
     _smelt_tmp_5 = _smelt_tmp_4 + &" ".to_owned();
-    _smelt_tmp_6 = matches!(error.clone(), SmeltUnknown::Object(value) if value.contains_key("__smelt_error"));
+    _smelt_tmp_6 = matches!(error.clone(), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") || value.contains_key("__smelt_domexception"));
     _smelt_tmp_7 = _smelt_tmp_5 + &_smelt_tmp_6.to_string();
     return _smelt_tmp_7;
         }

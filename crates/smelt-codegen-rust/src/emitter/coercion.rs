@@ -2773,12 +2773,11 @@ impl FunctionEmitter<'_> {
             };
             let Some(base) = class.base else { break };
             let Some(base_name) = self.mir.symbols.get(base) else { break };
-            if let Some(entry) = smelt_stdlib::host_object_by_class(base_name) {
-                markers.push((entry.marker, "SmeltUnknown::Bool(true)".to_owned()));
-                if base_name == "File"
-                    && let Some(blob) = smelt_stdlib::host_object_marker("Blob")
-                {
-                    markers.push((blob, "SmeltUnknown::Bool(true)".to_owned()));
+            if smelt_stdlib::host_object_by_class(base_name).is_some() {
+                let mut host = Some(base_name);
+                while let Some(entry) = host.and_then(smelt_stdlib::host_object_by_class) {
+                    markers.push((entry.marker, "SmeltUnknown::Bool(true)".to_owned()));
+                    host = entry.base;
                 }
                 break;
             }

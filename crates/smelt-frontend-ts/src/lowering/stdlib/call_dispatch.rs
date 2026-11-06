@@ -2340,12 +2340,89 @@ impl<'builder> ModuleBuilder<'builder> {
             return Ok(None);
         }
         self.receiver_frames.push(ReceiverFrame::of(call));
-        let lowered = Self::builtin_call_handlers()
-            .into_iter()
-            .find_map(|handler| handler(self, call, body).transpose())
-            .transpose();
+        let lowered = match self.dispatched_receiver_owns_member(call, body) {
+            Ok(false) => Self::builtin_call_handlers()
+                .into_iter()
+                .find_map(|handler| handler(self, call, body).transpose())
+                .transpose(),
+            Ok(true) => Ok(None),
+            Err(error) => Err(error),
+        };
         self.receiver_frames.pop();
         lowered
+    }
+
+    /// Whether the value a member call dispatches on declares that member.
+    ///
+    /// [`Self::receiver_statically_declares_method`] answers the receivers whose
+    /// type is readable from declarations alone. Every other shape
+    /// (`routers[0].match(p)`, `make().replace(a)`) has to be lowered to be
+    /// typed, and the answer has to be asked before any handler runs: JavaScript
+    /// finds a declared `match` on the receiver and never reaches
+    /// `String.prototype`, so a handler keyed on the name must not see the call.
+    ///
+    /// A name no lowered type declares cannot be owned, so such a call lowers
+    /// nothing here. A type whose module has not lowered yet is no receiver type
+    /// either, which is what makes the crate-wide name set sufficient. An
+    /// identifier with no static type is a namespace, never a typed receiver.
+    fn dispatched_receiver_owns_member(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<bool, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(false);
+        };
+        if !self.ctx.declared_member_names.contains(member.property.name.as_str()) {
+            return Ok(false);
+        }
+        let method = self.intern_source_name(member.property.name.as_str());
+        if let Some(receiver_ty) = self.static_receiver_type(&member.object, body) {
+            return Ok(self.receiver_owns_member(receiver_ty, method));
+        }
+        if matches!(member.object.without_parentheses(), Expression::Identifier(_)) {
+            return Ok(false);
+        }
+        let mark = self.speculation_mark(body);
+        let receiver = self.dispatched_receiver(&member.object, body)?;
+        let receiver_ty = receiver.map(|receiver| Self::expr_ty(body, receiver));
+        self.roll_back_to(mark, body);
+        self.forget_dispatched_receiver();
+        let Some(receiver_ty) = receiver_ty else {
+            return Ok(false);
+        };
+        let receiver_ty = self.optional_receiver_inner_type(receiver_ty);
+        Ok(self.receiver_owns_member(receiver_ty, method))
+    }
+
+    /// Whether a source declaration of the receiver's type names `member`.
+    ///
+    /// Wider than [`Self::receiver_declares_method`], which decides how a method
+    /// call is dispatched: here any declared member wins over a builtin of the
+    /// same name, whether it is a class method, an interface signature, or a
+    /// function stored in a field.
+    pub(in crate::lowering) fn receiver_owns_member(&mut self, receiver_ty: smelt_hir::TypeId, member: smelt_hir::Symbol) -> bool {
+        if self.receiver_declares_method(receiver_ty, member) {
+            return true;
+        }
+        match self.ctx.krate.types.get(receiver_ty).cloned() {
+            Some(Type::Union(arms)) => {
+                !arms.is_empty() && arms.iter().all(|arm| self.receiver_owns_member(*arm, member))
+            }
+            Some(Type::TypeParam { .. }) => self
+                .type_param_member_bound(receiver_ty)
+                .is_some_and(|bound| self.receiver_owns_member(bound, member)),
+            Some(Type::Class { name, .. }) => {
+                self.stdlib_class_of_type(receiver_ty).is_none()
+                    && (self.find_interface(name).is_some_and(|interface| {
+                        interface.methods.iter().any(|signature| signature.name == member)
+                            || interface.fields.iter().any(|field| field.name == member)
+                    }) || self.class_field_type(receiver_ty, member).is_ok_and(|field_ty| {
+                        matches!(self.ctx.krate.types.get(field_ty), Some(Type::Function(_)))
+                    }))
+            }
+            _ => false,
+        }
     }
 
     /// The receiver of the call being dispatched, lowered once for all handlers.

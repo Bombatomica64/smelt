@@ -41,176 +41,171 @@ module examples/typescript/end-to-end/153_this_param_function_as_method/input.ts
     #20: String = "three"
     #21: None = #17.add(#18, #19, #20)
     #22: TableRouter = %0
-    #23: TableRouter = %0
-    #24: fn(String, String) -> List<String> = #23.match
-    #25: TableRouter = %0
-    #26: String = "GET"
-    #27: String = "/a"
-    #28: fn(String, String) -> List<String> = bind_this #24, #23
-    #29: List<String> = closure_call #28(#26, #27)
-    #30: String = ","
-    #31: String = string_join #29, #30
-    #32: None = @15(console_log)
-    #33: None = call #32(#31)
-    #34: TableRouter = %0
+    #23: fn(String, String) -> List<String> = #22.match
+    #24: TableRouter = %0
+    #25: String = "GET"
+    #26: String = "/a"
+    #27: fn(String, String) -> List<String> = bind_this #23, #22
+    #28: List<String> = closure_call #27(#25, #26)
+    #29: String = ","
+    #30: String = string_join #28, #29
+    #31: None = @15(console_log)
+    #32: None = call #31(#30)
+    #33: TableRouter = %0
+    #34: fn(String, String) -> List<String> = #33.match
     #35: TableRouter = %0
-    #36: fn(String, String) -> List<String> = #35.match
-    #37: TableRouter = %0
-    #38: String = "POST"
-    #39: String = "/b"
-    #40: fn(String, String) -> List<String> = bind_this #36, #35
-    #41: List<String> = closure_call #40(#38, #39)
-    #42: String = ","
-    #43: String = string_join #41, #42
-    #44: None = @16(console_log)
-    #45: None = call #44(#43)
+    #36: String = "POST"
+    #37: String = "/b"
+    #38: fn(String, String) -> List<String> = bind_this #34, #33
+    #39: List<String> = closure_call #38(#36, #37)
+    #40: String = ","
+    #41: String = string_join #39, #40
+    #42: None = @16(console_log)
+    #43: None = call #42(#41)
+    #44: TableRouter = %0
+    #45: fn(String, String) -> List<String> = #44.match
     #46: TableRouter = %0
-    #47: TableRouter = %0
-    #48: fn(String, String) -> List<String> = #47.match
-    #49: TableRouter = %0
-    #50: String = "GET"
-    #51: String = "/zz"
-    #52: fn(String, String) -> List<String> = bind_this #48, #47
-    #53: List<String> = closure_call #52(#50, #51)
-    #54: Float = len #53
-    #55: None = @17(console_log)
-    #56: None = call #55(#54)
-    #57: TableRouter = %0
-    #58: fn(List<(String, String)>) -> Float = #57.count
-    #59: TableRouter = %0
-    #60: String = "ab"
-    #61: String = "c"
-    #62: List<String> = [#60, #61]
-    #63: List<List<String>> = [#62]
-    #64: Float = #59.count(#63)
-    #65: None = @18(console_log)
-    #66: None = call #65(#64)
-    #67: TableRouter = new TableRouter()
-    #68: List<Router> = [#67]
-    #69: SmartRouter = new SmartRouter(#68)
-    #70: SmartRouter = %1
-    #71: fn(String, String, String) -> None = #70.add
-    #72: SmartRouter = %1
-    #73: String = "GET"
-    #74: String = "/x"
-    #75: String = "hx"
-    #76: None = #72.add(#73, #74, #75)
-    #77: SmartRouter = %1
-    #78: fn(String, String) -> List<String> = #77.match
-    #79: SmartRouter = %1
-    #80: String = "GET"
-    #81: String = "/x"
-    #82: fn(String, String) -> List<String> = bind_this #78, #77
-    #83: List<String> = closure_call #82(#80, #81)
-    #84: String = ","
-    #85: String = string_join #83, #84
-    #86: None = @19(console_log)
-    #87: None = call #86(#85)
-    #88: SmartRouter = %1
-    #89: fn(String, String) -> List<String> = #88.match
-    #90: SmartRouter = %1
-    #91: String = "GET"
-    #92: String = "/x"
-    #93: fn(String, String) -> List<String> = bind_this #89, #88
-    #94: List<String> = closure_call #93(#91, #92)
-    #95: String = ","
-    #96: String = string_join #94, #95
-    #97: None = @20(console_log)
-    #98: None = call #97(#96)
-    #99: SmartRouter = %1
-    #100: fn(String, String) -> List<String> = #99.match
-    #101: SmartRouter = %1
-    #102: String = "GET"
-    #103: String = "/y"
-    #104: fn(String, String) -> List<String> = bind_this #100, #99
-    #105: List<String> = closure_call #104(#102, #103)
-    #106: Float = len #105
-    #107: None = @21(console_log)
-    #108: None = call #107(#106)
-    #109: SmartRouter = %1
-    #110: String = #109.name
-    #111: None = @22(console_log)
-    #112: None = call #111(#110)
-    #113: fn(String) -> String = closure BodyId(15) captures 0 -> String
-    #114: String = "prefix"
-    #115: String = "hi "
-    #116: Dict<String, String> = {#114: #115}
-    #117: fn(String) -> String = bind_this #113, #116
-    #118: fn(String) -> String = closure BodyId(16) captures 1 -> String
-    #119: fn(String) -> String = %3
-    #120: String = "bob"
-    #121: String = closure_call #119(#120)
-    #122: None = @23(console_log)
-    #123: None = call #122(#121)
-    #124: fn(String) -> String = closure BodyId(17) captures 0 -> String
-    #125: String = "prefix"
-    #126: String = "yo "
-    #127: Dict<String, String> = {#125: #126}
-    #128: fn(String) -> String = bind_this #124, #127
-    #129: String = "amy"
-    #130: fn() -> String = closure BodyId(18) captures 2 -> String
-    #131: fn() -> String = %6
-    #132: String = closure_call #131()
-    #133: None = @24(console_log)
-    #134: None = call #133(#132)
-    #135: String = "get"
-    #136: String = "post"
-    #137: List<String> = [#135, #136]
-    #138: App = new App()
-    #139: App = %8
-    #140: App = %8
-    #141: fn(String) -> Float = #140.get
+    #47: String = "GET"
+    #48: String = "/zz"
+    #49: fn(String, String) -> List<String> = bind_this #45, #44
+    #50: List<String> = closure_call #49(#47, #48)
+    #51: Float = len #50
+    #52: None = @17(console_log)
+    #53: None = call #52(#51)
+    #54: TableRouter = %0
+    #55: fn(List<(String, String)>) -> Float = #54.count
+    #56: TableRouter = %0
+    #57: String = "ab"
+    #58: String = "c"
+    #59: List<String> = [#57, #58]
+    #60: List<List<String>> = [#59]
+    #61: Float = #56.count(#60)
+    #62: None = @18(console_log)
+    #63: None = call #62(#61)
+    #64: TableRouter = new TableRouter()
+    #65: List<Router> = [#64]
+    #66: SmartRouter = new SmartRouter(#65)
+    #67: SmartRouter = %1
+    #68: fn(String, String, String) -> None = #67.add
+    #69: SmartRouter = %1
+    #70: String = "GET"
+    #71: String = "/x"
+    #72: String = "hx"
+    #73: None = #69.add(#70, #71, #72)
+    #74: SmartRouter = %1
+    #75: fn(String, String) -> List<String> = #74.match
+    #76: SmartRouter = %1
+    #77: String = "GET"
+    #78: String = "/x"
+    #79: fn(String, String) -> List<String> = bind_this #75, #74
+    #80: List<String> = closure_call #79(#77, #78)
+    #81: String = ","
+    #82: String = string_join #80, #81
+    #83: None = @19(console_log)
+    #84: None = call #83(#82)
+    #85: SmartRouter = %1
+    #86: fn(String, String) -> List<String> = #85.match
+    #87: SmartRouter = %1
+    #88: String = "GET"
+    #89: String = "/x"
+    #90: fn(String, String) -> List<String> = bind_this #86, #85
+    #91: List<String> = closure_call #90(#88, #89)
+    #92: String = ","
+    #93: String = string_join #91, #92
+    #94: None = @20(console_log)
+    #95: None = call #94(#93)
+    #96: SmartRouter = %1
+    #97: fn(String, String) -> List<String> = #96.match
+    #98: SmartRouter = %1
+    #99: String = "GET"
+    #100: String = "/y"
+    #101: fn(String, String) -> List<String> = bind_this #97, #96
+    #102: List<String> = closure_call #101(#99, #100)
+    #103: Float = len #102
+    #104: None = @21(console_log)
+    #105: None = call #104(#103)
+    #106: SmartRouter = %1
+    #107: String = #106.name
+    #108: None = @22(console_log)
+    #109: None = call #108(#107)
+    #110: fn(String) -> String = closure BodyId(15) captures 0 -> String
+    #111: String = "prefix"
+    #112: String = "hi "
+    #113: Dict<String, String> = {#111: #112}
+    #114: fn(String) -> String = bind_this #110, #113
+    #115: fn(String) -> String = closure BodyId(16) captures 1 -> String
+    #116: fn(String) -> String = %3
+    #117: String = "bob"
+    #118: String = closure_call #116(#117)
+    #119: None = @23(console_log)
+    #120: None = call #119(#118)
+    #121: fn(String) -> String = closure BodyId(17) captures 0 -> String
+    #122: String = "prefix"
+    #123: String = "yo "
+    #124: Dict<String, String> = {#122: #123}
+    #125: fn(String) -> String = bind_this #121, #124
+    #126: String = "amy"
+    #127: fn() -> String = closure BodyId(18) captures 2 -> String
+    #128: fn() -> String = %6
+    #129: String = closure_call #128()
+    #130: None = @24(console_log)
+    #131: None = call #130(#129)
+    #132: String = "get"
+    #133: String = "post"
+    #134: List<String> = [#132, #133]
+    #135: App = new App()
+    #136: App = %8
+    #137: fn(String) -> Float = #136.get
+    #138: App = %8
+    #139: String = "/a"
+    #140: fn(String) -> Float = bind_this #137, #136
+    #141: Float = closure_call #140(#139)
     #142: App = %8
-    #143: String = "/a"
-    #144: fn(String) -> Float = bind_this #141, #140
-    #145: Float = closure_call #144(#143)
-    #146: App = %8
-    #147: fn(String) -> Float = #146.post
+    #143: fn(String) -> Float = #142.post
+    #144: App = %8
+    #145: String = "/b"
+    #146: fn(String) -> Float = bind_this #143, #142
+    #147: Float = closure_call #146(#145)
     #148: App = %8
-    #149: String = "/b"
-    #150: fn(String) -> Float = bind_this #147, #146
-    #151: Float = closure_call #150(#149)
-    #152: App = %8
-    #153: App = %8
-    #154: fn(String) -> Float = #153.get
-    #155: App = %8
-    #156: String = "/c"
-    #157: fn(String) -> Float = bind_this #154, #153
-    #158: Float = closure_call #157(#156)
-    #159: None = @25(console_log)
-    #160: None = call #159(#145, #151, #158)
-    #161: App = %8
-    #162: fn() -> String = #161.routes
-    #163: App = %8
-    #164: String = #163.routes()
-    #165: None = @26(console_log)
-    #166: None = call #165(#164)
+    #149: fn(String) -> Float = #148.get
+    #150: App = %8
+    #151: String = "/c"
+    #152: fn(String) -> Float = bind_this #149, #148
+    #153: Float = closure_call #152(#151)
+    #154: None = @25(console_log)
+    #155: None = call #154(#141, #147, #153)
+    #156: App = %8
+    #157: fn() -> String = #156.routes
+    #158: App = %8
+    #159: String = #158.routes()
+    #160: None = @26(console_log)
+    #161: None = call #160(#159)
   stmts
     s0: let %0: TableRouter = #0
     s1: #7
     s2: #14
     s3: #21
-    s4: #33
-    s5: #45
-    s6: #56
-    s7: #66
-    s8: let %1: SmartRouter = #69
-    s9: #76
-    s10: #87
-    s11: #98
-    s12: #108
-    s13: #112
-    s14: let %2: fn(String) -> String = #117
-    s15: let %3: fn(String) -> String = #118
-    s16: #123
-    s17: let %4: fn(String) -> String = #128
-    s18: let %5: String = #129
-    s19: let %6: fn() -> String = #130
-    s20: #134
-    s21: let %7: List<String> = #137
-    s22: let %8: App = #138
-    s23: #160
-    s24: #166
+    s4: #32
+    s5: #43
+    s6: #53
+    s7: #63
+    s8: let %1: SmartRouter = #66
+    s9: #73
+    s10: #84
+    s11: #95
+    s12: #105
+    s13: #109
+    s14: let %2: fn(String) -> String = #114
+    s15: let %3: fn(String) -> String = #115
+    s16: #120
+    s17: let %4: fn(String) -> String = #125
+    s18: let %5: String = #126
+    s19: let %6: fn() -> String = #127
+    s20: #131
+    s21: let %7: List<String> = #134
+    s22: let %8: App = #135
+    s23: #155
+    s24: #161
 
 interned types
   t0 = TableRouter

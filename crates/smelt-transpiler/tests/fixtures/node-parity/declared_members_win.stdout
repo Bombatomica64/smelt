@@ -1,0 +1,15 @@
+ok:p rep:p
+ok:q rep:q
+ok:z
+rep:z
+prop:a s:b
+lit:a 3
+fld:x
+ok:g
+ok:s 1
+ok:m ok:n ok:c
+o:t
+X aYb 2
+map1 filtera incb push2 slice3 2
+at1 trim swz tf2 getk hash
+testt exece thenn trim

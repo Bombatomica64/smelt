@@ -47,16 +47,16 @@ fn interface_slot_of_callable_field_is_plain_copy_without_this_reads() {
     let source = source_for(
         r"
 interface Router {
-  route(path: string): string;
+  match(path: string): string;
 }
-function route(path: string): string {
+function match(path: string): string {
   return path + '!';
 }
 class R1 implements Router {
-  route: (path: string) => string = route;
+  match: (path: string) => string = match;
 }
 function viaInterface(routers: Router[]): string {
-  return routers[0].route('p');
+  return routers[0].match('p');
 }
 console.log(viaInterface([new R1()]));
 ",

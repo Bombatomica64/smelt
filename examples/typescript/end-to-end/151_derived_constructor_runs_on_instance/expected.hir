@@ -47,150 +47,147 @@ module examples/typescript/end-to-end/151_derived_constructor_runs_on_instance/i
     #18: String = "/api"
     #19: App<Float> = new App(#18)
     #20: App<Float> = %1
-    #21: App<Float> = %1
-    #22: fn(String) -> Float = #21.add
-    #23: App<Float> = %1
-    #24: String = "/users"
-    #25: fn(String) -> Float = bind_this #22, #21
-    #26: Float = closure_call #25(#24)
-    #27: App<Float> = %1
+    #21: fn(String) -> Float = #20.add
+    #22: App<Float> = %1
+    #23: String = "/users"
+    #24: fn(String) -> Float = bind_this #21, #20
+    #25: Float = closure_call #24(#23)
+    #26: App<Float> = %1
+    #27: fn(String) -> Float = #26.add
     #28: App<Float> = %1
-    #29: fn(String) -> Float = #28.add
-    #30: App<Float> = %1
-    #31: String = "/posts"
-    #32: fn(String) -> Float = bind_this #29, #28
-    #33: Float = closure_call #32(#31)
-    #34: None = @38(console_log)
-    #35: None = call #34(#26, #33)
+    #29: String = "/posts"
+    #30: fn(String) -> Float = bind_this #27, #26
+    #31: Float = closure_call #30(#29)
+    #32: None = @38(console_log)
+    #33: None = call #32(#25, #31)
+    #34: App<Float> = %1
+    #35: fn(String) -> String = #34.handle
     #36: App<Float> = %1
-    #37: fn(String) -> String = #36.handle
-    #38: App<Float> = %1
-    #39: String = "/users"
-    #40: fn(String) -> String = bind_this #37, #36
-    #41: String = closure_call #40(#39)
+    #37: String = "/users"
+    #38: fn(String) -> String = bind_this #35, #34
+    #39: String = closure_call #38(#37)
+    #40: App<Float> = %1
+    #41: fn(String) -> String = #40.handle
     #42: App<Float> = %1
-    #43: fn(String) -> String = #42.handle
-    #44: App<Float> = %1
-    #45: String = "/nope"
-    #46: fn(String) -> String = bind_this #43, #42
-    #47: String = closure_call #46(#45)
-    #48: None = @39(console_log)
-    #49: None = call #48(#41, #47)
-    #50: PlainApp = new PlainApp()
+    #43: String = "/nope"
+    #44: fn(String) -> String = bind_this #41, #40
+    #45: String = closure_call #44(#43)
+    #46: None = @39(console_log)
+    #47: None = call #46(#39, #45)
+    #48: PlainApp = new PlainApp()
+    #49: PlainApp = %2
+    #50: fn(String) -> Float = #49.add
     #51: PlainApp = %2
-    #52: PlainApp = %2
-    #53: fn(String) -> Float = #52.add
-    #54: PlainApp = %2
-    #55: String = "a"
-    #56: fn(String) -> Float = bind_this #53, #52
-    #57: Float = closure_call #56(#55)
-    #58: PlainApp = %2
-    #59: fn(String) -> String = #58.handle
-    #60: PlainApp = %2
-    #61: String = "a"
-    #62: fn(String) -> String = bind_this #59, #58
-    #63: String = closure_call #62(#61)
-    #64: PlainApp = %2
-    #65: List<String> = #64.routes
-    #66: Float = len #65
-    #67: None = @40(console_log)
-    #68: None = call #67(#63, #66)
-    #69: DoubleTally = new DoubleTally()
-    #70: DoubleTally = %3
-    #71: Float = #70.total
-    #72: DoubleTally = %3
-    #73: String = #72.history
-    #74: DoubleTally = %3
-    #75: Bool = #74.doubled
-    #76: None = @41(console_log)
-    #77: None = call #76(#71, #73, #75)
-    #78: String = "p"
-    #79: Point4 = new Point4(#78)
-    #80: Point4 = %4
-    #81: Float = #80.x
-    #82: Point4 = %4
-    #83: Float = #82.y
-    #84: Point4 = %4
-    #85: Float = #84.z
-    #86: Point4 = %4
-    #87: Float = #86.w
-    #88: Point4 = %4
-    #89: String = #88.tag
-    #90: None = @42(console_log)
-    #91: None = call #90(#81, #83, #85, #87, #89)
-    #92: FromThree = new FromThree()
+    #52: String = "a"
+    #53: fn(String) -> Float = bind_this #50, #49
+    #54: Float = closure_call #53(#52)
+    #55: PlainApp = %2
+    #56: fn(String) -> String = #55.handle
+    #57: PlainApp = %2
+    #58: String = "a"
+    #59: fn(String) -> String = bind_this #56, #55
+    #60: String = closure_call #59(#58)
+    #61: PlainApp = %2
+    #62: List<String> = #61.routes
+    #63: Float = len #62
+    #64: None = @40(console_log)
+    #65: None = call #64(#60, #63)
+    #66: DoubleTally = new DoubleTally()
+    #67: DoubleTally = %3
+    #68: Float = #67.total
+    #69: DoubleTally = %3
+    #70: String = #69.history
+    #71: DoubleTally = %3
+    #72: Bool = #71.doubled
+    #73: None = @41(console_log)
+    #74: None = call #73(#68, #70, #72)
+    #75: String = "p"
+    #76: Point4 = new Point4(#75)
+    #77: Point4 = %4
+    #78: Float = #77.x
+    #79: Point4 = %4
+    #80: Float = #79.y
+    #81: Point4 = %4
+    #82: Float = #81.z
+    #83: Point4 = %4
+    #84: Float = #83.w
+    #85: Point4 = %4
+    #86: String = #85.tag
+    #87: None = @42(console_log)
+    #88: None = call #87(#78, #80, #82, #84, #86)
+    #89: FromThree = new FromThree()
+    #90: FromThree = %5
+    #91: fn() -> Float = #90.next
+    #92: FromThree = %5
     #93: FromThree = %5
-    #94: fn() -> Float = #93.next
+    #94: Float = #93.next()
     #95: FromThree = %5
-    #96: FromThree = %5
-    #97: Float = #96.next()
+    #96: fn() -> Float = #95.next
+    #97: FromThree = %5
     #98: FromThree = %5
-    #99: fn() -> Float = #98.next
-    #100: FromThree = %5
-    #101: FromThree = %5
-    #102: Float = #101.next()
-    #103: None = @43(console_log)
-    #104: None = call #103(#97, #102)
-    #105: String = "forwarded"
-    #106: Named = new Named(#105)
-    #107: String = #106.label
-    #108: None = @44(console_log)
-    #109: None = call #108(#107)
-    #110: RoutedApp<Float> = new RoutedApp()
-    #111: RoutedApp<Float> = %6
-    #112: fn(String) -> Router<Float> = #111.on_error
-    #113: RoutedApp<Float> = %6
-    #114: String = "custom"
-    #115: fn(String) -> Router<Float> = bind_this #112, #111
-    #116: Router<Float> = closure_call #115(#114)
-    #117: RoutedApp<Float> = %6
-    #118: fn() -> String = #117.describe
-    #119: RoutedApp<Float> = %6
-    #120: String = #119.describe()
-    #121: None = @45(console_log)
-    #122: None = call #121(#120)
-    #123: RoutedApp<Float> = %6
-    #124: fn(String) -> Router<Float> = #123.on_error
-    #125: RoutedApp<Float> = %6
-    #126: String = "again"
-    #127: fn(String) -> Router<Float> = bind_this #124, #123
-    #128: Router<Float> = closure_call #127(#126)
-    #129: fn() -> String = #128.describe
-    #130: RoutedApp<Float> = %6
-    #131: fn(String) -> Router<Float> = #130.on_error
-    #132: RoutedApp<Float> = %6
-    #133: String = "again"
-    #134: fn(String) -> Router<Float> = bind_this #131, #130
-    #135: Router<Float> = closure_call #134(#133)
-    #136: String = #135.describe()
-    #137: RoutedApp<Float> = %6
-    #138: fn() -> String = #137.describe
-    #139: RoutedApp<Float> = %6
-    #140: String = #139.describe()
-    #141: None = @46(console_log)
-    #142: None = call #141(#136, #140)
+    #99: Float = #98.next()
+    #100: None = @43(console_log)
+    #101: None = call #100(#94, #99)
+    #102: String = "forwarded"
+    #103: Named = new Named(#102)
+    #104: String = #103.label
+    #105: None = @44(console_log)
+    #106: None = call #105(#104)
+    #107: RoutedApp<Float> = new RoutedApp()
+    #108: RoutedApp<Float> = %6
+    #109: fn(String) -> Router<Float> = #108.on_error
+    #110: RoutedApp<Float> = %6
+    #111: String = "custom"
+    #112: fn(String) -> Router<Float> = bind_this #109, #108
+    #113: Router<Float> = closure_call #112(#111)
+    #114: RoutedApp<Float> = %6
+    #115: fn() -> String = #114.describe
+    #116: RoutedApp<Float> = %6
+    #117: String = #116.describe()
+    #118: None = @45(console_log)
+    #119: None = call #118(#117)
+    #120: RoutedApp<Float> = %6
+    #121: fn(String) -> Router<Float> = #120.on_error
+    #122: RoutedApp<Float> = %6
+    #123: String = "again"
+    #124: fn(String) -> Router<Float> = bind_this #121, #120
+    #125: Router<Float> = closure_call #124(#123)
+    #126: fn() -> String = #125.describe
+    #127: RoutedApp<Float> = %6
+    #128: fn(String) -> Router<Float> = #127.on_error
+    #129: RoutedApp<Float> = %6
+    #130: String = "again"
+    #131: fn(String) -> Router<Float> = bind_this #128, #127
+    #132: Router<Float> = closure_call #131(#130)
+    #133: String = #132.describe()
+    #134: RoutedApp<Float> = %6
+    #135: fn() -> String = #134.describe
+    #136: RoutedApp<Float> = %6
+    #137: String = #136.describe()
+    #138: None = @46(console_log)
+    #139: None = call #138(#133, #137)
   stmts
     s0: let %0: SmartGreeter = #0
     s1: #7
     s2: #9 = #10
     s3: #17
     s4: let %1: App<Float> = #19
-    s5: #35
-    s6: #49
-    s7: let %2: PlainApp = #50
-    s8: #57
-    s9: #68
-    s10: let %3: DoubleTally = #69
-    s11: #77
-    s12: let %4: Point4 = #79
-    s13: #91
-    s14: let %5: FromThree = #92
-    s15: #104
-    s16: #109
-    s17: let %6: RoutedApp<Float> = #110
-    s18: #116
-    s19: #122
-    s20: #142
+    s5: #33
+    s6: #47
+    s7: let %2: PlainApp = #48
+    s8: #54
+    s9: #65
+    s10: let %3: DoubleTally = #66
+    s11: #74
+    s12: let %4: Point4 = #76
+    s13: #88
+    s14: let %5: FromThree = #89
+    s15: #101
+    s16: #106
+    s17: let %6: RoutedApp<Float> = #107
+    s18: #113
+    s19: #119
+    s20: #139
 
 interned types
   t0 = SmartGreeter

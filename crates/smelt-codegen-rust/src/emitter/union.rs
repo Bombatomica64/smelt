@@ -758,9 +758,7 @@ impl FunctionEmitter<'_> {
             return false;
         };
         match self.mir.types.get(member) {
-            Some(Type::Class { name, .. }) => {
-                self.symbol_name(*name).is_ok_and(|name| name == class_name)
-            }
+            Some(Type::Class { name, .. }) => self.class_extends_or_equals(*name, class),
             Some(Type::Future(_)) => class_name == "Promise",
             Some(Type::List(_) | Type::Tuple(_)) => class_name == "Array",
             Some(Type::JsMap(_, _)) => class_name == "Map",
