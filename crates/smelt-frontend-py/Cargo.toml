@@ -30,7 +30,7 @@ default = ["ty"]
 ty = ["dep:smelt-py-types"]
 
 [dependencies]
-smelt-asyncio = { path = "../smelt-asyncio", version = "0.1.1" }
+indexmap = "2"
 smelt-hir = { path = "../smelt-hir", version = "0.1.1" }
 smelt-specialize = { path = "../smelt-specialize", version = "0.1.1" }
 smelt-stdlib = { path = "../smelt-stdlib", version = "0.1.1" }

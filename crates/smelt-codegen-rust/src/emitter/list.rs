@@ -76,7 +76,7 @@ impl FunctionEmitter<'_> {
                     // each element after the element is erased to the runtime
                     // `SmeltUnknown` value, matching JS `includes` semantics.
                     let erased_item = self.erase_value_text("item.clone()", item_ty)?;
-                    format!("({erased_item}).same_js_key(&smelt_needle)")
+                    self.carrier_format(format_args!("({erased_item}).same_js_key(&smelt_needle)"))
                 } else {
                     return Ok("false".to_owned());
                 };
@@ -92,9 +92,9 @@ impl FunctionEmitter<'_> {
             if self.union_has_member(item_ty, needle_ty) {
                 let item_text =
                     self.value_at_type_text(&self.operand_text(item)?, needle_ty, item_ty, &self.render_scope())?;
-                return Ok(format!(
+                return Ok(self.carrier_format(format_args!(
                     "{{ let smelt_needle = {item_text}; {list_text}.iter().any(|item| item.same_js_key(&smelt_needle)) }}"
-                ));
+                )));
             }
             return Ok("false".to_owned());
         }
@@ -105,9 +105,9 @@ impl FunctionEmitter<'_> {
                     "{{ let smelt_needle = {item_text}; {list_text}.iter().any(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())) }}"
                 ));
             }
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "{{ let smelt_needle = {item_text}; {list_text}.iter().any(|item| item.same_js_key(&smelt_needle)) }}"
-            ));
+            )));
         }
         Ok(format!("{list_text}.contains(&{item_text})"))
     }
@@ -466,12 +466,12 @@ impl FunctionEmitter<'_> {
             }
         }
         if let Some(left_item_ty) = left_item
-            && self.is_erased_concat_operand(right_ty)
+            && self.has_dynamic_shape(right_ty)
         {
             return self.type_id(Type::List(left_item_ty));
         }
         if let Some(right_item_ty) = right_item
-            && self.is_erased_concat_operand(left_ty)
+            && self.has_dynamic_shape(left_ty)
         {
             return self.type_id(Type::List(right_item_ty));
         }
@@ -479,11 +479,6 @@ impl FunctionEmitter<'_> {
         self.type_id(Type::List(unknown_ty))
     }
 
-    /// Whether a concat operand erases to a runtime `SmeltUnknown` value, so its
-    /// elements must be unwrapped when collected alongside a concrete-typed side.
-    fn is_erased_concat_operand(&self, ty: TypeId) -> bool {
-        self.has_dynamic_shape(ty)
-    }
 
     /// Return whether an operand is statically known to be an empty list.
     fn is_empty_list_operand(&self, operand: &Operand) -> Result<bool, EmitError> {
@@ -544,7 +539,7 @@ impl FunctionEmitter<'_> {
             return self.unknown_list_slice_text(list, start, end, dest_ty);
         }
         let Some(Type::List(source_item_ty)) = self.mir.types.get(list_ty) else {
-            return Ok("Default::default()".to_owned());
+            return Err(EmitError::new("list slice receiver must be a list"));
         };
         self.validate_optional_numeric_index(start, "list slice start index")?;
         self.validate_optional_numeric_index(end, "list slice end index")?;
@@ -615,15 +610,15 @@ impl FunctionEmitter<'_> {
             // (`return obj.slice(0)`) depends on to hand back a distinct object —
             // and any other value is forwarded unchanged so `.slice()` tolerates
             // it rather than panicking or ToString-coercing it.
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "{{ let smelt_slice_value = {list_text}; let smelt_slice_start = {start_text} as i64; let smelt_slice_end = {end_text}.map(|end| end as i64); if let Some(smelt_sliced) = {host_slice}(&smelt_slice_value, smelt_slice_start, smelt_slice_end) {{ smelt_sliced }} else {{ match smelt_slice_value {{ SmeltUnknown::Array(values) => {{ let values = values.into_vec(); let smelt_slice_len = values.len() as i64; let smelt_start_index = (if smelt_slice_start < 0 {{ smelt_slice_len + smelt_slice_start }} else {{ smelt_slice_start }}).clamp(0, smelt_slice_len); let smelt_end_index = smelt_slice_end.map_or(smelt_slice_len, |end| if end < 0 {{ smelt_slice_len + end }} else {{ end }}).clamp(0, smelt_slice_len); let smelt_take_len = smelt_end_index.saturating_sub(smelt_start_index) as usize; SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), values.into_iter().skip(smelt_start_index as usize).take(smelt_take_len).collect::<Vec<_>>())) }}, SmeltUnknown::String(value) => {{ let chars = value.chars().collect::<Vec<char>>(); let smelt_slice_len = chars.len() as i64; let smelt_start_index = (if smelt_slice_start < 0 {{ smelt_slice_len + smelt_slice_start }} else {{ smelt_slice_start }}).clamp(0, smelt_slice_len); let smelt_end_index = smelt_slice_end.map_or(smelt_slice_len, |end| if end < 0 {{ smelt_slice_len + end }} else {{ end }}).clamp(0, smelt_slice_len); let smelt_take_len = smelt_end_index.saturating_sub(smelt_start_index) as usize; SmeltUnknown::String(chars.into_iter().skip(smelt_start_index as usize).take(smelt_take_len).collect::<String>().into()) }}, smelt_other => smelt_other }} }} }}",
                 host_slice = smelt_stdlib::runtime_symbols::byte_buffer::SLICE,
-            ));
+            )));
         }
         let sliced_values_text = "smelt_slice_values.into_iter().skip(smelt_start_index as usize).take(smelt_take_len).collect::<Vec<_>>()";
-        Ok(format!(
+        Ok(self.carrier_format(format_args!(
             "{{ let smelt_slice_value = {list_text}; let smelt_slice_start = {start_text}; let smelt_slice_end = {end_text}; let smelt_slice_values = match smelt_slice_value {{ SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string().into())).collect::<Vec<_>>(), _ => Vec::new() }}; let smelt_slice_len = smelt_slice_values.len() as i64; let smelt_start_index = smelt_slice_start as i64; let smelt_start_index = if smelt_start_index < 0 {{ smelt_slice_len + smelt_start_index }} else {{ smelt_start_index }}.clamp(0, smelt_slice_len); let smelt_end_index = smelt_slice_end.map_or(smelt_slice_len, |end| {{ let end = end as i64; if end < 0 {{ smelt_slice_len + end }} else {{ end }} }}).clamp(0, smelt_slice_len); let smelt_take_len = smelt_end_index.saturating_sub(smelt_start_index) as usize; {sliced_values_text} }}"
-        ))
+        )))
     }
 
     /// Converts an array splice or toSpliced operation to Rust text.
@@ -857,7 +852,7 @@ impl FunctionEmitter<'_> {
         if self.has_dynamic_shape(list_ty)
         {
             let Some(Type::List(item_ty)) = self.mir.types.get(dest_ty) else {
-                return Ok("Default::default()".to_owned());
+                return Err(EmitError::new("list flat destination must be a list"));
             };
             if self.mir.types.get(*item_ty) != Some(&Type::Unknown) {
                 return Err(EmitError::new(
@@ -873,12 +868,12 @@ impl FunctionEmitter<'_> {
             // (`callback_param_is_shared_reference`); moving out of the latter is
             // E0507.
             let list_text = self.operand_borrow_text(list)?;
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "{{ {SMELT_FLAT_VALUES_FN} let smelt_flat_depth = (({depth_text}) as f64).max(0.0).floor() as i64; let smelt_flat_input = match &({list_text}) {{ SmeltUnknown::Array(values) => values.clone().into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string().into())).collect::<Vec<_>>(), _ => Vec::new() }}; smelt_flat_values(smelt_flat_input, smelt_flat_depth) }}"
-            ));
+            )));
         }
         let Some(Type::List(nested_ty)) = self.mir.types.get(list_ty) else {
-            return Ok("Default::default()".to_owned());
+            return Err(EmitError::new("list flat receiver must be a list"));
         };
         if self.mir.types.get(*nested_ty) == Some(&Type::Unknown)
             && self.mir.types.get(dest_ty) == Some(&Type::List(*nested_ty))
@@ -920,7 +915,8 @@ impl FunctionEmitter<'_> {
             return self.union_list_flat_text(list, *nested_ty, depth, dest_ty);
         }
         let Some(Type::List(item_ty)) = self.mir.types.get(*nested_ty) else {
-            return Ok("Default::default()".to_owned());
+            // `flat` leaves an item that is not an array as it is.
+            return self.value_at_type(list, dest_ty);
         };
         if depth.is_some() {
             return Err(EmitError::new(
@@ -1011,9 +1007,9 @@ impl FunctionEmitter<'_> {
                     if self.mir.types.get(dest_ty) != Some(&Type::List(int_ty)) {
                         return Err(EmitError::new("array keys destination must be int list"));
                     }
-                    Ok(format!(
+                    Ok(self.carrier_format(format_args!(
                         "match {list_text}.clone() {{ SmeltUnknown::Array(values) => (0..values.len()).map(|idx| idx as i64).collect::<Vec<_>>(), _ => Vec::new() }}"
-                    ))
+                    )))
                 }
                 smelt_hir::ListProjectionOp::Values => {
                     let Some(Type::List(value_ty)) = self.mir.types.get(dest_ty) else {
@@ -1022,9 +1018,9 @@ impl FunctionEmitter<'_> {
                         ));
                     };
                     let item_text = self.extract_value_text("item", *value_ty, &self.render_scope())?;
-                    Ok(format!(
+                    Ok(self.carrier_format(format_args!(
                         "match {list_text}.clone() {{ SmeltUnknown::Array(values) => values.into_iter().map(|item| {item_text}).collect::<Vec<_>>(), _ => Vec::new() }}"
-                    ))
+                    )))
                 }
                 smelt_hir::ListProjectionOp::Entries => {
                     let int_ty = self.type_id(Type::Int)?;
@@ -1045,9 +1041,9 @@ impl FunctionEmitter<'_> {
                         ));
                     };
                     let item_text = self.extract_value_text("item", item_ty, &self.render_scope())?;
-                    Ok(format!(
+                    Ok(self.carrier_format(format_args!(
                         "match {list_text}.clone() {{ SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(idx, item)| (idx as i64, {item_text})).collect::<Vec<_>>(), _ => Vec::new() }}"
-                    ))
+                    )))
                 }
             };
         }

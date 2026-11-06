@@ -112,6 +112,10 @@ impl FunctionRegistry {
     /// removed, so a later lookup sees "declared here, no overloads" instead of
     /// falling back to the imported surface.
     pub(in crate::lowering) fn shadow_implementations(&mut self, implemented: &HashSet<String>) {
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "keyed inserts of one value"
+        )]
         for name in implemented {
             self.overloads.insert(name.clone(), Vec::new());
         }
@@ -125,11 +129,6 @@ impl FunctionRegistry {
     /// Record the rest-parameter metadata of the function named `name`.
     pub(in crate::lowering) fn set_rest(&mut self, name: String, rest: RestParam) {
         self.rests.insert(name, rest);
-    }
-
-    /// Return the forward-visible signature of the hoisted function `name`.
-    pub(in crate::lowering) fn forward_type(&self, name: &str) -> Option<ForwardFunctionType> {
-        self.forward_types.get(name).copied()
     }
 
     /// Record the forward-visible signature of a hoisted function declaration.

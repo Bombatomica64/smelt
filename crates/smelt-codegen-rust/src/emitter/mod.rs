@@ -10,17 +10,20 @@
 
 use crate::classes::{NominalStorage, type_holds_function};
 use crate::generic_bindings::CalleeTypeParamBindings;
+use crate::runtime_demand::{Need, RuntimeDemand};
+use smelt_stdlib::runtime_symbols::markers::*;
 use crate::rust::RustType;
+use crate::thrown::ERROR_BOX;
 use crate::type_substitution::{Resolved, TypeSubstitution};
 use render_scope::RenderScope;
 use crate::{EmitError, compact_index, id_index, sanitize_ident};
-use literals::{operand_local, operand_mutation_root};
+use literals::operand_mutation_root;
 use smelt_hir::{FileId, PropertyLookup, Span, Symbol, Type, TypeId};
 use smelt_mir::{
     AbsentSpelling, BasicBlock, BuiltinFn, Callee, Constant, FuncId, HirOrigin, LocalDecl,
     LocalId, LocalKind, Mir,
     MirClass, MirClosure, MirDescriptor, MirField, MirFunction, MirListSpliceItem, NegativeIndex,
-    Operand, Place, Rvalue, Statement, Terminator,
+    Operand, Place, Read, Rvalue, Statement, Terminator,
 };
 use std::{
     cell::RefCell,
@@ -118,6 +121,7 @@ mod core;
 mod dict_entry_update;
 pub(crate) mod emit_role;
 mod flow_state;
+mod local_binding;
 mod helper_reservation;
 mod blob;
 mod fetch_types;
@@ -147,7 +151,6 @@ mod post_dominance;
 mod receiver_bound_slot;
 mod record_slot_abi;
 mod render_scope;
-mod rendered_text_rewrite;
 mod rendered_value;
 /// Debug-only emitter self-consistency checks; the module does not exist in a
 /// release build, so neither do its assertions or their call sites.
@@ -191,9 +194,36 @@ struct TestRuntimeResets {
 }
 
 /// Precomputed crate-level codegen facts shared by all function emitters.
+/// The visibility a free function's definition is written with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FreeFunctionVisibility {
+    /// Private to its module: the crate root, where every call can see it.
+    Private,
+    /// Visible to the crate root, which re-exports a sibling module's functions.
+    Crate,
+}
+
+impl FreeFunctionVisibility {
+    /// The text in front of `fn`.
+    const fn text(self) -> &'static str {
+        match self {
+            Self::Private => "",
+            Self::Crate => "pub(crate) ",
+        }
+    }
+}
+
 pub(crate) struct EmitContext {
     /// The type ID of the None type.
     pub(crate) none_ty: TypeId,
+    /// What this program demands of the runtime, computed once.
+    demand: RuntimeDemand,
+    /// Whether the render under trial touched the erased carrier; see
+    /// [`Self::note_carrier_use`].
+    carrier_touched: std::cell::Cell<bool>,
+    /// Nesting of real dynamic boundaries, inside which a carrier use does not
+    /// count; see [`Self::at_carrier_boundary`].
+    carrier_boundaries: std::cell::Cell<usize>,
     /// The generated traits of class- and interface-bounded type parameters
     /// (see [`crate::bound_traits`]).
     pub(crate) bound_traits: crate::bound_traits::BoundTraitPlan,
@@ -294,6 +324,8 @@ pub(crate) struct EmitContext {
     /// [`EmitContext::populate_generic_functions`] and read through
     /// [`EmitContext::is_generic_function`].
     generic_functions: RefCell<HashSet<FuncId>>,
+    /// The functions whose generic status the running trial asked about.
+    generic_reads: RefCell<HashSet<FuncId>>,
     /// Class symbols emitted as reference classes (handle newtype over
     /// `Rc<RefCell<Inner>>`), computed once by [`crate::classify`]. Every class
     /// not in this set stays a by-value value class with its current emission.
@@ -317,7 +349,7 @@ pub(crate) struct EmitContext {
     /// [`receiver_bound_slot`]).
     program_reads_this: bool,
     /// Whether the crate carries a JavaScript `bigint` (see
-    /// `stdlib::needs_bigint_runtime`). The `SmeltUnknown::BigInt` tag only
+    /// `Need::BigInt`). The `SmeltUnknown::BigInt` tag only
     /// exists in such a crate, so an exhaustive match over the erased carrier
     /// names that arm only when this is set.
     needs_bigint: bool,
@@ -472,13 +504,14 @@ impl EmitContext {
             function_names.insert(function.id, rust_name);
         }
         let owned_callback_params = compute_owned_callback_params(mir)?;
+        let demand = RuntimeDemand::of(mir);
 
         Ok(Self {
             none_ty,
             bound_traits: crate::bound_traits::BoundTraitPlan::compute(mir),
             test_runtime_resets: TestRuntimeResets {
-                date_now: crate::stdlib::needs_date_now_runtime(mir),
-                timers: crate::needs_timer_helpers(mir),
+                date_now: demand.has(Need::DateNow),
+                timers: demand.has(Need::Timers),
             },
             function_names,
             function_param_types,
@@ -496,15 +529,24 @@ impl EmitContext {
             record_conversion_helpers: ::std::cell::RefCell::new(::std::collections::BTreeMap::new()),
             record_adapter_helpers: ::std::cell::RefCell::new(::std::collections::BTreeMap::new()),
             generic_functions: RefCell::new(HashSet::new()),
+            generic_reads: RefCell::new(HashSet::new()),
             weak_receivers: weak_receiver::WeakReceiverPlan::of(mir, &crate::classify::reference_classes(mir)),
             reference_classes: crate::classify::reference_classes(mir),
             type_param_elision: crate::generic_elision::compute(mir),
             erased_view_write_through: view_write_through::program_writes_erased_fields(mir),
-            program_reads_this: receiver_bound_slot::program_reads_this(mir),
-            needs_bigint: crate::stdlib::needs_bigint_runtime(mir),
+            program_reads_this: demand.has(Need::ThisRead),
+            needs_bigint: demand.has(Need::BigInt),
+            demand,
+            carrier_touched: std::cell::Cell::new(false),
+            carrier_boundaries: std::cell::Cell::new(0),
             console_inspect_used: ::std::cell::Cell::new(false),
             backend_erasures: RefCell::new(Vec::new()),
         })
+    }
+
+    /// What this program demands of the runtime.
+    pub(crate) const fn demand(&self) -> &RuntimeDemand {
+        &self.demand
     }
 
     /// Capture everything a body render writes into this shared context, so a
@@ -523,6 +565,29 @@ impl EmitContext {
             console_inspect_used: self.console_inspect_used.get(),
             backend_erasures_len: self.backend_erasures.borrow().len(),
         }
+    }
+
+    /// Records that the output touched the erased runtime carrier.
+    ///
+    /// The generic trial reads this: a body that erases or inspects a value
+    /// cannot keep its type parameters opaque.
+    pub(crate) fn note_carrier_use(&self) {
+        if self.carrier_boundaries.get() == 0 {
+            self.carrier_touched.set(true);
+        }
+    }
+
+    /// Opens a real dynamic boundary, whose carrier uses say nothing about the
+    /// surrounding body: a thrown payload, or a mutable-list adapter that erases
+    /// and un-erases at the call it wraps. It closes when the guard drops.
+    pub(crate) fn carrier_boundary(&self) -> CarrierBoundary<'_> {
+        self.carrier_boundaries.set(self.carrier_boundaries.get().saturating_add(1));
+        CarrierBoundary { context: self }
+    }
+
+    /// Answers whether the carrier was touched since the last call, and clears it.
+    pub(crate) fn take_carrier_touched(&self) -> bool {
+        self.carrier_touched.replace(false)
     }
 
     /// Record that a `console.log` argument renders through `SmeltInspect`.
@@ -606,8 +671,8 @@ impl EmitContext {
     /// The result is self-consistent: every trial that produced it saw the same
     /// answer the emission will use.
     ///
-    /// Convergence is not guaranteed in theory (the trial is a textual
-    /// predicate, not a monotone one), so the loop is capped and falls back to
+    /// Convergence is not guaranteed in theory (the trial is not a monotone
+    /// predicate: a callee's answer changes how its callers render), so the loop is capped and falls back to
     /// the first round's answer — the historical one — if it oscillates. In
     /// practice both compat corpora settle in two rounds.
     pub(crate) fn populate_generic_functions(&self, mir: &Mir) -> Result<(), EmitError> {
@@ -671,21 +736,39 @@ impl EmitContext {
 
         self.generic_functions.borrow_mut().clear();
         let mut first_round: Option<HashSet<FuncId>> = None;
+        // A trial's answer depends on the crate only through the callees whose
+        // status it read, so a round re-runs just the trials that read a status
+        // the previous round changed.
+        let mut trials: HashMap<FuncId, TrialOutcome> = HashMap::new();
+        let mut changed: HashSet<FuncId> = HashSet::new();
         for _ in 0..MAX_ROUNDS {
             let mut next = HashSet::new();
             for function in signature_safe {
                 if forced_out.contains(&function.id) {
                     continue;
                 }
-                let emitter = FunctionEmitter::for_generic_trial(mir, self, function)?;
-                if emitter.renders_real_generics()? {
+                let outcome = match trials.get(&function.id) {
+                    Some(outcome) if outcome.reads.is_disjoint(&changed) => outcome,
+                    _ => {
+                        self.generic_reads.borrow_mut().clear();
+                        let emitter = FunctionEmitter::for_generic_trial(mir, self, function)?;
+                        let generic = emitter.renders_real_generics()?;
+                        let reads = self.generic_reads.take();
+                        trials.insert(function.id, TrialOutcome { generic, reads });
+                        trials
+                            .get(&function.id)
+                            .ok_or_else(|| EmitError::new("trial outcome was not recorded"))?
+                    }
+                };
+                if outcome.generic {
                     next.insert(function.id);
                 }
             }
             if first_round.is_none() {
                 first_round = Some(next.clone());
             }
-            if *self.generic_functions.borrow() == next {
+            changed = self.generic_functions.borrow().symmetric_difference(&next).copied().collect();
+            if changed.is_empty() {
                 return Ok(next);
             }
             *self.generic_functions.borrow_mut() = next;
@@ -743,6 +826,7 @@ impl EmitContext {
 
     /// Return whether the free function with `id` emits real Rust generics.
     pub(crate) fn is_generic_function(&self, id: FuncId) -> bool {
+        self.generic_reads.borrow_mut().insert(id);
         self.generic_functions.borrow().contains(&id)
     }
 }
@@ -811,7 +895,7 @@ fn compute_owned_callback_params(mir: &Mir) -> Result<HashSet<(FuncId, LocalId)>
                     {
                         continue;
                     }
-                    let Some(arg_local) = operand_local(arg) else {
+                    let Some(arg_local) = arg.local() else {
                         continue;
                     };
                     if function.params.contains(&arg_local)
@@ -1020,7 +1104,7 @@ fn callback_param_escapes_locally(
         block.statements.iter().any(|statement| {
             let value = match statement {
                 Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => value,
-                _ => return false,
+                Statement::DictEntryUpdate { .. } => return false,
             };
             matches!(
                 value,
@@ -1175,8 +1259,8 @@ fn statement_erases_callback_param(
             spreads,
         } => {
             dest_ty.is_some_and(|ty| type_erases_values(mir, ty))
-                && (operand_local(callable) == Some(local)
-                    || operand_local(callable)
+                && (callable.local() == Some(local)
+                    || callable.local()
                         .and_then(|callable_local| {
                             closure_source_for_local(
                                 function,
@@ -1197,14 +1281,14 @@ fn statement_erases_callback_param(
                         })
                     || props
                         .iter()
-                        .any(|(_, prop_value)| operand_local(prop_value) == Some(local))
+                        .any(|(_, prop_value)| prop_value.local() == Some(local))
                     || spreads
                         .iter()
-                        .any(|spread_value| operand_local(spread_value) == Some(local)))
+                        .any(|spread_value| spread_value.local() == Some(local)))
         }
         Rvalue::Use(operand) => {
             dest_ty.is_some_and(|ty| type_erases_values(mir, ty))
-                && operand_local(operand) == Some(local)
+                && operand.local() == Some(local)
         }
         _ => false,
     }
@@ -1285,10 +1369,10 @@ fn operand_refs_callback_param_or_capturing_closure(
     local: LocalId,
     closure_defs: Option<&HashMap<LocalId, smelt_mir::ClosureId>>,
 ) -> bool {
-    if operand_local(operand) == Some(local) {
+    if operand.local() == Some(local) {
         return true;
     }
-    operand_local(operand)
+    operand.local()
         .and_then(|operand_local| closure_source_for_local(function, operand_local, closure_defs))
         .and_then(|closure_id| {
             mir.closures
@@ -1386,6 +1470,27 @@ fn closure_definitions(
     Ok(definitions)
 }
 
+/// What one body-cleanliness trial answered and what its answer rests on.
+struct TrialOutcome {
+    /// Whether the function keeps its generics.
+    generic: bool,
+    /// The functions whose generic status the trial read.
+    reads: HashSet<FuncId>,
+}
+
+/// An open [`EmitContext::carrier_boundary`].
+pub(crate) struct CarrierBoundary<'a> {
+    /// The context whose boundary this holds open.
+    context: &'a EmitContext,
+}
+
+impl Drop for CarrierBoundary<'_> {
+    fn drop(&mut self) {
+        let open = self.context.carrier_boundaries.get();
+        self.context.carrier_boundaries.set(open.saturating_sub(1));
+    }
+}
+
 /// Emits Rust source for one MIR function.
 pub(crate) struct FunctionEmitter<'mir> {
     /// Reference to the MIR.
@@ -1394,8 +1499,10 @@ pub(crate) struct FunctionEmitter<'mir> {
     context: &'mir EmitContext,
     /// The function being emitted.
     function: &'mir MirFunction,
-    /// Mapping from local IDs to variable names.
-    names: HashMap<LocalId, String>,
+    /// How each local is bound in the generated Rust scope.
+    bindings: HashMap<LocalId, local_binding::LocalBinding>,
+    /// Binding uses recorded while this body and its nested closures render.
+    binding_uses: local_binding::SharedBindingUses,
     /// Set of locals that are mutated.
     mutable_locals: HashSet<LocalId>,
     /// Locals that have already been introduced in the generated Rust scope.

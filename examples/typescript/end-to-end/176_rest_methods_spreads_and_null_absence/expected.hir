@@ -161,13 +161,12 @@ module examples/typescript/end-to-end/176_rest_methods_spreads_and_null_absence/
     #140: String = "done"
     #141: String = %9
     #142: Headers = headers_new
-    #143: Headers = headers_new
-    #144: String = "missing"
-    #145: Optional<String> = headers_get #143, #144
-    #146: String = "null"
-    #147: String = #145 ?? #146
-    #148: None = @15(console_log)
-    #149: None = call #148(#141, #147)
+    #143: String = "missing"
+    #144: Optional<String> = headers_get #142, #143
+    #145: String = "null"
+    #146: String = #144 ?? #145
+    #147: None = @15(console_log)
+    #148: None = call #147(#141, #146)
   stmts
     s0: let %0: Bag = #0
     s1: let %1: List<Float> = #3
@@ -185,7 +184,7 @@ module examples/typescript/end-to-end/176_rest_methods_spreads_and_null_absence/
     s13: #121
     s14: #138
     s15: #139 = #140
-    s16: #149
+    s16: #148
 
 interned types
   t0 = Bag
@@ -203,13 +202,12 @@ interned types
   t12 = Bool
   t13 = Float | String | Bool
   t14 = List<Float | String | Bool>
-  t15 = fn(String, Optional<String>) -> String
-  t16 = Unknown
-  t17 = fn(String, Optional<String>) -> String
-  t18 = fn(...List<Float | String | Bool>) -> Float
-  t19 = fn(Float, ...List<Float>) -> Float
-  t20 = fn(String, ...List<String>) -> String
-  t21 = Int
-  t22 = fn(Entry) -> String
-  t23 = fn(Optional<String>) -> String
-  t24 = Headers
+  t15 = Unknown
+  t16 = fn(String, Optional<String>) -> String
+  t17 = fn(...List<Float | String | Bool>) -> Float
+  t18 = fn(Float, ...List<Float>) -> Float
+  t19 = fn(String, ...List<String>) -> String
+  t20 = Int
+  t21 = fn(Entry) -> String
+  t22 = fn(Optional<String>) -> String
+  t23 = Headers

@@ -35,7 +35,6 @@
     reason = "crate-visible helpers are shared with the parent module and the emitter shards"
 )]
 
-use crate::rust::CodeWriter;
 
 /// The emitted helper's name, so emit sites and the prelude agree on it.
 pub(crate) const NUMBER_TO_STRING_FN: &str = "smelt_number_to_string";
@@ -59,75 +58,6 @@ pub(crate) const NUMBER_TO_STRING_FN: &str = "smelt_number_to_string";
 pub(crate) const CONSOLE_NUMBER_FN: &str = "smelt_console_number";
 
 
-/// Emit `smelt_number_to_string(f64) -> String`.
-///
-/// Emitted unconditionally: it is core coercion machinery, reached by
-/// `Display for SmeltUnknown`, every static `String(x)`/template coercion, a
-/// property key, an array join and `console.log`. A crate that never
-/// stringifies a number carries it unused, which is inert under the generated
-/// crate's `#![allow(dead_code)]` — the same trade the `typeof` helper makes.
-pub(crate) fn emit(writer: &mut CodeWriter) {
-    writer.line("/// `Number::toString(value, 10)`: JavaScript's number formatting.");
-    writer.line("///");
-    writer.line("/// Exponential notation at `n > 21` and `n <= -6`, where `n` is the");
-    writer.line("/// decimal exponent of the shortest round-trip digit string — which is");
-    writer.line("/// what Rust's `{:e}` already produces.");
-    // `Borrow<f64>` rather than `f64`, so the one helper serves both call
-    // shapes the emitter produces: a by-value number, and the `&f64` a
-    // `match` over a BORROWED erased value binds (an erased list's items are
-    // iterated by reference, so `SmeltUnknown::Number(value)` there is a
-    // `&f64`). The alternative was for every emit site to know which shape its
-    // scrutinee had, which is exactly the kind of guess that compiles in the
-    // examples and fails on the first library.
-    writer.block(
-        format!(
-            "fn {NUMBER_TO_STRING_FN}<N: ::std::borrow::Borrow<f64>>(value: N) -> String"
-        ),
-        |fn_writer| {
-            fn_writer.line("let value = *value.borrow();");
-            fn_writer.line("if value.is_nan() { return \"NaN\".to_owned(); }");
-            // `-0.0 == 0.0` is true, so negative zero takes this arm and prints
-            // `0`, which is what `String(-0)` is in JavaScript.
-            fn_writer.line("if value == 0.0 { return \"0\".to_owned(); }");
-            fn_writer
-                .line(format!("if value < 0.0 {{ return format!(\"-{{}}\", {NUMBER_TO_STRING_FN}(-value)); }}"));
-            fn_writer.line("if value.is_infinite() { return \"Infinity\".to_owned(); }");
-            fn_writer.line("let exponential = format!(\"{value:e}\");");
-            fn_writer.line("let (mantissa, exponent) = exponential.split_once('e').unwrap_or((exponential.as_str(), \"0\"));");
-            fn_writer.line("let digits: String = mantissa.chars().filter(char::is_ascii_digit).collect();");
-            fn_writer.line("let k = i32::try_from(digits.len()).unwrap_or(i32::MAX);");
-            fn_writer.line("let n = exponent.parse::<i32>().unwrap_or(0) + 1;");
-            // The four layouts of the spec's step 5, in its order: an integer
-            // with trailing zeros, a decimal point inside the digits, a leading
-            // `0.` with padding, and exponential form.
-            fn_writer.block("if k <= n && n <= 21", |branch| {
-                branch.line("let zeros = usize::try_from(n - k).unwrap_or(0);");
-                branch.line("return digits + &\"0\".repeat(zeros);");
-            });
-            fn_writer.block("if 0 < n && n <= 21", |branch| {
-                branch.line("let split = usize::try_from(n).unwrap_or(0);");
-                branch.line("return format!(\"{}.{}\", &digits[..split], &digits[split..]);");
-            });
-            fn_writer.block("if -6 < n && n <= 0", |branch| {
-                branch.line("let zeros = usize::try_from(-n).unwrap_or(0);");
-                branch.line("return format!(\"0.{}{}\", \"0\".repeat(zeros), digits);");
-            });
-            fn_writer.line("let sign = if n - 1 < 0 { '-' } else { '+' };");
-            fn_writer.line("let magnitude = (n - 1).abs();");
-            fn_writer.line("if k == 1 { return format!(\"{digits}e{sign}{magnitude}\"); }");
-            fn_writer.line("format!(\"{}.{}e{sign}{magnitude}\", &digits[..1], &digits[1..])");
-        },
-    );
-    writer.blank_line();
-    // `console.log` is `util.inspect`, not `String()`, and the two disagree
-    // about exactly one value.
-    writer.line("/// `console.log`'s number formatting: the spec's rule, but `-0` prints `-0`.");
-    writer.line(format!(
-        "fn {CONSOLE_NUMBER_FN}<N: ::std::borrow::Borrow<f64>>(value: N) -> String {{ let value = *value.borrow(); if value == 0.0 && value.is_sign_negative() {{ return \"-0\".to_owned(); }} {NUMBER_TO_STRING_FN}(value) }}"
-    ));
-    writer.blank_line();
-}
-
 /// Python's `repr(float)` (which `str(float)` and `print` use).
 ///
 /// The shortest round-trip digits, like JavaScript, but spelled Python's way:
@@ -139,36 +69,8 @@ pub(crate) fn emit(writer: &mut CodeWriter) {
 /// respelled.
 pub const PY_FLOAT_REPR_FN: &str = "smelt_py_float_repr";
 
-/// Emit [`PY_FLOAT_REPR_FN`].
-///
-/// Emitted only for a crate with Python code (a function whose absent value
-/// is spelled `None`), so TypeScript programs do not carry it.
-pub fn emit_python(writer: &mut CodeWriter) {
-    writer.line("/// Python's `repr(float)`: `12.0`, `1e+16`, `1.5e-07`, `inf`, `nan`.");
-    writer.block(
-        format!("fn {PY_FLOAT_REPR_FN}<N: ::std::borrow::Borrow<f64>>(value: N) -> String"),
-        |fn_writer| {
-            fn_writer.line("let value = *value.borrow();");
-            fn_writer.line("if value.is_nan() { return \"nan\".to_owned(); }");
-            fn_writer.line(
-                "if value.is_infinite() { return if value > 0.0 { \"inf\" } else { \"-inf\" }.to_owned(); }",
-            );
-            fn_writer.line("let text = format!(\"{value:?}\");");
-            fn_writer.block("match text.split_once('e')", |match_writer| {
-                match_writer.line(
-                    "Some((mantissa, exponent)) => { let (sign, digits) = exponent.strip_prefix('-').map_or((\"+\", exponent), |digits| (\"-\", digits)); format!(\"{mantissa}e{sign}{digits:0>2}\") }",
-                );
-                match_writer.line("None => text,");
-            });
-        },
-    );
-    writer.blank_line();
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     /// The emitted helper covers all four of the spec's layouts and both
     /// notation switches.
     ///
@@ -177,9 +79,7 @@ mod tests {
     /// notation and Rust's `Display` never does.
     #[test]
     fn the_helper_implements_the_four_layouts() {
-        let mut writer = CodeWriter::new();
-        emit(&mut writer);
-        let text = writer.finish();
+        let text = crate::runtime_prelude::rendered_text(&|_| false);
         for expected in [
             "fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String",
             // One helper for both call shapes: a by-value number and the

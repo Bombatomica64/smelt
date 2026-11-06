@@ -9,7 +9,7 @@
     reason = "the binding analysis is shared with sibling codegen modules"
 )]
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use indexmap::IndexMap;
 use smelt_hir::{FunctionType, Symbol, Type, TypeId};
@@ -366,173 +366,67 @@ pub(crate) fn substituted_type_id(
     declared: TypeId,
     bindings: &CalleeTypeParamBindings,
 ) -> Option<TypeId> {
-    let declared_ty = mir.types.get(declared)?;
-    match declared_ty {
-        Type::TypeParam { name } => match bindings.get(*name) {
-            Some(TypeParamBinding::Concrete(bound)) => Some(bound),
-            _ => None,
-        },
-        // Unions erase; see the docstring.
-        Type::Union(_) => None,
-        Type::Bool
-        | Type::Int
-        | Type::FixedInt(_)
-        | Type::BigInt
-        | Type::Float
-        | Type::String
-        | Type::Unknown
-        | Type::Never
-        | Type::None => Some(declared),
-        Type::List(item) => substituted_wrapper(mir, declared, *item, bindings, Type::List),
-        Type::Set(item) => substituted_wrapper(mir, declared, *item, bindings, Type::Set),
-        Type::Optional(item) => substituted_wrapper(mir, declared, *item, bindings, Type::Optional),
-        Type::Future(item) => substituted_wrapper(mir, declared, *item, bindings, Type::Future),
-        Type::Dict(key, value) => {
-            let (substituted_key, substituted_value) =
-                substituted_pair(mir, *key, *value, bindings)?;
-            if substituted_key == *key && substituted_value == *value {
-                return Some(declared);
-            }
-            find_type_id(mir, &Type::Dict(substituted_key, substituted_value))
-        }
-        Type::JsMap(key, value) => {
-            let (substituted_key, substituted_value) =
-                substituted_pair(mir, *key, *value, bindings)?;
-            if substituted_key == *key && substituted_value == *value {
-                return Some(declared);
-            }
-            find_type_id(mir, &Type::JsMap(substituted_key, substituted_value))
-        }
-        Type::Tuple(items) => {
-            let substituted = substituted_slice(mir, items, bindings)?;
-            if substituted == *items {
-                return Some(declared);
-            }
-            find_type_id(mir, &Type::Tuple(substituted))
-        }
-        Type::Class { name, args } => {
-            let substituted = substituted_slice(mir, args, bindings)?;
-            if substituted == *args {
-                return Some(declared);
-            }
-            find_type_id(
-                mir,
-                &Type::Class {
-                    name: *name,
-                    args: substituted,
-                },
-            )
-        }
-        Type::Function(function) => {
-            let params = substituted_slice(mir, &function.params, bindings)?;
-            let return_ty = substituted_type_id(mir, function.return_ty, bindings)?;
-            if params == function.params && return_ty == function.return_ty {
-                return Some(declared);
-            }
-            find_type_id(
-                mir,
-                &Type::Function(FunctionType {
-                    params,
-                    return_ty,
-                    ..function.clone()
-                }),
-            )
-        }
-        Type::Generator {
-            is_async,
-            yield_ty,
-            return_ty,
-            next_ty,
-        } => {
-            let substituted_yield = substituted_type_id(mir, *yield_ty, bindings)?;
-            let substituted_return = substituted_type_id(mir, *return_ty, bindings)?;
-            let substituted_next = substituted_type_id(mir, *next_ty, bindings)?;
-            if substituted_yield == *yield_ty
-                && substituted_return == *return_ty
-                && substituted_next == *next_ty
-            {
-                return Some(declared);
-            }
-            find_type_id(
-                mir,
-                &Type::Generator {
-                    is_async: *is_async,
-                    yield_ty: substituted_yield,
-                    return_ty: substituted_return,
-                    next_ty: substituted_next,
-                },
-            )
-        }
-        Type::GeneratorResult {
-            yield_ty,
-            return_ty,
-        } => {
-            let (substituted_yield, substituted_return) =
-                substituted_pair(mir, *yield_ty, *return_ty, bindings)?;
-            if substituted_yield == *yield_ty && substituted_return == *return_ty {
-                return Some(declared);
-            }
-            find_type_id(
-                mir,
-                &Type::GeneratorResult {
-                    yield_ty: substituted_yield,
-                    return_ty: substituted_return,
-                },
-            )
-        }
-    }
+    let resolve = |name| match bindings.get(name) {
+        Some(TypeParamBinding::Concrete(bound)) => Some(bound),
+        _ => None,
+    };
+    substitute_type(mir, declared, &resolve, Unrewritable::FailClosed)
 }
 
-/// Substitute a single-item constructor, reusing `declared` when nothing moved.
-fn substituted_wrapper(
+/// Substitutes `substitutions` through `ty`, keeping the declared type of any
+/// layer whose rewrite is not interned.
+///
+/// Codegen holds `&Mir` and cannot intern, so for a caller that wants a best
+/// answer rather than a proof this is the honest fallback.
+pub(crate) fn substitute_existing_type(
+    mir: &Mir,
+    ty: TypeId,
+    substitutions: &HashMap<Symbol, TypeId>,
+) -> TypeId {
+    if substitutions.is_empty() {
+        return ty;
+    }
+    let resolve = |name| substitutions.get(&name).copied();
+    substitute_type(mir, ty, &resolve, Unrewritable::KeepDeclared).unwrap_or(ty)
+}
+
+/// What a substitution does with a layer it cannot rewrite: a parameter it has
+/// no type for, a rewritten type the frozen interner does not hold, and (when
+/// failing closed) a union, which erases.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Unrewritable {
+    /// The whole substitution answers `None`.
+    FailClosed,
+    /// That layer stays as declared.
+    KeepDeclared,
+}
+
+/// The one substitution: replaces each type parameter `resolve` has a type for,
+/// reusing `declared` when nothing moved.
+///
+/// The interner is frozen during codegen, so a rewritten layer is a lookup,
+/// never an insert.
+fn substitute_type(
     mir: &Mir,
     declared: TypeId,
-    item: TypeId,
-    bindings: &CalleeTypeParamBindings,
-    construct: fn(TypeId) -> Type,
+    resolve: &dyn Fn(Symbol) -> Option<TypeId>,
+    unrewritable: Unrewritable,
 ) -> Option<TypeId> {
-    let substituted = substituted_type_id(mir, item, bindings)?;
-    if substituted == item {
+    let keep = (unrewritable == Unrewritable::KeepDeclared).then_some(declared);
+    let Some(kind) = mir.types.get(declared) else {
+        return keep;
+    };
+    match kind {
+        Type::TypeParam { name } => return resolve(*name).or(keep),
+        Type::Union(_) if unrewritable == Unrewritable::FailClosed => return None,
+        _ => {}
+    }
+    let rewritten =
+        kind.try_map_children(|child| substitute_type(mir, child, resolve, unrewritable))?;
+    if rewritten == *kind {
         return Some(declared);
     }
-    find_type_id(mir, &construct(substituted))
-}
-
-/// Substitute two component types, failing closed if either does.
-fn substituted_pair(
-    mir: &Mir,
-    left: TypeId,
-    right: TypeId,
-    bindings: &CalleeTypeParamBindings,
-) -> Option<(TypeId, TypeId)> {
-    Some((
-        substituted_type_id(mir, left, bindings)?,
-        substituted_type_id(mir, right, bindings)?,
-    ))
-}
-
-/// Substitute every element of a type slice, failing closed if any does.
-fn substituted_slice(
-    mir: &Mir,
-    items: &[TypeId],
-    bindings: &CalleeTypeParamBindings,
-) -> Option<Vec<TypeId>> {
-    items
-        .iter()
-        .map(|item| substituted_type_id(mir, *item, bindings))
-        .collect()
-}
-
-/// Look up an already-interned type by structure.
-///
-/// The interner is frozen during codegen, so this is a lookup, never an insert.
-fn find_type_id(mir: &Mir, needle: &Type) -> Option<TypeId> {
-    mir.types
-        .all()
-        .iter()
-        .position(|candidate| candidate == needle)
-        .and_then(|index| u32::try_from(index).ok())
-        .map(TypeId)
+    mir.types.lookup(&rewritten).or(keep)
 }
 
 /// Return whether `actual` is exactly `declared` with `bindings` applied.
@@ -850,122 +744,30 @@ fn match_function_types(
     match_types_in(mir, declared.return_ty, actual.return_ty, scope, bindings);
 }
 
+/// Calls `visit` on each type parameter occurring anywhere inside `ty`, stopping
+/// at the first one it answers `true` for.
+fn visit_type_params(mir: &Mir, ty: TypeId, visit: &mut dyn FnMut(Symbol) -> bool) -> bool {
+    match mir.types.get(ty) {
+        Some(Type::TypeParam { name }) => visit(*name),
+        Some(other) => other.children().any(|child| visit_type_params(mir, child, visit)),
+        None => false,
+    }
+}
+
 /// Return whether `name` occurs anywhere inside `ty`.
 ///
-/// Descends through every shape, function types and unions included, and stops
-/// at the first hit. This is the short-circuiting sibling of
-/// [`collect_type_param_occurrences`] over exactly the same grammar; the two are
-/// pinned to agree by a unit test. Kept separate because the crate-wide
-/// generic-safety scan asks this question once per (function, type parameter,
-/// parameter type) and must not allocate a set to answer it.
+/// Answers without building a set: the crate-wide generic-safety scan asks this
+/// once per (function, type parameter, parameter type).
 pub(crate) fn type_param_occurs(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
-    match mir.types.get(ty) {
-        Some(Type::TypeParam { name: param_name }) => *param_name == name,
-        Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
-            type_param_occurs(mir, *item, name)
-        }
-        Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
-            type_param_occurs(mir, *key, name) || type_param_occurs(mir, *value, name)
-        }
-        Some(Type::Tuple(items) | Type::Union(items)) => {
-            items.iter().any(|item| type_param_occurs(mir, *item, name))
-        }
-        Some(Type::Class { args, .. }) => args.iter().any(|arg| type_param_occurs(mir, *arg, name)),
-        Some(Type::Function(function)) => {
-            function
-                .params
-                .iter()
-                .any(|param| type_param_occurs(mir, *param, name))
-                || type_param_occurs(mir, function.return_ty, name)
-        }
-        Some(Type::Generator {
-            yield_ty,
-            return_ty,
-            next_ty,
-            ..
-        }) => {
-            type_param_occurs(mir, *yield_ty, name)
-                || type_param_occurs(mir, *return_ty, name)
-                || type_param_occurs(mir, *next_ty, name)
-        }
-        Some(Type::GeneratorResult {
-            yield_ty,
-            return_ty,
-        }) => type_param_occurs(mir, *yield_ty, name) || type_param_occurs(mir, *return_ty, name),
-        Some(
-            Type::Bool
-            | Type::Int
-            | Type::FixedInt(_)
-            | Type::BigInt
-            | Type::Float
-            | Type::String
-            | Type::Unknown
-            | Type::Never
-            | Type::None,
-        )
-        | None => false,
-    }
+    visit_type_params(mir, ty, &mut |param| param == name)
 }
 
 /// Collect declared type-parameter names occurring anywhere inside a type.
 pub(crate) fn collect_type_param_occurrences(mir: &Mir, ty: TypeId, names: &mut HashSet<Symbol>) {
-    match mir.types.get(ty) {
-        Some(Type::TypeParam { name }) => {
-            names.insert(*name);
-        }
-        Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
-            collect_type_param_occurrences(mir, *item, names);
-        }
-        Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
-            collect_type_param_occurrences(mir, *key, names);
-            collect_type_param_occurrences(mir, *value, names);
-        }
-        Some(Type::Tuple(items) | Type::Union(items)) => {
-            for item in items {
-                collect_type_param_occurrences(mir, *item, names);
-            }
-        }
-        Some(Type::Class { args, .. }) => {
-            for arg in args {
-                collect_type_param_occurrences(mir, *arg, names);
-            }
-        }
-        Some(Type::Function(function)) => {
-            for param in &function.params {
-                collect_type_param_occurrences(mir, *param, names);
-            }
-            collect_type_param_occurrences(mir, function.return_ty, names);
-        }
-        Some(Type::Generator {
-            yield_ty,
-            return_ty,
-            next_ty,
-            ..
-        }) => {
-            collect_type_param_occurrences(mir, *yield_ty, names);
-            collect_type_param_occurrences(mir, *return_ty, names);
-            collect_type_param_occurrences(mir, *next_ty, names);
-        }
-        Some(Type::GeneratorResult {
-            yield_ty,
-            return_ty,
-        }) => {
-            collect_type_param_occurrences(mir, *yield_ty, names);
-            collect_type_param_occurrences(mir, *return_ty, names);
-        }
-        Some(
-            Type::Bool
-            | Type::Int
-            | Type::FixedInt(_)
-            | Type::BigInt
-            | Type::Float
-            | Type::String
-            | Type::Unknown
-            | Type::Never
-            | Type::None,
-        )
-        | None => {}
-    }
+    visit_type_params(mir, ty, &mut |param| {
+        names.insert(param);
+        false
+    });
 }
 
 #[cfg(test)]
@@ -1341,63 +1143,6 @@ mod tests {
         assert!(!actual_type_is_erased(&mir, string));
         // Fails closed; unreachable for an interned `LocalDecl::ty`.
         assert!(actual_type_is_erased(&mir, past_end));
-    }
-
-    #[test]
-    fn occurrence_walks_agree_arm_for_arm() {
-        let mut types = TypeInterner::default();
-        let float = types.intern(Type::Float);
-        let outer = types.intern(Type::TypeParam { name: Symbol(0) });
-        let inner = types.intern(Type::TypeParam { name: Symbol(1) });
-        let absent = Symbol(2);
-        let callback = types.intern(Type::Function(FunctionType {
-            params: vec![inner],
-            rest: None,
-            required_params: Some(1),
-            mutable_params: Vec::new(),
-            return_ty: float,
-            is_async: false,
-            may_throw: false,
-        }));
-        let union = types.intern(Type::Union(vec![outer, float]));
-        let candidates = [
-            float,
-            outer,
-            inner,
-            callback,
-            union,
-            types.intern(Type::List(callback)),
-            types.intern(Type::Dict(outer, callback)),
-            types.intern(Type::Tuple(vec![union, inner])),
-            types.intern(Type::Class {
-                name: Symbol(9),
-                args: vec![outer],
-            }),
-            types.intern(Type::Generator {
-                is_async: false,
-                yield_ty: inner,
-                return_ty: float,
-                next_ty: outer,
-            }),
-            types.intern(Type::GeneratorResult {
-                yield_ty: union,
-                return_ty: callback,
-            }),
-        ];
-        let past_end = TypeId(u32::try_from(types.all().len()).expect("test type count"));
-        let mir = mir_with_types(types);
-
-        for ty in candidates.into_iter().chain([past_end]) {
-            let mut names = HashSet::new();
-            collect_type_param_occurrences(&mir, ty, &mut names);
-            for name in [Symbol(0), Symbol(1), absent] {
-                assert_eq!(
-                    type_param_occurs(&mir, ty, name),
-                    names.contains(&name),
-                    "walks disagree for {ty:?} and {name:?}"
-                );
-            }
-        }
     }
 
     #[test]

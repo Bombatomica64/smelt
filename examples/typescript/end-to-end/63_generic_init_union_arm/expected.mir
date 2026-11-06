@@ -44,8 +44,7 @@ fn header_of (FuncId(0)) -> String
     %7 = copy %10.field13
     goto bb5
   bb5:
-    %11 = move %7
-    %4 = move %11
+    %4 = move %7
     goto bb6
   bb6:
     switch move %4 ? bb7 : bb8
@@ -65,8 +64,7 @@ fn header_of (FuncId(0)) -> String
     %14 = copy %17.field13
     goto bb11
   bb11:
-    %18 = move %14
-    %2 = headers_new move %18
+    %2 = headers_new move %14
     %20 = headers_get move %2, copy %1
     %21 = move %20 ?? "none"
     return move %21
@@ -125,8 +123,7 @@ fn status_of (FuncId(1)) -> Float
     %9 = copy %12.field14
     goto bb8
   bb8:
-    %13 = move %9
-    %6 = move %13
+    %6 = move %9
     goto bb9
   bb9:
     switch move %6 ? bb10 : bb11
@@ -146,8 +143,7 @@ fn status_of (FuncId(1)) -> Float
     %16 = copy %19.field14
     goto bb14
   bb14:
-    %20 = move %16
-    return move %20
+    return move %16
 
 fn main (FuncId(2)) -> None
   locals

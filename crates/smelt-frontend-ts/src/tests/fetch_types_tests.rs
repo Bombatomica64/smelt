@@ -1259,7 +1259,7 @@ emitter.removeListener('a', listener);
 
 /// A user class named `EventEmitter` shadows the modeled one.
 ///
-/// The same shared `user_class_shadows` check the other modeled classes use:
+/// The same shared `source_shadows_global` check the other modeled classes use:
 /// a source class of that name owns its own members, including inside its own
 /// methods where the class is still only pending.
 #[test]
@@ -1775,5 +1775,39 @@ function statusOf(arg: number | InitLike | Response): number {
             .any(|expr| matches!(ctx.krate.types.get(expr.ty), Some(Type::Unknown))),
         "the guard must not erase the receiver",
     );
+    Ok(())
+}
+
+/// The init literal validator, the ambient interface and utility types composing
+/// over it read one key table, so `signal` survives `Omit` like every other key.
+#[test]
+fn utility_types_over_request_init_keep_signal() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+type Init = Omit<RequestInit, "body">;
+
+export function signalOf(init: Init): AbortSignal | undefined {
+  return init.signal;
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// Every stored `RequestInit` member is a key of the shared table.
+#[test]
+fn stored_request_init_members_are_in_the_key_table() -> Result<(), String> {
+    for member in smelt_hir::RequestInitMember::ALL {
+        ensure!(
+            smelt_stdlib::REQUEST_INIT_KEYS
+                .iter()
+                .any(|(name, _)| *name == member.property_name()),
+            "`{}` is missing from REQUEST_INIT_KEYS",
+            member.property_name(),
+        );
+    }
     Ok(())
 }

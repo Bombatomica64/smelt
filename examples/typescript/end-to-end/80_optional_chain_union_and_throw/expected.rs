@@ -3587,6 +3587,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[allow(dead_code)]
 struct Registry(::std::rc::Rc<::std::cell::RefCell<RegistryInner>>);
 #[derive(Debug, Default)]
@@ -3635,8 +3637,6 @@ impl SmeltFromUnknown for Registry {
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_1: String;

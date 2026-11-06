@@ -3538,6 +3538,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Checker {
 }
@@ -3556,8 +3558,6 @@ impl SmeltFromUnknown for Checker {
     }
 }
 
-// @smelt:prelude-end — generated program below
-
 fn main() {
     let lengths: SmeltList<f64>;
     let checker: Checker;
@@ -3573,7 +3573,7 @@ fn main() {
     let _smelt_tmp_20: ::std::rc::Rc<dyn Fn(String) -> bool>;
     let _smelt_tmp_21: SmeltList<String>;
     let _smelt_tmp_22: String;
-    let _smelt_tmp_24: ::std::rc::Rc<dyn Fn(String) -> f64>;
+    let _smelt_tmp_24: ::std::rc::Rc<dyn Fn(String, i64, &SmeltList<String>) -> f64>;
     let _smelt_tmp_26: String;
     let _smelt_tmp_29: ::std::rc::Rc<dyn Fn(String, i64, &SmeltList<String>) -> bool>;
     let _smelt_tmp_30: SmeltList<String>;
@@ -3626,28 +3626,30 @@ fn main() {
     }); words.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone()) { Some(item.clone()) } else { None }).collect::<Vec<_>>() });
     _smelt_tmp_22 = _smelt_tmp_21.borrow().join(&",".to_owned());
     let _ = { println!("{}", _smelt_tmp_22); };
-    _smelt_tmp_24 = ::std::rc::Rc::new(|closure_arg_0: String| {
-    (closure_arg_0.chars().count() as i64) as f64
+    _smelt_tmp_24 = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    let _smelt_tmp_1: f64 = closure_arg_0.chars().count() as f64;
+    _smelt_tmp_1
     });
-    lengths = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String| {
-    (closure_arg_0.chars().count() as i64) as f64
-    }); words.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone()) }).collect::<Vec<_>>() });
+    lengths = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    let _smelt_tmp_1: f64 = closure_arg_0.chars().count() as f64;
+    _smelt_tmp_1
+    }); let smelt_array = words.clone(); smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
     _smelt_tmp_26 = lengths.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&",".to_owned());
     let _ = { println!("{}", _smelt_tmp_26); };
     let _smelt_tmp_28: Checker = Checker::new();
     checker = _smelt_tmp_28;
     _smelt_tmp_29 = ::std::rc::Rc::new({
     let checker = checker.clone();
-    move |closure_arg_0: String, closure_arg_1: i64, closure_arg_2: &SmeltList<String>| {
-    let _smelt_tmp_4: bool = checker.matches(closure_arg_0.clone());
-    _smelt_tmp_4
+    move |closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    let _smelt_tmp_2: bool = checker.matches(closure_arg_0.clone());
+    _smelt_tmp_2
     }
 });
     _smelt_tmp_30 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new({
     let checker = checker.clone();
-    move |closure_arg_0: String, closure_arg_1: i64, closure_arg_2: &SmeltList<String>| {
-    let _smelt_tmp_4: bool = checker.matches(closure_arg_0.clone());
-    _smelt_tmp_4
+    move |closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    let _smelt_tmp_2: bool = checker.matches(closure_arg_0.clone());
+    _smelt_tmp_2
     }
 }); let smelt_array = words; smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>() });
     _smelt_tmp_31 = _smelt_tmp_30.borrow().join(&",".to_owned());

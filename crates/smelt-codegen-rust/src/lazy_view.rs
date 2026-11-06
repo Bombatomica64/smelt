@@ -46,67 +46,6 @@
     reason = "crate-visible helpers are shared with the prelude emitter and the emitter shards"
 )]
 
-/// The store cell, emitted right after `SmeltFieldStore`.
-///
-/// `SmeltPendingFill::insert` is a plain function pointer chosen where the
-/// store's key and value types are concrete, so materializing needs no trait
-/// bounds and works from every generic `borrow()` site. The builder runs with
-/// no borrow of this store held, so a snapshot that reads other erased values
-/// cannot trip the `RefCell`.
-pub(crate) const STORE_CELL: &str = r"/// A snapshot an erased view builds the first time its store is read.
-struct SmeltPendingFill<K, V> {
-    build: Box<dyn FnOnce() -> Vec<(K, V)>>,
-    insert: fn(&mut SmeltFieldStore<K, V>, Vec<(K, V)>),
-}
-
-/// The `RefCell` around a field store, building a pending snapshot on first use.
-///
-/// See `lazy_view` in the code generator: `borrow`/`borrow_mut` are the
-/// `RefCell` ones after materializing; `origin`/`origin_mut` skip it and reach
-/// nothing but the `origin` slot.
-pub struct SmeltStoreCell<K, V> {
-    cell: ::std::cell::RefCell<SmeltFieldStore<K, V>>,
-    pending: ::std::cell::Cell<Option<SmeltPendingFill<K, V>>>,
-}
-
-#[allow(dead_code)]
-impl<K, V> SmeltStoreCell<K, V> {
-    /// A cell over an already-populated store.
-    #[inline]
-    fn new(store: SmeltFieldStore<K, V>) -> Self { Self { cell: ::std::cell::RefCell::new(store), pending: ::std::cell::Cell::new(None) } }
-    /// A cell whose entries `build` produces on the first read or write.
-    fn lazy(store: SmeltFieldStore<K, V>, build: Box<dyn FnOnce() -> Vec<(K, V)>>, insert: fn(&mut SmeltFieldStore<K, V>, Vec<(K, V)>)) -> Self {
-        Self { cell: ::std::cell::RefCell::new(store), pending: ::std::cell::Cell::new(Some(SmeltPendingFill { build, insert })) }
-    }
-    /// Build the pending snapshot, if any, into the store.
-    #[inline]
-    fn materialize(&self) {
-        if let Some(fill) = self.pending.take() {
-            let entries = (fill.build)();
-            (fill.insert)(&mut self.cell.borrow_mut(), entries);
-        }
-    }
-    /// Borrow the store, building a pending snapshot first.
-    #[inline]
-    fn borrow(&self) -> ::std::cell::Ref<'_, SmeltFieldStore<K, V>> { self.materialize(); self.cell.borrow() }
-    /// Mutably borrow the store, building a pending snapshot first.
-    #[inline]
-    fn borrow_mut(&self) -> ::std::cell::RefMut<'_, SmeltFieldStore<K, V>> { self.materialize(); self.cell.borrow_mut() }
-    /// The origin slot, pending snapshot left unbuilt.
-    #[inline]
-    fn origin(&self) -> ::std::cell::Ref<'_, Option<Box<dyn ::std::any::Any>>> { ::std::cell::Ref::map(self.cell.borrow(), |store| &store.origin) }
-    /// The origin slot, mutably, pending snapshot left unbuilt.
-    #[inline]
-    fn origin_mut(&self) -> ::std::cell::RefMut<'_, Option<Box<dyn ::std::any::Any>>> { ::std::cell::RefMut::map(self.cell.borrow_mut(), |store| &mut store.origin) }
-}
-
-impl<K: ::std::fmt::Debug, V: ::std::fmt::Debug> ::std::fmt::Debug for SmeltStoreCell<K, V> {
-    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { self.borrow().fmt(formatter) }
-}";
-
-/// The `SmeltObject` constructor for a view whose entries are built lazily.
-pub(crate) const OBJECT_LAZY_CTOR: &str = "    /// Build an erased object whose entries `build` produces on first use (see `SmeltStoreCell`).\n    #[allow(dead_code)]\n    fn lazy_with_id(id: usize, build: impl FnOnce() -> Vec<(String, SmeltUnknown)> + 'static) -> Self { Self { id, store: ::std::rc::Rc::new(SmeltStoreCell::lazy(SmeltFieldStore::default(), Box::new(build), |store, entries| { for (key, value) in entries { store.insert(key, value); } })) } }";
-
 /// The erased object for a reference record whose snapshot waits for first use.
 ///
 /// `id_text` is the record's stable identity, `build_body` the statements that

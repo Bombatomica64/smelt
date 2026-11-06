@@ -120,12 +120,18 @@ fn main (FuncId(9)) -> None
     %7 temp: Float
     %8 temp: None
     %9 temp: Labelled
-    %10 temp: Labelled
+    %10 temp: String
     %11 temp: Labelled
-    %12 temp: None
-    %13 temp: Deeper
-    %14 temp: Float
-    %15 temp: None
+    %12 temp: String
+    %13 temp: Labelled
+    %14 temp: None
+    %15 temp: Deeper
+    %16 temp: Float
+    %17 temp: Float
+    %18 temp: Float
+    %19 temp: Float
+    %20 temp: Float
+    %21 temp: None
   bb0:
     %3 = call fn2() -> bb1
   bb1:
@@ -143,18 +149,24 @@ fn main (FuncId(9)) -> None
   bb6:
     %9 = call fn7() -> bb7
   bb7:
-    %10 = call fn7("here") -> bb8
+    %10 = copy %9.field15
+    %11 = call fn7("here") -> bb8
   bb8:
-    %11 = call fn7() -> bb9
+    %12 = copy %11.field15
+    %13 = call fn7() -> bb9
   bb9:
-    %12 = call @console_log(copy %9.field15, copy %10.field15, copy %11.field17) -> bb10
+    %14 = call @console_log(move %10, move %12, copy %13.field17) -> bb10
   bb10:
-    %13 = call fn8(5.0, 6.0) -> bb11
+    %15 = call fn8(5.0, 6.0) -> bb11
   bb11:
-    %2 = move %13
-    %14 = call fn4(copy %2) -> bb12
+    %2 = move %15
+    %16 = copy %2.field11
+    %17 = copy %2.field12
+    %18 = copy %2.field14
+    %19 = copy %2.field18
+    %20 = call fn4(move %2) -> bb12
   bb12:
-    %15 = call @console_log(copy %2.field11, copy %2.field12, copy %2.field14, copy %2.field18, move %14) -> bb13
+    %21 = call @console_log(move %16, move %17, move %18, move %19, move %20) -> bb13
   bb13:
     return none
 

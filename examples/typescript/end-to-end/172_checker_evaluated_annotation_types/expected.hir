@@ -19,44 +19,40 @@ module examples/typescript/end-to-end/172_checker_evaluated_annotation_types/inp
     #6: String = "c"
     #7: List<String> = [#4, #5, #6]
     #8: Store = new Store()
-    #9: Store = new Store()
+    #9: fn(String) -> Float = #8.get
     #10: Store = new Store()
-    #11: Store = new Store()
-    #12: Store = new Store()
-    #13: fn(String) -> Float = #12.get
-    #14: Store = new Store()
-    #15: String = "abcd"
-    #16: Float = #14.get(#15)
-    #17: List<String> = %0
-    #18: Float = len #17
-    #19: List<String> = %0
-    #20: String = "+"
-    #21: String = string_join #19, #20
-    #22: None = @7(console_log)
-    #23: None = call #22(#18, #21)
-    #24: Float = %1
-    #25: Float = 1.0
-    #26: Float = Add #24, #25
-    #27: List<String> = %2
-    #28: String = ","
-    #29: String = string_join #27, #28
-    #30: List<String> = %2
-    #31: Float = len #30
-    #32: None = @8(console_log)
-    #33: None = call #32(#26, #29, #31)
-    #34: Float = %3
-    #35: Float = 2.0
-    #36: Float = Mul #34, #35
-    #37: None = @9(console_log)
-    #38: None = call #37(#36)
+    #11: String = "abcd"
+    #12: Float = #10.get(#11)
+    #13: List<String> = %0
+    #14: Float = len #13
+    #15: List<String> = %0
+    #16: String = "+"
+    #17: String = string_join #15, #16
+    #18: None = @7(console_log)
+    #19: None = call #18(#14, #17)
+    #20: Float = %1
+    #21: Float = 1.0
+    #22: Float = Add #20, #21
+    #23: List<String> = %2
+    #24: String = ","
+    #25: String = string_join #23, #24
+    #26: List<String> = %2
+    #27: Float = len #26
+    #28: None = @8(console_log)
+    #29: None = call #28(#22, #25, #27)
+    #30: Float = %3
+    #31: Float = 2.0
+    #32: Float = Mul #30, #31
+    #33: None = @9(console_log)
+    #34: None = call #33(#32)
   stmts
     s0: let %0: List<String> = #2
     s1: let %1: Float = #3
     s2: let %2: List<String> = #7
-    s3: let %3: Float = #16
-    s4: #23
-    s5: #33
-    s6: #38
+    s3: let %3: Float = #12
+    s4: #19
+    s5: #29
+    s6: #34
 
 interned types
   t0 = T

@@ -107,7 +107,131 @@ pub enum Type {
     },
 }
 
+/// The direct child types of a [`Type`], in declaration order.
+///
+/// See [`Type::children`].
+#[derive(Debug, Clone)]
+pub struct TypeChildren<'a> {
+    /// Children held in a list: tuple items, union arms, class arguments,
+    /// function parameters.
+    list: std::slice::Iter<'a, TypeId>,
+    /// Children held in named slots, read after `list`.
+    slots: std::array::IntoIter<Option<TypeId>, 3>,
+}
+
+impl Iterator for TypeChildren<'_> {
+    type Item = TypeId;
+
+    fn next(&mut self) -> Option<TypeId> {
+        self.list.next().copied().or_else(|| self.slots.by_ref().flatten().next())
+    }
+}
+
 impl Type {
+    /// The direct child types of this type, in declaration order: a function's
+    /// parameters then its return type, a generator's yield, return and next
+    /// types.
+    ///
+    /// The one statement of what a type is made of. A walk says what is special
+    /// about the arms it cares about and recurses through this for the rest, so
+    /// a new constructor is added here once.
+    #[must_use]
+    pub fn children(&self) -> TypeChildren<'_> {
+        let (list, slots): (&[TypeId], [Option<TypeId>; 3]) = match self {
+            Self::Bool
+            | Self::Int
+            | Self::Float
+            | Self::FixedInt(_)
+            | Self::BigInt
+            | Self::String
+            | Self::Unknown
+            | Self::Never
+            | Self::TypeParam { .. }
+            | Self::None => (&[], [None; 3]),
+            Self::List(item) | Self::Set(item) | Self::Optional(item) | Self::Future(item) => {
+                (&[], [Some(*item), None, None])
+            }
+            Self::Dict(key, value) | Self::JsMap(key, value) => {
+                (&[], [Some(*key), Some(*value), None])
+            }
+            Self::Tuple(items) | Self::Union(items) => (items, [None; 3]),
+            Self::Class { args, .. } => (args, [None; 3]),
+            Self::Function(function) => (&function.params, [Some(function.return_ty), None, None]),
+            Self::Generator {
+                yield_ty,
+                return_ty,
+                next_ty,
+                ..
+            } => (&[], [Some(*yield_ty), Some(*return_ty), Some(*next_ty)]),
+            Self::GeneratorResult {
+                yield_ty,
+                return_ty,
+            } => (&[], [Some(*yield_ty), Some(*return_ty), None]),
+        };
+        TypeChildren {
+            list: list.iter(),
+            slots: slots.into_iter(),
+        }
+    }
+
+    /// This type with every direct child replaced by `rewrite`'s answer, in the
+    /// order of [`Self::children`]; `None` as soon as `rewrite` declines one.
+    pub fn try_map_children(
+        &self,
+        mut rewrite: impl FnMut(TypeId) -> Option<TypeId>,
+    ) -> Option<Self> {
+        let rewrite_all = |items: &[TypeId], rewrite: &mut dyn FnMut(TypeId) -> Option<TypeId>| {
+            items.iter().map(|item| rewrite(*item)).collect::<Option<Vec<_>>>()
+        };
+        Some(match self {
+            Self::Bool
+            | Self::Int
+            | Self::Float
+            | Self::FixedInt(_)
+            | Self::BigInt
+            | Self::String
+            | Self::Unknown
+            | Self::Never
+            | Self::TypeParam { .. }
+            | Self::None => self.clone(),
+            Self::List(item) => Self::List(rewrite(*item)?),
+            Self::Set(item) => Self::Set(rewrite(*item)?),
+            Self::Optional(item) => Self::Optional(rewrite(*item)?),
+            Self::Future(item) => Self::Future(rewrite(*item)?),
+            Self::Dict(key, value) => Self::Dict(rewrite(*key)?, rewrite(*value)?),
+            Self::JsMap(key, value) => Self::JsMap(rewrite(*key)?, rewrite(*value)?),
+            Self::Tuple(items) => Self::Tuple(rewrite_all(items, &mut rewrite)?),
+            Self::Union(items) => Self::Union(rewrite_all(items, &mut rewrite)?),
+            Self::Class { name, args } => Self::Class {
+                name: *name,
+                args: rewrite_all(args, &mut rewrite)?,
+            },
+            Self::Function(function) => Self::Function(FunctionType {
+                params: rewrite_all(&function.params, &mut rewrite)?,
+                return_ty: rewrite(function.return_ty)?,
+                ..function.clone()
+            }),
+            Self::Generator {
+                is_async,
+                yield_ty,
+                return_ty,
+                next_ty,
+            } => Self::Generator {
+                is_async: *is_async,
+                yield_ty: rewrite(*yield_ty)?,
+                return_ty: rewrite(*return_ty)?,
+                next_ty: rewrite(*next_ty)?,
+            },
+            Self::GeneratorResult {
+                yield_ty,
+                return_ty,
+            } => Self::GeneratorResult {
+                yield_ty: rewrite(*yield_ty)?,
+                return_ty: rewrite(*return_ty)?,
+            },
+        })
+    }
+
     /// The runtime kind every value of this type has, when the type alone
     /// fixes it.
     ///
@@ -359,5 +483,66 @@ mod tests {
         assert!(!UnknownKind::Undefined.satisfies(UnknownKind::Object));
         assert_eq!(UnknownKind::Function.typeof_name(), "function");
         assert_eq!(UnknownKind::Undefined.typeof_name(), "undefined");
+    }
+}
+
+#[cfg(test)]
+mod type_children_tests {
+    use super::*;
+
+    fn id(index: u32) -> TypeId {
+        TypeId(index)
+    }
+
+    #[test]
+    fn children_lists_a_function_then_its_return() {
+        let function = Type::Function(FunctionType {
+            params: vec![id(1), id(2)],
+            rest: None,
+            required_params: None,
+            mutable_params: Vec::new(),
+            return_ty: id(3),
+            is_async: false,
+            may_throw: false,
+        });
+        assert_eq!(function.children().collect::<Vec<_>>(), [id(1), id(2), id(3)]);
+    }
+
+    #[test]
+    fn children_covers_every_slot_of_a_generator() {
+        let generator = Type::Generator {
+            is_async: true,
+            yield_ty: id(1),
+            return_ty: id(2),
+            next_ty: id(3),
+        };
+        assert_eq!(generator.children().collect::<Vec<_>>(), [id(1), id(2), id(3)]);
+        assert_eq!(Type::Bool.children().count(), 0);
+    }
+
+    #[test]
+    fn map_children_rewrites_in_children_order_and_keeps_the_rest() {
+        let generator = Type::Generator {
+            is_async: true,
+            yield_ty: id(1),
+            return_ty: id(2),
+            next_ty: id(3),
+        };
+        let mapped = generator.try_map_children(|child| Some(TypeId(child.0 + 10)));
+        assert_eq!(
+            mapped,
+            Some(Type::Generator {
+                is_async: true,
+                yield_ty: id(11),
+                return_ty: id(12),
+                next_ty: id(13),
+            })
+        );
+    }
+
+    #[test]
+    fn map_children_stops_when_a_child_is_declined() {
+        let tuple = Type::Tuple(vec![id(1), id(2)]);
+        assert_eq!(tuple.try_map_children(|child| (child != id(2)).then_some(child)), None);
     }
 }

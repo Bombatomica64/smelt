@@ -3510,39 +3510,6 @@ fn smelt_unknown_from_json_value(value: serde_json::Value) -> SmeltUnknown {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
-struct AddressInfo {
-    address: String,
-    family: String,
-    port: f64,
-}
-impl IntoSmeltUnknown for AddressInfo {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("address".to_owned(), SmeltUnknown::String(self.address.into())),
-        ("family".to_owned(), SmeltUnknown::String(self.family.into())),
-        ("port".to_owned(), SmeltUnknown::Number(self.port as f64)),
-        ])))
-    }
-}
-impl SmeltFromUnknown for AddressInfo {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("address") {
-                result.address = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("family") {
-                result.family = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("port") {
-                result.port = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
-    }
-}
-
 thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;
@@ -5036,48 +5003,6 @@ impl SmeltFromUnknown for SmeltServerResponse { fn smelt_from_unknown(value: Sme
 /// erased value back hands out the SAME object rather than a copy.
 impl IntoSmeltUnknown for SmeltHttpServer { fn into_smelt_unknown(self) -> SmeltUnknown { let smelt_id = self.id; let smelt_host_origin = self.clone(); smelt_with_host_origin(SmeltUnknown::Object(SmeltObject::with_id(smelt_id, Vec::from([("__smelt_httpserver".to_owned(), SmeltUnknown::Bool(true))]))), smelt_host_origin) } }
 
-#[derive(Clone)]
-pub enum SmeltUnion23 {
-    M0(f64),
-    M1(AddressInfo),
-}
-impl IntoSmeltUnknown for SmeltUnion23 {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        match self {
-            Self::M0(value) => SmeltUnknown::Number(value as f64),
-            Self::M1(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("address".to_owned(), SmeltUnknown::String(smelt_object_value.address.into()))); smelt_object_entries.push(("family".to_owned(), SmeltUnknown::String(smelt_object_value.family.into()))); smelt_object_entries.push(("port".to_owned(), SmeltUnknown::Number(smelt_object_value.port as f64))); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) },
-        }
-    }
-}
-impl SmeltUnion23 {
-    fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::Number(_)) { return Self::M0(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }); }
-        Self::M1(__smelt_from_unknown_record_0((value).into_smelt_unknown()))
-    }
-}
-impl PartialEq for SmeltUnion23 {
-    fn eq(&self, other: &Self) -> bool {
-        self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()
-    }
-}
-impl SmeltFromUnknown for SmeltUnion23 {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }
-}
-impl SmeltJsKeyEq for SmeltUnion23 {
-    fn same_js_key(&self, other: &Self) -> bool { self.clone().into_smelt_unknown().same_js_key(&other.clone().into_smelt_unknown()) }
-    fn js_key_hash(&self) -> Option<u64> { self.clone().into_smelt_unknown().js_key_hash() }
-}
-impl ::std::fmt::Debug for SmeltUnion23 {
-    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)
-    }
-}
-impl Default for SmeltUnion23 {
-    fn default() -> Self {
-        Self::M0(0.0)
-    }
-}
-
 /// `util.inspect` state for one `console.log` argument (Node's `ctx`).
 #[derive(Default)]
 struct SmeltInspectContext {
@@ -5478,6 +5403,81 @@ impl SmeltInspect for SmeltUnion23 {
 }
 
 // @smelt:prelude-end — generated program below
+
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+struct AddressInfo {
+    address: String,
+    family: String,
+    port: f64,
+}
+impl IntoSmeltUnknown for AddressInfo {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("address".to_owned(), SmeltUnknown::String(self.address.into())),
+        ("family".to_owned(), SmeltUnknown::String(self.family.into())),
+        ("port".to_owned(), SmeltUnknown::Number(self.port as f64)),
+        ])))
+    }
+}
+impl SmeltFromUnknown for AddressInfo {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("address") {
+                result.address = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("family") {
+                result.family = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("port") {
+                result.port = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
+#[derive(Clone)]
+pub enum SmeltUnion23 {
+    M0(f64),
+    M1(AddressInfo),
+}
+impl IntoSmeltUnknown for SmeltUnion23 {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        match self {
+            Self::M0(value) => SmeltUnknown::Number(value as f64),
+            Self::M1(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("address".to_owned(), SmeltUnknown::String(smelt_object_value.address.into()))); smelt_object_entries.push(("family".to_owned(), SmeltUnknown::String(smelt_object_value.family.into()))); smelt_object_entries.push(("port".to_owned(), SmeltUnknown::Number(smelt_object_value.port as f64))); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) },
+        }
+    }
+}
+impl SmeltUnion23 {
+    fn from_smelt_unknown(value: SmeltUnknown) -> Self {
+        if matches!(value, SmeltUnknown::Number(_)) { return Self::M0(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }); }
+        Self::M1(__smelt_from_unknown_record_0((value).into_smelt_unknown()))
+    }
+}
+impl PartialEq for SmeltUnion23 {
+    fn eq(&self, other: &Self) -> bool {
+        self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()
+    }
+}
+impl SmeltFromUnknown for SmeltUnion23 {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }
+}
+impl SmeltJsKeyEq for SmeltUnion23 {
+    fn same_js_key(&self, other: &Self) -> bool { self.clone().into_smelt_unknown().same_js_key(&other.clone().into_smelt_unknown()) }
+    fn js_key_hash(&self) -> Option<u64> { self.clone().into_smelt_unknown().js_key_hash() }
+}
+impl ::std::fmt::Debug for SmeltUnion23 {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)
+    }
+}
+impl Default for SmeltUnion23 {
+    fn default() -> Self {
+        Self::M0(0.0)
+    }
+}
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 let smelt_local = tokio::task::LocalSet::new();
@@ -5510,8 +5510,8 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let smelt_capture_received = smelt_capture_received.clone();
     move |closure_arg_0: String| {
-    let _smelt_tmp_2: String = (*smelt_capture_received.borrow()).clone() + &closure_arg_0.clone();
-    (*smelt_capture_received.borrow_mut()) = _smelt_tmp_2.clone();
+    let _smelt_tmp_3: String = (*smelt_capture_received.borrow()).clone() + &closure_arg_0.clone();
+    (*smelt_capture_received.borrow_mut()) = _smelt_tmp_3.clone();
     ()
     }
 });
@@ -5528,15 +5528,16 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_9: SmeltServerResponse;
     let _smelt_tmp_10: String;
     let _smelt_tmp_11: String;
-    let _smelt_tmp_12: f64;
-    let _smelt_tmp_13: String;
-    let _smelt_tmp_14: Option<String>;
-    let _smelt_tmp_15: String;
-    let _smelt_tmp_16: Option<String>;
-    let _smelt_tmp_17: String;
-    let _smelt_tmp_18: SmeltRecord<String, String>;
-    let _smelt_tmp_19: String;
-    let _smelt_tmp_20: SmeltServerResponse;
+    let _smelt_tmp_12: String;
+    let _smelt_tmp_13: f64;
+    let _smelt_tmp_14: String;
+    let _smelt_tmp_15: Option<String>;
+    let _smelt_tmp_16: String;
+    let _smelt_tmp_17: Option<String>;
+    let _smelt_tmp_18: String;
+    let _smelt_tmp_19: SmeltRecord<String, String>;
+    let _smelt_tmp_20: String;
+    let _smelt_tmp_21: SmeltServerResponse;
     let _smelt_tmp_3: String = smelt_weak_closure_arg_0.smelt_emitter().clone().method();
     let _smelt_tmp_4: bool = _smelt_tmp_3.clone() == "POST".to_owned();
     if _smelt_tmp_4 {
@@ -5549,15 +5550,16 @@ smelt_local.block_on(&smelt_runtime, async move {
     }
     _smelt_tmp_10 = smelt_weak_closure_arg_0.smelt_emitter().clone().method();
     _smelt_tmp_11 = smelt_weak_closure_arg_0.smelt_emitter().clone().url();
-    _smelt_tmp_12 = closure_arg_1.clone().status_code();
-    _smelt_tmp_13 = "".to_owned() + &smelt_number_to_string(_smelt_tmp_12);
-    _smelt_tmp_14 = closure_arg_1.clone().get_header(&"content-type".to_owned());
-    _smelt_tmp_15 = _smelt_tmp_14.clone().unwrap_or("".to_owned());
-    _smelt_tmp_16 = closure_arg_1.clone().get_header(&"x-set-first".to_owned());
-    _smelt_tmp_17 = _smelt_tmp_16.clone().unwrap_or("".to_owned());
-    _smelt_tmp_18 = SmeltRecord::from([("method".to_owned(), _smelt_tmp_10.clone()), ("url".to_owned(), _smelt_tmp_11.clone()), ("body".to_owned(), (*smelt_capture_received.borrow()).clone()), ("status".to_owned(), _smelt_tmp_13.clone()), ("sentType".to_owned(), _smelt_tmp_15.clone()), ("kept".to_owned(), _smelt_tmp_17.clone())]);
-    _smelt_tmp_19 = serde_json::to_string(&{ let smelt_record = _smelt_tmp_18.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect())) }).expect("JSON serialization failed");
-    _smelt_tmp_20 = closure_arg_1.clone().end(Some(_smelt_tmp_19.clone()));
+    _smelt_tmp_12 = (*smelt_capture_received.borrow()).clone();
+    _smelt_tmp_13 = closure_arg_1.clone().status_code();
+    _smelt_tmp_14 = "".to_owned() + &smelt_number_to_string(_smelt_tmp_13);
+    _smelt_tmp_15 = closure_arg_1.clone().get_header(&"content-type".to_owned());
+    _smelt_tmp_16 = _smelt_tmp_15.clone().unwrap_or("".to_owned());
+    _smelt_tmp_17 = closure_arg_1.clone().get_header(&"x-set-first".to_owned());
+    _smelt_tmp_18 = _smelt_tmp_17.clone().unwrap_or("".to_owned());
+    _smelt_tmp_19 = SmeltRecord::from([("method".to_owned(), _smelt_tmp_10.clone()), ("url".to_owned(), _smelt_tmp_11.clone()), ("body".to_owned(), _smelt_tmp_12.clone()), ("status".to_owned(), _smelt_tmp_14.clone()), ("sentType".to_owned(), _smelt_tmp_16.clone()), ("kept".to_owned(), _smelt_tmp_18.clone())]);
+    _smelt_tmp_20 = serde_json::to_string(&{ let smelt_record = _smelt_tmp_19.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect())) }).expect("JSON serialization failed");
+    _smelt_tmp_21 = closure_arg_1.clone().end(Some(_smelt_tmp_20.clone()));
     ()
     }
 });

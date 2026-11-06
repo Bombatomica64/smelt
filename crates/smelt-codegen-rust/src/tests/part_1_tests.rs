@@ -655,14 +655,12 @@ const explicit = bump(4);
 ",
     );
 
-    assert!(
-        source.contains("impl FnMut(f64) -> f64")
-            || source.contains("|closure_arg_0: f64|")
-            || source.contains("move |closure_arg_0: f64|"),
-        "{source}"
-    );
-    assert!(source.contains("(1.0)"));
-    assert!(source.contains("(4.0)"));
+    // A defaulted closure parameter has a function's ABI: it arrives optional and
+    // the default applies in the callee, per call.
+    assert!(source.contains("|closure_arg_0: Option<f64>|"), "{source}");
+    assert!(source.contains(".unwrap_or(1.0)"), "{source}");
+    assert!(source.contains("(None)"), "{source}");
+    assert!(source.contains("(Some(4.0))"), "{source}");
 }
 
 #[test]
@@ -674,7 +672,10 @@ const sums = pairs.map(([left, right]) => left + right);
 ",
     );
 
-    assert!(source.contains("closure_arg_0.0 + closure_arg_0.1"));
+    assert!(source.contains("closure_arg_0.clone().0"), "{source}");
+    assert!(source.contains("closure_arg_0.clone().1"), "{source}");
+    assert!(source.contains("left + right"), "{source}");
+    assert!(source.contains("closure_arg_0: (f64, f64)"), "{source}");
 }
 
 #[test]
@@ -932,8 +933,8 @@ const noInitial = values.reduce((acc, value, index) => acc + value + index);
     assert!(source.contains("reduce of empty array with no initial value"));
     assert!(source.contains(".collect::<Vec<_>>()"));
     assert!(source.contains(".unwrap_or(-1.0"));
-    assert!(source.contains("closure_arg_0 * 2.0"), "{source}");
-    assert!(source.contains("closure_arg_0 + 2.0"));
+    assert!(source.contains("closure_arg_0 * factor"), "{source}");
+    assert!(source.contains("closure_arg_0 + factor"));
     assert!(
         source.contains("(smelt_callback)(&(SmeltUnknown::Number(item.clone() as f64)))"),
         "{source}"

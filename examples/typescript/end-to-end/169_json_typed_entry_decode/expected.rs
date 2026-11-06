@@ -3498,144 +3498,6 @@ fn smelt_unknown_from_json_value(value: serde_json::Value) -> SmeltUnknown {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
-struct Circle {
-    kind: String,
-    radius: f64,
-}
-impl IntoSmeltUnknown for Circle {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("kind".to_owned(), SmeltUnknown::String(self.kind.into())),
-        ("radius".to_owned(), SmeltUnknown::Number(self.radius as f64)),
-        ])))
-    }
-}
-impl SmeltFromUnknown for Circle {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("kind") {
-                result.kind = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("radius") {
-                result.radius = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
-struct Square {
-    kind: String,
-    side: f64,
-}
-impl IntoSmeltUnknown for Square {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("kind".to_owned(), SmeltUnknown::String(self.kind.into())),
-        ("side".to_owned(), SmeltUnknown::Number(self.side as f64)),
-        ])))
-    }
-}
-impl SmeltFromUnknown for Square {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("kind") {
-                result.kind = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("side") {
-                result.side = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
-struct Tree {
-    label: String,
-    children: SmeltList<Tree>,
-}
-impl IntoSmeltUnknown for Tree {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("label".to_owned(), SmeltUnknown::String(self.label.into())),
-        ("children".to_owned(), SmeltUnknown::Array(self.children.into_iter().map(|value| (value).into_smelt_unknown()).collect())),
-        ])))
-    }
-}
-impl SmeltFromUnknown for Tree {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("label") {
-                result.label = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("children") {
-                result.children = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-struct Order {
-    id: f64,
-    note: Option<String>,
-    priority: String,
-    shapes: SmeltList<SmeltUnion2>,
-    totals: SmeltRecord<String, f64>,
-    range: (f64, f64),
-    tree: Tree,
-}
-impl IntoSmeltUnknown for Order {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        let smelt_absent_keys: [&str; 1] = ["note"];
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("id".to_owned(), SmeltUnknown::Number(self.id as f64)),
-        ("note".to_owned(), self.note.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
-        ("priority".to_owned(), SmeltUnknown::String(self.priority.into())),
-        ("shapes".to_owned(), SmeltUnknown::Array(self.shapes.into_iter().map(|value| (value).into_smelt_unknown()).collect())),
-        ("totals".to_owned(), SmeltUnknown::Object(SmeltObject::new(self.totals.into_iter().map(|(key, value)| (key, SmeltUnknown::Number(value as f64))).collect()))),
-        ("range".to_owned(), { let smelt_tuple = self.range; SmeltUnknown::Array(vec![SmeltUnknown::Number(smelt_tuple.0 as f64), SmeltUnknown::Number(smelt_tuple.1 as f64)].into()) }),
-        ("tree".to_owned(), (self.tree).into_smelt_unknown()),
-        ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
-    }
-}
-impl SmeltFromUnknown for Order {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("id") {
-                result.id = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("note") {
-                result.note = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("priority") {
-                result.priority = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("shapes") {
-                result.shapes = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("totals") {
-                result.totals = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("range") {
-                result.range = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("tree") {
-                result.tree = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
-    }
-}
-
 thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;
@@ -4641,6 +4503,146 @@ impl SmeltFromUnknown for SmeltRequest {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+struct Circle {
+    kind: String,
+    radius: f64,
+}
+impl IntoSmeltUnknown for Circle {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("kind".to_owned(), SmeltUnknown::String(self.kind.into())),
+        ("radius".to_owned(), SmeltUnknown::Number(self.radius as f64)),
+        ])))
+    }
+}
+impl SmeltFromUnknown for Circle {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("kind") {
+                result.kind = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("radius") {
+                result.radius = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+struct Square {
+    kind: String,
+    side: f64,
+}
+impl IntoSmeltUnknown for Square {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("kind".to_owned(), SmeltUnknown::String(self.kind.into())),
+        ("side".to_owned(), SmeltUnknown::Number(self.side as f64)),
+        ])))
+    }
+}
+impl SmeltFromUnknown for Square {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("kind") {
+                result.kind = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("side") {
+                result.side = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+struct Tree {
+    label: String,
+    children: SmeltList<Tree>,
+}
+impl IntoSmeltUnknown for Tree {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("label".to_owned(), SmeltUnknown::String(self.label.into())),
+        ("children".to_owned(), SmeltUnknown::Array(self.children.into_iter().map(|value| (value).into_smelt_unknown()).collect())),
+        ])))
+    }
+}
+impl SmeltFromUnknown for Tree {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("label") {
+                result.label = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("children") {
+                result.children = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Order {
+    id: f64,
+    note: Option<String>,
+    priority: String,
+    shapes: SmeltList<SmeltUnion2>,
+    totals: SmeltRecord<String, f64>,
+    range: (f64, f64),
+    tree: Tree,
+}
+impl IntoSmeltUnknown for Order {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let smelt_absent_keys: [&str; 1] = ["note"];
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("id".to_owned(), SmeltUnknown::Number(self.id as f64)),
+        ("note".to_owned(), self.note.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
+        ("priority".to_owned(), SmeltUnknown::String(self.priority.into())),
+        ("shapes".to_owned(), SmeltUnknown::Array(self.shapes.into_iter().map(|value| (value).into_smelt_unknown()).collect())),
+        ("totals".to_owned(), SmeltUnknown::Object(SmeltObject::new(self.totals.into_iter().map(|(key, value)| (key, SmeltUnknown::Number(value as f64))).collect()))),
+        ("range".to_owned(), { let smelt_tuple = self.range; SmeltUnknown::Array(vec![SmeltUnknown::Number(smelt_tuple.0 as f64), SmeltUnknown::Number(smelt_tuple.1 as f64)].into()) }),
+        ("tree".to_owned(), (self.tree).into_smelt_unknown()),
+        ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
+    }
+}
+impl SmeltFromUnknown for Order {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("id") {
+                result.id = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("note") {
+                result.note = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("priority") {
+                result.priority = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("shapes") {
+                result.shapes = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("totals") {
+                result.totals = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("range") {
+                result.range = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("tree") {
+                result.tree = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
 #[derive(Clone)]
 pub enum SmeltUnion2 {
     M0(Circle),
@@ -4974,8 +4976,6 @@ fn smelt_decode_20(value: &SmeltUnknown, path: &mut String) -> Result<SmeltList<
     for (index, item) in items.iter().enumerate() { let mark = smelt_decode_enter_index(path, index); decoded.push(smelt_decode_12(&item, path)?); path.truncate(mark); }
     Ok(SmeltList::new(decoded))
 }
-
-// @smelt:prelude-end — generated program below
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 let smelt_local = tokio::task::LocalSet::new();

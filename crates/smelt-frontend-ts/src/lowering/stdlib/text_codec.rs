@@ -168,7 +168,7 @@ impl ModuleBuilder<'_> {
         {
             return Ok(None);
         }
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         if !self.is_text_encoder_type(Self::expr_ty(body, receiver)) {
@@ -210,7 +210,7 @@ impl ModuleBuilder<'_> {
         {
             return Ok(None);
         }
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         if !self.is_text_decoder_type(Self::expr_ty(body, receiver)) {
@@ -312,13 +312,13 @@ impl ModuleBuilder<'_> {
     /// Return whether a lowered type is the modeled `TextEncoder` class.
     pub(in crate::lowering) fn is_text_encoder_type(&self, ty: smelt_hir::TypeId) -> bool {
         self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::TextEncoder)
-            && !self.user_class_shadows("TextEncoder")
+            && !self.source_shadows_global("TextEncoder")
     }
 
     /// Return whether a lowered type is the modeled `TextDecoder` class.
     pub(in crate::lowering) fn is_text_decoder_type(&self, ty: smelt_hir::TypeId) -> bool {
         self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::TextDecoder)
-            && !self.user_class_shadows("TextDecoder")
+            && !self.source_shadows_global("TextDecoder")
     }
 
 }

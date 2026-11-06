@@ -6,12 +6,11 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fmt::Write as _,
     path::{Path, PathBuf},
     process::Command,
 };
 
-use crate::{CliResult, diagnostics};
+use crate::{CliResult, diagnostics, report::push_fmt};
 
 /// Options for one generated Rust test investigation report.
 pub(crate) struct RustTestReportOptions<'a> {
@@ -243,14 +242,6 @@ fn inventory_from_report(report: &str) -> BTreeSet<String> {
         }
     }
     tests
-}
-
-/// Append formatted content to the Markdown report buffer.
-fn push_fmt(report: &mut String, args: std::fmt::Arguments<'_>) {
-    if report.write_fmt(args).is_err() {
-        // Formatting into String does not fail; retaining a total helper avoids
-        // panics in the report path.
-    }
 }
 
 /// Captured result of one generated Cargo test invocation.

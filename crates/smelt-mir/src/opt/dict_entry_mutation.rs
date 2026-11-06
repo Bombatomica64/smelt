@@ -57,21 +57,12 @@ use smelt_hir::{Type, TypeInterner};
 use crate::{LocalId, Mir, MirFunction, Place, Rvalue, Statement};
 
 use super::Pass;
-use super::local_use::{
-    local_assignment_count, local_decl, local_is_temp, local_read_count, operand_local,
-    operand_place, operand_reads_local,
-};
 
 /// Rewrites a dict-entry copy-out/mutate/copy-back triple into one in-place mutation.
 #[derive(Debug, Default)]
 pub struct DictEntryInPlaceMutation;
 
 impl Pass for DictEntryInPlaceMutation {
-    /// Returns the stable identifier of this pass.
-    fn name(&self) -> &'static str {
-        "dict-entry-in-place-mutation"
-    }
-
     /// Applies the pass to `mir`, returning true if it was modified.
     fn run(&self, mir: &mut Mir) -> bool {
         let mut changed = false;
@@ -154,29 +145,29 @@ fn triple_is_fusable(
         base: read_base,
         index: read_index,
         ..
-    }) = operand_place(read_source)
+    }) = read_source.place()
     else {
         return false;
     };
     if read_base != write_base || read_index != write_index {
         return false;
     }
-    if operand_local(list) != Some(*alias) || operand_local(write_source) != Some(*alias) {
+    if list.local() != Some(*alias) || write_source.local() != Some(*alias) {
         return false;
     }
-    if !local_is_temp(function, *alias) {
+    if !function.is_temp(*alias) {
         return false;
     }
-    if operand_reads_local(item, *alias) {
+    if item.reads_local(*alias) {
         return false;
     }
     // The index operand is re-evaluated at the mutation site instead of the
     // copy-out site. It must not read the alias, which the copy-out has only
     // just defined.
-    if operand_reads_local(read_index, *alias) {
+    if read_index.reads_local(*alias) {
         return false;
     }
-    if local_assignment_count(function, *alias) != 1 || local_read_count(function, *alias) != 2 {
+    if function.assignment_count(*alias) != 1 || function.read_count(*alias) != 2 {
         return false;
     }
     dict_entry_types_match(function, types, *read_base, *alias)
@@ -189,10 +180,10 @@ fn dict_entry_types_match(
     base: LocalId,
     alias: LocalId,
 ) -> bool {
-    let Some(base_decl) = local_decl(function, base) else {
+    let Some(base_decl) = function.body().local_decl(base) else {
         return false;
     };
-    let Some(alias_decl) = local_decl(function, alias) else {
+    let Some(alias_decl) = function.body().local_decl(alias) else {
         return false;
     };
     if !matches!(types.get(alias_decl.ty), Some(Type::List(_))) {

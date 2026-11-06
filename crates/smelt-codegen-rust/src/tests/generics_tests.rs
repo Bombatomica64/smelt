@@ -444,17 +444,13 @@ export function zipLike<T, R>(
 }
 ",
     );
-    let dispatch = source
-        .lines()
-        .find(|line| line.contains("let smelt_function_value = iteratee"))
-        .expect("expected a dynamic-dispatch snippet over the optional callee");
-    // The callee is erased to the runtime carrier before the discriminant match
-    // instead of a bare `Option` being matched directly.
+    // The `iteratee == null` guard above the closure holds inside it, so the
+    // capture is read at the guard's narrowed, non-optional runtime carrier.
     assert!(
-        dispatch.contains("iteratee.clone().clone().map_or("),
-        "optional callee must be erased before the runtime match: {dispatch}"
+        source.contains("let _smelt_tmp_2: SmeltUnknown = iteratee.clone().expect("),
+        "the guarded callee must reach the runtime call without its Option: {source}"
     );
-    assert!(dispatch.contains("match smelt_function_value { SmeltUnknown::Function"));
+    assert!(source.contains("match smelt_value.clone() { SmeltUnknown::Function"));
 }
 
 #[test]
@@ -1321,7 +1317,7 @@ fn an_erased_union_return_demotes_the_parameters_with_it() {
     // A union return mentioning `T` has no concrete Rust spelling, so it renders
     // `SmeltUnknown`; the body therefore has to erase its `T` at the return
     // seam, which is exactly what the body-cleanliness trial
-    // (`body_needs_erased_carrier`) demotes a signature for. Parameters, return
+    // (`renders_real_generics`) demotes a signature for. Parameters, return
     // and body all land on the erased ABI, and the call site — which already
     // demotes when the substituted return is not nameable — agrees with them.
     //

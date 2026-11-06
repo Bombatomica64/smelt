@@ -156,7 +156,7 @@ closure ClosureId(2) -> None
 
 closure ClosureId(3) -> None
   locals
-    %0 param __callback_param_0: fn(Optional<Float>) -> None
+    %0 param resolve: fn(Optional<Float>) -> None
     %1 user flag: Bool
     %2 temp: None
     %3 temp: None
@@ -168,7 +168,7 @@ closure ClosureId(3) -> None
     %2 = copy %3
     goto bb3
   bb2:
-    %4 = closure_call copy %0()
+    %4 = closure_call copy %0(none)
     %2 = copy %4
     goto bb3
   bb3:
@@ -176,23 +176,14 @@ closure ClosureId(3) -> None
 
 closure ClosureId(4) -> String
   locals
-    %0 param __callback_param_0: String
-    %1 param __callback_param_1: Optional<String>
+    %0 param name: String
+    %1 param suffix: Optional<String>
     %2 temp: String
-    %3 temp: Bool
-    %4 temp: Optional<String>
-    %5 temp: String
+    %3 temp: String
+    %4 temp: String
   bb0:
     %2 = "hello " + copy %0
-    %3 = copy %1 != none
-    switch copy %3 ? bb1 : bb2
-  bb1:
-    %4 = copy %1
-    goto bb3
-  bb2:
-    %4 = "!"
-    goto bb3
-  bb3:
-    %5 = copy %2 + copy %4
-    return copy %5
+    %3 = copy %1 ?? "!"
+    %4 = copy %2 + copy %3
+    return copy %4
 

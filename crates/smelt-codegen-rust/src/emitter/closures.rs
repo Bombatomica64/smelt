@@ -2,16 +2,19 @@
 
 use super::*;
 
-/// The binding a captured receiver takes inside a closure.
-///
-/// `self` cannot be a `let` binding in Rust, so a closure that captures the
-/// enclosing method's receiver binds it under this name and its body's uses are
-/// rewritten to match.
-const SELF_CAPTURE_NAME: &str = "smelt_self";
+use local_binding::{CellUpgrade, LocalBinding, SELF_CAPTURE_NAME, SharedCell};
+use std::borrow::Cow;
 use smelt_hir::FunctionType;
-use rendered_text_rewrite::{
-    SELF_RECURSIVE_UPGRADE, replace_shared_capture_uses, shared_capture_cell_name,
-};
+
+/// A rendered closure literal.
+struct RenderedClosure {
+    /// The closure expression.
+    text: String,
+    /// Whether the text already binds its captures: it is `move` or wrapped in a
+    /// block that clones them. A caller that hands the closure out binds them
+    /// otherwise.
+    binds_captures: bool,
+}
 
 impl FunctionEmitter<'_> {
     /// The MIR closure an `Rvalue::Closure` names.
@@ -24,7 +27,7 @@ impl FunctionEmitter<'_> {
 
     /// Converts a non-escaping MIR closure into a Rust closure literal.
     pub(super) fn closure_text(&self, id: smelt_mir::ClosureId) -> Result<String, EmitError> {
-        self.closure_text_with_extra_params(id, &[], &[], None, None)
+        Ok(self.closure_text_with_extra_params(id, &[], &[], None, None)?.text)
     }
 
     /// Whether a contextual `target_ty` re-types a closure parameter whose own
@@ -137,16 +140,13 @@ impl FunctionEmitter<'_> {
             target_return_ty,
             target_function.as_ref(),
         )?;
+        let RenderedClosure { text: closure, binds_captures } = closure;
         if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
-            let adjusted_closure = if !has_captures
-                || closure.starts_with("move ")
-                || closure.starts_with('{')
-            {
+            let adjusted_closure = if !has_captures || binds_captures {
                 closure
             } else {
                 let source_closure = self.mir_closure(id)?;
                 let mut cloned_captures = HashSet::new();
-                let mut shared_replacements = Vec::new();
                 let capture_prelude = source_closure
                     .captures
                     .iter()
@@ -165,33 +165,25 @@ impl FunctionEmitter<'_> {
                         {
                             return None;
                         }
-                        let name = self.local_name(capture.source_local).ok()?.to_owned();
-                        if name.starts_with("(*smelt_capture_") {
+                        if self.local_binding(capture.source_local).ok()?.shared_cell().is_some() {
                             return None;
                         }
+                        let name = self.local_name(capture.source_local).ok()?.into_owned();
                         cloned_captures.insert(name.clone()).then(|| {
                             if self.closure_capture_needs_shared_access(source_closure, capture)
                                 || self.local_uses_shared_capture_storage(capture.source_local)
                             {
-                                shared_replacements.push((
-                                    name.clone(),
-                                    format!("(*smelt_capture_{name}.borrow_mut())"),
-                                ));
                                 return format!(
                                     "let smelt_capture_{name} = smelt_capture_{name}.clone();"
                                 );
                             }
-                            // `self` is a Rust keyword and cannot be bound, so a
-                            // capture of the receiver takes a non-keyword name and
-                            // the body's uses are rewritten to it — the same
-                            // machinery the shared-storage case above uses.
-                            // `let self = self.clone();` is what the emitter used
-                            // to produce (E0424, 2 of the router slice's errors):
-                            // naming the binding `self` made the body text work
-                            // unchanged, which Rust does not allow.
-                            if name == "self" {
-                                shared_replacements
-                                    .push((name.clone(), SELF_CAPTURE_NAME.to_owned()));
+                            // `self` is a Rust keyword and cannot be a `let`
+                            // binding, so a captured receiver takes a binding of
+                            // its own.
+                            if self
+                                .local_binding(capture.source_local)
+                                .is_ok_and(|binding| *binding == LocalBinding::Receiver)
+                            {
                                 return format!("let {SELF_CAPTURE_NAME} = self.clone();");
                             }
                             // Mutability is driven purely by whether the closure
@@ -219,12 +211,11 @@ impl FunctionEmitter<'_> {
                         })
                     })
                     .collect::<Vec<_>>();
-                let adjusted_closure = replace_shared_capture_uses(closure, &shared_replacements);
                 if capture_prelude.is_empty() {
-                    format!("move {adjusted_closure}")
+                    format!("move {closure}")
                 } else {
                     format!(
-                        "{{\n    {}\n    move {adjusted_closure}\n}}",
+                        "{{\n    {}\n    move {closure}\n}}",
                         capture_prelude.join("\n    ")
                     )
                 }
@@ -279,16 +270,16 @@ impl FunctionEmitter<'_> {
                         // returns JavaScript `undefined`, not `null`. Yield
                         // `SmeltUnknown::Undefined` so `!== undefined` guards on
                         // the callback result behave as in JS.
-                        format!("{{ {call}; SmeltUnknown::Undefined }}")
+                        self.carrier_format(format_args!("{{ {call}; SmeltUnknown::Undefined }}"))
                     } else {
                         self.value_at_type_text(&call, source_closure.return_ty, unknown_ty, &self.render_scope())?
                     };
                 let length = source_closure
                     .required_params
                     .unwrap_or_else(|| source_closure.rest.unwrap_or(source_closure.params.len()));
-                let erased_function = format!(
+                let erased_function = self.carrier_format(format_args!(
                     "SmeltErasedFunction {{ callback: {{ let smelt_callback = ::std::rc::Rc::new({adjusted_closure}); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}) }}, length: {length}.0, object: None }}"
-                );
+                ));
                 // A bare function-item-as-value wrapper carries a stable item
                 // key. Building this `SmeltErasedFunction` inline would mint a
                 // fresh callback `Rc` on every call, so two calls of the same
@@ -353,11 +344,11 @@ impl FunctionEmitter<'_> {
             if !seen.insert(capture.source_local) {
                 continue;
             }
-            let source_name = self.local_name(capture.source_local)?.to_owned();
-            if shared_capture_cell_name(&source_name).is_some() {
+            let binding = self.local_binding(capture.source_local)?;
+            if binding.shared_cell().is_some() {
                 continue;
             }
-            sources.push((capture.source_local, source_name));
+            sources.push((capture.source_local, binding.text().into_owned()));
         }
         let mut claimed = closure_param_names.clone();
         let mut shared_source_names = HashSet::new();
@@ -383,6 +374,58 @@ impl FunctionEmitter<'_> {
         Ok(aliases)
     }
 
+    /// The binding a capture takes inside the closure body.
+    ///
+    /// Decided once, before the body renders: the body, the capture preludes and
+    /// any closure nested deeper all read it from here.
+    fn capture_body_binding(
+        &self,
+        id: smelt_mir::ClosureId,
+        closure: &MirClosure,
+        capture: &smelt_mir::MirClosureCapture,
+        capture_aliases: &HashMap<LocalId, String>,
+    ) -> Result<LocalBinding, EmitError> {
+        let source = self.local_binding(capture.source_local)?;
+        if source.shared_cell().is_some() {
+            // Captured from an enclosing shared closure: this body reaches the
+            // same cell.
+            return Ok(source.clone());
+        }
+        let alias = capture_aliases.get(&capture.source_local);
+        let name = alias.map_or_else(|| source.text(), |alias| Cow::Borrowed(alias.as_str()));
+        if self.is_weak_emitter_capture(id, capture) {
+            // Registered as a listener on the emitter it captures: read through
+            // a weak handle (see `emitter::weak_receiver`).
+            return Ok(LocalBinding::WeakEmitter { name: name.into_owned() });
+        }
+        if self.is_weak_receiver_capture(id, capture) {
+            // Stored on the instance it captures: read through a weak capture
+            // (see `emitter::weak_receiver`).
+            return Ok(LocalBinding::SharedCapture(SharedCell::named(
+                &name,
+                CellUpgrade::WeakReceiver,
+            )));
+        }
+        if self.closure_capture_needs_shared_access(closure, capture)
+            || self.local_uses_shared_capture_storage(capture.source_local)
+        {
+            // A self-recursive closure holds a `Weak` to its own cell, so it
+            // upgrades before borrowing. See
+            // `closure_capture_is_non_escaping_self_reference`.
+            let upgrade = if self.closure_capture_is_non_escaping_self_reference(closure, capture) {
+                CellUpgrade::SelfRecursive
+            } else {
+                CellUpgrade::Strong
+            };
+            return Ok(LocalBinding::SharedCapture(SharedCell::named(&name, upgrade)));
+        }
+        Ok(match (alias, source) {
+            (Some(alias), _) => LocalBinding::Plain(alias.clone()),
+            (None, LocalBinding::Receiver) => LocalBinding::Plain(SELF_CAPTURE_NAME.to_owned()),
+            (None, source) => source.clone(),
+        })
+    }
+
     /// Emits ignored trailing parameters when a JS callback accepts fewer
     /// arguments than the contextual function type provides.
     ///
@@ -398,7 +441,7 @@ impl FunctionEmitter<'_> {
         target_param_tys: &[TypeId],
         return_override: Option<TypeId>,
         target_function: Option<&FunctionType>,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RenderedClosure, EmitError> {
         // `&` for a parameter the contextual callback type passes by shared
         // reference, empty otherwise. Every parameter-rendering site below goes
         // through this, so the closure's signature cannot drift from the `dyn Fn`
@@ -448,7 +491,7 @@ impl FunctionEmitter<'_> {
                     Ok(format!(
                         "arg{index}: {}{}",
                         by_ref_prefix(index, param_ty),
-                        self.type_text_with_impl_trait(param_ty, false)?
+                        self.type_text(param_ty)?
                     ))
                 })
                 .collect::<Result<Vec<_>, EmitError>>()?;
@@ -456,15 +499,18 @@ impl FunctionEmitter<'_> {
                 param_decls.push(format!(
                     "_arg{index}: {}{}",
                     by_ref_prefix(closure.params.len() + index, *extra_ty),
-                    self.type_text_with_impl_trait(*extra_ty, false)?
+                    self.type_text(*extra_ty)?
                 ));
             }
-            return Ok(format!(
-                "|{}| -> {} {{ {} }}",
-                param_decls.join(", "),
-                self.type_text_with_impl_trait(return_ty, false)?,
-                self.default_value(return_ty)?
-            ));
+            return Ok(RenderedClosure {
+                text: format!(
+                    "|{}| -> {} {{ {} }}",
+                    param_decls.join(", "),
+                    self.type_text(return_ty)?,
+                    self.default_value(return_ty)?
+                ),
+                binds_captures: false,
+            });
         }
         let closure_param_names = closure
             .params
@@ -543,52 +589,27 @@ impl FunctionEmitter<'_> {
             // generic trial) carry into its body: see `child_for_closure`.
             let mut emitter = self.child_for_closure(&function, &closure.captures)?;
             for (index, param) in closure.params.iter().enumerate() {
-                emitter.names.insert(*param, format!("closure_arg_{index}"));
+                emitter.bindings.insert(*param, LocalBinding::ClosureArg(index));
             }
             for capture in &closure.captures {
                 if let Some(target) = capture.target_local {
                     let source = self.local_decl(capture.source_local)?;
-                    let source_name = self.local_name(capture.source_local)?.to_owned();
                     let alias_name = capture_aliases
                         .get(&capture.source_local)
                         .cloned()
-                        .unwrap_or_else(|| source_name.clone());
+                        .unwrap_or_else(|| {
+                            self.local_binding(capture.source_local)
+                                .map_or_else(|_| String::new(), |b| b.text().into_owned())
+                        });
                     if matches!(self.mir.types.get(source.ty), Some(Type::Function(_)))
                         && matches!(source.kind, LocalKind::Param { .. })
                         && !self.function_parameter_requires_owned(capture.source_local)?
                     {
                         emitter.borrowed_callback_names.insert(alias_name.clone());
                     }
-                    let capture_name = if self.is_weak_emitter_capture(id, capture) {
-                        // Registered as a listener on the emitter it captures:
-                        // read through a weak handle (see `emitter::weak_receiver`).
-                        weak_receiver::emitter_access_text(&alias_name)
-                    } else if self.is_weak_receiver_capture(id, capture) {
-                        // Stored on the instance it captures: read through a
-                        // weak capture (see `emitter::weak_receiver`).
-                        weak_receiver::capture_access_text(&alias_name)
-                    } else if alias_name.starts_with("(*smelt_capture_") {
-                        // The source binding is itself captured from an
-                        // enclosing shared closure and already renders as
-                        // `(*smelt_capture_x.borrow_mut())`. Reuse that rendered
-                        // form; wrapping it again would emit the invalid
-                        // `(*smelt_capture_(*smelt_capture_x.borrow_mut())...)`.
-                        alias_name
-                    } else if self.closure_capture_needs_shared_access(closure, capture)
-                        || self.local_uses_shared_capture_storage(capture.source_local)
-                    {
-                        // A self-recursive closure holds a `Weak` to its own cell, so
-                        // it upgrades before borrowing. See
-                        // `closure_capture_is_non_escaping_self_reference`.
-                        if self.closure_capture_is_non_escaping_self_reference(closure, capture) {
-                            format!("(*smelt_capture_{alias_name}{SELF_RECURSIVE_UPGRADE}.borrow_mut())")
-                        } else {
-                            format!("(*smelt_capture_{alias_name}.borrow_mut())")
-                        }
-                    } else {
-                        alias_name
-                    };
-                    emitter.names.insert(target, capture_name);
+                    let capture_binding =
+                        self.capture_body_binding(id, closure, capture, &capture_aliases)?;
+                    emitter.bindings.insert(target, capture_binding);
                     emitter.mark_local_declared(target);
                 }
             }
@@ -624,8 +645,8 @@ impl FunctionEmitter<'_> {
                     let local = emitter.local_decl(*param)?;
                     let needs_mut = emitter.local_binding_needs_mut(*param);
                     let mutability = if needs_mut { "mut " } else { "" };
-                    let name = emitter.local_name(*param)?.to_owned();
-                    let local_ty_text = emitter.type_text_with_impl_trait(local.ty, false)?;
+                    let name = emitter.local_name(*param)?.into_owned();
+                    let local_ty_text = emitter.type_text(local.ty)?;
                     // Only re-type a parameter when the contextual function
                     // dropped an optional wrapper the closure's own local kept
                     // flat (source `target?: V` lowers the destination param to
@@ -644,7 +665,7 @@ impl FunctionEmitter<'_> {
                     // `match`: the fall-through arm below is a block, which
                     // `clippy::single_match_else` rejects.
                     if let Some(target_ty) = retype {
-                        let target_ty_text = emitter.type_text_with_impl_trait(target_ty, false)?;
+                        let target_ty_text = emitter.type_text(target_ty)?;
                         let coerced = emitter.value_at_type_text(&name, target_ty, local.ty, &self.render_scope())?;
                         param_rebinds.push_str(&format!(
                             "let {mutability}{name}: {local_ty_text} = {coerced};\n"
@@ -687,7 +708,7 @@ impl FunctionEmitter<'_> {
                 params.push(format!(
                     "_arg{index}: {}{}",
                     by_ref_prefix(closure.params.len() + index, *extra_ty),
-                    emitter.type_text_with_impl_trait(*extra_ty, false)?
+                    emitter.type_text(*extra_ty)?
                 ));
             }
             let params_text = params.join(", ");
@@ -703,7 +724,10 @@ impl FunctionEmitter<'_> {
             };
             let mut body_text = param_rebinds;
             emitter.emit_mutable_local_preludes(&mut body_text)?;
-            emitter.emit_closure_block(emitter.entry_block()?, &mut body_text)?;
+            let (emitted, body_returns_early) = emitter
+                .binding_uses
+                .tracking_early_return(|| emitter.emit_closure_block(emitter.entry_block()?, &mut body_text));
+            emitted?;
             let returns_future = matches!(
                 emitter.mir.types.get(function.return_ty),
                 Some(Type::Future(_))
@@ -727,22 +751,13 @@ impl FunctionEmitter<'_> {
                     .captures
                     .iter()
                     .filter_map(|capture| {
-                        let source_name = self.local_name(capture.source_local).ok()?.to_owned();
-                        let name = capture_aliases
-                            .get(&capture.source_local)
-                            .cloned()
-                            .unwrap_or(source_name);
-                        if self.closure_capture_needs_shared_access(closure, capture)
-                            || self.local_uses_shared_capture_storage(capture.source_local)
-                        {
-                            let cell = format!("smelt_capture_{name}");
-                            return cloned_generator_captures
-                                .insert(cell.clone())
-                                .then(|| format!("let {cell} = {cell}.clone();"));
-                        }
+                        let binding = self
+                            .capture_body_binding(id, closure, capture, &capture_aliases)
+                            .ok()?;
+                        let handle = binding.cell_handle();
                         cloned_generator_captures
-                            .insert(name.clone())
-                            .then(|| format!("let {name} = {name}.clone();"))
+                            .insert(handle.clone())
+                            .then(|| format!("let {handle} = {handle}.clone();"))
                     })
                     .collect::<Vec<_>>()
                     .join(" ");
@@ -775,7 +790,7 @@ impl FunctionEmitter<'_> {
                 };
                 if function.is_async {
                     format!(
-                        "|{params_text}| {{ {owned_param_prelude}{capture_lines} let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_generator_producer_input = smelt_generator_input.clone(); let smelt_generator = genawaiter::rc::Gen::new(move |co| {{ let smelt_generator_input = smelt_generator_producer_input; async move {{\n{body_text}    }} }}); let smelt_generator = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_generator)); SmeltAsyncGenerator{generator_turbofish}::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_state = {{ let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }}; Ok::<_, Box<dyn std::error::Error>>(match smelt_state {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value?) }}) }})) }}){erase_suffix} }}"
+                        "|{params_text}| {{ {owned_param_prelude}{capture_lines} let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_generator_producer_input = smelt_generator_input.clone(); let smelt_generator = genawaiter::rc::Gen::new(move |co| {{ let smelt_generator_input = smelt_generator_producer_input; async move {{\n{body_text}    }} }}); let smelt_generator = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_generator)); SmeltAsyncGenerator{generator_turbofish}::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_state = {{ let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }}; Ok::<_, {ERROR_BOX}>(match smelt_state {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value?) }}) }})) }}){erase_suffix} }}"
                     )
                 } else {
                     let completion = if closure.can_throw {
@@ -792,8 +807,8 @@ impl FunctionEmitter<'_> {
                     Some(Type::Future(item)) => *item,
                     _ => function.return_ty,
                 };
-                let output_text = emitter.type_text_with_impl_trait(output_ty, false)?;
-                let return_ty = format!("Result<{output_text}, Box<dyn std::error::Error>>");
+                let output_text = emitter.type_text(output_ty)?;
+                let return_ty = format!("Result<{output_text}, {ERROR_BOX}>");
                 // Whether `smelt_async_value` is itself a future to await is read
                 // from the MIR return operand types, not from the emitted text.
                 //
@@ -815,10 +830,10 @@ impl FunctionEmitter<'_> {
                         Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                     ) || emitter.is_erased_class_type(output_ty)
                     {
-                        "let smelt_async_output = smelt_async_value?.await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_async_output.into_smelt_unknown())".to_owned()
+                        self.carrier_format(format_args!("let smelt_async_output = smelt_async_value?.await?; Ok::<SmeltUnknown, {ERROR_BOX}>(smelt_async_output.into_smelt_unknown())"))
                     } else {
                         format!(
-                            "let smelt_async_output = smelt_async_value?.await?; Ok::<{output_text}, Box<dyn std::error::Error>>(smelt_async_output)"
+                            "let smelt_async_output = smelt_async_value?.await?; Ok::<{output_text}, {ERROR_BOX}>(smelt_async_output)"
                         )
                     }
                 } else if closure.can_throw {
@@ -827,10 +842,10 @@ impl FunctionEmitter<'_> {
                         Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                     ) || emitter.is_erased_class_type(output_ty)
                     {
-                        "Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_async_value?.into_smelt_unknown())".to_owned()
+                        self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>(smelt_async_value?.into_smelt_unknown())"))
                     } else {
                         format!(
-                            "Ok::<{output_text}, Box<dyn std::error::Error>>(smelt_async_value?)"
+                            "Ok::<{output_text}, {ERROR_BOX}>(smelt_async_value?)"
                         )
                     }
                 } else if matches!(
@@ -839,16 +854,16 @@ impl FunctionEmitter<'_> {
                 ) || emitter.is_erased_class_type(output_ty)
                 {
                     if async_value_needs_await {
-                        "let smelt_async_output = smelt_async_value.await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_async_output.into_smelt_unknown())".to_owned()
+                        self.carrier_format(format_args!("let smelt_async_output = smelt_async_value.await?; Ok::<SmeltUnknown, {ERROR_BOX}>(smelt_async_output.into_smelt_unknown())"))
                     } else {
-                        "Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_async_value.into_smelt_unknown())".to_owned()
+                        self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>(smelt_async_value.into_smelt_unknown())"))
                     }
                 } else if async_value_needs_await {
                     format!(
-                        "let smelt_async_output = smelt_async_value.await?; Ok::<{output_text}, Box<dyn std::error::Error>>(smelt_async_output)"
+                        "let smelt_async_output = smelt_async_value.await?; Ok::<{output_text}, {ERROR_BOX}>(smelt_async_output)"
                     )
                 } else {
-                    format!("Ok::<{output_text}, Box<dyn std::error::Error>>(smelt_async_value)")
+                    format!("Ok::<{output_text}, {ERROR_BOX}>(smelt_async_value)")
                 };
                 // Pin the type of the `smelt_async_value` binding for the fallible,
                 // non-awaited branches. When the closure body only ever throws
@@ -861,7 +876,7 @@ impl FunctionEmitter<'_> {
                 // whose `Ok` type equals the erased `SmeltUnknown` or the concrete
                 // `output_text` the `Ok::<..>` returns already use.
                 let async_value_annotation: Option<String> =
-                    if body_text.contains("return Ok") {
+                    if body_returns_early {
                         // Explicit returns diverge from the inner block, so pin
                         // its otherwise-unconstrained binding for Rust inference.
                         // Reaching this branch already proves the wrapper is
@@ -878,7 +893,7 @@ impl FunctionEmitter<'_> {
                         } else {
                             output_text.as_str()
                         };
-                        Some(format!(": Result<{ok_ty_text}, Box<dyn std::error::Error>>"))
+                        Some(format!(": Result<{ok_ty_text}, {ERROR_BOX}>"))
                     } else {
                         None
                     };
@@ -889,8 +904,6 @@ impl FunctionEmitter<'_> {
                     .iter()
                     .filter_map(|capture| {
                         let local = self.local_decl(capture.source_local).ok()?;
-                        let source_name =
-                            self.local_name(capture.source_local).ok()?.to_owned();
                         if matches!(self.mir.types.get(local.ty), Some(Type::Function(_)))
                             && matches!(local.kind, LocalKind::Param { .. })
                             && !self
@@ -902,70 +915,27 @@ impl FunctionEmitter<'_> {
                             // Clone them per invocation before `async move` so
                             // a returned async closure remains `Fn`, not
                             // `FnOnce`.
-                            && !source_name.starts_with("closure_arg_")
+                            && !matches!(
+                                self.local_binding(capture.source_local).ok()?,
+                                LocalBinding::ClosureArg(_)
+                            )
                             // A shadowed source name is rewritten to an alias in
                             // the nested body, so that alias must still be bound.
                             && !capture_aliases.contains_key(&capture.source_local)
                         {
                             return None;
                         }
-                        let name = capture_aliases
-                            .get(&capture.source_local)
-                            .cloned()
-                            .unwrap_or_else(|| source_name.clone());
-                        // The SOURCE binding may itself already render as an
-                        // enclosing closure's shared cell
-                        // (`(*smelt_capture_x.borrow_mut())`, possibly through
-                        // the self-recursive `Weak` upgrade). Its own local is
-                        // not flagged as shared storage -- the flag sits on the
-                        // local one level out -- so neither check below sees it,
-                        // and the plain branch emitted `let x = x.clone();`,
-                        // which the enclosing wrapper's
-                        // `replace_shared_capture_uses` turned into `let
-                        // (*smelt_capture_x.borrow_mut()) = ..`: a place
-                        // expression in a binding position, which is not a
-                        // pattern. Clone the CELL instead, exactly as the
-                        // sibling wrapper prelude does for the same shape.
-                        // Hono's `compose` reaches it: `() => dispatch(i + 1)`
-                        // is an async closure nested inside the body that holds
-                        // the `dispatch` knot.
-                        if let Some(cell) = shared_capture_cell_name(&source_name) {
-                            let cell = cell.to_owned();
-                            return cloned_async_captures
-                                .insert(cell.clone())
-                                .then(|| format!("let {cell} = {cell}.clone();"));
-                        }
-                        // A capture that lives in shared `Rc<RefCell>` storage is
-                        // read through `(*smelt_capture_x.borrow_mut())` in the
-                        // body. The `async move` block must own its own `Rc` clone
-                        // of that cell, so clone the `smelt_capture_x` HANDLE into a
-                        // fresh binding of the same name. Re-binding the source name
-                        // here instead would be rewritten by the enclosing wrapper's
-                        // `replace_shared_capture_uses` into `let
-                        // (*smelt_capture_x.borrow_mut()) = ...` — a place
-                        // expression in a binding position, which is not a pattern.
-                        // The shared-storage decision mirrors the capture-name
-                        // rewrite above so prelude and body agree.
-                        if self.closure_capture_needs_shared_access(closure, capture)
-                            || self.local_uses_shared_capture_storage(capture.source_local)
-                        {
-                            let cell = format!("smelt_capture_{name}");
-                            return cloned_async_captures
-                                .insert(cell.clone())
-                                .then(|| format!("let {cell} = {cell}.clone();"));
-                        }
+                        // The `async move` block owns its own handle: the `Rc` of a
+                        // shared cell, or a clone of a plain binding. A plain
+                        // binding that took an alias is already bound under it by
+                        // the enclosing prelude.
+                        let binding = self
+                            .capture_body_binding(id, closure, capture, &capture_aliases)
+                            .ok()?;
+                        let handle = binding.cell_handle();
                         cloned_async_captures
-                            .insert(name.clone())
-                            .then(|| {
-                                let clone_source = if capture_aliases
-                                    .contains_key(&capture.source_local)
-                                {
-                                    name.as_str()
-                                } else {
-                                    source_name.as_str()
-                                };
-                                format!("let {name} = {clone_source}.clone();")
-                            })
+                            .insert(handle.clone())
+                            .then(|| format!("let {handle} = {handle}.clone();"))
                     })
                     .collect::<Vec<_>>();
                 let async_capture_prelude = if async_capture_lines.is_empty() {
@@ -987,9 +957,9 @@ impl FunctionEmitter<'_> {
                 // parameters are pinned; the `Ok::<T, _>` returns emitted for this
                 // closure already use this same `T`, so the annotation is exact.
                 let return_ty_text =
-                    emitter.type_text_with_impl_trait(function.return_ty, false)?;
+                    emitter.type_text(function.return_ty)?;
                 format!(
-                    "|{params_text}| -> Result<{return_ty_text}, Box<dyn std::error::Error>> {{{owned_param_prelude_block}\n{body_text}    }}"
+                    "|{params_text}| -> Result<{return_ty_text}, {ERROR_BOX}> {{{owned_param_prelude_block}\n{body_text}    }}"
                 )
             } else if matches!(
                 emitter.mir.types.get(function.return_ty),
@@ -1012,7 +982,7 @@ impl FunctionEmitter<'_> {
                 // the coercion site, which is what the source says the closure
                 // produces.
                 let return_ty_text =
-                    emitter.type_text_with_impl_trait(function.return_ty, false)?;
+                    emitter.type_text(function.return_ty)?;
                 format!(
                     "|{params_text}| -> {return_ty_text} {{{owned_param_prelude_block}\n{body_text}    }}"
                 )
@@ -1041,10 +1011,9 @@ impl FunctionEmitter<'_> {
             ""
         };
         if capture_prefix.is_empty() {
-            return Ok(body);
+            return Ok(RenderedClosure { text: body, binds_captures: false });
         }
         let mut cloned_captures = HashSet::new();
-        let mut shared_replacements = Vec::new();
         let capture_prelude = closure
             .captures
             .iter()
@@ -1061,36 +1030,28 @@ impl FunctionEmitter<'_> {
                 {
                     return None;
                 }
-                let source_name = self.local_name(capture.source_local).ok()?.to_owned();
+                let source_name = self.local_binding(capture.source_local).ok()?.text().into_owned();
                 let name = capture_aliases
                     .get(&capture.source_local)
                     .cloned()
                     .unwrap_or_else(|| source_name.clone());
-                if let Some(cell_ref) = shared_capture_cell_name(&source_name) {
+                if let Some(source_cell) = self.local_binding(capture.source_local).ok()?.shared_cell() {
                     // The source binding already renders through shared storage
                     // (it was captured from an enclosing shared closure). The
                     // nested closure body references the same `smelt_capture_x`
                     // cell directly, so clone the `Rc` into this closure's
                     // header; otherwise `move` steals the enclosing closure's
                     // cell and later uses of it fail to borrow-check.
-                    let cell = cell_ref.to_owned();
+                    let cell = source_cell.cell.clone();
                     return cloned_captures
                         .insert(cell.clone())
                         .then(|| format!("let {cell} = {cell}.clone();"));
                 }
                 cloned_captures.insert(name.clone()).then(|| {
                     if self.is_weak_emitter_capture(id, capture) {
-                        shared_replacements.push((
-                            name.clone(),
-                            weak_receiver::emitter_access_text(&name),
-                        ));
                         return weak_receiver::emitter_prelude_text(&name, &source_name);
                     }
                     if self.is_weak_receiver_capture(id, capture) {
-                        shared_replacements.push((
-                            name.clone(),
-                            weak_receiver::capture_access_text(&name),
-                        ));
                         let shared = self.closure_capture_needs_shared_access(closure, capture)
                             || self.local_uses_shared_capture_storage(capture.source_local);
                         return weak_receiver::capture_prelude_text(&name, &source_name, shared);
@@ -1104,14 +1065,6 @@ impl FunctionEmitter<'_> {
                         // outlives every call made through it.
                         let self_reference =
                             self.closure_capture_is_non_escaping_self_reference(closure, capture);
-                        shared_replacements.push((
-                            name.clone(),
-                            if self_reference {
-                                format!("(*smelt_capture_{name}{SELF_RECURSIVE_UPGRADE}.borrow_mut())")
-                            } else {
-                                format!("(*smelt_capture_{name}.borrow_mut())")
-                            },
-                        ));
                         if capture_aliases.contains_key(&capture.source_local) {
                             return format!(
                                 "let smelt_capture_{name} = ::std::rc::Rc::new(::std::cell::RefCell::new({source_name}.clone()));"
@@ -1125,11 +1078,13 @@ impl FunctionEmitter<'_> {
                         return format!("let smelt_capture_{name} = smelt_capture_{name}.clone();");
                     }
                     // `self` cannot be a `let` binding in Rust, so a captured
-                    // receiver takes `SELF_CAPTURE_NAME` and the body's uses are
-                    // rewritten to it — see the sibling prelude above, which
-                    // does the same for the other closure shape.
-                    if name == "self" {
-                        shared_replacements.push((name.clone(), SELF_CAPTURE_NAME.to_owned()));
+                    // receiver takes `SELF_CAPTURE_NAME`, as
+                    // `capture_body_binding` tells the body.
+                    if !capture_aliases.contains_key(&capture.source_local)
+                        && self
+                            .local_binding(capture.source_local)
+                            .is_ok_and(|binding| *binding == LocalBinding::Receiver)
+                    {
                         return format!("let {SELF_CAPTURE_NAME} = {source_name}.clone();");
                     }
                     // See the sibling capture-prelude above: mutability follows
@@ -1145,15 +1100,15 @@ impl FunctionEmitter<'_> {
                 })
             })
             .collect::<Vec<_>>();
-        let adjusted_body = replace_shared_capture_uses(body, &shared_replacements);
-        if capture_prelude.is_empty() {
-            Ok(format!("{capture_prefix}{adjusted_body}"))
+        let text = if capture_prelude.is_empty() {
+            format!("{capture_prefix}{body}")
         } else {
-            Ok(format!(
-                "{{\n    {}\n    {capture_prefix}{adjusted_body}\n}}",
+            format!(
+                "{{\n    {}\n    {capture_prefix}{body}\n}}",
                 capture_prelude.join("\n    ")
-            ))
-        }
+            )
+        };
+        Ok(RenderedClosure { text, binds_captures: true })
     }
 
     /// Return whether this closure's own MIR body performs an `await`.
@@ -1237,7 +1192,8 @@ impl FunctionEmitter<'_> {
                 out.push_str(&format!("    {};\n", self.operand_text(operand)?));
             }
             if self.function.can_throw || self.function.is_async {
-                out.push_str("    return Ok::<(), Box<dyn std::error::Error>>(());\n");
+                self.binding_uses.record_early_return();
+                out.push_str(&format!("    return Ok::<(), {ERROR_BOX}>(());\n"));
             } else {
                 out.push_str("    return ();\n");
             }
@@ -1254,9 +1210,10 @@ impl FunctionEmitter<'_> {
         };
         let value = self.value_at_type(operand, return_ty)?;
         if self.function.can_throw || self.function.is_async {
-            let return_ty_text = self.type_text_with_impl_trait(return_ty, false)?;
+            let return_ty_text = self.type_text(return_ty)?;
+            self.binding_uses.record_early_return();
             out.push_str(&format!(
-                "    return Ok::<{return_ty_text}, Box<dyn std::error::Error>>({value});\n"
+                "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n"
             ));
         } else {
             out.push_str(&format!("    return {value};\n"));
@@ -1400,7 +1357,7 @@ impl FunctionEmitter<'_> {
                         out.push_str(&format!("    {};\n", self.operand_text(operand)?));
                     }
                     if self.function.can_throw {
-                        out.push_str("    Ok::<(), Box<dyn std::error::Error>>(())\n");
+                        out.push_str(&format!("    Ok::<(), {ERROR_BOX}>(())\n"));
                     } else {
                         out.push_str("    ()\n");
                     }
@@ -1429,9 +1386,9 @@ impl FunctionEmitter<'_> {
                     };
                     let value = self.value_at_type(operand, return_ty)?;
                     if self.function.can_throw {
-                        let return_ty_text = self.type_text_with_impl_trait(return_ty, false)?;
+                        let return_ty_text = self.type_text(return_ty)?;
                         out.push_str(&format!(
-                            "    Ok::<{return_ty_text}, Box<dyn std::error::Error>>({value})\n"
+                            "    Ok::<{return_ty_text}, {ERROR_BOX}>({value})\n"
                         ));
                     } else {
                         out.push_str(&format!("    {value}\n"));
@@ -1485,7 +1442,7 @@ impl FunctionEmitter<'_> {
                 let name = self.local_name(*dest)?;
                 out.push_str(&format!(
                     "    let {name}: {} = {call_text};\n",
-                    self.type_text_with_impl_trait(local.ty, false)?
+                    self.type_text(local.ty)?
                 ));
                 self.mark_local_declared(*dest);
                 self.emit_closure_block_inner(self.block(*target)?, out, active, stop, in_loop)
@@ -1522,7 +1479,7 @@ impl FunctionEmitter<'_> {
                 let value = format!("{}.await?", self.await_operand_text(future)?);
                 out.push_str(&format!(
                     "    let {name}: {} = {value};\n",
-                    self.type_text_with_impl_trait(local.ty, false)?
+                    self.type_text(local.ty)?
                 ));
                 self.mark_local_declared(*dest);
                 self.emit_closure_block_inner(self.block(*target)?, out, active, stop, in_loop)
@@ -1585,10 +1542,6 @@ impl FunctionEmitter<'_> {
             Terminator::Throw(operand) => {
                 // Same helper as the function-level throw terminator.
                 out.push_str(&self.throw_terminator_text(operand)?);
-                Ok(())
-            }
-            Terminator::Unreachable => {
-                out.push_str("    unreachable!()\n");
                 Ok(())
             }
         };

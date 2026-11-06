@@ -101,39 +101,6 @@ impl SpecializationArtifactStore {
         write_if_changed(&path, &bytes)
     }
 
-    /// Loads a cache entry or computes and stores it on a miss.
-    ///
-    /// The producer is never invoked for a valid cache hit.
-    ///
-    /// # Errors
-    ///
-    /// Returns an artifact error or a producer error.
-    pub fn load_or_compute<E>(
-        &self,
-        language: HostLanguage,
-        key: &SpecializationCacheKey,
-        producer: impl FnOnce() -> Result<SpecializationManifest, E>,
-    ) -> Result<SpecializationManifest, LoadOrComputeError<E>> {
-        if let Some(manifest) = self
-            .load(language, key)
-            .map_err(LoadOrComputeError::Artifact)?
-        {
-            return Ok(manifest);
-        }
-        let manifest = producer().map_err(LoadOrComputeError::Producer)?;
-        if manifest.language != language {
-            return Err(LoadOrComputeError::Artifact(
-                ArtifactError::LanguageMismatch {
-                    expected: language,
-                    actual: manifest.language,
-                },
-            ));
-        }
-        self.store(key, &manifest)
-            .map_err(LoadOrComputeError::Artifact)?;
-        Ok(manifest)
-    }
-
     /// Copies a cached artifact into a package artifact directory.
     ///
     /// The package layout is identical to the cache layout, so consumers can
@@ -242,36 +209,6 @@ impl From<serde_json::Error> for ArtifactError {
     }
 }
 
-/// Failure from cache lookup or cache-miss production.
-#[derive(Debug)]
-pub enum LoadOrComputeError<E> {
-    /// Persistent artifact validation or storage failed.
-    Artifact(ArtifactError),
-    /// Cache-miss producer failed.
-    Producer(E),
-}
-
-impl<E: std::fmt::Display> std::fmt::Display for LoadOrComputeError<E> {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Artifact(error) => error.fmt(formatter),
-            Self::Producer(error) => write!(formatter, "specialization producer failed: {error}"),
-        }
-    }
-}
-
-impl<E> std::error::Error for LoadOrComputeError<E>
-where
-    E: std::error::Error + 'static,
-{
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Artifact(error) => Some(error),
-            Self::Producer(error) => Some(error),
-        }
-    }
-}
-
 /// Stable directory spelling used by caches and package artifacts.
 const fn language_directory(language: HostLanguage) -> &'static str {
     match language {
@@ -346,27 +283,6 @@ mod tests {
             SpecializationArtifactStore::new(package.path()).load(HostLanguage::Python, &key)?;
         if packaged.is_none() {
             return Err("package artifact could not be loaded as a cache entry".into());
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn cache_hit_skips_the_specialization_producer() -> TestResult {
-        let temp = tempfile::tempdir()?;
-        let store = SpecializationArtifactStore::new(temp.path());
-        let key = key()?;
-        store.store(&key, &manifest())?;
-        let mut invoked = false;
-        let loaded = store.load_or_compute(
-            HostLanguage::Python,
-            &key,
-            || -> Result<SpecializationManifest, io::Error> {
-                invoked = true;
-                Err(io::Error::other("producer must not run on a cache hit"))
-            },
-        )?;
-        if invoked || loaded != manifest() {
-            return Err("cache hit invoked the host specialization producer".into());
         }
         Ok(())
     }

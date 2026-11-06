@@ -15,7 +15,7 @@ use smelt_hir::{
     ErasureReason, GeneratorResumeKind, Item, Literal, LocalDecl, Param, Pattern, Span, Stmt, Type,
     TypeParamDef,
 };
-use smelt_stdlib::RuleId;
+use smelt_stdlib::{DiagnosticCategory, RuleId};
 use std::collections::HashMap;
 
 /// Render the opaque runtime string that stands for a *unique* `Symbol(...)`.
@@ -69,6 +69,38 @@ enum StrippedGlobalCallee<'a> {
         /// Method invoked on the normalized namespace.
         method: &'a str,
     },
+}
+
+/// The receiver of one member call while its builtin handlers run.
+#[derive(Debug)]
+pub(in crate::lowering) struct ReceiverFrame {
+    /// The receiver's source span, or `None` for a call with no member callee.
+    object: Option<oxc::span::Span>,
+    /// What lowering the receiver answered, once a handler asked.
+    lowered: DispatchedReceiver,
+}
+
+/// The answer one lowering of a dispatched receiver gave.
+#[derive(Debug, Clone, Copy)]
+enum DispatchedReceiver {
+    /// No handler asked yet.
+    Unasked,
+    /// The receiver has no value of its own (a namespace, a class name).
+    NoValue,
+    /// The lowered receiver.
+    Value(smelt_hir::ExprId),
+}
+
+impl ReceiverFrame {
+    /// The empty frame of `call`.
+    fn of(call: &oxc::ast::ast::CallExpression<'_>) -> Self {
+        let object = match &call.callee {
+            Expression::StaticMemberExpression(member) => Some(member.object.span()),
+            Expression::ComputedMemberExpression(member) => Some(member.object.span()),
+            _ => None,
+        };
+        Self { object, lowered: DispatchedReceiver::Unasked }
+    }
 }
 
 impl<'builder> ModuleBuilder<'builder> {
@@ -672,8 +704,24 @@ impl<'builder> ModuleBuilder<'builder> {
         let asserted_callee = Self::transparent_asserted_callee(&call.callee);
         if asserted_callee.is_some() {
             let callee_expression = asserted_callee.unwrap_or(&call.callee);
-            let callee = self.expression(callee_expression, body)?;
-            let callee_ty = Self::expr_ty(body, callee);
+            let mut callee = self.expression(callee_expression, body)?;
+            let mut callee_ty = Self::expr_ty(body, callee);
+            if let Some(&Type::Optional(inner)) = self.ctx.krate.types.get(callee_ty) {
+                callee = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: callee },
+                    ty: inner,
+                    span: self.span(call.span.start, call.span.end),
+                });
+                callee_ty = inner;
+            }
+            // A callee asserted out of a wider type (`(x as Fn)(..)` over a union)
+            // is the assertion's type, so the cast itself is the callee.
+            if !matches!(self.ctx.krate.types.get(callee_ty), Some(Type::Function(_)))
+                && !self.callable_through_erased_abi(callee_ty)
+            {
+                callee = self.expression(&call.callee, body)?;
+                callee_ty = Self::expr_ty(body, callee);
+            }
             let Some(Type::Function(function)) = self.ctx.krate.types.get(callee_ty).cloned()
             else {
                 if self.callable_through_erased_abi(callee_ty) {
@@ -699,13 +747,7 @@ impl<'builder> ModuleBuilder<'builder> {
                 _ => None,
             };
             let ty = match item {
-                Some(item) => self.instantiated_item_value_call_result(
-                    item,
-                    &function,
-                    &args,
-                    call.span,
-                    body,
-                ),
+                Some(item) => self.instantiated_item_value_call_result(item, &function, &args, call, body)?,
                 None => function.return_ty,
             };
             return Ok(body.push_expr(Expr {
@@ -715,17 +757,7 @@ impl<'builder> ModuleBuilder<'builder> {
             }));
         }
         if let Expression::Identifier(callee_ident) = &call.callee {
-            if matches!(
-                callee_ident.name.as_str(),
-                "Error"
-                    | "EvalError"
-                    | "RangeError"
-                    | "ReferenceError"
-                    | "SyntaxError"
-                    | "TypeError"
-                    | "URIError"
-                    | "AggregateError"
-            ) {
+            if smelt_stdlib::is_error_class_name(callee_ident.name.as_str()) {
                 return self.error_function_call(call, body);
             }
             if self.scope.is_bound(callee_ident.name.as_str()) {
@@ -1180,14 +1212,19 @@ impl<'builder> ModuleBuilder<'builder> {
                 }
                 if !deferred.is_empty() {
                     let mut substitutions = HashMap::new();
-                    for (index, lowered_arg) in lowered.iter().enumerate() {
-                        let (Some(param), Some(lowered_arg)) =
-                            (params.get(index).copied(), *lowered_arg)
-                        else {
-                            continue;
-                        };
-                        let arg_ty = Self::expr_ty(body, lowered_arg);
-                        let _ = self.infer_overload_type(param, arg_ty, &mut substitutions);
+                    match self.explicit_call_type_bindings(&callee_type_params, call) {
+                        Some(explicit) => substitutions = explicit,
+                        None => {
+                            for (index, lowered_arg) in lowered.iter().enumerate() {
+                                let (Some(param), Some(lowered_arg)) =
+                                    (params.get(index).copied(), *lowered_arg)
+                                else {
+                                    continue;
+                                };
+                                let arg_ty = Self::expr_ty(body, lowered_arg);
+                                let _ = self.infer_overload_type(param, arg_ty, &mut substitutions);
+                            }
+                        }
                     }
                     for index in deferred {
                         let arg = fixed_arguments[index];
@@ -1231,61 +1268,8 @@ impl<'builder> ModuleBuilder<'builder> {
             // return still carries the raw `TypeParam`. Instantiate it from
             // the lowered argument types the same way overload selection
             // does, so `shuffle([1, 2]).sort()` sees `number[]`, not `T[]`.
-            let return_ty = if selected_overload.is_none()
-                && self.overload_constraint_contains_unresolved_type_param(return_ty)
-            {
-                let mut substitutions = HashMap::new();
-                let mut inference_inputs = params.iter().zip(&args).collect::<Vec<_>>();
-                // Infer naked type-parameter arguments before structural
-                // callback/container arguments. A direct value such as
-                // `initValue: T` is a stronger constraint than a callback body
-                // whose contextual `T` is still unresolved; processing the
-                // callback first can prematurely bind `T` from an incidental
-                // operation and then reject the concrete initializer.
-                inference_inputs.sort_by_key(|(param, _)| {
-                    !matches!(self.ctx.krate.types.get(**param), Some(Type::TypeParam { .. }))
-                });
-                for (param, arg) in inference_inputs {
-                    let arg_ty = Self::expr_ty(body, *arg);
-                    let _ = self.infer_callee_type_bindings(
-                        &callee_type_params,
-                        *param,
-                        arg_ty,
-                        &mut substitutions,
-                    );
-                }
-                // What the arguments left unbound, a type assertion around
-                // the call may bind (`differenceBy(a, b, f) as T[]`); see
-                // `bind_from_asserted_return`.
-                self.bind_from_asserted_return(
-                    &callee_type_params,
-                    return_ty,
-                    call.span,
-                    &mut substitutions,
-                );
-                // Parameters no argument bound instantiate to `unknown`, the
-                // type the emitted definition returns for them, so the result
-                // never carries a raw callee `TypeParam` that would alias a
-                // same-named caller parameter.
-                self.complete_callee_type_substitution(&callee_type_params, &mut substitutions);
-                if substitutions.is_empty() {
-                    return_ty
-                } else {
-                    let substituted = self.substitute_type_params(return_ty, &substitutions);
-                    // A returned function with erased-unknown-rest parameters
-                    // (`(...args: unknown[]) => T`, e.g. `constant`) lowers to
-                    // the fully-erased `SmeltErasedFunction`, whose calls yield
-                    // `unknown` regardless of the declared payload. Concretizing
-                    // its return from the argument types would desync the value's
-                    // runtime shape (`SmeltErasedFunction::call -> unknown`) from
-                    // the concrete type its call sites would then expect, so keep
-                    // the erased signature for such curried generics.
-                    if self.renders_as_erased_function(substituted) {
-                        return_ty
-                    } else {
-                        substituted
-                    }
-                }
+            let return_ty = if selected_overload.is_none() {
+                self.instantiated_call_return(&callee_type_params, &params, &args, return_ty, call, body)?
             } else {
                 return_ty
             };
@@ -1451,7 +1435,12 @@ impl<'builder> ModuleBuilder<'builder> {
             let receiver = self.expression(object, body)?;
             let receiver_ty = Self::expr_ty(body, receiver);
             if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(receiver_ty) {
-                let ty = self.ctx.krate.types.intern(Type::Optional(*item_ty));
+                // An iterator result is a type of its own: `IteratorResult<T, undefined>`.
+                // `.done` and `.value` read that protocol, and a field of those
+                // names on an `Optional` value is that value's own field.
+                let yield_ty = *item_ty;
+                let return_ty = self.ctx.krate.types.intern(Type::None);
+                let ty = self.ctx.krate.types.intern(Type::GeneratorResult { yield_ty, return_ty });
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::ListNext { list: receiver },
                     ty,
@@ -2317,12 +2306,133 @@ impl<'builder> ModuleBuilder<'builder> {
         {
             return Ok(None);
         }
-        for handler in Self::builtin_call_handlers() {
-            if let Some(expr) = handler(self, call, body)? {
-                return Ok(Some(expr));
+        self.receiver_frames.push(ReceiverFrame::of(call));
+        let lowered = match self.dispatched_receiver_owns_member(call, body) {
+            Ok(false) => Self::builtin_call_handlers()
+                .into_iter()
+                .find_map(|handler| handler(self, call, body).transpose())
+                .transpose(),
+            Ok(true) => Ok(None),
+            Err(error) => Err(error),
+        };
+        self.receiver_frames.pop();
+        lowered
+    }
+
+    /// Whether the value a member call dispatches on declares that member.
+    ///
+    /// [`Self::receiver_statically_declares_method`] answers the receivers whose
+    /// type is readable from declarations alone. Every other shape
+    /// (`routers[0].match(p)`, `make().replace(a)`) has to be lowered to be
+    /// typed, and the answer has to be asked before any handler runs: JavaScript
+    /// finds a declared `match` on the receiver and never reaches
+    /// `String.prototype`, so a handler keyed on the name must not see the call.
+    ///
+    /// A name no lowered type declares cannot be owned, so such a call lowers
+    /// nothing here. A type whose module has not lowered yet is no receiver type
+    /// either, which is what makes the crate-wide name set sufficient. An
+    /// identifier with no static type is a namespace, never a typed receiver.
+    fn dispatched_receiver_owns_member(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<bool, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(false);
+        };
+        if !self.ctx.declared_member_names.contains(member.property.name.as_str()) {
+            return Ok(false);
+        }
+        let method = self.intern_source_name(member.property.name.as_str());
+        if let Some(receiver_ty) = self.static_receiver_type(&member.object, body) {
+            return Ok(self.receiver_owns_member(receiver_ty, method));
+        }
+        if matches!(member.object.without_parentheses(), Expression::Identifier(_)) {
+            return Ok(false);
+        }
+        let mark = self.speculation_mark(body);
+        let receiver = self.dispatched_receiver(&member.object, body)?;
+        let receiver_ty = receiver.map(|receiver| Self::expr_ty(body, receiver));
+        self.roll_back_to(mark, body);
+        self.forget_dispatched_receiver();
+        let Some(receiver_ty) = receiver_ty else {
+            return Ok(false);
+        };
+        let receiver_ty = self.optional_receiver_inner_type(receiver_ty);
+        Ok(self.receiver_owns_member(receiver_ty, method))
+    }
+
+    /// Whether a source declaration of the receiver's type names `member`.
+    ///
+    /// Wider than [`Self::receiver_declares_method`], which decides how a method
+    /// call is dispatched: here any declared member wins over a builtin of the
+    /// same name, whether it is a class method, an interface signature, or a
+    /// function stored in a field.
+    pub(in crate::lowering) fn receiver_owns_member(&mut self, receiver_ty: smelt_hir::TypeId, member: smelt_hir::Symbol) -> bool {
+        if self.receiver_declares_method(receiver_ty, member) {
+            return true;
+        }
+        match self.ctx.krate.types.get(receiver_ty).cloned() {
+            Some(Type::Union(arms)) => {
+                !arms.is_empty() && arms.iter().all(|arm| self.receiver_owns_member(*arm, member))
+            }
+            Some(Type::TypeParam { .. }) => self
+                .type_param_member_bound(receiver_ty)
+                .is_some_and(|bound| self.receiver_owns_member(bound, member)),
+            Some(Type::Class { name, .. }) => {
+                self.stdlib_class_of_type(receiver_ty).is_none()
+                    && (self.find_interface(name).is_some_and(|interface| {
+                        interface.methods.iter().any(|signature| signature.name == member)
+                            || interface.fields.iter().any(|field| field.name == member)
+                    }) || self.class_field_type(receiver_ty, member).is_ok_and(|field_ty| {
+                        matches!(self.ctx.krate.types.get(field_ty), Some(Type::Function(_)))
+                    }))
+            }
+            _ => false,
+        }
+    }
+
+    /// The receiver of the call being dispatched, lowered once for all handlers.
+    ///
+    /// Most handlers gate on the receiver's type, so the first one to ask lowers
+    /// it and the rest read that answer. `None` is a receiver with no value of
+    /// its own (a namespace, a class name), which later rules own. A missing
+    /// host surface is a blocker whichever handler meets it, so it propagates.
+    pub(in crate::lowering) fn dispatched_receiver(
+        &mut self,
+        object: &Expression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let span = object.span();
+        if let Some(frame) = self.receiver_frames.last()
+            && frame.object == Some(span)
+        {
+            match frame.lowered {
+                DispatchedReceiver::Unasked => {}
+                DispatchedReceiver::NoValue => return Ok(None),
+                DispatchedReceiver::Value(receiver) => return Ok(Some(receiver)),
             }
         }
-        Ok(None)
+        let lowered = match self.expression(object, body) {
+            Ok(receiver) => Some(receiver),
+            Err(error) if error.category == DiagnosticCategory::MissingStdlib => {
+                return Err(error);
+            }
+            Err(_) => None,
+        };
+        if let Some(frame) = self.receiver_frames.last_mut()
+            && frame.object == Some(span)
+        {
+            frame.lowered = lowered.map_or(DispatchedReceiver::NoValue, DispatchedReceiver::Value);
+        }
+        Ok(lowered)
+    }
+
+    /// Forget the dispatched receiver after a handler rolled its lowering back.
+    pub(in crate::lowering) fn forget_dispatched_receiver(&mut self) {
+        if let Some(frame) = self.receiver_frames.last_mut() {
+            frame.lowered = DispatchedReceiver::Unasked;
+        }
     }
 
     /// Whether a receiver expression is statically ERASED (`any`), decided
@@ -2576,15 +2686,6 @@ impl<'builder> ModuleBuilder<'builder> {
         self.type_test_call(call, body)
     }
 
-    /// Adapter so the infallible node-process-version handler fits the registry shape.
-    pub(in crate::lowering) fn node_process_version_match_call_entry(
-        &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        body: &mut Body,
-    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        Ok(self.node_process_version_match_call(call, body))
-    }
-
     /// Ordered builtin/stdlib call lowering handlers.
     ///
     /// The order is load-bearing: earlier handlers win when two could match the
@@ -2596,7 +2697,6 @@ impl<'builder> ModuleBuilder<'builder> {
             Self::type_test_call_entry,
             Self::typed_test_value_call_entry,
             Self::date_call,
-            Self::intl_call,
             Self::regex_replace_call,
             Self::object_assign_call,
             Self::vitest_async_expect_call,
@@ -2617,11 +2717,8 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::timer_call,
         Self::number_to_string_call,
         Self::number_to_fixed_call,
-        Self::node_process_version_match_call_entry,
-        Self::node_process_cwd_call,
         Self::commonjs_require_call,
         Self::object_metadata_mutation_call,
-        Self::lodash_has_call,
         Self::object_get_own_property_symbols_call,
         Self::object_projection_call,
         Self::object_has_own_call,
@@ -2664,9 +2761,6 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::string_trim_call,
         Self::string_locale_compare_call,
         Self::string_affix_call,
-        Self::lodash_for_each_call,
-        Self::strapi_async_map_call,
-        Self::lodash_fp_curried_call,
         Self::list_callback_call,
         Self::list_reduce_call,
         Self::list_search_call,
@@ -2691,77 +2785,22 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::string_contains_call,
         Self::string_split_call,
         Self::namespace_member_call,
+        Self::unmodeled_host_namespace_call,
             Self::function_bind_call,
         ]
     }
 
-    /// Return whether the module source declares a callable with this local name
-    /// AT MODULE LEVEL.
+    /// Return whether the module declares a callable with this name, at any depth.
     ///
-    /// The caller uses this to resolve a name that is not in scope yet as a
-    /// module global, which for `Type::Unknown` FABRICATES an empty object.
-    /// That is defensible for a module-level binding lowered later in the file
-    /// (`module_global_expression` recreates its value), and wrong for a
-    /// FUNCTION-LOCAL one: a local read before its declaration is a binding,
-    /// not a host global, and answering `{}` for it turned
-    /// `clearTimeout(timeoutId)` into a silent no-op. Such a local is
-    /// predeclared by `predeclare_forward_referenced_locals` and never reaches
-    /// here; if one still does, it must fail loudly as an unresolved name.
-    ///
-    /// Module level is read off the declaration's INDENTATION, which is what
-    /// distinguishes the two in source text: a top-level declaration starts a
-    /// line (optionally after `export `/`declare `), a function-local one is
-    /// indented inside a block.
+    /// The caller uses this to resolve a name that is not in scope yet: a later
+    /// declaration, or a nested function naming itself in its own body.
     pub(in crate::lowering) fn source_contains_forward_callable(&self, name: &str) -> bool {
-        let const_prefix = format!("const {name}");
-        let function_prefix = format!("function {name}(");
-        self.source_declaration_is_module_level(&function_prefix, |_| true)
-            || self.source_declaration_is_module_level(&const_prefix, |suffix| {
-                suffix.starts_with(" =") || suffix.starts_with(':')
-            })
-    }
-
-    /// Return whether `prefix` occurs at the start of a line (module level).
-    ///
-    /// `suffix_is_declaration` inspects the text right after the prefix, so a
-    /// caller can require `=` or `:` and not match a longer name.
-    fn source_declaration_is_module_level(
-        &self,
-        prefix: &str,
-        suffix_is_declaration: impl Fn(&str) -> bool,
-    ) -> bool {
-        let mut searched = 0usize;
-        while let Some(offset) = self.source.get(searched..).and_then(|rest| {
-            rest.find(prefix)
-                .map(|relative| searched.saturating_add(relative))
-        }) {
-            searched = offset.saturating_add(prefix.len());
-            if !self
-                .source
-                .get(searched..)
-                .is_some_and(&suffix_is_declaration)
-            {
-                continue;
-            }
-            // Everything between the line start and the declaration keyword must
-            // be a modifier, not indentation: `export`/`declare` keep a
-            // declaration at module level, leading whitespace does not.
-            let line_start = self.source[..offset]
-                .rfind('\n')
-                .map_or(0, |newline| newline.saturating_add(1));
-            let lead = self.source[line_start..offset].trim_end();
-            if lead.is_empty() || matches!(lead, "export" | "declare" | "export declare") {
-                return true;
-            }
-        }
-        false
+        self.source_facts.declares_forward_callable(name)
     }
 
     /// Return whether the module source declares a class with this local name.
     pub(in crate::lowering) fn source_contains_class(&self, name: &str) -> bool {
-        let class_prefix = format!("class {name}");
-        let exported_class_prefix = format!("export class {name}");
-        self.source.contains(&class_prefix) || self.source.contains(&exported_class_prefix)
+        self.source_facts.declares_class(name)
     }
 
     /// Rewrites the receiver for `value[index]?.method()` to optional indexing.
@@ -5121,6 +5160,21 @@ impl<'builder> ModuleBuilder<'builder> {
         }
     }
 
+    /// The stdlib rule a call denotes: the recognition table's answer, unless a
+    /// program binding shadows the callee's root name.
+    ///
+    /// The one question every exact rule asks, so a recognized spelling is
+    /// matched once and a shadowed global gives way however it is reached.
+    pub(in crate::lowering) fn recognized_call(
+        &self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+    ) -> Option<RuleId> {
+        let rule = stdlib_dispatch::call_rule(call)?;
+        let shadowed = stdlib_dispatch::callee_root(&call.callee)
+            .is_some_and(|root| self.builtin_call_identifier_is_shadowed(root));
+        (!shadowed).then_some(rule)
+    }
+
     /// Route exact global and static namespace calls through shared recognition metadata.
     ///
     /// Receiver-, shape-, plugin-, and test-framework-dependent handlers remain
@@ -5131,7 +5185,7 @@ impl<'builder> ModuleBuilder<'builder> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Some(rule) = stdlib_dispatch::call_rule(call) else {
+        let Some(rule) = self.recognized_call(call) else {
             return Ok(None);
         };
         match rule {
@@ -5746,30 +5800,196 @@ impl<'builder> ModuleBuilder<'builder> {
         item: smelt_hir::ItemId,
         function: &FunctionType,
         args: &[smelt_hir::ExprId],
-        call_span: oxc::span::Span,
+        call: &oxc::ast::ast::CallExpression<'_>,
         body: &Body,
-    ) -> smelt_hir::TypeId {
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
         let type_params = self.callee_own_type_params(item);
-        if type_params.is_empty()
-            || !self.overload_constraint_contains_unresolved_type_param(function.return_ty)
-        {
-            return function.return_ty;
+        self.instantiated_call_return(&type_params, &function.params, args, function.return_ty, call, body)
+    }
+
+    /// The result type of one call of a generic callee: `return_ty` with the
+    /// callee's own type parameters instantiated for this call.
+    ///
+    /// A direct call and a call through the item's value share this rule,
+    /// because the instantiation does not depend on how the callee was named:
+    ///
+    /// 1. TypeScript's inference applies, approximated from the lowered
+    ///    arguments ([`Self::infer_call_type_bindings`]): every position is a
+    ///    candidate, read off the checker's answer where it has one;
+    /// 2. an explicit type argument wider than that replaces it. A narrower one
+    ///    does not: Rust binds the callee from its arguments alone, so the
+    ///    arguments decide what the emitted call returns;
+    /// 3. a type assertion around the call may bind what the arguments left
+    ///    unbound;
+    /// 4. a parameter nothing bound instantiates to `unknown`, the type the
+    ///    emitted definition returns for it, so the result never carries a raw
+    ///    callee `TypeParam` that would alias a same-named caller parameter;
+    /// 5. the checker resolved the very same call, so the result may not
+    ///    promise more than it did ([`Self::widened_call_type`]).
+    ///
+    /// A returned function with erased-unknown-rest parameters
+    /// (`(...args: unknown[]) => T`, e.g. `constant`) lowers to the
+    /// fully-erased `SmeltErasedFunction`, whose calls yield `unknown`
+    /// regardless of the declared payload. Concretizing its return from the
+    /// argument types would desync the value's runtime shape from the concrete
+    /// type its call sites would then expect, so such a curried generic keeps
+    /// its declared erased signature.
+    pub(in crate::lowering) fn instantiated_call_return(
+        &mut self,
+        type_params: &[TypeParamDef],
+        params: &[smelt_hir::TypeId],
+        args: &[smelt_hir::ExprId],
+        return_ty: smelt_hir::TypeId,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &Body,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        if type_params.is_empty() || !self.overload_constraint_contains_unresolved_type_param(return_ty) {
+            return Ok(return_ty);
         }
-        let mut substitutions = HashMap::new();
-        for (param, arg) in function.params.iter().zip(args) {
-            let arg_ty = Self::expr_ty(body, *arg);
-            let _ = self.infer_callee_type_bindings(&type_params, *param, arg_ty, &mut substitutions);
+        let resolved = self.checker_call_type(call.span.start, call.span.end);
+        let mut substitutions = self.infer_call_type_bindings(type_params, params, args, body);
+        // An `unknown` among the lowered arguments may be what Smelt lost and
+        // not what the source says, so only without the checker's answer does
+        // it stand for a candidate.
+        if resolved.is_none() {
+            self.widen_call_bindings(type_params, params, args, body, &mut substitutions);
         }
-        // What the arguments left unbound, an assertion around the call may
-        // bind (`(flatten as any)(array, depth) as T[]` instantiates
-        // `flatten`'s `T` as the caller's `T`).
-        self.bind_from_asserted_return(&type_params, function.return_ty, call_span, &mut substitutions);
-        self.complete_callee_type_substitution(&type_params, &mut substitutions);
-        let substituted = self.substitute_type_params(function.return_ty, &substitutions);
+        for (name, explicit) in self.explicit_call_type_bindings(type_params, call).unwrap_or_default() {
+            if substitutions.get(&name).is_some_and(|bound| self.type_accepts_all_of(explicit, *bound)) {
+                substitutions.insert(name, explicit);
+            }
+        }
+        self.bind_from_asserted_return(type_params, return_ty, call.span, &mut substitutions);
+        self.complete_callee_type_substitution(type_params, &mut substitutions);
+        let substituted = self.substitute_type_params(return_ty, &substitutions);
         if self.renders_as_erased_function(substituted) {
-            function.return_ty
-        } else {
-            substituted
+            return Ok(return_ty);
+        }
+        Ok(self.widened_call_type(resolved, substituted))
+    }
+
+    /// The bindings a call's explicit type arguments spell, if it has any that
+    /// fit `type_params`. A selected overload may declare more parameters than
+    /// the implementation these name, and then the spelling says nothing here.
+    fn explicit_call_type_bindings(
+        &mut self,
+        type_params: &[TypeParamDef],
+        call: &oxc::ast::ast::CallExpression<'_>,
+    ) -> Option<HashMap<smelt_hir::Symbol, smelt_hir::TypeId>> {
+        let explicit = call.type_arguments.as_ref()?;
+        if explicit.params.len() > type_params.len() {
+            return None;
+        }
+        let explicit = explicit
+            .params
+            .iter()
+            .map(|argument| self.ts_type_to_hir(argument))
+            .collect::<Result<Vec<_>, _>>()
+            .ok()?;
+        self.type_argument_substitution(type_params, &explicit, self.span(call.span.start, call.span.end))
+            .ok()
+    }
+
+    /// Bind a callee's own type parameters from one call's lowered arguments,
+    /// the way TypeScript's inference does: every position is a candidate.
+    ///
+    /// Naked type-parameter arguments go first. A direct value such as
+    /// `initValue: T` is a stronger constraint than a callback body whose
+    /// contextual `T` is still unresolved; processing the callback first can
+    /// prematurely bind `T` from an incidental operation and then reject the
+    /// concrete initializer.
+    ///
+    /// The first candidate only opens the binding. A later wider one replaces it
+    /// ([`Self::widen_call_bindings`]): `T` in `iterate(5, handler, 0)` is
+    /// `unknown` when `handler` returns `unknown`, although `0` came first.
+    fn infer_call_type_bindings(
+        &mut self,
+        type_params: &[TypeParamDef],
+        params: &[smelt_hir::TypeId],
+        args: &[smelt_hir::ExprId],
+        body: &Body,
+    ) -> HashMap<smelt_hir::Symbol, smelt_hir::TypeId> {
+        let mut substitutions = HashMap::new();
+        let mut inference_inputs = params.iter().zip(args).collect::<Vec<_>>();
+        inference_inputs.sort_by_key(|(param, _)| {
+            !matches!(self.ctx.krate.types.get(**param), Some(Type::TypeParam { .. }))
+        });
+        for (param, arg) in inference_inputs {
+            let arg_ty = Self::expr_ty(body, *arg);
+            let _ = self.infer_callee_type_bindings(type_params, *param, arg_ty, &mut substitutions);
+        }
+        substitutions
+    }
+
+    /// Replace bindings with the wider candidates of a call's arguments
+    /// ([`Self::widen_call_binding`]).
+    pub(in crate::lowering) fn widen_call_bindings(
+        &mut self,
+        type_params: &[TypeParamDef],
+        params: &[smelt_hir::TypeId],
+        args: &[smelt_hir::ExprId],
+        body: &Body,
+        substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    ) {
+        for (param, arg) in params.iter().zip(args) {
+            self.widen_call_binding(type_params, *param, Self::expr_ty(body, *arg), substitutions);
+        }
+    }
+
+    /// Replace a type parameter's binding with a wider candidate at one
+    /// `expected`/`actual` position, walking the covariant positions: a
+    /// callback's return is a candidate, and its parameters are not, because
+    /// TypeScript prefers covariant candidates (`(acc: unknown) => number`
+    /// with an init of `0` is `T = number`).
+    ///
+    /// A candidate is wider when it is `unknown`, or a union or optional holding
+    /// the binding. tsc already rejected unrelated candidates, so no other pair
+    /// reaches here for a valid program.
+    fn widen_call_binding(
+        &mut self,
+        type_params: &[TypeParamDef],
+        expected: smelt_hir::TypeId,
+        actual: smelt_hir::TypeId,
+        substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    ) {
+        let (Some(expected_ty), Some(actual_ty)) = (
+            self.ctx.krate.types.get(expected).cloned(),
+            self.ctx.krate.types.get(actual).cloned(),
+        ) else {
+            return;
+        };
+        match (expected_ty, actual_ty) {
+            (Type::TypeParam { name }, actual_ty) => {
+                let Some(bound) = substitutions.get(&name).copied() else {
+                    return;
+                };
+                let wider = match actual_ty {
+                    Type::Unknown => true,
+                    Type::Union(members) => members.contains(&bound),
+                    Type::Optional(item) => item == bound,
+                    _ => false,
+                };
+                if wider && type_params.iter().any(|param| param.name == name) {
+                    substitutions.insert(name, actual);
+                }
+            }
+            (Type::Function(declared), Type::Function(given)) => {
+                self.widen_call_binding(type_params, declared.return_ty, given.return_ty, substitutions);
+            }
+            (Type::List(declared), Type::List(given))
+            | (Type::Set(declared), Type::Set(given))
+            | (Type::Future(declared), Type::Future(given)) => {
+                self.widen_call_binding(type_params, declared, given, substitutions);
+            }
+            (Type::Optional(declared), Type::Optional(given)) => {
+                self.widen_call_binding(type_params, declared, given, substitutions);
+            }
+            (Type::Tuple(declared), Type::Tuple(given)) if declared.len() == given.len() => {
+                for (declared, given) in declared.into_iter().zip(given) {
+                    self.widen_call_binding(type_params, declared, given, substitutions);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -6275,7 +6495,6 @@ impl<'builder> ModuleBuilder<'builder> {
             function.return_ty
         };
         let supplied_arg_count = call.arguments.len();
-        let callback_meta = self.visible_callback(callee_ident.name.as_str(), body);
         // Dynamically dispatched callees (union/unknown/type-parameter/erased
         // callable surfaces) are invoked through the runtime `SmeltUnknown` call
         // ABI, which flattens the entire argument list. A spread must therefore
@@ -6311,8 +6530,7 @@ impl<'builder> ModuleBuilder<'builder> {
                 _ => None,
             }
         });
-        if callback_meta.is_none()
-            && self.call_has_spread_arguments_or_source_spread(call)
+        if self.call_has_spread_arguments_or_source_spread(call)
             && let Some(item_ty) = variadic_item_ty
         {
             let packed = self.packed_spread_call_arguments(item_ty, call, body)?;
@@ -6325,25 +6543,16 @@ impl<'builder> ModuleBuilder<'builder> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
-        let defaults = callback_meta.as_ref().map_or_else(
-            || vec![None; function.params.len()],
-            |callback| callback.defaults.clone(),
-        );
-        let rest = callback_meta
-            .as_ref()
-            .and_then(|callback| callback.rest)
-            .or_else(|| {
-                function.rest.and_then(|index| {
-                    let param = self.type_param_constraint_or_self(*function.params.get(index)?);
-                    match self.ctx.krate.types.get(param) {
-                        Some(Type::List(item_ty)) => Some(RestParam {
-                            index,
-                            item_ty: *item_ty,
-                        }),
-                        _ => None,
-                    }
-                })
-            });
+        let rest = function.rest.and_then(|index| {
+            let param = self.type_param_constraint_or_self(*function.params.get(index)?);
+            match self.ctx.krate.types.get(param) {
+                Some(Type::List(item_ty)) => Some(RestParam {
+                    index,
+                    item_ty: *item_ty,
+                }),
+                _ => None,
+            }
+        });
         let fixed_param_count = rest.map_or(function.params.len(), |rest| rest.index);
         if rest.is_some() && self.call_has_spread_arguments_or_source_spread(call) {
             let args = self.spread_closure_call_arguments(&function, rest, call, body)?;
@@ -6386,12 +6595,8 @@ impl<'builder> ModuleBuilder<'builder> {
         // `f('p')` against `(a: string, b?: string)` down the shortfall branch,
         // which dropped EVERY argument (`f()`), so `getPattern(':id')` in Hono
         // ran with an empty label.
-        let required_arg_count = defaults
-            .iter()
-            .take(fixed_param_count)
-            .position(Option::is_some)
-            .unwrap_or(fixed_param_count)
-            .min(function.required_params.unwrap_or(fixed_param_count));
+        let required_arg_count =
+            fixed_param_count.min(function.required_params.unwrap_or(fixed_param_count));
         if supplied_arg_count < required_arg_count
             || (rest.is_none() && supplied_arg_count > function.params.len())
         {
@@ -6437,30 +6642,23 @@ impl<'builder> ModuleBuilder<'builder> {
             })
             .collect::<Result<Vec<_>, _>>()?;
         for index in supplied_arg_count..fixed_param_count {
-            let Some(default) = defaults.get(index).and_then(|default| default.as_ref()) else {
-                // An optional parameter with no default receives `undefined`.
-                if index >= function.required_params.unwrap_or(fixed_param_count)
-                    && let Some(param_ty) = function.params.get(index).copied()
-                {
-                    args.push(body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::None),
-                        ty: param_ty,
-                        span: self.span(call.span.start, call.span.end),
-                    }));
-                    continue;
-                }
+            // An omitted optional parameter receives `undefined`.
+            let Some(param_ty) = function
+                .params
+                .get(index)
+                .copied()
+                .filter(|_| index >= function.required_params.unwrap_or(fixed_param_count))
+            else {
                 return Err(SmeltError::unsupported(
                     self.span(call.span.start, call.span.end),
                     "closure call argument count does not match closure parameters",
                 ));
             };
-            let default = self.local_callback_default_expr(
-                default,
-                &args,
-                body,
-                self.span(call.span.start, call.span.end),
-            )?;
-            args.push(default);
+            args.push(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::None),
+                ty: param_ty,
+                span: self.span(call.span.start, call.span.end),
+            }));
         }
         if let Some(rest) = rest {
             let rest_args = call
@@ -6740,7 +6938,7 @@ impl<'builder> ModuleBuilder<'builder> {
         Ok(args)
     }
 
-    /// Convert an erased array spread argument to the statically required rest-list type.
+    /// Convert an array spread argument to the statically required rest-list type.
     ///
     /// Generic array parameters are represented as erased runtime values even
     /// when their source constraint is an array. A rest call still needs their
@@ -6773,7 +6971,15 @@ impl<'builder> ModuleBuilder<'builder> {
                 span: self.span(span.start, span.end),
             }));
         }
-        Ok(value)
+        // A concrete list converts element by element: `g(...numbers)` into
+        // `(...args: any[])` is a `List<Float>` for a `List<Unknown>` slot, and
+        // the emitter reads a lone operand of another type as one element of the
+        // rest, not all of it.
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value },
+            ty: rest_ty,
+            span: self.span(span.start, span.end),
+        }))
     }
 
     /// Lower a small positional index as the numeric literal used by JS indexing.
@@ -7089,36 +7295,13 @@ impl<'builder> ModuleBuilder<'builder> {
                 "partialBind requires a function argument",
             ));
         };
-        let mut callee_expr = self.argument(function_arg, body)?;
-        let mut function_ty = self
+        let callee_expr = self.argument(function_arg, body)?;
+        let function_ty = self
             .ctx
             .krate
             .types
             .get(Self::expr_ty(body, callee_expr))
             .cloned();
-        if !matches!(function_ty, Some(Type::Function(_)))
-            && let Argument::Identifier(identifier) = function_arg
-            && let Some(callback) = self.visible_callback(identifier.name.as_str(), body)
-        {
-            callee_expr = self.callback_expr_to_closure_with_return_ty(
-                callback.return_ty,
-                &callback.callback,
-                &callback.params,
-                callback.rest.map(|rest| rest.index),
-                callback.required_params,
-                self.span(identifier.span.start, identifier.span.end),
-                body,
-            )?;
-            function_ty = Some(Type::Function(FunctionType {
-                params: callback.params,
-                rest: callback.rest.map(|rest| rest.index),
-                required_params: callback.required_params,
-                    mutable_params: Vec::new(),
-                return_ty: callback.return_ty,
-                is_async: false,
-                may_throw: false,
-            }));
-        }
         let Some(Type::Function(function)) = function_ty else {
             return Err(SmeltError::unsupported(
                 self.span(function_arg.span().start, function_arg.span().end),

@@ -187,8 +187,7 @@ closure ClosureId(0) -> Dict<String, Float>
     %10 temp: Float
     %11 temp: Float
   bb0:
-    %5 = tuple_index copy %1, 0
-    %2 = copy %5
+    %2 = tuple_index copy %1, 0
     %6 = [3.0, 1.0, 2.0]
     %7 = copy %4
     %8 = tuple_index copy %7, 1
@@ -233,11 +232,10 @@ closure ClosureId(3) -> Float
 
 closure ClosureId(4) -> Float
   locals
-    %0 param __callback_param_0: Float
-    %1 param __callback_param_1: Int
-    %2 param __callback_param_2: List<Float>
-    %3 temp: Float
+    %0 param value: Float
+    %1 param i: Int
+    %2 temp: Float
   bb0:
-    %3 = copy %0 + copy %1
-    return copy %3
+    %2 = copy %0 + copy %1
+    return copy %2
 

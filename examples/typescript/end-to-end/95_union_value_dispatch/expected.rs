@@ -3428,62 +3428,6 @@ impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-struct Keyed {
-    tag: String,
-    kind: String,
-}
-impl IntoSmeltUnknown for Keyed {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("tag".to_owned(), SmeltUnknown::String(self.tag.into())),
-        ("kind".to_owned(), SmeltUnknown::String(self.kind.into())),
-        ])))
-    }
-}
-impl SmeltFromUnknown for Keyed {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("tag") {
-                result.tag = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("kind") {
-                result.kind = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-struct Noted {
-    tag: String,
-    note: String,
-}
-impl IntoSmeltUnknown for Noted {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("tag".to_owned(), SmeltUnknown::String(self.tag.into())),
-        ("note".to_owned(), SmeltUnknown::String(self.note.into())),
-        ])))
-    }
-}
-impl SmeltFromUnknown for Noted {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("tag") {
-                result.tag = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("note") {
-                result.note = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
-    }
-}
-
 thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;
@@ -4692,6 +4636,64 @@ fn smelt_typed_array_write_origin(record: &SmeltObject, offset: usize, encoded: 
     if let Some(storage) = record.smelt_origin::<SmeltArrayBuffer>() { storage.write_bytes_at(offset, &bytes); }
 }
 
+// @smelt:prelude-end — generated program below
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Keyed {
+    tag: String,
+    kind: String,
+}
+impl IntoSmeltUnknown for Keyed {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("tag".to_owned(), SmeltUnknown::String(self.tag.into())),
+        ("kind".to_owned(), SmeltUnknown::String(self.kind.into())),
+        ])))
+    }
+}
+impl SmeltFromUnknown for Keyed {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("tag") {
+                result.tag = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("kind") {
+                result.kind = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Noted {
+    tag: String,
+    note: String,
+}
+impl IntoSmeltUnknown for Noted {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("tag".to_owned(), SmeltUnknown::String(self.tag.into())),
+        ("note".to_owned(), SmeltUnknown::String(self.note.into())),
+        ])))
+    }
+}
+impl SmeltFromUnknown for Noted {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("tag") {
+                result.tag = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("note") {
+                result.note = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
 #[derive(Clone)]
 pub enum SmeltUnion2 {
     M0(Keyed),
@@ -4707,8 +4709,8 @@ impl IntoSmeltUnknown for SmeltUnion2 {
 }
 impl SmeltUnion2 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(map) if map.contains_key("kind"))) { return Self::M0(Default::default()); }
-        Self::M1(Default::default())
+        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(map) if map.contains_key("kind"))) { return Self::M0(<Keyed as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown())); }
+        Self::M1(<Noted as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown()))
     }
 }
 impl PartialEq for SmeltUnion2 {
@@ -4775,8 +4777,6 @@ impl Default for SmeltUnion5 {
         Self::M0(String::new())
     }
 }
-
-// @smelt:prelude-end — generated program below
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 let smelt_local = tokio::task::LocalSet::new();

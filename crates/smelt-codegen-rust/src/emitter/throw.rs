@@ -7,7 +7,7 @@
 //! error channel as a `SmeltUnknown`.
 
 use super::*;
-use crate::{stdlib, thrown};
+use crate::thrown;
 use smelt_mir::ClosureId;
 
 impl FunctionEmitter<'_> {
@@ -38,7 +38,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn throw_terminator_text(&self, operand: &Operand) -> Result<String, EmitError> {
         let payload = self.thrown_payload_text(operand)?;
         Ok(format!(
-            "    return Err::<_, Box<dyn std::error::Error>>({payload});\n"
+            "    return Err::<_, {ERROR_BOX}>({payload});\n"
         ))
     }
 
@@ -52,7 +52,8 @@ impl FunctionEmitter<'_> {
     /// through `smelt_throw`, and a program with no erased values keeps the plain
     /// string `std::io::Error` form.
     pub(super) fn thrown_payload_text(&self, operand: &Operand) -> Result<String, EmitError> {
-        if !stdlib::needs_unknown_type(self.mir) {
+        let _boundary = self.context.carrier_boundary();
+        if !self.context.demand().has(Need::Unknown) {
             return Ok(format!(
                 "std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", {})).into()",
                 self.operand_text(operand)?
@@ -71,7 +72,7 @@ impl FunctionEmitter<'_> {
     /// Renders the payload for a rejection with no reason (`Promise.reject()`),
     /// which JavaScript settles with `undefined`.
     pub(super) fn undefined_thrown_payload_text(&self) -> String {
-        if stdlib::needs_unknown_type(self.mir) {
+        if self.context.demand().has(Need::Unknown) {
             return thrown::throw_expr("SmeltUnknown::Undefined");
         }
         "std::io::Error::new(std::io::ErrorKind::Other, \"undefined\").into()".to_owned()
@@ -160,100 +161,18 @@ fn is_foldable_payload_rvalue(value: &Rvalue) -> bool {
 }
 
 /// Count every read of every local in a function body.
-///
-/// Reads are counted through the canonical [`Rvalue::for_each_operand`] walk so
-/// the tally cannot silently miss an rvalue variant, plus the phi incoming
-/// operands, the place bases an assignment reads before writing, and the
-/// terminator operands.
 fn local_read_counts(function: &MirFunction) -> HashMap<LocalId, usize> {
-    fn count_place(counts: &mut HashMap<LocalId, usize>, place: &Place) {
-        match place {
-            Place::Local(local) | Place::Field { base: local, .. } => {
-                *counts.entry(*local).or_default() += 1;
-            }
-            // No base local to count; the index operand is counted below by
-            // the same rule the local-rooted index arm uses.
-            Place::Global { projection, .. } => {
-                if let smelt_mir::GlobalProjection::Index { index, .. } = projection {
-                    count_operand(counts, index);
-                }
-            }
-            Place::Index { base, index, .. } => {
-                *counts.entry(*base).or_default() += 1;
-                count_operand(counts, index);
-            }
-        }
-    }
-    fn count_operand(counts: &mut HashMap<LocalId, usize>, operand: &Operand) {
-        if let Operand::Copy(place) | Operand::Move(place) = operand {
-            count_place(counts, place);
-        }
-    }
-
     let mut counts: HashMap<LocalId, usize> = HashMap::new();
+    let mut count = |local: LocalId| {
+        let entry = counts.entry(local).or_default();
+        *entry = entry.saturating_add(1);
+    };
     for block in &function.blocks {
-        for phi in &block.phis {
-            for (_, operand) in &phi.incoming {
-                count_operand(&mut counts, operand);
-            }
-        }
         for statement in &block.statements {
-            match statement {
-                Statement::Assign { value, .. } => {
-                    value.for_each_operand(|operand| count_operand(&mut counts, operand));
-                }
-                Statement::AssignPlace { place, value } => {
-                    match place {
-                        Place::Local(_) => {}
-                        Place::Field { base, .. } => *counts.entry(*base).or_default() += 1,
-                        Place::Global { projection, .. } => {
-                            if let smelt_mir::GlobalProjection::Index { index, .. } = projection {
-                                count_operand(&mut counts, index);
-                            }
-                        }
-                        Place::Index { base, index, .. } => {
-                            *counts.entry(*base).or_default() += 1;
-                            count_operand(&mut counts, index);
-                        }
-                    }
-                    value.for_each_operand(|operand| count_operand(&mut counts, operand));
-                }
-                // Same read tally as the `Index` place above, plus the seed.
-                Statement::DictEntryUpdate {
-                    base,
-                    index,
-                    default,
-                    current: _,
-                    value,
-                } => {
-                    let count = counts.entry(*base).or_default();
-                    *count = count.saturating_add(1);
-                    count_operand(&mut counts, index);
-                    count_operand(&mut counts, default);
-                    value.for_each_operand(|operand| count_operand(&mut counts, operand));
-                }
-                Statement::StorageLive(_) | Statement::StorageDead(_) => {}
-            }
+            statement.read_locals(&mut count);
         }
-        let Some(terminator) = &block.terminator else {
-            continue;
-        };
-        match terminator {
-            Terminator::Goto(_) | Terminator::Unreachable => {}
-            Terminator::Call { callee, args, .. } => {
-                if let Callee::Indirect(operand) = callee {
-                    count_operand(&mut counts, operand);
-                }
-                for arg in args {
-                    count_operand(&mut counts, arg);
-                }
-            }
-            Terminator::Await { future, .. } => count_operand(&mut counts, future),
-            Terminator::Switch { cond, .. } => count_operand(&mut counts, cond),
-            Terminator::Match { scrutinee, .. } => count_operand(&mut counts, scrutinee),
-            Terminator::Return(operand) | Terminator::Throw(operand) => {
-                count_operand(&mut counts, operand);
-            }
+        if let Some(terminator) = &block.terminator {
+            terminator.read_locals(&mut count);
         }
     }
     counts
@@ -355,11 +274,8 @@ pub(super) fn folded_throw_payload_locals(mir: &Mir, function: &MirFunction) -> 
                     let count = assign_counts.entry(*current).or_default();
                     *count = count.saturating_add(1);
                 }
-                _ => {}
+                Statement::AssignPlace { .. } => {}
             }
-        }
-        for phi in &block.phis {
-            *assign_counts.entry(phi.dest).or_default() += 1;
         }
     }
     // A local captured by a closure is read through the closure environment
@@ -405,7 +321,7 @@ pub(super) fn folded_throw_payload_locals(mir: &Mir, function: &MirFunction) -> 
                 break;
             }
             folded.insert(*dest);
-            value.for_each_operand(|operand| {
+            value.reads(|operand| {
                 if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) =
                     operand
                 {

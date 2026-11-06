@@ -29,19 +29,10 @@
 //! indistinguishable.
 
 use smelt_hir::{Type, TypeId};
-use smelt_mir::{Mir, MirField, Rvalue};
+use smelt_mir::MirField;
 
 use super::render_scope::RenderScope;
 use super::{EmitError, FunctionEmitter, sanitize_ident};
-
-/// Return whether any function or closure body reads the dynamically scoped
-/// `this` receiver (`Rvalue::ThisRead`).
-///
-/// Installing a receiver is only observable through such a read, so the
-/// receiver-bound interface slots below are emitted only when this holds.
-pub(crate) fn program_reads_this(mir: &Mir) -> bool {
-    crate::stdlib::rvalues(mir).any(|rvalue| matches!(rvalue, Rvalue::ThisRead))
-}
 
 impl FunctionEmitter<'_> {
     /// Emit an interface record slot filled by a class instance's callable
@@ -96,6 +87,7 @@ impl FunctionEmitter<'_> {
         // erasure calls it instead of inlining the class's whole erased view
         // into each slot (which multiplied a class with many callable fields
         // by its own erasure size, once per slot).
+        self.context.note_carrier_use();
         let erase = "::std::clone::Clone::clone(&smelt_bound_receiver).into_smelt_unknown()";
         let args = (0..slot_fn.params.len())
             .map(|index| format!("smelt_slot_arg_{index}"))
@@ -107,7 +99,7 @@ impl FunctionEmitter<'_> {
              let _smelt_this_guard = smelt_push_this_lazy({{ let smelt_bound_receiver = smelt_slot_receiver.clone(); ::std::rc::Rc::new(move || {erase}) }}); \
              let smelt_slot_callee = {callee}; \
              (smelt_slot_callee)({args}) }}); smelt_slot }}",
-            ty = self.type_text_with_impl_trait(target_field.ty, false)?,
+            ty = self.type_text(target_field.ty)?,
         )))
     }
 
@@ -156,13 +148,13 @@ impl FunctionEmitter<'_> {
             .map(|index| format!("smelt_slot_arg_{index}"))
             .collect::<Vec<_>>()
             .join(", ");
-        Ok(Some(format!(
+        Ok(Some(self.carrier_format(format_args!(
             "{{ let smelt_slot_source: SmeltUnknown = {record_map}.clone().into_smelt_unknown(); \
              let smelt_slot: {ty} = ::std::rc::Rc::new(move |{args}| {{ \
              let smelt_slot_callee = {callee}; \
              let _smelt_this_guard = smelt_push_this(smelt_slot_source.clone()); \
              (smelt_slot_callee)({args}) }}); smelt_slot }}",
-            ty = self.type_text_with_impl_trait(field.ty, false)?,
-        )))
+            ty = self.type_text(field.ty)?,
+        ))))
     }
 }

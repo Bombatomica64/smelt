@@ -3,6 +3,9 @@
 use crate::lowering::js_text::js_str_text;
 use std::collections::{HashMap, HashSet};
 
+use indexmap::IndexMap;
+use smelt_stdlib::FetchInitKeyKind;
+
 use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
 use oxc::ast::ast::{
@@ -1281,7 +1284,7 @@ impl ModuleBuilder<'_> {
             .iter()
             .map(|member| self.type_fields_from_ts(member))
             .collect::<Result<Vec<_>, _>>()?;
-        let mut grouped: HashMap<smelt_hir::Symbol, Vec<Field>> = HashMap::new();
+        let mut grouped: IndexMap<smelt_hir::Symbol, Vec<Field>> = IndexMap::new();
         for fields in &variants {
             for field in fields {
                 grouped.entry(field.name).or_default().push(field.clone());
@@ -1494,14 +1497,13 @@ impl ModuleBuilder<'_> {
 
     /// Return how many leading arguments a rest parameter's source type requires.
     ///
-    /// HIR lowers both `...rest: T[]` and `...rest: NonEmptyArray<T>` (i.e.
-    /// `[T, ...T[]]`) to the same `Type::List(T)`, erasing the required-prefix
-    /// arity. Overload selection still needs that arity so a `NonEmptyArray`
-    /// rest does not match an empty rest tail vacuously, so this inspects the
-    /// *source* annotation:
+    /// HIR lowers both `...rest: T[]` and `...rest: [T, ...T[]]` to the same
+    /// `Type::List(T)`, erasing the required-prefix arity. Overload selection
+    /// still needs that arity so a required prefix does not match an empty rest
+    /// tail vacuously, so this inspects the *source* annotation:
     ///
-    /// * `NonEmptyArray<T>` (by name) and a required-prefix tuple `[A, B, ...T[]]`
-    ///   return the number of required leading elements (`>= 1`).
+    /// * a required-prefix tuple `[A, B, ...T[]]` returns the number of required
+    ///   leading elements (`>= 1`).
     /// * Plain `T[]`, `Array<T>`, `ReadonlyArray<T>`, and all-rest tuples
     ///   `[...T[]]` accept an empty tail and return `0`.
     ///
@@ -1518,8 +1520,6 @@ impl ModuleBuilder<'_> {
                 Self::rest_parameter_min_arity(&operator.type_annotation)
             }
             TSType::TSTypeReference(reference) => match &reference.type_name {
-                // `NonEmptyArray<T>` is `[T, ...T[]]`: at least one element.
-                TSTypeName::IdentifierReference(name) if name.name.as_str() == "NonEmptyArray" => 1,
                 // `Readonly<…>`/`Required<…>` are transparent wrappers.
                 TSTypeName::IdentifierReference(name)
                     if matches!(name.name.as_str(), "Readonly" | "Required") =>
@@ -1638,7 +1638,6 @@ impl ModuleBuilder<'_> {
     ///
     /// * a rest-less tuple `[A, B]` => `Exact(2)` (and `[]` => `Exact(0)`),
     /// * a required-prefix tuple `[T, ...T[]]` => `AtLeast(1)`,
-    /// * `NonEmptyArray<T>` => `AtLeast(1)`,
     /// * everything else (`T[]`, `Array<T>`, non-array types) => `None`.
     ///
     /// `Readonly`/`Required`/parenthesized wrappers and the `readonly` operator
@@ -1657,9 +1656,6 @@ impl ModuleBuilder<'_> {
                 Self::parameter_length_requirement(&operator.type_annotation)
             }
             TSType::TSTypeReference(reference) => match &reference.type_name {
-                TSTypeName::IdentifierReference(name) if name.name.as_str() == "NonEmptyArray" => {
-                    Some(ParamLength::AtLeast(1))
-                }
                 TSTypeName::IdentifierReference(name)
                     if matches!(name.name.as_str(), "Readonly" | "Required") =>
                 {
@@ -2346,7 +2342,7 @@ impl ModuleBuilder<'_> {
         // module declares itself shadows the global one, so it skips the table
         // and resolves through the declaration path in the fallback arm; an
         // empty spelling matches no builtin arm.
-        let builtin_spelling = if self.module_type_shadows_global(reference) {
+        let builtin_spelling = if self.source_shadows_global_type(reference) {
             ""
         } else {
             name_text.as_str()
@@ -2444,22 +2440,9 @@ impl ModuleBuilder<'_> {
             ("Capitalize" | "Uncapitalize" | "Uppercase" | "Lowercase", [_]) => {
                 Ok(self.ctx.krate.types.intern(Type::String))
             }
-            (
-                "Array"
-                | "ArrayLike"
-                | "Iterable"
-                | "ReadonlyArray"
-                | "NonEmptyArray"
-                | "IterableContainer",
-                [item],
-            ) => {
+            ("Array" | "ArrayLike" | "Iterable" | "ReadonlyArray", [item]) => {
                 let lowered_item = self.ts_type_to_hir(item)?;
                 Ok(self.ctx.krate.types.intern(Type::List(lowered_item)))
-            }
-            ("TuplePrefix" | "RemovePrefix" | "TupleSuffix" | "RemoveSuffix", _)
-            | ("IterableContainer", []) => {
-                let item = self.erase(ErasureReason::TypeLevel);
-                Ok(self.ctx.krate.types.intern(Type::List(item)))
             }
             // `Partial<X>` of a concrete interface record is its OWN record
             // with every field optional. Lowering it as `X` made the fields of
@@ -2948,13 +2931,16 @@ impl ModuleBuilder<'_> {
             .iter()
             .filter_map(|candidate| Self::canonical_module_path(candidate))
             .collect::<Vec<_>>();
-        self.ctx.type_renames.iter().find_map(|(path, renames)| {
-            let rendered = renames.get(name)?;
-            let canonical = Self::canonical_module_path(path)?;
-            canonical_candidates
-                .contains(&canonical)
-                .then(|| rendered.clone())
-        })
+        self.ctx
+            .type_renames
+            .iter()
+            .filter_map(|(path, renames)| {
+                let rendered = renames.get(name)?;
+                let canonical = Self::canonical_module_path(path)?;
+                canonical_candidates.contains(&canonical).then_some((path, rendered))
+            })
+            .min_by_key(|(path, _)| *path)
+            .map(|(_, rendered)| rendered.clone())
     }
 
     /// Lower a TypeScript `Record<K, V>` key type for Smelt's object model.
@@ -3115,8 +3101,7 @@ impl ModuleBuilder<'_> {
     /// getter's return annotation), so the member-type resolver reads it from
     /// there instead of falling through to the `Unknown` boundary. Erasing it
     /// forced every chained access (`c.req.header(..)`) into dynamic
-    /// `SmeltUnknown` dispatch, and the compact callback IR could not lower a
-    /// method call on the erased receiver at all. Static and setter-only
+    /// `SmeltUnknown` dispatch. Static and setter-only
     /// descriptors are not instance reads, so they do not answer here.
     fn class_getter_read_type(
         class: &Class,
@@ -3129,46 +3114,6 @@ impl ModuleBuilder<'_> {
                 descriptor.name == field && descriptor.getter.is_some() && !descriptor.is_static
             })
             .map(|descriptor| descriptor.read_ty)
-    }
-
-    /// Whether reading `field` off a value of `receiver_ty` runs a getter.
-    ///
-    /// True when the receiver is a class (or a class-constrained type
-    /// parameter) whose own declaration, or a base class's, records `field` as
-    /// an instance getter (see [`Self::class_getter_read_type`]) and no stored
-    /// field of that name shadows it first. A getter read executes source code,
-    /// so callers that would evaluate the read more than once, or evaluate it
-    /// where JavaScript would not, use this to keep it to exactly one read.
-    pub(in crate::lowering) fn class_member_reads_through_getter(
-        &self,
-        receiver_ty: smelt_hir::TypeId,
-        field: smelt_hir::Symbol,
-    ) -> bool {
-        let Some(Type::Class { name, .. }) = self
-            .ctx
-            .krate
-            .types
-            .get(self.type_param_constraint_or_self(receiver_ty))
-        else {
-            return false;
-        };
-        let mut class_name = Some(*name);
-        let mut seen = HashSet::new();
-        while let Some(current) = class_name
-            && seen.insert(current)
-        {
-            let Some(class) = self.class_by_symbol(current) else {
-                return false;
-            };
-            if class.fields.iter().any(|item| item.name == field) {
-                return false;
-            }
-            if Self::class_getter_read_type(class, field).is_some() {
-                return true;
-            }
-            class_name = class.base;
-        }
-        false
     }
 
     /// Resolve the type of a class field.
@@ -3193,6 +3138,10 @@ impl ModuleBuilder<'_> {
             }
             // not a new erasure: the receiver is already erased
             Type::Unknown => Ok(self.unknown_type()),
+            // TypeScript accepts no member read off `never`, so a `never`
+            // receiver here is a contextual type inference could not resolve,
+            // and its members have no static layout.
+            Type::Never => Ok(self.erase(ErasureReason::TypeLevel)),
             // A member of a class- or interface-bounded parameter has the type
             // its bound declares (see `type_param_member_bound`); any other
             // parameter's members have no static layout.
@@ -3803,26 +3752,10 @@ impl ModuleBuilder<'_> {
         name_text: &str,
     ) -> Option<Vec<Field>> {
         let bare = name_text.strip_prefix("globalThis.").unwrap_or(name_text);
-        let keys: &[&str] = match bare {
-            "ResponseInit" => &["status", "statusText", "headers"],
-            "RequestInit" => &[
-                "method",
-                "headers",
-                "body",
-                "cache",
-                "credentials",
-                "integrity",
-                "keepalive",
-                "mode",
-                "redirect",
-                "referrer",
-                "referrerPolicy",
-            ],
-            _ => return None,
-        };
+        let keys = smelt_stdlib::fetch_init_keys(bare)?;
         let class = self.intern_type_name(bare);
         let mut fields = Vec::new();
-        for key in keys {
+        for (key, _) in keys {
             let field = self.intern_source_name(key);
             // The registry answers with the key's OPTIONAL type; a field table
             // carries the bare type plus an `optional` flag, so unwrap the one
@@ -3907,6 +3840,7 @@ impl ModuleBuilder<'_> {
             // is what the construction site's conversion accepts directly; the
             // other spellings reach it as literals, which keep their own types.
             ("ResponseInit" | "RequestInit", "headers") => self.headers_type(),
+            ("RequestInit", "signal") => self.abort_signal_type(),
             // The STORED `RequestInit` members: WebIDL enumerations, which
             // surface as `string`, plus the one `boolean`. Read from the same
             // table the request itself stores them in, so the init surface and
@@ -3927,6 +3861,15 @@ impl ModuleBuilder<'_> {
             _ => return None,
         };
         Some(self.ctx.krate.types.intern(Type::Optional(inner)))
+    }
+
+    /// The ambient `AbortSignal` class type.
+    fn abort_signal_type(&mut self) -> smelt_hir::TypeId {
+        let name = self.intern_type_name("AbortSignal");
+        self.ctx.krate.types.intern(Type::Class {
+            name,
+            args: Vec::new(),
+        })
     }
 
     /// Return declared fields for built-in classes that Smelt does not import from lib.d.ts.
@@ -3976,17 +3919,7 @@ impl ModuleBuilder<'_> {
             .names
             .get(class)
             .or_else(|| self.ctx.krate.symbols.get(class))?;
-        if !matches!(
-            class_name,
-            "Error"
-                | "EvalError"
-                | "RangeError"
-                | "ReferenceError"
-                | "SyntaxError"
-                | "TypeError"
-                | "URIError"
-                | "AggregateError"
-        ) {
+        if !smelt_stdlib::is_error_class_name(class_name) {
             return None;
         }
         let field_name = self.ctx.krate.symbols.get(field)?;
@@ -4191,7 +4124,7 @@ impl ModuleBuilder<'_> {
             .krate
             .symbols
             .get(method)
-            .is_some_and(|method_text| matches!(method_text, "call" | "apply" | "bind" | "flush"))
+            .is_some_and(|method_text| matches!(method_text, "call" | "apply" | "bind"))
         {
             let ty = self.erase(ErasureReason::ByName);
             return Ok((ty, smelt_hir::ItemId(u32::MAX)));
@@ -4868,37 +4801,12 @@ impl ModuleBuilder<'_> {
     ///
     /// A source declaration of the same name wins for the bare spelling: Hono declares its own
     /// `interface ResponseInit<T extends StatusCode>` and refers to the ambient
-    /// one as `globalThis.ResponseInit` precisely to escape it. The source probe
-    /// is the same one `source_contains_class` uses for the sibling shadowing
-    /// question, because a declaration later in the file must win over a
-    /// reference earlier in it.
+    /// one as `globalThis.ResponseInit` precisely to escape it. The answer comes
+    /// from the module's facts, because a declaration later in the file must win
+    /// over a reference earlier in it.
     fn ambient_init_interface_type(&mut self, name_text: &str) -> Option<smelt_hir::TypeId> {
         let bare = name_text.strip_prefix("globalThis.").unwrap_or(name_text);
-        let keys: &[(&str, AmbientInitKey)] = match bare {
-            "ResponseInit" => &[
-                ("status", AmbientInitKey::Number),
-                ("statusText", AmbientInitKey::Text),
-                ("headers", AmbientInitKey::HeadersInit),
-            ],
-            // The stored members are a literal table, not derived from
-            // `RequestInitMember`; the key set and the getter surface are kept in step
-            // by hand.
-            "RequestInit" => &[
-                ("method", AmbientInitKey::Text),
-                ("headers", AmbientInitKey::HeadersInit),
-                ("body", AmbientInitKey::Text),
-                ("signal", AmbientInitKey::AbortSignal),
-                ("cache", AmbientInitKey::Text),
-                ("credentials", AmbientInitKey::Text),
-                ("integrity", AmbientInitKey::Text),
-                ("keepalive", AmbientInitKey::Boolean),
-                ("mode", AmbientInitKey::Text),
-                ("redirect", AmbientInitKey::Text),
-                ("referrer", AmbientInitKey::Text),
-                ("referrerPolicy", AmbientInitKey::Text),
-            ],
-            _ => return None,
-        };
+        let keys = smelt_stdlib::fetch_init_keys(bare)?;
         // A source declaration of the BARE name wins for the bare spelling —
         // Hono declares its own `interface ResponseInit<T extends StatusCode>`
         // and must keep it. The `globalThis.`-qualified spelling is the source
@@ -4923,17 +4831,11 @@ impl ModuleBuilder<'_> {
             .iter()
             .map(|(key, kind)| {
                 let field_ty = match kind {
-                    AmbientInitKey::Number => self.ctx.krate.types.intern(Type::Float),
-                    AmbientInitKey::Text => self.ctx.krate.types.intern(Type::String),
-                    AmbientInitKey::Boolean => self.ctx.krate.types.intern(Type::Bool),
-                    AmbientInitKey::HeadersInit => self.headers_init_type(),
-                    AmbientInitKey::AbortSignal => {
-                        let signal = self.intern_type_name("AbortSignal");
-                        self.ctx.krate.types.intern(Type::Class {
-                            name: signal,
-                            args: Vec::new(),
-                        })
-                    }
+                    FetchInitKeyKind::Number => self.ctx.krate.types.intern(Type::Float),
+                    FetchInitKeyKind::Text => self.ctx.krate.types.intern(Type::String),
+                    FetchInitKeyKind::Boolean => self.ctx.krate.types.intern(Type::Bool),
+                    FetchInitKeyKind::HeadersInit => self.headers_init_type(),
+                    FetchInitKeyKind::AbortSignal => self.abort_signal_type(),
                 };
                 let optional_ty = self.ctx.krate.types.intern(Type::Optional(field_ty));
                 Field {
@@ -5009,48 +4911,20 @@ impl ModuleBuilder<'_> {
     /// declaration of THIS module counts: an interface item another module
     /// lowered is visible crate-wide by symbol, so consulting the crate's items
     /// would let one file's `Set` hijack every other file's builtin `Set<T>`.
-    fn module_type_shadows_global(&self, reference: &oxc::ast::ast::TSTypeReference<'_>) -> bool {
+    fn source_shadows_global_type(&self, reference: &oxc::ast::ast::TSTypeReference<'_>) -> bool {
         let TSTypeName::IdentifierReference(name) = &reference.type_name else {
             return false;
         };
-        self.types.module_declares_type_name(name.name.as_str())
+        self.source_shadows_global(name.name.as_str())
     }
 
-    /// Whether the source text declares a type of this name.
+    /// Whether the module declares a type of this name.
     ///
-    /// The same textual probe as [`Self::source_contains_class`], and for the
-    /// same reason: a declaration can appear after the reference that needs to
-    /// know about it, so the interface registry is not yet populated when the
-    /// question is asked.
-    /// Whether the module's source text spells a declaration of the type `name`.
+    /// A declaration can appear after the reference that needs to know about it,
+    /// so the interface registry is not yet populated when the question is asked.
     pub(in crate::lowering) fn source_declares_type(&self, name: &str) -> bool {
-        [
-            format!("interface {name}"),
-            format!("type {name}"),
-            format!("class {name}"),
-            format!("enum {name}"),
-        ]
-        .iter()
-        .any(|needle| self.source.contains(needle.as_str()))
+        self.source_facts.declares_type(name)
     }
 
 }
 
-/// The typed shape of one ambient init key.
-///
-/// Small closed set rather than a `TypeId` per key, because the type has to be
-/// interned against the live crate while the key table stays a `const`.
-#[derive(Clone, Copy)]
-enum AmbientInitKey {
-    /// A `number` key (`status`).
-    Number,
-    /// A `string` key (`statusText`, `method`, the modeled `body` arm, and
-    /// every stored `RequestInit` member but `keepalive`).
-    Text,
-    /// A `boolean` key (`keepalive`).
-    Boolean,
-    /// The `HeadersInit` union.
-    HeadersInit,
-    /// An `AbortSignal` (`RequestInit.signal`).
-    AbortSignal,
-}

@@ -359,15 +359,19 @@ fn main (FuncId(0)) -> None
 
 closure ClosureId(0) -> String
   locals
-    %0 param __callback_param_0: (String, Float)
-    %1 param __callback_param_1: Int
-    %2 param __callback_param_2: List<(String, Float)>
+    %0 param __param0: (String, Float)
+    %1 user key: String
+    %2 user value: Float
     %3 temp: String
-    %4 temp: String
+    %4 temp: Float
     %5 temp: String
+    %6 temp: String
+    %7 temp: String
   bb0:
-    %3 = "" + copy %0[0]
-    %4 = copy %3 + "="
-    %5 = copy %4 + copy %0[1]
-    return copy %5
+    %1 = tuple_index copy %0, 0
+    %2 = tuple_index copy %0, 1
+    %5 = "" + copy %1
+    %6 = copy %5 + "="
+    %7 = copy %6 + copy %2
+    return copy %7
 

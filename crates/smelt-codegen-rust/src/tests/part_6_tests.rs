@@ -1379,7 +1379,7 @@ fn injects_genawaiter_dependency_for_generator_emission() {
     let manifest =
         deps::cargo_toml(
             &EmitOptions::default().crate_name,
-            &generated_deps(&mir),
+            &generated_deps(&RuntimeDemand::of(&mir)),
             GeneratedAllocator::System,
             ReleaseProfile::Optimized,
         );
@@ -2133,7 +2133,7 @@ export function unescape(str: string): string {
          callback:\n{body}"
     );
     assert!(
-        body.contains("HashMap<String, String>"),
+        body.contains("SmeltRecord<String, String>"),
         "the rebuilt constant must keep the source's concrete string-to-string \
          type:\n{body}"
     );

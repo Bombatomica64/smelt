@@ -72,8 +72,8 @@ fn describe (FuncId(1)) -> None
     %16 temp: String
     %17 temp: __SmeltMatch
     %18 temp: List<Optional<String>>
-    %19 temp: fn(Optional<String>, Int, List<Optional<String>>) -> Optional<String>
-    %20 temp: List<Optional<String>>
+    %19 temp: fn(Optional<String>, Int, List<Optional<String>>) -> String
+    %20 temp: List<String>
     %21 temp: String
     %22 temp: None
     %23 temp: __SmeltMatch
@@ -148,7 +148,7 @@ fn describe (FuncId(1)) -> None
     %40 = copy %1
     %41 = move %1
     %42 = move %5 == undefined
-    %43 = call @console_log(move %39, copy %40.field12, copy %41.field25, move %4, move %42) -> bb13
+    %43 = call @console_log(move %39, copy %40.field12, copy %41.field22, move %4, move %42) -> bb13
   bb9:
     %29 = "undefined"
     goto bb11
@@ -245,8 +245,8 @@ fn first_two (FuncId(3)) -> String
     %5 temp: List<Optional<String>>
     %6 temp: List<Optional<String>>
     %7 temp: List<Optional<String>>
-    %8 temp: fn(Optional<String>, Int, List<Optional<String>>) -> Optional<String>
-    %9 temp: List<Optional<String>>
+    %8 temp: fn(Optional<String>, Int, List<Optional<String>>) -> String
+    %9 temp: List<String>
     %10 temp: String
   bb0:
     %3 = regex_find copy %1, copy %0
@@ -315,53 +315,29 @@ fn main (FuncId(4)) -> None
   bb14:
     return none
 
-closure ClosureId(0) -> Optional<String>
+closure ClosureId(0) -> String
   locals
-    %0 param __callback_param_0: Optional<String>
-    %1 param __callback_param_1: Int
-    %2 param __callback_param_2: List<Optional<String>>
-    %3 temp: Bool
-    %4 temp: Optional<String>
+    %0 param group: Optional<String>
+    %1 temp: String
   bb0:
-    %3 = copy %0 != none
-    switch copy %3 ? bb1 : bb2
-  bb1:
-    %4 = copy %0
-    goto bb3
-  bb2:
-    %4 = "U"
-    goto bb3
-  bb3:
-    return copy %4
+    %1 = copy %0 ?? "U"
+    return copy %1
 
 closure ClosureId(1) -> String
   locals
-    %0 param __callback_param_0: String
-    %1 param __callback_param_1: Int
-    %2 param __callback_param_2: List<String>
-    %3 temp: String
-    %4 temp: String
+    %0 param digit: String
+    %1 temp: String
+    %2 temp: String
   bb0:
-    %3 = "<" + copy %0
-    %4 = copy %3 + ">"
-    return copy %4
+    %1 = "<" + copy %0
+    %2 = copy %1 + ">"
+    return copy %2
 
-closure ClosureId(2) -> Optional<String>
+closure ClosureId(2) -> String
   locals
-    %0 param __callback_param_0: Optional<String>
-    %1 param __callback_param_1: Int
-    %2 param __callback_param_2: List<Optional<String>>
-    %3 temp: Bool
-    %4 temp: Optional<String>
+    %0 param group: Optional<String>
+    %1 temp: String
   bb0:
-    %3 = copy %0 != none
-    switch copy %3 ? bb1 : bb2
-  bb1:
-    %4 = copy %0
-    goto bb3
-  bb2:
-    %4 = "-"
-    goto bb3
-  bb3:
-    return copy %4
+    %1 = copy %0 ?? "-"
+    return copy %1
 

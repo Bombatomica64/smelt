@@ -17,46 +17,40 @@ module examples/typescript/end-to-end/183_self_construction_types_its_arguments/
     #4: App<String> = #3.clone()
     #5: App<String> = %1
     #6: Router<String> = #5.router
-    #7: App<String> = %1
-    #8: Router<String> = #7.router
-    #9: fn(String, String, String) -> None = #8.add
-    #10: App<String> = %1
-    #11: Router<String> = #10.router
-    #12: String = "GET"
-    #13: String = "/x"
-    #14: String = "h"
-    #15: None = closure_call #9(#12, #13, #14)
-    #16: App<String> = %1
-    #17: Router<String> = #16.router
-    #18: App<String> = %1
-    #19: Router<String> = #18.router
-    #20: fn(String, String) -> List<String> = #19.match
-    #21: App<String> = %1
-    #22: Router<String> = #21.router
-    #23: String = "GET"
-    #24: String = "/x"
-    #25: List<String> = closure_call #20(#23, #24)
-    #26: String = ","
-    #27: String = string_join #25, #26
-    #28: App<String> = %0
-    #29: Router<String> = #28.router
-    #30: App<String> = %0
-    #31: Router<String> = #30.router
-    #32: fn(String, String) -> List<String> = #31.match
-    #33: App<String> = %0
-    #34: Router<String> = #33.router
-    #35: String = "GET"
-    #36: String = "/x"
-    #37: List<String> = closure_call #32(#35, #36)
-    #38: String = ","
-    #39: String = string_join #37, #38
-    #40: None = @12(console_log)
-    #41: None = call #40(#27, #39)
+    #7: fn(String, String, String) -> None = #6.add
+    #8: App<String> = %1
+    #9: Router<String> = #8.router
+    #10: String = "GET"
+    #11: String = "/x"
+    #12: String = "h"
+    #13: None = closure_call #7(#10, #11, #12)
+    #14: App<String> = %1
+    #15: Router<String> = #14.router
+    #16: fn(String, String) -> List<String> = #15.match
+    #17: App<String> = %1
+    #18: Router<String> = #17.router
+    #19: String = "GET"
+    #20: String = "/x"
+    #21: List<String> = closure_call #16(#19, #20)
+    #22: String = ","
+    #23: String = string_join #21, #22
+    #24: App<String> = %0
+    #25: Router<String> = #24.router
+    #26: fn(String, String) -> List<String> = #25.match
+    #27: App<String> = %0
+    #28: Router<String> = #27.router
+    #29: String = "GET"
+    #30: String = "/x"
+    #31: List<String> = closure_call #26(#29, #30)
+    #32: String = ","
+    #33: String = string_join #31, #32
+    #34: None = @12(console_log)
+    #35: None = call #34(#23, #33)
   stmts
     s0: let %0: App<String> = #0
     s1: let %1: App<String> = #4
-    s2: #15
-    s3: #41
+    s2: #13
+    s3: #35
 
 interned types
   t0 = E

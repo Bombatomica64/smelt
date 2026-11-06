@@ -1,7 +1,10 @@
 # CallbackExpr Audit
 
-`CallbackExpr` is now a frontend-internal legacy expression tree. It must not
-be used as callback-body storage for new HIR or MIR features.
+`CallbackExpr` is private to the Python frontend
+(`crates/smelt-frontend-py/src/lowering/callback_expr.rs`). The TypeScript
+frontend has no such tree: a callback body lowers through `expression`, and a
+callback that only names a callable is a forwarding closure
+(`lowering/callbacks/forwarding.rs`). `smelt-hir` does not define it.
 
 ## Persisted Uses
 

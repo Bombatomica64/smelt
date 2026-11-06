@@ -18,7 +18,6 @@ on:
       - '.gitignore'
       - '*.svg'
       - 'coverage-summary.json'
-      - 'lcov.info'
   pull_request:
     # `main` is the merge target that matters, but a *stacked* PR (one whose base
     # is the branch below it in a chain) would otherwise get no CI at all: a
@@ -41,7 +40,6 @@ on:
       - '.gitignore'
       - '*.svg'
       - 'coverage-summary.json'
-      - 'lcov.info'
 
 # Supersede in-flight runs for the same branch. Restricted to pull requests on
 # purpose: cancelling a `main` push run would skip the es-toolkit regression
@@ -173,6 +171,38 @@ jobs:
         run: |
           cargo test -p smelt-codegen-rust --test set_membership_runtime -- --ignored
           cargo test -p smelt-codegen-rust --test map_lookup_runtime -- --ignored
+
+      # The two gates below run on every PR, not only labelled ones: they need
+      # just the smelt binary and hold invariants a label must not be able to
+      # skip. `always()` keeps them running when a tier above failed.
+      - name: Build smelt
+        if: ${{ always() }}
+        run: cargo build --bin smelt
+
+      # Blocking invariant: the checked-in example corpus must hold ZERO
+      # avoidable erasure. AGENTS.md calls this a hard invariant, but nothing in
+      # CI checked it until 2026-08-23 — it was enforced by policy alone. The
+      # examples are small and hand-audited, so any avoidable erasure appearing
+      # there is a real lowering regression with a readable reproduction, which
+      # makes this the cheapest true signal in the whole SmeltUnknown suite.
+      # Needs no compat checkout, only the smelt binary this job already built.
+      - name: SmeltUnknown examples invariant (blocking, avoidable == 0)
+        if: ${{ always() }}
+        run: |
+          target/debug/smelt smelt-unknown-report examples \
+            --baseline blocker-logs/smelt-unknown-baseline.json \
+            --fail-on-regression
+
+      # Blocking typedness ratchet over the end-to-end examples: each
+      # `input.ts` is lowered in-process (no Rust build) and may never become
+      # less typed than its record in the baseline (an erased count up for values,
+      # reads or calls; the typed share is reported, not judged). See `## Typedness ratchet`.
+      - name: Typedness examples ratchet (blocking)
+        if: ${{ always() }}
+        run: |
+          target/debug/smelt typedness-report examples/typescript/end-to-end/*/input.ts \
+            --baseline blocker-logs/typedness-baseline.json \
+            --fail-on-regression
 
   # Sandbox gate: proves the fail-closed specialization boundary actually
   # executes, rather than skipping itself into a green result.
@@ -410,7 +440,7 @@ jobs:
 
       - name: Generate badge
         run: |
-          bash scripts/coverage_badge.sh lcov.info coverage.svg
+          bash scripts/coverage_badge.sh lcov.info coverage.svg coverage-summary.json
 
       - name: Update README coverage tables
         run: |
@@ -421,12 +451,15 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add README.md coverage-summary.json coverage.svg lcov.info coverage-functions.svg coverage-lines.svg coverage-regions.svg coverage-branches.svg
+          git add README.md coverage-summary.json coverage.svg coverage-functions.svg coverage-lines.svg coverage-regions.svg coverage-branches.svg
           git diff --quiet --cached && echo "No coverage updates to commit." || git commit -m "chore(ci): update coverage report"
 
+      # This job runs for many minutes, so main can move underneath it; replay
+      # the coverage commit on the current tip, as library-probes.yml does.
       - name: Push coverage updates
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
+          git pull --rebase --autostash origin "$GITHUB_REF_NAME"
           git push
 
       - name: Upload coverage artifact
@@ -531,6 +564,7 @@ jobs:
       - name: SmeltUnknown usage report (advisory)
         if: ${{ always() }}
         run: |
+          test -f blocker-logs/smelt-unknown-baseline-remeda.json
           if [ -d target/compat-repos/remeda/dist-smelt/src ]; then
             target/debug/smelt smelt-unknown-report \
               target/compat-repos/remeda/dist-smelt/src \
@@ -547,6 +581,7 @@ jobs:
       - name: Typedness report (advisory)
         if: ${{ always() }}
         run: |
+          test -f blocker-logs/typedness-baseline-remeda.json
           if [ -f target/compat-repos/remeda/dist-smelt/smelt-typedness.json ]; then
             target/debug/smelt typedness-report \
               target/compat-repos/remeda/dist-smelt \
@@ -554,31 +589,6 @@ jobs:
           else
             echo "No remeda typedness sidecar; skipping typedness report."
           fi
-
-      # Blocking invariant: the checked-in example corpus must hold ZERO
-      # avoidable erasure. AGENTS.md calls this a hard invariant, but nothing in
-      # CI checked it until 2026-08-23 — it was enforced by policy alone. The
-      # examples are small and hand-audited, so any avoidable erasure appearing
-      # there is a real lowering regression with a readable reproduction, which
-      # makes this the cheapest true signal in the whole SmeltUnknown suite.
-      # Needs no compat checkout, only the smelt binary this job already built.
-      - name: SmeltUnknown examples invariant (blocking, avoidable == 0)
-        if: ${{ always() }}
-        run: |
-          target/debug/smelt smelt-unknown-report examples \
-            --baseline blocker-logs/smelt-unknown-baseline.json \
-            --fail-on-regression
-
-      # Blocking typedness ratchet over the end-to-end examples: each
-      # `input.ts` is lowered in-process (no Rust build) and may never become
-      # less typed than its record in the baseline (an erased count up for values,
-      # reads or calls; the typed share is reported, not judged). See `## Typedness ratchet`.
-      - name: Typedness examples ratchet (blocking)
-        if: ${{ always() }}
-        run: |
-          target/debug/smelt typedness-report examples/typescript/end-to-end/*/input.ts \
-            --baseline blocker-logs/typedness-baseline.json \
-            --fail-on-regression
 
   # Regression gate: transpile Radash at the ref pinned in
   # .github/compat/libraries.json, then compile and run all generated Rust
@@ -725,18 +735,19 @@ jobs:
         run: |
           cargo test --manifest-path target/compat-repos/hono/dist-smelt/Cargo.toml --no-fail-fast
 
-      # Advisory SmeltUnknown metric, remeda-style: never blocks, and only
-      # runs once blocker-logs/smelt-unknown-baseline-hono.json exists (it is
-      # the phase-4 advisory baseline, committed with the phase-3 test baseline).
+      # Advisory SmeltUnknown metric, remeda-style: a regression never blocks,
+      # but a missing blocker-logs/smelt-unknown-baseline-hono.json does, because
+      # the report would then compare against nothing.
       - name: SmeltUnknown usage report (advisory)
         if: ${{ always() }}
         run: |
-          if [ -f blocker-logs/smelt-unknown-baseline-hono.json ] && [ -d target/compat-repos/hono/dist-smelt/src ]; then
+          test -f blocker-logs/smelt-unknown-baseline-hono.json
+          if [ -d target/compat-repos/hono/dist-smelt/src ]; then
             target/debug/smelt smelt-unknown-report \
               target/compat-repos/hono/dist-smelt/src \
               --baseline blocker-logs/smelt-unknown-baseline-hono.json || true
           else
-            echo "No Hono SmeltUnknown baseline yet; skipping SmeltUnknown report."
+            echo "No generated Hono crate to scan; skipping SmeltUnknown report."
           fi
 
   # Regression gate: transpile es-toolkit at the ref pinned in
@@ -868,10 +879,9 @@ jobs:
         run: |
           crate_src="target/compat-repos/es-toolkit/dist-smelt/src"
           baseline="blocker-logs/smelt-unknown-baseline-es-toolkit.json"
+          test -f "$baseline"
           if [ ! -d "$crate_src" ]; then
             echo "No generated es-toolkit crate to scan; skipping SmeltUnknown ratchet."
-          elif [ ! -f "$baseline" ]; then
-            echo "No es-toolkit SmeltUnknown baseline at $baseline; skipping ratchet."
           else
             target/debug/smelt smelt-unknown-report "$crate_src" \
               --baseline "$baseline" \
@@ -886,6 +896,7 @@ jobs:
         run: |
           crate_dir="target/compat-repos/es-toolkit/dist-smelt"
           baseline="blocker-logs/typedness-baseline-es-toolkit.json"
+          test -f "$baseline"
           if [ ! -f "$crate_dir/smelt-typedness.json" ]; then
             echo "No es-toolkit typedness sidecar; skipping typedness ratchet."
           else

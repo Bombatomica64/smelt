@@ -163,6 +163,10 @@ impl ClassRegistry {
         declared: HashSet<String>,
         constructor_functions: HashSet<String>,
     ) {
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "resets a field on every entry"
+        )]
         for entry in self.names.values_mut() {
             entry.declared = None;
         }
@@ -170,6 +174,10 @@ impl ClassRegistry {
             (declared, ClassDeclaration::Class),
             (constructor_functions, ClassDeclaration::ConstructorFunction),
         ] {
+            #[expect(
+                clippy::iter_over_hash_type,
+                reason = "keyed inserts of one value"
+            )]
             for name in names {
                 self.names.entry(name).or_default().declared = Some(kind);
             }
@@ -186,6 +194,13 @@ impl ClassRegistry {
             (None, Some(ClassDeclaration::ConstructorFunction)) => Some(ClassState::CtorFunction),
             (None, None) => None,
         }
+    }
+
+    /// Whether the module being lowered declares a class called `name` itself,
+    /// lexically scoped ones included.
+    pub(in crate::lowering) fn declared_in_module(&self, name: &str) -> bool {
+        self.scoped_type_names.contains_key(name)
+            || self.names.get(name).is_some_and(|entry| entry.declared.is_some())
     }
 
     /// Whether `name` names a class nominally: registered, or declared by
@@ -349,9 +364,17 @@ impl ClassRegistry {
     /// module-wide, so it is deliberately not part of the snapshot.
     pub(in crate::lowering) fn restore_scope(&mut self, scope: ClassScopeSnapshot) {
         let mut items = scope.items;
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "keyed writes, each entry independent"
+        )]
         for (name, entry) in &mut self.names {
             entry.item = items.remove(name);
         }
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "keyed inserts of distinct keys"
+        )]
         for (name, item) in items {
             self.names.entry(name).or_default().item = Some(item);
         }
@@ -381,6 +404,10 @@ impl ClassRegistry {
     /// Drop registry entries added since [`Self::snapshot_names`], preserving
     /// module-level and imported classes.
     pub(in crate::lowering) fn retain_names(&mut self, scope: &ClassNameSnapshot) {
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "keyed writes, each entry independent"
+        )]
         for (name, entry) in &mut self.names {
             if !scope.by_name.contains(name) {
                 entry.item = None;

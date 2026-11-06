@@ -738,10 +738,6 @@ impl ExprKind {
                 callback: f(callback)?,
             },
             Self::ListFromLength { length } => Self::ListFromLength { length: f(length)? },
-            Self::ListRepeat { value, count } => Self::ListRepeat {
-                value: f(value)?,
-                count: f(count)?,
-            },
             Self::ListFromLengthMap { length, callback } => Self::ListFromLengthMap {
                 length: f(length)?,
                 callback: f(callback)?,
@@ -880,8 +876,6 @@ impl ExprKind {
             Self::ListPop { list } => Self::ListPop { list: f(list)? },
             Self::ListShift { list } => Self::ListShift { list: f(list)? },
             Self::ListNext { list } => Self::ListNext { list: f(list)? },
-            Self::IteratorDone { result } => Self::IteratorDone { result: f(result)? },
-            Self::IteratorValue { result } => Self::IteratorValue { result: f(result)? },
             Self::TupleContains { tuple, item } => Self::TupleContains {
                 tuple: f(tuple)?,
                 item: f(item)?,

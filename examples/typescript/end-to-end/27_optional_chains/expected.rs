@@ -3510,6 +3510,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone, Debug, Default, PartialEq)]
 struct User {
     name: String,
@@ -3537,8 +3539,6 @@ impl SmeltFromUnknown for User {
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let present: Option<User>;

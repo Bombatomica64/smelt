@@ -96,13 +96,9 @@ fn compute_entry_definitions(
     Some(in_sets)
 }
 
-/// Add every local the block itself defines (phis, assignments, call/await
+/// Add every local the block itself defines (assignments, call/await
 /// destinations) to `definitions`.
 fn accumulate_block_definitions(block: &crate::BasicBlock, definitions: &mut HashSet<LocalId>) {
-    for phi in &block.phis {
-        definitions.insert(phi.dest);
-    }
-
     for stmt in &block.statements {
         match stmt {
             Statement::Assign { dest, .. } => {
@@ -122,7 +118,6 @@ fn accumulate_block_definitions(block: &crate::BasicBlock, definitions: &mut Has
             Statement::DictEntryUpdate { current, .. } => {
                 definitions.insert(*current);
             }
-            Statement::StorageLive(_) | Statement::StorageDead(_) => {}
         }
     }
 
@@ -132,7 +127,6 @@ fn accumulate_block_definitions(block: &crate::BasicBlock, definitions: &mut Has
                 definitions.insert(*dest);
             }
             Terminator::Goto(_)
-            | Terminator::Unreachable
             | Terminator::Switch { .. }
             | Terminator::Match { .. }
             | Terminator::Return(_)
@@ -203,14 +197,6 @@ fn report_undefined_reads(
         let Some(mut definitions) = definitions_slot.clone() else {
             continue;
         };
-        let before_phi = definitions.clone();
-
-        for phi in &block.phis {
-            for (_, operand) in &phi.incoming {
-                validate_operand(mir, function, &before_phi, operand, errors);
-            }
-            definitions.insert(phi.dest);
-        }
 
         for stmt in &block.statements {
             report_statement_reads(mir, function, &mut definitions, stmt, errors);
@@ -263,7 +249,6 @@ fn report_statement_reads(
             definitions.insert(*current);
             validate_rvalue(mir, function, definitions, value, errors);
         }
-        Statement::StorageLive(_) | Statement::StorageDead(_) => {}
     }
 }
 
@@ -277,7 +262,7 @@ fn report_terminator_reads(
     errors: &mut Vec<ValidationError>,
 ) {
     match terminator {
-        Terminator::Goto(_) | Terminator::Unreachable => {}
+        Terminator::Goto(_) => {}
         Terminator::Call {
             callee,
             args,
@@ -330,9 +315,9 @@ fn validate_rvalue(
     value: &Rvalue,
     errors: &mut Vec<ValidationError>,
 ) {
-    // Operand traversal is the single source of truth in `Rvalue::for_each_operand`;
+    // Operand traversal is the single source of truth in `Rvalue::reads`;
     // route validation through it so the two cannot drift as variants are added.
-    value.for_each_operand(|operand| {
+    value.reads(|operand| {
         validate_operand(mir, function, definitions, operand, errors);
     });
 }

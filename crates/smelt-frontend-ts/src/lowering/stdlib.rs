@@ -28,7 +28,7 @@ use smelt_stdlib::RuleId;
 use std::borrow::Cow;
 
 use super::testing::LoweredActual;
-use super::{ModuleBuilder, SmeltError, stdlib_dispatch};
+use super::{ModuleBuilder, SmeltError};
 
 /// Static properties and runtime-spread record sources produced when lowering
 /// the source arguments of an `Object.assign` onto a callable value.
@@ -976,10 +976,8 @@ impl ModuleBuilder<'_> {
         call: &CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expression::Identifier(callee) = &call.callee else {
-            return Ok(None);
-        };
-        if !self.imports.is_date_fns_timezone_factory(callee.name.as_str())
+        if self.host_module_export_path(&call.callee)
+            != Some((smelt_stdlib::HostModuleId::DateFnsTz, "tz".to_owned()))
         {
             return Ok(None);
         }
@@ -1409,6 +1407,7 @@ impl ModuleBuilder<'_> {
         };
         if let Expression::Identifier(object) = &member.object
             && object.name == "sinon"
+            && self.imports.is_value("sinon")
             && member.property.name == "useFakeTimers"
         {
             if call.arguments.len() > 1 {
@@ -1501,16 +1500,7 @@ impl ModuleBuilder<'_> {
         call: &CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsJsonStringify) {
-            return Ok(None);
-        }
-        let Expression::StaticMemberExpression(member) = &call.callee else {
-            return Ok(None);
-        };
-        let Expression::Identifier(object) = &member.object else {
-            return Ok(None);
-        };
-        if object.name != "JSON" || member.property.name != "stringify" {
+        if self.recognized_call(call) != Some(RuleId::TsJsonStringify) {
             return Ok(None);
         }
         if call.arguments.is_empty() || call.arguments.len() > 3 {
@@ -1588,16 +1578,7 @@ impl ModuleBuilder<'_> {
         call: &CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsJsonParse) {
-            return Ok(None);
-        }
-        let Expression::StaticMemberExpression(member) = &call.callee else {
-            return Ok(None);
-        };
-        let Expression::Identifier(object) = &member.object else {
-            return Ok(None);
-        };
-        if object.name != "JSON" || member.property.name != "parse" {
+        if self.recognized_call(call) != Some(RuleId::TsJsonParse) {
             return Ok(None);
         }
         let [argument] = call.arguments.as_slice() else {
@@ -1661,7 +1642,7 @@ impl ModuleBuilder<'_> {
         let Expression::CallExpression(call) = expression else {
             return Ok(None);
         };
-        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsJsonParse) {
+        if self.recognized_call(call) != Some(RuleId::TsJsonParse) {
             return Ok(None);
         }
         let [argument] = call.arguments.as_slice() else {
@@ -1717,17 +1698,9 @@ impl ModuleBuilder<'_> {
         let Some(target) = hint else {
             return Ok(None);
         };
-        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsJsonParse)
+        if self.recognized_call(call) != Some(RuleId::TsJsonParse)
             || call.type_arguments.is_some()
             || call.arguments.len() != 1
-        {
-            return Ok(None);
-        }
-        let Expression::StaticMemberExpression(member) = &call.callee else {
-            return Ok(None);
-        };
-        if !matches!(&member.object, Expression::Identifier(object) if object.name == "JSON")
-            || member.property.name != "parse"
         {
             return Ok(None);
         }
@@ -1897,7 +1870,7 @@ impl ModuleBuilder<'_> {
         if member.property.name != "test" {
             return Ok(None);
         }
-        let is_known_regexp_test = stdlib_dispatch::call_rule(call) == Some(RuleId::TsRegExpTest);
+        let is_known_regexp_test = self.recognized_call(call) == Some(RuleId::TsRegExpTest);
         if !is_known_regexp_test && !self.could_be_regexp_test_receiver(&member.object, body) {
             return Ok(None);
         }
@@ -2915,7 +2888,7 @@ impl ModuleBuilder<'_> {
             // statement forms the side-effect-free callback IR cannot represent
             // (e.g. a `for` loop scanning sort criteria) retries through full
             // closure-body lowering instead of failing the whole file.
-            let callback = self.callback_argument_with_body_fallback(
+            let callback = self.callback_argument_with_return_hint(
                 argument,
                 &[element_ty, element_ty],
                 number_ty,
@@ -3366,6 +3339,7 @@ impl ModuleBuilder<'_> {
                 })))
             }
             "flat" => {
+                let list = self.narrowed_list_receiver(list, body);
                 if call.arguments.len() > 1 {
                     return Err(SmeltError::unsupported(
                         span,
@@ -3397,7 +3371,8 @@ impl ModuleBuilder<'_> {
                         Some(item_ty) => item_ty,
                         None => return Ok(None),
                     },
-                    _ => return Ok(None),
+                    // An item that is not an array stays as it is.
+                    _ => element_ty,
                 };
                 let ty = self.ctx.krate.types.intern(Type::List(flat_item_ty));
                 Ok(Some(body.push_expr(Expr {
@@ -3407,6 +3382,7 @@ impl ModuleBuilder<'_> {
                 })))
             }
             "flatMap" => {
+                let list = self.narrowed_list_receiver(list, body);
                 let [callback_arg] = call.arguments.as_slice() else {
                     return Err(SmeltError::unsupported(
                         span,
@@ -3509,7 +3485,7 @@ impl ModuleBuilder<'_> {
                 // find/filter: a named callback returning an erased/`any`
                 // value is coerced to bool by the truthy wrapper instead of
                 // being rejected for not returning `boolean` literally.
-                let callback = self.truthy_callback_argument_with_body_fallback(
+                let callback = self.truthy_callback_argument_with_return_hint(
                     callback_arg,
                     &[element_ty, index_ty, list_ty],
                     "array findLast/findLastIndex",

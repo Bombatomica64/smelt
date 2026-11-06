@@ -317,30 +317,30 @@ impl FunctionEmitter<'_> {
 
     /// Render the decoder function for one composite type.
     fn json_decoder_fn_text(&self, ty: TypeId, deps: &mut Vec<TypeId>) -> Result<String, EmitError> {
-        let rust_ty = self.type_text_with_impl_trait(ty, false)?;
+        let rust_ty = self.type_text(ty)?;
         let expected = self.json_decode_expected(ty);
         let body = match self.mir.types.get(ty).cloned() {
             Some(Type::List(item)) => {
                 let item_call = self.json_decode_call(item, "&item", deps);
-                format!(
+                self.carrier_format(format_args!(
                     "let SmeltUnknown::Array(items) = value else {{ return smelt_decode_fail(path, {expected:?}, value); }};\n    \
                      let mut decoded = Vec::with_capacity(items.len());\n    \
                      for (index, item) in items.iter().enumerate() {{ let mark = smelt_decode_enter_index(path, index); decoded.push({item_call}?); path.truncate(mark); }}\n    \
                      Ok(SmeltList::new(decoded))"
-                )
+                ))
             }
             Some(Type::Tuple(items)) => {
-                let mut text = format!(
+                let mut text = self.carrier_format(format_args!(
                     "let SmeltUnknown::Array(items) = value else {{ return smelt_decode_fail(path, {expected:?}, value); }};\n    \
                      if items.len() != {len} {{ return smelt_decode_arity_fail(path, {expected:?}, items.len()); }}\n",
                     len = items.len()
-                );
+                ));
                 for (index, item) in items.iter().enumerate() {
                     let item_call = self.json_decode_call(*item, &format!("&item_{index}"), deps);
-                    text.push_str(&format!(
+                    text.push_str(&self.carrier_format(format_args!(
                         "    let item_{index} = items.get({index}).unwrap_or(SmeltUnknown::Undefined);\n    \
                          let mark = smelt_decode_enter_index(path, {index}); let item_{index} = {item_call}?; path.truncate(mark);\n"
-                    ));
+                    )));
                 }
                 let names = (0..items.len())
                     .map(|index| format!("item_{index}"))
@@ -355,19 +355,19 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Dict(_, value_ty)) => {
                 let item_call = self.json_decode_call(value_ty, "&item", deps);
-                format!(
+                self.carrier_format(format_args!(
                     "let SmeltUnknown::Object(object) = value else {{ return smelt_decode_fail(path, {expected:?}, value); }};\n    \
                      let mut entries = Vec::with_capacity(object.len());\n    \
                      for (key, item) in object.iter() {{ let mark = smelt_decode_enter_key(path, &key); let decoded = {item_call}?; path.truncate(mark); entries.push((key, decoded)); }}\n    \
                      Ok(SmeltRecord::with_id_from_entries(smelt_next_object_id(), entries))"
-                )
+                ))
             }
             Some(Type::Optional(item)) => {
                 let inner = self.flatten_optional_inner(item);
                 let item_call = self.json_decode_call(inner, "other", deps);
-                format!(
+                self.carrier_format(format_args!(
                     "let at = path.len();\n    match value {{ SmeltUnknown::Null => Ok(None), other => {item_call}.map(Some).map_err(|issue| smelt_decode_widen(issue, at, {expected:?})) }}"
-                )
+                ))
             }
             Some(Type::Union(items)) => {
                 let concrete = self.concrete_union_members(ty).is_some();
@@ -399,10 +399,10 @@ impl FunctionEmitter<'_> {
                 ));
             }
         };
-        Ok(format!(
+        Ok(self.carrier_format(format_args!(
             "\n/// Strict JSON decoder for `{expected}`.\nfn {name}(value: &SmeltUnknown, path: &mut String) -> Result<{rust_ty}, SmeltDecodeIssue> {{\n    {body}\n}}\n",
             name = decoder_fn_name(ty)
-        ))
+        )))
     }
 
     /// The facts a property decoder checks, from the interface's recorded
@@ -441,10 +441,10 @@ impl FunctionEmitter<'_> {
         let interface = self
             .json_decode_interface(ty)
             .ok_or_else(|| EmitError::new("JSON decoder interface is missing"))?;
-        let struct_name = self.type_text_with_impl_trait(ty, false)?;
-        let mut text = format!(
+        let struct_name = self.type_text(ty)?;
+        let mut text = self.carrier_format(format_args!(
             "let SmeltUnknown::Object(object) = value else {{ return smelt_decode_fail(path, {expected:?}, value); }};\n"
-        );
+        ));
         let mut inits = Vec::new();
         for (index, field) in interface.fields.iter().enumerate() {
             let rust_field = RustIdent::new(self.mir.symbols.get(field.name).unwrap_or("field"))
@@ -511,12 +511,12 @@ impl FunctionEmitter<'_> {
             let absent = if facts.may_be_absent {
                 "None".to_owned()
             } else {
-                format!(
+                self.carrier_format(format_args!(
                     "return smelt_decode_fail(path, {value_expected:?}, &SmeltUnknown::Undefined)"
-                )
+                ))
             };
             let null_arm = if facts.admits_null {
-                "Some(SmeltUnknown::Null) => None, ".to_owned()
+                self.carrier_text("Some(SmeltUnknown::Null) => None, ")
             } else {
                 String::new()
             };
@@ -533,7 +533,7 @@ impl FunctionEmitter<'_> {
 
     /// Render the text entry adapter `smelt_json_decode_<ty>` for one target.
     fn json_decode_entry_fn_text(&self, ty: TypeId, deps: &mut Vec<TypeId>) -> Result<String, EmitError> {
-        let rust_ty = self.type_text_with_impl_trait(ty, false)?;
+        let rust_ty = self.type_text(ty)?;
         let expected = self.json_decode_expected(ty);
         let decode = self.json_decode_call(ty, "&value", deps);
         Ok(format!(

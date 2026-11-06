@@ -44,10 +44,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use smelt_hir::{ErasureReason, ErasureRecord, ErasureSeverity};
 
-use crate::{
-    lowering::path_matches_glob,
-    manifest::{exclusion_base, manifest_relative_path},
-};
+use crate::source_files::{exclusion_base, manifest_relative_path, path_matches_glob};
 
 /// File name of the sidecar written next to the generated crate's `src/`.
 pub(crate) const SIDECAR_FILE_NAME: &str = "smelt-erasure.json";
@@ -430,10 +427,7 @@ pub(crate) fn write_sidecar(
 
 /// Load a sidecar from `path`.
 pub(crate) fn load_sidecar(path: &Path) -> Result<ErasureSidecar, String> {
-    let text = std::fs::read_to_string(path)
-        .map_err(|error| format!("failed to read `{}`: {error}", path.display()))?;
-    serde_json::from_str(&text)
-        .map_err(|error| format!("failed to parse `{}`: {error}", path.display()))
+    crate::report::load_json(path, "")
 }
 
 /// Avoidable source lines listed in a report, most erased first.

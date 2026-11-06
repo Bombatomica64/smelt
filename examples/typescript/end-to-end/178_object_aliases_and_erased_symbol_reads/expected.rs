@@ -3096,69 +3096,6 @@ impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-struct Options {
-    label: Option<String>,
-    limit: Option<f64>,
-    tags: Option<SmeltList<String>>,
-}
-impl IntoSmeltUnknown for Options {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        let smelt_absent_keys: [&str; 3] = ["label", "limit", "tags"];
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("label".to_owned(), self.label.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
-        ("limit".to_owned(), self.limit.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
-        ("tags".to_owned(), self.tags.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Array(value.into_iter().map(|value| SmeltUnknown::String(value.into())).collect()))),
-        ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
-    }
-}
-impl SmeltFromUnknown for Options {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("label") {
-                result.label = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("limit") {
-                result.limit = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("tags") {
-                result.tags = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-struct Tagged<T, N> {
-    value: T,
-    count: N,
-    _smelt_phantom: ::std::marker::PhantomData<(T, N)>,
-}
-impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, N: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSmeltUnknown for Tagged<T, N> {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("value".to_owned(), (self.value).into_smelt_unknown()),
-        ("count".to_owned(), (self.count).into_smelt_unknown()),
-        ])))
-    }
-}
-impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, N: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFromUnknown for Tagged<T, N> {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("value") {
-                result.value = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("count") {
-                result.count = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
-    }
-}
-
 thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;
@@ -3578,6 +3515,71 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Options {
+    label: Option<String>,
+    limit: Option<f64>,
+    tags: Option<SmeltList<String>>,
+}
+impl IntoSmeltUnknown for Options {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let smelt_absent_keys: [&str; 3] = ["label", "limit", "tags"];
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("label".to_owned(), self.label.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
+        ("limit".to_owned(), self.limit.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
+        ("tags".to_owned(), self.tags.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Array(value.into_iter().map(|value| SmeltUnknown::String(value.into())).collect()))),
+        ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
+    }
+}
+impl SmeltFromUnknown for Options {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("label") {
+                result.label = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("limit") {
+                result.limit = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("tags") {
+                result.tags = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Tagged<T, N> {
+    value: T,
+    count: N,
+    _smelt_phantom: ::std::marker::PhantomData<(T, N)>,
+}
+impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, N: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSmeltUnknown for Tagged<T, N> {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("value".to_owned(), (self.value).into_smelt_unknown()),
+        ("count".to_owned(), (self.count).into_smelt_unknown()),
+        ])))
+    }
+}
+impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, N: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFromUnknown for Tagged<T, N> {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("value") {
+                result.value = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("count") {
+                result.count = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Request {
     _routes: SmeltList<(String, String)>,
@@ -3597,8 +3599,6 @@ impl SmeltFromUnknown for Request {
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let req: Request;
@@ -3681,11 +3681,13 @@ pub(crate) fn first(tagged: Tagged<String, f64>) -> String {
 
 pub(crate) fn paths(req: Request) -> String {
     let _smelt_tmp_1: SmeltList<(String, String)> = Into::<SmeltList<_>>::into(req.__smelt_get___smelt_symbol_unique__at_663().clone().0.clone());
-    let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: (String, String), closure_arg_1: i64, closure_arg_2: &SmeltList<(String, String)>| {
-    closure_arg_0.1.clone()
+    let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: (String, String), _arg0: i64, _arg1: &SmeltList<(String, String)>| {
+    let path: String = closure_arg_0.clone().1.clone();
+    path.clone()
     });
-    let _smelt_tmp_3: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: (String, String), closure_arg_1: i64, closure_arg_2: &SmeltList<(String, String)>| {
-    closure_arg_0.1.clone()
+    let _smelt_tmp_3: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: (String, String), _arg0: i64, _arg1: &SmeltList<(String, String)>| {
+    let path: String = closure_arg_0.clone().1.clone();
+    path.clone()
     }); let smelt_array = _smelt_tmp_1; smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
     let _smelt_tmp_4: String = _smelt_tmp_3.borrow().join(&",".to_owned());
     return _smelt_tmp_4;

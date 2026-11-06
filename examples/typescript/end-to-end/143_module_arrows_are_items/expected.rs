@@ -3428,29 +3428,6 @@ impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-struct Brand {
-    _brand: String,
-}
-impl IntoSmeltUnknown for Brand {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("_brand".to_owned(), SmeltUnknown::String(self._brand.into())),
-        ])))
-    }
-}
-impl SmeltFromUnknown for Brand {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("_brand") {
-                result._brand = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
-    }
-}
-
 thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;
@@ -4247,6 +4224,31 @@ impl SmeltFromUnknown for SmeltResponse {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Brand {
+    _brand: String,
+}
+impl IntoSmeltUnknown for Brand {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("_brand".to_owned(), SmeltUnknown::String(self._brand.into())),
+        ])))
+    }
+}
+impl SmeltFromUnknown for Brand {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("_brand") {
+                result._brand = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
 #[allow(dead_code)]
 struct Counter(::std::rc::Rc<::std::cell::RefCell<CounterInner>>);
 #[derive(Debug, Default)]
@@ -4339,8 +4341,6 @@ impl Default for SmeltUnion3 {
         Self::M0(SmeltResponse::new())
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;

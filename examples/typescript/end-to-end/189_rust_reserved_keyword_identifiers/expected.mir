@@ -141,7 +141,7 @@ fn main (FuncId(7)) -> None
 
 closure ClosureId(0) -> Float
   locals
-    %0 param __callback_param_0: Float
+    %0 param impl: Float
     %1 user self: Float
     %2 user unsized: Float
     %3 temp: Float

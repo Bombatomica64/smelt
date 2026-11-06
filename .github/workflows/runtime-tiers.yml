@@ -46,9 +46,6 @@ concurrency:
 
 jobs:
   runtime-tiers:
-    # Adding a label cannot change a runtime result, and re-running the whole
-    # matrix for one would burn several runner-hours. Mirrors `ci.yml`.
-    if: ${{ github.event.action != 'labeled' }}
     runs-on: ubuntu-latest
     strategy:
       # One shard failing says nothing about the others, and the whole point is

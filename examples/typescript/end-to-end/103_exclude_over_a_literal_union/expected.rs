@@ -3515,6 +3515,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Reply {
     status: f64,
@@ -3624,8 +3626,6 @@ impl Default for SmeltUnion7 {
         Self::M0(String::new())
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let reply: Reply;

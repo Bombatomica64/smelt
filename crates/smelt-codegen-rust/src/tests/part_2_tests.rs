@@ -763,9 +763,10 @@ export function apply(values: string[]): string[] {
 ",
     );
 
-    assert!(source.contains("== \"a\".to_owned()"), "{source}");
+    // `table[key]` is an ordinary keyed read that can be absent, and the guard is
+    // an ordinary truthiness test of it: no key decides anything at compile time.
+    assert!(source.contains("let formatter: Option<"), "{source}");
     assert!(source.contains("if "), "{source}");
-    assert!(source.contains("unknown function table key"), "{source}");
 }
 
 #[test]

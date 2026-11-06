@@ -45,7 +45,7 @@ impl FunctionEmitter<'_> {
                         .map(|(idx, field_ty)| {
                             let erased =
                                 self.erase_value_text(&format!("{tuple_text}.{idx}"), *field_ty)?;
-                            Ok(format!("({erased}).same_js_key(&smelt_needle)"))
+                            Ok(self.carrier_format(format_args!("({erased}).same_js_key(&smelt_needle)")))
                         })
                         .collect::<Result<Vec<_>, EmitError>>()?
                         .join(" || ")
@@ -98,7 +98,19 @@ impl FunctionEmitter<'_> {
                 let unknown_ty = self.type_id(Type::Unknown)?;
                 return self.value_at_type_text(&unknown_value, unknown_ty, dest_ty, &self.render_scope());
             }
-            return Ok("Default::default()".to_owned());
+            // A narrowed optional union or `unknown` holds the tuple the
+            // narrowing proved.
+            if self.is_optional_of_dynamic_shape(tuple_ty) {
+                let runtime_index = u32::try_from(index).map_err(|err| {
+                    EmitError::new(format!("tuple index does not fit in runtime number: {err}"))
+                })?;
+                let index_operand = Operand::Const(Constant::Float(f64::from(runtime_index)));
+                let erased = self.erase_value_text(&self.operand_text(tuple)?, tuple_ty)?;
+                let unknown_value = self.unknown_index_text(&erased, &index_operand)?;
+                let unknown_ty = self.type_id(Type::Unknown)?;
+                return self.value_at_type_text(&unknown_value, unknown_ty, dest_ty, &self.render_scope());
+            }
+            return Err(EmitError::new("tuple index receiver must be a tuple"));
         };
         let Some(item_ty) = items.get(index) else {
             return Err(EmitError::new("tuple index is out of bounds"));

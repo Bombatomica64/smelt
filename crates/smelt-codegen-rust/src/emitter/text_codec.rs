@@ -103,7 +103,7 @@ impl FunctionEmitter<'_> {
         }
         let ty = self.operand_ty(arg)?;
         let erased = self.erase_value_text(&text, ty)?;
-        Ok(format!("SmeltTypedArray::smelt_from_unknown({erased})"))
+        Ok(self.carrier_format(format_args!("SmeltTypedArray::smelt_from_unknown({erased})")))
     }
 
     /// Emit a member read or method call on the concrete typed-array family.

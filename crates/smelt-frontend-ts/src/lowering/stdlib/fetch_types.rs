@@ -33,26 +33,12 @@ use smelt_hir::{
     Body, ErasureReason, EventEmitterOp, Expr, ExprKind, HeadersOp, RequestInitMember, RequestOp, ResponseOp,
     Type,
 };
-use smelt_stdlib::RuleId;
+use smelt_stdlib::{FetchInitKey, REQUEST_INIT_KEYS, RESPONSE_INIT_KEYS, RuleId};
 
 
-/// The `ResponseInit` keys Smelt models.
-const RESPONSE_INIT_KEYS: &[&str] = &["status", "statusText", "headers"];
-
-/// The `RequestInit` keys Smelt models.
-///
-/// The first four feed the request's transport identity (or, for `signal`, a
-/// dependent-signal follow); the rest are the STORED members of
-/// [`RequestInitMember`], appended from that table so the key set and the
-/// stored surface cannot drift apart.
-fn request_init_keys() -> Vec<&'static str> {
-    let mut keys = vec!["method", "headers", "body", "signal"];
-    keys.extend(
-        RequestInitMember::ALL
-            .into_iter()
-            .map(RequestInitMember::property_name),
-    );
-    keys
+/// The spellings of a fetch init key table, in table order.
+fn init_key_names(table: &[FetchInitKey]) -> Vec<&'static str> {
+    table.iter().map(|(name, _)| *name).collect()
 }
 
 /// Collect the stored `RequestInit` members an init supplied, in table order.
@@ -151,7 +137,7 @@ impl ModuleBuilder<'_> {
         // The receiver is lowered before its type can be inspected, so bail out
         // on a receiver that cannot lower rather than reporting a `Headers`
         // diagnostic for an unrelated expression.
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         // A modeled method call on an OPTIONAL receiver is a call on the inner
@@ -215,7 +201,7 @@ impl ModuleBuilder<'_> {
         ) else {
             return Ok(None);
         };
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         // Same presence assertion as the `Headers` dispatch above, for the same
@@ -265,23 +251,19 @@ impl ModuleBuilder<'_> {
     /// Return whether a lowered type is the modeled `URLSearchParams` class.
     pub(in crate::lowering) fn is_url_search_params_type(&self, ty: smelt_hir::TypeId) -> bool {
         self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::UrlSearchParams)
-            && !self.user_class_shadows("URLSearchParams")
+            && !self.source_shadows_global("URLSearchParams")
     }
 
-    /// Return whether a source class in this module shadows a host class name.
+    /// Whether this module's own source binds a global type or class `name`.
     ///
-    /// `contains` alone is not enough. A class is only PENDING while its own
-    /// members are being lowered, so a `this.status` read inside a user
-    /// `class Response` saw no registered class and was claimed by the modeled
-    /// fetch type — the receiver's type genuinely *is* `Class { Response }`
-    /// there, and only the shadowing check separates the two meanings. Both
-    /// states are the same answer to "does the source own this name", so both
-    /// belong in one predicate that every modeled fetch type reads.
-    ///
-    /// Shared with the `node:http` classes, which are shadowed by the same
-    /// rule: a program with its own `Server` keeps it.
-    pub(in crate::lowering) fn user_class_shadows(&self, name: &str) -> bool {
-        self.classes.is_known(name)
+    /// The one definition of shadowing: a declaration of this module, at any
+    /// stage of lowering, or an imported class. A class another module declares
+    /// is visible crate-wide by symbol, and must not capture this file's
+    /// `Response`; an import of a host module's class is that host class.
+    pub(in crate::lowering) fn source_shadows_global(&self, name: &str) -> bool {
+        self.types.module_declares_type_name(name)
+            || self.classes.declared_in_module(name)
+            || (self.imports.is_value(name) && self.classes.is_known(name))
     }
 
     /// Map a recognized rule and member spelling to its parameter operation.
@@ -439,7 +421,7 @@ impl ModuleBuilder<'_> {
             .get(*name)
             .or_else(|| self.ctx.krate.symbols.get(*name))?
             .to_owned();
-        if self.user_class_shadows(&class_name) {
+        if self.source_shadows_global(&class_name) {
             return None;
         }
         let member = self.ctx.krate.symbols.get(field)?;
@@ -491,7 +473,7 @@ impl ModuleBuilder<'_> {
     /// Return whether a lowered type is the modeled `Headers` class.
     pub(in crate::lowering) fn is_headers_type(&self, ty: smelt_hir::TypeId) -> bool {
         self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::Headers)
-            && !self.user_class_shadows("Headers")
+            && !self.source_shadows_global("Headers")
     }
 
     /// Map a recognized rule and member spelling to its header operation.
@@ -584,7 +566,7 @@ impl ModuleBuilder<'_> {
         };
         let mut fields = InitFields::default();
         if let Some(init_argument) = new_expr.arguments.get(1) {
-            self.lower_fetch_init(init_argument, RESPONSE_INIT_KEYS, "Response", &mut fields, body)?;
+            self.lower_fetch_init(init_argument, &init_key_names(RESPONSE_INIT_KEYS), "Response", &mut fields, body)?;
         }
         let (status, status_text, headers) = (
             fields.take("status"),
@@ -625,7 +607,7 @@ impl ModuleBuilder<'_> {
         ) else {
             return Ok(None);
         };
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         let span = self.span(member.span.start, member.span.end);
@@ -728,7 +710,7 @@ impl ModuleBuilder<'_> {
             "body" => Some(ResponseOp::Body),
             _ => return Ok(None),
         };
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         // A receiver the source narrowed to present keeps its modeled member
@@ -769,7 +751,7 @@ impl ModuleBuilder<'_> {
     /// Return whether a lowered type is the modeled `Response` class.
     pub(in crate::lowering) fn is_response_type(&self, ty: smelt_hir::TypeId) -> bool {
         self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::Response)
-            && !self.user_class_shadows("Response")
+            && !self.source_shadows_global("Response")
     }
 
     /// The modeled `ReadableStream` class: a body HANDLE.
@@ -871,7 +853,7 @@ impl ModuleBuilder<'_> {
         let input = self.url_href_of(input, input_span, body).unwrap_or(input);
         let mut fields = InitFields::default();
         if let Some(init_argument) = new_expr.arguments.get(1) {
-            self.lower_fetch_init(init_argument, &request_init_keys(), "Request", &mut fields, body)?;
+            self.lower_fetch_init(init_argument, &init_key_names(REQUEST_INIT_KEYS), "Request", &mut fields, body)?;
         }
         let (method, headers, body_expr, signal) = (
             fields.take("method"),
@@ -909,7 +891,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(init_argument.span().start, init_argument.span().end);
         let mut fields = InitFields::default();
-        self.lower_fetch_init(init_argument, &request_init_keys(), "fetch", &mut fields, body)?;
+        self.lower_fetch_init(init_argument, &init_key_names(REQUEST_INIT_KEYS), "fetch", &mut fields, body)?;
         let (method, headers, body_expr, signal) = (
             fields.take("method"),
             fields.take("headers"),
@@ -948,7 +930,7 @@ impl ModuleBuilder<'_> {
         ) else {
             return Ok(None);
         };
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         let span = self.span(member.span.start, member.span.end);
@@ -1014,7 +996,7 @@ impl ModuleBuilder<'_> {
                 None => return Ok(None),
             },
         };
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         let span = self.span(member.span.start, member.span.end);
@@ -1053,7 +1035,7 @@ impl ModuleBuilder<'_> {
     /// Return whether a lowered type is the modeled `Request` class.
     pub(in crate::lowering) fn is_request_type(&self, ty: smelt_hir::TypeId) -> bool {
         self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::Request)
-            && !self.user_class_shadows("Request")
+            && !self.source_shadows_global("Request")
     }
 
     /// The HIR type a `Request` operation answers.
@@ -1486,7 +1468,7 @@ impl ModuleBuilder<'_> {
         {
             return Ok(None);
         }
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         let receiver_ty = Self::expr_ty(body, receiver);
@@ -1631,9 +1613,9 @@ impl ModuleBuilder<'_> {
             return false;
         }
         match class {
-            smelt_stdlib::StdlibClass::EventEmitter => !self.user_class_shadows("EventEmitter"),
+            smelt_stdlib::StdlibClass::EventEmitter => !self.source_shadows_global("EventEmitter"),
             smelt_stdlib::StdlibClass::IncomingMessage => {
-                !self.user_class_shadows("IncomingMessage")
+                !self.source_shadows_global("IncomingMessage")
             }
             _ => false,
         }

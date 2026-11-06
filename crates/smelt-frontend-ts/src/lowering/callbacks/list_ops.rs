@@ -3,7 +3,7 @@
 //! through a callback argument.
 
 use crate::lowering::{
-    Argument, Body, DictProjectionOp, Expr, ExprKind, Expression, FunctionType, ListCallbackOp,
+    Argument, Body, Expr, ExprKind, Expression, FunctionType, ListCallbackOp,
     Literal, ModuleBuilder, SmeltError, Type,
 };
 use smelt_hir::ErasureReason;
@@ -504,7 +504,7 @@ impl ModuleBuilder<'_> {
         if self.receiver_declares_method(receiver_ty, method_symbol) {
             return Ok(None);
         }
-        Ok(Some(receiver))
+        Ok(Some(self.narrowed_list_receiver(receiver, body)))
     }
 
     /// Lower callback-heavy TypeScript array methods.
@@ -564,7 +564,7 @@ impl ModuleBuilder<'_> {
                 let _ = self.argument(collection_argument, body)?;
             }
             let index_ty = self.ctx.krate.types.intern(Type::Int);
-            let _ = self.callback_argument_with_body_fallback(
+            let _ = self.callback_argument_with_return_hint(
                 callback_argument,
                 &[unknown_ty, index_ty, list_ty],
                 unknown_ty,
@@ -659,7 +659,7 @@ impl ModuleBuilder<'_> {
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         // not a new erasure: an `unknown` return hint means "no hint" to
         // closure-body lowering; a return that stays erased is recorded in
-        // `callback_argument_with_body_fallback`.
+        // `callback_argument_with_return_hint`.
         let unknown_ty = self.unknown_type();
         let fallback_return_ty = match op {
             ListCallbackOp::Map | ListCallbackOp::FlatMap => unknown_ty,
@@ -683,14 +683,14 @@ impl ModuleBuilder<'_> {
                 | ListCallbackOp::Some
                 | ListCallbackOp::Every
         ) {
-            self.truthy_callback_argument_with_body_fallback(
+            self.truthy_callback_argument_with_return_hint(
                 callback_argument,
                 &callback_param_tys,
                 "array callback",
                 body,
             )?
         } else {
-            self.callback_argument_with_body_fallback(
+            self.callback_argument_with_return_hint(
                 callback_argument,
                 &callback_param_tys,
                 fallback_return_ty,
@@ -742,178 +742,6 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ListCallback {
                 op,
-                list,
-                callback: callback.expr,
-            },
-            ty,
-            span: self.span(call.span.start, call.span.end),
-        })))
-    }
-
-    /// Lower lodash `_.forEach(collection, callback)` over array-like or object-like inputs.
-    pub(in crate::lowering) fn lodash_for_each_call(
-        &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        body: &mut Body,
-    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expression::StaticMemberExpression(member) = &call.callee else {
-            return Ok(None);
-        };
-        if member.property.name != "forEach" {
-            return Ok(None);
-        }
-        let Expression::Identifier(object) = &member.object else {
-            return Ok(None);
-        };
-        if object.name != "_" || !self.imports.is_value("_") {
-            return Ok(None);
-        }
-        let [collection_arg, callback_arg] = call.arguments.as_slice() else {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "lodash forEach requires collection and callback arguments",
-            ));
-        };
-        let mut list = self.argument(collection_arg, body)?;
-        let list_ty = Self::expr_ty(body, list);
-        let (list_ty, item_ty) = match self.ctx.krate.types.get(list_ty).cloned() {
-            Some(Type::List(item_ty)) => (list_ty, item_ty),
-            Some(Type::Tuple(items)) => {
-                let item_ty = self.tuple_items_element_type(&items);
-                let asserted_ty = self.ctx.krate.types.intern(Type::List(item_ty));
-                list = body.push_expr(Expr {
-                    kind: ExprKind::TypeAssert { value: list },
-                    ty: asserted_ty,
-                    span: self.span(collection_arg.span().start, collection_arg.span().end),
-                });
-                (asserted_ty, item_ty)
-            }
-            Some(Type::Dict(_, value_ty)) => {
-                let projected_ty = self.ctx.krate.types.intern(Type::List(value_ty));
-                list = body.push_expr(Expr {
-                    kind: ExprKind::DictProjection {
-                        op: DictProjectionOp::Values,
-                        dict: list,
-                    },
-                    ty: projected_ty,
-                    span: self.span(collection_arg.span().start, collection_arg.span().end),
-                });
-                (projected_ty, value_ty)
-            }
-            _ => {
-                let item_ty = self.callback_erase_unless_unknown(
-                    list_ty,
-                    ErasureReason::ByName,
-                    "forEach collection",
-                );
-                let asserted_ty = self.ctx.krate.types.intern(Type::List(item_ty));
-                list = body.push_expr(Expr {
-                    kind: ExprKind::TypeAssert { value: list },
-                    ty: asserted_ty,
-                    span: self.span(collection_arg.span().start, collection_arg.span().end),
-                });
-                (asserted_ty, item_ty)
-            }
-        };
-        let index_ty = self.ctx.krate.types.intern(Type::Int);
-        let none_ty = self.ctx.krate.types.intern(Type::None);
-        let callback_param_tys = [item_ty, index_ty, list_ty];
-        let callback_expr = if let Argument::ArrowFunctionExpression(arrow) = callback_arg {
-            self.arrow_closure_body_expr(arrow, &callback_param_tys, none_ty, body)?
-        } else {
-            self.callback_argument_with_body_fallback(
-                callback_arg,
-                &callback_param_tys,
-                none_ty,
-                "lodash forEach",
-                body,
-            )?
-            .expr
-        };
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::ListCallback {
-                op: ListCallbackOp::ForEach,
-                list,
-                callback: callback_expr,
-            },
-            ty: none_ty,
-            span: self.span(call.span.start, call.span.end),
-        })))
-    }
-
-    /// Lower Strapi's imported `async.map(collection, callback, options?)` helper.
-    pub(in crate::lowering) fn strapi_async_map_call(
-        &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        body: &mut Body,
-    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expression::StaticMemberExpression(member) = &call.callee else {
-            return Ok(None);
-        };
-        if member.property.name != "map" {
-            return Ok(None);
-        }
-        let Expression::Identifier(object) = &member.object else {
-            return Ok(None);
-        };
-        if object.name != "async" || !self.imports.is_value("async") {
-            return Ok(None);
-        }
-        let [collection_arg, callback_arg, trailing_args @ ..] = call.arguments.as_slice() else {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "Strapi async.map requires collection and callback arguments",
-            ));
-        };
-        let mut list = self.argument(collection_arg, body)?;
-        let list_ty = Self::expr_ty(body, list);
-        let (list_ty, item_ty) = match self.ctx.krate.types.get(list_ty).cloned() {
-            Some(Type::List(item_ty)) => (list_ty, item_ty),
-            Some(Type::Tuple(items)) => {
-                let item_ty = self.tuple_items_element_type(&items);
-                let asserted_ty = self.ctx.krate.types.intern(Type::List(item_ty));
-                list = body.push_expr(Expr {
-                    kind: ExprKind::TypeAssert { value: list },
-                    ty: asserted_ty,
-                    span: self.span(collection_arg.span().start, collection_arg.span().end),
-                });
-                (asserted_ty, item_ty)
-            }
-            _ => {
-                let item_ty = self.callback_erase_unless_unknown(
-                    list_ty,
-                    ErasureReason::ByName,
-                    "async.map collection",
-                );
-                let asserted_ty = self.ctx.krate.types.intern(Type::List(item_ty));
-                list = body.push_expr(Expr {
-                    kind: ExprKind::TypeAssert { value: list },
-                    ty: asserted_ty,
-                    span: self.span(collection_arg.span().start, collection_arg.span().end),
-                });
-                (asserted_ty, item_ty)
-            }
-        };
-        for arg in trailing_args {
-            let _ = self.argument(arg, body)?;
-        }
-        let index_ty = self.ctx.krate.types.intern(Type::Int);
-        // not a new erasure: an `unknown` return hint means "no hint"; a return
-        // that stays erased is recorded in `callback_argument_with_body_fallback`.
-        let unknown_ty = self.unknown_type();
-        let callback_param_tys = [item_ty, index_ty, list_ty];
-        let callback = self.callback_argument_with_body_fallback(
-            callback_arg,
-            &callback_param_tys,
-            unknown_ty,
-            "Strapi async.map",
-            body,
-        )?;
-        let list_result_ty = self.ctx.krate.types.intern(Type::List(callback.return_ty));
-        let ty = self.ctx.krate.types.intern(Type::Future(list_result_ty));
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::ListCallback {
-                op: ListCallbackOp::Map,
                 list,
                 callback: callback.expr,
             },

@@ -3905,16 +3905,16 @@ pub(crate) fn captured(xs: SmeltList<f64>) -> f64 {
     _smelt_tmp_5 = ::std::rc::Rc::new({
     let smelt_capture_seen = smelt_capture_seen.clone();
     move |_arg0: f64, _arg1: i64, _arg2: &SmeltList<f64>| {
-    let _smelt_tmp_1: f64 = (*smelt_capture_seen.borrow()) + 1.0;
-    (*smelt_capture_seen.borrow_mut()) = _smelt_tmp_1;
+    let _smelt_tmp_2: f64 = (*smelt_capture_seen.borrow()) + 1.0;
+    (*smelt_capture_seen.borrow_mut()) = _smelt_tmp_2;
     ()
     }
 });
     _smelt_tmp_6 = { let smelt_callback = ::std::rc::Rc::new({
     let smelt_capture_seen = smelt_capture_seen.clone();
     move |_arg0: f64, _arg1: i64, _arg2: &SmeltList<f64>| {
-    let _smelt_tmp_1: f64 = (*smelt_capture_seen.borrow()) + 1.0;
-    (*smelt_capture_seen.borrow_mut()) = _smelt_tmp_1;
+    let _smelt_tmp_2: f64 = (*smelt_capture_seen.borrow()) + 1.0;
+    (*smelt_capture_seen.borrow_mut()) = _smelt_tmp_2;
     ()
     }
 }); let smelt_array = xs.clone(); smelt_array.borrow().iter().enumerate().for_each(|(index, item)| { let _ = (smelt_callback)(item.clone(), index as i64, &smelt_array); }); () };

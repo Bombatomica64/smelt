@@ -22,16 +22,20 @@
 //!
 //! * `t` is a compiler temporary defined exactly once and read exactly once
 //!   (by the move), so no other statement observes it.
-//! * `u` is defined exactly once (the move), so `u` is a single-assignment
-//!   binding and writing it one statement earlier changes no other read: the
-//!   only statement in between is the move itself.
+//! * `u` has exactly one initializer (the move), so writing it one statement
+//!   earlier changes no other read: the only statement in between is the move
+//!   itself. A later source reassignment is a whole-local `AssignPlace`, which
+//!   leaves the `let mut u = rv` binding intact and does not count.
 //! * `rv` does not read `u`. A self-referencing initializer (a closure that
 //!   captures its own binding) must keep reading the binding's prior state.
 //! * `t` and `u` have the same type, so no conversion was implied by the move.
 //! * Neither is function-typed: callable locals carry ABI decisions
 //!   (`Rc<dyn Fn>` vs. borrowed callbacks) that copy propagation also leaves
 //!   alone.
-//! * `t` appears in no `StorageLive`/`StorageDead` marker.
+//! * `u` is not a closure's capture: writing a capture is a store into the
+//!   shared cell, not a binding.
+//!
+//! The pass covers function and closure bodies alike.
 //!
 //! Behaviour requirement: unchanged (the same value reaches the same local).
 //! Type-preservation requirement: unchanged types; the generated Rust has one
@@ -39,43 +43,53 @@
 
 use smelt_hir::Type;
 
-use super::local_use::{local_assignment_count, local_decl, local_is_temp, local_read_count, operand_local};
+use std::collections::HashSet;
+
 use super::Pass;
-use crate::{Mir, MirFunction, Operand, Rvalue, Statement};
+use crate::{BasicBlock, Body, LocalDecl, LocalId, Mir, Operand, Place, Rvalue, Statement};
 
 /// The let-temporary elision pass; see the module docs.
 #[derive(Debug, Default)]
 pub struct LetTempElision;
 
 impl Pass for LetTempElision {
-    /// Returns the stable identifier of this pass.
-    fn name(&self) -> &'static str {
-        "let-temp-elision"
-    }
-
     /// Applies the pass to `mir`, returning true if it was modified.
     fn run(&self, mir: &mut Mir) -> bool {
         let mut changed = false;
         for function in &mut mir.functions {
-            changed |= elide_function(function, &mir.types);
+            changed |= elide_body(&function.locals, &mut function.blocks, &HashSet::new(), &mir.types);
+        }
+        for closure in &mut mir.closures {
+            let captures = closure.captures.iter().filter_map(|capture| capture.target_local).collect();
+            changed |= elide_body(&closure.locals, &mut closure.blocks, &captures, &mir.types);
         }
         changed
     }
 }
 
-/// Elides every qualifying temporary in one function; true if modified.
-fn elide_function(function: &mut MirFunction, types: &smelt_hir::TypeInterner) -> bool {
+/// Elides every qualifying temporary in one body; true if modified. `captures`
+/// are the locals that never take a pair's user role.
+fn elide_body(
+    locals: &[LocalDecl],
+    blocks: &mut [BasicBlock],
+    captures: &HashSet<LocalId>,
+    types: &smelt_hir::TypeInterner,
+) -> bool {
     let mut changed = false;
-    for block_index in 0..function.blocks.len() {
+    for block_index in 0..blocks.len() {
         let mut index: usize = 0;
-        while let Some(user) = next_pair(function, types, block_index, &mut index) {
-            let Some(block) = function.blocks.get_mut(block_index) else {
+        loop {
+            let body = Body { locals, blocks };
+            let Some((at, user)) = next_pair(body, captures, types, block_index, index) else {
                 break;
             };
-            if let Some(Statement::Assign { dest, .. }) = block.statements.get_mut(index) {
+            let Some(block) = blocks.get_mut(block_index) else {
+                break;
+            };
+            if let Some(Statement::Assign { dest, .. }) = block.statements.get_mut(at) {
                 *dest = user;
             }
-            let after = index.saturating_add(1);
+            let after = at.saturating_add(1);
             if after < block.statements.len() {
                 block.statements.remove(after);
             }
@@ -86,20 +100,21 @@ fn elide_function(function: &mut MirFunction, types: &smelt_hir::TypeInterner) -
     changed
 }
 
-/// Advances `index` to the next elidable pair in the block at or after it,
-/// returning the pair's user local; `None` when the block has no more pairs.
+/// The next elidable pair of the block at or after `index`: its statement
+/// index and user local. `None` when the block has no more pairs.
 fn next_pair(
-    function: &MirFunction,
+    body: Body<'_>,
+    captures: &HashSet<LocalId>,
     types: &smelt_hir::TypeInterner,
     block_index: usize,
-    index: &mut usize,
-) -> Option<crate::LocalId> {
-    let len = function.blocks.get(block_index)?.statements.len();
+    mut index: usize,
+) -> Option<(usize, LocalId)> {
+    let len = body.blocks.get(block_index)?.statements.len();
     while index.saturating_add(1) < len {
-        if let Some(user) = elidable_pair(function, types, block_index, *index) {
-            return Some(user);
+        if let Some(user) = elidable_pair(body, captures, types, block_index, index) {
+            return Some((index, user));
         }
-        *index = index.saturating_add(1);
+        index = index.saturating_add(1);
     }
     None
 }
@@ -107,12 +122,13 @@ fn next_pair(
 /// The user local `u` when statements `index` and `index + 1` of the block
 /// are an elidable `t = rv; u = move t` pair.
 fn elidable_pair(
-    function: &MirFunction,
+    body: Body<'_>,
+    captures: &HashSet<LocalId>,
     types: &smelt_hir::TypeInterner,
     block_index: usize,
     index: usize,
-) -> Option<crate::LocalId> {
-    let statements = &function.blocks.get(block_index)?.statements;
+) -> Option<LocalId> {
+    let statements = &body.blocks.get(block_index)?.statements;
     let Statement::Assign { dest: temp_dest, value } = statements.get(index)? else {
         return None;
     };
@@ -122,30 +138,38 @@ fn elidable_pair(
         return None;
     };
     let (temp, user) = (*temp_dest, *user_dest);
-    let moves_temp = operand_local(moved) == Some(temp);
-    if !moves_temp || temp == user {
+    let moves_temp = moved.local() == Some(temp);
+    if !moves_temp || temp == user || captures.contains(&user) {
         return None;
     }
-    let temp_decl = local_decl(function, temp)?;
-    let user_decl = local_decl(function, user)?;
+    let temp_decl = body.local_decl(temp)?;
+    let user_decl = body.local_decl(user)?;
     let reads_user = {
         let mut reads = false;
-        value.for_each_operand(|operand| reads |= super::local_use::operand_reads_local(operand, user));
+        value.reads(|operand| reads |= operand.reads_local(user));
         reads
     };
-    let has_storage_marker = function.blocks.iter().flat_map(|block| &block.statements).any(|statement| {
-        matches!(statement, Statement::StorageLive(local) | Statement::StorageDead(local) if *local == temp)
-    });
     let is_function = |ty| matches!(types.get(ty), Some(Type::Function(_)));
-    (local_is_temp(function, temp)
-        && local_assignment_count(function, temp) == 1
-        && local_read_count(function, temp) == 1
-        && local_assignment_count(function, user) == 1
+    (body.is_single_use_temp(temp)
+        && initializer_count(body, user) == 1
         && !reads_user
         && temp_decl.ty == user_decl.ty
-        && !is_function(temp_decl.ty)
-        && !has_storage_marker)
+        && !is_function(temp_decl.ty))
         .then_some(user)
+}
+
+/// How many definitions of `local` are not source reassignments: everything
+/// [`Body::assignment_count`] counts minus whole-local `AssignPlace`s.
+fn initializer_count(body: Body<'_>, local: LocalId) -> usize {
+    let reassignments = body
+        .blocks
+        .iter()
+        .flat_map(|block| &block.statements)
+        .filter(|statement| {
+            matches!(statement, Statement::AssignPlace { place: Place::Local(target), .. } if *target == local)
+        })
+        .count();
+    body.assignment_count(local).saturating_sub(reassignments)
 }
 
 #[cfg(test)]
@@ -215,7 +239,7 @@ mod tests {
             types,
             symbols: smelt_hir::SymbolInterner::default(),
             names: smelt_hir::OriginalNameTable::default(),
-            accessor_fields: Default::default(),
+            accessor_fields: Vec::default(),
         }
     }
 
@@ -368,14 +392,6 @@ mod tests {
         });
     }
 
-    /// A storage marker on `t` scopes its lifetime; leave it alone.
-    #[test]
-    fn declines_when_temp_has_storage_marker() {
-        assert_declined(|mir| {
-            mir.functions[0].blocks[0].statements.push(Statement::StorageDead(TEMP));
-        });
-    }
-
     /// The pair must be adjacent: a statement between them may observe `u`.
     #[test]
     fn declines_when_not_adjacent() {
@@ -388,6 +404,52 @@ mod tests {
                 },
             );
         });
+    }
+
+    /// The fixture's body moved into a closure, with `%2` a capture when
+    /// `user_is_capture` holds.
+    fn closure_fixture(user_is_capture: bool) -> Mir {
+        let (types, float) = floats();
+        let mut mir = mir(types, [float; 3], vec![define_temp(), move_into_user()]);
+        let function = mir.functions.remove(0);
+        let captures = user_is_capture.then(|| crate::MirClosureCapture {
+            source_local: PARAM,
+            target_local: Some(USER),
+            symbol: Symbol(1),
+            ty: float,
+            mode: smelt_hir::CaptureMode::ByRef,
+        });
+        mir.closures.push(crate::MirClosure {
+            id: crate::ClosureId(0),
+            params: vec![PARAM],
+            rest: None,
+            required_params: None,
+            locals: function.locals,
+            captures: captures.into_iter().collect(),
+            return_ty: float,
+            blocks: function.blocks,
+            entry: function.entry,
+            escapes: false,
+            can_throw: false,
+            is_generator: false,
+            function_item_key: None,
+            absent: crate::AbsentSpelling::Undefined,
+        });
+        mir
+    }
+
+    /// A closure body is a body: its let temporaries go too.
+    #[test]
+    fn elides_in_a_closure_body() {
+        let mut mir = closure_fixture(false);
+        assert!(LetTempElision.run(&mut mir));
+        assert_eq!(mir.closures[0].blocks[0].statements.len(), 1);
+    }
+
+    /// `x = y + 1` in a closure stores into the cell of capture `x`.
+    #[test]
+    fn declines_when_user_is_a_capture() {
+        assert!(!LetTempElision.run(&mut closure_fixture(true)));
     }
 
     /// The move must read `t`, not some other local.

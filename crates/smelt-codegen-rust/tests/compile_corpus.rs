@@ -1736,24 +1736,6 @@ const EXPECTED_FIXTURE_FAILURES: &[ExpectedFailure] = &[
                 relation (\"lifetime may not live long enough\")",
     },
     ExpectedFailure {
-        name: "fewer_param_callback_forwarded_to_wider_sink",
-        errors: 1,
-        cause: "a 1-parameter callback forwarded where 2 parameters are declared: the adapter \
-                re-pins instead of widening (E0308)",
-    },
-    ExpectedFailure {
-        name: "generic_maker_forwarded_into_sink",
-        errors: 2,
-        cause: "a caller-generic maker forwarded into a generic sink: the sink's bound is \
-                stated over the caller's `T` (E0271/E0277)",
-    },
-    ExpectedFailure {
-        name: "omitted_optional_callback_via_overload",
-        errors: 1,
-        cause: "an overload that omits the callback entirely: the passthrough branch renders \
-                the remaining argument at the borrowed branch's type (E0308)",
-    },
-    ExpectedFailure {
         name: "variadic_spy_as_nullary_maker",
         errors: 2,
         cause: "a variadic erased function supplied where `() => T` is declared emits an \

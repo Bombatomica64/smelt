@@ -22,6 +22,7 @@
 //! of it, so a program that never writes a property through an erased value
 //! is emitted exactly as before.
 
+use smelt_stdlib::runtime_symbols::markers::{SMELT_GET_CALLABLE_FIELD, SMELT_SET_FIELD};
 use smelt_hir::Type;
 use smelt_mir::{Mir, Place, Statement};
 
@@ -31,28 +32,14 @@ use super::{EmitError, FunctionEmitter};
 pub(crate) const SET_FIELD_KEY: &str = "__smelt_method:__smelt_set_field";
 
 /// Name of the generated per-class field setter method.
-pub(crate) const SET_FIELD_METHOD: &str = "__smelt_set_field";
+pub(crate) const SET_FIELD_METHOD: &str = SMELT_SET_FIELD;
 
 /// Erased-view key of the live callable-member read hook (see
 /// [`LIVE_MEMBER_PRELUDE`]).
 pub(crate) const GET_CALLABLE_KEY: &str = "__smelt_method:__smelt_get_callable_field";
 
 /// Name of the generated per-class live callable-field getter method.
-pub(crate) const GET_CALLABLE_METHOD: &str = "__smelt_get_callable_field";
-
-/// The prelude helper that reads a member off an erased value LIVE.
-///
-/// An erased view of a reference-class instance is a snapshot of its fields
-/// taken when it was built, while the instance itself keeps changing: Hono's
-/// `SmartRouter.match` replaces its own `match` field on its first call
-/// (`this.match = router.match.bind(router)`), and the NEXT call through an
-/// interface view projected from an earlier erasure must reach the new
-/// function, not the snapshot's. A reference class whose program reads `this`
-/// therefore carries a getter for its callable own fields under
-/// [`GET_CALLABLE_KEY`]; this helper asks it first and falls back to the
-/// ordinary member read (own property, then prototype) when the value has no
-/// such hook or the hook does not know the key.
-pub(crate) const LIVE_MEMBER_PRELUDE: &str = "/// Read `key` off an erased value, asking a class view's live callable-field getter first.\n#[allow(dead_code)]\nfn smelt_live_member(value: &SmeltUnknown, key: &str) -> SmeltUnknown { if let SmeltUnknown::Object(map) = value && let Some(SmeltUnknown::Function(getter)) = map.get(\"__smelt_method:__smelt_get_callable_field\") && let Ok(live) = getter(vec![SmeltUnknown::String(key.into())]) && !matches!(live, SmeltUnknown::Undefined) { return live; } smelt_get_unknown_field(value, key) }";
+pub(crate) const GET_CALLABLE_METHOD: &str = SMELT_GET_CALLABLE_FIELD;
 
 /// Return whether any function or closure writes a named property through an
 /// erased (`unknown`, type-parameter, or union) value.
@@ -88,10 +75,6 @@ pub(crate) fn program_writes_erased_fields(mir: &Mir) -> bool {
             .iter()
             .any(|closure| writes(&closure.locals, &closure.blocks))
 }
-
-/// The prelude helper an erased property write calls after updating the
-/// view's own store.
-pub(crate) const WRITE_THROUGH_PRELUDE: &str = "/// Forward a property write on an erased class view to the instance it stands for.\nfn smelt_object_write_through(map: &SmeltObject, key: &str, value: &SmeltUnknown) { if let Some(SmeltUnknown::Function(setter)) = map.get(\"__smelt_method:__smelt_set_field\") { let _ = setter(vec![SmeltUnknown::String(key.into()), value.clone()]); } }";
 
 /// The erased-view entry that installs the write-through hook, as a statement
 /// pushing onto the entry vector `entries` of a view of `receiver`.
@@ -168,9 +151,9 @@ impl FunctionEmitter<'_> {
         // adapter, and `smelt-unknown-report` classifies it by the
         // `fn __smelt_get_callable_field(` marker (see its
         // `live_callable_field_getter_is_a_boundary` test).
-        Ok(format!(
+        Ok(self.carrier_format(format_args!(
             "    /// The live value of a callable own field, for a read through this instance's erased view.\n    #[allow(dead_code, unreachable_patterns)]\n    fn {GET_CALLABLE_METHOD}(&self, key: &str) -> SmeltUnknown {{ match key {{ {arms}_ => SmeltUnknown::Undefined }} }}\n"
-        ))
+        )))
     }
 
     /// Render the `__smelt_set_field` method of one reference class.
@@ -218,8 +201,8 @@ impl FunctionEmitter<'_> {
                 }
             ));
         }
-        Ok(format!(
+        Ok(self.carrier_format(format_args!(
             "    /// Assign an own-property field from a write through this instance's erased view.\n    #[allow(dead_code, unreachable_patterns)]\n    fn {SET_FIELD_METHOD}(&self, key: &str, value: SmeltUnknown) {{\n        match key {{\n{arms}            _ => {{ let _ = value; }}\n        }}\n    }}\n"
-        ))
+        )))
     }
 }

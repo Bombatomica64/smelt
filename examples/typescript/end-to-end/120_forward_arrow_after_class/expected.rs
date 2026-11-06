@@ -3753,6 +3753,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Request {
     headers: SmeltRecord<String, String>,
@@ -3775,8 +3777,6 @@ impl SmeltFromUnknown for Request {
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;

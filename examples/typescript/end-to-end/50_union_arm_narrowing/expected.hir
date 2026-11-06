@@ -47,116 +47,100 @@ module examples/typescript/end-to-end/50_union_arm_narrowing/input.ts (ModuleId(
     #31: None = call #30(#29)
     #32: FormData = form_data_new
     #33: FormData = %1
-    #34: FormData = %1
-    #35: FormData = %1
-    #36: String = "doc"
-    #37: String = "hi"
-    #38: List<String> = [#37]
-    #39: String = "note.txt"
-    #40: String = "text/plain"
-    #41: File = blob_from_parts #38, #40, #39, none
-    #42: None = form_data_append #35, #36, #41
-    #43: FormData = %1
-    #44: FormData = %1
+    #34: String = "doc"
+    #35: String = "hi"
+    #36: List<String> = [#35]
+    #37: String = "note.txt"
+    #38: String = "text/plain"
+    #39: File = blob_from_parts #36, #38, #37, none
+    #40: None = form_data_append #33, #34, #39
+    #41: FormData = %1
+    #42: String = "text"
+    #43: String = "plain"
+    #44: None = form_data_append #41, #42, #43
     #45: FormData = %1
-    #46: String = "text"
-    #47: String = "plain"
-    #48: None = form_data_append #45, #46, #47
-    #49: FormData = %1
-    #50: FormData = %1
-    #51: FormData = %1
-    #52: FormData = %1
-    #53: String = "doc"
-    #54: Optional<String | File> = form_data_get #52, #53
-    #55: Optional<String | File> = %2
-    #56: Bool = instanceof #55, class15
-    #57: File = %2
-    #58: String | File = %2
-    #59: File = unknown_cast #58 as File
-    #60: String = blob_name #59
-    #61: File = %2
-    #62: String | File = %2
-    #63: File = unknown_cast #62 as File
-    #64: String = blob_type #63
-    #65: File = %2
-    #66: String | File = %2
-    #67: File = unknown_cast #66 as File
-    #68: Float = blob_size #67
-    #69: None = @8(console_log)
-    #70: None = call #69(#60, #64, #68)
-    #71: String = "not a file"
-    #72: None = @9(console_log)
-    #73: None = call #72(#71)
-    #74: FormData = %1
-    #75: FormData = %1
-    #76: FormData = %1
-    #77: FormData = %1
-    #78: String = "text"
-    #79: Optional<String | File> = form_data_get #77, #78
-    #80: Optional<String | File> = %3
-    #81: Bool = instanceof #80, class15
-    #82: String = "unexpectedly a file"
-    #83: None = @10(console_log)
-    #84: None = call #83(#82)
-    #85: String = "not a file"
-    #86: None = @11(console_log)
-    #87: None = call #86(#85)
-    #88: FormData = %1
+    #46: String = "doc"
+    #47: Optional<String | File> = form_data_get #45, #46
+    #48: Optional<String | File> = %2
+    #49: Bool = instanceof #48, class15
+    #50: File = %2
+    #51: String | File = %2
+    #52: File = unknown_cast #51 as File
+    #53: String = blob_name #52
+    #54: File = %2
+    #55: String | File = %2
+    #56: File = unknown_cast #55 as File
+    #57: String = blob_type #56
+    #58: File = %2
+    #59: String | File = %2
+    #60: File = unknown_cast #59 as File
+    #61: Float = blob_size #60
+    #62: None = @8(console_log)
+    #63: None = call #62(#53, #57, #61)
+    #64: String = "not a file"
+    #65: None = @9(console_log)
+    #66: None = call #65(#64)
+    #67: FormData = %1
+    #68: String = "text"
+    #69: Optional<String | File> = form_data_get #67, #68
+    #70: Optional<String | File> = %3
+    #71: Bool = instanceof #70, class15
+    #72: String = "unexpectedly a file"
+    #73: None = @10(console_log)
+    #74: None = call #73(#72)
+    #75: String = "not a file"
+    #76: None = @11(console_log)
+    #77: None = call #76(#75)
+    #78: FormData = %1
+    #79: String = "absent"
+    #80: Optional<String | File> = form_data_get #78, #79
+    #81: Optional<String | File> = %4
+    #82: Bool = instanceof #81, class15
+    #83: String = "unexpectedly a file"
+    #84: None = @12(console_log)
+    #85: None = call #84(#83)
+    #86: String = "absent is not a file"
+    #87: None = @13(console_log)
+    #88: None = call #87(#86)
     #89: FormData = %1
-    #90: FormData = %1
-    #91: FormData = %1
-    #92: String = "absent"
-    #93: Optional<String | File> = form_data_get #91, #92
-    #94: Optional<String | File> = %4
-    #95: Bool = instanceof #94, class15
-    #96: String = "unexpectedly a file"
-    #97: None = @12(console_log)
-    #98: None = call #97(#96)
-    #99: String = "absent is not a file"
-    #100: None = @13(console_log)
-    #101: None = call #100(#99)
-    #102: FormData = %1
-    #103: FormData = %1
-    #104: FormData = %1
-    #105: FormData = %1
-    #106: List<String | File> = form_data_values #105
-    #107: String | File = %5
-    #108: Bool = instanceof #107, class15
-    #109: String = "file"
-    #110: File = %5
-    #111: File = unknown_cast #110 as File
-    #112: String = blob_name #111
-    #113: None = @14(console_log)
-    #114: None = call #113(#109, #112)
-    #115: String = "text"
-    #116: String = %5
-    #117: String = unknown_cast #116 as String
-    #118: None = @15(console_log)
-    #119: None = call #118(#115, #117)
+    #90: List<String | File> = form_data_values #89
+    #91: String | File = %5
+    #92: Bool = instanceof #91, class15
+    #93: String = "file"
+    #94: File = %5
+    #95: File = unknown_cast #94 as File
+    #96: String = blob_name #95
+    #97: None = @14(console_log)
+    #98: None = call #97(#93, #96)
+    #99: String = "text"
+    #100: String = %5
+    #101: String = unknown_cast #100 as String
+    #102: None = @15(console_log)
+    #103: None = call #102(#99, #101)
   stmts
     s0: #11
     s1: #23
     s2: let %0: String | Doc = #26
     s3: #31
     s4: let %1: FormData = #32
-    s5: #42
-    s6: #48
-    s7: let %2: Optional<String | File> = #54
-    s8: #70
-    s9: #73
-    s10: if #56 then BlockId(1) else BlockId(2)
-    s11: let %3: Optional<String | File> = #79
-    s12: #84
-    s13: #87
-    s14: if #81 then BlockId(3) else BlockId(4)
-    s15: let %4: Optional<String | File> = #93
-    s16: #98
-    s17: #101
-    s18: if #95 then BlockId(5) else BlockId(6)
-    s19: #114
-    s20: #119
-    s21: if #108 then BlockId(8) else BlockId(9)
-    s22: for %5 in #106 BlockId(7)
+    s5: #40
+    s6: #44
+    s7: let %2: Optional<String | File> = #47
+    s8: #63
+    s9: #66
+    s10: if #49 then BlockId(1) else BlockId(2)
+    s11: let %3: Optional<String | File> = #69
+    s12: #74
+    s13: #77
+    s14: if #71 then BlockId(3) else BlockId(4)
+    s15: let %4: Optional<String | File> = #80
+    s16: #85
+    s17: #88
+    s18: if #82 then BlockId(5) else BlockId(6)
+    s19: #98
+    s20: #103
+    s21: if #92 then BlockId(8) else BlockId(9)
+    s22: for %5 in #90 BlockId(7)
 
 interned types
   t0 = String

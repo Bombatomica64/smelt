@@ -3582,6 +3582,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[allow(dead_code)]
 struct Router(::std::rc::Rc<::std::cell::RefCell<RouterInner>>);
 #[allow(dead_code)]
@@ -3647,8 +3649,6 @@ impl SmeltFromUnknown for Router {
     }
 }
 
-// @smelt:prelude-end — generated program below
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let router: Router;
     let first: String;
@@ -3682,9 +3682,9 @@ impl Router {
     return _smelt_tmp_3;
     }
     fn route(&self, path: String) -> Result<String, Box<dyn std::error::Error>> {
-    let _smelt_tmp_8: String;
     let _smelt_tmp_9: String;
     let _smelt_tmp_10: String;
+    let _smelt_tmp_11: String;
     let before: String = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().pick.clone()); (smelt_callable)(path.clone()) };
     let _smelt_tmp_5 = ::std::rc::Rc::new(|closure_arg_0: String| {
     let _smelt_tmp_1: String = "fast:".to_owned() + &closure_arg_0.clone();
@@ -3692,12 +3692,13 @@ impl Router {
     });
     self.0.borrow_mut().pick = _smelt_tmp_5.clone();
     let after: String = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().pick.clone()); (smelt_callable)(path.clone()) };
-    let _smelt_tmp_7: String = self.describe(path.clone());
-    _smelt_tmp_8 = self.0.borrow().log.clone().clone() + &_smelt_tmp_7;
-    self.0.borrow_mut().log = _smelt_tmp_8;
-    _smelt_tmp_9 = before + &",".to_owned();
-    _smelt_tmp_10 = _smelt_tmp_9 + &after;
-    return Ok(_smelt_tmp_10);
+    let _smelt_tmp_7: String = self.0.borrow().log.clone();
+    let _smelt_tmp_8: String = self.describe(path.clone());
+    _smelt_tmp_9 = _smelt_tmp_7 + &_smelt_tmp_8;
+    self.0.borrow_mut().log = _smelt_tmp_9;
+    _smelt_tmp_10 = before + &",".to_owned();
+    _smelt_tmp_11 = _smelt_tmp_10 + &after;
+    return Ok(_smelt_tmp_11);
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
     ///

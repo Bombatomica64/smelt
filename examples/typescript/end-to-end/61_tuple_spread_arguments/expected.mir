@@ -119,9 +119,10 @@ fn main (FuncId(4)) -> None
   bb7:
     %22 = call @console_log(move %21) -> bb8
   bb8:
-    %6 = copy %0[0.0]
     %23 = closure ClosureId(0) []
-    %24 = closure_call move %23(copy %6[0], copy %6[1], copy %6[2])
+    %5 = move %23
+    %6 = copy %0[0.0]
+    %24 = closure_call move %5(copy %6[0], copy %6[1], copy %6[2])
     %25 = call @console_log(move %24) -> bb9
   bb9:
     %26 = call fn3() -> bb10
@@ -154,9 +155,9 @@ fn main (FuncId(4)) -> None
 
 closure ClosureId(0) -> String
   locals
-    %0 param __callback_param_0: String
-    %1 param __callback_param_1: String
-    %2 param __callback_param_2: Float
+    %0 param method: String
+    %1 param path: String
+    %2 param weight: Float
     %3 temp: String
     %4 temp: String
   bb0:

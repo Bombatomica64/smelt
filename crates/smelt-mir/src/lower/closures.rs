@@ -54,7 +54,6 @@ use crate::{
 };
 
 use super::context::{LoweringCtx, LoweringShared};
-use super::passes::operand_local;
 use super::{LowerError, closure_id_index, local_index, u32_from_usize, usize_from_u32};
 
 impl LoweringCtx<'_> {
@@ -129,6 +128,7 @@ impl LoweringCtx<'_> {
         let shared = LoweringShared {
             krate: self.krate,
             item_functions: self.item_functions,
+            volatile_locals: self.volatile_locals,
             global_ids: self.global_ids,
             languages: self.languages,
             loop_index_ty: self.loop_index_ty,
@@ -303,7 +303,7 @@ fn mark_operand_escaping_closures(
     seen_locals: &mut HashSet<LocalId>,
     escaping: &mut HashSet<ClosureId>,
 ) {
-    let Some(local) = operand_local(operand) else {
+    let Some(local) = operand.local() else {
         return;
     };
     mark_local_escaping_closures(local, definitions, local_rvalues, seen_locals, escaping);
@@ -390,7 +390,7 @@ fn closure_definitions(function: &MirFunction) -> HashMap<LocalId, ClosureLocalD
                     definitions.insert(*dest, ClosureLocalDef::Closure(*id));
                 }
                 Rvalue::Use(operand) => {
-                    if let Some(source) = operand_local(operand) {
+                    if let Some(source) = operand.local() {
                         definitions.insert(*dest, ClosureLocalDef::Alias(source));
                     }
                 }
@@ -556,7 +556,7 @@ pub(super) fn widen_throwing_closure_types(mir: &mut Mir) {
                         else {
                             return None;
                         };
-                        let source = operand_local(operand)?;
+                        let source = operand.local()?;
                         Some((*dest, source))
                     })
                     .collect::<Vec<_>>()
@@ -713,7 +713,7 @@ fn local_alias_assignments(blocks: &[BasicBlock]) -> Vec<(LocalId, LocalId)> {
             else {
                 return None;
             };
-            let source = operand_local(operand)?;
+            let source = operand.local()?;
             Some((*dest, source))
         })
         .collect()

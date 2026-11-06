@@ -2,10 +2,7 @@
 
 use super::*;
 use smelt_hir::FunctionType;
-use super::core::{
-    assignment_place_reads_local, operand_uses_local, rvalue_uses_local, terminator_successors,
-    terminator_uses_local,
-};
+use super::core::terminator_successors;
 
 impl FunctionEmitter<'_> {
     /// The function's [`LocalWriteIndex`], built on first use.
@@ -18,9 +15,6 @@ impl FunctionEmitter<'_> {
     fn build_local_write_index(&self) -> LocalWriteIndex {
         let mut index = LocalWriteIndex::default();
         for block in &self.function.blocks {
-            for phi in &block.phis {
-                bump_u32(&mut index.writes, phi.dest);
-            }
             for statement in &block.statements {
                 match statement {
                     Statement::Assign { dest, value } => {
@@ -82,7 +76,6 @@ impl FunctionEmitter<'_> {
                             index.mutated.insert(*base);
                         }
                     }
-                    Statement::StorageLive(_) | Statement::StorageDead(_) => {}
                 }
             }
             if let Some(
@@ -110,7 +103,7 @@ impl FunctionEmitter<'_> {
                     .get(usize::try_from(function_id.0).unwrap_or(usize::MAX))
             {
                 for (arg, param) in args.iter().zip(&callee.params) {
-                    if let Some(local) = operand_local(arg)
+                    if let Some(local) = arg.local()
                         && self.parameter_needs_mutable_reference_in(callee, *param)
                     {
                         index.mutated.insert(local);
@@ -147,12 +140,12 @@ impl FunctionEmitter<'_> {
     /// into a closure that needs shared access to them.
     fn rvalue_mutable_locals(&self, value: &Rvalue) -> Vec<LocalId> {
         let mut locals = Vec::new();
-        if let Some(root) = rvalue_mutation_target(value).and_then(operand_mutation_root) {
+        if let Some(root) = mutated_binding_root(value) {
             locals.push(root);
         }
         match value {
             Rvalue::DictAssign { target, .. } | Rvalue::ListCallback { list: target, .. } => {
-                if let Some(local) = operand_local(target)
+                if let Some(local) = target.local()
                     && self.rvalue_borrows_local_mutably(value, local)
                 {
                     locals.push(local);
@@ -343,11 +336,7 @@ impl FunctionEmitter<'_> {
         // ask. Hono reaches this through the interface side — `Router<T>`
         // declares `add(method, path, handler: T)` and is instantiated at
         // `Router<[unknown, RouterRoute]>`.
-        let declared_ty = self
-            .mir
-            .classes
-            .iter()
-            .find(|class| class.name == *name)
+        let declared_ty = crate::classes::find_class(self.mir, *name)
             .and_then(|class| {
                 crate::classes::effective_class_fields(self.mir, class)
                     .into_iter()
@@ -385,22 +374,10 @@ impl FunctionEmitter<'_> {
     /// Returns whether the first MIR access to a local reads the previous value.
     pub(super) fn local_first_access_is_read(&self, local: LocalId) -> bool {
         for block in &self.function.blocks {
-            for phi in &block.phis {
-                if phi
-                    .incoming
-                    .iter()
-                    .any(|(_, operand)| operand_uses_local(operand, local))
-                {
-                    return true;
-                }
-                if phi.dest == local {
-                    return false;
-                }
-            }
             for statement in &block.statements {
                 match statement {
                     Statement::Assign { dest, value } => {
-                        if rvalue_uses_local(value, local) {
+                        if value.reads_local(local) {
                             return true;
                         }
                         if *dest == local {
@@ -408,8 +385,8 @@ impl FunctionEmitter<'_> {
                         }
                     }
                     Statement::AssignPlace { place, value } => {
-                        if assignment_place_reads_local(place, local)
-                            || rvalue_uses_local(value, local)
+                        if place.target_reads_local(local)
+                            || value.reads_local(local)
                         {
                             return true;
                         }
@@ -427,25 +404,24 @@ impl FunctionEmitter<'_> {
                         value,
                     } => {
                         if *base == local
-                            || operand_uses_local(index, local)
-                            || operand_uses_local(default, local)
+                            || index.reads_local(local)
+                            || default.reads_local(local)
                         {
                             return true;
                         }
                         if *current == local {
                             return false;
                         }
-                        if rvalue_uses_local(value, local) {
+                        if value.reads_local(local) {
                             return true;
                         }
                     }
-                    Statement::StorageLive(_) | Statement::StorageDead(_) => {}
                 }
             }
             if block
                 .terminator
                 .as_ref()
-                .is_some_and(|terminator| terminator_uses_local(terminator, local))
+                .is_some_and(|terminator| terminator.reads_local(local))
             {
                 return true;
             }
@@ -458,7 +434,7 @@ impl FunctionEmitter<'_> {
     /// branches, but any second assignment on one path requires `mut`.
     pub(super) fn local_may_be_assigned_after_assignment(&self, local: LocalId) -> bool {
         // The walk below can only answer `true` at a write, so a local with no
-        // phi or statement write (a call destination, say) is answered from
+        // statement write (a call destination, say) is answered from
         // the index without walking every path of the function.
         if !self.local_write_index().writes.contains_key(&local) {
             return false;
@@ -486,14 +462,6 @@ impl FunctionEmitter<'_> {
         let Some(block) = self.block(block_id).ok() else {
             return true;
         };
-        for phi in &block.phis {
-            if phi.dest == local {
-                if assigned {
-                    return true;
-                }
-                assigned = true;
-            }
-        }
         for statement in &block.statements {
             let writes_local = match statement {
                 Statement::Assign { dest, .. } => *dest == local,
@@ -502,9 +470,7 @@ impl FunctionEmitter<'_> {
                     ..
                 } => *candidate == local,
                 Statement::DictEntryUpdate { current, .. } => *current == local,
-                Statement::AssignPlace { .. }
-                | Statement::StorageLive(_)
-                | Statement::StorageDead(_) => false,
+                Statement::AssignPlace { .. } => false,
             };
             if writes_local {
                 if assigned {
@@ -525,46 +491,25 @@ impl FunctionEmitter<'_> {
 
     /// Returns whether evaluating `value` mutates `local` in-place.
     ///
-    /// The receiver is [`rvalue_mutation_target`]'s operand.
-    ///
     /// The receiver may be an index place rather than a bare local
     /// (`base[key].push(x)`, the form `smelt_mir::opt::DictEntryInPlaceMutation`
     /// produces): that mutates the CONTAINER in place, so the container is the
     /// local whose binding must be mutable.
     pub(super) fn rvalue_mutates_local(&self, value: &Rvalue, local: LocalId) -> bool {
-        rvalue_mutation_target(value).and_then(operand_mutation_root) == Some(local)
+        mutated_binding_root(value) == Some(local)
     }
 }
 
-/// The container operand an rvalue mutates in place, if it is a mutating
-/// collection operation.
-fn rvalue_mutation_target(value: &Rvalue) -> Option<&Operand> {
-        let mutated = match value {
-            Rvalue::ListPush { list, .. }
-            | Rvalue::ListExtend { list, .. }
-            | Rvalue::ListInsert { list, .. }
-            | Rvalue::ListSplice { list, .. }
-            | Rvalue::ListReverse { list }
-            | Rvalue::ListFill { list, .. }
-            | Rvalue::ListCopyWithin { list, .. }
-            | Rvalue::ListClear { list }
-            | Rvalue::ListRemove { list, .. }
-            | Rvalue::ListSort { list, .. }
-            | Rvalue::ListPop { list }
-            | Rvalue::ListShift { list }
-            | Rvalue::ListNext { list }
-            | Rvalue::SetAdd { set: list, .. }
-            | Rvalue::SetRemove { set: list, .. }
-            | Rvalue::SetClear { set: list }
-            | Rvalue::DictClear { dict: list }
-            | Rvalue::DictPop { dict: list, .. }
-            | Rvalue::DictSet { dict: list, .. }
-            | Rvalue::DictRemoveKey { dict: list, .. }
-            | Rvalue::DictSetDefault { dict: list, .. }
-            | Rvalue::DictUpdate { dict: list, .. } => list,
-            _ => return None,
-        };
-        Some(mutated)
+/// The local whose Rust binding an in-place mutation makes `mut`: the root of
+/// [`Rvalue::mutated_receiver`], except where the receiver's representation
+/// decides. `DictAssign` is settled per representation by
+/// `rvalue_borrows_local_mutably`, and `ListUnshift` writes through the list's
+/// shared `borrow_mut` handle, so the binding itself stays immutable.
+fn mutated_binding_root(value: &Rvalue) -> Option<LocalId> {
+    match value {
+        Rvalue::DictAssign { .. } | Rvalue::ListUnshift { .. } => None,
+        other => other.mutated_receiver().and_then(operand_mutation_root),
+    }
 }
 
 impl FunctionEmitter<'_> {
@@ -572,7 +517,7 @@ impl FunctionEmitter<'_> {
     /// Returns whether rendering an rvalue needs a mutable borrow of `local`.
     pub(super) fn rvalue_borrows_local_mutably(&self, value: &Rvalue, local: LocalId) -> bool {
         match value {
-            Rvalue::DictAssign { target, .. } if operand_local(target) == Some(local) => {
+            Rvalue::DictAssign { target, .. } if target.local() == Some(local) => {
                 let Ok(target_ty) = self.operand_ty(target) else {
                     return false;
                 };
@@ -585,7 +530,7 @@ impl FunctionEmitter<'_> {
                 // representation therefore need a mutable Rust binding.
                 !self.dict_uses_smelt_record(*key_ty)
             }
-            Rvalue::ListCallback { list, .. } if operand_local(list) == Some(local) => {
+            Rvalue::ListCallback { list, .. } if list.local() == Some(local) => {
                 let Ok(list_ty) = self.operand_ty(list) else {
                     return false;
                 };
@@ -658,23 +603,10 @@ impl FunctionEmitter<'_> {
             return Ok(false);
         }
         let block = self.block(block_id)?;
-        for phi in &block.phis {
-            if phi
-                .incoming
-                .iter()
-                .any(|(_, operand)| operand_uses_local(operand, local))
-                && !assigned
-            {
-                return Ok(true);
-            }
-            if phi.dest == local {
-                assigned = true;
-            }
-        }
         for statement in &block.statements {
             match statement {
                 Statement::Assign { dest, value } => {
-                    if rvalue_uses_local(value, local) && !assigned {
+                    if value.reads_local(local) && !assigned {
                         return Ok(true);
                     }
                     if *dest == local {
@@ -682,10 +614,10 @@ impl FunctionEmitter<'_> {
                     }
                 }
                 Statement::AssignPlace { place, value } => {
-                    if assignment_place_reads_local(place, local) && !assigned {
+                    if place.target_reads_local(local) && !assigned {
                         return Ok(true);
                     }
-                    if rvalue_uses_local(value, local) && !assigned {
+                    if value.reads_local(local) && !assigned {
                         return Ok(true);
                     }
                     if matches!(place, Place::Local(candidate) if *candidate == local) {
@@ -700,8 +632,8 @@ impl FunctionEmitter<'_> {
                     value,
                 } => {
                     if (*base == local
-                        || operand_uses_local(index, local)
-                        || operand_uses_local(default, local))
+                        || index.reads_local(local)
+                        || default.reads_local(local))
                         && !assigned
                     {
                         return Ok(true);
@@ -709,17 +641,16 @@ impl FunctionEmitter<'_> {
                     if *current == local {
                         assigned = true;
                     }
-                    if rvalue_uses_local(value, local) && !assigned {
+                    if value.reads_local(local) && !assigned {
                         return Ok(true);
                     }
                 }
-                Statement::StorageLive(_) | Statement::StorageDead(_) => {}
             }
         }
         let Some(terminator) = &block.terminator else {
             return Ok(false);
         };
-        if terminator_uses_local(terminator, local) && !assigned {
+        if terminator.reads_local(local) && !assigned {
             return Ok(true);
         }
         for successor in terminator_successors(terminator) {
@@ -751,11 +682,11 @@ impl FunctionEmitter<'_> {
 /// index answers the same questions from one scan.
 #[derive(Debug, Default)]
 pub(super) struct LocalWriteIndex {
-    /// Writes per local: phi destinations, `Assign` destinations, whole-local
+    /// Writes per local: `Assign` destinations, whole-local
     /// `AssignPlace` targets and `DictEntryUpdate` bindings. A local absent
-    /// here is never written by a statement or phi.
+    /// here is never written by a statement.
     writes: HashMap<LocalId, u32>,
-    /// Direct assignments per local (the writes above, minus phis).
+    /// Direct assignments per local.
     assignments: HashMap<LocalId, usize>,
     /// Blocks holding an `Assign` to the local or a `DictEntryUpdate` binding
     /// it, for the predeclared-in-a-loop rule.

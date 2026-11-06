@@ -1,7 +1,7 @@
 //! Lowering helpers for `instanceof`, `typeof`, nullish comparisons, type
 //! assertions, call-argument lowering, and `Promise` construction.
 
-use super::{ModuleBuilder, ambient_globals, stdlib_dispatch, unknown_kind_from_typeof};
+use super::{ModuleBuilder, ambient_globals, unknown_kind_from_typeof};
 use crate::SmeltError;
 use crate::lowering::js_text::js_str_text;
 use oxc::ast::ast::{Argument, BindingPattern, Expression, Statement, TSType, TSTypeName};
@@ -27,8 +27,23 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let value = self.expression(&binary.left, body)?;
+        self.instanceof_test(value, binary.left.span(), &binary.right, binary.span, body)
+    }
+
+    /// Build the `instanceof` predicate of an already lowered `value`.
+    ///
+    /// Shared by the source operator and `expect(value).toBeInstanceOf(Ctor)`.
+    /// `value_span` locates the value and `span` the whole test.
+    pub(in crate::lowering) fn instanceof_test(
+        &mut self,
+        value: smelt_hir::ExprId,
+        value_span: oxc::span::Span,
+        target: &Expression<'_>,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         let value_ty = Self::expr_ty(body, value);
-        if let Expression::StaticMemberExpression(member) = &binary.right
+        if let Expression::StaticMemberExpression(member) = target
             && (self
                 .namespace_member_name(member)
                 .is_some_and(|(namespace, _)| self.imports.is_namespace(namespace))
@@ -41,14 +56,19 @@ impl ModuleBuilder<'_> {
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Bool(false)),
                 ty,
-                span: self.span(binary.span.start, binary.span.end),
+                span: self.span(span.start, span.end),
             }));
         }
-        let Expression::Identifier(class_ident) = &binary.right else {
-            return Err(SmeltError::unsupported(
-                self.span(binary.right.span().start, binary.right.span().end),
-                "TypeScript instanceof requires a direct class constructor on the right side",
-            ));
+        // A constructor read from a value (`pair.errorClass`) is only known at
+        // run time, so the prototype-chain walk runs there too.
+        let Expression::Identifier(class_ident) = target else {
+            let target = self.expression(target, body)?;
+            let ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::InstanceOfValue { value, target },
+                ty,
+                span: self.span(span.start, span.end),
+            }));
         };
         let class_text = class_ident.name.as_str();
         // `x instanceof Uint8Array` (any typed-array view) resolves through the
@@ -72,13 +92,26 @@ impl ModuleBuilder<'_> {
                         kind: UnknownKind::Array,
                     },
                     ty,
-                    span: self.span(binary.span.start, binary.span.end),
+                    span: self.span(span.start, span.end),
                 }));
             };
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Bool(result)),
                 ty,
-                span: self.span(binary.span.start, binary.span.end),
+                span: self.span(span.start, span.end),
+            }));
+        }
+        // A `Future` is the Rust side of a `Promise`, so its static type settles
+        // `x instanceof Promise`.
+        if class_text == "Promise"
+            && !self.classes.contains("Promise")
+            && matches!(self.ctx.krate.types.get(value_ty), Some(Type::Future(_)))
+        {
+            let ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(true)),
+                ty,
+                span: self.span(span.start, span.end),
             }));
         }
         if Self::is_ts_stdlib_class_name(class_text, smelt_stdlib::StdlibClass::Date)
@@ -88,7 +121,7 @@ impl ModuleBuilder<'_> {
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Bool(true)),
                 ty,
-                span: self.span(binary.span.start, binary.span.end),
+                span: self.span(span.start, span.end),
             }));
         }
         // `Date` and `RegExp` both erase to marker-bearing objects
@@ -127,13 +160,13 @@ impl ModuleBuilder<'_> {
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Bool(false)),
                 ty,
-                span: self.span(binary.span.start, binary.span.end),
+                span: self.span(span.start, span.end),
             }));
         }
         let builtin_target = Self::instanceof_builtin_target(class_text);
         if !self.instanceof_supported_left_operand(value_ty) {
             return Err(SmeltError::unsupported(
-                self.span(binary.left.span().start, binary.left.span().end),
+                self.span(value_span.start, value_span.end),
                 "TypeScript instanceof requires a concrete class-typed left operand",
             ));
         }
@@ -159,7 +192,6 @@ impl ModuleBuilder<'_> {
             // function value, never a nominal class; the nominal path below
             // keeps its compile-time marker probe.
             let target_is_function_value = self.scope.is_bound(class_text)
-                || self.scope.has_callback(class_text)
                 || self
                     .items
                     .get(class_text)
@@ -183,7 +215,7 @@ impl ModuleBuilder<'_> {
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::Bool(false)),
                     ty,
-                    span: self.span(binary.span.start, binary.span.end),
+                    span: self.span(span.start, span.end),
                 }));
             }
             if target_is_function_value {
@@ -197,7 +229,7 @@ impl ModuleBuilder<'_> {
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::InstanceOfValue { value, target },
                     ty,
-                    span: self.span(binary.span.start, binary.span.end),
+                    span: self.span(span.start, span.end),
                 }));
             }
             return Err(SmeltError::for_unresolved_name(
@@ -211,72 +243,21 @@ impl ModuleBuilder<'_> {
         Ok(body.push_expr(Expr {
             kind: ExprKind::InstanceOf { value, class },
             ty,
-            span: self.span(binary.span.start, binary.span.end),
+            span: self.span(span.start, span.end),
         }))
     }
 
     /// Return true when an expression is a built-in constructor target.
+    ///
+    /// Any class with a host-object registry marker is a valid target: the marker
+    /// exists so `instanceof` can be answered, whether or not the class has a
+    /// modeled surface. The same holds for a modeled stdlib class and an
+    /// ECMAScript error class; `Promise` answers through its runtime tag.
     pub(super) fn instanceof_builtin_target(target: &str) -> bool {
-        // ANY class with a host-object registry marker is a valid target: the
-        // marker exists precisely so `instanceof` can be answered, and an
-        // identity-only entry (one with no modeled surface, such as `FormData`
-        // or `ReadableStream`) is no different in that respect from one with a
-        // full surface. Naming individual host classes below was how this list
-        // grew, and it is why `body instanceof FormData` aborted as "not a
-        // lowered class" the moment those two joined the registry for identity.
-        smelt_stdlib::host_object_marker(target).is_some()
+        target == "Promise"
+            || smelt_stdlib::host_object_marker(target).is_some()
             || smelt_stdlib::typescript_stdlib_class(target).is_some()
-            // Typed-array views (`x instanceof Uint8Array`) are byte-backed host
-            // objects, so they are already covered by the `byte_buffer_role`
-            // clause below; naming them here too keeps the recognizer readable.
-            || smelt_stdlib::is_typed_array_class_name(target)
-            || Self::marker_only_builtin_marker(target).is_some()
-            // The byte-backed host objects (`ArrayBuffer`, `SharedArrayBuffer`,
-            // `Buffer`, `DataView`) all carry a registry marker their `instanceof`
-            // resolves through.
-            || smelt_stdlib::byte_buffer_role(target).is_some()
-            || matches!(
-                target,
-                "Promise"
-                    | "Blob"
-                    // `File` records stamp `__smelt_file` on top of
-                    // `__smelt_blob` (see `file_constructor_expression`), so
-                    // both `value instanceof File` and `value instanceof Blob`
-                    // resolve through their markers in `instance_of_text`.
-                    | "File"
-                    | "Number"
-                    // Boxed primitive wrappers. A real primitive (`true`, `"a"`)
-                    // is never `instanceof` its wrapper; only the boxed object
-                    // form is, recognized through its `__smelt_boolean` /
-                    // `__smelt_string` marker (see `instance_of_text`). Listing
-                    // them makes `value instanceof Boolean` / `instanceof String`
-                    // lower to a marker check instead of aborting as an unmodeled
-                    // class — the correct `false` for the primitives that
-                    // es-toolkit's `isBoolean`/`isString` test against.
-                    | "Boolean"
-                    | "String"
-                    // `Symbol` likewise: a primitive symbol erases to
-                    // `SmeltUnknown::Symbol` and is not `instanceof Symbol`; only a
-                    // boxed `Object(symbol)` wrapper carrying `__smelt_symbol` is.
-                    | "Symbol"
-                    | "AbortController"
-                    | "AbortSignal"
-                    | "Error"
-                    | "EvalError"
-                    | "RangeError"
-                    | "ReferenceError"
-                    | "SyntaxError"
-                    | "TypeError"
-                    | "URIError"
-                    | "AggregateError"
-                    // Host `DOMException`: es-toolkit's `AbortError`/`TimeoutError`
-                    // tests probe `value instanceof DOMException`. A `new
-                    // DOMException(...)` erases to a record carrying
-                    // `__smelt_domexception` (see
-                    // `domexception_object_constructor_expression`), recognized
-                    // through that marker in `instance_of_text`.
-                    | "DOMException"
-            )
+            || smelt_stdlib::is_error_class_name(target)
     }
 
     /// Return true for host global constructors that Smelt always models as
@@ -1890,9 +1871,7 @@ impl ModuleBuilder<'_> {
             let executor_expr = if let Some(executor) = lowered_executor {
                 executor
             } else {
-                let exprs_before = body.exprs.len();
-                let bodies_before = self.ctx.krate.bodies.len();
-                let items_before = self.ctx.krate.items.len();
+                let mark = self.speculation_mark(body);
                 let executor_ty = self.promise_executor_type(output_ty);
                 let executor =
                     self.argument_with_hint(executor_arg, body, Some(executor_ty))?;
@@ -1915,13 +1894,8 @@ impl ModuleBuilder<'_> {
                         // to read what it resolves with; lower it again
                         // against the typed resolver so the values flow at
                         // their own type. The first lowering is rolled back
-                        // the way `compact_callback_rebuilds` rolls back its
-                        // probe: its expressions, and its closure bodies
-                        // when no item was minted meanwhile.
-                        body.exprs.truncate(exprs_before);
-                        if self.ctx.krate.items.len() == items_before {
-                            self.ctx.krate.bodies.truncate(bodies_before);
-                        }
+                        // through the speculation mark.
+                        self.roll_back_to(mark, body);
                         let typed_executor_ty = self.promise_executor_type(resolved);
                         if let Ok(typed) =
                             self.argument_with_hint(executor_arg, body, Some(typed_executor_ty))
@@ -1931,10 +1905,7 @@ impl ModuleBuilder<'_> {
                         } else {
                             // A value the typed resolver does not accept
                             // keeps the erased resolver the probe used.
-                            body.exprs.truncate(exprs_before);
-                            if self.ctx.krate.items.len() == items_before {
-                                self.ctx.krate.bodies.truncate(bodies_before);
-                            }
+                            self.roll_back_to(mark, body);
                             self.argument_with_hint(executor_arg, body, Some(executor_ty))?
                         }
                     }
@@ -2361,13 +2332,7 @@ impl ModuleBuilder<'_> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsFetch) {
-            return Ok(None);
-        }
-        let Expression::Identifier(callee) = &call.callee else {
-            return Ok(None);
-        };
-        if callee.name != "fetch" {
+        if self.recognized_call(call) != Some(RuleId::TsFetch) {
             return Ok(None);
         }
         if !(1..=2).contains(&call.arguments.len()) {
@@ -2466,7 +2431,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         if matches!(&call.callee, Expression::StaticMemberExpression(_))
-            && stdlib_dispatch::call_rule(call) == Some(RuleId::TsDateNow)
+            && self.recognized_call(call) == Some(RuleId::TsDateNow)
         {
             if !call.arguments.is_empty() {
                 return Err(SmeltError::unsupported(
@@ -2491,7 +2456,7 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.date_member_call(member, call, body)? {
             return Ok(Some(expr));
         }
-        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsDateToIsoString) {
+        if self.recognized_call(call) != Some(RuleId::TsDateToIsoString) {
             return Ok(None);
         }
         let Expression::NewExpression(new_expr) = &member.object else {

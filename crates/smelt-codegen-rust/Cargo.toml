@@ -30,7 +30,7 @@ smelt-stdlib = { path = "../smelt-stdlib", version = "0.1.1" }
 # crates is read from this crate's own compiled, unit-tested modules (see
 # `runtime_prelude`). This is a dependency of the *transpiler*, never of the
 # crates it generates — those stay self-contained.
-smelt-runtime = { path = "../smelt-runtime", version = "0.1.1" }
+smelt-runtime = { path = "../smelt-runtime", version = "0.1.1", default-features = false }
 # Fast, non-DoS-resistant hasher for the CFG reachability hot path: block/local
 # ids are dense `u32`s, so SipHash's per-key cost dominated `emit_crate`.
 rustc-hash = "2"

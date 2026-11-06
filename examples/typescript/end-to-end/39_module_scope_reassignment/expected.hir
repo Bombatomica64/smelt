@@ -124,5 +124,5 @@ interned types
   t6 = fn() -> String
   t7 = Bool
   t8 = fn() -> fn(String) -> Float
-  t9 = Unknown
+  t9 = fn() -> fn(String) -> Float
   t10 = fn() -> String

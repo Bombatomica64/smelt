@@ -136,18 +136,31 @@ fn get (FuncId(6)) -> Float
     %2 param x: Optional<Float>
     %3 user __smelt_update_tmp: Float
     %4 user x: Float
-    %5 temp: Float
+    %5 temp: Bool
     %6 temp: Float
     %7 temp: Float
     %8 temp: Float
+    %9 temp: Float
+    %10 temp: Float
+    %11 temp: Float
+    %12 temp: Float
   bb0:
+    %5 = copy %2 == none
+    switch move %5 ? bb1 : bb2
+  bb1:
     %3 = copy %1
-    %5 = copy %1 + 1.0
-    %1 = move %5
-    %4 = copy %2 ?? move %3
-    %7 = copy %1 + move %4
-    %8 = move %7 + copy %0.field7
-    return move %8
+    %9 = copy %1 + 1.0
+    %1 = move %9
+    %6 = copy %2 ?? move %3
+    goto bb3
+  bb2:
+    %6 = copy %2
+    goto bb3
+  bb3:
+    %4 = move %6
+    %11 = copy %1 + move %4
+    %12 = move %11 + copy %0.field7
+    return move %12
 
 fn new (FuncId(7)) -> Counter
   locals
@@ -170,18 +183,31 @@ fn get (FuncId(8)) -> Float
     %2 param x: Optional<Float>
     %3 user __smelt_update_tmp: Float
     %4 user x: Float
-    %5 temp: Float
+    %5 temp: Bool
     %6 temp: Float
     %7 temp: Float
     %8 temp: Float
+    %9 temp: Float
+    %10 temp: Float
+    %11 temp: Float
+    %12 temp: Float
   bb0:
+    %5 = copy %2 == none
+    switch move %5 ? bb1 : bb2
+  bb1:
     %3 = copy %1
-    %5 = copy %1 + 1.0
-    %1 = move %5
-    %4 = copy %2 ?? move %3
-    %7 = copy %1 * 10.0
-    %8 = move %7 + move %4
-    return move %8
+    %9 = copy %1 + 1.0
+    %1 = move %9
+    %6 = copy %2 ?? move %3
+    goto bb3
+  bb2:
+    %6 = copy %2
+    goto bb3
+  bb3:
+    %4 = move %6
+    %11 = copy %1 * 10.0
+    %12 = move %11 + move %4
+    return move %12
 
 fn new (FuncId(9)) -> Scaled
   locals
@@ -197,18 +223,31 @@ fn m (FuncId(10)) -> Float
     %2 param x: Optional<Float>
     %3 user __smelt_update_tmp: Float
     %4 user x: Float
-    %5 temp: Float
+    %5 temp: Bool
     %6 temp: Float
     %7 temp: Float
     %8 temp: Float
+    %9 temp: Float
+    %10 temp: Float
+    %11 temp: Float
+    %12 temp: Float
   bb0:
+    %5 = copy %2 == none
+    switch move %5 ? bb1 : bb2
+  bb1:
     %3 = copy %1
-    %5 = copy %1 + 1.0
-    %1 = move %5
-    %4 = copy %2 ?? move %3
-    %7 = copy %1 * 10.0
-    %8 = move %7 + move %4
-    return move %8
+    %9 = copy %1 + 1.0
+    %1 = move %9
+    %6 = copy %2 ?? move %3
+    goto bb3
+  bb2:
+    %6 = copy %2
+    goto bb3
+  bb3:
+    %4 = move %6
+    %11 = copy %1 * 10.0
+    %12 = move %11 + move %4
+    return move %12
 
 fn new (FuncId(11)) -> C
   locals
@@ -224,19 +263,32 @@ fn new (FuncId(12)) -> Pair
     %2 param x: Optional<Float>
     %3 user __smelt_update_tmp: Float
     %4 user x: Float
-    %5 temp: Float
+    %5 temp: Bool
     %6 temp: Float
     %7 temp: Float
     %8 temp: Float
+    %9 temp: Float
+    %10 temp: Float
+    %11 temp: Float
+    %12 temp: Float
   bb0:
     %0 = struct24 {}
+    %5 = copy %2 == none
+    switch move %5 ? bb1 : bb2
+  bb1:
     %3 = copy %1
-    %5 = copy %1 + 1.0
-    %1 = move %5
-    %4 = copy %2 ?? move %3
-    %7 = copy %1 * 10.0
-    %8 = move %7 + move %4
-    %0.field7 = move %8
+    %9 = copy %1 + 1.0
+    %1 = move %9
+    %6 = copy %2 ?? move %3
+    goto bb3
+  bb2:
+    %6 = copy %2
+    goto bb3
+  bb3:
+    %4 = move %6
+    %11 = copy %1 * 10.0
+    %12 = move %11 + move %4
+    %0.field7 = move %12
     return move %0
 
 fn main (FuncId(13)) -> None

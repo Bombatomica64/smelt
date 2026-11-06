@@ -407,7 +407,6 @@ impl MirFunction {
             locals: Vec::new(),
             blocks: vec![BasicBlock {
                 id: BlockId(0),
-                phis: Vec::new(),
                 statements: Vec::new(),
                 terminator: None,
                 span,
@@ -436,7 +435,6 @@ impl MirFunction {
         let id = BlockId(len_to_u32(self.blocks.len(), "MIR block count"));
         self.blocks.push(BasicBlock {
             id,
-            phis: Vec::new(),
             statements: Vec::new(),
             terminator: None,
             span,
@@ -518,25 +516,12 @@ pub enum LocalKind {
 pub struct BasicBlock {
     /// The block identifier.
     pub id: BlockId,
-    /// Phi nodes at the top of the block.
-    pub phis: Vec<Phi>,
     /// Statements executed in order.
     pub statements: Vec<Statement>,
     /// The block terminator, if present.
     pub terminator: Option<Terminator>,
     /// Source span associated with the block.
     pub span: Span,
-}
-
-/// A phi node.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Phi {
-    /// Destination local for the phi.
-    pub dest: LocalId,
-    /// Type of the phi result.
-    pub ty: TypeId,
-    /// Incoming values by predecessor block.
-    pub incoming: Vec<(BlockId, Operand)>,
 }
 
 /// A memory location used by MIR operations.
@@ -763,15 +748,6 @@ pub enum Rvalue {
         op: smelt_hir::UnaryOp,
         /// The operand.
         operand: Operand,
-    },
-    /// Choose one of two operands based on a boolean condition.
-    Conditional {
-        /// Boolean condition to test.
-        cond: Operand,
-        /// Operand used when the condition is true.
-        then_operand: Operand,
-        /// Operand used when the condition is false.
-        else_operand: Operand,
     },
     /// Select a first-class function value from a static string-keyed table.
     FunctionTableLookup {
@@ -1667,13 +1643,6 @@ pub enum Rvalue {
         /// Numeric length source.
         length: Operand,
     },
-    /// Build a list by cloning one value for a numeric count.
-    ListRepeat {
-        /// Value cloned into each list slot.
-        value: Operand,
-        /// Numeric count source.
-        count: Operand,
-    },
     /// Build a list by invoking a mapper for indexes from zero to length.
     ListFromLengthMap {
         /// Numeric length source.
@@ -1922,20 +1891,10 @@ pub enum Rvalue {
         /// List value to mutate.
         list: Operand,
     },
-    /// Consume the first list item and return an erased iterator-result object.
+    /// Consume the first list item and return its typed iterator result.
     ListNext {
         /// List value to mutate.
         list: Operand,
-    },
-    /// Test whether a typed iterator result is exhausted.
-    IteratorDone {
-        /// Optional iterator item.
-        result: Operand,
-    },
-    /// Read the optional item from a typed iterator result.
-    IteratorValue {
-        /// Optional iterator item.
-        result: Operand,
     },
     /// Test whether a tuple contains an item.
     TupleContains {
@@ -2080,11 +2039,6 @@ pub enum Rvalue {
     JsonStringify {
         /// Value to serialize.
         value: Operand,
-    },
-    /// Parse JSON text into a statically known JSON-compatible type.
-    JsonParse {
-        /// JSON text to parse.
-        text: Operand,
     },
     /// Perform a blocking HTTP GET request and return response text.
     HttpGetText {
@@ -2398,10 +2352,6 @@ pub enum Statement {
         /// inside the single probe and may read `current`.
         value: Rvalue,
     },
-    /// Mark a local as live.
-    StorageLive(LocalId),
-    /// Mark a local as dead.
-    StorageDead(LocalId),
 }
 
 /// A MIR terminator.
@@ -2455,16 +2405,13 @@ pub enum Terminator {
     Return(Operand),
     /// Raise an exception-like value and stop normal control flow.
     Throw(Operand),
-    /// Abort control flow.
-    Unreachable,
 }
 
 impl Terminator {
     /// Return the control-flow successor blocks of this terminator.
     ///
     /// Exception handlers count as successors so dataflow analyses see the
-    /// throwing edge of a `Call`/`Await`. `Return`, `Throw`, and `Unreachable`
-    /// have none.
+    /// throwing edge of a `Call`/`Await`. `Return` and `Throw` have none.
     #[must_use]
     pub fn successors(&self) -> Vec<BlockId> {
         match self {
@@ -2482,7 +2429,7 @@ impl Terminator {
             Self::Match { arms, default, .. } => {
                 arms.iter().map(|arm| arm.target).chain(*default).collect()
             }
-            Self::Return(_) | Self::Throw(_) | Self::Unreachable => Vec::new(),
+            Self::Return(_) | Self::Throw(_) => Vec::new(),
         }
     }
 }
@@ -2669,7 +2616,7 @@ impl BuiltinFn {
 }
 
 /// Visit every type id a function's emission reads: its return type, local
-/// and phi types, and `UnknownCast` targets (the only statement that carries a
+/// types, and `UnknownCast` targets (the only statement that carries a
 /// type).
 pub fn for_each_function_type(function: &MirFunction, mut visit: impl FnMut(TypeId)) {
     visit(function.return_ty);
@@ -2677,9 +2624,6 @@ pub fn for_each_function_type(function: &MirFunction, mut visit: impl FnMut(Type
         visit(local.ty);
     }
     for block in &function.blocks {
-        for phi in &block.phis {
-            visit(phi.ty);
-        }
         for statement in &block.statements {
             if let Statement::Assign {
                 value: Rvalue::UnknownCast { target, .. },
@@ -2699,9 +2643,6 @@ pub fn map_function_types(function: &mut MirFunction, mut map: impl FnMut(TypeId
         local.ty = map(local.ty);
     }
     for block in &mut function.blocks {
-        for phi in &mut block.phis {
-            phi.ty = map(phi.ty);
-        }
         for statement in &mut block.statements {
             if let Statement::Assign {
                 value: Rvalue::UnknownCast { target, .. },

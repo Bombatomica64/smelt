@@ -616,7 +616,7 @@ impl FunctionEmitter<'_> {
         // only an erased result slot takes the explicit adapter.
         let call = format!("{pattern_text}.match_string(&{haystack_text})");
         if self.optional_inner_is_erased_boundary(dest_ty) {
-            return Ok(format!("{call}.map(SmeltMatch::into_smelt_unknown)"));
+            return Ok(self.carrier_format(format_args!("{call}.map(SmeltMatch::into_smelt_unknown)")));
         }
         Ok(call)
     }
@@ -640,7 +640,7 @@ impl FunctionEmitter<'_> {
         let haystack_text = self.string_like_operand_text(haystack, "regex exec")?;
         let call = format!("{regex_text}.exec(&{haystack_text})");
         if self.optional_inner_is_erased_boundary(dest_ty) {
-            return Ok(format!("{call}.map(SmeltMatch::into_smelt_unknown)"));
+            return Ok(self.carrier_format(format_args!("{call}.map(SmeltMatch::into_smelt_unknown)")));
         }
         Ok(call)
     }
@@ -681,9 +681,9 @@ impl FunctionEmitter<'_> {
         let haystack_text = self.string_like_operand_text(haystack, "regex matchAll")?;
         let call = format!("{regex_text}.match_all_indices(&{haystack_text})");
         if self.list_item_is_erased_boundary(dest_ty) {
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "{call}.into_iter().map(SmeltMatch::into_smelt_unknown).collect::<Vec<_>>()"
-            ));
+            )));
         }
         Ok(call)
     }
@@ -723,9 +723,9 @@ impl FunctionEmitter<'_> {
                 // The prelude `SmeltFromUnknown` impl is the single inverse of
                 // the `SmeltRegExp` erasure adapter, so `source`, `flags` AND
                 // the writable `lastIndex` all survive the round trip.
-                Ok(format!(
+                Ok(self.carrier_format(format_args!(
                     "<SmeltRegExp as SmeltFromUnknown>::smelt_from_unknown({scrutinee})"
-                ))
+                )))
             }
             _ => Ok(format!(
                 "SmeltRegExp::new({text}.to_string(), String::new())"
@@ -792,14 +792,14 @@ impl FunctionEmitter<'_> {
         // else its own pairs) and answers `to_text()`, so the encoding rule
         // lives in one place. Gated on the params prelude being emitted at all:
         // the fetch types are pay-for-use, and this match is not.
-        let params_arm = if crate::stdlib::needs_url_search_params_runtime(self.mir) {
+        let params_arm = if self.context.demand().has(Need::UrlSearchParams) {
             "SmeltUnknown::Object(value) if value.contains_key(\"__smelt_urlsearchparams\") => <SmeltUrlSearchParams as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(value)).to_text(),"
         } else {
             ""
         };
         // A `URL` overrides `toString` the same way: it is the `href`, which
         // the erased record carries as a data property.
-        let url_arm = if crate::stdlib::needs_url_runtime(self.mir) {
+        let url_arm = if self.context.demand().has(Need::Url) {
             "SmeltUnknown::Object(value) if value.contains_key(\"__smelt_url\") => <SmeltUrl as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(value)).href(),"
         } else {
             ""
@@ -812,19 +812,19 @@ impl FunctionEmitter<'_> {
         // value. Byte STORAGE has no elements and is deliberately not here.
         // Gated on the byte prelude being emitted at all, like the params arm
         // above.
-        let byte_view_arm = if crate::stdlib::needs_unknown_type(self.mir) {
-            format!(
+        let byte_view_arm = if self.context.demand().has(Need::Unknown) {
+            self.carrier_format(format_args!(
                 "SmeltUnknown::Object(value) if {is_view}(&SmeltUnknown::Object(value.clone())) => {elements}(&SmeltUnknown::Object(value)).unwrap_or_default().into_iter().map(|element| match element {{ SmeltUnknown::Number(element) => element.to_string(), _ => String::new() }}).collect::<Vec<_>>().join(\",\"),",
                 is_view = smelt_stdlib::runtime_symbols::byte_buffer::IS_VIEW,
                 elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS,
-            )
+            ))
         } else {
             String::new()
         };
         let undefined_text = absent.text();
-        format!(
-            "match {scrutinee_text} {{ {params_arm} {url_arm} {byte_view_arm} SmeltUnknown::Null => \"{null_text}\".to_owned(), SmeltUnknown::Undefined => \"{undefined_text}\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), {smelt_bigint_arm}SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_regexp\") => smelt_regexp_literal(&value), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),")
-        )
+        self.carrier_format(format_args!(
+            "match {scrutinee_text} {{ {params_arm} {url_arm} {byte_view_arm} SmeltUnknown::Null => \"{null_text}\".to_owned(), SmeltUnknown::Undefined => \"{undefined_text}\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), {smelt_bigint_arm}SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key(\"{SMELT_REGEXP}\") => smelt_regexp_literal(&value), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),")
+        ))
     }
 
     /// Renders an operand as a Rust `String` expression for string methods.
@@ -991,9 +991,9 @@ impl FunctionEmitter<'_> {
                 // `null` from `undefined`, which the tag does know.
                 let absent_text = self.absent_spelling().text();
                 let null_text = self.absent_spelling().null_text();
-                Ok(format!(
+                Ok(self.carrier_format(format_args!(
                     "{text}.map_or_else(|| \"{absent_text}\".to_owned(), |value| match {scrutinee} {{ SmeltUnknown::Null => \"{null_text}\".to_owned(), SmeltUnknown::Undefined => \"{absent_text}\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), {smelt_bigint_arm}SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }})", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),")
-                ))
+                )))
             }
             // An optional PRIMITIVE stringifies its value or the absent word.
             // This is the `${maybeNumber}` / `${maybeFlag}` shape, and it used
@@ -1204,7 +1204,7 @@ impl FunctionEmitter<'_> {
             )
         } else {
             let operand_text = self.string_like_operand_text(operand, "string slice")?;
-            let receiver_text = "__smelt_string";
+            let receiver_text = SMELT_STRING;
             let len_source = format!("{receiver_text}.chars().count()");
             let start_text = self.slice_start_text(start, &len_source)?;
             let len_text = self.slice_len_text(receiver_text, start, end, SliceLenKind::Chars)?;
@@ -1248,9 +1248,9 @@ impl FunctionEmitter<'_> {
         ) {
             let separator_unknown = self
                 .erase_concrete_union_text(&self.operand_text(separator)?, self.operand_ty(separator)?);
-            format!(
+            self.carrier_format(format_args!(
                 "{{ let smelt_haystack = {haystack_text}; match {separator_unknown} {{ SmeltUnknown::Object(smelt_object) if smelt_object.contains_key(\"source\") => SmeltRegExp::new(match smelt_object.get(\"source\").cloned() {{ Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }}, match smelt_object.get(\"flags\").cloned() {{ Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }}).split_string(&smelt_haystack), smelt_separator_unknown => {{ let smelt_separator = match smelt_separator_unknown {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), {smelt_bigint_arm}SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}; if smelt_separator.is_empty() {{ if smelt_haystack.is_empty() {{ Vec::new() }} else {{ smelt_haystack.chars().map(|ch| ch.to_string()).collect::<Vec<_>>() }} }} else {{ smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() }} }} }} }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),")
-            )
+            ))
         } else {
             let separator_text = self.string_like_operand_text(separator, "string split")?;
             format!(
@@ -1281,20 +1281,20 @@ impl FunctionEmitter<'_> {
                     // project each present value back to `SmeltUnknown` before
                     // matching the erased number arm.
                     let limit_scrutinee = if self.concrete_union_members(*inner).is_some() {
-                        format!("{limit_text}.map(|value| value.into_smelt_unknown())")
+                        self.carrier_format(format_args!("{limit_text}.map(|value| value.into_smelt_unknown())"))
                     } else {
                         limit_text
                     };
-                    Ok(format!(
+                    Ok(self.carrier_format(format_args!(
                         "{{ let mut smelt_parts = {split_items}; if let Some(split_limit) = match {limit_scrutinee} {{ Some(SmeltUnknown::Number(value)) => Some(value), Some(SmeltUnknown::Null) | None => None, _ => None }} {{ if !split_limit.is_finite() || split_limit == 0.0 {{ smelt_parts.truncate(0); }} else if split_limit.is_sign_positive() {{ smelt_parts.truncate(split_limit.floor() as usize); }} }} smelt_parts }}"
-                    ))
+                    )))
                 }
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
                     let limit_scrutinee = self
                         .erase_concrete_union_text(&limit_text, self.operand_ty(limit_operand)?);
-                    Ok(format!(
+                    Ok(self.carrier_format(format_args!(
                         "{{ let mut smelt_parts = {split_items}; if let Some(split_limit) = match {limit_scrutinee} {{ SmeltUnknown::Number(value) => Some(value), SmeltUnknown::Null | SmeltUnknown::Undefined => None, _ => None }} {{ if !split_limit.is_finite() || split_limit == 0.0 {{ smelt_parts.truncate(0); }} else if split_limit.is_sign_positive() {{ smelt_parts.truncate(split_limit.floor() as usize); }} }} smelt_parts }}"
-                    ))
+                    )))
                 }
                 _ => Err(EmitError::new(
                     "string split limit must be numeric or optional numeric",
@@ -1363,7 +1363,7 @@ impl FunctionEmitter<'_> {
             // A union element (`(number | string)[]`) stringifies each value at
             // its runtime arm: erase it to the tagged value and take the same
             // `String(item)` arms an `unknown` element does.
-            Some(Type::Unknown | Type::Union(_)) => format!(
+            Some(Type::Unknown | Type::Union(_)) => self.carrier_format(format_args!(
                 "match {item} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), {smelt_bigint_arm}SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}",
                 smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),"),
                 item = if matches!(self.mir.types.get(*item_ty), Some(Type::Union(_))) {
@@ -1371,7 +1371,7 @@ impl FunctionEmitter<'_> {
                 } else {
                     "item".to_owned()
                 },
-            ),
+            )),
             Some(Type::Optional(inner)) => match self.mir.types.get(*inner) {
                 Some(Type::Bool) => {
                     "item.as_ref().map_or_else(String::new, |value| value.to_string())".to_owned()

@@ -24,11 +24,6 @@ use crate::{Mir, Rvalue, Statement, opt::Pass};
 pub struct UnobservedReceiverBind;
 
 impl Pass for UnobservedReceiverBind {
-    /// Returns the stable identifier of this pass.
-    fn name(&self) -> &'static str {
-        "unobserved-receiver-bind"
-    }
-
     /// Applies the pass to `mir`, returning true if it was modified.
     fn run(&self, mir: &mut Mir) -> bool {
         if program_reads_this(mir) {
@@ -48,9 +43,7 @@ impl Pass for UnobservedReceiverBind {
             .flat_map(|closure| closure.blocks.iter_mut());
         for block in function_blocks.chain(closure_blocks) {
             for statement in &mut block.statements {
-                let Some(value) = statement_rvalue_mut(statement) else {
-                    continue;
-                };
+                let value = statement.value_mut();
                 let Rvalue::BindThis { callee, .. } = value else {
                     continue;
                 };
@@ -75,13 +68,13 @@ impl Pass for UnobservedReceiverBind {
 /// once and read once, by a later call in the same block; anything else keeps
 /// the plain `Use` the caller installs.
 fn forward_bound_callees(function: &mut crate::MirFunction) -> bool {
-    use super::local_use::{local_assignment_count, local_is_temp, local_read_count, operand_local};
+    
     // Decide every forwarding first (the use counts read the whole function),
     // then apply them block by block.
     let forwardable = |body: &crate::MirFunction, dest: crate::LocalId| {
-        local_is_temp(body, dest)
-            && local_assignment_count(body, dest) == 1
-            && local_read_count(body, dest) == 1
+        body.is_temp(dest)
+            && body.assignment_count(dest) == 1
+            && body.read_count(dest) == 1
     };
     let candidates = function
         .blocks
@@ -94,9 +87,7 @@ fn forward_bound_callees(function: &mut crate::MirFunction) -> bool {
             } => Some(*dest),
             Statement::Assign { .. }
             | Statement::AssignPlace { .. }
-            | Statement::DictEntryUpdate { .. }
-            | Statement::StorageLive(_)
-            | Statement::StorageDead(_) => None,
+            | Statement::DictEntryUpdate { .. } => None,
         })
         .filter(|dest| forwardable(function, *dest))
         .collect::<Vec<_>>();
@@ -123,12 +114,10 @@ fn forward_bound_callees(function: &mut crate::MirFunction) -> bool {
                     Statement::Assign {
                         value: Rvalue::ClosureCall { callee: call_callee, .. },
                         ..
-                    } if operand_local(call_callee) == Some(*bound) => Some(call_callee),
+                    } if call_callee.local() == Some(*bound) => Some(call_callee),
                     Statement::Assign { .. }
                     | Statement::AssignPlace { .. }
-                    | Statement::DictEntryUpdate { .. }
-                    | Statement::StorageLive(_)
-                    | Statement::StorageDead(_) => None,
+                    | Statement::DictEntryUpdate { .. } => None,
                 });
             let Some(call_callee) = call else {
                 continue;
@@ -141,16 +130,6 @@ fn forward_bound_callees(function: &mut crate::MirFunction) -> bool {
     changed
 }
 
-/// Returns the rvalue a statement evaluates, when it evaluates one.
-const fn statement_rvalue_mut(statement: &mut Statement) -> Option<&mut Rvalue> {
-    match statement {
-        Statement::Assign { value, .. }
-        | Statement::AssignPlace { value, .. }
-        | Statement::DictEntryUpdate { value, .. } => Some(value),
-        Statement::StorageLive(_) | Statement::StorageDead(_) => None,
-    }
-}
-
 /// Returns whether any function or closure in the program reads `this`.
 fn program_reads_this(mir: &Mir) -> bool {
     let function_blocks = mir
@@ -161,10 +140,5 @@ fn program_reads_this(mir: &Mir) -> bool {
     function_blocks
         .chain(closure_blocks)
         .flat_map(|block| block.statements.iter())
-        .any(|statement| match statement {
-            Statement::Assign { value, .. }
-            | Statement::AssignPlace { value, .. }
-            | Statement::DictEntryUpdate { value, .. } => matches!(value, Rvalue::ThisRead),
-            Statement::StorageLive(_) | Statement::StorageDead(_) => false,
-        })
+        .any(|statement| matches!(statement.value(), Rvalue::ThisRead))
 }

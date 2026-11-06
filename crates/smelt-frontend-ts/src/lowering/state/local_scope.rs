@@ -30,7 +30,6 @@ use std::collections::{HashMap, HashSet};
 
 use smelt_hir::{ExprId, ItemId, LocalId, Span, Symbol, TypeId};
 
-use crate::lowering::LocalCallback;
 
 /// What one function-typed local has collected so far: its `fn.prop = value`
 /// writes, the span of the first, and the callable interface it was declared
@@ -214,8 +213,6 @@ pub(in crate::lowering) struct LocalScope {
     explicit_any: ExplicitAnyLocals,
     /// Static-member property writes collected onto function-typed locals.
     callable_props: CallableLocalPropWrites,
-    /// Local closure values available to non-escaping callback consumers.
-    callbacks: HashMap<String, LocalCallback>,
     /// Function item slots reserved for local hoisted declarations.
     function_items: HashMap<String, ItemId>,
     /// Active local narrowings from guards and assertion calls.
@@ -477,21 +474,6 @@ impl LocalScope {
         saved: CallableLocalPropWrites,
     ) {
         self.callable_props = saved;
-    }
-
-    /// Register a non-escaping local callback value under its source name.
-    pub(in crate::lowering) fn register_callback(&mut self, name: String, callback: LocalCallback) {
-        self.callbacks.insert(name, callback);
-    }
-
-    /// Return the local callback value bound to `name`.
-    pub(in crate::lowering) fn callback(&self, name: &str) -> Option<&LocalCallback> {
-        self.callbacks.get(name)
-    }
-
-    /// Return whether `name` is bound to a local callback value.
-    pub(in crate::lowering) fn has_callback(&self, name: &str) -> bool {
-        self.callbacks.contains_key(name)
     }
 
     /// Reserve the function item slot of a hoisted local declaration.

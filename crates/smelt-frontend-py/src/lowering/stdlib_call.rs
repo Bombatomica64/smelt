@@ -1,20 +1,87 @@
 impl ModuleBuilder<'_> {
+    /// Record what the local names of an `import` statement are bound to.
+    pub(super) fn record_import_aliases(&mut self, stmt: &ruff_python_ast::StmtImport) {
+        for alias in &stmt.names {
+            let module = alias.name.as_str();
+            if let Some(local) = &alias.asname {
+                self.import_aliases.insert(local.as_str().to_owned(), module.to_owned());
+            } else {
+                // `import a.b` binds `a`, and `a.b.c` then reads through it.
+                let root = module.split('.').next().unwrap_or(module);
+                self.import_aliases.insert(root.to_owned(), root.to_owned());
+            }
+        }
+    }
+
+    /// Record what the local names of a `from .. import` statement are bound to.
+    pub(super) fn record_import_from_aliases(&mut self, stmt: &ruff_python_ast::StmtImportFrom) {
+        let module = stmt.module.as_ref().map_or("", |module| module.as_str());
+        if stmt.level != 0 {
+            return;
+        }
+        for alias in &stmt.names {
+            let imported = alias.name.as_str();
+            let local = alias.asname.as_ref().map_or(imported, |name| name.as_str());
+            self.import_aliases.insert(local.to_owned(), format!("{module}.{imported}"));
+        }
+    }
+
+    /// The fully qualified name `root` plus `members` denote through the imports.
+    ///
+    /// A local binding of `root` is that binding, and a name no import binds
+    /// denotes nothing the standard library provides.
+    fn qualified_import_path(&self, root: &str, members: &[&str]) -> Option<String> {
+        if self.scope.locals.contains_key(root) {
+            return None;
+        }
+        let mut path = self.import_aliases.get(root)?.clone();
+        for member in members {
+            path.push('.');
+            path.push_str(member);
+        }
+        Some(path)
+    }
+
+    /// The fully qualified name an attribute chain denotes through the imports.
+    pub(super) fn qualified_attribute(&self, attribute: &ruff_python_ast::ExprAttribute) -> Option<String> {
+        let mut members = vec![attribute.attr.as_str()];
+        let mut value = attribute.value.as_ref();
+        loop {
+            match value {
+                Expr::Attribute(inner) => {
+                    members.push(inner.attr.as_str());
+                    value = inner.value.as_ref();
+                }
+                Expr::Name(root) => {
+                    members.reverse();
+                    return self.qualified_import_path(root.id.as_str(), &members);
+                }
+                _ => return None,
+            }
+        }
+    }
+
+    /// The fully qualified name a call's callee denotes through the imports.
+    pub(super) fn qualified_callee(&self, call: &ruff_python_ast::ExprCall) -> Option<String> {
+        match call.func.as_ref() {
+            Expr::Name(name) => self.qualified_import_path(name.id.as_str(), &[]),
+            Expr::Attribute(attribute) => self.qualified_attribute(attribute),
+            _ => None,
+        }
+    }
+
+    /// The shared stdlib rule a call resolves to, by binding rather than spelling.
+    pub(super) fn stdlib_call_rule(&self, call: &ruff_python_ast::ExprCall) -> Option<RuleId> {
+        stdlib_dispatch::call_rule(&self.qualified_callee(call)?)
+    }
+
     /// Lower Python `json.dumps(value)` calls for JSON-compatible values.
     pub(super) fn json_dumps_call_expression(
         &mut self,
         call: &ruff_python_ast::ExprCall,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        if stdlib_dispatch::call_rule(call) != Some(RuleId::PyJsonDumps) {
-            return Ok(None);
-        }
-        let Expr::Attribute(attr) = call.func.as_ref() else {
-            return Ok(None);
-        };
-        let Expr::Name(module) = attr.value.as_ref() else {
-            return Ok(None);
-        };
-        if module.id.as_str() != "json" || attr.attr.as_str() != "dumps" {
+        if self.stdlib_call_rule(call) != Some(RuleId::PyJsonDumps) {
             return Ok(None);
         }
         if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
@@ -45,16 +112,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        if stdlib_dispatch::call_rule(call) != Some(RuleId::PyJsonLoads) {
-            return Ok(None);
-        }
-        let Expr::Attribute(attr) = call.func.as_ref() else {
-            return Ok(None);
-        };
-        let Expr::Name(module) = attr.value.as_ref() else {
-            return Ok(None);
-        };
-        if module.id.as_str() != "json" || attr.attr.as_str() != "loads" {
+        if self.stdlib_call_rule(call) != Some(RuleId::PyJsonLoads) {
             return Ok(None);
         }
         if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
@@ -98,18 +156,9 @@ impl ModuleBuilder<'_> {
         call: &ruff_python_ast::ExprCall,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Some(rule) = stdlib_dispatch::call_rule(call) else {
+        let Some(rule) = self.stdlib_call_rule(call) else {
             return Ok(None);
         };
-        let Expr::Attribute(attr) = call.func.as_ref() else {
-            return Ok(None);
-        };
-        let Expr::Name(module) = attr.value.as_ref() else {
-            return Ok(None);
-        };
-        if module.id.as_str() != "re" {
-            return Ok(None);
-        }
         let op = match rule {
             RuleId::PyReSearch => RegexMatchOp::Search,
             RuleId::PyReMatch => RegexMatchOp::Match,
@@ -150,16 +199,11 @@ impl ModuleBuilder<'_> {
         call: &ruff_python_ast::ExprCall,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expr::Attribute(attr) = call.func.as_ref() else {
+        let callee = self.qualified_callee(call);
+        let Some(member) = callee.as_deref().and_then(|callee| callee.strip_prefix("re.")) else {
             return Ok(None);
         };
-        let Expr::Name(module) = attr.value.as_ref() else {
-            return Ok(None);
-        };
-        if module.id.as_str() != "re" {
-            return Ok(None);
-        }
-        match attr.attr.as_str() {
+        match member {
             "sub" => {
                 if call.arguments.args.len() != 3 || !call.arguments.keywords.is_empty() {
                     return Err(SmeltError::unsupported(
@@ -265,7 +309,7 @@ impl ModuleBuilder<'_> {
         call: &ruff_python_ast::ExprCall,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        match stdlib_dispatch::datetime_rule(call) {
+        match self.stdlib_call_rule(call) {
             Some(RuleId::PyDateTimeNow) => {
                 if !call.arguments.args.is_empty() || !call.arguments.keywords.is_empty() {
                     return Err(SmeltError::unsupported(
@@ -412,10 +456,7 @@ impl ModuleBuilder<'_> {
         parse_call: &ruff_python_ast::ExprCall,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        if !matches!(parse_call.func.as_ref(), Expr::Attribute(_)) {
-            return Ok(None);
-        }
-        if stdlib_dispatch::urlparse_field_rule(parse_call) != Some(RuleId::PyUrlparseField) {
+        if self.stdlib_call_rule(parse_call) != Some(RuleId::PyUrlparseField) {
             return Ok(None);
         }
         if parse_call.arguments.args.len() != 1 || !parse_call.arguments.keywords.is_empty() {

@@ -2,6 +2,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use indexmap::IndexMap;
+
 use crate::lowering::{ConstCollection, ConstLiteral, RestParam};
 use smelt_hir::{
     Crate as HirCrate, ExprKind, Field, FunctionType, ItemId, Literal, TypeId, TypeParamDef,
@@ -60,8 +62,8 @@ pub struct ObjectConst {
 /// The length a parameter's *source* annotation demands of its argument.
 ///
 /// TypeScript states array lengths in the type — `[A, B]` is exactly two
-/// elements, `[T, ...T[]]` and `NonEmptyArray<T>` at least one — but HIR lowers
-/// all three to a plain `Type::List`, so the requirement is erased. Overload
+/// elements, `[T, ...T[]]` at least one — but HIR lowers both to a plain
+/// `Type::List`, so the requirement is erased. Overload
 /// selection is where that matters: without it a fixed-arity tuple parameter
 /// accepts any array and the earliest-declared overload wins calls TypeScript
 /// would route elsewhere.
@@ -69,8 +71,7 @@ pub struct ObjectConst {
 pub enum ParamLength {
     /// A rest-less tuple `[A, B]`: exactly this many elements.
     Exact(usize),
-    /// A required-prefix tuple `[T, ...T[]]` / `NonEmptyArray<T>`: at least
-    /// this many elements.
+    /// A required-prefix tuple `[T, ...T[]]`: at least this many elements.
     AtLeast(usize),
 }
 
@@ -104,10 +105,10 @@ pub struct OverloadSignature {
     ///
     /// `0` for an ordinary `...rest: T[]` (which accepts an empty tail), and
     /// `1` (or more) when the rest parameter was declared with a required
-    /// prefix such as `NonEmptyArray<T>` (`[T, ...T[]]`). The frontend lowers
-    /// `[T, ...T[]]` to a plain `Type::List(T)`, erasing the min-arity, so this
-    /// field preserves it for overload selection: a `NonEmptyArray` rest must
-    /// not match an empty rest tail vacuously.
+    /// prefix such as `[T, ...T[]]`. The frontend lowers that to a plain
+    /// `Type::List(T)`, erasing the min-arity, so this field preserves it for
+    /// overload selection: a required prefix must not match an empty rest tail
+    /// vacuously.
     pub min_rest: usize,
     /// Number of leading parameters counted by JavaScript `Function.length`.
     pub required_params: Option<usize>,
@@ -137,8 +138,9 @@ pub struct HirCtx {
     /// './globalThis'` would read members off a fresh empty record instead of
     /// resolving them against the modeled global.
     pub module_global_object_aliases: HashMap<String, HashSet<String>>,
-    /// Exported object constants used as namespace-like API surfaces.
-    pub object_namespaces: HashMap<String, HashMap<String, ItemId>>,
+    /// Exported object constants used as namespace-like API surfaces, each with
+    /// its entries in source order.
+    pub object_namespaces: HashMap<String, IndexMap<String, ItemId>>,
     /// Exported object constants with literal data values.
     pub object_consts: HashMap<String, ObjectConst>,
     /// Exported object constants whose values can be projected by `Object.values`.
@@ -274,6 +276,14 @@ pub struct HirCtx {
     /// original name (`krate.names`), because that is what reflection reads:
     /// `instanceof` and `__smelt_class` must still answer `Node`.
     pub type_renames: HashMap<String, HashMap<String, String>>,
+    /// Every member name a class, interface or object type of a lowered module
+    /// declares, the cheap first question of "does the receiver own this call".
+    pub declared_member_names: HashSet<String>,
+    /// Class expressions whose name is visible only inside their own body.
+    ///
+    /// `globalThis.File = class File extends Blob {}` binds `File` for the class
+    /// body and nowhere else, so another module's `File` is still the host class.
+    pub local_class_expressions: HashSet<smelt_hir::Symbol>,
     /// Crate-unique module identity for each module path.
     ///
     /// A module-private helper's Rust item name has to stay distinct after every
@@ -336,6 +346,8 @@ impl HirCtx {
             written_host_globals: HashSet::new(),
             project_sources_outside_crate: HashSet::new(),
             type_renames: HashMap::new(),
+            declared_member_names: HashSet::new(),
+            local_class_expressions: HashSet::new(),
             module_identities: HashMap::new(),
             predeclared_unique_symbols: HashMap::new(),
         }

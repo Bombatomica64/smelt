@@ -3190,27 +3190,6 @@ impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-struct InitLike {
-    headers: Option<SmeltUnion5>,
-}
-impl IntoSmeltUnknown for InitLike {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        let smelt_absent_keys: [&str; 1] = ["headers"];
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("headers".to_owned(), self.headers.map_or(SmeltUnknown::Undefined, |value| (value).into_smelt_unknown())),
-        ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
-    }
-}
-impl SmeltFromUnknown for InitLike {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-        }
-        result
-    }
-}
-
 thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;
@@ -3769,6 +3748,29 @@ impl SmeltFromUnknown for SmeltHeaders {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct InitLike {
+    headers: Option<SmeltUnion5>,
+}
+impl IntoSmeltUnknown for InitLike {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let smelt_absent_keys: [&str; 1] = ["headers"];
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("headers".to_owned(), self.headers.map_or(SmeltUnknown::Undefined, |value| (value).into_smelt_unknown())),
+        ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
+    }
+}
+impl SmeltFromUnknown for InitLike {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+        }
+        result
+    }
+}
+
 #[derive(Clone)]
 pub enum SmeltUnion5 {
     M0(SmeltList<(String, String)>),
@@ -3814,8 +3816,6 @@ impl Default for SmeltUnion5 {
         Self::M0(SmeltList::new(Vec::<(String, String)>::new()))
     }
 }
-
-// @smelt:prelude-end — generated program below
 fn main() {
     let html_pairs: SmeltList<(String, String)>;
     let source: SmeltHeaders;

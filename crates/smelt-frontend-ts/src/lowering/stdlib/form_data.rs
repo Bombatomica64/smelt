@@ -63,7 +63,7 @@ impl ModuleBuilder<'_> {
         {
             return Ok(None);
         }
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         let receiver_ty = Self::expr_ty(body, receiver);
@@ -130,7 +130,7 @@ impl ModuleBuilder<'_> {
     /// Return whether a lowered type is the modeled `FormData` class.
     pub(in crate::lowering) fn is_form_data_type(&self, ty: smelt_hir::TypeId) -> bool {
         self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::FormData)
-            && !self.user_class_shadows("FormData")
+            && !self.source_shadows_global("FormData")
     }
 
     /// The `string | File` type of a form entry's VALUE.

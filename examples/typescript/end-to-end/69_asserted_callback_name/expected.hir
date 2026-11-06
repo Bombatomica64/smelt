@@ -50,7 +50,7 @@ module examples/typescript/end-to-end/69_asserted_callback_name/input.ts (Module
     #38: None = @11(console_log)
     #39: None = call #38(#37)
     #40: List<String> = %0
-    #41: fn(String) -> Float = closure BodyId(8) captures 0 -> Float
+    #41: fn(String, Int, List<String>) -> Float = closure BodyId(8) captures 0 -> Float
     #42: List<Float> = list_map #40, #41
     #43: List<Float> = %1
     #44: String = ","
@@ -85,9 +85,10 @@ interned types
   t4 = Int
   t5 = Unknown
   t6 = Float
-  t7 = fn(String) -> Float
+  t7 = fn(String, Int, List<String>) -> Float
   t8 = List<Float>
   t9 = Checker
   t10 = fn(String) -> Bool
   t11 = None
   t12 = fn(String, Int, List<String>) -> Bool
+  t13 = fn(String, Int, List<String>) -> Bool

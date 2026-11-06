@@ -27,30 +27,29 @@ module examples/typescript/end-to-end/29_callable_object/input.ts (ModuleId(0))
     #18: None = @4(console_log)
     #19: None = call #18(#17)
     #20: Counter = %0
-    #21: Counter = %0
-    #22: fn() -> None = #21.reset
-    #23: Counter = %0
-    #24: None = closure_call #22()
-    #25: Counter = %0
-    #26: fn() -> Float = #25.current
-    #27: Counter = %0
-    #28: Float = closure_call #26()
-    #29: None = @5(console_log)
-    #30: None = call #29(#28)
-    #31: Counter = %0
-    #32: fn() -> Float = #31.bump
-    #33: Counter = %0
-    #34: Float = closure_call #32()
-    #35: None = @6(console_log)
-    #36: None = call #35(#34)
+    #21: fn() -> None = #20.reset
+    #22: Counter = %0
+    #23: None = closure_call #21()
+    #24: Counter = %0
+    #25: fn() -> Float = #24.current
+    #26: Counter = %0
+    #27: Float = closure_call #25()
+    #28: None = @5(console_log)
+    #29: None = call #28(#27)
+    #30: Counter = %0
+    #31: fn() -> Float = #30.bump
+    #32: Counter = %0
+    #33: Float = closure_call #31()
+    #34: None = @6(console_log)
+    #35: None = call #34(#33)
   stmts
     s0: let %0: Counter = #1
     s1: #7
     s2: #13
     s3: #19
-    s4: #24
-    s5: #30
-    s6: #36
+    s4: #23
+    s5: #29
+    s6: #35
 
 interned types
   t0 = Unknown

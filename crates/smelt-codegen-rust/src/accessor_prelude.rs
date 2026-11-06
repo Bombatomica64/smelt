@@ -35,15 +35,9 @@
 use smelt_hir::{Symbol, Type, TypeId};
 use smelt_mir::Mir;
 
-use crate::rust::CodeWriter;
 
 /// The generated accessor storage type.
 pub(crate) const ACCESSOR_TYPE: &str = "SmeltAccessor";
-
-/// Whether any record field is stored as an accessor.
-pub(crate) fn needed(mir: &Mir) -> bool {
-    !mir.accessor_fields.is_empty()
-}
 
 /// Whether field `field` of the record named `owner` is stored as an accessor.
 pub(crate) fn is_accessor_field(mir: &Mir, owner: Symbol, field: Symbol) -> bool {
@@ -77,43 +71,4 @@ pub(crate) fn getter_text(getter_text: &str) -> String {
 /// Reads an accessor field: runs the getter.
 pub(crate) fn read_text(field_text: &str) -> String {
     format!("{field_text}.get()")
-}
-
-/// Emits the accessor storage type.
-///
-/// With the erased runtime present (`with_unknown`), an accessor also
-/// crosses the `SmeltUnknown` boundary: erasing it reads the getter now, and
-/// recovering one from an erased value answers that value on every read (the
-/// erased object no longer carries a live getter for a record field).
-pub(crate) fn emit_prelude(writer: &mut CodeWriter, with_unknown: bool) {
-    if with_unknown {
-        writer.line(format!(
-            "impl<T: IntoSmeltUnknown + 'static> IntoSmeltUnknown for {ACCESSOR_TYPE}<T> {{ fn into_smelt_unknown(self) -> SmeltUnknown {{ self.get().into_smelt_unknown() }} }}"
-        ));
-        writer.line(format!(
-            "impl<T: SmeltFromUnknown + Clone + 'static> SmeltFromUnknown for {ACCESSOR_TYPE}<T> {{ fn smelt_from_unknown(value: SmeltUnknown) -> Self {{ Self::constant(T::smelt_from_unknown(value)) }} }}"
-        ));
-    }
-    writer.line("/// A record field stored as a getter: every read runs it.");
-    writer.line(format!(
-        "struct {ACCESSOR_TYPE}<T>(::std::rc::Rc<dyn Fn() -> T>);"
-    ));
-    writer.line(format!(
-        "impl<T: 'static> {ACCESSOR_TYPE}<T> {{ fn new(getter: ::std::rc::Rc<dyn Fn() -> T>) -> Self {{ Self(getter) }} fn get(&self) -> T {{ (self.0)() }} }}"
-    ));
-    writer.line(format!(
-        "impl<T: Clone + 'static> {ACCESSOR_TYPE}<T> {{ fn constant(value: T) -> Self {{ Self(::std::rc::Rc::new(move || value.clone())) }} }}"
-    ));
-    writer.line(format!(
-        "impl<T> Clone for {ACCESSOR_TYPE}<T> {{ fn clone(&self) -> Self {{ Self(self.0.clone()) }} }}"
-    ));
-    writer.line(format!(
-        "impl<T: Default + Clone + 'static> Default for {ACCESSOR_TYPE}<T> {{ fn default() -> Self {{ Self::constant(T::default()) }} }}"
-    ));
-    writer.line(format!(
-        "impl<T: ::std::fmt::Debug + 'static> ::std::fmt::Debug for {ACCESSOR_TYPE}<T> {{ fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {{ self.get().fmt(formatter) }} }}"
-    ));
-    writer.line(format!(
-        "impl<T: PartialEq + 'static> PartialEq for {ACCESSOR_TYPE}<T> {{ fn eq(&self, other: &Self) -> bool {{ self.get() == other.get() }} }}"
-    ));
 }

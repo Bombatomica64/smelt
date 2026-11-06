@@ -56,7 +56,7 @@ fn main (FuncId(3)) -> None
     %21 temp: List<String>
     %22 temp: String
     %23 temp: None
-    %24 temp: fn(String) -> Float
+    %24 temp: fn(String, Int, List<String>) -> Float
     %25 temp: List<Float>
     %26 temp: String
     %27 temp: None
@@ -162,19 +162,19 @@ closure ClosureId(4) -> Bool
 
 closure ClosureId(5) -> Float
   locals
-    %0 param __callback_param_0: String
+    %0 param value: String
+    %1 temp: Float
   bb0:
-    return copy %0.field2
+    %1 = len copy %0
+    return copy %1
 
 closure ClosureId(6) -> Bool
   locals
-    %0 param __callback_param_0: String
-    %1 param __callback_param_1: Int
-    %2 param __callback_param_2: List<String>
-    %3 user checker: Checker
-    %4 temp: Bool
+    %0 param value: String
+    %1 user checker: Checker
+    %2 temp: Bool
   bb0:
-    %4 = call fn1(copy %3, copy %0) -> bb1
+    %2 = call fn1(copy %1, copy %0) -> bb1
   bb1:
-    return copy %4
+    return copy %2
 

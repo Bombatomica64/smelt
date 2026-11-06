@@ -3119,39 +3119,6 @@ impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-struct Fields {
-    gen_: f64,
-    dyn_: String,
-    priv_: bool,
-}
-impl IntoSmeltUnknown for Fields {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("gen".to_owned(), SmeltUnknown::Number(self.gen_ as f64)),
-        ("dyn".to_owned(), SmeltUnknown::String(self.dyn_.into())),
-        ("priv".to_owned(), SmeltUnknown::Bool(self.priv_)),
-        ])))
-    }
-}
-impl SmeltFromUnknown for Fields {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("gen") {
-                result.gen_ = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("dyn") {
-                result.dyn_ = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("priv") {
-                result.priv_ = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
-    }
-}
-
 thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;
@@ -3571,6 +3538,41 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Fields {
+    gen_: f64,
+    dyn_: String,
+    priv_: bool,
+}
+impl IntoSmeltUnknown for Fields {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("gen".to_owned(), SmeltUnknown::Number(self.gen_ as f64)),
+        ("dyn".to_owned(), SmeltUnknown::String(self.dyn_.into())),
+        ("priv".to_owned(), SmeltUnknown::Bool(self.priv_)),
+        ])))
+    }
+}
+impl SmeltFromUnknown for Fields {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("gen") {
+                result.gen_ = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("dyn") {
+                result.dyn_ = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("priv") {
+                result.priv_ = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Machine {
     gen_: f64,
@@ -3598,8 +3600,6 @@ impl SmeltFromUnknown for Machine {
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let machine: Machine;

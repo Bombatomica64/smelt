@@ -966,7 +966,7 @@ fn new_proxy_lowers_to_target() -> Result<(), String> {
 /// A locally declared class shadowing the builtin `Object` name still wins, so
 /// `new Object()` resolves to the user class instead of the record fallback.
 #[test]
-fn new_user_class_shadows_object_builtin() -> Result<(), String> {
+fn new_source_shadows_global_object_builtin() -> Result<(), String> {
     let source = ts!(r"
 class Object {
   value: number = 1;
@@ -1401,5 +1401,36 @@ fn error_options_non_literal_argument_stays_a_blocker() -> Result<(), String> {
             .contains("Error constructor options must be an object literal")),
         "expected a clear blocker for non-literal Error options, got {errors:?}",
     );
+    Ok(())
+}
+
+/// `Number.MIN_VALUE` is 5e-324 through both of its routes: read in a body and
+/// folded into an exported constant.
+#[test]
+fn number_min_value_is_the_smallest_denormal_in_both_routes() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+export const folded = Number.MIN_VALUE;
+export function read(): number { return Number.MIN_VALUE; }
+"),
+        &mut ctx,
+    )?;
+    let literal_bits = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| &body.exprs)
+        .filter_map(|expr| match expr.kind {
+            ExprKind::Literal(Literal::Float(value)) => Some(value.to_bits()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    ensure!(!literal_bits.is_empty() && literal_bits.iter().all(|bits| *bits == 1));
+    let folded = ctx.krate.items.iter().find_map(|item| match item {
+        Item::Const(item) if ctx.krate.symbols.get(item.name) == Some("folded") => Some(item),
+        _ => None,
+    });
+    ensure!(folded.is_some(), "expected the folded const item");
     Ok(())
 }

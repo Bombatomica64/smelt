@@ -638,3 +638,21 @@ clamped: list[int] = list(map(lambda value: value if value > 0 else 0, values))
         "expected map lambda with conditional body to lower",
     )
 }
+
+#[test]
+fn map_lambda_capture_order_does_not_depend_on_the_hash_seed() -> TestResult {
+    let source = py!(r"
+def combine(values: list[int], a: int, b: int, c: int, d: int, e: int, f: int) -> list[int]:
+    return list(map(lambda value: value + f + e + d + c + b + a, values))
+");
+    let render = || -> Result<String, String> {
+        let mut ctx = HirCtx::new();
+        lower_module(source, &mut ctx)?;
+        Ok(format!("{:?}", ctx.krate.bodies))
+    };
+    let first = render()?;
+    for _ in 0..24 {
+        ensure(render()? == first, "capture order changed between lowerings")?;
+    }
+    Ok(())
+}

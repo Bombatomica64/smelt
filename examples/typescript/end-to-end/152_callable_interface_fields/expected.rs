@@ -3186,178 +3186,6 @@ impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq
     }
 }
 
-#[derive(Clone)]
-#[allow(dead_code)]
-struct Get {
-    __smelt_call: ::std::rc::Rc<dyn Fn(String) -> f64>,
-}
-impl Default for Get {
-    fn default() -> Self {
-        Self {
-            __smelt_call: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback },
-        }
-    }
-}
-impl ::std::fmt::Debug for Get {
-    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        formatter.debug_struct("Get").finish_non_exhaustive()
-    }
-}
-impl IntoSmeltUnknown for Get {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("__smelt_call".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(String) -> f64> = self.__smelt_call.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
-        ])))
-    }
-}
-impl SmeltFromUnknown for Get {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("__smelt_call") {
-                let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
-                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String) -> f64>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
-            }
-        }
-        result
-    }
-}
-
-#[derive(Clone)]
-#[allow(dead_code)]
-struct Set {
-    __smelt_call: ::std::rc::Rc<dyn Fn(String, SmeltUnion16) -> ()>,
-}
-impl Default for Set {
-    fn default() -> Self {
-        Self {
-            __smelt_call: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, SmeltUnion16) -> ()> = ::std::rc::Rc::new(move |arg0: String, arg1: SmeltUnion16| -> () { () }); smelt_default_callback },
-        }
-    }
-}
-impl ::std::fmt::Debug for Set {
-    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        formatter.debug_struct("Set").finish_non_exhaustive()
-    }
-}
-impl IntoSmeltUnknown for Set {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("__smelt_call".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(String, SmeltUnion16) -> ()> = self.__smelt_call.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
-        ])))
-    }
-}
-impl SmeltFromUnknown for Set {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("__smelt_call") {
-                let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
-                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String, SmeltUnion16) -> ()>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
-            }
-        }
-        result
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-struct SetHeaderOptions {
-    append: Option<bool>,
-}
-impl IntoSmeltUnknown for SetHeaderOptions {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        let smelt_absent_keys: [&str; 1] = ["append"];
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("append".to_owned(), self.append.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Bool(value))),
-        ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
-    }
-}
-impl SmeltFromUnknown for SetHeaderOptions {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("append") {
-                result.append = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
-    }
-}
-
-#[derive(Clone)]
-#[allow(dead_code)]
-struct SetHeader {
-    __smelt_call: ::std::rc::Rc<dyn Fn(String, Option<String>, Option<SetHeaderOptions>) -> ()>,
-}
-impl Default for SetHeader {
-    fn default() -> Self {
-        Self {
-            __smelt_call: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, Option<String>, Option<SetHeaderOptions>) -> ()> = ::std::rc::Rc::new(move |arg0: String, arg1: Option<String>, arg2: Option<SetHeaderOptions>| -> () { () }); smelt_default_callback },
-        }
-    }
-}
-impl ::std::fmt::Debug for SetHeader {
-    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        formatter.debug_struct("SetHeader").finish_non_exhaustive()
-    }
-}
-impl IntoSmeltUnknown for SetHeader {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("__smelt_call".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(String, Option<String>, Option<SetHeaderOptions>) -> ()> = self.__smelt_call.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(2).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
-        ])))
-    }
-}
-impl SmeltFromUnknown for SetHeader {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("__smelt_call") {
-                let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
-                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String, Option<String>, Option<SetHeaderOptions>) -> ()>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
-            }
-        }
-        result
-    }
-}
-
-#[derive(Clone)]
-#[allow(dead_code)]
-struct Echo {
-    __smelt_call: ::std::rc::Rc<dyn Fn(String) -> String>,
-}
-impl Default for Echo {
-    fn default() -> Self {
-        Self {
-            __smelt_call: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback },
-        }
-    }
-}
-impl ::std::fmt::Debug for Echo {
-    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        formatter.debug_struct("Echo").finish_non_exhaustive()
-    }
-}
-impl IntoSmeltUnknown for Echo {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("__smelt_call".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(String) -> String> = self.__smelt_call.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
-        ])))
-    }
-}
-impl SmeltFromUnknown for Echo {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("__smelt_call") {
-                let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
-                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String) -> String>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
-            }
-        }
-        result
-    }
-}
-
 thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;
@@ -3899,6 +3727,180 @@ fn smelt_keep_receiver_alive<H: SmeltReferenceHandle>(erased: SmeltUnknown, rece
     }
 }
 
+// @smelt:prelude-end — generated program below
+
+#[derive(Clone)]
+#[allow(dead_code)]
+struct Get {
+    __smelt_call: ::std::rc::Rc<dyn Fn(String) -> f64>,
+}
+impl Default for Get {
+    fn default() -> Self {
+        Self {
+            __smelt_call: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback },
+        }
+    }
+}
+impl ::std::fmt::Debug for Get {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        formatter.debug_struct("Get").finish_non_exhaustive()
+    }
+}
+impl IntoSmeltUnknown for Get {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("__smelt_call".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(String) -> f64> = self.__smelt_call.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
+        ])))
+    }
+}
+impl SmeltFromUnknown for Get {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("__smelt_call") {
+                let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
+                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String) -> f64>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
+            }
+        }
+        result
+    }
+}
+
+#[derive(Clone)]
+#[allow(dead_code)]
+struct Set {
+    __smelt_call: ::std::rc::Rc<dyn Fn(String, SmeltUnion16) -> ()>,
+}
+impl Default for Set {
+    fn default() -> Self {
+        Self {
+            __smelt_call: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, SmeltUnion16) -> ()> = ::std::rc::Rc::new(move |arg0: String, arg1: SmeltUnion16| -> () { () }); smelt_default_callback },
+        }
+    }
+}
+impl ::std::fmt::Debug for Set {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        formatter.debug_struct("Set").finish_non_exhaustive()
+    }
+}
+impl IntoSmeltUnknown for Set {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("__smelt_call".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(String, SmeltUnion16) -> ()> = self.__smelt_call.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
+        ])))
+    }
+}
+impl SmeltFromUnknown for Set {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("__smelt_call") {
+                let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
+                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String, SmeltUnion16) -> ()>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
+            }
+        }
+        result
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct SetHeaderOptions {
+    append: Option<bool>,
+}
+impl IntoSmeltUnknown for SetHeaderOptions {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let smelt_absent_keys: [&str; 1] = ["append"];
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("append".to_owned(), self.append.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Bool(value))),
+        ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
+    }
+}
+impl SmeltFromUnknown for SetHeaderOptions {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("append") {
+                result.append = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
+#[derive(Clone)]
+#[allow(dead_code)]
+struct SetHeader {
+    __smelt_call: ::std::rc::Rc<dyn Fn(String, Option<String>, Option<SetHeaderOptions>) -> ()>,
+}
+impl Default for SetHeader {
+    fn default() -> Self {
+        Self {
+            __smelt_call: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, Option<String>, Option<SetHeaderOptions>) -> ()> = ::std::rc::Rc::new(move |arg0: String, arg1: Option<String>, arg2: Option<SetHeaderOptions>| -> () { () }); smelt_default_callback },
+        }
+    }
+}
+impl ::std::fmt::Debug for SetHeader {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        formatter.debug_struct("SetHeader").finish_non_exhaustive()
+    }
+}
+impl IntoSmeltUnknown for SetHeader {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("__smelt_call".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(String, Option<String>, Option<SetHeaderOptions>) -> ()> = self.__smelt_call.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(2).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
+        ])))
+    }
+}
+impl SmeltFromUnknown for SetHeader {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("__smelt_call") {
+                let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
+                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String, Option<String>, Option<SetHeaderOptions>) -> ()>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
+            }
+        }
+        result
+    }
+}
+
+#[derive(Clone)]
+#[allow(dead_code)]
+struct Echo {
+    __smelt_call: ::std::rc::Rc<dyn Fn(String) -> String>,
+}
+impl Default for Echo {
+    fn default() -> Self {
+        Self {
+            __smelt_call: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback },
+        }
+    }
+}
+impl ::std::fmt::Debug for Echo {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        formatter.debug_struct("Echo").finish_non_exhaustive()
+    }
+}
+impl IntoSmeltUnknown for Echo {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("__smelt_call".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(String) -> String> = self.__smelt_call.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
+        ])))
+    }
+}
+impl SmeltFromUnknown for Echo {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("__smelt_call") {
+                let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
+                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String) -> String>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
+            }
+        }
+        result
+    }
+}
+
 impl SmeltReferenceHandle for Context { type Cell = ::std::cell::RefCell<ContextInner>; fn smelt_handle_cell(&self) -> &::std::rc::Rc<Self::Cell> { &self.0 } fn smelt_from_handle_cell(cell: ::std::rc::Rc<Self::Cell>) -> Self { Self(cell) } }
 impl Drop for Context { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let shared = self.0.try_borrow().map_or(true, |inner| inner.get.__smelt_call.smelt_closure_shared() || inner.set.__smelt_call.smelt_closure_shared() || inner.header.__smelt_call.smelt_closure_shared()); if shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
 
@@ -4013,8 +4015,6 @@ impl Default for SmeltUnion16 {
     }
 }
 
-// @smelt:prelude-end — generated program below
-
 fn main() {
     let c: Context;
     let read: Get;
@@ -4101,7 +4101,7 @@ impl Context {
     _smelt_tmp_5
     }
 });
-    (*smelt_capture_this.borrow()).0.borrow_mut().get = Get { __smelt_call: { let smelt_callback = _smelt_tmp_3.clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| (smelt_callback)(arg0)); smelt_adapted } };
+    (*smelt_capture_this.borrow()).0.borrow_mut().get = Get { __smelt_call: _smelt_tmp_3.clone() };
     let _smelt_tmp_4 = ::std::rc::Rc::new({
     let smelt_capture_this = SmeltWeakReceiver::new(&*smelt_capture_this.borrow());
     move |closure_arg_0: String, closure_arg_1: SmeltUnion16| {
@@ -4110,13 +4110,12 @@ impl Context {
     ()
     }
 });
-    (*smelt_capture_this.borrow()).0.borrow_mut().set = Set { __smelt_call: { let smelt_callback = _smelt_tmp_4.clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(String, SmeltUnion16) -> ()> = ::std::rc::Rc::new(move |arg0: String, arg1: SmeltUnion16| (smelt_callback)(arg0, arg1)); smelt_adapted } };
+    (*smelt_capture_this.borrow()).0.borrow_mut().set = Set { __smelt_call: _smelt_tmp_4.clone() };
     let _smelt_tmp_5 = ::std::rc::Rc::new({
     let smelt_capture_this = SmeltWeakReceiver::new(&*smelt_capture_this.borrow());
     move |closure_arg_0: String, closure_arg_1: Option<String>, closure_arg_2: Option<SetHeaderOptions>| {
     let previous: Option<String>;
     let _smelt_tmp_6: bool;
-    let _smelt_tmp_7: Option<String>;
     let _smelt_tmp_8: Option<bool>;
     let _smelt_tmp_9: bool;
     let mut _smelt_tmp_10: bool;
@@ -4133,8 +4132,7 @@ impl Context {
     _smelt_tmp_6 = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow_mut().headers.remove(&closure_arg_0).is_some();
     ()
     } else {
-    _smelt_tmp_7 = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().headers.clone().get(&closure_arg_0);
-    previous = _smelt_tmp_7.clone();
+    previous = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().headers.clone().get(&closure_arg_0);
     _smelt_tmp_8 = closure_arg_2.clone().as_ref().and_then(|_smelt_value| _smelt_value.append.clone());
     _smelt_tmp_9 = _smelt_tmp_8.clone().clone().unwrap_or(false);
     if _smelt_tmp_9 {
@@ -4158,7 +4156,7 @@ impl Context {
     }
     }
 });
-    (*smelt_capture_this.borrow()).0.borrow_mut().header = SetHeader { __smelt_call: { let smelt_callback = _smelt_tmp_5.clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(String, Option<String>, Option<SetHeaderOptions>) -> ()> = ::std::rc::Rc::new(move |arg0: String, arg1: Option<String>, arg2: Option<SetHeaderOptions>| (smelt_callback)(arg0, arg1, arg2)); smelt_adapted } };
+    (*smelt_capture_this.borrow()).0.borrow_mut().header = SetHeader { __smelt_call: _smelt_tmp_5.clone() };
     let _smelt_tmp_6 = ::std::rc::Rc::new(|closure_arg_0: String| {
     closure_arg_0.clone()
     });

@@ -377,7 +377,7 @@ fn main (FuncId(14)) -> None throws
 
 closure ClosureId(0) -> Bool
   locals
-    %0 param __callback_param_0: Req | RawReq
+    %0 param candidate: Req | RawReq
     %1 temp: Bool
   bb0:
     %1 = copy %0.field18 == "raw"

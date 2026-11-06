@@ -142,13 +142,13 @@ impl ModuleBuilder<'_> {
     /// Return whether a lowered type is the family's byte STORAGE.
     pub(in crate::lowering) fn is_array_buffer_type(&self, ty: smelt_hir::TypeId) -> bool {
         self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::ArrayBuffer)
-            && !self.user_class_shadows("ArrayBuffer")
+            && !self.source_shadows_global("ArrayBuffer")
     }
 
     /// Return whether a lowered type is a `DataView`.
     pub(in crate::lowering) fn is_data_view_type(&self, ty: smelt_hir::TypeId) -> bool {
         self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::DataView)
-            && !self.user_class_shadows("DataView")
+            && !self.source_shadows_global("DataView")
     }
 
     /// Dispatch a `DataView` element accessor: `getInt16`, `setFloat64`, ...
@@ -181,7 +181,7 @@ impl ModuleBuilder<'_> {
         {
             return Ok(None);
         }
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         if !self.is_data_view_type(Self::expr_ty(body, receiver)) {
@@ -308,7 +308,7 @@ impl ModuleBuilder<'_> {
         {
             return Ok(None);
         }
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         let receiver_ty = Self::expr_ty(body, receiver);

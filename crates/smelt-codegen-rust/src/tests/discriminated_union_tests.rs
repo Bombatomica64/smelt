@@ -15,12 +15,12 @@
 use super::*;
 
 /// The remeda `LazyResult` shapes.
-const LAZY: &str = r#"
+const LAZY: &str = r"
 type LazyEmpty = { done: boolean; hasNext: false; hasMany?: false | undefined; next?: undefined };
 type LazyNext<T> = { done: boolean; hasNext: true; hasMany?: false | undefined; next: T };
 type LazyMany<T> = { done: boolean; hasNext: true; hasMany: true; next: readonly T[] };
 export type LazyResult<T> = LazyEmpty | LazyMany<T> | LazyNext<T>;
-"#;
+";
 
 /// The text of the generated `from_smelt_unknown` of the union enum that
 /// declares `first_member`.

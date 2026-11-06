@@ -237,7 +237,7 @@ fn url_search_params_runtime_is_pay_for_use_and_declares_its_dependency() {
     let mut mir = smelt_mir::lower_hir(&ctx.krate).expect("MIR lowering");
     smelt_mir::opt::optimize(&mut mir);
     assert!(
-        stdlib::backend_dependencies(&mir).contains(&BackendDependency::Url),
+        runtime_demand::backend_dependencies(&RuntimeDemand::of(&mir)).contains(&BackendDependency::Url),
         "a params value serializes through `url::form_urlencoded`, so the crate needs `url`"
     );
 }

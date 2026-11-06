@@ -894,9 +894,6 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::ListFromLength { length } => {
             format!("list_from_length {}", expr_ref(*length))
         }
-        ExprKind::ListRepeat { value, count } => {
-            format!("list_repeat {}, {}", expr_ref(*value), expr_ref(*count))
-        }
         ExprKind::ListFromLengthMap { length, callback } => format!(
             "list_from_length_map {}, {}",
             expr_ref(*length),
@@ -1076,8 +1073,6 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::ListPop { list } => format!("list_pop {}", expr_ref(*list)),
         ExprKind::ListShift { list } => format!("list_shift {}", expr_ref(*list)),
         ExprKind::ListNext { list } => format!("list_next {}", expr_ref(*list)),
-        ExprKind::IteratorDone { result } => format!("iterator_done {}", expr_ref(*result)),
-        ExprKind::IteratorValue { result } => format!("iterator_value {}", expr_ref(*result)),
         ExprKind::TupleContains { tuple, item } => {
             format!("tuple_contains {}, {}", expr_ref(*tuple), expr_ref(*item))
         }

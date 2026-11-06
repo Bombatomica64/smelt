@@ -16,7 +16,6 @@
 //! error the source could raise.
 
 use super::*;
-use crate::type_substitution::TypeSubstitution;
 
 impl FunctionEmitter<'_> {
     /// Emit `createServer(handler)`.
@@ -57,9 +56,9 @@ impl FunctionEmitter<'_> {
         if matches!(fetch, Operand::Copy(_)) {
             text = format!("{text}.clone()");
         }
-        let substitution = TypeSubstitution::erased();
-        let request_text = self.function_type_param_text(function, 0, request_ty, &substitution)?;
-        let mut args = vec![if request_text.starts_with('&') {
+        let request_by_reference = function.mutable_params.contains(&0)
+            || self.callback_param_is_shared_reference(function, 0, request_ty);
+        let mut args = vec![if request_by_reference {
             "&smelt_fetch_request".to_owned()
         } else {
             "smelt_fetch_request".to_owned()
@@ -78,7 +77,7 @@ impl FunctionEmitter<'_> {
         let answer = if function.may_throw {
             format!("{call}.map(|smelt_answer| {erased})")
         } else {
-            format!("{{ let smelt_answer = {call}; Ok::<SmeltUnknown, Box<dyn ::std::error::Error>>({erased}) }}")
+            self.carrier_format(format_args!("{{ let smelt_answer = {call}; Ok::<SmeltUnknown, Box<dyn ::std::error::Error>>({erased}) }}"))
         };
         Ok(format!(
             "SmeltHttpServer::new({{ let smelt_fetch = {text}; ::std::rc::Rc::new(move |smelt_request: SmeltIncomingMessage, smelt_response: SmeltServerResponse| {{ let smelt_fetch_request = smelt_fetch_server_request(&smelt_request); smelt_fetch_server_respond(smelt_response, {answer}); Ok(()) }}) as SmeltHttpHandler }})"
@@ -228,7 +227,7 @@ impl FunctionEmitter<'_> {
             smelt_hir::IncomingMessageOp::Method => format!("{receiver}.method()"),
             smelt_hir::IncomingMessageOp::Url => format!("{receiver}.url()"),
             smelt_hir::IncomingMessageOp::Headers => {
-                let container = self.type_text(dest_ty)?;
+                let container = self.signature_type_text(dest_ty)?;
                 format!(
                     "<{container} as ::std::iter::FromIterator<(String, String)>>::from_iter({receiver}.headers())"
                 )
@@ -329,7 +328,7 @@ impl FunctionEmitter<'_> {
              let smelt_reason = smelt_http.status().canonical_reason().unwrap_or_default().to_owned(); \
              let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect(); \
              let smelt_bytes = smelt_http.bytes().await.expect(\"HTTP response body read failed\").to_vec(); \
-             Ok::<_, Box<dyn std::error::Error>>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }}))"
+             Ok::<_, {ERROR_BOX}>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }}))"
         ))
     }
 

@@ -71,6 +71,10 @@ fn emitted_function_body<'a>(source: &'a str, signature: &str) -> &'a str {
     rest.get(..end).unwrap_or(rest)
 }
 
+mod carrier_trial_tests;
+mod local_binding_tests;
+mod name_rule_tests;
+mod runtime_demand_tests;
 mod part_1_tests;
 mod part_2_tests;
 mod part_3_tests;
@@ -113,6 +117,7 @@ mod local_write_index_tests;
 mod trial_rollback_tests;
 mod union_element_read_tests;
 mod union_type_param_scope_tests;
+mod closure_binding_tests;
 mod generic_call_site_tests;
 mod discriminated_union_tests;
 mod accessor_field_tests;

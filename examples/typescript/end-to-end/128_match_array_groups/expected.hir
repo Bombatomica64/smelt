@@ -83,9 +83,9 @@ interned types
   t11 = Float
   t12 = Int
   t13 = Unknown
-  t14 = fn(Optional<String>, Int, List<Optional<String>>) -> Optional<String>
-  t15 = Optional<Optional<String>>
-  t16 = List<String>
+  t14 = fn(Optional<String>, Int, List<Optional<String>>) -> String
+  t15 = List<String>
+  t16 = Optional<Optional<String>>
   t17 = Optional<List<String>>
   t18 = fn(String, Int, List<String>) -> String
   t19 = Optional<Float>

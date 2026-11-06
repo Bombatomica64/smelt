@@ -152,7 +152,7 @@ fn main (FuncId(8)) -> None
 
 closure ClosureId(0) -> String
   locals
-    %0 param __callback_param_0: Session<Float>
+    %0 param other: Session<Float>
     %1 temp: String
   bb0:
     %1 = "renewed " + copy %0.field13

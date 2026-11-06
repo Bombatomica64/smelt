@@ -3596,7 +3596,6 @@ pub(crate) fn range(start: f64, end: f64, step: Option<f64>) -> SmeltGenerator<f
     let smelt_generator_producer_input = smelt_generator_input.clone();
     let smelt_generator = genawaiter::rc::Gen::new(move |co| { let smelt_generator_input = smelt_generator_producer_input; async move {
     let mut _smelt_tmp_6: bool;
-    let mut _smelt_tmp_7: f64;
     let mut _smelt_tmp_8: ();
     let mut _smelt_tmp_9: f64;
     let step_1: f64 = step.clone().unwrap_or(1.0);
@@ -3604,8 +3603,7 @@ pub(crate) fn range(start: f64, end: f64, step: Option<f64>) -> SmeltGenerator<f
     loop {
     _smelt_tmp_6 = i <= end;
     if !(_smelt_tmp_6) { break; }
-    _smelt_tmp_7 = i;
-    _smelt_tmp_8 = { co.yield_(_smelt_tmp_7).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command { SmeltGeneratorCommand::Next(value) => value, SmeltGeneratorCommand::Return(value) => return value, SmeltGeneratorCommand::Throw(error) => smelt_panic_throw(smelt_throw(error)) } };
+    _smelt_tmp_8 = { co.yield_(i).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command { SmeltGeneratorCommand::Next(value) => value, SmeltGeneratorCommand::Return(value) => return value, SmeltGeneratorCommand::Throw(error) => smelt_panic_throw(smelt_throw(error)) } };
     _smelt_tmp_9 = i + step_1;
     i = _smelt_tmp_9;
     }

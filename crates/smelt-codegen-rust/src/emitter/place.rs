@@ -1,7 +1,8 @@
 //! Place emission helpers.
 
 use super::*;
-use crate::emitter::rendered_text_rewrite::cloned_value_text;
+use crate::emitter::local_binding::PlaceTarget;
+use crate::emitter::rendered_value::cloned_value_text;
 
 impl FunctionEmitter<'_> {
     /// Render a dotted property name as the concrete key type of a dictionary.
@@ -28,6 +29,19 @@ impl FunctionEmitter<'_> {
         self.default_value(key)
     }
 
+    /// Whether `ty` is an optional whose payload is a union or erased value, so
+    /// that only a runtime read can reach the arm a narrowing proved.
+    pub(super) fn is_optional_of_dynamic_shape(&self, ty: TypeId) -> bool {
+        matches!(
+            self.mir.types.get(ty),
+            Some(Type::Optional(inner))
+                if matches!(
+                    self.mir.types.get(*inner),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                )
+        )
+    }
+
     /// Converts a place to its Rust text representation.
     pub(super) fn place_text(&self, place: &Place) -> Result<String, EmitError> {
         match place {
@@ -49,7 +63,7 @@ impl FunctionEmitter<'_> {
                         return Ok(format!("{base_text}.get(&{key_text}).cloned().flatten()"));
                     }
                     if self.mir.types.get(*key) == Some(&Type::String)
-                        && self.type_text_with_impl_trait(*value, false)? == "SmeltUnknown"
+                        && self.renders_erased(*value)?
                     {
                         // A property the record does not hold reads as
                         // `undefined` in JavaScript, never `null`. The two are
@@ -136,11 +150,11 @@ impl FunctionEmitter<'_> {
                         // arm an erased callable answered `null`, and es-toolkit
                         // `rest(func)` — whose default split point is
                         // `func.length - 1` — reshaped every call wrongly.
-                        return Ok(format!(
-                            "match {scrutinee} {{ SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), value @ SmeltUnknown::Function(_) => SmeltUnknown::Number({function_length}(&value)), SmeltUnknown::Object(map) => match smelt_get_object_field(&map, \"length\") {{ SmeltUnknown::Undefined | SmeltUnknown::Null if map.contains_key(\"__smelt_call\") => SmeltUnknown::Number({function_length}(&SmeltUnknown::Object(map))), value => value }}, _ => SmeltUnknown::Null }}",
+                        return Ok(self.carrier_format(format_args!(
+                            "match {scrutinee} {{ SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), value @ SmeltUnknown::Function(_) => SmeltUnknown::Number({function_length}(&value)), SmeltUnknown::Object(map) => match smelt_get_object_field(&map, \"length\") {{ SmeltUnknown::Undefined | SmeltUnknown::Null if map.contains_key(\"{SMELT_CALL}\") => SmeltUnknown::Number({function_length}(&SmeltUnknown::Object(map))), value => value }}, _ => SmeltUnknown::Null }}",
                             function_length =
                                 smelt_stdlib::runtime_symbols::function_length::READ,
-                        ));
+                        )));
                     }
                     // `AbortController`/`AbortSignal` methods are surfaced as
                     // runtime-helper-bound closures that mutate the shared abort
@@ -156,9 +170,9 @@ impl FunctionEmitter<'_> {
                             | "dispatchEvent"
                             | "throwIfAborted"
                     ) {
-                        return Ok(format!(
+                        return Ok(self.carrier_format(format_args!(
                             "match {scrutinee} {{ SmeltUnknown::Object(map) => smelt_host_method(&map, {field_name:?}).unwrap_or_else(|| smelt_get_object_field(&map, {field_name:?})), _ => SmeltUnknown::Undefined }}"
-                        ));
+                        )));
                     }
                     // `Function.prototype.apply`/`call` must resolve when the
                     // erased receiver is a `SmeltUnknown::Function` (not just an
@@ -205,13 +219,13 @@ impl FunctionEmitter<'_> {
                     if smelt_stdlib::typescript_field_rule(field_name)
                         == Some(smelt_stdlib::FieldRule::TsLength)
                     {
-                        return Ok(format!(
+                        return Ok(self.carrier_format(format_args!(
                             "match {base_text}.clone().unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"length\"), _ => SmeltUnknown::Null }}"
-                        ));
+                        )));
                     }
-                    return Ok(format!(
+                    return Ok(self.carrier_format(format_args!(
                         "smelt_get_unknown_field(&{base_text}.clone().unwrap_or(SmeltUnknown::Undefined), {field_name:?})"
-                    ));
+                    )));
                 }
                 if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
                     && let Some(Type::Dict(key_ty, _)) = self.mir.types.get(*inner)
@@ -221,15 +235,6 @@ impl FunctionEmitter<'_> {
                     let base_text = self.local_value_text(*base)?;
                     return Ok(format!(
                         "{base_text}.as_ref().and_then(|_smelt_value| _smelt_value.get({field_name:?}))"
-                    ));
-                }
-                if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
-                    && self.symbol_source_name(*field)? == "value"
-                {
-                    let wrapped = self.erase_value_text("value", *inner)?;
-                    return Ok(format!(
-                        "{}.clone().map_or(SmeltUnknown::Undefined, |value| {wrapped})",
-                        self.local_value_text(*base)?
                     ));
                 }
                 if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
@@ -337,7 +342,7 @@ impl FunctionEmitter<'_> {
                 if matches!(self.symbol_source_name(*field)?, "apply" | "call" | "bind")
                     && let Some(call_ty) = self.callable_interface_call_field_ty(base_ty)
                 {
-                    let call_field = format!("{}.__smelt_call.clone()", self.local_value_text(*base)?);
+                    let call_field = format!("{}.{SMELT_CALL}.clone()", self.local_value_text(*base)?);
                     return self.erase_value_text(&call_field, call_ty);
                 }
                 if matches!(self.mir.types.get(base_ty), Some(Type::String)) {
@@ -421,7 +426,7 @@ impl FunctionEmitter<'_> {
                 {
                     let base_text = self.local_value_text(*base)?;
                     let key = self.symbol_source_name(*field)?;
-                    return Ok(format!("{base_text}.__smelt_call.smelt_property({key:?})"));
+                    return Ok(format!("{base_text}.{SMELT_CALL}.smelt_property({key:?})"));
                 }
                 // A declared field of a reference class lives inside the shared
                 // cell. Read it through a narrow `borrow()` and clone the value
@@ -567,6 +572,12 @@ impl FunctionEmitter<'_> {
                         );
                         self.unknown_index_text(&base_text, index)
                     }
+                    // A narrowed optional union or `unknown` holds the value
+                    // the narrowing proved, whichever arm that is.
+                    Some(Type::Optional(_)) if self.is_optional_of_dynamic_shape(base_ty) => {
+                        let erased = self.erase_value_text(&self.local_value_text(*base)?, base_ty)?;
+                        self.unknown_index_text(&erased, index)
+                    }
                     Some(Type::Tuple(items)) => {
                         let tuple_index = self.tuple_index(index, items.len())?;
                         Ok(format!("{}.{tuple_index}", self.local_value_text(*base)?))
@@ -606,10 +617,10 @@ impl FunctionEmitter<'_> {
                     // unconditionally made `raw[key]()` (Hono's request body
                     // cache) call nothing.
                     Some(Type::Class { .. }) if self.mir.types.get(self.operand_ty(index)?) == Some(&Type::String)
-                        && crate::stdlib::needs_unknown_type(self.mir) =>
+                        && self.context.demand().has(Need::Unknown) =>
                     {
                         let base_text =
-                            format!("({}).clone().into_smelt_unknown()", self.local_value_text(*base)?);
+                            self.carrier_format(format_args!("({}).clone().into_smelt_unknown()", self.local_value_text(*base)?));
                         let index_ty = self.operand_ty(index)?;
                         let key_text =
                             self.property_key_to_string_text(&self.operand_text(index)?, index_ty)?;
@@ -801,7 +812,7 @@ impl FunctionEmitter<'_> {
         let Type::Class { name, .. } = self.mir.types.get(ty)? else {
             return None;
         };
-        let class = self.mir.classes.iter().find(|class| class.name == *name)?;
+        let class = crate::classes::find_class(self.mir, *name)?;
         if let Some(descriptor) = class
             .descriptors
             .iter()
@@ -847,11 +858,7 @@ impl FunctionEmitter<'_> {
         class_symbol: Symbol,
         descriptor: &MirDescriptor,
     ) -> Result<String, EmitError> {
-        let descriptor_class = self
-            .mir
-            .classes
-            .iter()
-            .find(|candidate| candidate.name == class_symbol)
+        let descriptor_class = crate::classes::find_class(self.mir, class_symbol)
             .ok_or_else(|| EmitError::new("descriptor class is not materialized"))?;
         let class_name = crate::classes::class_name_text(self.mir, descriptor_class)?;
         let fields = descriptor
@@ -877,8 +884,27 @@ impl FunctionEmitter<'_> {
 
     /// Converts a place to its Rust text representation for assignment.
     pub(super) fn assignment_place_text(&self, place: &Place) -> Result<String, EmitError> {
+        match self.assignment_place_target(place)? {
+            PlaceTarget::Direct(text) | PlaceTarget::SharedCell { text, .. } => Ok(text),
+        }
+    }
+
+    /// `text`, which writes through `base`, as a target behind `base`'s cell guard
+    /// when `base` lives in a shared cell.
+    fn place_target_through(&self, base: LocalId, text: String) -> Result<PlaceTarget, EmitError> {
+        Ok(match self.local_shared_cell(base)? {
+            Some(cell) => PlaceTarget::SharedCell { cell, text },
+            None => PlaceTarget::Direct(text),
+        })
+    }
+
+    /// The left-hand side an assignment to `place` writes.
+    pub(super) fn assignment_place_target(&self, place: &Place) -> Result<PlaceTarget, EmitError> {
         match place {
-            Place::Local(local) => self.local_mut_value_text(*local),
+            Place::Local(local) => {
+                let text = self.local_mut_value_text(*local)?;
+                self.place_target_through(*local, text)
+            }
             // A write through a mutable global is emitted as one whole
             // statement (`global_place_assign_text`) because the cell borrow
             // has to scope the mutation. There is no lvalue FRAGMENT that
@@ -908,7 +934,7 @@ impl FunctionEmitter<'_> {
                         let base_read = self.local_value_text(*base)?;
                         let index_text =
                             self.normalized_index_text(&format!("{base_read}.len()"), index, *negative)?;
-                        Ok(format!("{base_mut}[{index_text}]"))
+                        self.place_target_through(*base, format!("{base_mut}[{index_text}]"))
                     }
                     Some(Type::Dict(key_ty, _)) => {
                         let key_text = if self.mir.types.get(*key_ty) == Some(&Type::String) {
@@ -918,17 +944,15 @@ impl FunctionEmitter<'_> {
                         } else {
                             self.value_at_type(index, *key_ty)?
                         };
-                        Ok(format!(
+                        Ok(PlaceTarget::Direct(format!(
                             "*{}.get_mut(&{key_text}).expect(\"index out of bounds\")",
                             self.local_mut_value_text(*base)?
-                        ))
+                        )))
                     }
                     Some(Type::Tuple(items)) => {
                         let tuple_index = self.tuple_index(index, items.len())?;
-                        Ok(format!(
-                            "{}.{tuple_index}",
-                            self.local_mut_value_text(*base)?
-                        ))
+                        let text = format!("{}.{tuple_index}", self.local_mut_value_text(*base)?);
+                        self.place_target_through(*base, text)
                     }
                     _ => Err(EmitError::new(
                         "index assignment codegen is only implemented for lists, dicts, and tuples",
@@ -973,18 +997,19 @@ impl FunctionEmitter<'_> {
                 if self.is_reference_class_type(base_ty)
                     && self.class_has_named_field(base_ty, *field)
                 {
-                    return Ok(format!(
+                    return Ok(PlaceTarget::Direct(format!(
                         "{base_read_text}.0.borrow_mut().{}",
                         sanitize_ident(self.symbol_name(*field)?)
-                    ));
+                    )));
                 }
                 if self.structural_record_fields(base_ty).is_some() {
-                    return Ok(format!(
+                    let text = format!(
                         "{base_write_text}.{}",
                         sanitize_ident(self.symbol_name(*field)?)
-                    ));
+                    );
+                    return self.place_target_through(*base, text);
                 }
-                self.place_text(place)
+                Ok(PlaceTarget::Direct(self.place_text(place)?))
             }
         }
     }
@@ -1028,9 +1053,9 @@ impl FunctionEmitter<'_> {
             || self.dict_uses_js_key_map(key_ty))
             && value_is_unknownish
         {
-            Ok(format!(
+            Ok(self.carrier_format(format_args!(
                 "{base_text}.get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Undefined)"
-            ))
+            )))
         } else if self.dict_uses_smelt_record(key_ty)
             || self.dict_uses_js_key_map(key_ty)
         {
@@ -1038,9 +1063,9 @@ impl FunctionEmitter<'_> {
                 "{base_text}.get(&{key_text}).unwrap_or({default_value})"
             ))
         } else if value_is_unknownish {
-            Ok(format!(
+            Ok(self.carrier_format(format_args!(
                 "{base_text}.get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Undefined)"
-            ))
+            )))
         } else {
             Ok(format!(
                 "{base_text}.get(&{key_text}).cloned().unwrap_or({default_value})"
@@ -1109,7 +1134,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) && self.concrete_union_members(item_ty).is_none()
         {
-            return Ok("SmeltUnknown::Undefined".to_owned());
+            return Ok(self.carrier_text("SmeltUnknown::Undefined"));
         }
         self.default_value(item_ty)
     }
@@ -1348,17 +1373,17 @@ impl FunctionEmitter<'_> {
                     self.normalized_read_index_text(&format!("{base_text}.len()"), index, *negative)?;
                 let erased_value = self.erase_value_text("value", item_ty)?;
                 let read_text = list_read_text(&base_text);
-                Ok(Some(format!(
+                Ok(Some(self.carrier_format(format_args!(
                     "{read_text}.get({index_text}).cloned().map(|value| {erased_value}).unwrap_or(SmeltUnknown::Undefined)"
-                )))
+                ))))
             }
             Some(Type::String) => {
                 let base_text = self.local_value_text(*base)?;
                 let index_text = self
                     .normalized_read_index_text(&format!("{base_text}.chars().count()"), index, *negative)?;
-                Ok(Some(format!(
+                Ok(Some(self.carrier_format(format_args!(
                     "{base_text}.chars().nth({index_text}).map(|ch| SmeltUnknown::String(ch.to_string().into())).unwrap_or(SmeltUnknown::Undefined)"
-                )))
+                ))))
             }
             // A keyed RECORD read misses like an element read (a missing key
             // is `undefined`), and `SmeltRecord::get` already answers the miss
@@ -1374,9 +1399,9 @@ impl FunctionEmitter<'_> {
                 let base_text = self.local_value_text(*base)?;
                 let key_text = self.dict_key_reference_text(index, key_ty)?;
                 let erased_value = self.erase_value_text("value", value_ty)?;
-                Ok(Some(format!(
+                Ok(Some(self.carrier_format(format_args!(
                     "{base_text}.get({key_text}).map(|value| {erased_value}).unwrap_or(SmeltUnknown::Undefined)"
-                )))
+                ))))
             }
             _ => Ok(None),
         }
@@ -1447,9 +1472,9 @@ impl FunctionEmitter<'_> {
             {
                 let scrutinee =
                     self.erase_concrete_union_text(&cloned_value_text(&index_text), index_ty);
-                format!(
+                self.carrier_format(format_args!(
                     "match {scrutinee} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
-                )
+                ))
             }
             _ => "f64::NAN".to_owned(),
         };

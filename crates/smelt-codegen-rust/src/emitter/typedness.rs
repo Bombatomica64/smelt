@@ -234,7 +234,7 @@ fn measure_body(
         for statement in &block.statements {
             match statement {
                 Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => {
-                    value.for_each_operand(&mut read);
+                    value.reads(&mut read);
                 }
                 Statement::DictEntryUpdate {
                     index,
@@ -244,9 +244,8 @@ fn measure_body(
                 } => {
                     read(index);
                     read(default);
-                    value.for_each_operand(&mut read);
+                    value.reads(&mut read);
                 }
-                Statement::StorageLive(_) | Statement::StorageDead(_) => {}
             }
         }
         match &block.terminator {
@@ -262,7 +261,7 @@ fn measure_body(
                 scrutinee: operand, ..
             })
             | Some(Terminator::Return(operand) | Terminator::Throw(operand)) => read(operand),
-            Some(Terminator::Goto(_) | Terminator::Unreachable) | None => {}
+            Some(Terminator::Goto(_)) | None => {}
         }
         for statement in &block.statements {
             if let Statement::Assign { dest, value } = statement
@@ -283,7 +282,7 @@ fn measure_body(
             {
                 let result =
                     local_ty(*dest).map_or(Typedness::Erased, |ty| emitter.typedness_of(ty));
-                let through = operand_local(receiver)
+                let through = receiver.local()
                     .and_then(local_ty)
                     .map_or(Typedness::Concrete, |ty| emitter.typedness_of(ty));
                 if matches!(value, Rvalue::BoundField { .. }) {
@@ -302,7 +301,7 @@ fn measure_body(
             {
                 let result =
                     local_ty(*dest).map_or(Typedness::Erased, |ty| emitter.typedness_of(ty));
-                let callee = operand_local(callee)
+                let callee = callee.local()
                     .and_then(local_ty)
                     .map(|ty| emitter.typedness_of(ty))
                     .or_else(|| projected_read(emitter, callee, &local_ty))
@@ -313,7 +312,7 @@ fn measure_body(
         if let Some(Terminator::Call { callee, dest, .. }) = &block.terminator {
             let result = local_ty(*dest).map_or(Typedness::Erased, |ty| emitter.typedness_of(ty));
             let callee = match callee {
-                Callee::Indirect(operand) => operand_local(operand)
+                Callee::Indirect(operand) => operand.local()
                     .and_then(local_ty)
                     .map_or(Typedness::Concrete, |ty| emitter.typedness_of(ty)),
                 Callee::Static(_) | Callee::Builtin(_) | Callee::BaseInit(_) => {
@@ -325,88 +324,29 @@ fn measure_body(
     }
 }
 
-/// Every local a body defines or reads: statement and phi destinations,
+/// Every local a body defines or reads: statement destinations,
 /// call and await results, exception bindings, and every local an operand or
 /// place mentions.
 fn referenced_locals(blocks: &[BasicBlock]) -> std::collections::HashSet<smelt_mir::LocalId> {
-    fn place(place: &Place, out: &mut std::collections::HashSet<smelt_mir::LocalId>) {
-        match place {
-            Place::Local(local) | Place::Field { base: local, .. } => {
-                out.insert(*local);
-            }
-            Place::Index { base, index, .. } => {
-                out.insert(*base);
-                operand(index, out);
-            }
-            Place::Global { .. } => {}
-        }
-    }
-    fn operand(value: &Operand, out: &mut std::collections::HashSet<smelt_mir::LocalId>) {
-        if let Operand::Copy(read) | Operand::Move(read) = value {
-            place(read, out);
-        }
-    }
     let mut out = std::collections::HashSet::new();
     for block in blocks {
-        for phi in &block.phis {
-            out.insert(phi.dest);
-            for (_, incoming) in &phi.incoming {
-                operand(incoming, &mut out);
-            }
-        }
         for statement in &block.statements {
-            match statement {
-                Statement::Assign { dest, value } => {
-                    out.insert(*dest);
-                    value.for_each_operand(|read| operand(read, &mut out));
-                }
-                Statement::AssignPlace { place: target, value } => {
-                    place(target, &mut out);
-                    value.for_each_operand(|read| operand(read, &mut out));
-                }
-                Statement::DictEntryUpdate { base, index, default, current, value } => {
-                    out.insert(*base);
-                    out.insert(*current);
-                    operand(index, &mut out);
-                    operand(default, &mut out);
-                    value.for_each_operand(|read| operand(read, &mut out));
-                }
-                Statement::StorageLive(local) | Statement::StorageDead(local) => {
-                    out.insert(*local);
-                }
-            }
+            out.extend(statement.defs());
+            statement.read_locals(|local| {
+                out.insert(local);
+            });
         }
-        match &block.terminator {
-            Some(Terminator::Call { callee, args, dest, unwind, .. }) => {
-                out.insert(*dest);
-                if let Callee::Indirect(callee) = callee {
-                    operand(callee, &mut out);
-                }
-                for arg in args {
-                    operand(arg, &mut out);
-                }
+        if let Some(terminator) = &block.terminator {
+            out.extend(terminator.defs());
+            terminator.read_locals(|local| {
+                out.insert(local);
+            });
+            if let Terminator::Call { unwind, .. } | Terminator::Await { unwind, .. } = terminator {
                 out.extend(unwind.and_then(|handler| handler.exception_local));
             }
-            Some(Terminator::Await { future, dest, unwind, .. }) => {
-                out.insert(*dest);
-                operand(future, &mut out);
-                out.extend(unwind.and_then(|handler| handler.exception_local));
-            }
-            Some(Terminator::Switch { cond: read, .. })
-            | Some(Terminator::Match { scrutinee: read, .. })
-            | Some(Terminator::Return(read) | Terminator::Throw(read)) => operand(read, &mut out),
-            Some(Terminator::Goto(_) | Terminator::Unreachable) | None => {}
         }
     }
     out
-}
-
-/// The local an operand reads, when it reads a whole local.
-fn operand_local(operand: &Operand) -> Option<smelt_mir::LocalId> {
-    match operand {
-        Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => Some(*local),
-        _ => None,
-    }
 }
 
 /// The typedness of an operand that reads a field or element of a local
@@ -522,11 +462,7 @@ impl FunctionEmitter<'_> {
             (Type::Tuple(items), None) => Some(items.clone()),
             (Type::Dict(_, value) | Type::JsMap(_, value), _) => Some(vec![*value]),
             (Type::Class { name, args }, Some(field)) => {
-                let (params, fields) = self
-                    .mir
-                    .classes
-                    .iter()
-                    .find(|class| class.name == *name)
+                let (params, fields) = crate::classes::find_class(self.mir, *name)
                     .map(|class| (&class.type_params, &class.fields))
                     .or_else(|| {
                         self.mir
@@ -547,7 +483,7 @@ impl FunctionEmitter<'_> {
                     .map(|def| def.name)
                     .zip(args.iter().copied())
                     .collect();
-                Some(vec![crate::classes::substitute_existing_type(
+                Some(vec![crate::generic_bindings::substitute_existing_type(
                     self.mir,
                     declared,
                     &substitutions,
@@ -559,7 +495,7 @@ impl FunctionEmitter<'_> {
 
     /// Classify one type as the Rust output renders it in this function.
     pub(crate) fn typedness_of(&self, ty: TypeId) -> Typedness {
-        let Ok(text) = self.type_text(ty) else {
+        let Ok(text) = self.signature_type_text(ty) else {
             return Typedness::Erased;
         };
         if mentions_erased(&text) {

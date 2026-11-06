@@ -3191,43 +3191,6 @@ impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq
     }
 }
 
-#[derive(Clone)]
-#[allow(dead_code)]
-struct Respond {
-    __smelt_call: ::std::rc::Rc<dyn Fn(String, Option<f64>, Option<String>) -> String>,
-}
-impl Default for Respond {
-    fn default() -> Self {
-        Self {
-            __smelt_call: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, Option<f64>, Option<String>) -> String> = ::std::rc::Rc::new(move |arg0: String, arg1: Option<f64>, arg2: Option<String>| -> String { String::new() }); smelt_default_callback },
-        }
-    }
-}
-impl ::std::fmt::Debug for Respond {
-    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        formatter.debug_struct("Respond").finish_non_exhaustive()
-    }
-}
-impl IntoSmeltUnknown for Respond {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("__smelt_call".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(String, Option<f64>, Option<String>) -> String> = self.__smelt_call.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(2).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
-        ])))
-    }
-}
-impl SmeltFromUnknown for Respond {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("__smelt_call") {
-                let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
-                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String, Option<f64>, Option<String>) -> String>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
-            }
-        }
-        result
-    }
-}
-
 thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;
@@ -3647,6 +3610,45 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
+#[derive(Clone)]
+#[allow(dead_code)]
+struct Respond {
+    __smelt_call: ::std::rc::Rc<dyn Fn(String, Option<f64>, Option<String>) -> String>,
+}
+impl Default for Respond {
+    fn default() -> Self {
+        Self {
+            __smelt_call: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, Option<f64>, Option<String>) -> String> = ::std::rc::Rc::new(move |arg0: String, arg1: Option<f64>, arg2: Option<String>| -> String { String::new() }); smelt_default_callback },
+        }
+    }
+}
+impl ::std::fmt::Debug for Respond {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        formatter.debug_struct("Respond").finish_non_exhaustive()
+    }
+}
+impl IntoSmeltUnknown for Respond {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("__smelt_call".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(String, Option<f64>, Option<String>) -> String> = self.__smelt_call.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(2).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
+        ])))
+    }
+}
+impl SmeltFromUnknown for Respond {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("__smelt_call") {
+                let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
+                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String, Option<f64>, Option<String>) -> String>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
+            }
+        }
+        result
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Box_ {
 }
@@ -3713,8 +3715,6 @@ impl SmeltFromUnknown for Ctx {
     }
 }
 
-// @smelt:prelude-end — generated program below
-
 fn main() {
     let __smelt_spread: (String, f64);
     let ctx: Ctx;
@@ -3728,8 +3728,7 @@ fn main() {
     let _smelt_tmp_25: ::std::rc::Rc<dyn Fn(String, Option<f64>, Option<String>) -> String>;
     let _smelt_tmp_26: String;
     let _smelt_tmp_6 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: f64, closure_arg_2: bool| {
-    let _smelt_tmp_4: (String, f64, bool) = (closure_arg_0.clone(), closure_arg_1, closure_arg_2);
-    let args: (String, f64, bool) = _smelt_tmp_4.clone();
+    let args: (String, f64, bool) = (closure_arg_0.clone(), closure_arg_1, closure_arg_2);
     let _smelt_tmp_5: String = args.clone().0.clone();
     let _smelt_tmp_6: String = "".to_owned() + &_smelt_tmp_5.clone();
     let _smelt_tmp_7: f64 = args.clone().1.clone();
@@ -3740,16 +3739,14 @@ fn main() {
     });
     let triple = _smelt_tmp_6.clone();
     let _smelt_tmp_7 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: f64| {
-    let _smelt_tmp_4: (String, f64) = (closure_arg_0.clone(), closure_arg_1);
-    let args: (String, f64) = _smelt_tmp_4.clone();
+    let args: (String, f64) = (closure_arg_0.clone(), closure_arg_1);
     let __smelt_spread: (String, f64) = args.clone();
     let _smelt_tmp_5: String = pair(__smelt_spread.0.clone(), Some(__smelt_spread.1));
     _smelt_tmp_5.clone()
     });
     let handler = _smelt_tmp_7.clone();
     let _smelt_tmp_8 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: f64| {
-    let _smelt_tmp_3: (String, f64) = (closure_arg_0.clone(), closure_arg_1);
-    let args: (String, f64) = _smelt_tmp_3.clone();
+    let args: (String, f64) = (closure_arg_0.clone(), closure_arg_1);
     let _smelt_tmp_4: f64 = 2 as f64;
     let _smelt_tmp_5: String = "".to_owned() + &smelt_number_to_string(_smelt_tmp_4);
     let _smelt_tmp_6: String = _smelt_tmp_5.clone() + &":".to_owned();
@@ -3826,8 +3823,7 @@ impl Ctx {
     let _smelt_tmp_1 = ::std::rc::Rc::new({
     let smelt_self = self.clone();
     move |closure_arg_0: String, closure_arg_1: Option<f64>, closure_arg_2: Option<String>| {
-    let _smelt_tmp_6: (String, Option<f64>, Option<String>) = (closure_arg_0.clone(), closure_arg_1.clone(), closure_arg_2.clone());
-    let args: (String, Option<f64>, Option<String>) = _smelt_tmp_6.clone();
+    let args: (String, Option<f64>, Option<String>) = (closure_arg_0.clone(), closure_arg_1.clone(), closure_arg_2.clone());
     let __smelt_spread: (String, Option<f64>, Option<String>) = args.clone();
     let _smelt_tmp_7: Option<f64> = __smelt_spread.clone().1.clone();
     let _smelt_tmp_8: Option<String> = __smelt_spread.clone().2.clone();

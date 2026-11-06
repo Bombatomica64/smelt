@@ -59,10 +59,11 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::CliResult;
-
-/// Report output format; the `--format` value enum shared by every report.
-pub(crate) type UnknownReportFormat = crate::cli_parser::ReportFormat;
+use crate::{
+    CliResult,
+    report::{self, GatedOutcome, ReportFormat, bump, escape_cell},
+    source_files::discover_rust_files,
+};
 
 /// Options controlling one `SmeltUnknown` report run.
 pub(crate) struct UnknownReportOptions<'a> {
@@ -70,16 +71,13 @@ pub(crate) struct UnknownReportOptions<'a> {
     /// walked recursively for `.rs` files.
     pub(crate) roots: &'a [PathBuf],
     /// Report serialization format.
-    pub(crate) format: UnknownReportFormat,
+    pub(crate) format: ReportFormat,
     /// Optional prior JSON report used to compute per-category deltas. Comparing
     /// against a baseline is advisory by default: it surfaces regressions without
     /// failing the command, so intentional boundary additions are never blocked.
     pub(crate) baseline: Option<PathBuf>,
-    /// When `true` and a `baseline` is provided, a rise in avoidable erasure above
-    /// the baseline is reported as a [`Regression`] so the caller can exit
-    /// nonzero. Defaults to `false`, preserving the historic advisory-only
-    /// behavior.
-    pub(crate) fail_on_regression: bool,
+    /// Rewrite `baseline` with this scan, unless avoidable erasure rose.
+    pub(crate) update_baseline: bool,
     /// Explicit `smelt-erasure.json` sidecars to read (`--erasure`). Besides
     /// these, a sidecar beside a scanned directory (`<root>/../smelt-erasure.json`,
     /// the layout `smelt build` writes next to `src/`) or inside it is read
@@ -101,16 +99,6 @@ pub(crate) struct Regression {
     /// The files contributing the most avoidable-erasure occurrences in the
     /// current scan, most first, capped to a readable count.
     pub(crate) top_files: Vec<(String, usize)>,
-}
-
-/// Outcome of a report run: the rendered text plus any regression the caller may
-/// want to act on.
-pub(crate) struct UnknownReportOutcome {
-    /// The report serialized in the requested format.
-    pub(crate) rendered: String,
-    /// Set only when `fail_on_regression` is requested, a baseline is present,
-    /// and avoidable erasure rose above it.
-    pub(crate) regression: Option<Regression>,
 }
 
 /// Classification of a single `SmeltUnknown` occurrence.
@@ -213,37 +201,38 @@ const TOP_OFFENDER_LIMIT: usize = 10;
 
 /// Run a `SmeltUnknown` scan and render the report in the requested format.
 ///
-/// The returned [`UnknownReportOutcome`] carries the rendered text and, when
-/// `fail_on_regression` is set and avoidable erasure rose above the baseline, a
-/// [`Regression`] the caller can turn into a nonzero exit. The rendered report is
-/// identical regardless of `fail_on_regression`; only the caller's exit behavior
-/// changes.
+/// The returned [`GatedOutcome`] carries the rendered text and, when avoidable
+/// erasure rose above the baseline, the message of the [`Regression`]; only
+/// `--fail-on-regression` turns that into a nonzero exit.
 pub(crate) fn unknown_report(
     options: &UnknownReportOptions<'_>,
-) -> CliResult<UnknownReportOutcome> {
+) -> CliResult<GatedOutcome> {
     let files = discover_rust_files(options.roots)?;
     let mut scan = scan_files(&files)?;
     let sidecars = discover_erasure_sidecars(options.roots, options.erasure_sidecars)?;
     if !sidecars.is_empty() {
         scan.report.erasure = Some(crate::erasure::breakdown(&sidecars));
     }
-    let report = &scan.report;
+    let scanned = &scan.report;
     let baseline = match &options.baseline {
-        Some(path) => Some(load_baseline(path)?),
+        Some(path) if options.update_baseline && !path.is_file() => None,
+        Some(path) => Some(report::load_json::<UnknownReport>(path, "baseline ")?),
         None => None,
     };
+    if options.update_baseline
+        && let Some(path) = &options.baseline
+    {
+        let updated = updated_baseline(scanned, baseline.as_ref());
+        report::write_if_changed(path, &serde_json::to_string_pretty(updated)?)?;
+    }
     let rendered = match options.format {
-        UnknownReportFormat::Json => serde_json::to_string_pretty(report)?,
-        UnknownReportFormat::Markdown => render_markdown(report, baseline.as_ref()),
+        ReportFormat::Json => serde_json::to_string_pretty(scanned)?,
+        ReportFormat::Markdown => render_markdown(scanned, baseline.as_ref()),
     };
-    let regression = if options.fail_on_regression {
-        detect_regression(&scan, baseline.as_ref())
-    } else {
-        None
-    };
-    Ok(UnknownReportOutcome {
+    let regression = baseline.as_ref().and_then(|prior| detect_regression(&scan, prior));
+    Ok(GatedOutcome {
         rendered,
-        regression,
+        regression: regression.as_ref().map(regression_message),
     })
 }
 
@@ -274,15 +263,47 @@ fn discover_erasure_sidecars(
         .collect()
 }
 
+/// The gate's failure message: the delta and the files that contribute the
+/// most, so reviewers know where to look first.
+fn regression_message(regression: &Regression) -> String {
+    let mut message = format!(
+        "avoidable erasure regressed: {} > {} (baseline), +{} occurrence(s)",
+        regression.current, regression.baseline, regression.delta,
+    );
+    if !regression.top_files.is_empty() {
+        message.push_str("\ntop offending files:");
+        for (file, count) in &regression.top_files {
+            let _ = write!(message, "\n  {count:>6}  {file}");
+        }
+    }
+    message.push_str(
+        "\nReclassify a genuine boundary (with a code comment + regression test) \
+         and re-snapshot the baseline, or reduce the erasure. See the \
+         `SmeltUnknown enforcement` policy in AGENTS.md.",
+    );
+    message
+}
+
+/// The report `--update-baseline` writes: the scan, unless avoidable erasure
+/// rose above `baseline`, which then stands, so a regression can never be
+/// snapshotted. The report has no per-file records to keep selectively, so the
+/// guard is on the corpus total the gate itself judges.
+fn updated_baseline<'report>(
+    scanned: &'report UnknownReport,
+    baseline: Option<&'report UnknownReport>,
+) -> &'report UnknownReport {
+    let avoidable = |report: &UnknownReport| report.category_total(Category::AvoidableErasure);
+    baseline.filter(|prior| avoidable(scanned) > avoidable(prior)).unwrap_or(scanned)
+}
+
 /// Compute an avoidable-erasure [`Regression`] versus `baseline`, if any.
 ///
-/// Returns `None` when there is no baseline, or when avoidable erasure did not
-/// rise above it — a flat or falling count is never a regression. The top
+/// Returns `None` when avoidable erasure did not rise above the baseline — a
+/// flat or falling count is never a regression. The top
 /// offending files are ranked by their avoidable-erasure occurrence count in the
 /// current scan, so the message points reviewers at where to look first.
-fn detect_regression(scan: &ScanResult, baseline: Option<&UnknownReport>) -> Option<Regression> {
-    let baseline_report = baseline?;
-    let baseline_avoidable = baseline_report.category_total(Category::AvoidableErasure);
+fn detect_regression(scan: &ScanResult, baseline: &UnknownReport) -> Option<Regression> {
+    let baseline_avoidable = baseline.category_total(Category::AvoidableErasure);
     let current_avoidable = scan.report.category_total(Category::AvoidableErasure);
     let delta = current_avoidable.checked_sub(baseline_avoidable)?;
     if delta == 0 {
@@ -302,58 +323,6 @@ fn detect_regression(scan: &ScanResult, baseline: Option<&UnknownReport>) -> Opt
         delta,
         top_files,
     })
-}
-
-/// Load a prior JSON report to diff against, mapping IO/parse errors into the
-/// CLI error type with the offending path.
-fn load_baseline(path: &Path) -> CliResult<UnknownReport> {
-    let text = std::fs::read_to_string(path)
-        .map_err(|error| format!("failed to read baseline `{}`: {error}", path.display()))?;
-    let report = serde_json::from_str::<UnknownReport>(&text)
-        .map_err(|error| format!("failed to parse baseline `{}`: {error}", path.display()))?;
-    Ok(report)
-}
-
-/// Expand the requested roots into a sorted, de-duplicated list of `.rs` files.
-///
-/// Directories are walked recursively. Sorting makes the first-seen example for
-/// each shape deterministic across runs and platforms.
-fn discover_rust_files(roots: &[PathBuf]) -> CliResult<Vec<PathBuf>> {
-    let mut files = Vec::new();
-    for root in roots {
-        collect_rust_files(root, &mut files)?;
-    }
-    files.sort();
-    files.dedup();
-    Ok(files)
-}
-
-/// Recursively collect `.rs` files under `root` (or `root` itself when it is a
-/// single `.rs` file) into `out`.
-fn collect_rust_files(root: &Path, out: &mut Vec<PathBuf>) -> CliResult<()> {
-    let metadata = std::fs::metadata(root)
-        .map_err(|error| format!("failed to stat `{}`: {error}", root.display()))?;
-    if metadata.is_file() {
-        if root.extension().and_then(|ext| ext.to_str()) == Some("rs") {
-            out.push(root.to_path_buf());
-        }
-        return Ok(());
-    }
-    // Read directory entries in a stable order so the walk is deterministic.
-    let mut entries = std::fs::read_dir(root)
-        .map_err(|error| format!("failed to read directory `{}`: {error}", root.display()))?
-        .map(|dir_entry| dir_entry.map(|entry| entry.path()))
-        .collect::<Result<Vec<_>, _>>()?;
-    entries.sort();
-    for entry in entries {
-        // Skip Cargo build output; it duplicates generated sources and would
-        // double-count while making the scan non-deterministic across machines.
-        if entry.file_name().and_then(|name| name.to_str()) == Some("target") {
-            continue;
-        }
-        collect_rust_files(&entry, out)?;
-    }
-    Ok(())
 }
 
 /// Format a file path for report examples, relative to `base` when possible.
@@ -405,14 +374,19 @@ fn scan_files(files: &[PathBuf]) -> CliResult<ScanResult> {
         // Track which shapes appeared in this file to count distinct files.
         let mut seen_here: std::collections::BTreeSet<ShapeKey> = std::collections::BTreeSet::new();
         let mut boundary = PreludeBoundary::of(&text);
+        let mut adapter = AdapterBody::default();
         for (index, line) in text.lines().enumerate() {
             let site = boundary.advance(index, line);
+            let in_adapter = adapter.advance(line);
             let count = count_value_erasures(line);
             if count == 0 {
                 continue;
             }
             let category = match site {
                 LineSite::Prelude => Category::RuntimePrelude,
+                LineSite::Program { in_prelude_helper: false } if in_adapter => {
+                    Category::LegitimateBoundary
+                }
                 LineSite::Program { in_prelude_helper } => classify_line(line, in_prelude_helper),
             };
             let shape = normalize_line(line);
@@ -465,16 +439,6 @@ fn scan_files(files: &[PathBuf]) -> CliResult<ScanResult> {
         },
         avoidable_by_file,
     })
-}
-
-/// Add `amount` to the counter stored under `key`, inserting it if absent.
-///
-/// Saturating so a pathological corpus can never overflow the tally.
-fn bump<K: Ord>(counts: &mut BTreeMap<K, usize>, key: K, amount: usize) {
-    counts
-        .entry(key)
-        .and_modify(|count| *count = count.saturating_add(amount))
-        .or_insert(amount);
 }
 
 /// Count non-overlapping occurrences of `needle` in `haystack`.
@@ -592,6 +556,57 @@ impl PreludeBoundary {
     }
 }
 
+/// Tracks whether the scan is inside a generated boundary adapter.
+///
+/// An adapter converts one program type to or from the erased form, so its body
+/// is the sanctioned typed-to-erased crossing itself: `SmeltUnknown` there is
+/// the adapter's purpose, not a value that lost its type. Classifying by the
+/// enclosing item keeps the rule narrow: erasure in a program field, signature
+/// or method still reads as avoidable, even beside an adapter in the same
+/// `impl`.
+#[derive(Debug, Clone, Copy, Default)]
+struct AdapterBody {
+    /// The exact line that closes the open adapter, while inside one.
+    closing: Option<&'static str>,
+}
+
+impl AdapterBody {
+    /// Whether `line` belongs to an adapter, advancing past it.
+    fn advance(&mut self, line: &str) -> bool {
+        if let Some(closing) = self.closing {
+            if line == closing {
+                self.closing = None;
+            }
+            return true;
+        }
+        let Some(closing) = adapter_item_closing(line) else {
+            return false;
+        };
+        if opens_more_braces_than_it_closes(line) {
+            self.closing = Some(closing);
+        }
+        true
+    }
+}
+
+/// The line closing the adapter that `line` opens, if it opens one.
+///
+/// Trait impls are matched by the trait they implement: a generic bound such
+/// as `impl<T: IntoSmeltUnknown> Default for Cell<T>` names the trait too, and
+/// is not an adapter. `from_smelt_unknown` is matched as a method because its
+/// `impl` block also holds the program's own methods.
+fn adapter_item_closing(line: &str) -> Option<&'static str> {
+    let implements_adapter = line.starts_with("impl")
+        && (line.contains(" IntoSmeltUnknown for ") || line.contains(" SmeltFromUnknown for "));
+    if implements_adapter
+        || line.starts_with("fn __smelt_from_unknown_record_")
+        || line.starts_with("fn smelt_decode_")
+    {
+        return Some("}");
+    }
+    line.starts_with("    fn from_smelt_unknown(").then_some("    }")
+}
+
 /// Update whether we are inside a `smelt_*` runtime prelude helper definition.
 ///
 /// The prelude helpers are emitted as free functions named `smelt_...` (or `fn
@@ -678,9 +693,10 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
+    use smelt_stdlib::runtime_symbols::boundary;
     const BOUNDARY_MARKERS: [&str; 41] = [
-        "SmeltUnknown::Function",
-        "SmeltUnknown::Promise",
+        boundary::FUNCTION_TAG,
+        boundary::PROMISE_TAG,
         // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
         // meaning is a unique runtime identity with no static counterpart:
         // there is no struct, no generated union arm and no scoped generic that
@@ -692,7 +708,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // `computed_key_symbols::unique_symbol_key`). What stays erased is only
         // the symbol as a first-class VALUE. Proven in
         // `symbol_value_is_a_boundary` below.
-        "SmeltUnknown::Symbol",
+        boundary::SYMBOL_TAG,
         // Recovering a symbol VALUE from the property key it indexed:
         // `Object.getOwnPropertySymbols` and erased-Map enumeration hand a
         // stored key back to the program AS A SYMBOL through the emitted
@@ -707,7 +723,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // the call site needs its own marker to keep the classification it had
         // when the same conversion was spelled inline. Proven in
         // `symbol_key_inverse_is_a_boundary` below.
-        "smelt_own_symbol_key_value",
+        boundary::OWN_SYMBOL_KEY_VALUE,
         // Aliasing an erased generic array into another erased slot
         // (`crates/smelt-codegen-rust/src/erased_list_alias.rs`). A `T[]` whose
         // `T` is out of scope is rendered under the erased-generic ABI as
@@ -770,7 +786,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // names. A source that knows the shape writes `JSON.parse<T>` or
         // `as T`, which lower to a typed target and never reach this adapter
         // with an erased result. Proven in `untyped_json_parse_is_a_boundary`.
-        "smelt_json_parse(",
+        boundary::JSON_PARSE_CALL,
         // A `node:sqlite` ROW read (`statement.all(..)` / `statement.get(..)`):
         // the row's columns are whatever the SQL text selects, decided when the
         // statement runs — `SELECT *` over a table another program altered
@@ -780,12 +796,12 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // this list: they bind at their own Rust types (`SmeltSqliteBind`), so
         // an erased parameter still counts as avoidable. Proven in
         // `sqlite_row_read_is_a_boundary`.
-        "smelt_sqlite_all(",
-        "smelt_sqlite_get(",
-        "IntoSmeltUnknown",
-        "into_smelt_unknown",
-        "to_smelt_unknown",
-        "js_typeof",
+        boundary::SQLITE_ALL_CALL,
+        boundary::SQLITE_GET_CALL,
+        boundary::INTO_TRAIT,
+        boundary::INTO_METHOD,
+        boundary::TO_METHOD,
+        boundary::JS_TYPEOF,
         // `typeof` over an erased value reads that value's runtime tag: the same
         // runtime-narrowing boundary `js_typeof`/`tag_check` name, just factored
         // into one prelude helper instead of an inlined `match` per site (see
@@ -795,9 +811,9 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // comparable across a baseline diff. `typeof` over a CONCRETE union does
         // not reach this marker -- it stays an inline per-member match and names
         // no `SmeltUnknown` at all. Proven in `erased_typeof_call_is_a_boundary`.
-        "smelt_typeof(",
-        "tag_check",
-        "smelt_unknown_is_",
+        boundary::TYPEOF_CALL,
+        boundary::TAG_CHECK,
+        boundary::UNKNOWN_IS_PREFIX,
         // The exception-payload ABI (`crates/smelt-codegen-rust/src/thrown.rs`).
         // `throw` accepts any JavaScript value, a `catch` binding has no static
         // type, and every fallible generated function shares one error channel
@@ -811,8 +827,8 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // field-bearing record and a bare string through one function's channel on
         // a run-time branch and recovers both at a single `catch`: no concrete
         // type, generated union arm, or scoped generic can express that.
-        "smelt_throw(",
-        "smelt_thrown_value(",
+        boundary::THROW_CALL,
+        boundary::THROWN_VALUE_CALL,
         // The value a `finally` holds while its clause runs on an exceptional
         // exit (`smelt_mir::PENDING_THROWN_LOCAL`, see `lower_try_catch`): the
         // same exception payload as the two adapters above, parked between
@@ -837,14 +853,14 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // this to the recovery site: an ordinary `new Error(msg)` record built
         // from program values is unaffected and stays classified as it was.
         // Proven in `panic_recovery_payload_is_a_boundary` below.
-        "SmeltUnknown::String(__smelt_error",
+        boundary::THROWN_STRING,
         // `.slice()` on an erased receiver (a generic `T` / `unknown` value that
         // may be an array, string, or a typed-array/array-buffer marker at
         // runtime) emits a `smelt_slice_value` tag match that dispatches on the
         // `SmeltUnknown` variant — a genuine runtime-narrowing boundary. A
         // concrete type is unavailable precisely because the receiver is erased,
         // so this is a boundary adapter, not avoidable program-storage erasure.
-        "smelt_slice_value",
+        boundary::SLICE_VALUE,
         // The erased callable-object ABI. A TypeScript interface with call
         // signatures lowers to a record whose synthetic `__smelt_call` slot
         // holds the underlying callable; when the interface declares several
@@ -862,7 +878,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // (`ambiguous_same_arity_call_signatures_answer_the_erased_call_result`,
         // `call_beyond_every_declared_overload_arity_keeps_its_arguments`,
         // `same_arity_call_signatures_are_selected_by_argument_type`).
-        "__smelt_call",
+        boundary::CALL_SLOT,
         // The JavaScript `this` receiver channel
         // (`smelt_push_this`/`smelt_this`/`smelt_bind_this`, emitted for
         // `ExprKind::ThisRead` and `ExprKind::BindThis`). `this` is supplied by
@@ -879,10 +895,10 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // receiver types at runtime, and the callable's Rust signature is fixed
         // when it is created, before any of them is known. Proven in
         // `this_receiver_channel_is_a_boundary` below.
-        "smelt_push_this(",
-        "smelt_push_this_lazy(",
-        "smelt_this()",
-        "smelt_bind_this(",
+        boundary::PUSH_THIS_CALL,
+        boundary::PUSH_THIS_LAZY_CALL,
+        boundary::THIS_CALL,
+        boundary::BIND_THIS_CALL,
         // The erased class-prototype slot
         // (`crates/smelt-codegen-rust/src/class_proto.rs`). A generated class
         // keeps its concrete struct and its precisely typed inherent methods;
@@ -899,8 +915,8 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // middle, an erased result out. Proven in
         // `erased_class_prototype_slot_is_a_boundary` below and executed by
         // `crates/smelt-codegen-rust/tests/erased_class_method_runtime.rs`.
-        "__smelt_proto_entries",
-        "smelt_proto_entries",
+        boundary::PROTO_ENTRIES_LOCAL,
+        boundary::PROTO_ENTRIES,
         // The canonical erased property read
         // (`crates/smelt-codegen-rust/src/lib.rs`, `smelt_get_unknown_field`):
         // a member looked up by STRING NAME on a value whose static type is
@@ -915,7 +931,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // `match` whose `SmeltUnknown::Function(smelt_getter)` getter arm carried
         // the classification; the helper call is the same boundary, now spelled
         // once. Proven in `erased_property_read_is_a_boundary` below.
-        "smelt_get_unknown_field(",
+        boundary::GET_UNKNOWN_FIELD_CALL,
         // The ambient global object (`crates/smelt-codegen-rust/src/thrown.rs`,
         // `emit_global_object_support`). JavaScript's global object is an open
         // property bag that the program AND its host write to
@@ -926,8 +942,8 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // erased record, and `smelt_unknown_assign` is the in-place
         // `Object.assign` onto it. Proven in
         // `global_object_members_are_run_time_facts` below.
-        "smelt_global_object(",
-        "smelt_unknown_assign(",
+        boundary::GLOBAL_OBJECT_CALL,
+        boundary::UNKNOWN_ASSIGN_CALL,
         // An error record's `cause` slot. ES2022 types it `cause?: unknown`,
         // and that spelling is the canonical source-level dynamic boundary: the
         // value is whatever the program chose to attach to the error, so it is
@@ -949,7 +965,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // never remove (the injected slot in each constructor's `this`
         // literal), which kept `Error` subclasses out of the zero-erasure
         // examples corpus.
-        "cause: SmeltUnknown",
+        boundary::ERROR_CAUSE_FIELD,
         // Handing a value to the JSON serializer. `JSON.stringify` is specified
         // by ECMA-262, not by serde: an integral number has no fraction, a
         // non-finite number is `null`, an `undefined`/function/symbol property
@@ -966,7 +982,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // data. The marker is the adapter call itself (`serde_json::to_string(&`),
         // so a `Vec<SmeltUnknown>` or an erased local NEXT to it stays
         // avoidable — proven by `json_serializer_argument_is_a_boundary`.
-        "serde_json::to_string(&",
+        boundary::JSON_TO_STRING,
         // `instanceof HostClass` against a DYNAMIC or erased-class operand
         // (`crates/smelt-codegen-rust/src/emitter/call.rs`, the
         // `host_instance_markers` arm). Every modeled host object whose
@@ -1001,7 +1017,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // reach here at all: it folds to a `true`/`false` literal naming no
         // `SmeltUnknown`. Proven by
         // `host_brand_instanceof_guard_is_a_boundary` below.
-        "if value.contains_key(\"__smelt_",
+        boundary::MARKER_TEST,
         // `instanceof ErrorClass` against an erased operand — the sibling of
         // the rule directly above, and the case a `catch` binding IS. A
         // JavaScript error value carries its class in the `__smelt_error` brand
@@ -1024,7 +1040,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // beside it stays avoidable, and an `instanceof` over a concrete class
         // receiver folds to a literal that names no `SmeltUnknown` at all.
         // Proven by `error_brand_instanceof_guard_is_a_boundary` below.
-        "if matches!(value.get(\"__smelt_error\")",
+        boundary::ERROR_BRAND_TEST,
         // `instanceof UserClass` against an erased operand — the same guard for
         // a SOURCE class. An erased class instance records its class in the
         // hidden `__smelt_class` provenance marker (stamped by the struct
@@ -1038,7 +1054,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // thrown value of a class the catch site does not name. Narrow like its
         // siblings: the marker is the probe inside the guard's own `value`
         // binding. Proven by `user_class_instanceof_guard_is_a_boundary`.
-        "if matches!(value.get(\"__smelt_class\")",
+        boundary::CLASS_BRAND_TEST,
         // The write-through setter of a reference class's erased view
         // (`crates/smelt-codegen-rust/src/emitter/view_write_through.rs`). Its
         // `SmeltUnknown` parameter is the value an ERASED property write
@@ -1050,7 +1066,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // generic can carry "whatever an erased write stored under this key",
         // since one view receives writes for every field through one entry.
         // Proven by `view_write_through_setter_is_a_boundary`.
-        "fn __smelt_set_field(",
+        boundary::SET_FIELD_FN,
         // The read mirror of the setter above
         // (`view_write_through::reference_callable_field_getter_method_text`):
         // the CURRENT value of a callable own field, erased, for a member read
@@ -1062,10 +1078,10 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // no concrete type, union arm, or scoped generic can carry the result;
         // it is the `into_smelt_unknown` of one field on demand. Proven by
         // `live_callable_field_getter_is_a_boundary`.
-        "fn __smelt_get_callable_field(",
+        boundary::GET_CALLABLE_FIELD_FN,
         // The live member read that asks that getter first (the prelude's
         // `smelt_live_member`), called from a receiver-bound record slot.
-        "smelt_live_member(",
+        boundary::LIVE_MEMBER_CALL,
     ];
 
     // A JavaScript update-expression (`x++`/`++x`) used as a value snapshots its
@@ -1272,11 +1288,6 @@ fn render_shape_table(out: &mut String, report: &UnknownReport) {
         );
     }
     let _ = writeln!(out);
-}
-
-/// Escape Markdown table-cell metacharacters so a cell never breaks its row.
-fn escape_cell(text: &str) -> String {
-    text.replace('|', "\\|").replace(['\n', '\r'], " ")
 }
 
 #[cfg(test)]
@@ -2023,6 +2034,47 @@ mod tests {
         );
     }
 
+    /// Whether each line of `text` reads as inside a generated adapter.
+    fn adapter_lines(text: &str) -> Vec<bool> {
+        let mut adapter = AdapterBody::default();
+        text.lines().map(|line| adapter.advance(line)).collect()
+    }
+
+    /// Adapter bodies are boundary code, and the rule stops at their closing
+    /// brace: a program type has no concrete form for `SmeltUnknown::Object`,
+    /// because producing the erased object is what the adapter is for.
+    #[test]
+    fn adapter_bodies_are_boundary_and_end_at_their_brace() {
+        let text = "impl IntoSmeltUnknown for Route {\n    fn into_smelt_unknown(self) -> SmeltUnknown {\n        SmeltUnknown::Object(object)\n    }\n}\nfn program() -> SmeltUnknown {\n}\n";
+        assert_eq!(adapter_lines(text), [true, true, true, true, true, false, false]);
+    }
+
+    /// Program methods beside `from_smelt_unknown` in one `impl` stay judged,
+    /// so erasure in them still counts as avoidable.
+    #[test]
+    fn program_methods_beside_an_adapter_method_stay_avoidable() {
+        let text = "impl Route {\n    fn from_smelt_unknown(value: SmeltUnknown) -> Self {\n        Self::default()\n    }\n    fn path(&self) -> SmeltUnknown {\n        SmeltUnknown::Null\n    }\n}\n";
+        assert_eq!(
+            adapter_lines(text),
+            [false, true, true, true, false, false, false, false]
+        );
+    }
+
+    /// Naming the trait in a bound does not make an item an adapter.
+    #[test]
+    fn a_generic_bound_is_not_an_adapter() {
+        let text = "impl<T: Clone + IntoSmeltUnknown + SmeltFromUnknown> Default for Cell<T> {\n    fn default() -> Self {\n    }\n}\n";
+        assert_eq!(adapter_lines(text), [false, false, false, false]);
+    }
+
+    /// Record recovery and JSON decoders are adapters; a one-line item closes
+    /// on its own line rather than swallowing what follows.
+    #[test]
+    fn decoders_are_adapters_and_one_liners_close_themselves() {
+        let text = "fn smelt_decode_6(value: &SmeltUnknown) -> bool { true }\nfn program(value: SmeltUnknown) {\n}\nfn __smelt_from_unknown_record_1(smelt_value: SmeltUnknown) -> Raw {\n    decode(smelt_value)\n}\n";
+        assert_eq!(adapter_lines(text), [true, false, false, true, true, true]);
+    }
+
     /// A full scan groups by shape, tallies categories, and stays deterministic.
     #[test]
     fn scan_groups_and_categorizes() {
@@ -2193,7 +2245,7 @@ mod tests {
     fn detect_regression_flags_increase_with_top_files() {
         let scan = fixture_scan(10, &[("a.rs", 2), ("b.rs", 7), ("c.rs", 1)]);
         let baseline = fixture_baseline(4);
-        let regression = detect_regression(&scan, Some(&baseline)).expect("increase is a regression");
+        let regression = detect_regression(&scan, &baseline).expect("increase is a regression");
         assert_eq!(regression.baseline, 4);
         assert_eq!(regression.current, 10);
         assert_eq!(regression.delta, 6);
@@ -2207,16 +2259,76 @@ mod tests {
     #[test]
     fn detect_regression_ignores_flat_and_decrease() {
         let flat = fixture_scan(4, &[("a.rs", 4)]);
-        assert!(detect_regression(&flat, Some(&fixture_baseline(4))).is_none());
+        assert!(detect_regression(&flat, &fixture_baseline(4)).is_none());
         let lower = fixture_scan(2, &[("a.rs", 2)]);
-        assert!(detect_regression(&lower, Some(&fixture_baseline(9))).is_none());
+        assert!(detect_regression(&lower, &fixture_baseline(9)).is_none());
     }
 
-    /// Without a baseline there is nothing to regress against.
+    /// A gate needs a baseline to compare against.
+    ///
+    /// Old requirement: `--fail-on-regression` without `--baseline` was accepted
+    /// and exited 0, which let a gate pass without measuring anything. New
+    /// requirement: clap rejects that command line, and [`detect_regression`]
+    /// takes a baseline by value, so no path reaches it without one.
     #[test]
     fn detect_regression_requires_baseline() {
-        let scan = fixture_scan(99, &[("a.rs", 99)]);
-        assert!(detect_regression(&scan, None).is_none());
+        use clap::Parser as _;
+        let gate = ["smelt", "smelt-unknown-report", "src", "--fail-on-regression"];
+        let error = crate::cli_parser::Args::try_parse_from(gate).expect_err("no baseline");
+        assert_eq!(error.kind(), clap::error::ErrorKind::MissingRequiredArgument);
+        assert!(error.to_string().contains("--baseline"), "{error}");
+    }
+
+    /// A scanned tree holding `avoidable` erased struct fields.
+    fn scanned_tree(avoidable: usize) -> tempfile::TempDir {
+        let tree = tempfile::tempdir().expect("temp dir");
+        let fields = "    value: SmeltUnknown,\n".repeat(avoidable);
+        std::fs::write(tree.path().join("a.rs"), format!("struct S {{\n{fields}}}\n")).expect("source");
+        tree
+    }
+
+    /// Run `--update-baseline` over `tree`, returning the gate's verdict.
+    fn update(tree: &Path, baseline: &Path) -> GatedOutcome {
+        unknown_report(&UnknownReportOptions {
+            roots: &[tree.to_path_buf()],
+            format: ReportFormat::Json,
+            baseline: Some(baseline.to_path_buf()),
+            update_baseline: true,
+            erasure_sidecars: &[],
+        })
+        .expect("report")
+    }
+
+    fn avoidable_in(baseline: &Path) -> usize {
+        report::load_json::<UnknownReport>(baseline, "")
+            .expect("baseline")
+            .category_total(Category::AvoidableErasure)
+    }
+
+    /// A rise in avoidable erasure can never be snapshotted: the old baseline
+    /// stays byte for byte and the regression is still reported.
+    #[test]
+    fn update_baseline_refuses_a_regression() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let baseline = dir.path().join("baseline.json");
+        update(scanned_tree(1).path(), &baseline);
+        assert_eq!(avoidable_in(&baseline), 1, "a first update creates the baseline");
+        let before = std::fs::read(&baseline).expect("baseline");
+
+        let outcome = update(scanned_tree(3).path(), &baseline);
+        assert_eq!(std::fs::read(&baseline).expect("baseline"), before);
+        assert!(outcome.regression.is_some());
+    }
+
+    /// A flat or falling count is taken, as the policy's re-snapshot requires.
+    #[test]
+    fn update_baseline_takes_a_fall() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let baseline = dir.path().join("baseline.json");
+        update(scanned_tree(3).path(), &baseline);
+        let outcome = update(scanned_tree(1).path(), &baseline);
+        assert_eq!(avoidable_in(&baseline), 1);
+        assert!(outcome.regression.is_none());
     }
 
     /// The top-offenders list is capped so a huge corpus yields a readable message.
@@ -2231,7 +2343,7 @@ mod tests {
             .collect();
         let scan = fixture_scan(1000, &refs);
         let regression =
-            detect_regression(&scan, Some(&fixture_baseline(0))).expect("increase is a regression");
+            detect_regression(&scan, &fixture_baseline(0)).expect("increase is a regression");
         assert_eq!(regression.top_files.len(), TOP_OFFENDER_LIMIT);
         // The single largest contributor leads.
         assert_eq!(regression.top_files[0].1, 25);

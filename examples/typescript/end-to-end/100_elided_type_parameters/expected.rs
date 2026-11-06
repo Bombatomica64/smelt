@@ -3582,6 +3582,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Route {
     path: String,
@@ -3776,8 +3778,6 @@ impl<Carried: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> S
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let route: Route;

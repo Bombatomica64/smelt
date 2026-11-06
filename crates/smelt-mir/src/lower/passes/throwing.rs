@@ -9,7 +9,6 @@ use crate::{Callee, LocalDecl, Mir, Rvalue, Statement, Terminator};
 use smelt_hir::Symbol;
 
 use super::super::{local_index, usize_from_u32};
-use super::operand_local;
 
 /// What the propagation loop knows about the crate while it mutates one
 /// function at a time.
@@ -146,7 +145,7 @@ fn projected_bind_locals(
                 dest,
                 value: Rvalue::BindThis { callee, .. },
             } = statement
-                && operand_local(callee).is_none()
+                && callee.local().is_none()
                 && typed_callable(*dest)
             {
                 Some(*dest)
@@ -217,7 +216,7 @@ fn statement_can_throw(
     let Rvalue::ClosureCall { callee, .. } = value else {
         return false;
     };
-    let Some(local) = operand_local(callee) else {
+    let Some(local) = callee.local() else {
         return true;
     };
     if projected_binds.contains(&local) {
@@ -241,7 +240,7 @@ fn optional_method_can_throw(
     facts: &CrateThrowFacts,
 ) -> bool {
     let types = &facts.types;
-    let Some(local) = operand_local(receiver) else {
+    let Some(local) = receiver.local() else {
         return false;
     };
     let Some(decl) = local_index(local).and_then(|index| locals.get(index)) else {
@@ -350,6 +349,6 @@ fn terminator_can_throw(terminator: &Terminator, throwing: &[bool]) -> bool {
         | Terminator::Switch { .. }
         | Terminator::Match { .. }
         | Terminator::Return(_)
-        | Terminator::Unreachable => false,
+        => false,
     }
 }

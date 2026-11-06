@@ -24,9 +24,6 @@ impl ModuleBuilder<'_> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        if self.scope.is_bound("AbortSignal") || self.classes.contains("AbortSignal") {
-            return Ok(None);
-        }
         let span = self.span(call.span.start, call.span.end);
         let op = match rule {
             RuleId::TsAbortSignalAbort => AbortSignalOp::Abort,

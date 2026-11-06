@@ -2,6 +2,8 @@
 
 use crate::lowering::js_text::js_str_text;
 use std::collections::{HashMap, HashSet};
+
+use indexmap::IndexMap;
 use std::path::Path;
 
 use super::support::{
@@ -507,6 +509,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             int32_type_depth: 0,
             tuple_rest_arrows: HashMap::new(),
             type_param_owners: HashMap::new(),
+            receiver_frames: Vec::new(),
+            source_facts: super::source_facts::SourceFacts::default(),
             asserted_call_return: None,
             erasure_anchor: Span::new(file_id, 0, 0),
         }
@@ -515,6 +519,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// Return whether a source path is a type-test module (`*.test-d.ts` or `*.test.ts`).
     pub(super) fn is_declaration_type_test_path(path: &str) -> bool {
         path.ends_with(".test-d.ts") || path.ends_with(".test.ts")
+    }
+
+    /// Install the module's facts and publish the member names it declares.
+    pub(super) fn adopt_source_facts(&mut self, facts: super::source_facts::SourceFacts) {
+        self.ctx.declared_member_names.extend(facts.declared_members().cloned());
+        self.source_facts = facts;
     }
 
     /// Collect items already present in the shared crate for cross-module references.
@@ -533,6 +543,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let Some(name) = item_name(&ctx.krate, item) else {
                 continue;
             };
+            if matches!(item, Item::Class(class) if ctx.local_class_expressions.contains(&class.name)) {
+                continue;
+            }
             insert_visible_item(
                 &mut items,
                 &mut classes,
@@ -542,6 +555,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 item,
             );
         }
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "keyed inserts of distinct aliases"
+        )]
         for (alias, item_id) in &ctx.export_aliases {
             let Some(item) = ctx
                 .krate
@@ -576,6 +593,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 values.insert(name.to_owned(), value);
             }
         }
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "keyed inserts of distinct aliases"
+        )]
         for (alias, item_id) in &ctx.export_aliases {
             let Some(Item::Const(const_item)) = ctx
                 .krate
@@ -673,7 +694,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         // `ForwardArrowQueue`.
         let mut arrow_queue = ForwardArrowQueue::new(
             pending_arrows,
-            self.module_class_source_texts(program),
+            Self::module_class_spans(program),
             forward_arrow_consts,
             &signatures,
         );
@@ -1156,21 +1177,23 @@ impl<'ctx> ModuleBuilder<'ctx> {
         // alias is published here — otherwise the importing module sees a name
         // no declaration is bound to, and `class X extends StoreBase` recorded a
         // base class nothing declares (silently dropping every inherited member).
-        for (exported, local) in self.export_renames.clone() {
-            if self.ctx.export_aliases.contains_key(&exported) {
-                continue;
-            }
-            // Either registry can hold the declaration at this point: a class
-            // lives in the class registry, everything else in the item map.
-            if let Some(item) = self
-                .items
-                .get(&local)
-                .copied()
-                .or_else(|| self.classes.item(&local))
-            {
-                self.items.insert(exported.clone(), item);
-                self.ctx.export_aliases.insert(exported, item);
-            }
+        //
+        // Every local resolves before any alias is published: in `export { a as
+        // b, b as c }` the alias `b` must not capture the local `b` of `c`.
+        let resolved = self
+            .export_renames
+            .iter()
+            .filter(|(exported, _)| !self.ctx.export_aliases.contains_key(*exported))
+            .filter_map(|(exported, local)| {
+                // Either registry can hold the declaration at this point: a class
+                // lives in the class registry, everything else in the item map.
+                let item = self.items.get(local).copied().or_else(|| self.classes.item(local))?;
+                Some((exported.clone(), item))
+            })
+            .collect::<Vec<_>>();
+        for (exported, item) in resolved {
+            self.items.insert(exported.clone(), item);
+            self.ctx.export_aliases.insert(exported, item);
         }
         let mut exports = HashMap::new();
         for item_id in &module.items {
@@ -1186,6 +1209,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 exports.insert(name.to_owned(), *item_id);
             }
         }
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "keyed inserts of distinct aliases"
+        )]
         for (alias, item_id) in &self.ctx.export_aliases {
             if previous_export_aliases.get(alias) != Some(item_id) {
                 exports.insert(alias.clone(), *item_id);
@@ -1613,8 +1640,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// `collect_module_globals` folds an annotated `const xs: T[] = [...]`
     /// before it is known whether the module writes through `xs`. A written
     /// binding lifts to a `MutableGlobal` slot, and every read must see that
-    /// slot: a folded copy of the initializer (which the compact callback IR
-    /// would inline) would silently read the stale initial elements.
+    /// slot: a folded copy of the initializer would silently read the stale
+    /// initial elements.
     fn forget_lifted_const_collections(&mut self) {
         let lifted: Vec<String> = self.mutable_global_items.keys().cloned().collect();
         for name in lifted {
@@ -2187,10 +2214,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         // `local_ty`). Emptying the scope for the duration is both the fix and
         // the correct rule: an initializer that references a module-body local
         // now reports an unresolved name instead of mis-resolving one.
-        let saved_locals = self.scope.take_bindings();
-        let lowered = self.expression_with_hint(init, &mut init_body, Some(global_ty));
-        self.scope.restore_bindings(saved_locals);
-        let value = lowered?;
+        let value = self.with_empty_lexical_scope(|this| {
+            this.expression_with_hint(init, &mut init_body, Some(global_ty))
+        })?;
         init_body.push_stmt(smelt_hir::Stmt::Return(Some(value)));
         let body_id = self.ctx.krate.push_body(init_body);
         // The synthesized name is derived from the binding and the global's own
@@ -2465,6 +2491,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     bound: HashSet::new(),
                 };
                 collector.visit_expression(init);
+                #[expect(
+                    clippy::iter_over_hash_type,
+                    reason = "set union"
+                )]
                 for free in collector.into_free_names() {
                     changed |= reads.insert(free);
                 }
@@ -2674,9 +2704,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
     /// Scan `const name = <arrow/function>` initializers for mutation targets.
     ///
-    /// Const arrow/function bindings lift to items (the compact callback and
-    /// function-item forms), so their bodies — like function declarations —
-    /// have no module-body local to assign through and need the global lift.
+    /// Const arrow/function bindings lift to items, so their bodies, like
+    /// function declarations, have no module-body local to assign through and
+    /// need the global lift.
     fn collect_mutated_names_in_const_callables(
         collector: &mut MutatedNameCollector,
         decl: &oxc::ast::ast::VariableDeclaration<'_>,
@@ -2824,19 +2854,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
         &mut self,
         init: &Expression<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
-        let bodies = self.ctx.krate.bodies.len();
-        let items = self.ctx.krate.items.len();
         let mut body = Body::new(None, self.expression_span(init));
+        let mark = self.speculation_mark(&body);
         let result = self
             .expression_with_hint(init, &mut body, None)
             .map(|expr| Self::expr_ty(&body, expr));
-        // Only bodies are rolled back, and only when the probe declared no
-        // item: an item (a class expression, say) is registered by id in the
-        // builder's name tables and owns bodies of its own, so a probe that
-        // made one keeps everything it made, as it always did.
-        if self.ctx.krate.items.len() == items {
-            self.ctx.krate.bodies.truncate(bodies);
-        }
+        self.roll_back_to(mark, &mut body);
         result
     }
 
@@ -3650,37 +3673,33 @@ impl<'ctx> ModuleBuilder<'ctx> {
     ) -> Result<Function, SmeltError> {
         let name = self.intern_source_name(name_text);
         let mut params = Vec::new();
-        let saved_locals = self.scope.take_bindings();
-        for (index, param) in function.params.items.iter().enumerate() {
-            let ty = match self.function_parameter_type(param) {
-                Ok(ty) => self.overload_omitted_param_type(name_text, index, param, ty),
-                Err(error) => {
-                    self.scope.restore_bindings(saved_locals);
-                    return Err(error);
-                }
-            };
-            let local = smelt_hir::LocalId(u32::try_from(index).unwrap_or(u32::MAX));
-            let (param_name, span) =
-                if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
-                    self.scope.bind(binding.name.to_string(), local);
-                    (
-                        self.intern_source_name(binding.name.as_str()),
-                        self.span(binding.span.start, binding.span.end),
-                    )
-                } else {
-                    (
-                        self.intern_source_name(&format!("__param{index}")),
-                        self.span(param.span.start, param.span.end),
-                    )
-                };
-            params.push(Param {
-                name: param_name,
-                local,
-                ty,
-                span,
-            });
-        }
-        self.scope.restore_bindings(saved_locals);
+        self.with_empty_lexical_scope(|this| {
+            for (index, param) in function.params.items.iter().enumerate() {
+                let ty = this.function_parameter_type(param)?;
+                let ty = this.overload_omitted_param_type(name_text, index, param, ty);
+                let local = smelt_hir::LocalId(u32::try_from(index).unwrap_or(u32::MAX));
+                let (param_name, span) =
+                    if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                        this.scope.bind(binding.name.to_string(), local);
+                        (
+                            this.intern_source_name(binding.name.as_str()),
+                            this.span(binding.span.start, binding.span.end),
+                        )
+                    } else {
+                        (
+                            this.intern_source_name(&format!("__param{index}")),
+                            this.span(param.span.start, param.span.end),
+                        )
+                    };
+                params.push(Param {
+                    name: param_name,
+                    local,
+                    ty,
+                    span,
+                });
+            }
+            Ok::<_, SmeltError>(())
+        })?;
         let mut rest_index = None;
         if let Some(rest) = &function.params.rest {
             let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
@@ -3912,6 +3931,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let Some(exports) = self.source_module_exports(source) else {
             return;
         };
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "keyed inserts of distinct names"
+        )]
         for (name, item) in exports {
             let alias = format!("{namespace}.{name}");
             self.ctx.export_aliases.insert(alias.clone(), item);
@@ -4024,18 +4047,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.imports.mark_type_only(local.clone());
             } else {
                 self.imports.mark_value(local.clone());
-                // `tz` from `@date-fns/tz` is a MODELED host-module export (see
-                // `smelt_stdlib::host_modules`); the factory marker is driven by
-                // that registry rather than by a package-name test here, so a
-                // package spelling lives in exactly one place.
-                if matches!(
-                    smelt_stdlib::host_module_export(source, &imported),
-                    Some(export)
-                        if export.surface == smelt_stdlib::HostSurface::Modeled
-                            && imported == "tz"
-                ) {
-                    self.imports.mark_date_fns_timezone_factory(local.clone());
-                }
                 // An imported binding that the source module resolved to the
                 // ambient global object *is* the ambient global object here.
                 if self.source_exports_global_object_alias(source, &imported) {
@@ -4144,13 +4155,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             // matcher erasure can stand in for `node:sqlite`.
             let modeled_module = smelt_stdlib::is_host_module(&candidate.module);
             let blocker = match blocker {
-                Some(blocker)
-                    if modeled_module
-                        || (!test_module
-                            && smelt_stdlib::unmodeled_package_use_blocks()) =>
-                {
-                    Some(blocker)
-                }
+                Some(blocker) if modeled_module || !test_module => Some(blocker),
                 _ => None,
             };
             if let Some(blocker) = blocker {
@@ -4471,10 +4476,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 // shared named-function path rather than the literal folder.
                 let item =
                     self.function_declaration_named(function, binding.name.as_str())?;
-                items.push(item);
-                continue;
-            }
-            if let Some(item) = self.fp_wrapper_const_declaration(binding.name.as_str(), init)? {
                 items.push(item);
                 continue;
             }
@@ -4830,7 +4831,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     ///
     /// Feeds [`ForwardArrowQueue::classes`]: a forward-lifted arrow whose body
     /// names one of these classes waits until that class is lowered.
-    fn module_class_source_texts(&self, program: &Program<'_>) -> Vec<(String, String)> {
+    fn module_class_spans(program: &Program<'_>) -> Vec<(String, oxc::span::Span)> {
         program
             .body
             .iter()
@@ -4844,19 +4845,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             })
             .filter_map(|class| {
                 let name = class.id.as_ref()?.name.to_string();
-                Some((name, self.span_source_text(class.span).to_owned()))
+                Some((name, class.span))
             })
             .collect()
-    }
-
-    /// Source text covered by `span`, or `""` when it is out of range.
-    fn span_source_text(&self, span: oxc::span::Span) -> &str {
-        self.source
-            .get(
-                usize::try_from(span.start).unwrap_or(usize::MAX)
-                    ..usize::try_from(span.end).unwrap_or(usize::MAX),
-            )
-            .unwrap_or_default()
     }
 
     /// Start offset of a top-level variable statement, plain or exported.
@@ -4874,17 +4865,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
-    /// Whether `text` mentions `name` as a whole identifier (not as a
-    /// substring of a longer one, so `Request` is not found in `HonoRequest`).
-    pub(in crate::lowering) fn mentions_identifier(text: &str, name: &str) -> bool {
-        let is_ident = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
-        text.match_indices(name).any(|(at, _)| {
-            let before = text[..at].chars().next_back();
-            let after = text[at + name.len()..].chars().next();
-            !before.is_some_and(is_ident) && !after.is_some_and(is_ident)
-        })
-    }
-
     /// Indices of queued arrows that must not be lowered yet.
     ///
     /// An arrow waits when its body names a module class that is not lowered
@@ -4899,18 +4879,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
             .queued()
             .map(|(slot, variable)| {
                 let names = Self::arrow_const_declaration_names(variable);
-                (slot, self.span_source_text(variable.span), names)
+                (slot, variable.span, names)
             })
             .collect::<Vec<_>>();
         let mut waiting = texts
             .iter()
-            .filter(|(_, text, names)| {
+            .filter(|(_, span, names)| {
                 queue.classes.iter().any(|class| {
                     !class.lowered
-                        && Self::mentions_identifier(text, &class.name)
+                        && self.source_facts.mentions(*span, &class.name)
                         && !names
                             .iter()
-                            .any(|name| Self::mentions_identifier(&class.text, name))
+                            .any(|name| self.source_facts.mentions(class.span, name))
                 })
             })
             .map(|(slot, _, _)| *slot)
@@ -4923,11 +4903,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 .collect::<Vec<_>>();
             let newly = texts
                 .iter()
-                .filter(|(slot, text, names)| {
+                .filter(|(slot, span, names)| {
                     !waiting.contains(slot)
                         && waiting_names.iter().any(|waiting_name| {
                             !names.contains(waiting_name)
-                                && Self::mentions_identifier(text, waiting_name)
+                                && self.source_facts.mentions(*span, waiting_name)
                         })
                 })
                 .map(|(slot, _, _)| *slot)
@@ -5033,16 +5013,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let Some(Expression::ArrowFunctionExpression(arrow)) = &declarator.init else {
                 return true;
             };
-            let text = self
-                .source
-                .get(
-                    usize::try_from(arrow.span.start).unwrap_or(usize::MAX)
-                        ..usize::try_from(arrow.span.end).unwrap_or(usize::MAX),
-                )
-                .unwrap_or_default();
             candidates.iter().all(|candidate| {
                 declared.contains(candidate)
-                    || !text.contains(candidate)
+                    || !self.source_facts.mentions(arrow.span, candidate)
                     || lowered.contains(candidate)
             })
         })
@@ -5065,6 +5038,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// recursive call runs inside the arrow's own item context, so a self-recursive arrow is always lifted (and its item is
     /// predeclared before its body is lowered, see
     /// `arrow_function_const_declaration_inner`).
+    ///
+    /// "May call" is a spelling test, deliberately wider than the reads
+    /// [`super::source_facts::SourceFacts`] records: a lifted arrow keeps its
+    /// types and the closure form it would otherwise take has no statements or
+    /// non-literal parameter defaults, so programs depend on the wider answer.
     pub(super) fn forward_arrow_const_names(&self, program: &Program<'_>) -> HashSet<String> {
         let mut arrow_consts = Vec::new();
         let mut referrer_spans = Vec::new();
@@ -5072,10 +5050,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let mut note_self_recursive = |binding: &oxc::ast::ast::BindingIdentifier<'_>,
                                        init: &Option<Expression<'_>>| {
             if let Some(Expression::ArrowFunctionExpression(arrow)) = init
-                && Self::mentions_identifier(
-                    self.span_source_text(arrow.body.span()),
-                    binding.name.as_str(),
-                )
+                && self.source_facts.mentions(arrow.body.span(), binding.name.as_str())
             {
                 self_recursive.insert(binding.name.as_str().to_owned());
             }
@@ -5114,6 +5089,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
                                 .push((binding.name.as_str().to_owned(), binding.span.start));
                             referrer_spans.push((declarator.span.start, declarator.span.end));
                             note_self_recursive(binding, &declarator.init);
+                        }
+                        // An object or array constant is rebuilt at each read,
+                        // inside item bodies too, so an arrow it names must be
+                        // an item that body can reach.
+                        if matches!(
+                            declarator.init,
+                            Some(Expression::ObjectExpression(_) | Expression::ArrayExpression(_))
+                        ) {
+                            referrer_spans.push((declarator.span.start, declarator.span.end));
                         }
                     }
                 }
@@ -5159,22 +5143,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
         arrow_consts
             .into_iter()
             .filter_map(|(name, const_start)| {
-                let referenced = self
-                    .source
-                    .get(..usize::try_from(const_start).unwrap_or(usize::MAX))
-                    .is_some_and(|text| text.contains(&name))
+                let spelled_in = |start: u32, end: u32| {
+                    self.source_facts.mentions(oxc::span::Span::new(start, end), &name)
+                };
+                let referenced = spelled_in(0, const_start)
                     || referrer_spans
                         .iter()
                         .filter(|(referrer_start, referrer_end)| {
                             !(const_start >= *referrer_start && const_start <= *referrer_end)
                         })
                         .any(|(function_start, function_end)| {
-                            self.source
-                                .get(
-                                    usize::try_from(*function_start).unwrap_or(usize::MAX)
-                                        ..usize::try_from(*function_end).unwrap_or(usize::MAX),
-                                )
-                                .is_some_and(|text| text.contains(&name))
+                            spelled_in(*function_start, *function_end)
                         });
                 (referenced || self_recursive.contains(&name)).then_some(name)
             })
@@ -5208,10 +5187,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// binding now fails to resolve instead of diverging silently, which is the
     /// honest failure.
     ///
-    /// Source-text containment matches the surrounding heuristics in this pass
-    /// (`forward_arrow_const_names`, `arrow_const_dependencies_are_lowered`)
-    /// deliberately: over-refusing costs a closure, and a closure is always
-    /// correct here.
+    /// Over-refusing costs a closure, and a closure is always correct here.
     fn retain_capturable_arrow_consts(
         &self,
         program: &Program<'_>,
@@ -5255,14 +5231,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if !candidates.contains(binding.name.as_str()) {
                     continue;
                 }
-                let text = self
-                    .source
-                    .get(
-                        usize::try_from(arrow.span.start).unwrap_or(usize::MAX)
-                            ..usize::try_from(arrow.span.end).unwrap_or(usize::MAX),
-                    )
-                    .unwrap_or_default();
-                if identity_bindings.iter().any(|name| text.contains(name)) {
+                if identity_bindings
+                    .iter()
+                    .any(|name| self.source_facts.mentions(arrow.span, name))
+                {
                     refused.insert(binding.name.as_str().to_owned());
                 }
             }
@@ -5467,7 +5439,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         object: &oxc::ast::ast::ObjectExpression<'_>,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<bool, SmeltError> {
-        let mut members = HashMap::new();
+        let mut members = IndexMap::new();
         let function_hint = self.function_table_value_type(type_hint);
         if type_hint.is_some() && function_hint.is_none() {
             return Ok(false);
@@ -6155,21 +6127,21 @@ enum ArrowSlotState {
 struct QueuedModuleClass {
     /// The class's source name.
     name: String,
-    /// The class declaration's source text.
-    text: String,
+    /// The class declaration's span.
+    span: oxc::span::Span,
     /// Whether the declaration has been lowered.
     lowered: bool,
 }
 
 impl<'a, 'src> ForwardArrowQueue<'a, 'src> {
     /// Queue `pending` statements (in source order) against the module's
-    /// `(name, source text)` class declarations.
+    /// `(name, span)` class declarations.
     ///
     /// Requires the signature phase: a queued arrow is lowered as soon as it
     /// is ready, and its body calls predeclared functions.
     fn new(
         pending: Vec<(&'a oxc::ast::ast::VariableDeclaration<'src>, bool)>,
-        classes: Vec<(String, String)>,
+        classes: Vec<(String, oxc::span::Span)>,
         forward_arrow_consts: HashSet<String>,
         _signatures: &SignaturesDeclared,
     ) -> Self {
@@ -6184,9 +6156,9 @@ impl<'a, 'src> ForwardArrowQueue<'a, 'src> {
                 .collect(),
             classes: classes
                 .into_iter()
-                .map(|(name, text)| QueuedModuleClass {
+                .map(|(name, span)| QueuedModuleClass {
                     name,
-                    text,
+                    span,
                     lowered: false,
                 })
                 .collect(),

@@ -3515,6 +3515,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone)]
 pub enum SmeltUnion4 {
     M0(f64),
@@ -3640,8 +3642,6 @@ impl Default for SmeltUnion10 {
         Self::M0(0.0)
     }
 }
-
-// @smelt:prelude-end — generated program below
 fn main() {
     let pairs: SmeltList<(String, f64)>;
     let _smelt_tmp_5: String;
@@ -3711,16 +3711,20 @@ pub(crate) fn describe(slot: SmeltUnion4) -> String {
     return _smelt_tmp_4;
     } else {
     _smelt_tmp_5 = Into::<SmeltList<_>>::into(match slot.clone() { SmeltUnion4::M1(value) => value, _ => unreachable!("union guard selected an excluded member") });
-    _smelt_tmp_6 = ::std::rc::Rc::new(|closure_arg_0: (String, f64), closure_arg_1: i64, closure_arg_2: &SmeltList<(String, f64)>| {
-    let _smelt_tmp_3: String = closure_arg_0.0.clone() + &"=".to_owned();
-    let _smelt_tmp_4: String = smelt_number_to_string(closure_arg_0.1);
-    let _smelt_tmp_5: String = _smelt_tmp_3.clone() + &_smelt_tmp_4.clone();
+    _smelt_tmp_6 = ::std::rc::Rc::new(|closure_arg_0: (String, f64), _arg0: i64, _arg1: &SmeltList<(String, f64)>| {
+    let _smelt_tmp_1: String = closure_arg_0.clone().0.clone();
+    let _smelt_tmp_2: String = _smelt_tmp_1.clone() + &"=".to_owned();
+    let _smelt_tmp_3: f64 = closure_arg_0.clone().1.clone();
+    let _smelt_tmp_4: String = smelt_number_to_string(_smelt_tmp_3);
+    let _smelt_tmp_5: String = _smelt_tmp_2.clone() + &_smelt_tmp_4.clone();
     _smelt_tmp_5.clone()
     });
-    _smelt_tmp_7 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: (String, f64), closure_arg_1: i64, closure_arg_2: &SmeltList<(String, f64)>| {
-    let _smelt_tmp_3: String = closure_arg_0.0.clone() + &"=".to_owned();
-    let _smelt_tmp_4: String = smelt_number_to_string(closure_arg_0.1);
-    let _smelt_tmp_5: String = _smelt_tmp_3.clone() + &_smelt_tmp_4.clone();
+    _smelt_tmp_7 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: (String, f64), _arg0: i64, _arg1: &SmeltList<(String, f64)>| {
+    let _smelt_tmp_1: String = closure_arg_0.clone().0.clone();
+    let _smelt_tmp_2: String = _smelt_tmp_1.clone() + &"=".to_owned();
+    let _smelt_tmp_3: f64 = closure_arg_0.clone().1.clone();
+    let _smelt_tmp_4: String = smelt_number_to_string(_smelt_tmp_3);
+    let _smelt_tmp_5: String = _smelt_tmp_2.clone() + &_smelt_tmp_4.clone();
     _smelt_tmp_5.clone()
     }); let smelt_array = _smelt_tmp_5; smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
     _smelt_tmp_8 = _smelt_tmp_7.borrow().join(&",".to_owned());

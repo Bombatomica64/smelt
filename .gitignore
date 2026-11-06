@@ -348,3 +348,6 @@ target-*/
 !blocker-logs/hono-phase3-round3.md
 # TypeScript 7 type-parity reports (`smelt ts7-parity-report`, see blocker-logs/ts7-parity.md)
 !blocker-logs/ts7-parity*.md
+
+# Coverage tracefile: a CI artifact, 7.5 MB per revision if committed.
+lcov.info

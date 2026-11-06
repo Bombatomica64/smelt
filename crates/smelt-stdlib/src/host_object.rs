@@ -293,6 +293,12 @@ pub struct HostObject {
     /// only constructor ([`entry`]) derives it, and the struct is
     /// `#[non_exhaustive]`, so no other crate can build an inconsistent one.
     pub byte_buffer: Option<ByteBufferRole>,
+    /// The builtin class this one directly extends on the prototype chain.
+    ///
+    /// `new File(..) instanceof Blob` and `new DOMException() instanceof Error`
+    /// are both `true` in JavaScript; this field is the one statement of those
+    /// edges, read through [`builtin_base_class`].
+    pub base: Option<&'static str>,
 }
 
 impl HostObject {
@@ -317,6 +323,11 @@ impl HostObject {
     pub const fn helper_backed_methods(&self) -> bool {
         matches!(self.kind, HostKind::HelperBacked)
     }
+
+    /// This entry with `base` as its direct prototype-chain parent.
+    const fn extending(self, base: &'static str) -> Self {
+        Self { base: Some(base), ..self }
+    }
 }
 
 /// The one registry-entry constructor; derives the `byte_buffer` projection.
@@ -326,7 +337,14 @@ const fn entry(
     to_string_tag: &'static str,
     kind: HostKind,
 ) -> HostObject {
-    HostObject { class_name, marker, to_string_tag, kind, byte_buffer: kind.byte_buffer_role() }
+    HostObject {
+        class_name,
+        marker,
+        to_string_tag,
+        kind,
+        byte_buffer: kind.byte_buffer_role(),
+        base: None,
+    }
 }
 
 /// Concise constructor for an identity-only registry entry.
@@ -377,6 +395,18 @@ const fn boxed(class_name: &'static str, marker: &'static str) -> HostObject {
 const fn helper_backed(class_name: &'static str, marker: &'static str) -> HostObject {
     entry(class_name, marker, class_name, HostKind::HelperBacked)
 }
+
+/// Host constructors a program reads the output of and Smelt has no model for.
+///
+/// Constructing one is a blocker rather than a marker-only host object, because
+/// the value would be consulted for behaviour Smelt does not provide.
+pub const UNMODELED_HOST_CONSTRUCTORS: &[&str] = &["Intl.DateTimeFormat", "Intl.RelativeTimeFormat"];
+
+/// Ambient namespace objects whose unclaimed member calls are blockers.
+///
+/// Every modeled member call of these is claimed by a rule of its own; what
+/// reaches the end of the call dispatch has no host behaviour behind it.
+pub const UNMODELED_CALL_NAMESPACES: &[&str] = &["Intl", "process"];
 
 /// The canonical set of host objects whose identity Smelt models with a dedicated
 /// marker record.
@@ -469,7 +499,8 @@ pub const HOST_OBJECTS: &[HostObject] = &[
         "Uint8Array",
         ByteBufferRole::View,
         Some(TypedArrayElement::Uint8),
-    ),
+    )
+    .extending("Uint8Array"),
     // `DataView` is byte-addressed on purpose: its element type is chosen per
     // `getFloat32`/`setInt16`/... call, not by the view, so it has no single
     // element type and its `length` is its byte length.
@@ -482,7 +513,7 @@ pub const HOST_OBJECTS: &[HostObject] = &[
     ),
     host("WeakMap", "__smelt_weakmap"),
     host("WeakSet", "__smelt_weakset"),
-    host("File", "__smelt_file"),
+    host("File", "__smelt_file").extending("Blob"),
     host("Blob", "__smelt_blob"),
     // The concrete fetch types. Unlike the marker-only entries above, these have
     // real generated runtime types (`SmeltHeaders`, `SmeltUrlSearchParams`) and
@@ -538,15 +569,13 @@ pub const HOST_OBJECTS: &[HostObject] = &[
     // `reflected_construct_kind` excludes it, so no dynamic `new ReadableStream()`
     // builds a record that would pretend to have stream methods.
     host("ReadableStream", "__smelt_readablestream"),
-    host("DOMException", "__smelt_domexception"),
+    host("DOMException", "__smelt_domexception").extending("Error"),
     // ECMA-402 `Intl` namespace constructors. Source code constructs these only
     // to probe host identity (`isPlainObject(new Intl.Locale('en')) === false`);
     // none of their structural surface is read, so each is a marker-only host
     // object keyed by its full qualified path (the construction site is always
-    // `new Intl.<Constructor>(...)`). `Intl.DateTimeFormat` and
-    // `Intl.RelativeTimeFormat` are deliberately absent: the opaque-formatter
-    // model claims them first and never stamps a marker (see
-    // `intl_date_time_format_constructor_expression`).
+    // `new Intl.<Constructor>(...)`). The formatters read for their output are
+    // in `UNMODELED_HOST_CONSTRUCTORS` instead.
     host("Intl.Collator", "__smelt_intl_collator"),
     host("Intl.DisplayNames", "__smelt_intl_displaynames"),
     host("Intl.DurationFormat", "__smelt_intl_durationformat"),
@@ -560,6 +589,45 @@ pub const HOST_OBJECTS: &[HostObject] = &[
     boxed("String", "__smelt_string"),
     boxed("Symbol", "__smelt_symbol"),
 ];
+
+/// The builtin class `class_name` directly extends on the prototype chain.
+///
+/// Every ECMAScript error class but `Error` itself extends `Error`; a host object
+/// answers its registry edge ([`HostObject::base`]). `None` is a root, or a name
+/// that is no builtin.
+#[must_use]
+pub fn builtin_base_class(class_name: &str) -> Option<&'static str> {
+    if let Some(entry) = host_object_by_class(class_name) {
+        return entry.base;
+    }
+    (class_name != "Error" && crate::is_error_class_name(class_name)).then_some("Error")
+}
+
+/// Whether the builtin `class_name` is `ancestor` or has it on its prototype chain.
+#[must_use]
+pub fn builtin_class_extends(class_name: &str, ancestor: &str) -> bool {
+    let mut current = Some(class_name);
+    while let Some(name) = current {
+        if name == ancestor {
+            return true;
+        }
+        current = builtin_base_class(name);
+    }
+    false
+}
+
+/// The identity markers of the host objects that strictly extend `class_name`.
+///
+/// An erased `DOMException` keeps only its own marker, so `value instanceof
+/// Error` has to accept that marker as well as the error brand.
+pub fn host_markers_extending(class_name: &str) -> impl Iterator<Item = &'static str> + '_ {
+    HOST_OBJECTS
+        .iter()
+        .filter(move |entry| {
+            entry.class_name != class_name && builtin_class_extends(entry.class_name, class_name)
+        })
+        .map(|entry| entry.marker)
+}
 
 /// Look up the host-object identity for a JavaScript constructor name.
 ///
@@ -677,6 +745,22 @@ pub fn data_view_accessor(member: &str) -> Option<(bool, TypedArrayElement)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The chain reaches every ancestor and only ancestors, through both the
+    /// registry edges and the ECMAScript error family.
+    #[test]
+    fn builtin_chains_follow_the_prototype_edges() {
+        assert!(builtin_class_extends("DOMException", "Error"));
+        assert!(builtin_class_extends("File", "Blob"));
+        assert!(builtin_class_extends("Buffer", "Uint8Array"));
+        assert!(builtin_class_extends("TypeError", "Error"));
+        assert!(builtin_class_extends("Error", "Error"));
+        assert!(!builtin_class_extends("Error", "DOMException"));
+        assert!(!builtin_class_extends("Blob", "File"));
+        assert!(!builtin_class_extends("TypeError", "RangeError"));
+        assert_eq!(host_markers_extending("Error").collect::<Vec<_>>(), ["__smelt_domexception"]);
+        assert_eq!(host_markers_extending("Blob").collect::<Vec<_>>(), ["__smelt_file"]);
+    }
 
     /// Every registry marker is a distinct `__smelt_`-prefixed key. Distinctness
     /// is what makes `instanceof X` unambiguous, so a duplicate would silently

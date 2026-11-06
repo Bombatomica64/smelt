@@ -16,6 +16,7 @@
 //!   type hints when the `ty` feature is disabled; with `ty` enabled, missing
 //!   parameter and return types are resolved where `ty` can.
 
+#![cfg_attr(not(test), deny(clippy::iter_over_hash_type))]
 #![expect(
     clippy::many_single_char_names,
     reason = "Ruff AST pattern matches often use source-language single-letter names"

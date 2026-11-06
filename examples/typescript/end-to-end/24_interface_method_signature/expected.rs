@@ -66,6 +66,8 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone)]
 #[allow(dead_code)]
 struct Named {
@@ -90,8 +92,6 @@ impl ::std::fmt::Debug for Named {
 struct User {
     name: String,
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let user: User;

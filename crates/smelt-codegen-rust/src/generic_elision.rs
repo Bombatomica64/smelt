@@ -395,76 +395,31 @@ fn scan_type(
                 }
             }
         }
-        Type::List(item)
-        | Type::Set(item)
-        | Type::Optional(item)
-        | Type::Future(item) => {
-            scan_type(mir, *item, positions, carried, declared, found, seen);
-        }
-        Type::Dict(key, value) | Type::JsMap(key, value) => {
-            scan_type(mir, *key, positions, carried, declared, found, seen);
-            scan_type(mir, *value, positions, carried, declared, found, seen);
-        }
-        Type::Tuple(items) | Type::Union(items) => {
-            for item in items {
-                scan_type(mir, *item, positions, carried, declared, found, seen);
+        other => {
+            for child in other.children() {
+                scan_type(mir, child, positions, carried, declared, found, seen);
             }
         }
-        Type::Function(signature) => {
-            for param in &signature.params {
-                scan_type(mir, *param, positions, carried, declared, found, seen);
-            }
-            scan_type(mir, signature.return_ty, positions, carried, declared, found, seen);
-        }
-        Type::Generator {
-            yield_ty,
-            return_ty,
-            next_ty,
-            ..
-        } => {
-            scan_type(mir, *yield_ty, positions, carried, declared, found, seen);
-            scan_type(mir, *return_ty, positions, carried, declared, found, seen);
-            scan_type(mir, *next_ty, positions, carried, declared, found, seen);
-        }
-        Type::GeneratorResult {
-            yield_ty,
-            return_ty,
-        } => {
-            scan_type(mir, *yield_ty, positions, carried, declared, found, seen);
-            scan_type(mir, *return_ty, positions, carried, declared, found, seen);
-        }
-        Type::Bool
-        | Type::Int
-        | Type::FixedInt(_)
-        | Type::BigInt
-        | Type::Float
-        | Type::String
-        | Type::Unknown
-        | Type::Never
-        | Type::None => {}
     }
 }
 
 /// Collects the types a body's blocks name directly, and the closures it builds.
 ///
-/// Only two rvalues carry a type the emitted Rust spells on its own: a phi's
-/// result type and an `UnknownCast` target. Everything else a block names is
-/// already the type of a local.
+/// Only one rvalue carries a type the emitted Rust spells on its own: an
+/// `UnknownCast` target. Everything else a block names is already the type of a
+/// local.
 fn collect_block_types(
     blocks: &[BasicBlock],
     types: &mut Vec<TypeId>,
     closures: &mut Vec<ClosureId>,
 ) {
     for block in blocks {
-        for phi in &block.phis {
-            types.push(phi.ty);
-        }
         for statement in &block.statements {
             match statement {
                 Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => {
                     collect_rvalue_types(value, types, closures);
                 }
-                _ => {}
+                Statement::DictEntryUpdate { .. } => {}
             }
         }
     }

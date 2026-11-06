@@ -171,7 +171,7 @@ impl ModuleBuilder<'_> {
         };
         let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Array.from mapper element");
         let index_ty = self.ctx.krate.types.intern(Type::Float);
-        let callback = self.callback_argument_with_body_fallback(
+        let callback = self.callback_argument_with_return_hint(
             mapper_arg,
             &[unknown_ty, index_ty],
             index_ty,
@@ -2795,13 +2795,14 @@ impl ModuleBuilder<'_> {
         let receiver = self.expression(&binary.right, body)?;
         let receiver_ty = Self::expr_ty(body, receiver);
         let mut key = self.expression(&binary.left, body)?;
-        if matches!(
-            self.ctx.krate.types.get(receiver_ty),
-            Some(Type::Optional(_))
-        ) && matches!(&binary.left, Expression::StringLiteral(value) if value.value == "done")
+        // An iterator result's own properties are fixed by the protocol, so a
+        // literal key is answered without erasing the typed result.
+        if matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::GeneratorResult { .. }))
+            && let Expression::StringLiteral(name) = &binary.left
         {
+            let present = name.value == "done" || name.value == "value";
             return Ok(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::Bool(true)),
+                kind: ExprKind::Literal(Literal::Bool(present)),
                 ty: bool_ty,
                 span,
             }));
@@ -2850,6 +2851,7 @@ impl ModuleBuilder<'_> {
                             | Type::Tuple(_)
                             | Type::String
                             | Type::Union(_)
+                            | Type::GeneratorResult { .. }
                     )
                 )
             {
@@ -4121,61 +4123,15 @@ impl ModuleBuilder<'_> {
     /// Report whether a function body references the implicit `arguments`
     /// binding.
     ///
-    /// Scans the body's source slice for the `arguments` identifier with
-    /// surrounding identifier-boundary checks, mirroring the source-text probes
-    /// already used for forward-callable detection. Used to decide whether a
-    /// zero-parameter object-method function expression must be lowered as a
-    /// real function value (which establishes the array-like `arguments`
-    /// object) rather than collapsed into a getter return expression.
+    /// Used to decide whether a zero-parameter object-method function expression
+    /// must be lowered as a real function value (which establishes the
+    /// array-like `arguments` object) rather than collapsed into a getter return
+    /// expression.
     pub(in crate::lowering) fn function_body_references_arguments(
         &self,
         function_body: &oxc::ast::ast::FunctionBody<'_>,
     ) -> bool {
-        let (Ok(start), Ok(end)) = (
-            usize::try_from(function_body.span.start),
-            usize::try_from(function_body.span.end),
-        ) else {
-            return false;
-        };
-        let Some(text) = self.source.get(start..end) else {
-            return false;
-        };
-        Self::source_slice_mentions_identifier(text, "arguments")
-    }
-
-    /// Report whether `text` contains `identifier` as a standalone JavaScript
-    /// identifier (not as a substring of a longer identifier such as a property
-    /// name or a different variable).
-    pub(in crate::lowering) fn source_slice_mentions_identifier(
-        text: &str,
-        identifier: &str,
-    ) -> bool {
-        let bytes = text.as_bytes();
-        let mut search_from = 0;
-        while let Some(offset) = text
-            .get(search_from..)
-            .and_then(|tail| tail.find(identifier))
-        {
-            let match_start = search_from + offset;
-            let match_end = match_start + identifier.len();
-            let before_ok = match_start
-                .checked_sub(1)
-                .and_then(|index| bytes.get(index))
-                .is_none_or(|byte| !Self::is_identifier_byte(*byte));
-            let after_ok = bytes
-                .get(match_end)
-                .is_none_or(|byte| !Self::is_identifier_byte(*byte));
-            if before_ok && after_ok {
-                return true;
-            }
-            search_from = match_start + 1;
-        }
-        false
-    }
-
-    /// Report whether `byte` can appear inside a JavaScript identifier.
-    pub(in crate::lowering) fn is_identifier_byte(byte: u8) -> bool {
-        byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'$'
+        self.source_facts.mentions(function_body.span, "arguments")
     }
 
     /// Lower an object property value, treating zero-argument getters as field values.

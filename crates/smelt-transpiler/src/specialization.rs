@@ -21,8 +21,8 @@ use smelt_specialize::{
 
 use crate::{
     config::Config,
-    lowering::SourceLang,
-    manifest::{ManifestSource, exclusion_base, resolve_manifest_path},
+    manifest::ManifestSource,
+    source_files::{SourceLang, exclusion_base, resolve_manifest_path},
 };
 
 /// How one language's specialization batch was resolved.

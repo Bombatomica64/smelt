@@ -3846,6 +3846,8 @@ impl SmeltFromUnknown for SmeltUrl {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Circle {
     radius: f64,
@@ -3910,8 +3912,8 @@ impl IntoSmeltUnknown for SmeltUnion4 {
 impl SmeltUnion4 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
         if matches!(value, SmeltUnknown::String(_)) { return Self::M2(match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }); }
-        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(map) if map.contains_key("radius"))) { return Self::M0(Default::default()); }
-        Self::M1(Default::default())
+        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(map) if map.contains_key("radius"))) { return Self::M0(<Circle as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown())); }
+        Self::M1(<Square as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown()))
     }
 }
 impl PartialEq for SmeltUnion4 {
@@ -3952,8 +3954,8 @@ impl IntoSmeltUnknown for SmeltUnion6 {
 }
 impl SmeltUnion6 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(map) if map.contains_key("radius"))) { return Self::M0(Default::default()); }
-        Self::M1(Default::default())
+        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(map) if map.contains_key("radius"))) { return Self::M0(<Circle as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown())); }
+        Self::M1(<Square as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown()))
     }
 }
 impl PartialEq for SmeltUnion6 {
@@ -4039,7 +4041,7 @@ impl IntoSmeltUnknown for SmeltUnion15 {
 }
 impl SmeltUnion15 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::Object(_)) { return Self::M0(Default::default()); }
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M0(<Square as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown())); }
         Self::M1(match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() })
     }
 }
@@ -4107,8 +4109,6 @@ impl Default for SmeltUnion17 {
         Self::M0(0.0)
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_0: Circle = Circle::new(2.0);

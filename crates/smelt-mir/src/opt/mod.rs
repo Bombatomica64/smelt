@@ -6,9 +6,9 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    Callee, GlobalProjection, LocalId, Mir, MirFunction, Operand, Place, Rvalue, Statement,
-    Terminator,
+    LocalId, Mir, MirFunction, Operand, Place, ReadMut, Rvalue, Statement, Terminator,
 };
+use shared_locals::SharedLocals;
 use smelt_hir::Type;
 
 mod dict_default_insert_elision;
@@ -19,6 +19,8 @@ mod local_use;
 pub use local_use::inline_absent_constant_temps;
 mod let_temp_elision;
 mod move_on_last_use;
+mod shared_locals;
+mod temp_copy_forwarding;
 mod unobserved_receiver_bind;
 
 pub use dict_default_insert_elision::DictDefaultInsertElision;
@@ -27,6 +29,7 @@ pub use dict_entry_update::DictEntryUpdate;
 pub use integer_range::IntegerRange;
 pub use let_temp_elision::LetTempElision;
 pub use move_on_last_use::MoveOnLastUse;
+pub use temp_copy_forwarding::TempCopyForwarding;
 pub use unobserved_receiver_bind::UnobservedReceiverBind;
 
 /// A MIR optimization pass that transforms the MIR.
@@ -34,66 +37,10 @@ pub use unobserved_receiver_bind::UnobservedReceiverBind;
 /// A `Pass` may run any number of times, interleaved with the other fixpoint
 /// passes, until none of them changes the MIR: it must be safe to re-run on its
 /// own output and must report `true` only when it actually changed something,
-/// or the fixpoint in [`Pipeline::run`] would not terminate.
+/// or the fixpoint in [`optimize`] would not terminate.
 pub trait Pass {
-    /// Returns the name of this pass for debugging purposes.
-    fn name(&self) -> &'static str;
     /// Runs the pass on the given MIR. Returns true if the MIR was modified.
     fn run(&self, mir: &mut Mir) -> bool;
-}
-
-/// A MIR pass that runs exactly once, after the fixpoint has settled.
-///
-/// A separate trait (rather than a [`Pass`] the pipeline is careful to place
-/// last) so that putting such a pass into the fixpoint is a type error. A final
-/// pass relies on the *final* shape of every body -- e.g. [`IntegerRange`]
-/// proves ranges over locals that copy propagation might otherwise still merge
-/// -- and may produce output the fixpoint passes would rewrite again.
-pub trait FinalPass {
-    /// Returns the name of this pass for debugging purposes.
-    fn name(&self) -> &'static str;
-    /// Runs the pass on the given MIR. Returns true if the MIR was modified.
-    fn run(&self, mir: &mut Mir) -> bool;
-}
-
-/// The MIR optimization pipeline: a fixpoint phase, then a final phase.
-///
-/// The ordering invariant is structural: `fixpoint` holds only [`Pass`]es and
-/// `post` only [`FinalPass`]es, and [`Self::run`] always finishes the first
-/// before starting the second.
-pub struct Pipeline {
-    /// Passes re-run, in order, until a whole round changes nothing.
-    pub fixpoint: Vec<Box<dyn Pass>>,
-    /// Passes run once each, in order, on the settled MIR.
-    pub post: Vec<Box<dyn FinalPass>>,
-}
-
-impl Pipeline {
-    /// The default pipeline used by [`optimize`].
-    #[must_use]
-    pub fn default_pipeline() -> Self {
-        Self {
-            fixpoint: default_passes(),
-            post: vec![Box::<IntegerRange>::default()],
-        }
-    }
-
-    /// Runs the fixpoint passes until a round changes nothing, then each final
-    /// pass once.
-    pub fn run(&self, mir: &mut Mir) {
-        loop {
-            let mut changed = false;
-            for pass in &self.fixpoint {
-                changed |= pass.run(mir);
-            }
-            if !changed {
-                break;
-            }
-        }
-        for pass in &self.post {
-            pass.run(mir);
-        }
-    }
 }
 
 /// Copy propagation optimization that eliminates alias assignments.
@@ -101,28 +48,26 @@ impl Pipeline {
 pub struct CopyPropagation;
 
 impl Pass for CopyPropagation {
-    /// Returns the stable identifier of this pass.
-    fn name(&self) -> &'static str {
-        "copy-propagation"
-    }
-
     /// Applies the pass to `mir`, returning true if it was modified.
     fn run(&self, mir: &mut Mir) -> bool {
+        let facts = SharedLocals::of(mir);
+        let empty = HashSet::new();
         let mut changed = false;
-        for function in &mut mir.functions {
-            changed |= propagate_function(function, &mir.types);
+        for (index, function) in mir.functions.iter_mut().enumerate() {
+            let shared = facts.of_function(index).unwrap_or(&empty);
+            changed |= propagate_function(function, shared, &mir.types);
         }
         changed
     }
 }
 
-/// Returns the default fixpoint passes of [`Pipeline::default_pipeline`].
-#[must_use]
-pub fn default_passes() -> Vec<Box<dyn Pass>> {
+/// The passes [`optimize`] re-runs until a whole round changes nothing.
+fn fixpoint_passes() -> Vec<Box<dyn Pass>> {
     vec![
         Box::<CopyPropagation>::default(),
         Box::<MoveOnLastUse>::default(),
         Box::<LetTempElision>::default(),
+        Box::<TempCopyForwarding>::default(),
         Box::<DictEntryInPlaceMutation>::default(),
         Box::<DictEntryUpdate>::default(),
         Box::<DictDefaultInsertElision>::default(),
@@ -130,21 +75,40 @@ pub fn default_passes() -> Vec<Box<dyn Pass>> {
     ]
 }
 
-/// Applies the default optimization [`Pipeline`] to the MIR.
+/// Optimizes the MIR: the fixpoint passes until a round changes nothing, then
+/// [`IntegerRange`] once.
 ///
-/// [`IntegerRange`] is a [`FinalPass`]: it runs once, after the fixpoint. It
-/// reasons about the final shape of every body (copy propagation can merge the
-/// locals it would otherwise prove separately), and nothing in the fixpoint
-/// passes creates new integer-provable `number` locals from a retyped one.
+/// The ordering is structural: [`IntegerRange`] is not a [`Pass`], so putting it
+/// into the fixpoint is a type error. It reasons about the final shape of every
+/// body (copy propagation can merge the locals it would otherwise prove
+/// separately), and nothing in the fixpoint passes creates new integer-provable
+/// `number` locals from a retyped one.
 pub fn optimize(mir: &mut Mir) {
-    Pipeline::default_pipeline().run(mir);
+    let passes = fixpoint_passes();
+    loop {
+        let mut changed = false;
+        for pass in &passes {
+            changed |= pass.run(mir);
+        }
+        if !changed {
+            break;
+        }
+    }
+    IntegerRange.run(mir);
 }
 
 /// Propagates copies within a function. Returns true if the function was modified.
-fn propagate_function(function: &mut MirFunction, types: &smelt_hir::TypeInterner) -> bool {
+///
+/// `shared` are the locals a closure can write: a copy of one is a snapshot, not an
+/// alias, since the source can change at any later call.
+fn propagate_function(
+    function: &mut MirFunction,
+    shared: &HashSet<LocalId>,
+    types: &smelt_hir::TypeInterner,
+) -> bool {
     let mut aliases = HashMap::new();
     let mutated = mutated_locals(function);
-    let assigned_counts = assigned_local_counts(function);
+    let assigned_counts = function.assignment_counts();
 
     for block in &function.blocks {
         for stmt in &block.statements {
@@ -154,8 +118,9 @@ fn propagate_function(function: &mut MirFunction, types: &smelt_hir::TypeInterne
             } = stmt
                 && !mutated.contains(dest)
                 && !mutated.contains(source)
+                && !shared.contains(source)
                 && assigned_counts.get(dest) == Some(&1)
-                && !is_temp_local(function, *source)
+                && !function.is_temp(*source)
                 && !is_function_local(function, types, *dest)
                 && !is_function_local(function, types, *source)
                 && locals_have_same_type(function, *dest, *source)
@@ -171,41 +136,8 @@ fn propagate_function(function: &mut MirFunction, types: &smelt_hir::TypeInterne
 
     let mut changed = false;
     for block in &mut function.blocks {
-        for phi in &mut block.phis {
-            for (_, operand) in &mut phi.incoming {
-                changed |= rewrite_operand(operand, &aliases);
-            }
-        }
         for stmt in &mut block.statements {
-            match stmt {
-                Statement::Assign { dest, value } => {
-                    changed |= rewrite_rvalue(value, &aliases, Some(*dest));
-                }
-                Statement::AssignPlace { place, value } => {
-                    changed |= rewrite_place(place, &aliases);
-                    changed |= rewrite_rvalue(value, &aliases, None);
-                }
-                // Rewritten exactly like the `AssignPlace { place: base[index] }`
-                // it replaces: the container local, the key and the seed are all
-                // reads, and so is every operand of the stored rvalue. `current`
-                // is the statement's own definition, so it is excluded from the
-                // rvalue rewrite the same way an `Assign`'s `dest` is.
-                Statement::DictEntryUpdate {
-                    base,
-                    index,
-                    default,
-                    current,
-                    value,
-                } => {
-                    let resolved = resolve_alias(&aliases, *base);
-                    changed |= resolved != *base;
-                    *base = resolved;
-                    changed |= rewrite_operand(index, &aliases);
-                    changed |= rewrite_operand(default, &aliases);
-                    changed |= rewrite_rvalue(value, &aliases, Some(*current));
-                }
-                Statement::StorageLive(_) | Statement::StorageDead(_) => {}
-            }
+            changed |= rewrite_statement(stmt, &aliases);
         }
         if let Some(terminator) = &mut block.terminator {
             changed |= rewrite_terminator(terminator, &aliases);
@@ -213,45 +145,6 @@ fn propagate_function(function: &mut MirFunction, types: &smelt_hir::TypeInterne
     }
 
     changed
-}
-
-/// Count direct assignments to each local across a function.
-fn assigned_local_counts(function: &MirFunction) -> HashMap<LocalId, usize> {
-    let mut counts = HashMap::new();
-    for block in &function.blocks {
-        for stmt in &block.statements {
-            match stmt {
-                Statement::Assign { dest, .. } => {
-                    let count = counts.entry(*dest).or_insert(0usize);
-                    *count = count.saturating_add(1);
-                }
-                Statement::AssignPlace {
-                    place: Place::Local(local),
-                    ..
-                } => {
-                    let count = counts.entry(*local).or_insert(0usize);
-                    *count = count.saturating_add(1);
-                }
-                // Binding the entry's value to `current` is a definition.
-                Statement::DictEntryUpdate { current, .. } => {
-                    let count = counts.entry(*current).or_insert(0usize);
-                    *count = count.saturating_add(1);
-                }
-                Statement::AssignPlace { .. }
-                | Statement::StorageLive(_)
-                | Statement::StorageDead(_) => {}
-            }
-        }
-    }
-    counts
-}
-
-/// Return whether a local is a compiler-generated temporary.
-fn is_temp_local(function: &MirFunction, local: LocalId) -> bool {
-    function
-        .locals
-        .get(usize::try_from(local.0).unwrap_or(usize::MAX))
-        .is_some_and(|decl| matches!(decl.kind, crate::LocalKind::Temp))
 }
 
 /// Return whether copy propagation can preserve the assignment's type semantics.
@@ -302,9 +195,7 @@ fn mutated_locals(function: &MirFunction) -> HashSet<LocalId> {
                 Statement::DictEntryUpdate { base, .. } => {
                     locals.insert(*base);
                 }
-                Statement::Assign { .. }
-                | Statement::StorageLive(_)
-                | Statement::StorageDead(_) => {}
+                Statement::Assign { .. } => {}
             }
         }
     }
@@ -324,968 +215,40 @@ fn resolve_alias(aliases: &HashMap<LocalId, LocalId>, local: LocalId) -> LocalId
     current
 }
 
-/// Rewrites operands in an rvalue using alias mappings. Returns true if modified.
-fn rewrite_rvalue(
-    rvalue: &mut Rvalue,
-    aliases: &HashMap<LocalId, LocalId>,
-    dest: Option<LocalId>,
-) -> bool {
-    match rvalue {
-        Rvalue::Use(operand) => rewrite_operand_except(operand, aliases, dest),
-        Rvalue::ThisRead => false,
-        Rvalue::BindThis { callee, receiver } => {
-            let callee_changed = rewrite_operand_except(callee, aliases, dest);
-            let receiver_changed = rewrite_operand_except(receiver, aliases, dest);
-            callee_changed || receiver_changed
-        }
-        Rvalue::GeneratorYield { value, .. } => rewrite_operand_except(value, aliases, dest),
-        Rvalue::GeneratorNext {
-            generator, value, ..
-        } => {
-            let generator_changed = rewrite_operand_except(generator, aliases, dest);
-            let value_changed = value
-                .as_mut()
-                .is_some_and(|value| rewrite_operand_except(value, aliases, dest));
-            generator_changed || value_changed
-        }
-        Rvalue::GeneratorDone { result } | Rvalue::GeneratorValue { result } => {
-            rewrite_operand_except(result, aliases, dest)
-        }
-        Rvalue::GeneratorDelegate { generator } => {
-            rewrite_operand_except(generator, aliases, dest)
-        }
-        Rvalue::List(items) | Rvalue::Set(items) | Rvalue::Tuple(items) => {
-            items.iter_mut().fold(false, |changed, item| {
-                rewrite_operand_except(item, aliases, dest) | changed
-            })
-        }
-        Rvalue::Dict(entries) => entries.iter_mut().fold(false, |changed, (key, entry_value)| {
-            rewrite_operand_except(key, aliases, dest)
-                | rewrite_operand_except(entry_value, aliases, dest)
-                | changed
-        }),
-        Rvalue::Closure { captures, .. } => captures.iter_mut().fold(false, |changed, capture| {
-            rewrite_operand_except(capture, aliases, dest) | changed
-        }),
-        Rvalue::ClosureCall { callee, args } => args.iter_mut().fold(
-            rewrite_operand_except(callee, aliases, dest),
-            |changed, arg| rewrite_operand_except(arg, aliases, dest) | changed,
-        ),
-        Rvalue::Construct { callee, args } => args.iter_mut().fold(
-            rewrite_operand_except(callee, aliases, dest),
-            |changed, arg| rewrite_operand_except(arg, aliases, dest) | changed,
-        ),
-        Rvalue::ClosureCallSpread { callee, args } => {
-            rewrite_operand_except(callee, aliases, dest)
-                | rewrite_operand_except(args, aliases, dest)
-        }
-        Rvalue::InstanceOfValue { value, target } => {
-            rewrite_operand_except(value, aliases, dest)
-                | rewrite_operand_except(target, aliases, dest)
-        }
-        Rvalue::Binary { lhs, rhs, .. } => {
-            rewrite_operand_except(lhs, aliases, dest) | rewrite_operand_except(rhs, aliases, dest)
-        }
-        Rvalue::Conditional {
-            cond,
-            then_operand,
-            else_operand,
-        } => {
-            rewrite_operand_except(cond, aliases, dest)
-                | rewrite_operand_except(then_operand, aliases, dest)
-                | rewrite_operand_except(else_operand, aliases, dest)
-        }
-        Rvalue::FunctionTableLookup { key, cases } => cases.iter_mut().fold(
-            rewrite_operand_except(key, aliases, dest),
-            |changed, (_, case)| rewrite_operand_except(case, aliases, dest) | changed,
-        ),
-        Rvalue::OptionalField { receiver, .. } | Rvalue::BoundField { receiver, .. } => {
-            rewrite_operand_except(receiver, aliases, dest)
-        }
-        Rvalue::OptionalIndex { receiver, index } => {
-            rewrite_operand_except(receiver, aliases, dest)
-                | rewrite_operand_except(index, aliases, dest)
-        }
-        Rvalue::OptionalMethod { receiver, args, .. }
-        | Rvalue::UnionMethod { receiver, args, .. }
-        | Rvalue::BoundMethod { receiver, args, .. } => args.iter_mut().fold(
-            rewrite_operand_except(receiver, aliases, dest),
-            |changed, arg| rewrite_operand_except(arg, aliases, dest) | changed,
-        ),
-        Rvalue::OptionalCoalesce { optional, fallback } => {
-            rewrite_operand_except(optional, aliases, dest)
-                | rewrite_operand_except(fallback, aliases, dest)
-        }
-        Rvalue::InstanceOf { value: operand, .. }
-        | Rvalue::UnknownIs { value: operand, .. }
-        | Rvalue::TypeofValue { value: operand }
-        | Rvalue::PrototypeSentinel { value: operand, .. }
-        | Rvalue::BoxPrimitive { value: operand }
-        | Rvalue::ObjectFromPrototype { prototype: operand }
-        | Rvalue::UnknownCast { value: operand, .. } => {
-            rewrite_operand_except(operand, aliases, dest)
-        }
-        Rvalue::DefineProperties {
-            target,
-            descriptors,
-        } => {
-            rewrite_operand_except(target, aliases, dest)
-                | rewrite_operand_except(descriptors, aliases, dest)
-        }
-        Rvalue::StringContains {
-            haystack,
-            needle,
-            from_index: None,
-        } => {
-            rewrite_operand_except(haystack, aliases, dest)
-                | rewrite_operand_except(needle, aliases, dest)
-        }
-        Rvalue::StringContains {
-            haystack,
-            needle,
-            from_index: Some(from_index),
-        } => {
-            rewrite_operand_except(haystack, aliases, dest)
-                | rewrite_operand_except(needle, aliases, dest)
-                | rewrite_operand_except(from_index, aliases, dest)
-        }
-        Rvalue::StringLocaleCompare {
-            left: haystack,
-            right: needle,
-        }
-        | Rvalue::StringAffix {
-            haystack, needle, ..
-        }
-        | Rvalue::StringSearch {
-            haystack,
-            needle,
-            from_index: None,
-            ..
-        } => {
-            rewrite_operand_except(haystack, aliases, dest)
-                | rewrite_operand_except(needle, aliases, dest)
-        }
-        Rvalue::StringSearch {
-            haystack,
-            needle,
-            from_index: Some(from_index),
-            ..
-        } => {
-            rewrite_operand_except(haystack, aliases, dest)
-                | rewrite_operand_except(needle, aliases, dest)
-                | rewrite_operand_except(from_index, aliases, dest)
-        }
-        Rvalue::StringReplace {
-            haystack,
-            pattern,
-            replacement,
-            ..
-        }
-        | Rvalue::RegexReplace {
-            haystack,
-            pattern,
-            replacement,
-            ..
-        } => {
-            rewrite_operand_except(haystack, aliases, dest)
-                | rewrite_operand_except(pattern, aliases, dest)
-                | rewrite_operand_except(replacement, aliases, dest)
-        }
-        Rvalue::RegexReplaceCallback {
-            haystack,
-            pattern,
-            callback,
-            ..
-        } => {
-            rewrite_operand_except(haystack, aliases, dest)
-                | rewrite_operand_except(pattern, aliases, dest)
-                | rewrite_operand_except(callback, aliases, dest)
-        }
-        Rvalue::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
-            rewrite_operand_except(pattern, aliases, dest)
-                | rewrite_operand_except(haystack, aliases, dest)
-        }
-        Rvalue::RegexSplit { pattern, haystack } => {
-            rewrite_operand_except(pattern, aliases, dest)
-                | rewrite_operand_except(haystack, aliases, dest)
-        }
-        Rvalue::RegexFind { pattern, haystack } => {
-            rewrite_operand_except(pattern, aliases, dest)
-                | rewrite_operand_except(haystack, aliases, dest)
-        }
-        Rvalue::RegexExec { regex, haystack } | Rvalue::RegexTest { regex, haystack } => {
-            rewrite_operand_except(regex, aliases, dest)
-                | rewrite_operand_except(haystack, aliases, dest)
-        }
-        Rvalue::RegexMatchAll { regex, haystack } => {
-            rewrite_operand_except(regex, aliases, dest)
-                | rewrite_operand_except(haystack, aliases, dest)
-        }
-        Rvalue::StringRemoveAffix {
-            haystack, affix, ..
-        } => {
-            rewrite_operand_except(haystack, aliases, dest)
-                | rewrite_operand_except(affix, aliases, dest)
-        }
-        Rvalue::StringRepeat { operand, count } => {
-            rewrite_operand_except(operand, aliases, dest)
-                | rewrite_operand_except(count, aliases, dest)
-        }
-        Rvalue::StringPad {
-            operand,
-            target_len,
-            pad,
-            ..
-        } => {
-            rewrite_operand_except(operand, aliases, dest)
-                | rewrite_operand_except(target_len, aliases, dest)
-                | rewrite_operand_except(pad, aliases, dest)
-        }
-        Rvalue::StringCharAt { operand, index } => {
-            rewrite_operand_except(operand, aliases, dest)
-                | rewrite_operand_except(index, aliases, dest)
-        }
-        Rvalue::StringCharCodeAt { operand, index } => {
-            rewrite_operand_except(operand, aliases, dest)
-                | rewrite_operand_except(index, aliases, dest)
-        }
-        Rvalue::StringSlice {
-            operand,
-            start,
-            end,
-        } => {
-            rewrite_operand_except(operand, aliases, dest)
-                | rewrite_optional_operand_except(start, aliases, dest)
-                | rewrite_optional_operand_except(end, aliases, dest)
-        }
-        Rvalue::ListContains { list, item } => {
-            rewrite_operand_except(list, aliases, dest)
-                | rewrite_operand_except(item, aliases, dest)
-        }
-        Rvalue::SetContains { set, item } => {
-            rewrite_operand_except(set, aliases, dest) | rewrite_operand_except(item, aliases, dest)
-        }
-        Rvalue::SetDisjoint { left, right } => {
-            rewrite_operand_except(left, aliases, dest)
-                | rewrite_operand_except(right, aliases, dest)
-        }
-        Rvalue::SetRelation { left, right, .. } => {
-            rewrite_operand_except(left, aliases, dest)
-                | rewrite_operand_except(right, aliases, dest)
-        }
-        Rvalue::SetAdd { set, item } | Rvalue::SetRemove { set, item, .. } => {
-            rewrite_operand_except(set, aliases, dest) | rewrite_operand_except(item, aliases, dest)
-        }
-        Rvalue::SetClear { set } | Rvalue::SetCopy { set } => {
-            rewrite_operand_except(set, aliases, dest)
-        }
-        Rvalue::ListToSet { list } | Rvalue::ListPairsToDict { list } => {
-            rewrite_operand_except(list, aliases, dest)
-        }
-        Rvalue::SetBinary { left, right, .. } => {
-            rewrite_operand_except(left, aliases, dest)
-                | rewrite_operand_except(right, aliases, dest)
-        }
-        Rvalue::SetProjection { set, .. } => rewrite_operand_except(set, aliases, dest),
-        Rvalue::EventEmitterNew | Rvalue::ProcessEnvRead { .. } => false,
-        Rvalue::EventEmitterOp { emitter, args, .. } => {
-            let mut rewritten = rewrite_operand_except(emitter, aliases, dest);
-            for arg in args {
-                rewritten |= rewrite_operand_except(arg, aliases, dest);
-            }
-            rewritten
-        }
-        Rvalue::HttpCreateServer { handler } => rewrite_operand_except(handler, aliases, dest),
-        Rvalue::HttpCreateFetchServer { fetch } => rewrite_operand_except(fetch, aliases, dest),
-        Rvalue::SqliteOpen { path } => rewrite_operand_except(path, aliases, dest),
-        Rvalue::SqliteOp { receiver, args, .. } => {
-            let mut rewritten = rewrite_operand_except(receiver, aliases, dest);
-            for arg in args {
-                rewritten |= rewrite_operand_except(arg, aliases, dest);
-            }
-            rewritten
-        }
-        Rvalue::HttpServerOp { server, args, .. } => {
-            let mut rewritten = rewrite_operand_except(server, aliases, dest);
-            for arg in args {
-                rewritten |= rewrite_operand_except(arg, aliases, dest);
-            }
-            rewritten
-        }
-        Rvalue::IncomingMessageOp { message, .. } => {
-            rewrite_operand_except(message, aliases, dest)
-        }
-        Rvalue::ServerResponseOp { response, args, .. } => {
-            let mut rewritten = rewrite_operand_except(response, aliases, dest);
-            for arg in args {
-                rewritten |= rewrite_operand_except(arg, aliases, dest);
-            }
-            rewritten
-        }
-        Rvalue::RequestNew {
-            input,
-            method,
-            headers,
-            body,
-            signal,
-            init_members,
-        } => {
-            let mut rewritten = rewrite_operand_except(input, aliases, dest);
-            for operand in [method, headers, body, signal] {
-                if let Some(operand) = operand.as_mut() {
-                    rewritten |= rewrite_operand_except(operand, aliases, dest);
-                }
-            }
-            for (_, operand) in init_members.iter_mut() {
-                rewritten |= rewrite_operand_except(operand, aliases, dest);
-            }
-            rewritten
-        }
-        Rvalue::RequestOp { request, args, .. } => {
-            let mut rewritten = rewrite_operand_except(request, aliases, dest);
-            for arg in args {
-                rewritten |= rewrite_operand_except(arg, aliases, dest);
-            }
-            rewritten
-        }
-        Rvalue::ResponseNew {
-            body,
-            status,
-            status_text,
-            headers,
-        } => {
-            let mut rewritten = false;
-            for operand in [body, status, status_text, headers] {
-                if let Some(operand) = operand.as_mut() {
-                    rewritten |= rewrite_operand_except(operand, aliases, dest);
-                }
-            }
-            rewritten
-        }
-        Rvalue::ResponseOp { response, args, .. } => {
-            let mut rewritten = rewrite_operand_except(response, aliases, dest);
-            for arg in args {
-                rewritten |= rewrite_operand_except(arg, aliases, dest);
-            }
-            rewritten
-        }
-        Rvalue::TextEncoderNew | Rvalue::GlobalObject => false,
-        Rvalue::TextDecoderNew { label } => label
-            .as_mut()
-            .is_some_and(|label| rewrite_operand_except(label, aliases, dest)),
-        Rvalue::TextEncoderOp { encoder, args, .. } => {
-            let mut rewritten = rewrite_operand_except(encoder, aliases, dest);
-            for arg in args {
-                rewritten |= rewrite_operand_except(arg, aliases, dest);
-            }
-            rewritten
-        }
-        Rvalue::TextDecoderOp { decoder, args, .. } => {
-            let mut rewritten = rewrite_operand_except(decoder, aliases, dest);
-            for arg in args {
-                rewritten |= rewrite_operand_except(arg, aliases, dest);
-            }
-            rewritten
-        }
-        Rvalue::TypedArrayNew { args, .. } => {
-            let mut rewritten = false;
-            for arg in args {
-                rewritten |= rewrite_operand_except(arg, aliases, dest);
-            }
-            rewritten
-        }
-        Rvalue::ByteArrayOp { bytes, args, .. } => {
-            let mut rewritten = rewrite_operand_except(bytes, aliases, dest);
-            for arg in args {
-                rewritten |= rewrite_operand_except(arg, aliases, dest);
-            }
-            rewritten
-        }
-        Rvalue::UrlSearchParamsNew { init } => init
-            .as_mut()
-            .is_some_and(|init| rewrite_operand_except(init, aliases, dest)),
-        // `getRandomValues` fills its argument in place, so the argument is a
-        // place the call WRITES. Alias rewriting still applies -- it renames
-        // which local the place names, it does not copy the value -- but a
-        // future pass that treats an rvalue's operands as read-only must not
-        // include this one.
-        Rvalue::AbortSignalOp { args, .. }
-        | Rvalue::CryptoOp { args, .. }
-        | Rvalue::HostModuleCall { args, .. } => {
-            let mut rewritten = false;
-            for arg in args {
-                rewritten |= rewrite_operand_except(arg, aliases, dest);
-            }
-            rewritten
-        }
-        Rvalue::FormDataNew => false,
-        Rvalue::FormDataOp { form, args, .. } => {
-            let mut rewritten = rewrite_operand_except(form, aliases, dest);
-            for arg in args {
-                rewritten |= rewrite_operand_except(arg, aliases, dest);
-            }
-            rewritten
-        }
-        Rvalue::UrlOp { url, args, .. } => {
-            let mut rewritten = rewrite_operand_except(url, aliases, dest);
-            for arg in args {
-                rewritten |= rewrite_operand_except(arg, aliases, dest);
-            }
-            rewritten
-        }
-        Rvalue::UrlSearchParamsOp { params, args, .. } => {
-            let mut rewritten = rewrite_operand_except(params, aliases, dest);
-            for arg in args {
-                rewritten |= rewrite_operand_except(arg, aliases, dest);
-            }
-            rewritten
-        }
-        Rvalue::HeadersNew { init } => init
-            .as_mut()
-            .is_some_and(|init| rewrite_operand_except(init, aliases, dest)),
-        Rvalue::HeadersOp { headers, args, .. } => {
-            let mut rewritten = rewrite_operand_except(headers, aliases, dest);
-            for arg in args {
-                rewritten |= rewrite_operand_except(arg, aliases, dest);
-            }
-            rewritten
-        }
-        Rvalue::ListConcat { left, right } => {
-            rewrite_operand_except(left, aliases, dest)
-                | rewrite_operand_except(right, aliases, dest)
-        }
-        Rvalue::ConcatSpread { value } => rewrite_operand_except(value, aliases, dest),
-        Rvalue::ListSearch {
-            list,
-            item,
-            from_index: None,
-            ..
-        } => {
-            rewrite_operand_except(list, aliases, dest)
-                | rewrite_operand_except(item, aliases, dest)
-        }
-        Rvalue::ListSearch {
-            list,
-            item,
-            from_index: Some(from_index),
-            ..
-        } => {
-            rewrite_operand_except(list, aliases, dest)
-                | rewrite_operand_except(item, aliases, dest)
-                | rewrite_operand_except(from_index, aliases, dest)
-        }
-        Rvalue::ListCallback { list, callback, .. } => {
-            rewrite_operand_except(list, aliases, dest)
-                | rewrite_operand_except(callback, aliases, dest)
-        }
-        Rvalue::ListFromLength { length } => rewrite_operand_except(length, aliases, dest),
-        Rvalue::ListRepeat {
-            value: repeat_value,
-            count,
-        } => {
-            rewrite_operand_except(repeat_value, aliases, dest)
-                | rewrite_operand_except(count, aliases, dest)
-        }
-        Rvalue::ListFromLengthMap { length, callback } => {
-            rewrite_operand_except(length, aliases, dest)
-                | rewrite_operand_except(callback, aliases, dest)
-        }
-        Rvalue::ListReduce {
-            list,
-            initial,
-            callback,
-            ..
-        } => {
-            rewrite_operand_except(list, aliases, dest)
-                | rewrite_optional_operand_except(initial, aliases, dest)
-                | rewrite_operand_except(callback, aliases, dest)
-        }
-        Rvalue::ListSlice { list, start, end } => {
-            rewrite_operand_except(list, aliases, dest)
-                | rewrite_optional_operand_except(start, aliases, dest)
-                | rewrite_optional_operand_except(end, aliases, dest)
-        }
-        Rvalue::ListSplice {
-            list,
-            start,
-            delete_count,
-            items,
-            ..
-        } => {
-            let mut changed = rewrite_operand_except(list, aliases, dest)
-                | rewrite_operand_except(start, aliases, dest)
-                | rewrite_optional_operand_except(delete_count, aliases, dest);
-            for item in items {
-                changed |= rewrite_operand_except(&mut item.value, aliases, dest);
-            }
-            changed
-        }
-        Rvalue::ListFill {
-            list,
-            value: fill_value,
-            start,
-            end,
-        } => {
-            rewrite_operand_except(list, aliases, dest)
-                | rewrite_operand_except(fill_value, aliases, dest)
-                | rewrite_optional_operand_except(start, aliases, dest)
-                | rewrite_optional_operand_except(end, aliases, dest)
-        }
-        Rvalue::ListCopyWithin {
-            list,
-            target,
-            start,
-            end,
-        } => {
-            rewrite_operand_except(list, aliases, dest)
-                | rewrite_operand_except(target, aliases, dest)
-                | rewrite_operand_except(start, aliases, dest)
-                | rewrite_optional_operand_except(end, aliases, dest)
-        }
-        Rvalue::ListWith {
-            list,
-            index,
-            value: replacement,
-        } => {
-            rewrite_operand_except(list, aliases, dest)
-                | rewrite_operand_except(index, aliases, dest)
-                | rewrite_operand_except(replacement, aliases, dest)
-        }
-        Rvalue::ListFlat { list, depth } => {
-            rewrite_operand_except(list, aliases, dest)
-                | rewrite_optional_operand_except(depth, aliases, dest)
-        }
-        Rvalue::ListProjection { list, .. } => rewrite_operand_except(list, aliases, dest),
-        Rvalue::ListPush { list, item } => {
-            rewrite_operand_except(list, aliases, dest)
-                | rewrite_operand_except(item, aliases, dest)
-        }
-        Rvalue::ListExtend { list, other } => {
-            rewrite_operand_except(list, aliases, dest)
-                | rewrite_operand_except(other, aliases, dest)
-        }
-        Rvalue::ListInsert { list, index, item } => {
-            rewrite_operand_except(list, aliases, dest)
-                | rewrite_operand_except(index, aliases, dest)
-                | rewrite_operand_except(item, aliases, dest)
-        }
-        Rvalue::ListUnshift { list, items } => {
-            let mut changed = rewrite_operand_except(list, aliases, dest);
-            for item in items {
-                changed |= rewrite_operand_except(item, aliases, dest);
-            }
-            changed
-        }
-        Rvalue::ListReverse { list } => rewrite_operand_except(list, aliases, dest),
-        Rvalue::ListClear { list } => rewrite_operand_except(list, aliases, dest),
-        Rvalue::ListCopy { list } => rewrite_operand_except(list, aliases, dest),
-        Rvalue::TupleToList { tuple } | Rvalue::TupleToSet { tuple } => {
-            rewrite_operand_except(tuple, aliases, dest)
-        }
-        Rvalue::ListToTuple { list } => rewrite_operand_except(list, aliases, dest),
-        Rvalue::ListCount { list, item } => {
-            rewrite_operand_except(list, aliases, dest)
-                | rewrite_operand_except(item, aliases, dest)
-        }
-        Rvalue::ListSum { list }
-        | Rvalue::ListBoolFold { list, .. }
-        | Rvalue::ListReversed { list }
-        | Rvalue::ListEnumerate { list } => rewrite_operand_except(list, aliases, dest),
-        Rvalue::ListSorted { list, key, .. } => {
-            rewrite_operand_except(list, aliases, dest)
-                | rewrite_optional_operand_except(key, aliases, dest)
-        }
-        Rvalue::ListZip { left, right } => {
-            rewrite_operand_except(left, aliases, dest)
-                | rewrite_operand_except(right, aliases, dest)
-        }
-        Rvalue::ListRange { start, end, step } => {
-            rewrite_operand_except(start, aliases, dest)
-                | rewrite_operand_except(end, aliases, dest)
-                | rewrite_operand_except(step, aliases, dest)
-        }
-        Rvalue::ListRandomChoice { list } => rewrite_operand_except(list, aliases, dest),
-        Rvalue::ListIndex { list, item } => {
-            rewrite_operand_except(list, aliases, dest)
-                | rewrite_operand_except(item, aliases, dest)
-        }
-        Rvalue::ListRemove { list, item } => {
-            rewrite_operand_except(list, aliases, dest)
-                | rewrite_operand_except(item, aliases, dest)
-        }
-        Rvalue::ListSort {
-            list,
-            comparator,
-            key,
-            ..
-        } => {
-            rewrite_operand_except(list, aliases, dest)
-                | rewrite_optional_operand_except(comparator, aliases, dest)
-                | rewrite_optional_operand_except(key, aliases, dest)
-        }
-        Rvalue::ListPop { list } => rewrite_operand_except(list, aliases, dest),
-        Rvalue::ListShift { list } => rewrite_operand_except(list, aliases, dest),
-        Rvalue::ListNext { list } => rewrite_operand_except(list, aliases, dest),
-        Rvalue::IteratorDone { result } | Rvalue::IteratorValue { result } => {
-            rewrite_operand_except(result, aliases, dest)
-        }
-        Rvalue::TupleContains { tuple, item } => {
-            rewrite_operand_except(tuple, aliases, dest)
-                | rewrite_operand_except(item, aliases, dest)
-        }
-        Rvalue::TupleIndex { tuple, .. } | Rvalue::TupleSlice { tuple, .. } => {
-            rewrite_operand_except(tuple, aliases, dest)
-        }
-        Rvalue::DictContainsKey { dict, key, .. } => {
-            rewrite_operand_except(dict, aliases, dest) | rewrite_operand_except(key, aliases, dest)
-        }
-        Rvalue::DictSet {
-            dict,
-            key,
-            value: dict_value,
-        } => {
-            rewrite_operand_except(dict, aliases, dest)
-                | rewrite_operand_except(key, aliases, dest)
-                | rewrite_operand_except(dict_value, aliases, dest)
-        }
-        Rvalue::DictRemoveKey { dict, key } => {
-            rewrite_operand_except(dict, aliases, dest) | rewrite_operand_except(key, aliases, dest)
-        }
-        Rvalue::DictGet { dict, key, default } => {
-            rewrite_operand_except(dict, aliases, dest)
-                | rewrite_operand_except(key, aliases, dest)
-                | rewrite_optional_operand_except(default, aliases, dest)
-        }
-        Rvalue::DictSetDefault { dict, key, default } => {
-            rewrite_operand_except(dict, aliases, dest)
-                | rewrite_operand_except(key, aliases, dest)
-                | rewrite_operand_except(default, aliases, dest)
-        }
-        Rvalue::DictClear { dict } => rewrite_operand_except(dict, aliases, dest),
-        Rvalue::DictPop { dict, key, default } => {
-            rewrite_operand_except(dict, aliases, dest)
-                | rewrite_operand_except(key, aliases, dest)
-                | rewrite_optional_operand_except(default, aliases, dest)
-        }
-        Rvalue::DictUpdate { dict, other } => {
-            rewrite_operand_except(dict, aliases, dest)
-                | rewrite_operand_except(other, aliases, dest)
-        }
-        Rvalue::DictAssign { target, sources } => {
-            let mut changed = rewrite_operand_except(target, aliases, dest);
-            for source in sources {
-                changed |= rewrite_operand_except(source, aliases, dest);
-            }
-            changed
-        }
-        Rvalue::CallableObjectAssign {
-            callable,
-            props,
-            spreads,
-        } => {
-            let mut changed = rewrite_operand_except(callable, aliases, dest);
-            for (_, prop_value) in props {
-                changed |= rewrite_operand_except(prop_value, aliases, dest);
-            }
-            for spread_value in spreads {
-                changed |= rewrite_operand_except(spread_value, aliases, dest);
-            }
-            changed
-        }
-        Rvalue::DictCopy { dict } => rewrite_operand_except(dict, aliases, dest),
-        Rvalue::DictProjection { dict, .. } => rewrite_operand_except(dict, aliases, dest),
-        Rvalue::StringSplit {
-            haystack,
-            separator,
-            limit,
-        } => {
-            rewrite_operand_except(haystack, aliases, dest)
-                | rewrite_operand_except(separator, aliases, dest)
-                | rewrite_optional_operand_except(limit, aliases, dest)
-        }
-        Rvalue::StringChars { haystack } => rewrite_operand_except(haystack, aliases, dest),
-        Rvalue::StringJoin { items, separator } => {
-            rewrite_operand_except(items, aliases, dest)
-                | rewrite_operand_except(separator, aliases, dest)
-        }
-        Rvalue::JsonStringify { value: json_value } => {
-            rewrite_operand_except(json_value, aliases, dest)
-        }
-        Rvalue::JsonParse { text } => rewrite_operand_except(text, aliases, dest),
-        Rvalue::RegexIsMatch {
-            pattern, haystack, ..
-        } => {
-            rewrite_operand_except(pattern, aliases, dest)
-                | rewrite_operand_except(haystack, aliases, dest)
-        }
-        Rvalue::HttpGetText { url } => rewrite_operand_except(url, aliases, dest),
-        Rvalue::DateNow => false,
-        Rvalue::DateResetNow | Rvalue::VitestRestoreAllMocks => false,
-        Rvalue::HostGlobalRead { .. } | Rvalue::HostGlobalPresent { .. } => false,
-        Rvalue::HostGlobalWrite { value: stored, .. } => {
-            rewrite_operand_except(stored, aliases, dest)
-        }
-        Rvalue::GlobalGet { .. } => false,
-        Rvalue::GlobalSet { value: stored, .. } => rewrite_operand_except(stored, aliases, dest),
-        Rvalue::DateSetNow { timestamp } => rewrite_operand_except(timestamp, aliases, dest),
-        Rvalue::DateTimezoneOffset | Rvalue::DateResetTimezoneOffset => false,
-        Rvalue::DateSetTimezoneOffset { offset } => rewrite_operand_except(offset, aliases, dest),
-        Rvalue::VitestMockFn { implementation } => implementation
-            .as_mut()
-            .is_some_and(|implementation| rewrite_operand_except(implementation, aliases, dest)),
-        Rvalue::VitestMockCalledTimes { mock, count } => {
-            let mut changed = rewrite_operand_except(mock, aliases, dest);
-            changed |= rewrite_operand_except(count, aliases, dest);
-            changed
-        }
-        Rvalue::VitestSpyOn { target, name } => {
-            let mut changed = rewrite_operand_except(target, aliases, dest);
-            changed |= rewrite_operand_except(name, aliases, dest);
-            changed
-        }
-        Rvalue::VitestAsymmetricEqual { actual, expected } => {
-            let mut changed = rewrite_operand_except(actual, aliases, dest);
-            changed |= rewrite_operand_except(expected, aliases, dest);
-            changed
-        }
-        Rvalue::VitestMockCalledWith { mock, args, .. } => {
-            let mut changed = rewrite_operand_except(mock, aliases, dest);
-            for arg in args {
-                changed |= rewrite_operand_except(arg, aliases, dest);
-            }
-            changed
-        }
-        Rvalue::VitestMockLastResolvedWith { mock, expected } => {
-            let mut changed = rewrite_operand_except(mock, aliases, dest);
-            changed |= rewrite_operand_except(expected, aliases, dest);
-            changed
-        }
-        Rvalue::DateTimezoneContext { timezone } => rewrite_operand_except(timezone, aliases, dest),
-        Rvalue::DateToIsoString { timestamp_ms } => {
-            rewrite_operand_except(timestamp_ms, aliases, dest)
-        }
-        Rvalue::DateToString { timestamp_ms } | Rvalue::DateToUtcString { timestamp_ms } => {
-            rewrite_operand_except(timestamp_ms, aliases, dest)
-        }
-        Rvalue::JsonIndent { text, space } => {
-            let text_changed = rewrite_operand_except(text, aliases, dest);
-            rewrite_operand_except(space, aliases, dest) || text_changed
-        }
-        Rvalue::DateFromParts { parts } => {
-            let mut changed = false;
-            for part in parts {
-                changed |= rewrite_operand_except(part, aliases, dest);
-            }
-            changed
-        }
-        Rvalue::DateFromValue { value: date_value } => {
-            rewrite_operand_except(date_value, aliases, dest)
-        }
-        Rvalue::DateGetPart { timestamp_ms, .. } => {
-            rewrite_operand_except(timestamp_ms, aliases, dest)
-        }
-        Rvalue::DateSetPart {
-            timestamp_ms,
-            values,
-            ..
-        } => {
-            let mut changed = rewrite_operand_except(timestamp_ms, aliases, dest);
-            for part_value in values {
-                changed |= rewrite_operand_except(part_value, aliases, dest);
-            }
-            changed
-        }
-        Rvalue::UrlField { url, .. } => rewrite_operand_except(url, aliases, dest),
-        Rvalue::FileReadText { path } => rewrite_operand_except(path, aliases, dest),
-        Rvalue::FileWriteText { path, text } => {
-            rewrite_operand_except(path, aliases, dest)
-                | rewrite_operand_except(text, aliases, dest)
-        }
-        Rvalue::BlobOp { blob, args, .. } => {
-            let mut rewritten = rewrite_operand_except(blob, aliases, dest);
-            for arg in args {
-                rewritten |= rewrite_operand_except(arg, aliases, dest);
-            }
-            rewritten
-        }
-        Rvalue::BlobFromParts {
-            parts,
-            blob_type,
-            name,
-            last_modified,
-        } => {
-            rewrite_operand_except(parts, aliases, dest)
-                | rewrite_operand_except(blob_type, aliases, dest)
-                | name
-                    .as_mut()
-                    .is_some_and(|name_operand| rewrite_operand_except(name_operand, aliases, dest))
-                | last_modified.as_mut().is_some_and(|last_modified_operand| {
-                    rewrite_operand_except(last_modified_operand, aliases, dest)
-                })
-        }
-        Rvalue::HostConstruct { args, .. } => args.iter_mut().fold(false, |changed, arg| {
-            rewrite_operand_except(arg, aliases, dest) | changed
-        }),
-        Rvalue::BuiltinNamespace { .. } => false,
-        Rvalue::ArgumentsObject { fixed, rest } => {
-            let fixed_changed = fixed.iter_mut().fold(false, |changed, value| {
-                rewrite_operand_except(value, aliases, dest) | changed
-            });
-            let rest_changed = rest
-                .as_mut()
-                .is_some_and(|rest_operand| rewrite_operand_except(rest_operand, aliases, dest));
-            fixed_changed || rest_changed
-        }
-        Rvalue::NumericExtrema { args, spread, .. } => {
-            let mut changed = args.iter_mut().fold(false, |changed, arg| {
-                rewrite_operand_except(arg, aliases, dest) | changed
-            });
-            if let Some(spread_operand) = spread {
-                changed |= rewrite_operand_except(spread_operand, aliases, dest);
-            }
-            changed
-        }
-        Rvalue::NumericHypot { args } => args.iter_mut().fold(false, |changed, arg| {
-            rewrite_operand_except(arg, aliases, dest) | changed
-        }),
-        Rvalue::NumericPow { base, exponent } => {
-            rewrite_operand_except(base, aliases, dest)
-                | rewrite_operand_except(exponent, aliases, dest)
-        }
-        Rvalue::NumericAtan2 { y, x } => {
-            rewrite_operand_except(y, aliases, dest) | rewrite_operand_except(x, aliases, dest)
-        }
-        Rvalue::NumericRandom => false,
-        Rvalue::NumericRandomInt { start, end } => {
-            rewrite_operand_except(start, aliases, dest)
-                | rewrite_operand_except(end, aliases, dest)
-        }
-        Rvalue::NumericToStringRadix { operand, radix } => {
-            rewrite_operand_except(operand, aliases, dest)
-                | rewrite_operand_except(radix, aliases, dest)
-        }
-        Rvalue::NumericToFixed { operand, digits } => {
-            rewrite_operand_except(operand, aliases, dest)
-                | rewrite_operand_except(digits, aliases, dest)
-        }
-        Rvalue::ParseIntRadix { operand, radix } => {
-            rewrite_operand_except(operand, aliases, dest)
-                | rewrite_operand_except(radix, aliases, dest)
-        }
-        Rvalue::PrimitiveCast { operand, .. } => rewrite_operand_except(operand, aliases, dest),
-        Rvalue::Unary { operand, .. } => rewrite_operand_except(operand, aliases, dest),
-        Rvalue::Struct { fields, .. } => {
-            fields.iter_mut().fold(false, |changed, (_, field_value)| {
-                rewrite_operand_except(field_value, aliases, dest) | changed
-            })
-        }
-        Rvalue::ExternalClassInstance { args, .. } => {
-            args.iter_mut().fold(false, |changed, arg| {
-                rewrite_operand_except(arg, aliases, dest) | changed
-            })
-        }
-        Rvalue::Len(operand)
-        | Rvalue::NumericAbs(operand)
-        | Rvalue::NumericRound { operand, .. }
-        | Rvalue::NumericPredicate { operand, .. }
-        | Rvalue::NumericUnaryFunc { operand, .. }
-        | Rvalue::StringCase { operand, .. }
-        | Rvalue::StringNormalize { operand, .. }
-        | Rvalue::UriTranscode { operand, .. }
-        | Rvalue::ObjectToStringTag { operand }
-        | Rvalue::StructuredClone { operand }
-        | Rvalue::StringTrim { operand, .. }
-        | Rvalue::StringPredicate { operand, .. }
-        | Rvalue::Await(operand) => rewrite_operand_except(operand, aliases, dest),
-        Rvalue::AsyncOp { args, .. } => args.iter_mut().fold(false, |changed, arg| {
-            rewrite_operand_except(arg, aliases, dest) | changed
-        }),
-    }
+/// Rewrites everything a statement reads using alias mappings. Returns true if
+/// modified.
+///
+/// A statement's own definition needs no exclusion here: an alias key is assigned
+/// exactly once, by the copy that created it, so nothing else defines it.
+fn rewrite_statement(statement: &mut Statement, aliases: &HashMap<LocalId, LocalId>) -> bool {
+    let mut changed = false;
+    statement.reads_mut(|read| match read {
+        ReadMut::Base(local) => {
+            let resolved = resolve_alias(aliases, *local);
+            changed |= resolved != *local;
+            *local = resolved;
+        }
+        ReadMut::Operand(operand) => changed |= rewrite_operand(operand, aliases),
+    });
+    changed
 }
 
 /// Rewrites operands in a terminator using alias mappings. Returns true if modified.
 fn rewrite_terminator(terminator: &mut Terminator, aliases: &HashMap<LocalId, LocalId>) -> bool {
-    match terminator {
-        Terminator::Goto(_) | Terminator::Unreachable => false,
-        Terminator::Return(operand) | Terminator::Throw(operand) => {
-            rewrite_operand(operand, aliases)
-        }
-        Terminator::Switch { cond, .. } => rewrite_operand(cond, aliases),
-        Terminator::Match { scrutinee, .. } => rewrite_operand(scrutinee, aliases),
-        Terminator::Call {
-            callee, args, dest, ..
-        } => {
-            let mut changed = match callee {
-                Callee::Indirect(operand) => rewrite_operand(operand, aliases),
-                Callee::Static(_) | Callee::Builtin(_) | Callee::BaseInit(_) => false,
-            };
-            for arg in args {
-                changed |= rewrite_operand_except(arg, aliases, Some(*dest));
-            }
-            changed
-        }
-        Terminator::Await { future, dest, .. } => {
-            rewrite_operand_except(future, aliases, Some(*dest))
-        }
-    }
+    let mut changed = false;
+    terminator.reads_mut(|operand| changed |= rewrite_operand(operand, aliases));
+    changed
 }
 
 /// Rewrites an operand using alias mappings. Returns true if modified.
 fn rewrite_operand(operand: &mut Operand, aliases: &HashMap<LocalId, LocalId>) -> bool {
-    rewrite_operand_except(operand, aliases, None)
-}
-
-/// Rewrites a place using alias mappings. Returns true if modified.
-fn rewrite_place(place: &mut Place, aliases: &HashMap<LocalId, LocalId>) -> bool {
-    match place {
-        Place::Local(local) | Place::Field { base: local, .. } => {
-            let resolved = resolve_alias(aliases, *local);
-            let changed = resolved != *local;
-            *local = resolved;
-            changed
-        }
-        // No base local to resolve, but the index operand can still name an
-        // aliased local and must be rewritten with everything else.
-        Place::Global { projection, .. } => match projection {
-            GlobalProjection::Field(_) => false,
-            GlobalProjection::Index { index, .. } => rewrite_operand(index, aliases),
-        },
-        Place::Index { base, index, .. } => {
-            let resolved = resolve_alias(aliases, *base);
-            let changed = resolved != *base;
-            *base = resolved;
-            rewrite_operand(index, aliases) | changed
-        }
-    }
-}
-
-/// Rewrites an operand using alias mappings, except for a specific local ID. Returns true if modified.
-fn rewrite_operand_except(
-    operand: &mut Operand,
-    aliases: &HashMap<LocalId, LocalId>,
-    except: Option<LocalId>,
-) -> bool {
     let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = operand else {
         return false;
     };
-    if Some(*local) == except {
-        return false;
-    }
     let resolved = resolve_alias(aliases, *local);
     if resolved == *local {
         return false;
     }
     *local = resolved;
     true
-}
-
-/// Rewrites an optional operand using alias mappings, except for a specific local ID.
-fn rewrite_optional_operand_except(
-    maybe_operand: &mut Option<Operand>,
-    aliases: &HashMap<LocalId, LocalId>,
-    except: Option<LocalId>,
-) -> bool {
-    maybe_operand
-        .as_mut()
-        .is_some_and(|inner| rewrite_operand_except(inner, aliases, except))
 }

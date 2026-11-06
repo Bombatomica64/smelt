@@ -10,6 +10,7 @@
 //! state, its two constructors, and the small accessor helpers that every other
 //! module builds on (`block`, `hir_expr`, `error`, and friends).
 
+use super::volatile_locals::VolatileLocals;
 use std::collections::HashMap;
 
 use smelt_hir::{
@@ -30,6 +31,8 @@ pub(super) struct LoweringCtx<'hir> {
     pub(super) krate: &'hir smelt_hir::Crate,
     /// Mapping of HIR item IDs to MIR function IDs.
     pub(super) item_functions: &'hir HashMap<smelt_hir::ItemId, FuncId>,
+    /// Locals that can change while one expression is evaluated.
+    pub(super) volatile_locals: &'hir VolatileLocals,
     /// Mapping of mutable-global HIR item IDs to their `Mir::globals` index.
     pub(super) global_ids: &'hir HashMap<smelt_hir::ItemId, u32>,
     /// Source language of every file in the crate, keyed by span `FileId`.
@@ -117,6 +120,8 @@ pub(super) struct LoweringShared<'hir> {
     pub(super) krate: &'hir smelt_hir::Crate,
     /// Mapping of HIR item IDs to MIR function IDs.
     pub(super) item_functions: &'hir HashMap<smelt_hir::ItemId, FuncId>,
+    /// Locals that can change while one expression is evaluated.
+    pub(super) volatile_locals: &'hir VolatileLocals,
     /// Mapping of mutable-global HIR item IDs to their `Mir::globals` index.
     pub(super) global_ids: &'hir HashMap<smelt_hir::ItemId, u32>,
     /// Source language of every file in the crate, keyed by span `FileId`.
@@ -312,6 +317,7 @@ impl<'hir> LoweringCtx<'hir> {
         Self {
             krate: shared.krate,
             item_functions: shared.item_functions,
+            volatile_locals: shared.volatile_locals,
             global_ids: shared.global_ids,
             languages: shared.languages,
             body,

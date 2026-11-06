@@ -51,7 +51,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &call.callee else {
             return Ok(None);
         };
-        if callee.name != "createServer" || self.http_create_server_is_shadowed() {
+        if callee.name != "createServer" || self.builtin_call_identifier_is_shadowed("createServer") {
             return Ok(None);
         }
         let span = self.span(call.span.start, call.span.end);
@@ -204,17 +204,6 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Return whether the program binds `createServer` to something of its own.
-    ///
-    /// A source function, class, or import that resolved to a real item wins
-    /// over the modeled export, on the same rule that lets a user class named
-    /// `Response` shadow the fetch type.
-    fn http_create_server_is_shadowed(&self) -> bool {
-        self.scope.is_bound("createServer")
-            || self.classes.contains("createServer")
-            || self.import_alias_resolved("createServer")
-    }
-
     /// Dispatch a modeled `Server` method on a concrete server receiver.
     ///
     /// `listen`'s four Node overloads (`(port)`, `(port, cb)`, `(port, host)`,
@@ -239,7 +228,7 @@ impl ModuleBuilder<'_> {
         {
             return Ok(None);
         }
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         let receiver_ty = Self::expr_ty(body, receiver);
@@ -368,7 +357,7 @@ impl ModuleBuilder<'_> {
         {
             return Ok(None);
         }
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         let receiver_ty = Self::expr_ty(body, receiver);
@@ -432,7 +421,7 @@ impl ModuleBuilder<'_> {
         if !matches!(property, "method" | "url" | "headers" | "statusCode") {
             return Ok(None);
         }
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         let receiver_ty = Self::expr_ty(body, receiver);
@@ -487,7 +476,7 @@ impl ModuleBuilder<'_> {
         if member.property.name != "statusCode" {
             return Ok(None);
         }
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         if !self.is_server_response_type(Self::expr_ty(body, receiver)) {
@@ -590,19 +579,19 @@ impl ModuleBuilder<'_> {
     /// Return whether a lowered type is the modeled `Server` class.
     pub(in crate::lowering) fn is_http_server_type(&self, ty: smelt_hir::TypeId) -> bool {
         self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::HttpServer)
-            && !self.user_class_shadows("Server")
+            && !self.source_shadows_global("Server")
     }
 
     /// Return whether a lowered type is the modeled `IncomingMessage` class.
     pub(in crate::lowering) fn is_incoming_message_type(&self, ty: smelt_hir::TypeId) -> bool {
         self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::IncomingMessage)
-            && !self.user_class_shadows("IncomingMessage")
+            && !self.source_shadows_global("IncomingMessage")
     }
 
     /// Return whether a lowered type is the modeled `ServerResponse` class.
     pub(in crate::lowering) fn is_server_response_type(&self, ty: smelt_hir::TypeId) -> bool {
         self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::ServerResponse)
-            && !self.user_class_shadows("ServerResponse")
+            && !self.source_shadows_global("ServerResponse")
     }
 
     /// The HIR type a `Server` operation answers.

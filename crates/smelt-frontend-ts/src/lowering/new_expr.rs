@@ -48,9 +48,6 @@ impl ModuleBuilder<'_> {
             return Ok(expr);
         }
         let Expression::Identifier(callee) = &new_expr.callee else {
-            if let Some(expr) = self.intl_date_time_format_constructor_expression(new_expr, body)? {
-                return Ok(expr);
-            }
             if let Some(expr) = self.intl_namespace_constructor_expression(new_expr, body)? {
                 return Ok(expr);
             }
@@ -310,7 +307,7 @@ impl ModuleBuilder<'_> {
         if callee.name == "DOMException" && !self.classes.contains("DOMException") {
             return self.domexception_object_constructor_expression(new_expr, body);
         }
-        if Self::is_builtin_error_constructor(callee.name.as_str()) {
+        if smelt_stdlib::is_error_class_name(callee.name.as_str()) {
             return self.error_object_constructor_expression(new_expr, body);
         }
         if let Some(expr) = self.dynamic_identifier_constructor_expression(new_expr, body)? {
@@ -483,7 +480,7 @@ impl ModuleBuilder<'_> {
         // arguments, else their defaults; a hint still naming an unsubstituted
         // type parameter is dropped rather than guessed.
         let (hints, _) = self.pending_constructor_hints(class_name, new_expr)?;
-        let args = new_expr
+        let mut args = new_expr
             .arguments
             .iter()
             .enumerate()
@@ -553,6 +550,34 @@ impl ModuleBuilder<'_> {
                     arg_ty,
                     &mut inferred,
                 );
+            }
+            let resolved = self.checker_call_type(new_expr.span.start, new_expr.span.end);
+            match resolved.and_then(|ty| self.ctx.krate.types.get(ty).cloned()) {
+                Some(Type::Class { name, args: resolved_args })
+                    if name == class_name && resolved_args.len() == class.type_params.len() =>
+                {
+                    for (param, resolved_arg) in class.type_params.iter().zip(resolved_args) {
+                        if let Some(bound) = inferred.get_mut(&param.name) {
+                            *bound = self.widened_call_type(Some(resolved_arg), *bound);
+                        }
+                    }
+                }
+                _ => self.widen_call_bindings(&class.type_params, &constructor_params, &args, body, &mut inferred),
+            }
+            // Rust binds the class parameter from a bare `T` argument, so one
+            // that widened to `unknown` takes the argument erased: `new Pair(0, h)`
+            // with `h` returning `unknown` is a `Pair<unknown>`.
+            for (param_ty, arg) in constructor_params.iter().zip(&mut args) {
+                let Some(Type::TypeParam { name }) = self.ctx.krate.types.get(*param_ty) else {
+                    continue;
+                };
+                let Some(&bound) = inferred.get(name) else {
+                    continue;
+                };
+                if self.ctx.krate.types.get(bound) == Some(&Type::Unknown) && Self::expr_ty(body, *arg) != bound {
+                    let span = self.span(new_expr.span.start, new_expr.span.end);
+                    *arg = body.push_expr(Expr { kind: ExprKind::TypeAssert { value: *arg }, ty: bound, span });
+                }
             }
             class
                 .type_params
@@ -846,7 +871,7 @@ impl ModuleBuilder<'_> {
         if self.scope.is_bound(name) {
             return Ok(None);
         }
-        let is_error_builtin = Self::is_builtin_error_constructor(name);
+        let is_error_builtin = smelt_stdlib::is_error_class_name(name);
         let is_user_class = self.classes.is_known(name) || self.source_contains_class(name);
         if !is_error_builtin && !is_user_class {
             return Ok(None);
@@ -1192,21 +1217,6 @@ impl ModuleBuilder<'_> {
             "WeakMap" | "WeakSet" | "Request" => smelt_stdlib::host_object_marker(name),
             _ => None,
         }
-    }
-
-    /// Return true for built-in JavaScript Error constructors with Error identity.
-    pub(super) fn is_builtin_error_constructor(class_text: &str) -> bool {
-        matches!(
-            class_text,
-            "Error"
-                | "EvalError"
-                | "RangeError"
-                | "ReferenceError"
-                | "SyntaxError"
-                | "TypeError"
-                | "URIError"
-                | "AggregateError"
-        )
     }
 
     /// Lower a built-in Error constructor used as a value to an erased Error object.
@@ -2895,9 +2905,19 @@ impl ModuleBuilder<'_> {
         // a `never`-returning function (`c ? rethrow : (e) => handle(e)`): its
         // return says nothing about the alternate's. The outer hint is the
         // right one there.
+        //
+        // A non-empty array literal has a shape of its own, and a literal takes
+        // its hint on trust because a checked program's hint is always right.
+        // This one is only the other arm's type: `c ? ["a"] : [1]` would type
+        // `[1]` as `string[]`. The arms join below instead.
         let then_ty = Self::expr_ty(body, then_expr);
+        let alternate_has_own_shape = matches!(
+            Self::unparenthesized_expression(&conditional.alternate),
+            Expression::ArrayExpression(array) if !array.elements.is_empty()
+        );
         let branch_hint = if self.ctx.krate.types.get(then_ty) == Some(&Type::None)
             || self.function_returns_never(then_ty)
+            || alternate_has_own_shape
         {
             type_hint
         } else {
@@ -2986,9 +3006,7 @@ impl ModuleBuilder<'_> {
     /// operators, and answers `Err` where a ternary joins to a union. A
     /// ternary in argument position once asked that query, so
     /// `console.log(c ? 1 : "a")` and `f(c ? recordA : recordB)` failed to
-    /// lower while the same ternary assigned to a `const` was a union. The
-    /// compact callback IR still asks it; `callback_conditional_type` records
-    /// why that copy cannot move here yet.
+    /// lower while the same ternary assigned to a `const` was a union.
     fn ternary_branch_type(
         &mut self,
         body: &Body,

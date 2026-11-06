@@ -3638,13 +3638,13 @@ fn main() {
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_24)); };
     let _smelt_tmp_26: f64 = handler_index("/tags/:tag".to_owned());
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_26)); };
-    _smelt_tmp_28 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
-    let _smelt_tmp_3: f64 = closure_arg_0 + closure_arg_1 as f64;
-    _smelt_tmp_3
+    _smelt_tmp_28 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, _arg0: &SmeltList<f64>| {
+    let _smelt_tmp_2: f64 = closure_arg_0 + closure_arg_1 as f64;
+    _smelt_tmp_2
     });
-    _smelt_tmp_29 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
-    let _smelt_tmp_3: f64 = closure_arg_0 + closure_arg_1 as f64;
-    _smelt_tmp_3
+    _smelt_tmp_29 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, _arg0: &SmeltList<f64>| {
+    let _smelt_tmp_2: f64 = closure_arg_0 + closure_arg_1 as f64;
+    _smelt_tmp_2
     }); let smelt_array = replacement; smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
     _smelt_tmp_30 = _smelt_tmp_29.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&",".to_owned());
     let _ = { println!("{}", _smelt_tmp_30); };
@@ -3674,8 +3674,7 @@ pub(crate) fn param_index_map(path: String) -> SmeltRecord<String, f64> {
     let _smelt_tmp_16: SmeltRecord<String, f64> = _smelt_tmp_14.borrow().iter().enumerate().rev().fold(seed, |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = &_smelt_tmp_14; { let smelt_callback = ::std::rc::Rc::new({
     let path_data = path_data.clone();
     move |mut closure_arg_0: SmeltRecord<String, f64>, closure_arg_1: (String, f64), closure_arg_2: i64, _arg0: &SmeltList<(String, f64)>| {
-    let _smelt_tmp_5: String = closure_arg_1.clone().0.clone();
-    let key: String = _smelt_tmp_5.clone();
+    let key: String = closure_arg_1.clone().0.clone();
     let _smelt_tmp_6: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![3.0, 1.0, 2.0]; smelt_list_items }));
     let _smelt_tmp_7: (f64, SmeltList<(String, f64)>) = path_data.clone().expect("optional value was absent after narrowing");
     let _smelt_tmp_8: SmeltList<(String, f64)> = Into::<SmeltList<_>>::into(_smelt_tmp_7.clone().1.clone());

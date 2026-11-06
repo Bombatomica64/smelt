@@ -124,21 +124,12 @@ use smelt_hir::{Type, TypeInterner};
 use crate::{LocalId, Mir, MirFunction, Operand, Place, Rvalue, Statement};
 
 use super::Pass;
-use super::local_use::{
-    local_assignment_count, local_decl, local_is_temp, local_read_count, operand_local,
-    operand_place,
-};
 
 /// Fuses a dict-entry read/compute/write-back triple into one entry update.
 #[derive(Debug, Default)]
 pub struct DictEntryUpdate;
 
 impl Pass for DictEntryUpdate {
-    /// Returns the stable identifier of this pass.
-    fn name(&self) -> &'static str {
-        "dict-entry-update"
-    }
-
     /// Applies the pass to `mir`, returning true if it was modified.
     fn run(&self, mir: &mut Mir) -> bool {
         let mut changed = false;
@@ -230,7 +221,7 @@ fn triple_is_fusable(
         base: read_base,
         index: read_index,
         ..
-    }) = operand_place(optional)
+    }) = optional.place()
     else {
         return false;
     };
@@ -242,11 +233,11 @@ fn triple_is_fusable(
     if read_base != write_base || read_index != write_index {
         return false;
     }
-    if operand_local(write_source) != Some(*stored_dest) {
+    if write_source.local() != Some(*stored_dest) {
         return false;
     }
     // Condition 4: both temporaries are private to the triple.
-    if !single_use_temp(function, *current) || !single_use_temp(function, *stored_dest) {
+    if !function.is_single_use_temp(*current) || !function.is_single_use_temp(*stored_dest) {
         return false;
     }
     // Conditions 5 and 6: the entry type is a scalar the triple agrees on.
@@ -259,13 +250,6 @@ fn triple_is_fusable(
     }
     // Condition 8: the key is evaluated as an accessor argument.
     key_is_borrow_safe(read_index, *read_base, *current, *stored_dest)
-}
-
-/// Whether a local is a temporary that is assigned once and read once.
-fn single_use_temp(function: &MirFunction, local: LocalId) -> bool {
-    local_is_temp(function, local)
-        && local_assignment_count(function, local) == 1
-        && local_read_count(function, local) == 1
 }
 
 /// Whether `base` is a dict whose value type is a scalar shared by both temps.
@@ -282,9 +266,9 @@ fn dict_entry_types_match(
     stored_dest: LocalId,
 ) -> bool {
     let (Some(base_decl), Some(current_decl), Some(stored_decl)) = (
-        local_decl(function, base),
-        local_decl(function, current),
-        local_decl(function, stored_dest),
+        function.body().local_decl(base),
+        function.body().local_decl(current),
+        function.body().local_decl(stored_dest),
     ) else {
         return false;
     };
@@ -312,7 +296,7 @@ fn rvalue_is_borrow_safe(value: &Rvalue, current: LocalId) -> bool {
         return false;
     }
     let mut safe = true;
-    value.for_each_operand(|operand| {
+    value.reads(|operand| {
         safe &= match operand {
             Operand::Const(_) => true,
             Operand::Copy(place) | Operand::Move(place) => *place == Place::Local(current),
@@ -331,7 +315,7 @@ fn key_is_borrow_safe(
     current: LocalId,
     stored_dest: LocalId,
 ) -> bool {
-    match operand_place(index) {
+    match index.place() {
         None => true,
         Some(Place::Local(local)) => *local != base && *local != current && *local != stored_dest,
         // A field or index projection reads some other local's interior, which
@@ -361,7 +345,7 @@ fn apply_fusion(function: &mut MirFunction, fusion: &Fusion) {
     else {
         return;
     };
-    let Some(Place::Index { base, index, .. }) = operand_place(optional) else {
+    let Some(Place::Index { base, index, .. }) = optional.place() else {
         return;
     };
     let fused_base = *base;

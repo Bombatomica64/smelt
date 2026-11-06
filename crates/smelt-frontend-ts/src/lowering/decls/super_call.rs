@@ -135,18 +135,7 @@ pub(in crate::lowering) enum ErrorMarkerShape {
 /// covers every `class Foo extends Error`/`extends TypeError`/… in any project
 /// instead of recognizing particular subclass names.
 pub(in crate::lowering) fn is_error_like_base(name: &str) -> bool {
-    matches!(
-        name,
-        "Error"
-            | "EvalError"
-            | "RangeError"
-            | "ReferenceError"
-            | "SyntaxError"
-            | "TypeError"
-            | "URIError"
-            | "AggregateError"
-            | "DOMException"
-    )
+    smelt_stdlib::is_error_class_name(name) || name == "DOMException"
 }
 
 impl ModuleBuilder<'_> {

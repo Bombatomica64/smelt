@@ -31,7 +31,7 @@ closure ClosureId(0) -> None
 
 closure ClosureId(1) -> None
   locals
-    %0 param __callback_param_0: Float
+    %0 param v: Float
     %1 temp: None
   bb0:
     %1 = call @console_log("value", copy %0) -> bb1
@@ -68,8 +68,8 @@ closure ClosureId(2) -> None
 
 closure ClosureId(3) -> None
   locals
-    %0 param __callback_param_0: String
-    %1 param __callback_param_1: Float
+    %0 param item: String
+    %1 param index: Float
     %2 temp: None
   bb0:
     %2 = call @console_log(copy %1, copy %0) -> bb1

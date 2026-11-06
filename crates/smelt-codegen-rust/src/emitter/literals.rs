@@ -57,7 +57,7 @@ pub(super) fn assigned_locals(
                 value: Rvalue::ListCallback { list, .. },
                 ..
             } = statement
-                && let Some(local) = operand_local(list)
+                && let Some(local) = list.local()
                 && let Ok(local_idx) = id_index(local.0, "local index does not fit usize")
                 && let Some(local_decl) = function.locals.get(local_idx)
                 && let Some(Type::List(item_ty)) = mir.types.get(local_decl.ty)
@@ -65,36 +65,8 @@ pub(super) fn assigned_locals(
             {
                 locals.insert(local);
             }
-            if let Statement::Assign {
-                value:
-                    Rvalue::ListPush { list, .. }
-                    | Rvalue::ListExtend { list, .. }
-                    | Rvalue::ListInsert { list, .. }
-                    | Rvalue::ListUnshift { list, .. }
-                    | Rvalue::ListReverse { list }
-                    | Rvalue::ListSplice {
-                        list, mutate: true, ..
-                    }
-                    | Rvalue::ListFill { list, .. }
-                    | Rvalue::ListCopyWithin { list, .. }
-                    | Rvalue::ListClear { list }
-                    | Rvalue::ListRemove { list, .. }
-                    | Rvalue::ListSort { list, .. }
-                    | Rvalue::ListPop { list }
-                    | Rvalue::ListShift { list }
-                    | Rvalue::ListNext { list }
-                    | Rvalue::SetAdd { set: list, .. }
-                    | Rvalue::SetRemove { set: list, .. }
-                    | Rvalue::SetClear { set: list }
-                    | Rvalue::DictClear { dict: list }
-                    | Rvalue::DictPop { dict: list, .. }
-                    | Rvalue::DictSet { dict: list, .. }
-                    | Rvalue::DictRemoveKey { dict: list, .. }
-                    | Rvalue::DictSetDefault { dict: list, .. }
-                    | Rvalue::DictUpdate { dict: list, .. },
-                ..
-            } = statement
-                && let Some(local) = operand_mutation_root(list)
+            if let Statement::Assign { value, .. } = statement
+                && let Some(local) = value.mutated_receiver().and_then(operand_mutation_root)
             {
                 locals.insert(local);
             }
@@ -152,14 +124,6 @@ pub(super) fn operand_mutation_root(operand: &Operand) -> Option<LocalId> {
         Operand::Copy(Place::Index { base, .. }) | Operand::Move(Place::Index { base, .. }) => {
             Some(*base)
         }
-        Operand::Copy(_) | Operand::Move(_) | Operand::Const(_) => None,
-    }
-}
-
-/// Extracts the local base from a direct local operand.
-pub(super) fn operand_local(operand: &Operand) -> Option<LocalId> {
-    match operand {
-        Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => Some(*local),
         Operand::Copy(_) | Operand::Move(_) | Operand::Const(_) => None,
     }
 }

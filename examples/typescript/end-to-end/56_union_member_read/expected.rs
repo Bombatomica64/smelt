@@ -3194,32 +3194,6 @@ impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-struct InitLike {
-    headers: Option<SmeltHeaders>,
-    status: Option<f64>,
-}
-impl IntoSmeltUnknown for InitLike {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        let smelt_absent_keys: [&str; 2] = ["headers", "status"];
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("headers".to_owned(), self.headers.map_or(SmeltUnknown::Undefined, |value| (value).into_smelt_unknown())),
-        ("status".to_owned(), self.status.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
-        ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
-    }
-}
-impl SmeltFromUnknown for InitLike {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("status") {
-                result.status = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
-    }
-}
-
 thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;
@@ -4016,6 +3990,34 @@ impl SmeltFromUnknown for SmeltResponse {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct InitLike {
+    headers: Option<SmeltHeaders>,
+    status: Option<f64>,
+}
+impl IntoSmeltUnknown for InitLike {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let smelt_absent_keys: [&str; 2] = ["headers", "status"];
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("headers".to_owned(), self.headers.map_or(SmeltUnknown::Undefined, |value| (value).into_smelt_unknown())),
+        ("status".to_owned(), self.status.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
+        ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
+    }
+}
+impl SmeltFromUnknown for InitLike {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("status") {
+                result.status = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
 #[derive(Clone)]
 pub enum SmeltUnion3 {
     M0(f64),
@@ -4104,8 +4106,6 @@ impl Default for SmeltUnion7 {
         Self::M0(Default::default())
     }
 }
-
-// @smelt:prelude-end — generated program below
 fn main() {
     let _smelt_tmp_7: SmeltRecord<String, String>;
     let _smelt_tmp_8: SmeltResponse;
@@ -4244,7 +4244,6 @@ pub(crate) fn status_of(arg: SmeltUnion3) -> f64 {
     let _smelt_tmp_5: SmeltResponse;
     let _smelt_tmp_6: f64;
     let _smelt_tmp_7: InitLike;
-    let _smelt_tmp_8: Option<f64>;
     let _smelt_tmp_9: f64;
     let _smelt_tmp_10: f64;
     let _smelt_tmp_11: f64;
@@ -4261,9 +4260,8 @@ pub(crate) fn status_of(arg: SmeltUnion3) -> f64 {
     _smelt_tmp_7 = match _smelt_tmp_2 { SmeltUnion7::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_4 = _smelt_tmp_7.status.clone();
     }
-    _smelt_tmp_8 = _smelt_tmp_4;
     _smelt_tmp_9 = -1.0;
-    _smelt_tmp_10 = _smelt_tmp_8.clone().unwrap_or(_smelt_tmp_9);
+    _smelt_tmp_10 = _smelt_tmp_4.clone().unwrap_or(_smelt_tmp_9);
     return _smelt_tmp_10;
     } else {
     _smelt_tmp_11 = match arg.clone() { SmeltUnion3::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };

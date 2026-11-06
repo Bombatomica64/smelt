@@ -3096,69 +3096,6 @@ impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-struct Shape {
-    plain: Option<f64>,
-    camel_case: Option<String>,
-    snake_case: Option<String>,
-    a_very_long_camel_name: Option<f64>,
-}
-impl IntoSmeltUnknown for Shape {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        let smelt_absent_keys: [&str; 4] = ["plain", "camelCase", "snake_case", "aVeryLongCamelName"];
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("plain".to_owned(), self.plain.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
-        ("camelCase".to_owned(), self.camel_case.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
-        ("snake_case".to_owned(), self.snake_case.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
-        ("aVeryLongCamelName".to_owned(), self.a_very_long_camel_name.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
-        ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
-    }
-}
-impl SmeltFromUnknown for Shape {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("plain") {
-                result.plain = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("camelCase") {
-                result.camel_case = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("snake_case") {
-                result.snake_case = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("aVeryLongCamelName") {
-                result.a_very_long_camel_name = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-struct Wrapper {
-    inner_shape: Option<Shape>,
-}
-impl IntoSmeltUnknown for Wrapper {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        let smelt_absent_keys: [&str; 1] = ["innerShape"];
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("innerShape".to_owned(), self.inner_shape.map_or(SmeltUnknown::Undefined, |value| (value).into_smelt_unknown())),
-        ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
-    }
-}
-impl SmeltFromUnknown for Wrapper {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("innerShape") {
-                result.inner_shape = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
-    }
-}
-
 thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;
@@ -3579,6 +3516,69 @@ impl SmeltFromUnknown for SmeltMatch {
 }
 
 // @smelt:prelude-end — generated program below
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Shape {
+    plain: Option<f64>,
+    camel_case: Option<String>,
+    snake_case: Option<String>,
+    a_very_long_camel_name: Option<f64>,
+}
+impl IntoSmeltUnknown for Shape {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let smelt_absent_keys: [&str; 4] = ["plain", "camelCase", "snake_case", "aVeryLongCamelName"];
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("plain".to_owned(), self.plain.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
+        ("camelCase".to_owned(), self.camel_case.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
+        ("snake_case".to_owned(), self.snake_case.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
+        ("aVeryLongCamelName".to_owned(), self.a_very_long_camel_name.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
+        ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
+    }
+}
+impl SmeltFromUnknown for Shape {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("plain") {
+                result.plain = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("camelCase") {
+                result.camel_case = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("snake_case") {
+                result.snake_case = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("aVeryLongCamelName") {
+                result.a_very_long_camel_name = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Wrapper {
+    inner_shape: Option<Shape>,
+}
+impl IntoSmeltUnknown for Wrapper {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let smelt_absent_keys: [&str; 1] = ["innerShape"];
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("innerShape".to_owned(), self.inner_shape.map_or(SmeltUnknown::Undefined, |value| (value).into_smelt_unknown())),
+        ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
+    }
+}
+impl SmeltFromUnknown for Wrapper {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("innerShape") {
+                result.inner_shape = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
 fn main() {
     let inner: Option<Shape>;
     let _smelt_tmp_20: bool;

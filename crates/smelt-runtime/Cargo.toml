@@ -75,4 +75,69 @@ panic_in_result_fn = "deny"
 unwrap_in_result = "deny"
 pub_without_shorthand = "deny"
 
+[features]
+default = ["compiled"]
+# Builds the runtime text as a module of this crate. The emitter only reads the
+# text, so it turns this off and never links any of the crates below.
+compiled = [
+    "dep:base64",
+    "dep:bytes",
+    "dep:chrono",
+    "dep:chrono-tz",
+    "dep:fancy-regex",
+    "dep:genawaiter",
+    "dep:getrandom",
+    "dep:hmac",
+    "dep:http",
+    "dep:http-body-util",
+    "dep:hyper",
+    "dep:hyper-util",
+    "dep:md-5",
+    "dep:num-bigint",
+    "dep:num-integer",
+    "dep:num-traits",
+    "dep:rand",
+    "dep:regex",
+    "dep:reqwest",
+    "dep:rusqlite",
+    "dep:serde",
+    "dep:serde_json",
+    "dep:sha1",
+    "dep:sha2",
+    "dep:tokio",
+    "dep:unicode-normalization",
+    "dep:url",
+    "dep:uuid",
+]
+
+# The crates a generated crate links, at the versions it declares
+# (`smelt_stdlib::BackendDependency::cargo_dependency`).
 [dependencies]
+base64 = { version = "0.22", optional = true }
+bytes = { version = "1", optional = true }
+chrono = { version = "0.4", optional = true }
+chrono-tz = { version = "0.10", optional = true }
+fancy-regex = { version = "0.14", optional = true }
+genawaiter = { version = "0.99.1", optional = true }
+getrandom = { version = "0.3", optional = true }
+hmac = { version = "0.12", optional = true }
+http = { version = "1", optional = true }
+http-body-util = { version = "0.1", optional = true }
+hyper = { version = "1", features = ["server", "http1"], optional = true }
+hyper-util = { version = "0.1", features = ["tokio", "server"], optional = true }
+md-5 = { version = "0.10", optional = true }
+num-bigint = { version = "0.4", optional = true }
+num-integer = { version = "0.1", optional = true }
+num-traits = { version = "0.2", optional = true }
+rand = { version = "0.9", optional = true }
+regex = { version = "1", optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"], optional = true }
+rusqlite = { version = "0.32", features = ["bundled"], optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", features = ["preserve_order"], optional = true }
+sha1 = { version = "0.10", optional = true }
+sha2 = { version = "0.10", optional = true }
+tokio = { version = "1", features = ["macros", "rt", "time", "net", "sync"], optional = true }
+unicode-normalization = { version = "0.1", optional = true }
+url = { version = "2", optional = true }
+uuid = { version = "1", features = ["v4"], optional = true }

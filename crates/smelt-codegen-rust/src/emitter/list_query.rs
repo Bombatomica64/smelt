@@ -60,9 +60,9 @@ impl FunctionEmitter<'_> {
                         "{{ let smelt_needle = {item_text}; {borrowed_list_text}.iter().{method_name}(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).map_or(-1.0, |idx| idx as f64) }}"
                     ));
                 }
-                return Ok(format!(
+                return Ok(self.carrier_format(format_args!(
                     "{{ let smelt_needle = {item_text}; {borrowed_list_text}.iter().{method_name}(|item| item.same_js_key(&smelt_needle)).map_or(-1.0, |idx| idx as f64) }}"
-                ));
+                )));
             }
             return Ok(format!(
                 "{borrowed_list_text}.iter().{method_name}(|item| item == &{item_text}).map_or(-1.0, |idx| idx as f64)"
@@ -78,12 +78,12 @@ impl FunctionEmitter<'_> {
         // is no longer inline in the iterator chain, so Rust cannot infer the
         // element type from `&_`; spelling it out keeps the standalone binding
         // well-typed (E0282).
-        let element_type_text = self.type_text(element_ty)?;
+        let element_type_text = self.signature_type_text(element_ty)?;
         let predicate = if self.list_item_uses_same_value_zero(element_ty) {
             if self.mir.types.get(element_ty) == Some(&Type::Float) {
                 "|item: &f64| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())".to_owned()
             } else {
-                format!("|item: &{element_type_text}| item.same_js_key(&smelt_needle)")
+                self.carrier_format(format_args!("|item: &{element_type_text}| item.same_js_key(&smelt_needle)"))
             }
         } else {
             format!("|item: &{element_type_text}| *item == smelt_needle")
@@ -115,7 +115,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(list_element_ty)) = self.mir.types.get(list_ty) else {
-            return Ok("Default::default()".to_owned());
+            return Err(EmitError::new("list callback receiver must be a list"));
         };
         let element_ty = *list_element_ty;
         self.list_callback_closure_text(op, list, list_ty, element_ty, callback, dest_ty)
@@ -147,7 +147,7 @@ impl FunctionEmitter<'_> {
         }
         let Some(Type::Function(function_ty)) = self.mir.types.get(self.operand_ty(callback)?)
         else {
-            return Ok("Default::default()".to_owned());
+            return Err(EmitError::new("list callback receiver must be a list"));
         };
         let closure_text = match self.closure_operand_text_for_declared_type(callback) {
             Ok(closure_text) => closure_text,
@@ -172,7 +172,7 @@ impl FunctionEmitter<'_> {
         // value rather than a `Result`; a non-throwing callback is used directly.
         let raw_call_text = if function_ty.may_throw {
             format!(
-                "({callback_call_text}).unwrap_or_else(|error: Box<dyn std::error::Error>| smelt_panic_throw(error))"
+                "({callback_call_text}).unwrap_or_else(|error: {ERROR_BOX}| smelt_panic_throw(error))"
             )
         } else {
             callback_call_text
@@ -265,7 +265,7 @@ impl FunctionEmitter<'_> {
         };
         let Some(Type::Function(function_ty)) = self.mir.types.get(self.operand_ty(callback)?)
         else {
-            return Ok("Default::default()".to_owned());
+            return Err(EmitError::new("list callback must be a function"));
         };
         let closure_text = match self.closure_operand_text_for_declared_type(callback) {
             Ok(closure_text) => closure_text,
@@ -278,7 +278,7 @@ impl FunctionEmitter<'_> {
             self.callback_invocation_text(function_ty, &call_args.join(", "));
         let call_text = if function_ty.may_throw {
             format!(
-                "({callback_call_text}).unwrap_or_else(|error: Box<dyn std::error::Error>| smelt_panic_throw(error))"
+                "({callback_call_text}).unwrap_or_else(|error: {ERROR_BOX}| smelt_panic_throw(error))"
             )
         } else {
             callback_call_text
@@ -305,7 +305,7 @@ impl FunctionEmitter<'_> {
         }
         let Some(Type::Function(function_ty)) = self.mir.types.get(self.operand_ty(callback)?)
         else {
-            return Ok("Default::default()".to_owned());
+            return Err(EmitError::new("list callback must be a function"));
         };
         let closure_text = match self.closure_operand_text_for_declared_type(callback) {
             Ok(closure_text) => closure_text,
@@ -335,7 +335,7 @@ impl FunctionEmitter<'_> {
         };
         let Some(Type::Function(function_ty)) = self.mir.types.get(self.operand_ty(callback)?)
         else {
-            return Ok("Default::default()".to_owned());
+            return Err(EmitError::new("list callback must be a function"));
         };
         let closure_text = match self.closure_operand_text_for_declared_type(callback) {
             Ok(closure_text) => closure_text,
@@ -354,9 +354,9 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
                 let unknown_ty = self.type_id(Type::Unknown)?;
                 let value_text = self.value_at_type_text("value", unknown_ty, *dest_item_ty, &self.render_scope())?;
-                format!(
+                self.carrier_format(format_args!(
                     "match smelt_result {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| {value_text}).collect::<Vec<_>>(), value => vec![{value_text}] }}"
-                )
+                ))
             }
             _ => {
                 let value_text =
@@ -385,10 +385,7 @@ impl FunctionEmitter<'_> {
             // the checked extraction so a `(...args: any[]) => string` mapper
             // yields `String`s.
             let call = format!("smelt_callback.call({args})");
-            let returns_erased = self
-                .type_text_with_impl_trait(function_ty.return_ty, false)
-                .is_ok_and(|text| text == "SmeltUnknown");
-            if returns_erased {
+            if self.renders_erased(function_ty.return_ty).unwrap_or(false) {
                 return call;
             }
             self.extract_value_text(&call, function_ty.return_ty, &self.render_scope())
@@ -449,9 +446,9 @@ impl FunctionEmitter<'_> {
             return Ok(ListCallbackIterationParts {
                 prefix: format!("let smelt_array = {owned_list_text}; "),
                 iter_text: list_read_text("smelt_array"),
-                call_args: vec![format!(
+                call_args: vec![self.carrier_format(format_args!(
                     "SmeltList::from(vec![{item}, SmeltUnknown::Number(index as f64), {array}])"
-                )],
+                ))],
             });
         }
         // A zero-parameter callback (`values.map(stubTrue)`) ignores every
@@ -558,7 +555,7 @@ impl FunctionEmitter<'_> {
         let length_text = self.operand_text(length)?;
         let Some(Type::Function(function_ty)) = self.mir.types.get(self.operand_ty(callback)?)
         else {
-            return Ok("Default::default()".to_owned());
+            return Err(EmitError::new("Array.from mapper must be a function"));
         };
         if self.mir.types.get(dest_ty) != Some(&Type::List(function_ty.return_ty)) {
             return Err(EmitError::new(
@@ -574,7 +571,7 @@ impl FunctionEmitter<'_> {
                 function_ty,
                 0,
                 item_param_ty,
-                self.value_at_type_text("SmeltUnknown::Null", unknown_ty, item_param_ty, &self.render_scope())?,
+                self.value_at_type_text(&self.carrier_text("SmeltUnknown::Null"), unknown_ty, item_param_ty, &self.render_scope())?,
             ));
         }
         if let Some(index_param_ty) = function_ty.params.get(1).copied() {
@@ -639,40 +636,8 @@ impl FunctionEmitter<'_> {
         // whether this particular `Clone` shares: `(0..n).map(..).collect()` over
         // a `Range` is `TrustedLen`, so it pre-allocates and fills in a tight
         // loop, and a primitive hole costs nothing extra for the uniformity.
-        //
-        // `list_repeat_text` below is deliberately NOT changed: `Array(n).fill(a)`
-        // genuinely is n aliases of the one `a` in JavaScript, so its `vec![x; n]`
-        // is correct precisely because `Clone` shares.
         Ok(format!(
             "{{ let array_from_length = ({length_text} as f64).max(0.0).floor() as usize; (0..array_from_length).map(|_| {hole_text}).collect::<Vec<_>>() }}"
-        ))
-    }
-
-    /// Converts a sized repeated list expression into Rust vector construction.
-    pub(super) fn list_repeat_text(
-        &self,
-        value: &Operand,
-        count: &Operand,
-        dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
-        let Some(Type::List(item_ty)) = self.mir.types.get(dest_ty) else {
-            return Err(EmitError::new("list repeat destination must be a list"));
-        };
-        if self.operand_ty(value)? != *item_ty {
-            return Err(EmitError::new(
-                "list repeat value must match the list item type",
-            ));
-        }
-        if !matches!(
-            self.mir.types.get(self.operand_ty(count)?),
-            Some(Type::Int | Type::Float)
-        ) {
-            return Err(EmitError::new("list repeat count must be numeric"));
-        }
-        let value_text = self.operand_text(value)?;
-        let count_text = self.operand_text(count)?;
-        Ok(format!(
-            "{{ let smelt_repeat_count = ({count_text} as f64).max(0.0).floor() as usize; vec![{value_text}; smelt_repeat_count] }}"
         ))
     }
 
@@ -860,9 +825,9 @@ impl FunctionEmitter<'_> {
                     "{{ let smelt_needle = {item_text}; {list_text}.iter().filter(|item| **item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).count() as i64 }}"
                 ));
             }
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "{{ let smelt_needle = {item_text}; {list_text}.iter().filter(|item| item.same_js_key(&smelt_needle)).count() as i64 }}"
-            ));
+            )));
         }
         Ok(format!(
             "{list_text}.iter().filter(|item| *item == &{item_text}).count() as i64"

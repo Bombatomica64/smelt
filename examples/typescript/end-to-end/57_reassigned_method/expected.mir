@@ -24,18 +24,20 @@ fn route (FuncId(1)) -> String throws
     %8 temp: String
     %9 temp: String
     %10 temp: String
+    %11 temp: String
   bb0:
     %2 = closure_call copy %0.field3(copy %1)
     %5 = closure ClosureId(0) []
     %0.field3 = move %5
     %3 = closure_call copy %0.field3(copy %1)
-    %7 = call fn0(copy %0, copy %1) -> bb1
+    %7 = copy %0.field2
+    %8 = call fn0(copy %0, copy %1) -> bb1
   bb1:
-    %8 = copy %0.field2 + move %7
-    %0.field2 = move %8
-    %9 = move %2 + ","
-    %10 = move %9 + move %3
-    return move %10
+    %9 = move %7 + move %8
+    %0.field2 = move %9
+    %10 = move %2 + ","
+    %11 = move %10 + move %3
+    return move %11
 
 fn new (FuncId(2)) -> Router
   locals
@@ -79,7 +81,7 @@ fn main (FuncId(3)) -> None throws
 
 closure ClosureId(0) -> String
   locals
-    %0 param __callback_param_0: String
+    %0 param value: String
     %1 temp: String
   bb0:
     %1 = "fast:" + copy %0

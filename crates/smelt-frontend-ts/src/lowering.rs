@@ -19,6 +19,8 @@ mod postfix_deferral;
 mod presence_tested_locals;
 mod type_param_owners;
 mod promise_resolution;
+mod source_facts;
+mod speculation;
 mod specialization;
 pub(in crate::lowering) mod spread_arguments;
 mod state;
@@ -38,6 +40,7 @@ use std::{
 use support::unknown_kind_from_typeof;
 
 use crate::{HirCtx, SmeltError};
+use indexmap::IndexMap;
 use oxc::allocator::Allocator;
 use oxc::ast::ast::{
     Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, ChainElement, Declaration,
@@ -47,13 +50,13 @@ use oxc::ast::ast::{
 };
 use oxc::parser::{ParseOptions, Parser};
 use oxc::span::SourceType;
-use oxc::syntax::operator::{AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator};
+use oxc::syntax::operator::{BinaryOperator, LogicalOperator, UnaryOperator};
 use smelt_hir::{
-    AsyncOp, BinOp, Body, CallbackCallArg, CallbackExpr, CallbackExprKind, CaptureMode, Class,
+    AsyncOp, BinOp, Body, CaptureMode, Class,
     ClosureCapture, ConstItem, DictProjectionOp, Expr, ExprKind, Field, FileId, Function,
     FunctionOwner, FunctionType, Item, Language, ListCallbackOp, ListSearchOp, Literal, LocalDecl,
     MethodSig, Module, ModuleId, Param, ParamSig, Pattern, PrimitiveCastOp, SetProjectionOp,
-    SourceFile, Span, Stmt, StringAffixOp, StringCaseOp, StringPadOp, Type, UnaryOp, UnknownKind,
+    SourceFile, Span, Stmt, StringPadOp, Type, UnaryOp, UnknownKind,
     Visibility,
 };
 
@@ -269,34 +272,6 @@ struct AssertionNarrowing {
     target: smelt_hir::TypeId,
 }
 
-/// A local arrow/function callback value that has not escaped its defining body.
-#[derive(Debug, Clone)]
-struct LocalCallback {
-    /// Root span identifying the lexical body that owns the materialized closure.
-    defining_body_span: Option<Span>,
-    /// Whether the binding's local also HOLDS the closure value at runtime.
-    ///
-    /// A local callback is normally inlined at each use, which keeps a call
-    /// concrete (and a generic callback instantiable per call site) but gives
-    /// the binding's local no value. When the declaration additionally
-    /// materializes the closure into that local, the binding is a real function
-    /// value with observable JavaScript identity, and a reference must read it
-    /// instead of rebuilding a second closure.
-    materialized: bool,
-    /// Lowered callback expression tree.
-    callback: CallbackExpr,
-    /// Parameter types in source order.
-    params: Vec<smelt_hir::TypeId>,
-    /// Default argument expressions in source order.
-    defaults: Vec<Option<LocalCallbackDefault>>,
-    /// Rest parameter metadata when the source closure uses `...args`.
-    rest: Option<RestParam>,
-    /// Number of leading parameters counted by JavaScript `Function.length`.
-    required_params: Option<usize>,
-    /// Return type produced by the callback.
-    return_ty: smelt_hir::TypeId,
-}
-
 /// Source value bound into a `test.each` callback parameter.
 #[derive(Debug, Clone, Copy)]
 enum TableBindingValue<'a> {
@@ -315,13 +290,6 @@ impl TableBindingValue<'_> {
             Self::ObjectField(value) => value.span(),
         }
     }
-}
-
-/// A default argument expression stored for a local callback.
-#[derive(Debug, Clone)]
-enum LocalCallbackDefault {
-    /// The default references callback parameters and must be instantiated at each call site.
-    Callback(CallbackExpr),
 }
 
 /// A JavaScript/TypeScript rest parameter represented as one list argument.
@@ -493,6 +461,7 @@ pub fn to_hir_with_options(
     );
     builder.ts_facts = options.ts_facts.filter(|facts| facts.has_file(path));
     builder.type_param_owners = type_param_owners::type_param_owners(&parsed.program);
+    builder.adopt_source_facts(source_facts::SourceFacts::collect(&parsed.program));
     builder.program(&parsed.program)
 }
 
@@ -547,6 +516,7 @@ pub fn predeclare_type_declarations_with_path(
         Vec::new(),
     );
     builder.type_param_owners = type_param_owners::type_param_owners(&parsed.program);
+    builder.adopt_source_facts(source_facts::SourceFacts::collect(&parsed.program));
     // Import provenance first: every surface below may name an imported
     // ambiguous type, and only provenance lets it ask the rename map for the
     // exporting module's rendering (see `predeclare_import_provenance`).
@@ -782,8 +752,12 @@ struct ModuleBuilder<'ctx> {
     file_id: FileId,
     /// Source path for module metadata.
     path: String,
-    /// Source text for cheap declaration-order probes.
+    /// Source text for diagnostics and spelled-out spans.
     source: String,
+    /// The member calls being dispatched, innermost last.
+    receiver_frames: Vec<stdlib::call_dispatch::ReceiverFrame>,
+    /// Declarations and reads of this module, from its AST.
+    source_facts: source_facts::SourceFacts,
     /// Mutable reference to the HIR context.
     ctx: &'ctx mut HirCtx,
     /// Per-body local state: name bindings, `Date`-identity and explicit-`any`
@@ -882,8 +856,8 @@ struct ModuleBuilder<'ctx> {
     /// [`state::lowering_mode::UnknownIndexAccess`].
     unknown_index_access: state::lowering_mode::UnknownIndexAccess,
     /// Provenance of source names this module did not declare: value,
-    /// type-only and namespace imports, test builtins, `@date-fns/tz`
-    /// factories, and `globalThis` aliases.
+    /// type-only and namespace imports, test builtins, and `globalThis`
+    /// aliases.
     ///
     /// See [`state::import_scope::ImportScope`] for what it does and does not
     /// guarantee about those sets.
@@ -898,8 +872,9 @@ struct ModuleBuilder<'ctx> {
     /// (`record_module_exports`) consumes the module's `SignaturesDeclared`
     /// phase token, so it cannot run before the prepasses or run twice.
     export_renames: HashMap<String, String>,
-    /// Object constants that act as namespace-like API surfaces.
-    object_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
+    /// Object constants that act as namespace-like API surfaces, each with its
+    /// entries in source order.
+    object_namespaces: HashMap<String, IndexMap<String, smelt_hir::ItemId>>,
     /// Folded constant values visible to this module: literals, `enum` members,
     /// `RegExp` literals, object constants, collections and object-value
     /// projections.

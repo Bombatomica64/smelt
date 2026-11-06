@@ -66,86 +66,82 @@ module examples/typescript/end-to-end/93_nullish_assign_and_optional_receiver/in
     #46: Optional<Headers> = %2
     #47: Headers = %2
     #48: Headers = %4
-    #49: Headers = %4
-    #50: String = "y"
-    #51: String = "3"
-    #52: None = headers_set #49, #50, #51
-    #53: Headers = %4
-    #54: Headers = %4
-    #55: String = "y"
-    #56: Optional<String> = headers_get #54, #55
-    #57: String = "absent"
-    #58: String = #56 ?? #57
-    #59: Optional<Headers> = %1
-    #60: Optional<Headers> = %1
-    #61: Headers = assert_type #60
-    #62: String = "y"
-    #63: Optional<String> = headers_get #61, #62
-    #64: String = "absent"
-    #65: String = #63 ?? #64
-    #66: None = @10(console_log)
-    #67: None = call #66(#58, #65)
-    #68: Optional<Headers> = %1
-    #69: Optional<Headers> = none
-    #70: Bool = Eq #68, #69
-    #71: Headers = headers_new
-    #72: Headers = %6
-    #73: Optional<Headers> = %5
-    #74: Headers = %6
-    #75: Optional<Headers> = %5
-    #76: Headers = %5
-    #77: Headers = %7
-    #78: Headers = %7
-    #79: String = "y"
-    #80: Optional<String> = headers_get #78, #79
-    #81: String = "absent"
-    #82: String = #80 ?? #81
-    #83: None = @11(console_log)
-    #84: None = call #83(#82)
-    #85: String = ""
-    #86: String = %8
-    #87: String = ""
-    #88: Bool = NotEq #86, #87
-    #89: Bool = Not #88
-    #90: String = "fallback"
-    #91: String = %10
-    #92: String = %9
-    #93: String = %10
-    #94: String = %9
-    #95: String = %9
-    #96: String = %11
-    #97: String = %8
-    #98: None = @12(console_log)
-    #99: None = call #98(#96, #97)
-    #100: String = "body"
-    #101: String = "x-from"
-    #102: String = "response"
-    #103: Dict<String, String> = {#101: #102}
-    #104: Response = response_new body=#100 headers=#103
-    #105: Bag = %0
-    #106: fn(Headers) -> None = #105.adopt
+    #49: String = "y"
+    #50: String = "3"
+    #51: None = headers_set #48, #49, #50
+    #52: Headers = %4
+    #53: String = "y"
+    #54: Optional<String> = headers_get #52, #53
+    #55: String = "absent"
+    #56: String = #54 ?? #55
+    #57: Optional<Headers> = %1
+    #58: Headers = assert_type #57
+    #59: String = "y"
+    #60: Optional<String> = headers_get #58, #59
+    #61: String = "absent"
+    #62: String = #60 ?? #61
+    #63: None = @10(console_log)
+    #64: None = call #63(#56, #62)
+    #65: Optional<Headers> = %1
+    #66: Optional<Headers> = none
+    #67: Bool = Eq #65, #66
+    #68: Headers = headers_new
+    #69: Headers = %6
+    #70: Optional<Headers> = %5
+    #71: Headers = %6
+    #72: Optional<Headers> = %5
+    #73: Headers = %5
+    #74: Headers = %7
+    #75: String = "y"
+    #76: Optional<String> = headers_get #74, #75
+    #77: String = "absent"
+    #78: String = #76 ?? #77
+    #79: None = @11(console_log)
+    #80: None = call #79(#78)
+    #81: String = ""
+    #82: String = %8
+    #83: String = ""
+    #84: Bool = NotEq #82, #83
+    #85: Bool = Not #84
+    #86: String = "fallback"
+    #87: String = %10
+    #88: String = %9
+    #89: String = %10
+    #90: String = %9
+    #91: String = %9
+    #92: String = %11
+    #93: String = %8
+    #94: None = @12(console_log)
+    #95: None = call #94(#92, #93)
+    #96: String = "body"
+    #97: String = "x-from"
+    #98: String = "response"
+    #99: Dict<String, String> = {#97: #98}
+    #100: Response = response_new body=#96 headers=#99
+    #101: Bag = %0
+    #102: fn(Headers) -> None = #101.adopt
+    #103: Bag = %0
+    #104: Response = %12
+    #105: Headers = response_headers #104
+    #106: None = #103.adopt(#105)
     #107: Bag = %0
-    #108: Response = %12
-    #109: Headers = response_headers #108
-    #110: None = #107.adopt(#109)
-    #111: Bag = %0
-    #112: fn(String, String) -> None = #111.write
+    #108: fn(String, String) -> None = #107.write
+    #109: Bag = %0
+    #110: String = "x-added"
+    #111: String = "4"
+    #112: None = #109.write(#110, #111)
     #113: Bag = %0
-    #114: String = "x-added"
-    #115: String = "4"
-    #116: None = #113.write(#114, #115)
-    #117: Bag = %0
-    #118: fn(String) -> String = #117.peek
-    #119: Bag = %0
-    #120: String = "x-from"
-    #121: String = #119.peek(#120)
-    #122: Bag = %0
-    #123: fn(String) -> String = #122.peek
-    #124: Bag = %0
-    #125: String = "x-added"
-    #126: String = #124.peek(#125)
-    #127: None = @13(console_log)
-    #128: None = call #127(#121, #126)
+    #114: fn(String) -> String = #113.peek
+    #115: Bag = %0
+    #116: String = "x-from"
+    #117: String = #115.peek(#116)
+    #118: Bag = %0
+    #119: fn(String) -> String = #118.peek
+    #120: Bag = %0
+    #121: String = "x-added"
+    #122: String = #120.peek(#121)
+    #123: None = @13(console_log)
+    #124: None = call #123(#117, #122)
   stmts
     s0: let %0: Bag = #0
     s1: #7
@@ -161,29 +157,29 @@ module examples/typescript/end-to-end/93_nullish_assign_and_optional_receiver/in
     s11: let %2: Optional<Headers>
     s12: if #41 then BlockId(1) else BlockId(2)
     s13: let %4: Headers = #47
-    s14: #52
-    s15: #67
-    s16: let %6: Headers = #71
-    s17: #68 = #72
-    s18: #73 = #74
-    s19: #75 = #68
+    s14: #51
+    s15: #64
+    s16: let %6: Headers = #68
+    s17: #65 = #69
+    s18: #70 = #71
+    s19: #72 = #65
     s20: let %5: Optional<Headers>
-    s21: if #70 then BlockId(3) else BlockId(4)
-    s22: let %7: Headers = #76
-    s23: #84
-    s24: let %8: String = #85
-    s25: let %10: String = #90
-    s26: #86 = #91
-    s27: #92 = #93
-    s28: #94 = #86
+    s21: if #67 then BlockId(3) else BlockId(4)
+    s22: let %7: Headers = #73
+    s23: #80
+    s24: let %8: String = #81
+    s25: let %10: String = #86
+    s26: #82 = #87
+    s27: #88 = #89
+    s28: #90 = #82
     s29: let %9: String
-    s30: if #89 then BlockId(5) else BlockId(6)
-    s31: let %11: String = #95
-    s32: #99
-    s33: let %12: Response = #104
-    s34: #110
-    s35: #116
-    s36: #128
+    s30: if #85 then BlockId(5) else BlockId(6)
+    s31: let %11: String = #91
+    s32: #95
+    s33: let %12: Response = #100
+    s34: #106
+    s35: #112
+    s36: #124
 
 interned types
   t0 = Bag

@@ -31,30 +31,32 @@ fn emit_error_for(ts: &str) -> EmitError {
     }
 }
 
-/// A generator result crossing into `unknown` is an emitter blocker, and a
-/// stable one: it is rejected in the coercion layer, several frames below the
-/// function being emitted, which is exactly the shape that used to print
-/// without a site.
-const GENERATOR_RESULT_ERASURE: &str = r#"function* counter(): Generator<number, string, undefined> {
+/// An omitted generator argument is an emitter blocker, and a stable one: a
+/// generator has no eager default, and that is found while padding the call,
+/// several frames below the function being emitted, which is exactly the shape
+/// that used to print without a site.
+const OMITTED_GENERATOR_ARGUMENT: &str = r#"function* counter(): Generator<number, string, undefined> {
   yield 1;
   return "done";
 }
-export function probe(): unknown {
-  const step = counter().next();
-  return step as unknown;
+function drain(limit: number, source: Generator<number, string, undefined>): number {
+  return limit;
+}
+export function probe(): number {
+  return drain(1);
 }
 "#;
 
 #[test]
 fn a_blocker_inside_a_function_names_the_function_and_its_span() {
-    let error = emit_error_for(GENERATOR_RESULT_ERASURE);
+    let error = emit_error_for(OMITTED_GENERATOR_ARGUMENT);
 
     // The message stays about the shape; the site is a separate field so the
     // annotation cannot be applied twice or have to be parsed back out.
     assert!(
         error
             .message
-            .contains("generator results require typed done/value projection"),
+            .contains("a generator value has no eager default"),
         "unexpected message: {}",
         error.message
     );
@@ -65,7 +67,7 @@ fn a_blocker_inside_a_function_names_the_function_and_its_span() {
     // Hono slice prints ``.../reg-exp-router/node.ts:4178..5003``). Either way
     // the byte range is the part that locates the function.
     assert!(
-        site.contains(":123..185"),
+        site.contains(":226..248"),
         "site should name a source position: {site}"
     );
 }
@@ -75,9 +77,9 @@ fn the_rendered_blocker_reads_as_one_line() {
     // `smelt build` surfaces this through `Box<dyn Error>`, which the Rust
     // runtime prints with `Debug`; `Debug` delegates to `Display` so the one
     // line a reader sees is the readable one rather than struct syntax.
-    let error = emit_error_for(GENERATOR_RESULT_ERASURE);
+    let error = emit_error_for(OMITTED_GENERATOR_ARGUMENT);
     let rendered = format!("{error}");
-    assert!(rendered.starts_with("generator results require"), "{rendered}");
+    assert!(rendered.starts_with("a generator value has no eager default"), "{rendered}");
     assert!(rendered.contains("(in `probe` at "), "{rendered}");
     assert_eq!(rendered, format!("{error:?}"));
 }
@@ -88,7 +90,7 @@ fn the_innermost_site_wins() {
     // annotates first is the most specific one, so a later frame must leave it
     // alone — otherwise a blocker inside a closure would be reported against
     // the enclosing method.
-    let error = emit_error_for(GENERATOR_RESULT_ERASURE);
+    let error = emit_error_for(OMITTED_GENERATOR_ARGUMENT);
     let first = error.site.clone().expect("blocker should name its site");
     let reannotated = error.with_site(|| "`outer` at other.ts:0..1".to_owned());
     assert_eq!(reannotated.site.as_deref(), Some(first.as_str()));

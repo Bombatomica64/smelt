@@ -66,13 +66,13 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Secret {
     token: String,
     count: f64,
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let secret: Secret;

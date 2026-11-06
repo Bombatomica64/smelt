@@ -66,6 +66,8 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+// @smelt:prelude-end — generated program below
+
 #[allow(dead_code)]
 struct Counter(::std::rc::Rc<::std::cell::RefCell<CounterInner>>);
 #[derive(Debug, Default)]
@@ -93,8 +95,6 @@ impl ::std::fmt::Debug for Counter {
         ::std::fmt::Debug::fmt(&*self.0.borrow(), formatter)
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let counter: Counter;

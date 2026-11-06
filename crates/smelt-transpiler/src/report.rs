@@ -1,0 +1,181 @@
+//! Shared shell of the report subcommands.
+//!
+//! Every report (`probe`, `smelt-unknown-report`, `typedness-report`,
+//! `list-escape-report`, `ts7-parity-report`) renders to one [`ReportFormat`],
+//! writes through [`write_report`], and a baseline-gated report answers with one
+//! [`GatedOutcome`] that [`finish_gated`] turns into an exit status. The table
+//! and counting helpers live here so each report keeps only what it measures.
+
+use std::{
+    collections::BTreeMap,
+    fmt::Write as _,
+    io::{self, Write as _},
+    path::Path,
+};
+
+use clap::ValueEnum;
+use serde::de::DeserializeOwned;
+
+use crate::CliResult;
+
+/// Output format of the report subcommands (`--format`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum ReportFormat {
+    /// Human-readable Markdown.
+    #[value(name = "md", alias = "markdown")]
+    Markdown,
+    /// Machine-readable JSON.
+    Json,
+}
+
+/// What a baseline-gated report hands back to the CLI.
+pub(crate) struct GatedOutcome {
+    /// The report in the requested format.
+    pub(crate) rendered: String,
+    /// The gate's failure message, when the report regressed against its
+    /// baseline. Advisory until `--fail-on-regression` asks [`finish_gated`] to
+    /// enforce it.
+    pub(crate) regression: Option<String>,
+}
+
+/// Write a rendered report to `output`, or to stdout when none is given.
+pub(crate) fn write_report(output: Option<&str>, report: &str) -> CliResult<()> {
+    if let Some(output_path) = output {
+        std::fs::write(output_path, report)?;
+    } else {
+        write!(io::stdout().lock(), "{report}")?;
+    }
+    Ok(())
+}
+
+/// Write a gated report, then enforce its gate when `fail_on_regression` is set:
+/// a regression prints its message verbatim and exits 1.
+///
+/// Returning `Err` instead would route through the default `Termination`
+/// impl, which Debug-prints the string with escaped newlines — unreadable for
+/// a CI gate.
+#[expect(clippy::exit, reason = "a failing CI gate exits 1 with its message as written")]
+pub(crate) fn finish_gated(
+    outcome: &GatedOutcome,
+    output: Option<&str>,
+    fail_on_regression: bool,
+) -> CliResult<()> {
+    write_report(output, &outcome.rendered)?;
+    if fail_on_regression && let Some(message) = &outcome.regression {
+        writeln!(io::stderr().lock(), "{message}")?;
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+/// Write `text` to `path` only when its bytes change, preserving the mtime of an
+/// unchanged file.
+pub(crate) fn write_if_changed(path: &Path, text: &str) -> CliResult<()> {
+    if std::fs::read_to_string(path).is_ok_and(|existing| existing == text) {
+        return Ok(());
+    }
+    std::fs::write(path, text)?;
+    Ok(())
+}
+
+/// Load a JSON report, naming the offending path on failure.
+///
+/// `kind` prefixes the path in the message: `"baseline "` for a file that can
+/// only be a baseline, `""` for one that can be a sidecar too.
+pub(crate) fn load_json<T: DeserializeOwned>(path: &Path, kind: &str) -> Result<T, String> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|error| format!("failed to read {kind}`{}`: {error}", path.display()))?;
+    serde_json::from_str(&text)
+        .map_err(|error| format!("failed to parse {kind}`{}`: {error}", path.display()))
+}
+
+/// Escape Markdown table-cell metacharacters so multi-line or pipe-containing
+/// text never breaks the surrounding table row.
+pub(crate) fn escape_cell(text: &str) -> String {
+    text.replace('|', "\\|").replace(['\n', '\r'], " ")
+}
+
+/// Append formatted text to a `String` buffer.
+pub(crate) fn push_fmt(out: &mut String, args: std::fmt::Arguments<'_>) {
+    // Writing into a `String` cannot fail; ignoring the result keeps report
+    // rendering total.
+    let _ignored = out.write_fmt(args);
+}
+
+/// Add `amount` to the counter stored under `key`, inserting it if absent.
+///
+/// Saturating so a pathological corpus can never overflow the tally.
+pub(crate) fn bump<K: Ord>(counts: &mut BTreeMap<K, usize>, key: K, amount: usize) {
+    counts
+        .entry(key)
+        .and_modify(|count| *count = count.saturating_add(amount))
+        .or_insert(amount);
+}
+
+/// `part / whole` as a percentage.
+#[cfg(feature = "ts7")]
+pub(crate) fn ratio_percent(part: usize, whole: usize) -> f64 {
+    let numerator = u32::try_from(part).map_or(f64::from(u32::MAX), f64::from);
+    let denominator = u32::try_from(whole).map_or(f64::from(u32::MAX), f64::from);
+    numerator * 100.0_f64 / denominator
+}
+
+/// `count` as `n (p.p%)` against `total`, tolerating a zero total.
+pub(crate) fn count_share(count: usize, total: usize) -> String {
+    if total == 0 {
+        return format!("{count} (—)");
+    }
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "counts here are report percentages, far below f64's exact-integer range"
+    )]
+    let percent = (count as f64) * 100.0_f64 / (total as f64);
+    format!("{count} ({percent:.1}%)")
+}
+
+/// `part / total` as a percentage with one decimal, truncated rather than
+/// rounded so a committed baseline's share never reads higher than it is; `-`
+/// for an empty total.
+pub(crate) fn truncated_share(part: usize, total: usize) -> String {
+    if total == 0 {
+        return "-".to_owned();
+    }
+    let permille = part.saturating_mul(1000) / total;
+    format!("{}.{}%", permille / 10, permille % 10)
+}
+
+#[cfg(test)]
+mod tests {
+    //! The output formats each report depends on staying byte-stable.
+
+    use super::*;
+
+    #[test]
+    fn shares_keep_their_formats() {
+        assert_eq!(count_share(1, 3), "1 (33.3%)");
+        assert_eq!(count_share(2, 3), "2 (66.7%)");
+        assert_eq!(count_share(1, 0), "1 (—)");
+        assert_eq!(truncated_share(2, 3), "66.6%");
+        assert_eq!(truncated_share(0, 0), "-");
+    }
+
+    #[cfg(feature = "ts7")]
+    #[test]
+    fn parity_ratio_keeps_its_format() {
+        assert_eq!(format!("{:.1}%", ratio_percent(2, 3)), "66.7%");
+    }
+
+    #[test]
+    fn cells_cannot_break_their_row() {
+        assert_eq!(escape_cell("a|b\nc\rd"), "a\\|b c d");
+    }
+
+    #[test]
+    fn load_json_names_the_file_it_could_not_read() {
+        let missing = Path::new("does/not/exist.json");
+        let error = load_json::<u32>(missing, "baseline ").expect_err("missing file");
+        assert!(error.starts_with("failed to read baseline `does/not/exist.json`: "), "{error}");
+        let error = load_json::<u32>(missing, "").expect_err("missing file");
+        assert!(error.starts_with("failed to read `does/not/exist.json`: "), "{error}");
+    }
+}

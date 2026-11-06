@@ -20,10 +20,9 @@ use serde::Serialize;
 use smelt_stdlib::DiagnosticCategory;
 
 use crate::config::Config;
+use crate::report::{ReportFormat, bump, escape_cell};
+use crate::source_files::{discover_source_files, names_source_file};
 use crate::{CliResult, lowering, pipeline, test_report};
-
-/// Report output format; the `--format` value enum shared by every report.
-pub(crate) type ProbeFormat = crate::cli_parser::ReportFormat;
 
 /// Options controlling a probe run.
 pub(crate) struct ProbeOptions<'a> {
@@ -34,7 +33,7 @@ pub(crate) struct ProbeOptions<'a> {
     /// When the crate transpiles, also run the generated `cargo test` suite.
     pub(crate) run_tests: bool,
     /// Report serialization format.
-    pub(crate) format: ProbeFormat,
+    pub(crate) format: ReportFormat,
 }
 
 /// One blocker class: a category plus a normalized message shape, with counts.
@@ -176,8 +175,8 @@ struct ProbeResult {
 pub(crate) fn probe_report(options: &ProbeOptions<'_>) -> CliResult<String> {
     let result = run_probe(options)?;
     match options.format {
-        ProbeFormat::Json => Ok(serde_json::to_string_pretty(&result)?),
-        ProbeFormat::Markdown => Ok(render_markdown(&result)),
+        ReportFormat::Json => Ok(serde_json::to_string_pretty(&result)?),
+        ReportFormat::Markdown => Ok(render_markdown(&result)),
     }
 }
 
@@ -205,7 +204,7 @@ fn run_probe(options: &ProbeOptions<'_>) -> CliResult<ProbeResult> {
     }
 
     // Recoverable manifest lowering enumerates every distinct blocker class.
-    let files = lowering::discover_source_files(options.config, manifest_dir)?;
+    let files = discover_source_files(options.config, manifest_dir)?;
     let ScanResult {
         occurrences,
         file_sets,
@@ -264,22 +263,6 @@ fn run_probe(options: &ProbeOptions<'_>) -> CliResult<ProbeResult> {
 /// Identity of a blocker class: category, code, and normalized message shape.
 type BlockerKey = (DiagnosticCategory, String, String);
 
-/// Increment a blocker-class counter by one (saturating).
-fn bump(counts: &mut BTreeMap<BlockerKey, usize>, key: BlockerKey) {
-    counts
-        .entry(key)
-        .and_modify(|count| *count = count.saturating_add(1))
-        .or_insert(1);
-}
-
-/// Increment a string-keyed counter by one (saturating).
-fn bump_str(counts: &mut BTreeMap<String, usize>, key: String) {
-    counts
-        .entry(key)
-        .and_modify(|count| *count = count.saturating_add(1))
-        .or_insert(1);
-}
-
 /// First-seen example of a blocker class, used to locate it and to recover the
 /// raw (un-normalized) message for the detail section.
 struct BlockerExample {
@@ -332,8 +315,8 @@ fn scan_files(
                 diagnostic.code.to_owned(),
                 normalize_message(&diagnostic.message),
             );
-            bump(&mut occurrences, key.clone());
-            bump_str(&mut category_counts, diagnostic.category.as_str().to_owned());
+            bump(&mut occurrences, key.clone(), 1);
+            bump(&mut category_counts, diagnostic.category.as_str().to_owned(), 1);
             examples.entry(key.clone()).or_insert_with(|| BlockerExample {
                 file: path.clone(),
                 message: diagnostic.message,
@@ -342,7 +325,7 @@ fn scan_files(
     }
     for keys in seen_by_file.into_values() {
         for key in keys {
-            bump(&mut file_sets, key);
+            bump(&mut file_sets, key, 1);
         }
     }
 
@@ -369,7 +352,19 @@ fn measure_tests(config: &Config, manifest_dir: &Path) -> CliResult<TestOutcome>
         include_diagnostics: false,
         suppress_warnings: true,
     })?;
-    let (passed, failed) = parse_test_counts(&report).unwrap_or((0, 0));
+    test_outcome(&report, &cargo_manifest)
+}
+
+/// The counts of a generated test report; a report without them means the suite
+/// never ran, which must not read as zero failures.
+fn test_outcome(report: &str, cargo_manifest: &Path) -> CliResult<TestOutcome> {
+    let (passed, failed) = parse_test_counts(report).ok_or_else(|| {
+        format!(
+            "the generated test suite of `{}` reported no `N passed; M failed` summary, \
+             so it did not run",
+            cargo_manifest.display()
+        )
+    })?;
     Ok(TestOutcome { passed, failed })
 }
 
@@ -393,8 +388,7 @@ fn trailing_number(text: &str) -> Option<usize> {
 /// Pull the first `path.ts`/`path.py` out of a build error message.
 fn first_abort_file(message: &str) -> Option<String> {
     for token in message.split(['"', '\n', ' ', ':']) {
-        let extension = Path::new(token).extension().and_then(|ext| ext.to_str());
-        if matches!(extension, Some("ts" | "py")) {
+        if names_source_file(token) {
             let trimmed = token.trim_start_matches("./");
             return Some(trimmed.replace("/./", "/"));
         }
@@ -577,12 +571,6 @@ fn render_markdown(result: &ProbeResult) -> String {
     out
 }
 
-/// Escape Markdown table-cell metacharacters so multi-line or pipe-containing
-/// text never breaks the surrounding table row.
-fn escape_cell(text: &str) -> String {
-    text.replace('|', "\\|").replace(['\n', '\r'], " ")
-}
-
 /// Render the collapsible detail section listing the full, un-normalized message
 /// for every blocker class whose table shape elided an AST dump or type payload.
 ///
@@ -732,6 +720,16 @@ mod tests {
     fn parses_test_counts() {
         let line = "test result: FAILED. 1768 passed; 21 failed; 0 ignored";
         assert_eq!(parse_test_counts(line), Some((1768, 21)));
+    }
+
+    /// A suite that never reported a summary is an error, not zero failures.
+    #[test]
+    fn missing_test_summary_is_an_error() {
+        let manifest = Path::new("dist/Cargo.toml");
+        let error = test_outcome("# Generated Rust Test Report\n", manifest).expect_err("no summary");
+        assert!(error.to_string().contains("dist/Cargo.toml"), "{error}");
+        let outcome = test_outcome("test result: ok. 3 passed; 1 failed;", manifest).expect("summary");
+        assert_eq!((outcome.passed, outcome.failed), (3, 1));
     }
 
     /// The first source path is pulled out of a build error string.

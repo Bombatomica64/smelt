@@ -53,7 +53,10 @@ impl ModuleBuilder<'_> {
         if !Self::is_collection_method_name(member_name) {
             return Ok(None);
         }
-        let receiver = self.expression(&member.object, body)?;
+        let receiver = match self.dispatched_receiver(&member.object, body)? {
+            Some(receiver) => receiver,
+            None => self.expression(&member.object, body)?,
+        };
         let receiver_ty = self.type_param_constraint_or_self(Self::expr_ty(body, receiver));
         // A `recv?.method(args)` call whose receiver is `T | undefined` for a
         // modeled receiver `T` (Map/Set) desugars to the same modeled operation
@@ -214,7 +217,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let element_ty = *set_element_ty;
-        let item = self.argument(item_argument, body)?;
+        let item = self.collection_item_argument(item_argument, element_ty, body)?;
         if !self.array_item_type_compatible(Self::expr_ty(body, item), element_ty) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
@@ -227,6 +230,29 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Lower a `Set` item or `Map` key argument for a collection of `element_ty`.
+    ///
+    /// JavaScript has one number type, so an integer-carried value (a callback's
+    /// array index) is the same key as the equal float: the collection stores
+    /// `f64`, and the argument widens to it.
+    fn collection_item_argument(
+        &mut self,
+        argument: &Argument<'_>,
+        element_ty: smelt_hir::TypeId,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let item = self.argument(argument, body)?;
+        let types = &self.ctx.krate.types;
+        if types.get(element_ty) != Some(&Type::Float) || types.get(Self::expr_ty(body, item)) != Some(&Type::Int) {
+            return Ok(item);
+        }
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::PrimitiveCast { op: smelt_hir::PrimitiveCastOp::ToFloat, operand: item },
+            ty: element_ty,
+            span: self.span(argument.span().start, argument.span().end),
+        }))
     }
 
     /// Lower direct TypeScript `Set` mutation methods.
@@ -259,7 +285,7 @@ impl ModuleBuilder<'_> {
                         "Set.add requires exactly one item argument",
                     ));
                 };
-                let item = self.argument(item_argument, body)?;
+                let item = self.collection_item_argument(item_argument, element_ty, body)?;
                 if !self.array_item_type_compatible(Self::expr_ty(body, item), element_ty) {
                     return Err(SmeltError::unsupported(
                         self.span(call.span.start, call.span.end),
@@ -279,7 +305,7 @@ impl ModuleBuilder<'_> {
                         "Set.delete requires exactly one item argument",
                     ));
                 };
-                let item = self.argument(item_argument, body)?;
+                let item = self.collection_item_argument(item_argument, element_ty, body)?;
                 if !self.array_item_type_compatible(Self::expr_ty(body, item), element_ty) {
                     return Err(SmeltError::unsupported(
                         self.span(call.span.start, call.span.end),
@@ -344,7 +370,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let key_ty = *dict_key_ty;
-        let key = self.argument(key_argument, body)?;
+        let key = self.collection_item_argument(key_argument, key_ty, body)?;
         if !self.map_key_type_compatible(key_ty, Self::expr_ty(body, key)) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
@@ -393,7 +419,7 @@ impl ModuleBuilder<'_> {
         };
         let key_ty = *dict_key_ty;
         let value_ty = *dict_value_ty;
-        let key = self.argument(key_argument, body)?;
+        let key = self.collection_item_argument(key_argument, key_ty, body)?;
         if !self.map_key_type_compatible(key_ty, Self::expr_ty(body, key)) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),

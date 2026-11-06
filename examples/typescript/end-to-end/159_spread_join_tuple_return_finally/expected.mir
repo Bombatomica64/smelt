@@ -126,7 +126,7 @@ async fn caught (FuncId(6)) -> String
     %0 = move %6
     goto bb2
   bb7:
-    %9 = regex_search "multiple times", copy %2.field24
+    %9 = regex_search "multiple times", copy %2.field23
     %8 = move %9
     goto bb9
   bb8:
@@ -150,7 +150,7 @@ fn new (FuncId(7)) -> Failure
     %1 param message: String
   bb0:
     %0 = struct1 {}
-    %0.field24 = copy %1
+    %0.field23 = copy %1
     return move %0
 
 async fn main (FuncId(8)) -> None throws
@@ -199,10 +199,10 @@ async fn main (FuncId(8)) -> None throws
   bb6:
     %14 = call @json_parse("{"maxAge": 12.7}") -> bb7
   bb7:
-    %15 = copy %14.field30 | 0.0
+    %15 = copy %14.field29 | 0.0
     %16 = call @json_parse("{"maxAge": "7"}") -> bb8
   bb8:
-    %17 = copy %16.field30 | 0.0
+    %17 = copy %16.field29 | 0.0
     %18 = call @console_log(move %15, move %17) -> bb9
   bb9:
     %19 = call fn3() -> bb10
@@ -239,7 +239,7 @@ closure ClosureId(1) -> Future<String>
 
 closure ClosureId(2) -> None
   locals
-    %0 param __callback_param_0: String
+    %0 param value: String
     %1 temp: None
   bb0:
     %1 = call @console_log(copy %0) -> bb1

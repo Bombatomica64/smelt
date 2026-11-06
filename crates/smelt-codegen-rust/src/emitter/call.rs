@@ -5,7 +5,7 @@ use crate::generic_bindings::{
     CalleeTypeParamBindings, bind_class_type_params, collect_bindings_from_types,
     substituted_type_id, substitution_matches, type_param_occurs,
 };
-use rendered_text_rewrite::shared_capture_cell_name;
+use crate::rust::RustShape;
 use smelt_hir::FunctionType;
 
 /// The concrete instantiation one static call site pins on a generic callee.
@@ -59,6 +59,70 @@ enum MutListArgKind {
     /// is injected on the way in and projected back to the caller's element on
     /// the way out, so the callee's writes reach the caller's list.
     UnionInjected,
+}
+
+/// A rendered call, and whether it propagates the callee's error.
+///
+/// `call_text` keeps the `?` apart from the call: a caller that cannot propagate
+/// (a body with no error channel, a `try` block with a catch arm) handles the
+/// `Result` itself.
+#[derive(Clone, Debug)]
+pub(super) struct CallText {
+    /// The call expression, without any `?`.
+    call: String,
+    /// Whether the call yields a `Result` this body propagates with `?`.
+    propagates: bool,
+}
+
+impl CallText {
+    /// A call that yields its value directly.
+    pub(super) fn plain(call: impl Into<String>) -> Self {
+        Self {
+            call: call.into(),
+            propagates: false,
+        }
+    }
+
+    /// A call that yields a `Result` whose error propagates.
+    pub(super) fn propagating(call: impl Into<String>) -> Self {
+        Self {
+            call: call.into(),
+            propagates: true,
+        }
+    }
+
+    /// `call`, propagating exactly when the callee can throw.
+    pub(super) fn propagating_if(call: impl Into<String>, propagates: bool) -> Self {
+        Self {
+            call: call.into(),
+            propagates,
+        }
+    }
+
+    /// The call as an expression of its value.
+    pub(super) fn into_expression(self) -> String {
+        if self.propagates {
+            format!("{}?", self.call)
+        } else {
+            self.call
+        }
+    }
+
+    /// Whether the call propagates the callee's error.
+    pub(super) const fn propagates(&self) -> bool {
+        self.propagates
+    }
+
+    /// The call expression, without any `?`.
+    pub(super) fn into_call(self) -> String {
+        self.call
+    }
+}
+
+impl From<String> for CallText {
+    fn from(call: String) -> Self {
+        Self::plain(call)
+    }
 }
 
 /// How a mutable-list argument's caller-side place is spelled in Rust.
@@ -129,13 +193,7 @@ fn host_instance_markers(class_name: &str) -> Option<Vec<&'static str>> {
     // entries now (`HostObject::helper_backed_methods`), so the branch above
     // answers for them and their internal keys are hidden from `for...in` like
     // every other host record's.
-    let subsystem = match class_name {
-        "Date" => "__smelt_date",
-        "RegExp" => "__smelt_regexp",
-        "Map" => "__smelt_map",
-        "Set" => "__smelt_set",
-        _ => return None,
-    };
+    let subsystem = smelt_stdlib::subsystem_instance_marker(class_name)?;
     Some(vec![subsystem])
 }
 
@@ -162,11 +220,11 @@ impl FunctionEmitter<'_> {
                     let item_is_erased = self.is_erased_future_type(item_ty);
                     if item_is_erased {
                         return Ok(format!(
-                            "SmeltFuture::from_future(Box::pin(async move {{ let mut __smelt_pending = Vec::new(); for __smelt_future in {list} {{ __smelt_pending.push(__smelt_future.await?); }} let mut __smelt_values = Vec::with_capacity(__smelt_pending.len()); for __smelt_value in __smelt_pending {{ __smelt_values.push(smelt_await_flatten(__smelt_value).await?); }} Ok::<_, Box<dyn std::error::Error>>(SmeltList::from(__smelt_values)) }}))"
+                            "SmeltFuture::from_future(Box::pin(async move {{ let mut __smelt_pending = Vec::new(); for __smelt_future in {list} {{ __smelt_pending.push(__smelt_future.await?); }} let mut __smelt_values = Vec::with_capacity(__smelt_pending.len()); for __smelt_value in __smelt_pending {{ __smelt_values.push(smelt_await_flatten(__smelt_value).await?); }} Ok::<_, {ERROR_BOX}>(SmeltList::from(__smelt_values)) }}))"
                         ));
                     }
                     return Ok(format!(
-                        "SmeltFuture::from_future(Box::pin(async move {{ let mut __smelt_values = Vec::new(); for __smelt_future in {list} {{ __smelt_values.push(__smelt_future.await?); }} Ok::<_, Box<dyn std::error::Error>>(SmeltList::from(__smelt_values)) }}))"
+                        "SmeltFuture::from_future(Box::pin(async move {{ let mut __smelt_values = Vec::new(); for __smelt_future in {list} {{ __smelt_values.push(__smelt_future.await?); }} Ok::<_, {ERROR_BOX}>(SmeltList::from(__smelt_values)) }}))"
                     ));
                 }
                 let rendered_args = args
@@ -213,7 +271,7 @@ impl FunctionEmitter<'_> {
                     }
                 };
                 Ok(format!(
-                    "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({body}) }}))"
+                    "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>({body}) }}))"
                 ))
             }
             smelt_hir::AsyncOp::Race => {
@@ -247,18 +305,18 @@ impl FunctionEmitter<'_> {
                             .collect::<Vec<_>>()
                             .join(" ");
                         format!(
-                            "{{ let mut smelt_racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<_, Box<dyn std::error::Error>>>>>> = Vec::new(); {pushes} {promise_race}(smelt_racers).await? }}",
+                            "{{ let mut smelt_racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<_, {ERROR_BOX}>>>>> = Vec::new(); {pushes} {promise_race}(smelt_racers).await? }}",
                             promise_race =
                                 smelt_stdlib::runtime_symbols::timers::PROMISE_RACE,
                         )
                     }
                 };
                 Ok(format!(
-                    "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({body}) }}))"
+                    "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>({body}) }}))"
                 ))
             }
             smelt_hir::AsyncOp::ExitDrain => Ok(format!(
-                "SmeltFuture::from_future(Box::pin(async move {{ {exit_drain}().await; Ok::<_, Box<dyn std::error::Error>>(()) }}))",
+                "SmeltFuture::from_future(Box::pin(async move {{ {exit_drain}().await; Ok::<_, {ERROR_BOX}>(()) }}))",
                 exit_drain = smelt_stdlib::runtime_symbols::timers::RUN_UNTIL_EXIT,
             )),
             smelt_hir::AsyncOp::Sleep => {
@@ -266,7 +324,7 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("async sleep requires a duration operand"));
                 };
                 Ok(format!(
-                    "SmeltFuture::from_future(Box::pin(async move {{ {sleep_ms}({} as f64).await; Ok::<_, Box<dyn std::error::Error>>(()) }}))",
+                    "SmeltFuture::from_future(Box::pin(async move {{ {sleep_ms}({} as f64).await; Ok::<_, {ERROR_BOX}>(()) }}))",
                     self.operand_text(duration)?,
                     sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
                 ))
@@ -294,7 +352,7 @@ impl FunctionEmitter<'_> {
                     None => "()".to_owned(),
                 };
                 Ok(format!(
-                    "SmeltFuture::from_future(Box::pin(async move {{ {sleep_ms}({duration_text} as f64).await; Ok::<_, Box<dyn std::error::Error>>({value_text}) }}))",
+                    "SmeltFuture::from_future(Box::pin(async move {{ {sleep_ms}({duration_text} as f64).await; Ok::<_, {ERROR_BOX}>({value_text}) }}))",
                     sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
                 ))
             }
@@ -316,7 +374,7 @@ impl FunctionEmitter<'_> {
                     None => self.undefined_thrown_payload_text(),
                 };
                 Ok(format!(
-                    "SmeltFuture::from_future(Box::pin(async move {{ {sleep_ms}({duration_text} as f64).await; Err::<_, Box<dyn std::error::Error>>({payload}) }}))",
+                    "SmeltFuture::from_future(Box::pin(async move {{ {sleep_ms}({duration_text} as f64).await; Err::<_, {ERROR_BOX}>({payload}) }}))",
                     sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
                 ))
             }
@@ -416,7 +474,7 @@ impl FunctionEmitter<'_> {
                     }
                     _ => format!("({executor_text})(smelt_resolve, smelt_reject);"),
                 };
-                let output_text = self.type_text(output_ty)?;
+                let output_text = self.signature_type_text(output_ty)?;
                 // `Promise<void>` still accepts an ignored optional value, but
                 // a concrete `Promise<T>` exposes a typed resolver. Keeping the
                 // resolver parameter at `T` lets named executors pass through
@@ -426,7 +484,7 @@ impl FunctionEmitter<'_> {
                 } else {
                     output_ty
                 };
-                let resolve_input_text = self.type_text(resolve_input_ty)?;
+                let resolve_input_text = self.signature_type_text(resolve_input_ty)?;
                 // The executor's declared `resolve` type goes through
                 // `function_type_param_text`, so a list-typed resolver argument is
                 // spelled `&SmeltList<..>` there. This synthesized resolver has to
@@ -453,6 +511,7 @@ impl FunctionEmitter<'_> {
                 // before handing it to the throw adapter.
                 let reject_by_ref = self
                     .synthesized_callback_param_is_shared_reference(self.type_id(Type::Unknown)?);
+                self.context.note_carrier_use();
                 let (reject_input_text, reject_value) = if reject_by_ref {
                     ("&SmeltUnknown", "error.clone()")
                 } else {
@@ -466,7 +525,7 @@ impl FunctionEmitter<'_> {
                 // `message`, so a string-typed `catch` observes the same text this
                 // site used to build by hand.
                 Ok(format!(
-                    "{{ let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<{output_text}, Box<dyn std::error::Error>>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn({resolve_input_text}) -> ()> = ::std::rc::Rc::new(move |value: {resolve_input_text}| {{ *smelt_resolve_result.borrow_mut() = Some(Ok({resolve_value})); }}); let smelt_reject: ::std::rc::Rc<dyn Fn({reject_input_text}) -> ()> = ::std::rc::Rc::new(move |error: {reject_input_text}| {{ *smelt_reject_result.borrow_mut() = Some(Err({throw_fn}({reject_value}))); }}); {executor_call} SmeltFuture::from_future(Box::pin(async move {{ loop {{ if let Some(result) = smelt_promise_result.borrow_mut().take() {{ break result; }} tokio::task::yield_now().await; {sleep_ms}(0.0).await; }} }})) }}",
+                    "{{ let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<{output_text}, {ERROR_BOX}>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn({resolve_input_text}) -> ()> = ::std::rc::Rc::new(move |value: {resolve_input_text}| {{ *smelt_resolve_result.borrow_mut() = Some(Ok({resolve_value})); }}); let smelt_reject: ::std::rc::Rc<dyn Fn({reject_input_text}) -> ()> = ::std::rc::Rc::new(move |error: {reject_input_text}| {{ *smelt_reject_result.borrow_mut() = Some(Err({throw_fn}({reject_value}))); }}); {executor_call} SmeltFuture::from_future(Box::pin(async move {{ loop {{ if let Some(result) = smelt_promise_result.borrow_mut().take() {{ break result; }} tokio::task::yield_now().await; {sleep_ms}(0.0).await; }} }})) }}",
                     sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
                     throw_fn = crate::thrown::THROW_FN,
                 ))
@@ -491,7 +550,7 @@ impl FunctionEmitter<'_> {
                 let output =
                     self.value_at_type_text("smelt_callback_value", settled_ty, *output_ty, &self.render_scope())?;
                 Ok(format!(
-                    "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ let smelt_value = {future_text}.await?; {settle} Ok::<_, Box<dyn std::error::Error>>({output}) }})) }}"
+                    "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ let smelt_value = {future_text}.await?; {settle} Ok::<_, {ERROR_BOX}>({output}) }})) }}"
                 ))
             }
             smelt_hir::AsyncOp::Catch => {
@@ -529,7 +588,7 @@ impl FunctionEmitter<'_> {
                 let recovered =
                     self.value_at_type_text("smelt_callback_value", settled_ty, *output_ty, &self.render_scope())?;
                 Ok(format!(
-                    "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ match {future_text}.await {{ Ok(smelt_value) => Ok::<_, Box<dyn std::error::Error>>(smelt_value), Err(smelt_error) => {{ {settle} Ok::<_, Box<dyn std::error::Error>>({recovered}) }} }} }})) }}"
+                    "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ match {future_text}.await {{ Ok(smelt_value) => Ok::<_, {ERROR_BOX}>(smelt_value), Err(smelt_error) => {{ {settle} Ok::<_, {ERROR_BOX}>({recovered}) }} }} }})) }}"
                 ))
             }
             smelt_hir::AsyncOp::Finally => {
@@ -614,7 +673,7 @@ impl FunctionEmitter<'_> {
                 // `text/plain;charset=UTF-8`, and a fetched response's content
                 // type belongs to the server, not to how Smelt read it.
                 Ok(format!(
-                    "SmeltFuture::from_future(Box::pin(async move {{                      let smelt_http = reqwest::get({}).await.expect(\"HTTP request failed\");                      let smelt_status = f64::from(smelt_http.status().as_u16());                      let smelt_reason = smelt_http.status().canonical_reason().unwrap_or_default().to_owned();                      let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect();                      let smelt_bytes = smelt_http.bytes().await.expect(\"HTTP response body read failed\").to_vec();                      Ok::<_, Box<dyn std::error::Error>>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }}))",
+                    "SmeltFuture::from_future(Box::pin(async move {{                      let smelt_http = reqwest::get({}).await.expect(\"HTTP request failed\");                      let smelt_status = f64::from(smelt_http.status().as_u16());                      let smelt_reason = smelt_http.status().canonical_reason().unwrap_or_default().to_owned();                      let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect();                      let smelt_bytes = smelt_http.bytes().await.expect(\"HTTP response body read failed\").to_vec();                      Ok::<_, {ERROR_BOX}>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }}))",
                     self.operand_text(url)?
                 ))
             }
@@ -629,7 +688,7 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("async HTTP GET URL must be a string"));
                 }
                 Ok(format!(
-                    "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(reqwest::get({}).await.expect(\"HTTP GET failed\").text().await.expect(\"HTTP response body read failed\")) }}))",
+                    "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(reqwest::get({}).await.expect(\"HTTP GET failed\").text().await.expect(\"HTTP response body read failed\")) }}))",
                     self.operand_text(url)?
                 ))
             }
@@ -656,8 +715,7 @@ impl FunctionEmitter<'_> {
             return Ok(if self.function_value_call_is_fallible(function) {
                 "(smelt_timer_callback)().map(|_| ())".to_owned()
             } else {
-                "Ok::<(), Box<dyn std::error::Error>>({ (smelt_timer_callback)(); () })"
-                    .to_owned()
+                format!("Ok::<(), {ERROR_BOX}>({{ (smelt_timer_callback)(); () }})")
             });
         }
         // A callback with a statically-known function type (e.g. `delay`'s
@@ -676,9 +734,9 @@ impl FunctionEmitter<'_> {
         // The erased callable probe matches on `SmeltUnknown`. The object arm
         // binds through `get`, which yields a reference, so it must clone to
         // match the owned handle produced by the function arm.
-        Ok(format!(
-            "{{ let smelt_function_value = smelt_timer_callback.clone(); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)({call_args}).map(|_| ()) }} else {{ Err(std::io::Error::new(std::io::ErrorKind::Other, \"timer callback is not callable\").into()) }} }}"
-        ))
+        Ok(self.carrier_format(format_args!(
+            "{{ let smelt_function_value = smelt_timer_callback.clone(); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"{SMELT_CALL}\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)({call_args}).map(|_| ()) }} else {{ Err(std::io::Error::new(std::io::ErrorKind::Other, \"timer callback is not callable\").into()) }} }}"
+        )))
     }
 
     /// Render a direct call to a statically-typed timer callback.
@@ -704,7 +762,7 @@ impl FunctionEmitter<'_> {
         let prelude = if extra.is_some() {
             String::new()
         } else {
-            "let smelt_timer_args_empty: Vec<SmeltUnknown> = Vec::new(); ".to_owned()
+            self.carrier_text("let smelt_timer_args_empty: Vec<SmeltUnknown> = Vec::new(); ")
         };
         // The fully-erased `(...args: unknown[]) => unknown` callback lowers to a
         // `SmeltErasedFunction` struct rather than a bare `dyn Fn`, and is
@@ -713,7 +771,7 @@ impl FunctionEmitter<'_> {
         if self.is_erased_unknown_rest_function(function) && !function.may_throw {
             let call = format!("smelt_timer_callback.call({args_source}.clone())");
             return Ok(format!(
-                "{{ {prelude}let _ = {call}; Ok::<(), Box<dyn std::error::Error>>(()) }}"
+                "{{ {prelude}let _ = {call}; Ok::<(), {ERROR_BOX}>(()) }}"
             ));
         }
         let mut call_args = Vec::new();
@@ -724,9 +782,9 @@ impl FunctionEmitter<'_> {
                 );
                 call_args.push(self.value_at_type_text(&rest_text, unknown_list_ty, *param, &self.render_scope())?);
             } else {
-                let arg_text = format!(
+                let arg_text = self.carrier_format(format_args!(
                     "{args_source}.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
-                );
+                ));
                 call_args.push(self.value_at_type_text(&arg_text, unknown_ty, *param, &self.render_scope())?);
             }
         }
@@ -735,7 +793,7 @@ impl FunctionEmitter<'_> {
             Ok(format!("{{ {prelude}({call}).map(|_| ()) }}"))
         } else {
             Ok(format!(
-                "{{ {prelude}let _ = {call}; Ok::<(), Box<dyn std::error::Error>>(()) }}"
+                "{{ {prelude}let _ = {call}; Ok::<(), {ERROR_BOX}>(()) }}"
             ))
         }
     }
@@ -748,10 +806,10 @@ impl FunctionEmitter<'_> {
         };
         let unknown_ty = self.type_id(Type::Unknown)?;
         let args_ty = self.type_id(Type::List(unknown_ty))?;
-        Ok(format!(
+        Ok(self.carrier_format(format_args!(
             "let smelt_timer_args: Vec<SmeltUnknown> = {}.iter().cloned().collect(); ",
             list_read_text(&self.value_at_type(extra_operand, args_ty)?)
-        ))
+        )))
     }
 
     /// Whether awaiting this operand yields an erased value that may itself be a
@@ -796,7 +854,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a function call to its Rust text representation.
-    pub(super) fn call_text(&self, callee: &Callee, args: &[Operand]) -> Result<String, EmitError> {
+    pub(super) fn call_text(&self, callee: &Callee, args: &[Operand]) -> Result<CallText, EmitError> {
         match callee {
             Callee::Builtin(BuiltinFn::ConsoleLog { absent }) => {
                 let rendered_args = args
@@ -804,7 +862,7 @@ impl FunctionEmitter<'_> {
                     .map(|arg| self.console_arg_text(arg, *absent))
                     .collect::<Result<Vec<_>, _>>()?;
                 if rendered_args.is_empty() {
-                    Ok("{ println!(); }".to_owned())
+                    Ok("{ println!(); }".to_owned().into())
                 } else {
                     let format = rendered_args
                         .iter()
@@ -816,7 +874,7 @@ impl FunctionEmitter<'_> {
                         .map(|(_, value)| value)
                         .collect::<Vec<_>>()
                         .join(", ");
-                    Ok(format!("{{ println!(\"{format}\", {arg_values}); }}"))
+                    Ok(format!("{{ println!(\"{format}\", {arg_values}); }}").into())
                 }
             }
             Callee::Builtin(BuiltinFn::ConsoleWrite | BuiltinFn::ConsoleErrorWrite) => {
@@ -833,7 +891,7 @@ impl FunctionEmitter<'_> {
                 } else {
                     "eprint"
                 };
-                Ok(format!("{{ {macro_name}!(\"{format_spec}\", {value}); }}"))
+                Ok(format!("{{ {macro_name}!(\"{format_spec}\", {value}); }}").into())
             }
             Callee::Builtin(BuiltinFn::JsonParse { target }) => {
                 let text = args
@@ -849,21 +907,21 @@ impl FunctionEmitter<'_> {
                 // boundary: parse AND decode strictly, throwing a catchable
                 // `TypeError` on a mismatch (see `emitter::json_decode`).
                 if let Some(decoded) = self.json_decode_target(*target) {
-                    return Ok(format!(
-                        "{}(&{})?",
+                    return Ok(CallText::propagating(format!(
+                        "{}(&{})",
                         json_decode::json_decode_entry_name(decoded),
                         self.operand_text(text)?
-                    ));
+                    )));
                 }
                 // The trailing `?` is what marks this call fallible to
                 // `emit_throwing_call_terminator`, which then renders the
                 // `Ok(Ok(v)) / Ok(Err(e))` shape that binds the caught
                 // `SyntaxError` and jumps to the handler's catch block.
-                Ok(format!(
-                    "{}(&{})?",
+                Ok(CallText::propagating(format!(
+                    "{}(&{})",
                     crate::thrown::JSON_PARSE_FN,
                     self.operand_text(text)?
-                ))
+                )))
             }
             Callee::Builtin(BuiltinFn::Base64(op)) => {
                 let value = args.first().ok_or_else(|| {
@@ -878,7 +936,7 @@ impl FunctionEmitter<'_> {
                 // binds the caught `InvalidCharacterError` and jumps to the
                 // handler's catch block.
                 let value_text = self.string_like_operand_text(value, "base64 input")?;
-                Ok(format!("{adapter}({value_text}.as_str())?"))
+                Ok(CallText::propagating(format!("{adapter}({value_text}.as_str())")))
             }
             Callee::Builtin(BuiltinFn::DataViewAccess { write, element }) => {
                 self.data_view_access_text(*write, *element, args)
@@ -899,10 +957,10 @@ impl FunctionEmitter<'_> {
                 // The trailing `?` is what marks the call fallible to
                 // `emit_throwing_call_terminator`, which binds the caught
                 // `SyntaxError` and jumps to the handler's catch block.
-                Ok(format!(
-                    "{}({pattern}, {flags})?",
+                Ok(CallText::propagating(format!(
+                    "{}({pattern}, {flags})",
                     crate::thrown::REGEXP_COMPILE_FN
-                ))
+                )))
             }
             Callee::Builtin(BuiltinFn::UriDecode(op)) => {
                 let value = args.first().ok_or_else(|| {
@@ -929,7 +987,7 @@ impl FunctionEmitter<'_> {
                 // `Ok(Ok(v)) / Ok(Err(e))` shape binding the caught `URIError`
                 // and jumping to the handler's catch block.
                 let value_text = self.string_like_operand_text(value, "URI decoder input")?;
-                Ok(format!("{adapter}({value_text}.as_str())?"))
+                Ok(CallText::propagating(format!("{adapter}({value_text}.as_str())")))
             }
             Callee::BaseInit(func) => self.base_initializer_call_text(*func, args),
             Callee::Static(func) => {
@@ -962,9 +1020,9 @@ impl FunctionEmitter<'_> {
                         rendered_args.push(self.default_value(target_ty)?);
                     }
                     let arg_values = rendered_args.join(", ");
-                    return Ok(format!(
-                        "{class_name}::new({arg_values}){}",
-                        self.throwing_call_suffix(function)
+                    return Ok(CallText::propagating_if(
+                        format!("{class_name}::new({arg_values})"),
+                        self.call_is_throwing(function),
                     ));
                 }
                 if let HirOrigin::ClassMethod { method, .. } = function.origin {
@@ -976,7 +1034,7 @@ impl FunctionEmitter<'_> {
                         Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                     ) || self.is_erased_class_type(self.operand_ty(receiver)?)
                     {
-                        return self.default_value(function.return_ty);
+                        return self.default_value(function.return_ty).map(CallText::from);
                     }
                     let receiver_text = match receiver {
                         Operand::Copy(place) | Operand::Move(place) => self.place_text(place)?,
@@ -988,24 +1046,7 @@ impl FunctionEmitter<'_> {
                     if let Some(field_call) =
                         self.call_virtual_function_field_text(receiver, &method_name, rest)?
                     {
-                        return Ok(field_call);
-                    }
-                    // Route the built-in `Array.prototype.concat` to the list-concat
-                    // helper. This is gated on the receiver's *static* type being a
-                    // `List` (not on argument text), so it is a general rule keyed by
-                    // the concrete receiver type rather than a name-based fixup: any
-                    // list receiver calling single-argument `concat` lowers here.
-                    if method_name == "concat"
-                        && rest.len() == 1
-                        && matches!(
-                            self.mir.types.get(self.operand_ty(receiver)?),
-                            Some(Type::List(_))
-                        )
-                    {
-                        let Some(first_rest) = rest.first() else {
-                            return Err(EmitError::new("concat receiver argument is missing"));
-                        };
-                        return self.list_concat_text(receiver, first_rest);
+                        return Ok(field_call.into());
                     }
                     let class_type_params = self.callee_class_type_params(function);
                     let mut rendered_args = rest
@@ -1107,7 +1148,7 @@ impl FunctionEmitter<'_> {
                     // drops each guard before the call runs (JavaScript
                     // evaluates arguments before the call anyway).
                     let prebound = if self.is_reference_class_type(self.operand_ty(receiver)?) {
-                        self.prebind_ref_cell_arguments(rest, &mut rendered_args)?
+                        self.prebind_ref_cell_arguments(function, rest, &mut rendered_args)?
                     } else {
                         Vec::new()
                     };
@@ -1118,7 +1159,7 @@ impl FunctionEmitter<'_> {
                     } else {
                         format!("{{ {} {call} }}", prebound.join(" "))
                     };
-                    return Ok(format!("{call}{}", self.throwing_call_suffix(function)));
+                    return Ok(CallText::propagating_if(call, self.call_is_throwing(function)));
                 }
                 if let HirOrigin::ClassStaticMethod { class, method, .. } = function.origin {
                     // `Class.staticMethod(args)` lowers to the receiver-free
@@ -1143,9 +1184,9 @@ impl FunctionEmitter<'_> {
                         rendered_args.push(self.default_value(target_ty)?);
                     }
                     let arg_values = rendered_args.join(", ");
-                    return Ok(format!(
-                        "{class_name}::{method_name}({arg_values}){}",
-                        self.throwing_call_suffix(function)
+                    return Ok(CallText::propagating_if(
+                        format!("{class_name}::{method_name}({arg_values})"),
+                        self.call_is_throwing(function),
                     ));
                 }
                 let rust_function_name = self.function_rust_name(function)?;
@@ -1175,9 +1216,9 @@ impl FunctionEmitter<'_> {
                             .map(|arg| self.erase(arg))
                             .collect::<Result<Vec<_>, _>>()?
                             .join(", ");
-                        return Ok(format!(
-                            "{rust_function_name}(vec![{items}]){}",
-                            self.throwing_call_suffix(function)
+                        return Ok(CallText::propagating_if(
+                            format!("{rust_function_name}(vec![{items}])"),
+                            self.call_is_throwing(function),
                         ));
                     }
                 }
@@ -1258,9 +1299,9 @@ impl FunctionEmitter<'_> {
                         rendered_args.push(self.default_value(self.local_decl(*param)?.ty)?);
                     }
                     let arg_values = rendered_args.join(", ");
-                    return Ok(format!(
-                        "{rust_function_name}({arg_values}){}",
-                        self.throwing_call_suffix(function)
+                    return Ok(CallText::propagating_if(
+                        format!("{rust_function_name}({arg_values})"),
+                        self.call_is_throwing(function),
                     ));
                 }
                 let free_function_type_params =
@@ -1329,9 +1370,9 @@ impl FunctionEmitter<'_> {
                     }
                 }
                 let arg_values = rendered_args.join(", ");
-                Ok(format!(
-                    "{rust_function_name}({arg_values}){}",
-                    self.throwing_call_suffix(function)
+                Ok(CallText::propagating_if(
+                    format!("{rust_function_name}({arg_values})"),
+                    self.call_is_throwing(function),
                 ))
             }
             Callee::Indirect(indirect_callee) => {
@@ -1343,14 +1384,14 @@ impl FunctionEmitter<'_> {
                 // statement and terminator forms changes whether it is emittable
                 // at all.
                 let callee_ty = self.operand_ty(indirect_callee)?;
-                if self.callee_is_dynamically_dispatched(callee_ty) {
+                if self.has_dynamic_shape(callee_ty) {
                     let callee_text = self.operand_text(indirect_callee)?;
                     let rendered_args = args
                         .iter()
                         .map(|arg| self.erase(arg))
                         .collect::<Result<Vec<_>, EmitError>>()?;
                     let args_expr = format!("vec![{}]", rendered_args.join(", "));
-                    return Ok(self.dynamic_callable_dispatch_text(&callee_text, &args_expr, self.prototype_method_not_callable(indirect_callee).as_deref()));
+                    return Ok(self.dynamic_callable_dispatch_text(&callee_text, &args_expr, self.prototype_method_not_callable(indirect_callee).as_deref()).into());
                 }
                 let Some(Type::Function(function)) = self.mir.types.get(callee_ty) else {
                     return Err(EmitError::new("indirect call target is not a function"));
@@ -1369,7 +1410,7 @@ impl FunctionEmitter<'_> {
                     return Ok(format!(
                         "({callee_text}).call({})",
                         self.erased_call_argument_vector_text(indirect_callee, args)?
-                    ));
+                    ).into());
                 }
                 // A rest-only callee invoked with positional arguments takes them
                 // packed into its single rest `SmeltList` parameter; without this
@@ -1412,9 +1453,12 @@ impl FunctionEmitter<'_> {
                     // pays one more refcount.
                     return Ok(format!(
                         "{{ let smelt_callable = ::std::clone::Clone::clone(&{callee_text}); (smelt_callable)({rendered_args}){suffix} }}"
-                    ));
+                    ).into());
                 }
-                Ok(format!("({callee_text})({rendered_args}){suffix}"))
+                Ok(CallText::propagating_if(
+                    format!("({callee_text})({rendered_args})"),
+                    self.function_value_call_is_fallible(function),
+                ))
             }
         }
     }
@@ -1435,15 +1479,15 @@ impl FunctionEmitter<'_> {
         // callable-object dispatch; a non-callable value is dropped like an
         // absent handler (the resolved value still evaluates).
         if self.mir.types.get(self.operand_ty(callback)?) == Some(&Type::Unknown) {
-            return Ok(format!(
-                "{{ let smelt_callable = match ({callback_text}).clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; match smelt_callable {{ Some(smelt_function) => (smelt_function)(vec![IntoSmeltUnknown::into_smelt_unknown({arg_expr})]).unwrap_or_else(|error| smelt_panic_throw(error)), None => {{ let _ = {arg_expr}; SmeltUnknown::Undefined }} }} }}"
-            ));
+            return Ok(self.carrier_format(format_args!(
+                "{{ let smelt_callable = match ({callback_text}).clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"{SMELT_CALL}\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; match smelt_callable {{ Some(smelt_function) => (smelt_function)(vec![IntoSmeltUnknown::into_smelt_unknown({arg_expr})]).unwrap_or_else(|error| smelt_panic_throw(error)), None => {{ let _ = {arg_expr}; SmeltUnknown::Undefined }} }} }}"
+            )));
         }
         if let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callback)?) {
             if self.is_erased_unknown_rest_function(function) && !function.may_throw {
-                return Ok(format!(
+                return Ok(self.carrier_format(format_args!(
                     "({callback_text}).call(vec![IntoSmeltUnknown::into_smelt_unknown({arg_expr})])"
-                ));
+                )));
             }
             // JavaScript `.then(cb)`/`.catch(cb)` always invoke the continuation
             // with the resolved value (or rejection reason), but a 0-arity source
@@ -1604,7 +1648,9 @@ impl FunctionEmitter<'_> {
                 .and_then(|params| params.get(index).copied())
                 .unwrap_or(substituted)
         };
-        let mut rendered_args = args
+        let packed_rest = self.packed_rest_arg_text(args, Some(function))?;
+        let positional_args = packed_rest.as_ref().and_then(|(index, _)| args.get(..*index)).unwrap_or(args);
+        let mut rendered_args = positional_args
             .iter()
             .enumerate()
             .map(|(index, arg)| {
@@ -1627,12 +1673,17 @@ impl FunctionEmitter<'_> {
                 }
             })
             .collect::<Result<Vec<_>, _>>()?;
+        if let Some((index, list)) = packed_rest
+            && let Some(param) = function.params.get(index)
+        {
+            rendered_args.push(self.callback_call_arg_text(function, index, abi_param(index, *param), list));
+        }
         for (index, target_ty) in function
             .params
             .iter()
             .copied()
             .enumerate()
-            .skip(args.len())
+            .skip(rendered_args.len())
         {
             // A by-reference (`mutable_params`) parameter lowers to `&mut T`,
             // which has no value-shaped default expression to pad with; such a
@@ -1825,10 +1876,7 @@ impl FunctionEmitter<'_> {
             // class type parameters relevant to argument pass-through here.
             HirOrigin::Body(_) | HirOrigin::ClassStaticMethod { .. } => return Vec::new(),
         };
-        self.mir
-            .classes
-            .iter()
-            .find(|class| class.name == class_name)
+        crate::classes::find_class(self.mir, class_name)
             .map(|class| class.type_params.iter().map(|param| param.name).collect())
             .unwrap_or_default()
     }
@@ -2033,8 +2081,13 @@ impl FunctionEmitter<'_> {
             // rustc still has a direct argument to infer from. (`sumBy(items,
             // item => ..)` inside `meanBy<T>`: the one-argument arrow is
             // adapted to the two-argument callback, and `T` comes from `items`.)
-            let adapted_callback = matches!(self.mir.types.get(*target_ty), Some(Type::Function(_)))
-                && matches!(self.mir.types.get(actual_ty), Some(Type::Function(_)))
+            //
+            // Only its parameters may differ. A parameter accepts more than the
+            // pinned type, but a return is a further candidate for `T`:
+            // TypeScript widens `T` to `unknown` for a callback returning
+            // `unknown`, and the adapter would convert that value to the pinned
+            // type instead of carrying it.
+            let adapted_callback = callback_return_fits(self.mir, *target_ty, actual_ty, &bindings)
                 && type_params_pinned_by_values(self.mir, &declared, &actual, *target_ty, &bindings);
             if self.type_mentions_any(*target_ty, &own_params)
                 && !adapted_callback
@@ -2303,6 +2356,7 @@ impl FunctionEmitter<'_> {
         if !needs_adapter {
             return Ok(None);
         }
+        let _boundary = self.context.carrier_boundary();
         let mut prelude = String::new();
         let mut rendered_args = Vec::with_capacity(args.len());
         let mut writebacks = String::new();
@@ -2362,15 +2416,19 @@ impl FunctionEmitter<'_> {
                         // caller's; naming it keeps that deliberate.
                         let temp_ty =
                             self.rust_type(target_ty, false, &TypeSubstitution::erased())?;
-                        prelude.push_str(&format!(
+                        prelude.push_str(&self.carrier_format(format_args!(
                             "let mut {temp}: {temp_ty} = {}.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<{temp_ty}>(); ",
                             access.read
-                        ));
+                        )));
                         rendered_args.push(format!("&mut {temp}"));
-                        writebacks.push_str(&format!(
-                            "{} = {temp}.into_iter().map(|smelt_element| <{caller_elem} as SmeltFromUnknown>::smelt_from_unknown(smelt_element)).collect::<SmeltList<_>>(); ",
-                            access.assign_target
-                        ));
+                        // The temporary is a converted copy, so the callee's
+                        // writes come back through the caller's own buffer:
+                        // every alias of this JS array must observe them, which
+                        // rebinding the place to a new list would not do.
+                        writebacks.push_str(&self.carrier_format(format_args!(
+                            "{}.replace_all({temp}.into_iter().map(|smelt_element| <{caller_elem} as SmeltFromUnknown>::smelt_from_unknown(smelt_element)).collect::<Vec<_>>()); ",
+                            access.read
+                        )));
                     }
                     MutListArgKind::UnionInjected => {
                         let arg_item = self.list_element_ty(place_ty)?;
@@ -2396,8 +2454,8 @@ impl FunctionEmitter<'_> {
                         ));
                         rendered_args.push(format!("&mut {temp}"));
                         writebacks.push_str(&format!(
-                            "{} = {temp}.into_iter().map(|smelt_element| {project}).collect::<SmeltList<_>>(); ",
-                            access.assign_target
+                            "{}.replace_all({temp}.into_iter().map(|smelt_element| {project}).collect::<Vec<_>>()); ",
+                            access.read
                         ));
                     }
                 }
@@ -2494,9 +2552,9 @@ impl FunctionEmitter<'_> {
         }
         let dest_elem =
             self.rust_type(*dest_item, false, &TypeSubstitution::lexical(caller_scope))?;
-        Ok(format!(
+        Ok(self.carrier_format(format_args!(
             "{value_text}.into_iter().map(|smelt_element| <{dest_elem} as SmeltFromUnknown>::smelt_from_unknown(smelt_element)).collect::<SmeltList<_>>()"
-        ))
+        )))
     }
 
     /// Returns the place of the `index`-th argument, and how its elements must be
@@ -2547,17 +2605,17 @@ impl FunctionEmitter<'_> {
         // erases it. The callee renders its element with generics only when it
         // emits real Rust generics, which is what `callee_generics` encodes.
         let caller_scope = self.current_function_type_params();
-        let arg_element_text = self
-            .rust_type(*arg_item, false, &TypeSubstitution::lexical(&caller_scope))?
-            .into_string();
-        let param_element_text = self
-            .rust_type(
-                *target_item,
-                false,
-                &TypeSubstitution::callee_emission(callee_generics),
-            )?
-            .into_string();
-        if arg_element_text == param_element_text {
+        let arg_element = self.rust_type(
+            *arg_item,
+            false,
+            &TypeSubstitution::lexical(&caller_scope),
+        )?;
+        let param_element = self.rust_type(
+            *target_item,
+            false,
+            &TypeSubstitution::callee_emission(callee_generics),
+        )?;
+        if arg_element.as_str() == param_element.as_str() {
             // Already invariance-compatible: the ordinary call path passes the
             // place (or the forwarded reference) straight through.
             return Ok(None);
@@ -2579,7 +2637,7 @@ impl FunctionEmitter<'_> {
         // type, such as `SmeltErasedFunction`) has no such element bridge; leave
         // those on the ordinary call path rather than emit conversions that cannot
         // type-check.
-        if param_element_text == "SmeltUnknown" {
+        if param_element.shape() == RustShape::Erased {
             return Ok(Some((place, MutListArgKind::Erased)));
         }
         if self
@@ -2602,7 +2660,7 @@ impl FunctionEmitter<'_> {
         {
             return Ok(MutListPlaceStorage::Reference);
         }
-        if shared_capture_cell_name(&self.place_text(&Place::Local(local))?).is_some() {
+        if self.local_shared_cell(local)?.is_some() {
             return Ok(MutListPlaceStorage::SharedCapture);
         }
         Ok(MutListPlaceStorage::Owned)
@@ -2650,9 +2708,10 @@ impl FunctionEmitter<'_> {
                 mut_borrow: Some(format!("*{text}")),
             }),
             MutListPlaceStorage::SharedCapture => {
-                let cell = shared_capture_cell_name(&text).ok_or_else(|| {
-                    EmitError::new("shared-capture place lost its cell binding")
-                })?;
+                let cell = self
+                    .local_shared_cell(*local)?
+                    .ok_or_else(|| EmitError::new("shared-capture place lost its cell binding"))?
+                    .cell;
                 Ok(MutListPlaceAccess {
                     // `text` is already `(*smelt_capture_x.borrow())`, so the read
                     // clones through the shared borrow; the write needs its own
@@ -2704,50 +2763,13 @@ impl FunctionEmitter<'_> {
         // rendering and compare.
         #[cfg(debug_assertions)]
         let monomorphization_before_arguments = self.sampled_call_monomorphization(callee, args);
-        let mut call_text = self.call_text(callee, args)?;
-        if args.is_empty() && call_text.ends_with("(Vec::new())") {
-            call_text = format!("{}()", call_text.trim_end_matches("(Vec::new())"));
-        } else if call_text == "(fn_)(Vec::new())" {
-            "(fn_)()".clone_into(&mut call_text);
-        }
+        let mut call_text = self.call_text(callee, args)?.into_expression();
         #[cfg(debug_assertions)]
         self.debug_assert_call_monomorphization_stable(
             &self.sampled_callee_name(callee),
             monomorphization_before_arguments.as_ref(),
             self.sampled_call_monomorphization(callee, args).as_ref(),
         );
-        if let Callee::Static(func) = callee {
-            let function = self
-                .mir
-                .functions
-                .get(id_index(func.0, "function index does not fit usize")?)
-                .ok_or_else(|| EmitError::new("call references an unknown function"))?;
-            let rust_name = self.function_rust_name(function)?;
-            if rust_name.starts_with("piped_")
-                && let Some(Type::Function(target_function)) = self.mir.types.get(dest_ty)
-                && matches!(
-                    self.mir.types.get(target_function.return_ty),
-                    Some(Type::Float)
-                )
-            {
-                // The wrapper is assigned to `dest_ty`'s `dyn Fn`, so its
-                // parameters must carry whatever `&` that spelling does
-                // (`callback_param_is_shared_reference`); rendering the bare
-                // types here made the two disagree (E0631).
-                let scope = self.current_function_type_params();
-                let substitution = TypeSubstitution::lexical(&scope);
-                let params = self
-                    .callback_arg_decls(target_function, &substitution, MutablePrefix::Apply)?
-                    .join(", ");
-                let call_args = (0..target_function.params.len())
-                    .map(|index| format!("arg{index}"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                return Ok(format!(
-                    "{{ let smelt_piped = {call_text}; ::std::rc::Rc::new(move |{params}| -> f64 {{ (smelt_piped)({call_args}).smelt_into_f64() }}) }}"
-                ));
-            }
-        }
         call_text = self.wrap_native_async_call_text(callee, call_text)?;
         let source_ty = self.call_emitted_source_ty(callee, args, dest_ty)?;
         self.value_at_type_text(&call_text, source_ty, dest_ty, &self.render_scope())
@@ -2934,20 +2956,20 @@ impl FunctionEmitter<'_> {
             return Some(receiver_ty);
         }
         let inherited = crate::classes::inherited_type_substitution(self.mir, *name, declaring);
-        let receiver_class = self.mir.classes.iter().find(|class| class.name == *name)?;
+        let receiver_class = crate::classes::find_class(self.mir, *name)?;
         let receiver_args: HashMap<Symbol, TypeId> = receiver_class
             .type_params
             .iter()
             .map(|param| param.name)
             .zip(args.iter().copied())
             .collect();
-        let declaring_class = self.mir.classes.iter().find(|class| class.name == declaring)?;
+        let declaring_class = crate::classes::find_class(self.mir, declaring)?;
         let declaring_args = declaring_class
             .type_params
             .iter()
             .map(|param| {
                 let in_receiver_scope = inherited.get(&param.name).copied()?;
-                Some(crate::classes::substitute_existing_type(
+                Some(crate::generic_bindings::substitute_existing_type(
                     self.mir,
                     in_receiver_scope,
                     &receiver_args,
@@ -2999,18 +3021,18 @@ impl FunctionEmitter<'_> {
         {
             return Ok(call_text);
         }
-        let mut call_text = self.call_text(callee, args)?;
+        let rendered = self.call_text(callee, args)?;
         // A closure body that is itself fallible returns
         // `Result<_, Box<dyn std::error::Error>>`, so a throwing call inside it
         // keeps its `?` and the error stays recoverable for whoever invokes the
         // callback. Only a closure whose Rust signature genuinely cannot carry
         // an error (a non-throwing body, or a generator whose `?` would target
         // the step output) collapses the error into a `panic!`.
-        if let Some(stripped) = call_text.strip_suffix('?')
-            && !self.body_can_propagate_error()
-        {
-            call_text = format!("{stripped}.unwrap_or_else(|error| smelt_panic_throw(error))");
-        }
+        let mut call_text = if rendered.propagates() && !self.body_can_propagate_error() {
+            format!("{}.unwrap_or_else(|error| smelt_panic_throw(error))", rendered.into_call())
+        } else {
+            rendered.into_expression()
+        };
         call_text = self.wrap_native_async_call_text(callee, call_text)?;
         // The emitted return, not the declared one. A monomorphized generic
         // callee really evaluates to its declared return with this call site's
@@ -3058,14 +3080,6 @@ impl FunctionEmitter<'_> {
             .unwrap_or_else(|| "<unnameable callee>".to_owned())
     }
 
-    /// Returns whether a callee's type carries no static signature, so its call
-    /// must go through the run-time callable dispatch.
-    ///
-    /// Mirrors the `Rvalue::ClosureCall` erased-callee test so both call forms
-    /// classify a callee identically.
-    pub(super) fn callee_is_dynamically_dispatched(&self, callee_ty: TypeId) -> bool {
-        self.has_dynamic_shape(callee_ty)
-    }
 
     /// Bind every argument that reads through a `RefCell` borrow to a local.
     ///
@@ -3076,6 +3090,7 @@ impl FunctionEmitter<'_> {
     /// [`Self::operand_reads_through_ref_cell`] for which reads hold a guard.
     fn prebind_ref_cell_arguments(
         &self,
+        function: &MirFunction,
         args: &[Operand],
         rendered_args: &mut [String],
     ) -> Result<Vec<String>, EmitError> {
@@ -3083,7 +3098,18 @@ impl FunctionEmitter<'_> {
         for (index, (arg, rendered)) in args.iter().zip(rendered_args.iter_mut()).enumerate() {
             // A by-reference argument (`&mut` in-place ABI, borrowed callback)
             // borrows INTO the read; binding it would outlive its temporary.
-            if !self.operand_reads_through_ref_cell(arg) || rendered.starts_with('&') {
+            let param = function.params.get(index.saturating_add(1)).copied();
+            let by_reference = match param {
+                Some(param) => {
+                    self.parameter_needs_mutable_reference_in(function, param)
+                        || (matches!(
+                            self.mir.types.get(self.function_local_decl(function, param)?.ty),
+                            Some(Type::Function(_))
+                        ) && !self.function_parameter_requires_owned_in(function, param)?)
+                }
+                None => false,
+            };
+            if !self.operand_reads_through_ref_cell(arg) || by_reference {
                 continue;
             }
             let name = format!("smelt_call_arg_{index}");
@@ -3102,7 +3128,7 @@ impl FunctionEmitter<'_> {
     /// takes that type's default, as a `Base::new(..)` call does. A throwing
     /// base constructor makes the initializer fallible, so the call carries the
     /// same `?` suffix a throwing `new` does.
-    fn base_initializer_call_text(&self, func: FuncId, args: &[Operand]) -> Result<String, EmitError> {
+    fn base_initializer_call_text(&self, func: FuncId, args: &[Operand]) -> Result<CallText, EmitError> {
         let function = self
             .mir
             .functions
@@ -3132,11 +3158,13 @@ impl FunctionEmitter<'_> {
             let target_ty = self.function_local_decl(function, *param)?.ty;
             rendered_args.push(self.default_value(target_ty)?);
         }
-        Ok(format!(
-            "Self::{}({}){}",
-            crate::base_init::base_initializer_name(self.mir, class)?,
-            rendered_args.join(", "),
-            self.throwing_call_suffix(function)
+        Ok(CallText::propagating_if(
+            format!(
+                "Self::{}({})",
+                crate::base_init::base_initializer_name(self.mir, class)?,
+                rendered_args.join(", "),
+            ),
+            self.call_is_throwing(function),
         ))
     }
 
@@ -3212,7 +3240,7 @@ impl FunctionEmitter<'_> {
                 // A dynamically dispatched callee has no static signature, so
                 // its call produces the erased carrier (see the matching arm in
                 // `indirect` call emission).
-                if self.callee_is_dynamically_dispatched(callee_ty) {
+                if self.has_dynamic_shape(callee_ty) {
                     return self.type_id(Type::Unknown);
                 }
                 // An erased-rest callable (`(...args: any) => LazyFn`) is the
@@ -3295,6 +3323,21 @@ impl FunctionEmitter<'_> {
                     crate::console_inspect_prelude::INSPECT_TRAIT,
                     crate::console_inspect_prelude::CONSOLE_TEXT_METHOD,
                     self.operand_text(operand)?
+                ),
+            ))
+        } else if absent == AbsentSpelling::Undefined
+            && matches!(self.mir.types.get(ty), Some(Type::GeneratorResult { .. }))
+        {
+            // An iterator result is the `{ value, done }` object, and the erased
+            // carrier is what draws an object.
+            self.context.mark_console_inspect_used();
+            Ok((
+                "{}",
+                format!(
+                    "{}::{}(&{})",
+                    crate::console_inspect_prelude::INSPECT_TRAIT,
+                    crate::console_inspect_prelude::CONSOLE_TEXT_METHOD,
+                    self.erase(operand)?
                 ),
             ))
         } else if matches!(
@@ -3548,28 +3591,32 @@ impl FunctionEmitter<'_> {
             // does) only the markers survive, so its erasure stamps
             // `__smelt_error` with the nearest builtin error base's name — see
             // `host_base_markers` — and answers these same probes.
-            let marker_probe = if class_name == "Error" {
-                "value.contains_key(\"__smelt_error\")".to_owned()
+            let marker_probe = if smelt_stdlib::instance_of_rule(class_name) == Some(smelt_stdlib::InstanceOfRule::Error) {
+                std::iter::once(SMELT_ERROR)
+                    .chain(smelt_stdlib::host_markers_extending(class_name))
+                    .map(|marker| format!("value.contains_key(\"{marker}\")"))
+                    .collect::<Vec<_>>()
+                    .join(" || ")
             } else {
-                format!(
-                    "matches!(value.get(\"__smelt_error\"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == {class_name:?})"
-                )
+                self.carrier_format(format_args!(
+                    "matches!(value.get(\"{SMELT_ERROR}\"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == {class_name:?})"
+                ))
             };
             if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-                return Ok(format!(
+                return Ok(self.carrier_format(format_args!(
                     "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if {marker_probe})"
-                ));
+                )));
             }
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "matches!({value_text}.clone(), SmeltUnknown::Object(value) if {marker_probe})"
-            ));
+            )));
         }
         // A concrete source `Map`/`Set` is unconditionally an instance of its own
         // class, and any OTHER concrete operand carries no such identity. Those
         // are static answers about storage, which is why the two keep an arm; the
         // dynamic case falls through to the shared marker probe below, where
         // `__smelt_map` / `__smelt_set` answer it like any other identity marker.
-        if class_name == "Map" {
+        if smelt_stdlib::instance_of_rule(class_name) == Some(smelt_stdlib::InstanceOfRule::Map) {
             if matches!(self.mir.types.get(value_ty), Some(Type::JsMap(_, _))) {
                 return Ok("true".to_owned());
             }
@@ -3577,7 +3624,7 @@ impl FunctionEmitter<'_> {
                 return Ok("false".to_owned());
             }
         }
-        if class_name == "Set" {
+        if smelt_stdlib::instance_of_rule(class_name) == Some(smelt_stdlib::InstanceOfRule::Set) {
             if matches!(self.mir.types.get(value_ty), Some(Type::Set(_))) {
                 return Ok("true".to_owned());
             }
@@ -3591,7 +3638,7 @@ impl FunctionEmitter<'_> {
         if let Some(check) = self.typed_array_instance_of_text(value, class_name)? {
             return Ok(check);
         }
-        if class_name == "ArrayBuffer"
+        if smelt_stdlib::instance_of_rule(class_name) == Some(smelt_stdlib::InstanceOfRule::ArrayBuffer)
             && matches!(
                 self.mir.types.get(value_ty),
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
@@ -3599,13 +3646,13 @@ impl FunctionEmitter<'_> {
         {
             let value_text = self.operand_text(value)?;
             if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-                return Ok(format!(
-                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_arraybuffer\"))"
-                ));
+                return Ok(self.carrier_format(format_args!(
+                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"{SMELT_ARRAYBUFFER}\"))"
+                )));
             }
-            return Ok(format!(
-                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_arraybuffer\"))"
-            ));
+            return Ok(self.carrier_format(format_args!(
+                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"{SMELT_ARRAYBUFFER}\"))"
+            )));
         }
         // A CONCRETE blob answers both spellings statically: it always is a
         // `Blob`, and it is a `File` exactly when its optional name is present
@@ -3616,12 +3663,12 @@ impl FunctionEmitter<'_> {
             .is_some_and(smelt_stdlib::StdlibClass::is_blob_runtime_type)
             && self.is_blob_class_type(value_ty)?
         {
-            if class_name == "File" {
+            if smelt_stdlib::instance_of_rule(class_name) == Some(smelt_stdlib::InstanceOfRule::File) {
                 return Ok(format!("{}.is_file()", self.operand_text(value)?));
             }
             return Ok("true".to_owned());
         }
-        if class_name == "Blob"
+        if smelt_stdlib::instance_of_rule(class_name) == Some(smelt_stdlib::InstanceOfRule::Blob)
             && matches!(
                 self.mir.types.get(value_ty),
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
@@ -3629,15 +3676,15 @@ impl FunctionEmitter<'_> {
         {
             let value_text = self.operand_text(value)?;
             if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-                return Ok(format!(
-                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_blob\"))"
-                ));
+                return Ok(self.carrier_format(format_args!(
+                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"{SMELT_BLOB}\"))"
+                )));
             }
-            return Ok(format!(
-                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_blob\"))"
-            ));
+            return Ok(self.carrier_format(format_args!(
+                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"{SMELT_BLOB}\"))"
+            )));
         }
-        if class_name == "Number"
+        if smelt_stdlib::instance_of_rule(class_name) == Some(smelt_stdlib::InstanceOfRule::Number)
             && matches!(
                 self.mir.types.get(value_ty),
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
@@ -3645,15 +3692,15 @@ impl FunctionEmitter<'_> {
         {
             let value_text = self.operand_text(value)?;
             if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-                return Ok(format!(
-                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_number\"))"
-                ));
+                return Ok(self.carrier_format(format_args!(
+                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"{SMELT_NUMBER}\"))"
+                )));
             }
-            return Ok(format!(
-                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_number\"))"
-            ));
+            return Ok(self.carrier_format(format_args!(
+                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"{SMELT_NUMBER}\"))"
+            )));
         }
-        if class_name == "Promise"
+        if smelt_stdlib::instance_of_rule(class_name) == Some(smelt_stdlib::InstanceOfRule::Promise)
             && matches!(
                 self.mir.types.get(value_ty),
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
@@ -3661,13 +3708,13 @@ impl FunctionEmitter<'_> {
         {
             let value_text = self.operand_text(value)?;
             if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-                return Ok(format!(
+                return Ok(self.carrier_format(format_args!(
                     "matches!({value_text}.clone(), Some(SmeltUnknown::Promise(_)))"
-                ));
+                )));
             }
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "matches!({value_text}.clone(), SmeltUnknown::Promise(_))"
-            ));
+            )));
         }
         // `AbortController`/`AbortSignal` erase to marker-bearing records (see
         // `abort_controller_constructor_expression`). They are recognized by
@@ -3705,13 +3752,13 @@ impl FunctionEmitter<'_> {
                     .collect::<Vec<_>>()
                     .join(" || ");
                 if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-                    return Ok(format!(
+                    return Ok(self.carrier_format(format_args!(
                         "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if {probe})"
-                    ));
+                    )));
                 }
-                return Ok(format!(
+                return Ok(self.carrier_format(format_args!(
                     "matches!({value_text}.clone(), SmeltUnknown::Object(value) if {probe})"
-                ));
+                )));
             }
         }
         // Nothing above recognized the pair. For a CONCRETE operand that is a
@@ -3735,12 +3782,12 @@ impl FunctionEmitter<'_> {
         if self.instanceof_operand_is_dynamic(value_ty)
             && smelt_stdlib::typescript_stdlib_class(class_name).is_some()
         {
-            return Err(EmitError::new(format!(
+            return Err(EmitError::new(self.carrier_format(format_args!(
                 "`instanceof {class_name}` on a dynamically-typed value is not modeled: \
                  `{class_name}` values carry no identity marker on an erased value, so the \
                  check cannot be answered at runtime. A modeled class needs a host-object \
                  registry marker and an `IntoSmeltUnknown` that stamps it."
-            )));
+            ))));
         }
         if let Some(check) = self.erased_user_class_instance_of_text(value, value_ty, class)? {
             return Ok(check);
@@ -3789,15 +3836,15 @@ impl FunctionEmitter<'_> {
                 }
             }
         }
-        let probe = format!(
-            "matches!(value.get(\"__smelt_class\"), Some(SmeltUnknown::String(smelt_class_name)) if matches!(&*smelt_class_name, {}))",
+        let probe = self.carrier_format(format_args!(
+            "matches!(value.get(\"{SMELT_CLASS}\"), Some(SmeltUnknown::String(smelt_class_name)) if matches!(&*smelt_class_name, {}))",
             names.join(" | ")
-        );
+        ));
         let value_text = self.operand_text(value)?;
         Ok(Some(if optional {
-            format!("matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if {probe})")
+            self.carrier_format(format_args!("matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if {probe})"))
         } else {
-            format!("matches!({value_text}.clone(), SmeltUnknown::Object(value) if {probe})")
+            self.carrier_format(format_args!("matches!({value_text}.clone(), SmeltUnknown::Object(value) if {probe})"))
         }))
     }
 
@@ -3901,7 +3948,7 @@ impl FunctionEmitter<'_> {
         }
         let value_text = self.operand_text(value)?;
         let probed = if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-            format!("{value_text}.clone().unwrap_or(SmeltUnknown::Undefined)")
+            self.carrier_format(format_args!("{value_text}.clone().unwrap_or(SmeltUnknown::Undefined)"))
         } else {
             format!("{value_text}.clone()")
         };
@@ -3925,21 +3972,43 @@ impl FunctionEmitter<'_> {
     /// Walks the declared base chain, which is how a statically typed
     /// `instanceof` between two generated classes is answered.
     pub(super) fn class_extends_or_equals(&self, source: Symbol, target: Symbol) -> bool {
-        let mut current = Some(source);
-        while let Some(class_name) = current {
-            if class_name == target {
+        let mut current = source;
+        loop {
+            if current == target {
                 return true;
             }
-            current = self
-                .mir
-                .classes
-                .iter()
-                .find(|class| class.name == class_name)
-                .and_then(|class| class.base);
+            let Some(class) = crate::classes::find_class(self.mir, current) else {
+                break;
+            };
+            let Some(base) = class.base else {
+                return false;
+            };
+            current = base;
         }
-        false
+        // The chain left the program at a builtin (`class X extends
+        // DOMException`), whose own ancestors are the registry's to answer.
+        match (self.symbol_name(current), self.symbol_name(target)) {
+            (Ok(builtin), Ok(ancestor)) => smelt_stdlib::builtin_class_extends(builtin, ancestor),
+            _ => false,
+        }
     }
 
+}
+
+/// Whether both types are functions and the actual callback returns exactly
+/// the declared return under `bindings`.
+fn callback_return_fits(
+    mir: &Mir,
+    declared: TypeId,
+    actual: TypeId,
+    bindings: &CalleeTypeParamBindings,
+) -> bool {
+    let (Some(Type::Function(declared)), Some(Type::Function(actual))) =
+        (mir.types.get(declared), mir.types.get(actual))
+    else {
+        return false;
+    };
+    substitution_matches(mir, declared.return_ty, actual.return_ty, bindings)
 }
 
 /// Whether every type parameter `callback_ty` mentions is pinned at this call

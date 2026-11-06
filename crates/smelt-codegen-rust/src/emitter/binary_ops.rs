@@ -174,8 +174,8 @@ impl FunctionEmitter<'_> {
             // optional number against an erased `SmeltUnknown` such as a
             // `.length` read (es-toolkit `includes`).
             let side_erased = |emitter: &Self, ty: TypeId, inner: Option<TypeId>| match inner {
-                Some(inner_ty) => emitter.is_erased_relational(inner_ty),
-                None => emitter.is_erased_relational(ty),
+                Some(inner_ty) => emitter.has_dynamic_shape(inner_ty),
+                None => emitter.has_dynamic_shape(ty),
             };
             let lhs_erased_inner = side_erased(self, lhs_ty, lhs_inner);
             let rhs_erased_inner = side_erased(self, rhs_ty, rhs_inner);
@@ -192,7 +192,7 @@ impl FunctionEmitter<'_> {
                 // non-optional side extracts directly at its own type.
                 let side_text = |emitter: &Self, operand: &Operand, inner: Option<TypeId>| {
                     match inner {
-                        Some(inner_ty) if emitter.is_erased_relational(inner_ty) => {
+                        Some(inner_ty) if emitter.has_dynamic_shape(inner_ty) => {
                             let erased = emitter.erase(operand)?;
                             emitter.value_at_type_text(&erased, unknown_ty, float_ty, &self.render_scope())
                         }
@@ -280,6 +280,7 @@ impl FunctionEmitter<'_> {
         // `null` literal or a unit value) matches `Null`. Used by the
         // erased-vs-none arms where the none side is essentially always a literal.
         let nullish_pattern = |operand: &Operand| {
+            self.context.note_carrier_use();
             if strict_nullish {
                 if matches!(operand, Operand::Const(Constant::Undefined)) {
                     "SmeltUnknown::Undefined"
@@ -354,11 +355,11 @@ impl FunctionEmitter<'_> {
             if js_strict {
                 // JavaScript `===`/`!==` on erased values: reference identity for
                 // objects/arrays/functions, value for primitives, NaN-unequal.
-                format!("{lhs_text}.js_strict_eq({rhs_reference_text})")
+                self.carrier_format(format_args!("{lhs_text}.js_strict_eq({rhs_reference_text})"))
             } else if strict {
                 // `Object.is` / `a === b || Object.is(a,b)` SameValueZero idiom:
                 // NaN-equal, reference objects.
-                format!("{lhs_text}.same_js_key({rhs_reference_text})")
+                self.carrier_format(format_args!("{lhs_text}.same_js_key({rhs_reference_text})"))
             } else {
                 // Loose/structural `==`/`!=` on erased values: SmeltUnknown's
                 // structural `Eq` (deep), which the `toEqual`/`toStrictEqual`
@@ -507,6 +508,7 @@ impl FunctionEmitter<'_> {
         {
             return Ok(format!("{option_text}.is_none()"));
         }
+        self.context.note_carrier_use();
         let pattern = if strict_nullish {
             if matches!(singleton, Operand::Const(Constant::Undefined)) {
                 "SmeltUnknown::Undefined"
@@ -582,8 +584,8 @@ impl FunctionEmitter<'_> {
         {
             return Ok(None);
         }
-        let lhs_erased = self.is_erased_relational(lhs_ty);
-        let rhs_erased = self.is_erased_relational(rhs_ty);
+        let lhs_erased = self.has_dynamic_shape(lhs_ty);
+        let rhs_erased = self.has_dynamic_shape(rhs_ty);
         if !lhs_erased && !rhs_erased {
             return Ok(None);
         }
@@ -666,12 +668,7 @@ impl FunctionEmitter<'_> {
         }
         let lhs_text = self.operand_text(lhs)?;
         let rhs_text = self.operand_text(rhs)?;
-        let mut common_ty = self.common_numeric_type(lhs_ty, rhs_ty, dest_ty)?;
-        if matches!(self.mir.types.get(common_ty), Some(Type::Int))
-            && (lhs_text.contains(" as f64") || rhs_text.contains(" as f64"))
-        {
-            common_ty = self.type_id(Type::Float)?;
-        }
+        let common_ty = self.common_numeric_type(lhs_ty, rhs_ty, dest_ty)?;
         Ok(Some(format!(
             "{} {} {}",
             self.value_at_type_text(&lhs_text, lhs_ty, common_ty, &self.render_scope())?,
@@ -956,13 +953,13 @@ impl FunctionEmitter<'_> {
         right: &str,
         ty: TypeId,
     ) -> Result<String, EmitError> {
-        let fn_ty = self.type_text_with_impl_trait(ty, false)?;
+        let fn_ty = self.type_text(ty)?;
         // `smelt_same_function_identity` (which also answers through identity
         // links a callable gains crossing the erased ABI) lives in the
         // `SmeltUnknown` runtime. A program without that runtime has no erased
         // callables to link, so pointer identity of the shared `Rc` is the
         // whole answer.
-        let compare = if crate::stdlib::needs_unknown_type(self.mir) {
+        let compare = if self.context.demand().has(Need::Unknown) {
             "smelt_same_function_identity"
         } else {
             "::std::rc::Rc::ptr_eq"
@@ -1482,13 +1479,6 @@ impl FunctionEmitter<'_> {
         matches!(self.mir.types.get(ty), Some(Type::Int | Type::Float))
     }
 
-    /// Returns whether a type is erased for the purpose of a JS relational
-    /// comparison — an `unknown`, a union (concrete or erased), a generic type
-    /// param, or an erased class type. Such values must be coerced with
-    /// `ToNumber` before an `f64` `<`/`>`/`<=`/`>=` comparison resolves.
-    fn is_erased_relational(&self, ty: TypeId) -> bool {
-        self.has_dynamic_shape(ty)
-    }
 
     /// Chooses the Rust scalar type for mixed numeric arithmetic.
     fn common_numeric_type(

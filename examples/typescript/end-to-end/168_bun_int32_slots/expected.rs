@@ -139,6 +139,8 @@ impl<T: ::std::hash::Hash> ::std::hash::Hash for SmeltList<T> { fn hash<H: ::std
 impl<T> Default for SmeltList<T> { fn default() -> Self { Self::new(Vec::new()) } }
 impl<T: Clone> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Self { list.into_vec() } }
 
+// @smelt:prelude-end — generated program below
+
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Pixel {
     x: i32,
@@ -174,8 +176,6 @@ impl ::std::fmt::Debug for Cursor {
         ::std::fmt::Debug::fmt(&*self.0.borrow(), formatter)
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let c: Cursor;

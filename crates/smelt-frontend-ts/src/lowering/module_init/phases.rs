@@ -114,7 +114,7 @@ impl ModuleBuilder<'_> {
         // Declared before any type reference is lowered (the alias predeclaration
         // below is the first), so a module type that shares a global lib type's
         // spelling shadows it everywhere in the module; see
-        // `ModuleBuilder::module_type_shadows_global`.
+        // `ModuleBuilder::source_shadows_global`.
         self.types
             .declare_module_type_names(Self::program_type_declaration_names(program));
         self.predeclare_type_alias_items(program);

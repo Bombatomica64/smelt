@@ -5119,6 +5119,9 @@ pub struct SmeltBlob {
     file_name: Option<String>,
     /// `lastModified` in epoch milliseconds; meaningless unless a file.
     last_modified: f64,
+    /// The source class of an instance decoded into this type, when a program
+    /// subclasses `Blob`: `instanceof` reads it back through `__smelt_class`.
+    instance_class: Option<String>,
 }
 
 impl PartialEq for SmeltBlob { fn eq(&self, other: &Self) -> bool { self.bytes == other.bytes && self.blob_type == other.blob_type && self.file_name == other.file_name && self.last_modified == other.last_modified } }
@@ -5137,9 +5140,9 @@ impl SmeltBlob {
     /// An empty, untyped blob with a fresh JS reference identity.
     pub fn new() -> Self { Self::from_bytes(Vec::new(), String::new()) }
     /// A blob over owned bytes, with a fresh JS reference identity.
-    pub fn from_bytes(bytes: Vec<u8>, blob_type: String) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(bytes), blob_type, file_name: None, last_modified: 0.0 } }
+    pub fn from_bytes(bytes: Vec<u8>, blob_type: String) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(bytes), blob_type, file_name: None, last_modified: 0.0, instance_class: None } }
     /// The same, as a `File`: the two extra data properties are present.
-    pub fn file_from_bytes(bytes: Vec<u8>, blob_type: String, name: String, last_modified: f64) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(bytes), blob_type, file_name: Some(name), last_modified } }
+    pub fn file_from_bytes(bytes: Vec<u8>, blob_type: String, name: String, last_modified: f64) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(bytes), blob_type, file_name: Some(name), last_modified, instance_class: None } }
     /// A blob from string parts, with optional `File` metadata.
     pub fn from_string_parts(parts: Vec<String>, blob_type: String, file_name: Option<String>, last_modified: Option<f64>) -> Self { let mut bytes: Vec<u8> = Vec::new(); for part in &parts { bytes.extend_from_slice(part.as_bytes()); } Self::with_metadata(bytes, blob_type, file_name, last_modified) }
     /// A blob from blob parts, with optional `File` metadata.
@@ -5178,7 +5181,13 @@ impl SmeltBlob {
 /// The record shape has ONE definition, `smelt_blob_record`, shared with the
 /// reflected host constructor, so a concrete blob and a reflectively-built one
 /// erase to the same object.
-impl IntoSmeltUnknown for SmeltBlob { fn into_smelt_unknown(self) -> SmeltUnknown { smelt_blob_record(self.id, &self.bytes, &self.blob_type, self.file_name.clone(), self.last_modified) } }
+impl IntoSmeltUnknown for SmeltBlob {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let record = smelt_blob_record(self.id, &self.bytes, &self.blob_type, self.file_name.clone(), self.last_modified);
+        if let (SmeltUnknown::Object(object), Some(class)) = (&record, self.instance_class) { object.insert("__smelt_class".to_owned(), SmeltUnknown::String(class.into())); }
+        record
+    }
+}
 
 #[allow(dead_code)]
 impl SmeltBlob {
@@ -5196,9 +5205,13 @@ impl SmeltFromUnknown for SmeltBlob {
         let blob_type = match map.get("type") { Some(SmeltUnknown::String(text)) => text.to_string(), _ => String::new() };
         let name = match map.get("name") { Some(SmeltUnknown::String(text)) => Some(text.to_string()), _ => None };
         let last_modified = match map.get("lastModified") { Some(SmeltUnknown::Number(value)) => value, _ => 0.0 };
-        match name { Some(name) => Self::file_from_bytes(bytes, blob_type, name, last_modified), None => Self::from_bytes(bytes, blob_type) }
+        let instance_class = match map.get("__smelt_class") { Some(SmeltUnknown::String(class)) => Some(class.to_string()), _ => None };
+        let blob = match name { Some(name) => Self::file_from_bytes(bytes, blob_type, name, last_modified), None => Self::from_bytes(bytes, blob_type) };
+        Self { instance_class, ..blob }
     }
 }
+
+// @smelt:prelude-end — generated program below
 
 #[derive(Clone)]
 pub enum SmeltUnion12 {
@@ -5241,8 +5254,6 @@ impl Default for SmeltUnion12 {
         Self::M0(String::new())
     }
 }
-
-// @smelt:prelude-end — generated program below
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 let smelt_local = tokio::task::LocalSet::new();

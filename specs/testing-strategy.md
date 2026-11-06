@@ -80,7 +80,7 @@ Conceptual Rust output:
 ```rust
 #[test]
 fn adds_numbers() {
-    smelt_test::assert_same(add(2.0, 3.0), 5.0);
+    assert_eq!(add(2.0, 3.0), 5.0);
 }
 ```
 
@@ -130,9 +130,9 @@ This phase only supports direct assertions and simple equality.
 
 ### Phase 3: Test Runtime Helpers
 
-Introduce `smelt-test`, a Rust crate containing assertion helpers and framework compatibility glue. Keep helpers small and explicit. Do not build a full dynamic test framework unless a supported source feature truly needs it.
+Assertions lower inline through the frontend test lowering (`lowering/testing/`), so generated crates carry their own helpers. Keep helpers small and explicit. Do not build a full dynamic test framework unless a supported source feature truly needs it.
 
-`smelt-test` targets public API behavior first. In a perfect end state, smelt may transpile the internals of source-language testing libraries too, but v1 should map their stable public surface into native Rust tests. This keeps the correctness machine practical while still testing user code through the APIs users actually write.
+Test lowering targets public API behavior first. In a perfect end state, smelt may transpile the internals of source-language testing libraries too, but v1 should map their stable public surface into native Rust tests. This keeps the correctness machine practical while still testing user code through the APIs users actually write.
 
 Likely helpers:
 

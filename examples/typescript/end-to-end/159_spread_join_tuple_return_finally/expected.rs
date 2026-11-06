@@ -3473,58 +3473,6 @@ fn smelt_unknown_from_json_value(value: serde_json::Value) -> SmeltUnknown {
     }
 }
 
-#[allow(dead_code)]
-struct Accept(::std::rc::Rc<::std::cell::RefCell<AcceptInner>>);
-#[derive(Debug, Default)]
-#[allow(dead_code)]
-struct AcceptInner {
-    type_: String,
-    q: f64,
-}
-impl Clone for Accept {
-    fn clone(&self) -> Self {
-        Accept(::std::rc::Rc::clone(&self.0))
-    }
-}
-impl PartialEq for Accept {
-    fn eq(&self, other: &Self) -> bool {
-        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
-    }
-}
-impl Default for Accept {
-    fn default() -> Self {
-        Accept(::std::rc::Rc::new(::std::cell::RefCell::new(AcceptInner::default())))
-    }
-}
-impl ::std::fmt::Debug for Accept {
-    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        ::std::fmt::Debug::fmt(&*self.0.borrow(), formatter)
-    }
-}
-impl IntoSmeltUnknown for Accept {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        let __smelt_id = smelt_reference_object_identity(&self.0);
-        let __smelt_inner = self.0.borrow();
-        let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
-        ("type".to_owned(), SmeltUnknown::String((__smelt_inner.type_.clone()).into())),
-        ("q".to_owned(), SmeltUnknown::Number(__smelt_inner.q.clone() as f64)),
-        ]);
-        SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries).smelt_with_origin(self.clone()))
-    }
-}
-/// Recover this reference record from an erased value: the live instance
-/// when the value is an erasure of one, else a fresh object rebuilt from it.
-impl SmeltFromUnknown for Accept {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let SmeltUnknown::Object(object) = value else { return Self::default() };
-        if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
-        let result = Self::default();
-        if let Some(field) = object.get("type") { result.0.borrow_mut().type_ = SmeltFromUnknown::smelt_from_unknown(field); }
-        if let Some(field) = object.get("q") { result.0.borrow_mut().q = SmeltFromUnknown::smelt_from_unknown(field); }
-        result
-    }
-}
-
 thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;
@@ -3944,6 +3892,60 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
+#[allow(dead_code)]
+struct Accept(::std::rc::Rc<::std::cell::RefCell<AcceptInner>>);
+#[derive(Debug, Default)]
+#[allow(dead_code)]
+struct AcceptInner {
+    type_: String,
+    q: f64,
+}
+impl Clone for Accept {
+    fn clone(&self) -> Self {
+        Accept(::std::rc::Rc::clone(&self.0))
+    }
+}
+impl PartialEq for Accept {
+    fn eq(&self, other: &Self) -> bool {
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Default for Accept {
+    fn default() -> Self {
+        Accept(::std::rc::Rc::new(::std::cell::RefCell::new(AcceptInner::default())))
+    }
+}
+impl ::std::fmt::Debug for Accept {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::std::fmt::Debug::fmt(&*self.0.borrow(), formatter)
+    }
+}
+impl IntoSmeltUnknown for Accept {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let __smelt_id = smelt_reference_object_identity(&self.0);
+        let __smelt_inner = self.0.borrow();
+        let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
+        ("type".to_owned(), SmeltUnknown::String((__smelt_inner.type_.clone()).into())),
+        ("q".to_owned(), SmeltUnknown::Number(__smelt_inner.q.clone() as f64)),
+        ]);
+        SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries).smelt_with_origin(self.clone()))
+    }
+}
+/// Recover this reference record from an erased value: the live instance
+/// when the value is an erasure of one, else a fresh object rebuilt from it.
+impl SmeltFromUnknown for Accept {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let SmeltUnknown::Object(object) = value else { return Self::default() };
+        if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
+        let result = Self::default();
+        if let Some(field) = object.get("type") { result.0.borrow_mut().type_ = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(field) = object.get("q") { result.0.borrow_mut().q = SmeltFromUnknown::smelt_from_unknown(field); }
+        result
+    }
+}
+
 #[allow(dead_code)]
 struct Failure(::std::rc::Rc<::std::cell::RefCell<FailureInner>>);
 #[derive(Debug, Default)]
@@ -3992,8 +3994,6 @@ impl SmeltFromUnknown for Failure {
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 thread_local! {
     static SMELT_GLOBAL_CLEANUPS_0: ::std::cell::Cell<f64> = const { ::std::cell::Cell::new(0.0) };

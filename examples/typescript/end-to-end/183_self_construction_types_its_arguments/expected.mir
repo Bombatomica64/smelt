@@ -40,19 +40,21 @@ fn new (FuncId(3)) -> App<E>
   locals
     %0 user this: App<E>
     %1 param options: Options<E>
-    %2 temp: ListRouter<String>
-    %3 temp: Optional<Router<String>>
-    %4 temp: fn(String) -> String
-    %5 temp: fn(String, Optional<Dict<String, Optional<E>>>) -> String
+    %2 temp: Optional<Router<String>>
+    %3 temp: ListRouter<String>
+    %4 temp: Optional<Router<String>>
+    %5 temp: fn(String) -> String
+    %6 temp: fn(String, Optional<Dict<String, Optional<E>>>) -> String
   bb0:
     %0 = struct10 {}
-    %2 = call fn2() -> bb1
+    %2 = copy %1.field8
+    %3 = call fn2() -> bb1
   bb1:
-    %3 = copy %1.field8 ?? move %2
-    %0.field8 = move %3
-    %4 = closure ClosureId(0) []
-    %5 = copy %1.field9 ?? move %4
-    %0.field9 = move %5
+    %4 = move %2 ?? move %3
+    %0.field8 = move %4
+    %5 = closure ClosureId(0) []
+    %6 = copy %1.field9 ?? move %5
+    %0.field9 = move %6
     return move %0
 
 fn clone (FuncId(4)) -> App<E>
@@ -102,7 +104,7 @@ fn main (FuncId(5)) -> None throws
 
 closure ClosureId(0) -> String
   locals
-    %0 param __callback_param_0: String
+    %0 param r: String
   bb0:
     return copy %0
 

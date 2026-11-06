@@ -34,7 +34,7 @@
 //! [`crate::console_inspect_prelude`].
 
 use super::*;
-use crate::console_inspect_prelude::{self, InspectContainers, InspectField};
+use crate::console_inspect_prelude::{self, InspectField};
 use crate::rust::RustIdent;
 use super::union::union_name;
 
@@ -121,7 +121,7 @@ impl FunctionEmitter<'_> {
         if !visiting.insert(ty) {
             return true;
         }
-        let needs_unknown = crate::stdlib::needs_unknown_type(self.mir);
+        let needs_unknown = self.context.demand().has(Need::Unknown);
         let result = match self.mir.types.get(ty) {
             Some(Type::Bool | Type::Int | Type::Float | Type::BigInt | Type::String | Type::None) => {
                 true
@@ -131,12 +131,12 @@ impl FunctionEmitter<'_> {
                 self.inspectable_in(self.flatten_optional_inner(*inner), records, visiting)
             }
             Some(Type::List(item)) => {
-                crate::stdlib::needs_smelt_list(self.mir)
+                self.context.demand().has(Need::SmeltList)
                     && self.inspectable_in(*item, records, visiting)
             }
             Some(Type::Set(item)) => {
                 let container_emitted = if self.set_container_name(*item) == "SmeltPrimSet" {
-                    crate::stdlib::needs_prim_set(self.mir)
+                    self.context.demand().has(Need::PrimSet)
                 } else {
                     needs_unknown
                 };
@@ -267,7 +267,7 @@ fn base_chain_is_local(mir: &Mir, class: &MirClass) -> bool {
         let Some(base) = current.base else {
             return true;
         };
-        let Some(next) = mir.classes.iter().find(|candidate| candidate.name == base) else {
+        let Some(next) = crate::classes::find_class(mir, base) else {
             return false;
         };
         current = next;
@@ -291,13 +291,9 @@ pub(crate) fn emit_console_inspect_support(
         return Ok(String::new());
     };
     let emitter = FunctionEmitter::new(mir, context, function)?;
-    let needs_unknown = crate::stdlib::needs_unknown_type(mir);
-    let mut text = console_inspect_prelude::runtime_text(InspectContainers {
-        list: crate::stdlib::needs_smelt_list(mir),
-        prim_set: crate::stdlib::needs_prim_set(mir),
-        unknown: needs_unknown,
-        bigint: crate::stdlib::needs_bigint_runtime(mir),
-    });
+    let mut writer = crate::rust::CodeWriter::new();
+    crate::runtime_prelude::emit_entries(&mut writer, smelt_runtime::order::CONSOLE_INSPECT, mir, context)?;
+    let mut text = writer.finish();
     let records = inspect_records(mir, context);
     let mut ordered = records.iter().collect::<Vec<_>>();
     ordered.sort_by(|left, right| left.1.rust_name.cmp(&right.1.rust_name));

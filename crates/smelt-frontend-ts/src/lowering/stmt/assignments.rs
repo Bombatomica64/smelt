@@ -5,6 +5,8 @@
 //! optional chains, and the lowering of assignment/update targets.
 
 use crate::SmeltError;
+use crate::lowering::stdlib_dispatch;
+use smelt_stdlib::MathFunction;
 use crate::lowering::js_text::js_str_text;
 use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::{AssignmentTarget, ChainElement, Expression, SimpleAssignmentTarget};
@@ -12,7 +14,7 @@ use oxc::span::GetSpan;
 use oxc::syntax::operator::{AssignmentOperator, UpdateOperator};
 use smelt_hir::{
     BinOp, Body, CaptureMode, ErasureReason, ClosureCapture, DictProjectionOp, Expr, ExprKind, FunctionType, Item,
-    Literal, LocalDecl, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Param, Pattern,
+    Literal, LocalDecl, NumericPredicateOp, NumericRoundOp, Param, Pattern,
     PrimitiveCastOp, Span, Stmt, Type, UnknownKind,
 };
 
@@ -583,66 +585,14 @@ impl ModuleBuilder<'_> {
                 span: self.span(member.span.start, member.span.end),
             }));
         }
-        // Smelt types a JavaScript iterator result as `Optional<T>`, so a
-        // plain `.done` / `.value` on an optional receiver is that result's
-        // member. The syntactic `?.` rules it out: TypeScript types an
-        // iterator result as the non-optional `IteratorResult<T>`, so a source
-        // that writes `r?.value` is reading a genuinely possibly-absent value
-        // (a record from `Object.getOwnPropertyDescriptor`, a `T | undefined`
-        // lookup), whose `value` key the ordinary optional field read answers.
-        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(receiver_ty).cloned()
-            && matches!(member.property.name.as_str(), "done" | "value")
-            && !member.optional
-        {
-            let (kind, ty) = match member.property.name.as_str() {
-                "done" => (
-                    ExprKind::IteratorDone { result: receiver },
-                    self.ctx.krate.types.intern(Type::Bool),
-                ),
-                "value" => (
-                    ExprKind::IteratorValue { result: receiver },
-                    self.ctx.krate.types.intern(Type::Optional(inner)),
-                ),
-                _ => {
-                    return Err(SmeltError::unsupported(
-                        self.span(member.span.start, member.span.end),
-                        "iterator results only expose done and value",
-                    ));
-                }
-            };
-            return Ok(body.push_expr(Expr {
-                kind,
-                ty,
-                span: self.span(member.span.start, member.span.end),
-            }));
-        }
-        if let Some(Type::GeneratorResult {
-            yield_ty,
-            return_ty,
-        }) = self.ctx.krate.types.get(receiver_ty).cloned()
-            && matches!(member.property.name.as_str(), "done" | "value")
-        {
-            let (kind, ty) = if member.property.name == "done" {
-                (
-                    ExprKind::GeneratorDone { result: receiver },
-                    self.ctx.krate.types.intern(Type::Bool),
-                )
-            } else {
-                let value_ty = if yield_ty == return_ty {
-                    yield_ty
-                } else {
-                    self.ctx
-                        .krate
-                        .types
-                        .intern(Type::Union(vec![yield_ty, return_ty]))
-                };
-                (ExprKind::GeneratorValue { result: receiver }, value_ty)
-            };
-            return Ok(body.push_expr(Expr {
-                kind,
-                ty,
-                span: self.span(member.span.start, member.span.end),
-            }));
+        if let Some(read) = self.iterator_result_member(
+            receiver,
+            receiver_ty,
+            member.property.name.as_str(),
+            self.span(member.span.start, member.span.end),
+            body,
+        ) {
+            return Ok(read);
         }
         // A function value carries no field storage. JavaScript lets a function
         // own arbitrary static properties, but Smelt only models the ones it
@@ -751,6 +701,42 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(member.span.start, member.span.end),
         }))
+    }
+
+    /// Read `done` or `value` off an iterator result, the two members of that
+    /// protocol; `None` for any other receiver or member.
+    ///
+    /// A result whose iterator returns nothing carries `undefined` once done,
+    /// so its `value` is `T | undefined`.
+    pub(in crate::lowering) fn iterator_result_member(
+        &mut self,
+        receiver: smelt_hir::ExprId,
+        receiver_ty: smelt_hir::TypeId,
+        member: &str,
+        span: Span,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let Some(Type::GeneratorResult { yield_ty, return_ty }) = self.ctx.krate.types.get(receiver_ty).cloned() else {
+            return None;
+        };
+        let (kind, ty) = match member {
+            "done" => (
+                ExprKind::GeneratorDone { result: receiver },
+                self.ctx.krate.types.intern(Type::Bool),
+            ),
+            "value" => {
+                let value_ty = if yield_ty == return_ty {
+                    yield_ty
+                } else if self.ctx.krate.types.get(return_ty) == Some(&Type::None) {
+                    self.ctx.krate.types.intern(Type::Optional(yield_ty))
+                } else {
+                    self.ctx.krate.types.intern(Type::Union(vec![yield_ty, return_ty]))
+                };
+                (ExprKind::GeneratorValue { result: receiver }, value_ty)
+            }
+            _ => return None,
+        };
+        Some(body.push_expr(Expr { kind, ty, span }))
     }
 
     /// Lower `Array.isArray` in value position to a callable runtime probe.
@@ -1144,17 +1130,7 @@ impl ModuleBuilder<'_> {
         if object.name != "Number" {
             return None;
         }
-        let value = match member.property.name.as_str() {
-            "NaN" => f64::NAN,
-            "POSITIVE_INFINITY" => f64::INFINITY,
-            "NEGATIVE_INFINITY" => f64::NEG_INFINITY,
-            "MAX_VALUE" => f64::MAX,
-            "MIN_VALUE" => f64::MIN_POSITIVE,
-            "MAX_SAFE_INTEGER" => 9_007_199_254_740_991.0_f64,
-            "MIN_SAFE_INTEGER" => -9_007_199_254_740_991.0_f64,
-            "EPSILON" => f64::EPSILON,
-            _ => return None,
-        };
+        let value = smelt_stdlib::number_constant(member.property.name.as_str())?;
         let ty = self.ctx.krate.types.intern(Type::Float);
         Some(body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::Float(value)),
@@ -1279,17 +1255,7 @@ impl ModuleBuilder<'_> {
         // `Math.PI` reference (e.g. `chunk(xs, Math.PI)` in the chunk spec)
         // resolves to a concrete number instead of an unresolved `Math`
         // identifier. These match the ECMAScript spec constant values.
-        if let Some(constant) = match member.property.name.as_str() {
-            "PI" => Some(std::f64::consts::PI),
-            "E" => Some(std::f64::consts::E),
-            "LN2" => Some(std::f64::consts::LN_2),
-            "LN10" => Some(std::f64::consts::LN_10),
-            "LOG2E" => Some(std::f64::consts::LOG2_E),
-            "LOG10E" => Some(std::f64::consts::LOG10_E),
-            "SQRT2" => Some(std::f64::consts::SQRT_2),
-            "SQRT1_2" => Some(std::f64::consts::FRAC_1_SQRT_2),
-            _ => None,
-        } {
+        if let Some(constant) = smelt_stdlib::math_constant(member.property.name.as_str()) {
             return Some(outer_body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Float(constant)),
                 ty: number_ty,
@@ -1310,79 +1276,25 @@ impl ModuleBuilder<'_> {
             ty: number_ty,
             span,
         });
-        let result_kind = match member.property.name.as_str() {
-            "abs" => ExprKind::NumericAbs {
+        let function = smelt_stdlib::math_function(member.property.name.as_str())?;
+        let result_kind = match function {
+            MathFunction::Abs => ExprKind::NumericAbs {
                 operand: value_expr,
             },
-            "floor" => ExprKind::NumericRound {
-                op: NumericRoundOp::Floor,
-                operand: value_expr,
-            },
-            "ceil" => ExprKind::NumericRound {
-                op: NumericRoundOp::Ceil,
-                operand: value_expr,
-            },
-            "round" => ExprKind::NumericRound {
-                op: NumericRoundOp::Round,
-                operand: value_expr,
-            },
-            "trunc" => ExprKind::NumericRound {
-                op: NumericRoundOp::Trunc,
-                operand: value_expr,
-            },
-            "sqrt" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Sqrt,
-                operand: value_expr,
-            },
-            "cbrt" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Cbrt,
-                operand: value_expr,
-            },
-            "sign" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Sign,
-                operand: value_expr,
-            },
-            "sin" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Sin,
-                operand: value_expr,
-            },
-            "cos" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Cos,
-                operand: value_expr,
-            },
-            "tan" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Tan,
-                operand: value_expr,
-            },
-            "asin" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Asin,
-                operand: value_expr,
-            },
-            "acos" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Acos,
-                operand: value_expr,
-            },
-            "atan" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Atan,
-                operand: value_expr,
-            },
-            "log" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Log,
-                operand: value_expr,
-            },
-            "log10" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Log10,
-                operand: value_expr,
-            },
-            "log2" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Log2,
-                operand: value_expr,
-            },
-            "exp" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Exp,
-                operand: value_expr,
-            },
-            _ => return None,
+            MathFunction::Clz32 => return None,
+            _ => {
+                if let Some(op) = stdlib_dispatch::math_round_op(function) {
+                    ExprKind::NumericRound {
+                        op,
+                        operand: value_expr,
+                    }
+                } else {
+                    ExprKind::NumericUnaryFunc {
+                        op: stdlib_dispatch::math_unary_op(function)?,
+                        operand: value_expr,
+                    }
+                }
+            }
         };
         let result = closure_body.push_expr(Expr {
             kind: result_kind,
@@ -3108,13 +3020,37 @@ impl ModuleBuilder<'_> {
             target,
             value: store_value,
         };
-        self.push_stmt_to_sink(body, let_stmt);
-        self.push_stmt_to_sink(body, assign_stmt);
-        Ok(body.push_expr(Expr {
+        let result = body.push_expr(Expr {
             kind: ExprKind::Local(temp_local),
             ty: result_ty,
             span,
-        }))
+        });
+        Ok(self.evaluated_in_place(body, span, [let_stmt, assign_stmt], result))
+    }
+
+    /// `statements` then `value`, as one expression evaluated where it stands.
+    ///
+    /// A store inside an expression runs between its siblings: in `f(a, a++)` the
+    /// first argument reads `a` before the store. The statement sink runs ahead of
+    /// the whole enclosing statement, which would put the store before that read.
+    pub(in crate::lowering) fn evaluated_in_place(
+        &mut self,
+        body: &mut Body,
+        span: Span,
+        statements: impl IntoIterator<Item = Stmt>,
+        value: smelt_hir::ExprId,
+    ) -> smelt_hir::ExprId {
+        let block = body.push_block(span);
+        self.with_stmt_block(block, |this| {
+            for statement in statements {
+                this.push_stmt_to_sink(body, statement);
+            }
+        });
+        if let Some(entry) = usize::try_from(block.0).ok().and_then(|index| body.blocks.get_mut(index)) {
+            entry.tail = Some(value);
+        }
+        let ty = Self::expr_ty(body, value);
+        body.push_expr(Expr { kind: ExprKind::Block(block), ty, span })
     }
 
     /// Whether an assignment operator is one of the three LOGICAL assignments,
@@ -3435,9 +3371,9 @@ impl ModuleBuilder<'_> {
         // result: MIR lowers an expression once into its own temporary, so this
         // neither re-evaluates the right-hand side nor needs a temporary of its
         // own here.
+        let span = self.span(assign.span.start, assign.span.end);
         let assign_stmt = Stmt::Assign { target, value };
-        self.push_stmt_to_sink(body, assign_stmt);
-        Ok(value)
+        Ok(self.evaluated_in_place(body, span, [assign_stmt], value))
     }
 
     /// Convert assignment target to expression.

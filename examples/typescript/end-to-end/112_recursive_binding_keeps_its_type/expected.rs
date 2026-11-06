@@ -139,23 +139,21 @@ pub(crate) fn total_down(start: f64) -> f64 {
 pub(crate) fn banner(text: String, times: f64) -> String {
     let smelt_capture_repeat: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(f64, String) -> String>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64, String) -> String> = ::std::rc::Rc::new(move |arg0: f64, arg1: String| -> String { String::new() }); smelt_default_callback }));
     let _smelt_tmp_3 = ::std::rc::Rc::new({
-    let text = text.clone();
     let smelt_capture_repeat = ::std::rc::Rc::downgrade(&smelt_capture_repeat);
+    let text = text.clone();
     move |closure_arg_0: f64, closure_arg_1: String| {
-    let mut _smelt_tmp_5: String;
-    let _smelt_tmp_6: f64;
+    let _smelt_tmp_5: f64;
+    let _smelt_tmp_6: String;
     let _smelt_tmp_7: String;
-    let _smelt_tmp_8: String;
     let _smelt_tmp_4: bool = closure_arg_0 <= 0.0;
     if _smelt_tmp_4 {
-    _smelt_tmp_5 = closure_arg_1.clone();
+    closure_arg_1.clone()
     } else {
-    _smelt_tmp_6 = closure_arg_0 - 1.0;
-    _smelt_tmp_7 = closure_arg_1.clone() + &text.clone();
-    _smelt_tmp_8 = ((*smelt_capture_repeat.upgrade().expect("self-recursive closure called after its defining scope returned").borrow()))(_smelt_tmp_6, _smelt_tmp_7.clone());
-    _smelt_tmp_5 = _smelt_tmp_8.clone();
+    _smelt_tmp_5 = closure_arg_0 - 1.0;
+    _smelt_tmp_6 = closure_arg_1.clone() + &text.clone();
+    _smelt_tmp_7 = ((*smelt_capture_repeat.upgrade().expect("self-recursive closure called after its defining scope returned").borrow()))(_smelt_tmp_5, _smelt_tmp_6.clone());
+    _smelt_tmp_7.clone()
     }
-    _smelt_tmp_5.clone()
     }
 });
     (*smelt_capture_repeat.borrow_mut()) = _smelt_tmp_3.clone();
@@ -174,9 +172,7 @@ pub(crate) fn trim(label: String) -> String {
     let _smelt_tmp_8: f64;
     let _smelt_tmp_9: String;
     let _smelt_tmp_10: String;
-    let _smelt_tmp_3: String = closure_arg_0.clone();
-    let _smelt_tmp_4: String = suffix.clone();
-    let _smelt_tmp_5: bool = _smelt_tmp_3.clone().ends_with(&_smelt_tmp_4.clone());
+    let _smelt_tmp_5: bool = closure_arg_0.clone().ends_with(&suffix.clone());
     let _smelt_tmp_6: bool = !(_smelt_tmp_5);
     if _smelt_tmp_6 {
     closure_arg_0.clone()

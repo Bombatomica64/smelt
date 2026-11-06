@@ -1,9 +1,10 @@
 //! Core emission helpers.
 
 use super::*;
-use crate::emitter::rendered_text_rewrite::cloned_value_text;
-use crate::emitter::literals::operand_local;
+use crate::emitter::rendered_value::cloned_value_text;
+use crate::emitter::local_binding::{CellUpgrade, LocalBinding, SELF_OWNED_NAME, SharedCell};
 use crate::emitter::typeof_str_locals;
+use std::borrow::Cow;
 use smelt_hir::FunctionType;
 
 /// How the emitted Rust value for a callee is invoked.
@@ -44,7 +45,7 @@ impl<'mir> FunctionEmitter<'mir> {
             })
             .transpose()?
             .unwrap_or(none_ty);
-        let names = Self::local_names(mir, function)?;
+        let bindings = Self::local_bindings(mir, function)?;
         let declared_locals = function.params.iter().copied().collect();
         let folded_throw_payloads = throw::folded_throw_payload_locals(mir, function);
         let predeclared_locals = predeclared_locals_for_function(mir, function)
@@ -52,7 +53,7 @@ impl<'mir> FunctionEmitter<'mir> {
             .copied()
             .collect();
         Ok(Self {
-            names,
+            bindings,
             mutable_locals: assigned_locals(mir, context, function),
             declared_locals: RefCell::new(declared_locals),
             predeclared_locals,
@@ -80,7 +81,8 @@ impl<'mir> FunctionEmitter<'mir> {
             mir,
             context,
             function,
-            names: HashMap::new(),
+            bindings: HashMap::new(),
+            binding_uses: local_binding::SharedBindingUses::default(),
             mutable_locals: HashSet::new(),
             declared_locals: RefCell::new(HashSet::new()),
             predeclared_locals: HashSet::new(),
@@ -230,6 +232,7 @@ impl<'mir> FunctionEmitter<'mir> {
         };
         let mut child = FunctionEmitter::new(self.mir, self.context, function)?;
         child.role = emit_role::EmitRole::Closure(scope);
+        child.binding_uses = self.binding_uses.clone();
         Ok(child)
     }
 
@@ -290,12 +293,12 @@ impl<'mir> FunctionEmitter<'mir> {
         }
     }
 
-    /// Builds stable Rust names for every MIR local in a function.
-    fn local_names(
+    /// Builds a stable Rust binding for every MIR local in a function.
+    fn local_bindings(
         mir: &'mir Mir,
         function: &'mir MirFunction,
-    ) -> Result<HashMap<LocalId, String>, EmitError> {
-        let mut names = HashMap::new();
+    ) -> Result<HashMap<LocalId, LocalBinding>, EmitError> {
+        let mut bindings = HashMap::new();
         let mut used = HashSet::new();
         let mut next_arg = 0usize;
 
@@ -312,12 +315,14 @@ impl<'mir> FunctionEmitter<'mir> {
                         // cannot borrow `&self`, so the receiver is cloned once
                         // into an owned `self_owned` handle and every body
                         // reference renders through that name instead of `self`.
-                        if function.is_async || function.is_generator
-                        {
-                            "self_owned".to_owned()
+                        let binding = if function.is_async || function.is_generator {
+                            LocalBinding::SelfOwned
                         } else {
-                            "self".to_owned()
-                        }
+                            LocalBinding::Receiver
+                        };
+                        used.insert(binding.text().into_owned());
+                        bindings.insert(local_id, binding);
+                        continue;
                     } else if let Some(name) = symbol
                         .and_then(|param_symbol| mir.symbols.get(param_symbol))
                         .map(sanitize_ident)
@@ -347,10 +352,10 @@ impl<'mir> FunctionEmitter<'mir> {
                 }
             };
             let name = unique_local_name(base_name, &mut used);
-            names.insert(local_id, name);
+            bindings.insert(local_id, LocalBinding::Plain(name));
         }
 
-        Ok(names)
+        Ok(bindings)
     }
 
     /// The closing text of an async `main`'s runtime scope.
@@ -402,15 +407,21 @@ impl<'mir> FunctionEmitter<'mir> {
     /// that reports only a shape (`list unshift item must match the list
     /// element type`) is unfindable in a corpus the size of Hono, which cost
     /// two rounds of bisecting a manifest's `exclude` list.
-    pub(crate) fn emit(&mut self, out: &mut String) -> Result<(), EmitError> {
+    pub(crate) fn emit(&mut self, out: &mut String, visibility: FreeFunctionVisibility) -> Result<(), EmitError> {
         self.apply_crate_generic_decision();
-        let emitted = self.emit_free_function(out);
+        let emitted = self.emit_free_function(out, visibility);
         emitted.map_err(|error| error.with_site(|| self.current_function_site()))
     }
 
     /// Emits a free function definition.
-    fn emit_free_function(&mut self, out: &mut String) -> Result<(), EmitError> {
+    fn emit_free_function(&mut self, out: &mut String, visibility: FreeFunctionVisibility) -> Result<(), EmitError> {
         let name = self.symbol_name(self.function.name)?;
+        // A `#[tokio::test]` is found by the harness and never re-exported.
+        let visibility = if self.function.is_test && self.function.is_async {
+            ""
+        } else {
+            visibility.text()
+        };
         if self.function.is_test {
             if self.function.is_async {
                 out.push_str("#[tokio::test]\n");
@@ -430,9 +441,9 @@ impl<'mir> FunctionEmitter<'mir> {
             // attribute; it now builds its own runtime inside the body, so the
             // two questions are answered separately.
             if self.function.can_throw {
-                out.push_str("fn main() -> Result<(), Box<dyn std::error::Error>> {\n");
+                out.push_str(&format!("{visibility}fn main() -> Result<(), {ERROR_BOX}> {{\n"));
             } else {
-                out.push_str("fn main() {\n");
+                out.push_str(&format!("{visibility}fn main() {{\n"));
             }
             if self.function.is_async {
                 out.push_str(&Self::async_main_runtime_prologue(self.function.can_throw));
@@ -454,24 +465,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let mut body = String::new();
         self.emit_body(&mut body)?;
 
-        let fn_params = self
-            .function
-            .params
-            .iter()
-            .map(|param| {
-                let mutability = if self.local_binding_needs_mut(*param) {
-                    "mut "
-                } else {
-                    ""
-                };
-                Ok(format!(
-                    "{mutability}{}: {}",
-                    self.local_name(*param)?,
-                    self.parameter_decl_type_text(*param)?
-                ))
-            })
-            .collect::<Result<Vec<_>, EmitError>>()?
-            .join(", ");
+        let fn_params = self.param_decls_text(0)?;
         // A generic free function emits real Rust generics
         // (`fn identity<T: ..>(x: T) -> T`); the suffix is empty otherwise,
         // including when the body-cleanliness trial forced a fall back to
@@ -497,7 +491,7 @@ impl<'mir> FunctionEmitter<'mir> {
             }
         };
         out.push_str(&format!(
-            "{}fn {}{generics}({fn_params}) -> {} {{\n",
+            "{visibility}{}fn {}{generics}({fn_params}) -> {} {{\n",
             if self.function.is_async && !self.function.is_generator {
                 "async "
             } else {
@@ -507,23 +501,7 @@ impl<'mir> FunctionEmitter<'mir> {
             self.return_type_text(self.function.return_ty)?
         ));
         if self.function.is_generator {
-            out.push_str("    let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None));\n");
-            out.push_str("    let smelt_generator_producer_input = smelt_generator_input.clone();\n");
-            out.push_str("    let smelt_generator = genawaiter::rc::Gen::new(move |co| { let smelt_generator_input = smelt_generator_producer_input; async move {\n");
-            out.push_str(&body);
-            out.push_str("    } });\n");
-            if self.function.is_async {
-                out.push_str("    let smelt_generator = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_generator));\n");
-                out.push_str("    SmeltAsyncGenerator::new(move |value| { *smelt_generator_input.borrow_mut() = Some(value); let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_state = { let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }; Ok::<_, Box<dyn std::error::Error>>(match smelt_state { genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value?) }) })) })\n");
-            } else {
-                out.push_str("    let mut smelt_generator = smelt_generator;\n");
-                let completion = if self.function.can_throw {
-                "value.unwrap_or_else(|error| smelt_panic_throw(error))"
-                } else {
-                    "value"
-                };
-                out.push_str(&format!("    SmeltGenerator::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); match smelt_generator.resume() {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete({completion}) }} }})\n"));
-            }
+            self.emit_generator_wrapper(&body, out);
         } else {
             out.push_str(&body);
         }
@@ -599,11 +577,12 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Return whether this generic free function's body keeps every type
     /// parameter opaque, so the function can emit real Rust generics.
     ///
-    /// Trial-renders the body with the type parameters in scope and checks
-    /// whether the rendered body still needs the erased carrier (see
-    /// [`body_needs_erased_carrier`]). A clean body (pure passthrough) renders no
-    /// erased tokens and keeps its generics; a body that inspects, compares, or
-    /// erases a `T`-typed value falls back to full erasure. The scratch
+    /// Trial-renders the body with the type parameters in scope and reads whether
+    /// the render touched the erased carrier ([`EmitContext::note_carrier_use`]).
+    /// A clean body (pure passthrough) touches nothing and keeps its generics; a
+    /// body that inspects, compares, or erases a `T`-typed value falls back to
+    /// full erasure. A thrown payload and a mutable-list adapter are real dynamic
+    /// boundaries and do not count ([`EmitContext::carrier_boundary`]). The scratch
     /// declared-locals state is reset afterwards so the real emit renders from a
     /// clean slate. The caller only invokes this for signature-generic-safe
     /// functions, so the type parameters are in scope during the trial.
@@ -617,25 +596,21 @@ impl<'mir> FunctionEmitter<'mir> {
         // That assumption is this emitter's role (`OwnGenerics::Trial`, see
         // `FunctionEmitter::for_generic_trial`).
         //
-        // The rendered text is only inspected, never emitted, so everything
-        // the render mints into the shared context (accessors, hoisted helpers,
+        // The rendered text is never emitted, so everything the render mints into the shared context (accessors, hoisted helpers,
         // erasure records) is rolled back when the checkpoint drops.
         {
             let _trial = self.context.checkpoint();
+            self.context.take_carrier_touched();
             self.emit_body(&mut body)?;
         }
+        let touched_carrier = self.context.take_carrier_touched();
         self.reset_body_emission_state();
         // A partial lift is governed by `classes::type_param_only_moved`, which
-        // asks MIR whether each *lifted* parameter is ever inspected. The
-        // textual check below cannot be used there: the parameters that did not
-        // lift render as `SmeltUnknown` by design, so their tokens are in the
-        // body legitimately and would demote the whole function — which is
-        // exactly the all-or-nothing behaviour per-parameter lifting exists to
-        // remove.
-        //
-        // When every parameter lifts there are no such tokens to explain away,
-        // so the historical trial still decides and today's generic functions
-        // keep the gate they were validated under.
+        // asks MIR whether each *lifted* parameter is ever inspected. The carrier
+        // record cannot be used there: the parameters that did not lift render as
+        // `SmeltUnknown` by design, so they touch the carrier legitimately and
+        // would demote the whole function, which is the all-or-nothing behaviour
+        // per-parameter lifting exists to remove.
         let liftable = crate::classes::liftable_type_params(
             self.mir,
             self.function,
@@ -645,7 +620,7 @@ impl<'mir> FunctionEmitter<'mir> {
         if liftable.len() < self.function.type_params.len() {
             return Ok(!liftable.is_empty());
         }
-        Ok(!body_needs_erased_carrier(&body))
+        Ok(!touched_carrier)
     }
 
     /// Whether a call to the free function `id` renders against its generic
@@ -653,6 +628,142 @@ impl<'mir> FunctionEmitter<'mir> {
     /// (see [`Self::trial_generic_function`]).
     pub(super) fn callee_emits_generics(&self, id: FuncId) -> bool {
         self.trial_generic_function() == Some(id) || self.context.is_generic_function(id)
+    }
+
+    /// The body of a callback adapter around `call_value`, once its value has
+    /// been converted to `converted_text`: what the target's return type asks of
+    /// a void, future or fallible result.
+    ///
+    /// `forward_thrown_future` hands a fallible source's future straight through
+    /// to a fallible future target, for an adapter whose call value is that future.
+    #[expect(clippy::too_many_arguments, reason = "the adapter's own facts, named")]
+    fn adapter_return_text(
+        &self,
+        source: &FunctionType,
+        target_function: &FunctionType,
+        target_return_ty: TypeId,
+        call_value: &str,
+        default_adjusted_return_text: String,
+        adapter_source: AdapterSource,
+        forward_thrown_future: bool,
+    ) -> Result<String, EmitError> {
+        let AdapterSource {
+            returns_future: source_returns_future,
+            output_may_throw: source_async_output_may_throw,
+        } = adapter_source;
+        Ok(if self.mir.types.get(target_return_ty) == Some(&Type::None)
+            && !source_returns_future
+        {
+            if target_function.may_throw {
+                format!("{{ {call_value}; Ok::<(), {ERROR_BOX}>(()) }}")
+            } else {
+                format!("{{ {call_value}; () }}")
+            }
+        } else if self.mir.types.get(target_return_ty) == Some(&Type::None)
+            && source_returns_future
+        {
+            if target_function.may_throw {
+                format!(
+                    "{{ {spawn_promise_task}(Box::pin(async move {{ let _ = {call_value}.await; }})); Ok::<(), {ERROR_BOX}>(()) }}",
+                    spawn_promise_task = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK,
+                )
+            } else {
+                format!(
+                    "{{ {spawn_promise_task}(Box::pin(async move {{ let _ = {call_value}.await; }})); () }}",
+                    spawn_promise_task = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK,
+                )
+            }
+        } else if target_function.may_throw
+            && source_returns_future
+            && !source_async_output_may_throw
+            && let Some(Type::Future(item)) = self.mir.types.get(source.return_ty)
+        {
+            let item_text = self.type_text(*item)?;
+            format!(
+                "SmeltFuture::from_future(Box::pin(async move {{ Ok::<{item_text}, {ERROR_BOX}>({default_adjusted_return_text}.await?) }}))"
+            )
+        } else if target_function.may_throw
+            && default_adjusted_return_text.contains("SmeltFuture::")
+        {
+            default_adjusted_return_text
+        } else if target_function.may_throw
+            && let Some(Type::Future(item)) = self.mir.types.get(target_return_ty)
+            && !(source.may_throw && source_returns_future)
+        {
+            let item_text = self.type_text(*item)?;
+            format!(
+                "SmeltFuture::from_future(Box::pin(async move {{ Ok::<{item_text}, {ERROR_BOX}>({default_adjusted_return_text}.await?) }}))"
+            )
+        } else if forward_thrown_future
+            && target_function.may_throw
+            && matches!(
+                self.mir.types.get(target_return_ty),
+                Some(Type::Future(_))
+            )
+            && source.may_throw
+            && source_returns_future
+        {
+            // A callback that returns a future renders its Rust type as
+            // `-> SmeltFuture<..>` with NO outer `Result` — the possible throw is
+            // carried inside the future's `Result` output (see the `Type::Function`
+            // arm in the default-value emitter). So when both the source and the
+            // fallible target return a future, forward the future value directly
+            // rather than re-wrapping it in `Ok(..)`. Wrapping here would make the
+            // adapter closure return `Result<Future, _>`, and a chain of such
+            // adapters (or a later erasure into a promise) would then observe a
+            // nested `Result<Result<Future, _>, _>` at its await seam (was E0277).
+            default_adjusted_return_text
+        } else if target_function.may_throw {
+            format!("Ok::<_, {ERROR_BOX}>({default_adjusted_return_text})")
+        } else {
+            default_adjusted_return_text
+        })
+    }
+
+    /// Wraps a generator's rendered `body` in the `genawaiter` producer and the
+    /// `SmeltGenerator` or `SmeltAsyncGenerator` handle a call returns.
+    fn emit_generator_wrapper(&self, body: &str, out: &mut String) {
+        out.push_str("    let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None));\n");
+        out.push_str("    let smelt_generator_producer_input = smelt_generator_input.clone();\n");
+        out.push_str("    let smelt_generator = genawaiter::rc::Gen::new(move |co| { let smelt_generator_input = smelt_generator_producer_input; async move {\n");
+        out.push_str(body);
+        out.push_str("    } });\n");
+        if self.function.is_async {
+            out.push_str("    let smelt_generator = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_generator));\n");
+            out.push_str(&format!("    SmeltAsyncGenerator::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_state = {{ let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }}; Ok::<_, {ERROR_BOX}>(match smelt_state {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value?) }}) }})) }})\n"));
+        } else {
+            out.push_str("    let mut smelt_generator = smelt_generator;\n");
+            let completion = if self.function.can_throw {
+            "value.unwrap_or_else(|error| smelt_panic_throw(error))"
+            } else {
+                "value"
+            };
+            out.push_str(&format!("    SmeltGenerator::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); match smelt_generator.resume() {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete({completion}) }} }})\n"));
+        }
+    }
+
+    /// The declarations of this function's parameters after the first `skip`,
+    /// comma separated.
+    fn param_decls_text(&self, skip: usize) -> Result<String, EmitError> {
+        Ok(self
+            .function
+            .params
+            .iter()
+            .skip(skip)
+            .map(|param| {
+                let mutability = if self.local_binding_needs_mut(*param) {
+                    "mut "
+                } else {
+                    ""
+                };
+                Ok(format!(
+                    "{mutability}{}: {}",
+                    self.local_name(*param)?,
+                    self.parameter_decl_type_text(*param)?
+                ))
+            })
+            .collect::<Result<Vec<_>, EmitError>>()?
+            .join(", "))
     }
 
     /// Emits shared cells for parameters mutated through lexical closures.
@@ -696,6 +807,7 @@ impl<'mir> FunctionEmitter<'mir> {
         self.flow.record(flow_state::Flow::Diverges);
         let return_ty = self.body_return_ty();
         if self.function.can_throw {
+            self.binding_uses.record_early_return();
             out.push_str(&format!(
                 "    return Ok({});\n",
                 self.default_value(return_ty)?
@@ -804,7 +916,7 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// The Rust type a local's declaration spells.
     ///
-    /// The same text as [`Self::type_text_with_impl_trait`] for the local's MIR
+    /// The same text as [`Self::type_text`] for the local's MIR
     /// type, except for a local holding a `typeof` result: MIR has one string
     /// type and no borrowed one, so it types that local `String` while the value
     /// it holds is one of seven `&'static str` literals.
@@ -816,7 +928,7 @@ impl<'mir> FunctionEmitter<'mir> {
         if self.local_is_static_typeof_str(local) {
             return Ok("&'static str".to_owned());
         }
-        self.type_text_with_impl_trait(ty, false)
+        self.type_text(ty)
     }
 
     /// The value a local's declaration is seeded with before its first
@@ -838,11 +950,8 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Returns whether a predeclared local should keep a concrete default.
     pub(super) fn predeclared_local_needs_default(&self, local: LocalId) -> Result<bool, EmitError> {
         let decl = self.local_decl(local)?;
-        let name = self.local_name(local)?;
         let is_callable = matches!(self.mir.types.get(decl.ty), Some(Type::Function(_)))
-            || self
-                .type_text_with_impl_trait(decl.ty, false)?
-                .contains("dyn Fn");
+            || self.lexical_rust_type(decl.ty, false)?.holds_callable();
         // A callable compiler temp used to be seeded unconditionally. That
         // allocated a fresh default closure (`Rc::new(..)`) at every entry of
         // the function even when the temp is only assigned in one branch and
@@ -852,14 +961,8 @@ impl<'mir> FunctionEmitter<'mir> {
         // assigned, it is read first, or the definite-assignment walk
         // (`local_may_be_used_before_assignment`, consulted by every caller)
         // finds a path that reads it unassigned.
-        if is_callable
-            && (self.local_assignment_count(local) == 0 || self.local_first_access_is_read(local))
-        {
-            return Ok(true);
-        }
-        Ok(matches!(self.mir.types.get(decl.ty), Some(Type::Float))
-            && name.starts_with("index")
-            && (name.contains('_') || self.local_first_access_is_read(local)))
+        Ok(is_callable
+            && (self.local_assignment_count(local) == 0 || self.local_first_access_is_read(local)))
     }
 
     /// Returns whether a `Function`-typed call-result temp is dead because its
@@ -902,7 +1005,7 @@ impl<'mir> FunctionEmitter<'mir> {
         // erasing consumer the binding is provably dead: the erase re-renders the
         // call, so nothing reads the name we would otherwise bind.
         match self.sole_use_erase_target(local)? {
-            Some(target) => Ok(self.target_is_erased(target)),
+            Some(target) => Ok(self.has_dynamic_shape(target)),
             None => Ok(false),
         }
     }
@@ -944,7 +1047,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 let Statement::Assign { dest, value } = statement else {
                     continue;
                 };
-                if !rvalue_uses_local(value, local) {
+                if !value.reads_local(local) {
                     continue;
                 }
                 let Some(target) = self.rvalue_use_target(value, *dest, local)? else {
@@ -955,7 +1058,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 }
             }
             if let Some(terminator) = &block.terminator
-                && terminator_uses_local(terminator, local)
+                && terminator.reads_local(local)
             {
                 let Some(target) = self.terminator_use_target(terminator, local)? else {
                     return Ok(None);
@@ -981,7 +1084,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::List(items) | Rvalue::Set(items) | Rvalue::Tuple(items) => {
                 if items
                     .iter()
-                    .filter(|item| operand_uses_local(item, local))
+                    .filter(|item| item.reads_local(local))
                     .count()
                     != 1
                 {
@@ -993,7 +1096,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     Some(Type::Tuple(item_tys)) => {
                         let position = items
                             .iter()
-                            .position(|item| operand_uses_local(item, local));
+                            .position(|item| item.reads_local(local));
                         position.and_then(|index| item_tys.get(index).copied())
                     }
                     _ => None,
@@ -1008,7 +1111,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 if entries
                     .iter()
                     .filter(|(key, entry_value)| {
-                        operand_uses_local(key, local) || operand_uses_local(entry_value, local)
+                        key.reads_local(local) || entry_value.reads_local(local)
                     })
                     .count()
                     != 1
@@ -1017,11 +1120,11 @@ impl<'mir> FunctionEmitter<'mir> {
                 }
                 let Some((key, _)) = entries
                     .iter()
-                    .find(|(_, entry_value)| operand_uses_local(entry_value, local))
+                    .find(|(_, entry_value)| entry_value.reads_local(local))
                 else {
                     return Ok(None);
                 };
-                if operand_uses_local(key, local) {
+                if key.reads_local(local) {
                     return Ok(None);
                 }
                 let dest_ty = self.local_decl(dest)?.ty;
@@ -1031,7 +1134,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 };
                 Ok(value_ty)
             }
-            Rvalue::Use(operand) if operand_uses_local(operand, local) => {
+            Rvalue::Use(operand) if operand.reads_local(local) => {
                 Ok(Some(self.local_decl(dest)?.ty))
             }
             _ => Ok(None),
@@ -1046,53 +1149,62 @@ impl<'mir> FunctionEmitter<'mir> {
         local: LocalId,
     ) -> Result<Option<TypeId>, EmitError> {
         match terminator {
-            Terminator::Return(operand) if operand_uses_local(operand, local) => {
+            Terminator::Return(operand) if operand.reads_local(local) => {
                 Ok(Some(self.function.return_ty))
             }
             _ => Ok(None),
         }
     }
 
-    /// Returns whether a coercion target is an erased boundary (`Unknown`,
-    /// a type parameter, a union, or an erased class) — i.e. one that routes a
-    /// value through [`Self::erase`].
-    fn target_is_erased(&self, target: TypeId) -> bool {
-        self.has_dynamic_shape(target)
-    }
 
     /// Returns whether a local is read anywhere in the function body.
     pub(super) fn local_has_uses(&self, local: LocalId) -> bool {
         self.function.blocks.iter().any(|block| {
-            block.phis.iter().any(|phi| {
-                phi.incoming
-                    .iter()
-                    .any(|(_, operand)| operand_uses_local(operand, local))
-            }) || block.statements.iter().any(|statement| match statement {
-                Statement::Assign { value, .. } => rvalue_uses_local(value, local),
-                Statement::AssignPlace { place, value } => {
-                    assignment_place_reads_local(place, local) || rvalue_uses_local(value, local)
-                }
-                // The container, the key, the seed and the stored rvalue's
-                // operands are all reads; `current` is the definition, so it is
-                // not counted here (matching the `Assign` arm above).
-                Statement::DictEntryUpdate {
-                    base,
-                    index,
-                    default,
-                    current: _,
-                    value,
-                } => {
-                    *base == local
-                        || operand_uses_local(index, local)
-                        || operand_uses_local(default, local)
-                        || rvalue_uses_local(value, local)
-                }
-                Statement::StorageLive(_) | Statement::StorageDead(_) => false,
-            }) || block
-                .terminator
-                .as_ref()
-                .is_some_and(|terminator| terminator_uses_local(terminator, local))
+            block.statements.iter().any(|statement| statement.reads_local(local))
+                || block
+                    .terminator
+                    .as_ref()
+                    .is_some_and(|terminator| terminator.reads_local(local))
         })
+    }
+
+    /// Returns whether the emitted Rust names a closure local's binding.
+    ///
+    /// Stricter than [`Self::local_has_uses`], which answers for the MIR: a read
+    /// through [`inlined_callback_operands`] re-renders the closure's text at the
+    /// use site, so a binding for it would be dead. An optional-typed callback is
+    /// matched by name at runtime, so only a `Function`-typed local can skip it.
+    pub(super) fn closure_binding_is_read(&self, local: LocalId) -> Result<bool, EmitError> {
+        let is_function = matches!(
+            self.mir.types.get(self.local_decl(local)?.ty),
+            Some(Type::Function(_))
+        );
+        let statement_names_local = |statement: &Statement| {
+            let inlined = if is_function {
+                inlined_callback_operands(statement.value())
+            } else {
+                Vec::new()
+            };
+            let mut named = false;
+            statement.reads(|read| {
+                let skipped = matches!(
+                    read,
+                    Read::Operand(operand)
+                        if inlined.iter().any(|callback| std::ptr::eq(*callback, operand))
+                );
+                if !skipped {
+                    read.read_locals(&mut |candidate| named |= candidate == local);
+                }
+            });
+            named
+        };
+        Ok(self.function.blocks.iter().any(|block| {
+            block.statements.iter().any(statement_names_local)
+                || block
+                    .terminator
+                    .as_ref()
+                    .is_some_and(|terminator| terminator.reads_local(local))
+        }))
     }
 
     /// Returns the source operand for a single-assignment unknown cast local.
@@ -1174,15 +1286,25 @@ impl<'mir> FunctionEmitter<'mir> {
     /// borrows a shared capture and evaluates a call. See the regression test
     /// `shared_capture_borrow_never_spans_a_sibling_closure_call`.
     pub(super) fn local_value_text(&self, local: LocalId) -> Result<String, EmitError> {
-        let name = self.local_name(local)?;
-        if name.starts_with("(*smelt_capture_") {
-            return Ok(name.replace(".borrow_mut()", ".borrow()"));
+        match self.local_shared_cell(local)? {
+            Some(cell) => Ok(cell.read_text()),
+            None => Ok(self.local_name(local)?.into_owned()),
+        }
+    }
+
+    /// The shared cell a local is read and written through, when it has one.
+    ///
+    /// A capture of an enclosing shared cell carries the cell in its binding; a
+    /// local of this frame that lives in shared storage reaches its own cell once
+    /// that cell is declared.
+    pub(super) fn local_shared_cell(&self, local: LocalId) -> Result<Option<SharedCell>, EmitError> {
+        if let Some(cell) = self.local_binding(local)?.shared_cell() {
+            return Ok(Some(cell.clone()));
         }
         if self.local_uses_shared_capture_storage(local) && self.is_local_declared(local) {
-            Ok(format!("(*smelt_capture_{name}.borrow())"))
-        } else {
-            Ok(name.to_owned())
+            return Ok(Some(SharedCell::named(&self.local_name(local)?, CellUpgrade::Strong)));
         }
+        Ok(None)
     }
 
     /// Renders a mutable receiver or assignment through shared closure storage.
@@ -1199,14 +1321,12 @@ impl<'mir> FunctionEmitter<'mir> {
     /// call. Callers must not construct a single statement that both takes this
     /// mutable borrow and evaluates a call.
     pub(super) fn local_mut_value_text(&self, local: LocalId) -> Result<String, EmitError> {
-        let name = self.local_name(local)?;
-        if name.starts_with("(*smelt_capture_") {
-            return Ok(name.to_owned());
-        }
-        if self.local_uses_shared_capture_storage(local) && self.is_local_declared(local) {
-            Ok(format!("(*smelt_capture_{name}.borrow_mut())"))
-        } else {
-            Ok(name.to_owned())
+        match self.local_shared_cell(local)? {
+            Some(cell) => {
+                self.binding_uses.record_mut_borrow(&cell);
+                Ok(cell.write_text())
+            }
+            None => Ok(self.local_name(local)?.into_owned()),
         }
     }
 
@@ -1426,7 +1546,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 // property back off a `CurriedFunction1`). The erased callable
                 // carries a property bag for exactly this, so hand the dropped
                 // properties to it instead of losing them at the seam.
-                if self.symbol_source_name(target_field.name)? == "__smelt_call" {
+                if self.symbol_source_name(target_field.name)? == SMELT_CALL {
                     self.callable_object_carried_properties_text(&adapted, source, target)?
                 } else {
                     adapted
@@ -1492,13 +1612,13 @@ impl<'mir> FunctionEmitter<'mir> {
         target: TypeId,
     ) -> Result<Option<String>, EmitError> {
         let scoped = (
-            self.type_text_with_impl_trait(source, false)?,
-            self.type_text_with_impl_trait(target, false)?,
+            self.type_text(source)?,
+            self.type_text(target)?,
         );
         let hoisted = HoistedModuleItemScope::enter(self);
         let module = (
-            self.type_text_with_impl_trait(source, false)?,
-            self.type_text_with_impl_trait(target, false)?,
+            self.type_text(source)?,
+            self.type_text(target)?,
         );
         if module != scoped {
             return Ok(None);
@@ -1626,7 +1746,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let mut entries = Vec::new();
         for source_field in &source_fields {
             let name = self.symbol_source_name(source_field.name)?;
-            if name == "__smelt_call" {
+            if name == SMELT_CALL {
                 continue;
             }
             if target_fields.iter().any(|target_field| {
@@ -1667,7 +1787,7 @@ impl<'mir> FunctionEmitter<'mir> {
         while let Some(class_name) = current
             && seen.insert(class_name)
         {
-            let Some(class) = self.mir.classes.iter().find(|class| class.name == class_name) else {
+            let Some(class) = crate::classes::find_class(self.mir, class_name) else {
                 return false;
             };
             let declares = class.abstract_methods.iter().any(|method| method.name == field)
@@ -1880,14 +2000,14 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.value_at_type_text(&call, function_ty.return_ty, function_ty.return_ty, &self.render_scope())?;
             let return_ty = if function_ty.may_throw {
                 format!(
-                    "Result<{}, Box<dyn std::error::Error>>",
-                    self.type_text_with_impl_trait(function_ty.return_ty, false)?
+                    "Result<{}, {ERROR_BOX}>",
+                    self.type_text(function_ty.return_ty)?
                 )
             } else {
-                self.type_text_with_impl_trait(function_ty.return_ty, false)?
+                self.type_text(function_ty.return_ty)?
             };
             let wrapped_body = if function_ty.may_throw {
-                format!("Ok::<_, Box<dyn std::error::Error>>({body})")
+                format!("Ok::<_, {ERROR_BOX}>({body})")
             } else {
                 body
             };
@@ -2003,7 +2123,7 @@ impl<'mir> FunctionEmitter<'mir> {
             // `Parser::parse`, E0599).
             "smelt_struct_value.clone()".to_owned()
         } else {
-            let target_ty = self.type_text_with_impl_trait(target, false)?;
+            let target_ty = self.type_text(target)?;
             format!("<{target_ty} as Default>::default()")
         };
         let receiver_rebind = match receiver {
@@ -2042,14 +2162,14 @@ impl<'mir> FunctionEmitter<'mir> {
             self.value_at_type_text(&adjusted_call, source_return_ty, function_ty.return_ty, &self.render_scope())?;
         let return_ty = if function_ty.may_throw {
             format!(
-                "Result<{}, Box<dyn std::error::Error>>",
-                self.type_text_with_impl_trait(function_ty.return_ty, false)?
+                "Result<{}, {ERROR_BOX}>",
+                self.type_text(function_ty.return_ty)?
             )
         } else {
-            self.type_text_with_impl_trait(function_ty.return_ty, false)?
+            self.type_text(function_ty.return_ty)?
         };
         let wrapped_body = if function_ty.may_throw && !source_can_throw {
-            format!("Ok::<_, Box<dyn std::error::Error>>({body})")
+            format!("Ok::<_, {ERROR_BOX}>({body})")
         } else {
             body
         };
@@ -2068,7 +2188,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
             return None;
         };
-        self.mir.classes.iter().find(|class| class.name == *name)
+        crate::classes::find_class(self.mir, *name)
     }
 
     /// Find a concrete method implementation on a class or its base chain.
@@ -2077,11 +2197,7 @@ impl<'mir> FunctionEmitter<'mir> {
         class_name: Symbol,
         method: Symbol,
     ) -> Option<&MirFunction> {
-        let class = self
-            .mir
-            .classes
-            .iter()
-            .find(|class| class.name == class_name)?;
+        let class = crate::classes::find_class(self.mir, class_name)?;
         for method_id in &class.methods {
             let Some(function) = self.function_by_id(*method_id) else {
                 continue;
@@ -2105,11 +2221,7 @@ impl<'mir> FunctionEmitter<'mir> {
         class_name: Symbol,
         method: Symbol,
     ) -> Option<&MirFunction> {
-        let class = self
-            .mir
-            .classes
-            .iter()
-            .find(|class| class.name == class_name)?;
+        let class = crate::classes::find_class(self.mir, class_name)?;
         class.methods.iter().find_map(|method_id| {
             let function = self.function_by_id(*method_id)?;
             matches!(
@@ -2200,7 +2312,7 @@ impl<'mir> FunctionEmitter<'mir> {
             let prototype_fallback = if source_is_erased {
                 format!(
                     ".or_else(|| smelt_record_map.get({proto_key:?})).or_else(|| smelt_record_map.get({method_key:?}))",
-                    proto_key = format!("__smelt_proto:{field_key}"),
+                    proto_key = format!("{SMELT_PROTO}:{field_key}"),
                     method_key = format!(
                         "{prefix}{field_key}",
                         prefix = crate::class_proto::METHOD_KEY_PREFIX,
@@ -2625,11 +2737,7 @@ impl<'mir> FunctionEmitter<'mir> {
     fn inherited_substitution(&self, owner: Symbol) -> emit_role::InheritedSubstitution {
         let substitutions =
             crate::classes::inherited_member_substitution(self.mir, self.function, owner);
-        let owner_params: HashSet<Symbol> = self
-            .mir
-            .classes
-            .iter()
-            .find(|class| class.name == owner)
+        let owner_params: HashSet<Symbol> = crate::classes::find_class(self.mir, owner)
             .map(|class| class.type_params.iter().map(|param| param.name).collect())
             .unwrap_or_default();
         emit_role::InheritedSubstitution {
@@ -2710,7 +2818,7 @@ impl<'mir> FunctionEmitter<'mir> {
         if self.is_base_initializer_receiver(local) {
             return Ok("Self".to_owned());
         }
-        self.type_text_with_impl_trait(ty, false)
+        self.type_text(ty)
     }
 
     /// Whether this method's declared return type is its own declaring class and
@@ -2736,26 +2844,9 @@ impl<'mir> FunctionEmitter<'mir> {
     fn emit_method_definition(&mut self, out: &mut String) -> Result<(), EmitError> {
         match self.function.origin {
             HirOrigin::ClassConstructor { .. } => {
-                let method_params = self
-                    .function
-                    .params
-                    .iter()
-                    .map(|param| {
-                        let mutability = if self.local_binding_needs_mut(*param) {
-                            "mut "
-                        } else {
-                            ""
-                        };
-                        Ok(format!(
-                            "{mutability}{}: {}",
-                            self.local_name(*param)?,
-                            self.parameter_decl_type_text(*param)?
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, EmitError>>()?
-                    .join(", ");
+                let method_params = self.param_decls_text(0)?;
                 let return_text = if self.function.can_throw {
-                    "Result<Self, Box<dyn std::error::Error>>"
+                    crate::thrown::RESULT_SELF
                 } else {
                     "Self"
                 };
@@ -2778,25 +2869,7 @@ impl<'mir> FunctionEmitter<'mir> {
             }
             HirOrigin::ClassMethod { method, .. } => {
                 let name = sanitize_ident(self.symbol_name(method)?);
-                let method_params = self
-                    .function
-                    .params
-                    .iter()
-                    .skip(1)
-                    .map(|param| {
-                        let mutability = if self.local_binding_needs_mut(*param) {
-                            "mut "
-                        } else {
-                            ""
-                        };
-                        Ok(format!(
-                            "{mutability}{}: {}",
-                            self.local_name(*param)?,
-                            self.parameter_decl_type_text(*param)?
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, EmitError>>()?
-                    .join(", ");
+                let method_params = self.param_decls_text(1)?;
                 // Reference classes carry interior mutability, so every method
                 // takes `&self` uniformly; the `&mut self` decision only applies
                 // to by-value value classes. An async method never takes
@@ -2825,7 +2898,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     // receiver (which previously produced E0597). Reference-class
                     // receivers clone as a cheap `Rc` handle preserving identity;
                     // value classes derive `Clone`.
-                    let inner_ret = self.type_text_with_impl_trait(self.function.return_ty, false)?;
+                    let inner_ret = self.type_text(self.function.return_ty)?;
                     out.push_str(&format!(
                         "    fn {name}({rendered_params}) -> SmeltFuture<{inner_ret}> {{\n"
                     ));
@@ -2835,7 +2908,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     && self.returns_the_receiver_at_its_own_class()
                 {
                     if self.function.can_throw {
-                        "Result<Self, Box<dyn std::error::Error>>".to_owned()
+                        crate::thrown::RESULT_SELF.to_owned()
                     } else {
                         "Self".to_owned()
                     }
@@ -2850,24 +2923,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 // A static method takes no receiver: emit every parameter and no
                 // `self`, producing an associated function `Class::name(..)`.
                 let name = sanitize_ident(self.symbol_name(method)?);
-                let method_params = self
-                    .function
-                    .params
-                    .iter()
-                    .map(|param| {
-                        let mutability = if self.local_binding_needs_mut(*param) {
-                            "mut "
-                        } else {
-                            ""
-                        };
-                        Ok(format!(
-                            "{mutability}{}: {}",
-                            self.local_name(*param)?,
-                            self.parameter_decl_type_text(*param)?
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, EmitError>>()?
-                    .join(", ");
+                let method_params = self.param_decls_text(0)?;
                 out.push_str(&format!(
                     "    {}fn {name}({method_params}) -> {} {{\n",
                     if self.function.is_async && !self.function.is_generator {
@@ -2878,7 +2934,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     self.return_type_text(self.function.return_ty)?
                 ));
             }
-            HirOrigin::Body(_) => return self.emit(out),
+            HirOrigin::Body(_) => return self.emit(out, FreeFunctionVisibility::Private),
         }
         // Reference-class methods may capture `self` into an escaping closure;
         // that receiver must be bound once as a cloned handle before the body.
@@ -2887,30 +2943,15 @@ impl<'mir> FunctionEmitter<'mir> {
         let is_generator = self.function.is_generator;
         if is_generator {
             let mut body = String::new();
+            self.binding_uses.reset_self_owned();
             if self.method_owner_is_reference_class() {
                 self.emit_shared_parameter_preludes(&mut body)?;
             }
             self.emit_block(self.entry_block()?, &mut body)?;
-            if body.contains("self_owned") {
-                out.push_str("    let self_owned = self.clone();\n");
+            if self.binding_uses.self_owned_used() {
+                out.push_str(&format!("    let {SELF_OWNED_NAME} = self.clone();\n"));
             }
-            out.push_str("    let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None));\n");
-            out.push_str("    let smelt_generator_producer_input = smelt_generator_input.clone();\n");
-            out.push_str("    let smelt_generator = genawaiter::rc::Gen::new(move |co| { let smelt_generator_input = smelt_generator_producer_input; async move {\n");
-            out.push_str(&body);
-            out.push_str("    } });\n");
-            if self.function.is_async {
-                out.push_str("    let smelt_generator = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_generator));\n");
-                out.push_str("    SmeltAsyncGenerator::new(move |value| { *smelt_generator_input.borrow_mut() = Some(value); let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_state = { let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }; Ok::<_, Box<dyn std::error::Error>>(match smelt_state { genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value?) }) })) })\n");
-            } else {
-                out.push_str("    let mut smelt_generator = smelt_generator;\n");
-                let completion = if self.function.can_throw {
-                    "value.unwrap_or_else(|error| smelt_panic_throw(error))"
-                } else {
-                    "value"
-                };
-                out.push_str(&format!("    SmeltGenerator::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); match smelt_generator.resume() {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete({completion}) }} }})\n"));
-            }
+            self.emit_generator_wrapper(&body, out);
         } else {
             if self.method_owner_is_reference_class() {
                 self.emit_shared_parameter_preludes(out)?;
@@ -2993,12 +3034,13 @@ impl<'mir> FunctionEmitter<'mir> {
         out: &mut String,
     ) -> Result<(), EmitError> {
         let mut body = String::new();
+        self.binding_uses.reset_self_owned();
         if self.method_owner_is_reference_class() {
             self.emit_shared_parameter_preludes(&mut body)?;
         }
         self.emit_block(self.entry_block()?, &mut body)?;
-        if body.contains("self_owned") {
-            out.push_str("    let self_owned = self.clone();\n");
+        if self.binding_uses.self_owned_used() {
+            out.push_str(&format!("    let {SELF_OWNED_NAME} = self.clone();\n"));
         }
         // A genuine async-method body: prime it so its synchronous prefix runs
         // at call time (JS eager-async-prefix semantics; see `from_future_primed`).
@@ -3035,7 +3077,7 @@ impl<'mir> FunctionEmitter<'mir> {
         // Preserved verbatim here because replacing it with an explicitly empty
         // substitution changes emitted output whenever `functions[0]` is
         // generic; fixing it needs its own byte-verified change.
-        .type_text_with_impl_trait(ty, false)
+        .type_text(ty)
     }
 
     /// Converts a type ID to Rust text under an explicitly supplied
@@ -3051,9 +3093,18 @@ impl<'mir> FunctionEmitter<'mir> {
         ty: TypeId,
         substitution: &TypeSubstitution<'_>,
     ) -> Result<String, EmitError> {
-        FunctionEmitter::type_renderer(mir, context, ty)?
-        .rust_type(ty, false, substitution)
-        .map(RustType::into_string)
+        Self::rust_type_with_scoped_type_params(mir, context, ty, substitution)
+            .map(RustType::into_string)
+    }
+
+    /// The rendered type of `ty` under `substitution`, outside any function.
+    pub(crate) fn rust_type_with_scoped_type_params(
+        mir: &Mir,
+        context: &EmitContext,
+        ty: TypeId,
+        substitution: &TypeSubstitution<'_>,
+    ) -> Result<RustType, EmitError> {
+        FunctionEmitter::type_renderer(mir, context, ty)?.rust_type(ty, false, substitution)
     }
 
     /// Converts a type ID to a default expression with scoped type parameters.
@@ -3069,14 +3120,12 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Returns the Rust suffix needed when calling a throwing function.
     pub(super) fn throwing_call_suffix(&self, callee: &MirFunction) -> &'static str {
-        if callee.can_throw
-            && !callee.is_async
-            && !callee.is_generator
-        {
-            "?"
-        } else {
-            ""
-        }
+        if self.call_is_throwing(callee) { "?" } else { "" }
+    }
+
+    /// Whether a call of `callee` yields a `Result` this body propagates.
+    pub(super) fn call_is_throwing(&self, callee: &MirFunction) -> bool {
+        callee.can_throw && !callee.is_async && !callee.is_generator
     }
 
     /// Converts an operand to its Rust text representation.
@@ -3513,7 +3562,7 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             self.value_at_type_text(&call_value, source.return_ty, unknown_ty, &self.render_scope())?
         };
-        let closure = format!("move |smelt_args: Vec<SmeltUnknown>| {return_text}");
+        let closure = self.carrier_format(format_args!("move |smelt_args: Vec<SmeltUnknown>| {return_text}"));
         Ok(Some(if is_borrowed_param {
             format!("::std::rc::Rc::new({closure})")
         } else {
@@ -3525,7 +3574,7 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Return the JavaScript `Function.length` represented by a function operand.
     pub(super) fn operand_function_length(&self, operand: &Operand) -> Result<usize, EmitError> {
-        if let Some(local) = operand_local(operand)
+        if let Some(local) = operand.local()
             && let Some(closure_id) = closure_definitions(self.function)?.get(&local).copied()
             && let Some(closure) = self
                 .mir
@@ -3551,7 +3600,7 @@ impl<'mir> FunctionEmitter<'mir> {
             return Ok(false);
         };
         let local_decl = self.local_decl(*local_id)?;
-        if self.local_name(*local_id)?.starts_with("closure_arg_") {
+        if matches!(self.local_binding(*local_id)?, LocalBinding::ClosureArg(_)) {
             return Ok(false);
         }
         Ok(matches!(local_decl.kind, LocalKind::Param { .. })
@@ -3600,13 +3649,10 @@ impl<'mir> FunctionEmitter<'mir> {
     /// emitted Rust type is still `&dyn Fn`, so calls must use direct
     /// callable syntax instead of the `Rc<RefCell<_>>` handle path.
     pub(super) fn is_function_parameter_name(&self, name: &str) -> Result<bool, EmitError> {
-        if name.starts_with("closure_arg_") {
-            return Ok(false);
-        }
         Ok(self.function.params.iter().any(|param| {
-            self.local_name(*param)
-                .is_ok_and(|param_name| param_name == name)
-                && self.local_decl(*param).is_ok_and(|local| {
+            self.local_binding(*param).is_ok_and(|binding| {
+                !matches!(binding, LocalBinding::ClosureArg(_)) && binding.text() == name
+            }) && self.local_decl(*param).is_ok_and(|local| {
                     matches!(self.mir.types.get(local.ty), Some(Type::Function(_)))
                 })
                 && !self
@@ -3634,12 +3680,12 @@ impl<'mir> FunctionEmitter<'mir> {
         local: LocalId,
     ) -> Result<bool, EmitError> {
         let decl = self.local_decl(local)?;
-        let local_name = self.local_name(local)?.to_owned();
+        let local_name = self.local_binding(local)?.text();
         Ok(
             matches!(self.mir.types.get(decl.ty), Some(Type::Function(_)))
                 && self.function.params.iter().any(|param| {
-                    self.local_name(*param)
-                        .is_ok_and(|param_name| param_name == local_name)
+                    self.local_binding(*param)
+                        .is_ok_and(|binding| binding.text() == local_name)
                         && self
                             .function_parameter_requires_owned(*param)
                             .is_ok_and(|requires_owned| !requires_owned)
@@ -3658,8 +3704,8 @@ impl<'mir> FunctionEmitter<'mir> {
         }
         let capture_name = self.symbol_name(symbol)?;
         Ok(self.function.params.iter().any(|param| {
-            self.local_name(*param)
-                .is_ok_and(|param_name| param_name == capture_name)
+            self.local_binding(*param)
+                .is_ok_and(|binding| binding.text() == capture_name)
                 && self
                     .function_parameter_requires_owned(*param)
                     .is_ok_and(|requires_owned| !requires_owned)
@@ -3750,7 +3796,7 @@ impl<'mir> FunctionEmitter<'mir> {
             .join(", ");
         let return_value = self.default_value(function.return_ty)?;
         let return_text = if function.may_throw {
-            format!("Ok::<_, Box<dyn std::error::Error>>({return_value})")
+            format!("Ok::<_, {ERROR_BOX}>({return_value})")
         } else {
             return_value
         };
@@ -3958,10 +4004,15 @@ impl<'mir> FunctionEmitter<'mir> {
                 // spreading its elements and dropping `arg1..` — which panics on
                 // non-iterable values and corrupts multi-argument adapters (see
                 // `partial`/`partialRight` two-argument callbacks).
+                //
+                // A target's rest parameter holds zero or more arguments, so it
+                // spreads into the vector rather than arriving as one array.
+                let rest_slot = target_function.rest;
                 let packed = target_function
                     .params
                     .iter()
                     .enumerate()
+                    .filter(|(index, _)| rest_slot != Some(*index))
                     .map(|(index, target_param)| {
                         // The adapter's own parameters are declared with the
                         // by-reference ABI (`function_type_param_text` renders
@@ -3985,7 +4036,12 @@ impl<'mir> FunctionEmitter<'mir> {
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
-                format!("smelt_callback.call(vec![{packed}])")
+                match self.rest_spread_text(target_function)? {
+                    Some(spread) => format!(
+                        "smelt_callback.call({{ let mut smelt_packed: Vec<SmeltUnknown> = vec![{packed}]; {spread} smelt_packed }})"
+                    ),
+                    None => format!("smelt_callback.call(vec![{packed}])"),
+                }
             }
         } else {
             format!("(smelt_callback)({forwarded})")
@@ -4007,12 +4063,12 @@ impl<'mir> FunctionEmitter<'mir> {
             // callback for its side effects, then materialize
             // `SmeltUnknown::Undefined` so downstream `!== undefined` guards
             // treat the result as "no value".
-            format!("{{ {call_value}; SmeltUnknown::Undefined }}")
+            self.carrier_format(format_args!("{{ {call_value}; SmeltUnknown::Undefined }}"))
         } else {
             self.value_at_type_text(&call_value, call_return_ty, target_function.return_ty, scope)?
         };
         let returned = if target_function.may_throw && !source_function.may_throw {
-            format!("Ok::<_, Box<dyn std::error::Error>>({converted})")
+            format!("Ok::<_, {ERROR_BOX}>({converted})")
         } else {
             converted
         };
@@ -4040,14 +4096,36 @@ impl<'mir> FunctionEmitter<'mir> {
             let erased_return =
                 self.erase_value_text(&returned, target_function.return_ty)?;
             let length = source_function.params.len();
-            return Ok(Some(format!(
+            return Ok(Some(self.carrier_format(format_args!(
                 "{{ let smelt_callback = {value_text}.clone(); SmeltErasedFunction {{ callback: ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {{ let arg0: {rest_text} = SmeltList::from(smelt_args); {erased_return} }}), length: {length}.0, object: None }} }}"
-            )));
+            ))));
         }
-        let target_text = self.type_text_with_impl_trait(target, false)?;
+        let target_text = self.type_text(target)?;
         Ok(Some(format!(
             "{{ let smelt_callback = {value_text}.clone(); let smelt_adapted: {target_text} = ::std::rc::Rc::new(move |{}| {returned}); smelt_adapted }}",
             arg_decls.join(", ")
+        )))
+    }
+
+    /// The statement appending an adapter's rest parameter, element by element and
+    /// erased, to the packed vector `smelt_packed`. `None` when `function` declares
+    /// no list-typed rest parameter.
+    fn rest_spread_text(&self, function: &FunctionType) -> Result<Option<String>, EmitError> {
+        let Some(index) = function.rest else {
+            return Ok(None);
+        };
+        let Some(param) = function.params.get(index).copied() else {
+            return Ok(None);
+        };
+        let Some(Type::List(item)) = self.mir.types.get(param) else {
+            return Ok(None);
+        };
+        let by_reference = function.mutable_params.contains(&index)
+            || self.callback_param_is_shared_reference(function, index, param);
+        let list = if by_reference { format!("arg{index}.clone()") } else { format!("arg{index}") };
+        let erased = self.erase_value_text("smelt_item", *item)?;
+        Ok(Some(format!(
+            "let smelt_rest: Vec<_> = {list}.into(); smelt_packed.extend(smelt_rest.into_iter().map(|smelt_item| {erased}));"
         )))
     }
 
@@ -4192,13 +4270,11 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             format!("({callback_text})({args})")
         };
-        let source_type_text = self.type_text_with_impl_trait(self.operand_ty(operand)?, false)?;
+        self.note_type_erasures(self.operand_ty(operand)?)?;
         let source_returns_future = source.is_async
-            || matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_)))
-            || source_type_text.contains("Future<Output");
-        let source_async_output_may_throw = source.may_throw
-            || self.operand_closure_can_throw(operand)?
-            || source_type_text.contains("Future<Output = Result");
+            || matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_)));
+        let source_async_output_may_throw =
+            source.may_throw || self.operand_closure_can_throw(operand)?;
         let call_value = if source_async_output_may_throw
             && source_returns_future
             && !target_function.may_throw
@@ -4243,81 +4319,16 @@ impl<'mir> FunctionEmitter<'mir> {
         };
         let converted_return_text =
             self.value_at_type_text(&call_value, call_return_ty, target_function.return_ty, &self.render_scope())?;
-        let default_adjusted_return_text = if converted_return_text == "Default::default()"
-            && matches!(
-                self.mir.types.get(target_function.return_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            ) {
-            self.null_value_text()
-        } else {
-            converted_return_text
-        };
-        let return_text = if self.mir.types.get(target_function.return_ty) == Some(&Type::None)
-            && !source_returns_future
-        {
-            if target_function.may_throw {
-                format!("{{ {call_value}; Ok::<(), Box<dyn std::error::Error>>(()) }}")
-            } else {
-                format!("{{ {call_value}; () }}")
-            }
-        } else if self.mir.types.get(target_function.return_ty) == Some(&Type::None)
-            && source_returns_future
-        {
-            if target_function.may_throw {
-                format!(
-                    "{{ {spawn_promise_task}(Box::pin(async move {{ let _ = {call_value}.await; }})); Ok::<(), Box<dyn std::error::Error>>(()) }}",
-                    spawn_promise_task = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK,
-                )
-            } else {
-                format!(
-                    "{{ {spawn_promise_task}(Box::pin(async move {{ let _ = {call_value}.await; }})); () }}",
-                    spawn_promise_task = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK,
-                )
-            }
-        } else if target_function.may_throw
-            && source_returns_future
-            && !source_async_output_may_throw
-            && let Some(Type::Future(item)) = self.mir.types.get(source.return_ty)
-        {
-            let item_text = self.type_text_with_impl_trait(*item, false)?;
-            format!(
-                "SmeltFuture::from_future(Box::pin(async move {{ Ok::<{item_text}, Box<dyn std::error::Error>>({default_adjusted_return_text}.await?) }}))"
-            )
-        } else if target_function.may_throw
-            && default_adjusted_return_text.contains("SmeltFuture::")
-        {
-            default_adjusted_return_text
-        } else if target_function.may_throw
-            && let Some(Type::Future(item)) = self.mir.types.get(target_function.return_ty)
-            && !(source.may_throw && source_returns_future)
-        {
-            let item_text = self.type_text_with_impl_trait(*item, false)?;
-            format!(
-                "SmeltFuture::from_future(Box::pin(async move {{ Ok::<{item_text}, Box<dyn std::error::Error>>({default_adjusted_return_text}.await?) }}))"
-            )
-        } else if target_function.may_throw
-            && matches!(
-                self.mir.types.get(target_function.return_ty),
-                Some(Type::Future(_))
-            )
-            && source.may_throw
-            && source_returns_future
-        {
-            // A callback that returns a future renders its Rust type as
-            // `-> SmeltFuture<..>` with NO outer `Result` — the possible throw is
-            // carried inside the future's `Result` output (see the `Type::Function`
-            // arm in the default-value emitter). So when both the source and the
-            // fallible target return a future, forward the future value directly
-            // rather than re-wrapping it in `Ok(..)`. Wrapping here would make the
-            // adapter closure return `Result<Future, _>`, and a chain of such
-            // adapters (or a later erasure into a promise) would then observe a
-            // nested `Result<Result<Future, _>, _>` at its await seam (was E0277).
-            default_adjusted_return_text
-        } else if target_function.may_throw {
-            format!("Ok::<_, Box<dyn std::error::Error>>({default_adjusted_return_text})")
-        } else {
-            default_adjusted_return_text
-        };
+        let default_adjusted_return_text = converted_return_text;
+        let return_text = self.adapter_return_text(
+            source,
+            target_function,
+            target_function.return_ty,
+            &call_value,
+            default_adjusted_return_text,
+            AdapterSource { returns_future: source_returns_future, output_may_throw: source_async_output_may_throw },
+            true,
+        )?;
         // Match the adapter's parameter to its cast target: a pure-rest callback
         // whose first param is a list is `Fn(SmeltList<..>)`, not `Fn(Vec<..>)`.
         // The body reads `smelt_args` only through `.iter()`/`.get()`/`.skip()`,
@@ -4334,6 +4345,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 .map(|param| self.mir.types.get(*param)),
             Some(Some(Type::List(_)))
         );
+        self.context.note_carrier_use();
         let (smelt_args_ty, args_prelude) = if args_is_list {
             ("SmeltList<SmeltUnknown>", "let smelt_args = smelt_args.to_vec(); ")
         } else {
@@ -4419,9 +4431,9 @@ impl<'mir> FunctionEmitter<'mir> {
         if let Some(Type::TypeParam { name }) = self.mir.types.get(param_ty)
             && !scope.spells(*name)
         {
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "SmeltFromUnknown::smelt_from_unknown(({item}).into_smelt_unknown())"
-            ));
+            )));
         }
         self.extract_value_text(item, param_ty, &scope)
     }
@@ -4464,7 +4476,7 @@ impl<'mir> FunctionEmitter<'mir> {
                         "{open}smelt_args.iter().skip({index}).cloned().map(|value| {item_text}).collect::<SmeltList<_>>(){close}"
                     ));
                 }
-                let item = format!("smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Null)");
+                let item = self.carrier_format(format_args!("smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Null)"));
                 let value = self.erased_argument_at_param_text(&item, *param_ty)?;
                 let arg = if function
                     .required_params
@@ -4598,15 +4610,20 @@ impl<'mir> FunctionEmitter<'mir> {
                 .iter()
                 .zip(target_function.params.iter())
                 .any(|(source_param, target_param)| {
-                    source_param != target_param && {
-                        let bound = self.substituted_param_ty(*target_param, callee_bindings);
-                        !(bound == *source_param
-                            && crate::generic_bindings::type_mentions_only_params(
-                                self.mir,
-                                bound,
-                                &caller_generics,
-                            ))
+                    let bound = self.substituted_param_ty(*target_param, callee_bindings);
+                    if source_param == target_param {
+                        // The closure still names the callee's own parameter,
+                        // which is out of scope here and renders erased, while
+                        // this site instantiates that parameter (`bound`): the
+                        // two callback shapes differ although their ids agree.
+                        return bound != *target_param;
                     }
+                    !(bound == *source_param
+                        && crate::generic_bindings::type_mentions_only_params(
+                            self.mir,
+                            bound,
+                            &caller_generics,
+                        ))
                 });
         // The adapter's return is converted into the callee's declared callback
         // return type, which must be resolved through this call site's bindings
@@ -4675,11 +4692,9 @@ impl<'mir> FunctionEmitter<'mir> {
         // that effective form. Computing it after the forwarding, as this used to,
         // left the zero-copy arm handing an owned value to a callback declared to
         // take a reference (E0308).
-        let source_type_text_for_params =
-            self.type_text_with_impl_trait(self.operand_ty(operand)?, false)?;
+        self.note_type_erasures(self.operand_ty(operand)?)?;
         let body_is_static_future = source.is_async
             || matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_)))
-            || source_type_text_for_params.contains("Future<Output")
             || matches!(self.mir.types.get(target_return_ty), Some(Type::Future(_)));
         let forwarded = source
             .params
@@ -4865,13 +4880,11 @@ impl<'mir> FunctionEmitter<'mir> {
             )
         };
         let uses_adapted_callback = callback_prelude.is_some();
-        let source_type_text = self.type_text_with_impl_trait(self.operand_ty(operand)?, false)?;
+        self.note_type_erasures(self.operand_ty(operand)?)?;
         let source_returns_future = source.is_async
-            || matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_)))
-            || source_type_text.contains("Future<Output");
-        let source_async_output_may_throw = source.may_throw
-            || self.operand_closure_can_throw(operand)?
-            || source_type_text.contains("Future<Output = Result");
+            || matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_)));
+        let source_async_output_may_throw =
+            source.may_throw || self.operand_closure_can_throw(operand)?;
         let call_value = if source_async_output_may_throw
             && source_returns_future
             && !target_function.may_throw
@@ -4959,7 +4972,7 @@ impl<'mir> FunctionEmitter<'mir> {
             // `SmeltUnknown::Undefined` so downstream `!== undefined` guards
             // (e.g. cloneDeepWith's customizer wrapper) correctly treat the
             // result as "no value" rather than a real `null` clone.
-            format!("{{ {call_value}; SmeltUnknown::Undefined }}")
+            self.carrier_format(format_args!("{{ {call_value}; SmeltUnknown::Undefined }}"))
         } else {
             self.value_at_type_text(&call_value, source.return_ty, target_return_ty, &self.render_scope())?
         };
@@ -4974,63 +4987,16 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             converted_return_text
         };
-        let default_adjusted_return_text = if field_adjusted_return_text == "Default::default()"
-            && matches!(
-                self.mir.types.get(target_return_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            ) {
-            self.null_value_text()
-        } else {
-            field_adjusted_return_text
-        };
-        let return_text = if self.mir.types.get(target_return_ty) == Some(&Type::None)
-            && !source_returns_future
-        {
-            if target_function.may_throw {
-                format!("{{ {call_value}; Ok::<(), Box<dyn std::error::Error>>(()) }}")
-            } else {
-                format!("{{ {call_value}; () }}")
-            }
-        } else if self.mir.types.get(target_return_ty) == Some(&Type::None)
-            && source_returns_future
-        {
-            if target_function.may_throw {
-                format!(
-                    "{{ {spawn_promise_task}(Box::pin(async move {{ let _ = {call_value}.await; }})); Ok::<(), Box<dyn std::error::Error>>(()) }}",
-                    spawn_promise_task = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK,
-                )
-            } else {
-                format!(
-                    "{{ {spawn_promise_task}(Box::pin(async move {{ let _ = {call_value}.await; }})); () }}",
-                    spawn_promise_task = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK,
-                )
-            }
-        } else if target_function.may_throw
-            && source_returns_future
-            && !source_async_output_may_throw
-            && let Some(Type::Future(item)) = self.mir.types.get(source.return_ty)
-        {
-            let item_text = self.type_text_with_impl_trait(*item, false)?;
-            format!(
-                "SmeltFuture::from_future(Box::pin(async move {{ Ok::<{item_text}, Box<dyn std::error::Error>>({default_adjusted_return_text}.await?) }}))"
-            )
-        } else if target_function.may_throw
-            && default_adjusted_return_text.contains("SmeltFuture::")
-        {
-            default_adjusted_return_text
-        } else if target_function.may_throw
-            && let Some(Type::Future(item)) = self.mir.types.get(target_return_ty)
-            && !(source.may_throw && source_returns_future)
-        {
-            let item_text = self.type_text_with_impl_trait(*item, false)?;
-            format!(
-                "SmeltFuture::from_future(Box::pin(async move {{ Ok::<{item_text}, Box<dyn std::error::Error>>({default_adjusted_return_text}.await?) }}))"
-            )
-        } else if target_function.may_throw {
-            format!("Ok::<_, Box<dyn std::error::Error>>({default_adjusted_return_text})")
-        } else {
-            default_adjusted_return_text
-        };
+        let default_adjusted_return_text = field_adjusted_return_text;
+        let return_text = self.adapter_return_text(
+            source,
+            target_function,
+            target_return_ty,
+            &call_value,
+            default_adjusted_return_text,
+            AdapterSource { returns_future: source_returns_future, output_may_throw: source_async_output_may_throw },
+            false,
+        )?;
         // Invariant: an adapter body that does not mention the wrapped callback
         // has silently discarded it. Such a closure still type-checks and still
         // returns a plausible value, so the defect is invisible in the generated
@@ -5210,7 +5176,7 @@ impl<'mir> FunctionEmitter<'mir> {
         &self,
         operand: &Operand,
     ) -> Result<Option<(usize, String)>, EmitError> {
-        let Some(local) = operand_local(operand) else {
+        let Some(local) = operand.local() else {
             return Ok(None);
         };
         let Some(closure_id) = closure_definitions(self.function)?.get(&local).copied() else {
@@ -5244,11 +5210,11 @@ impl<'mir> FunctionEmitter<'mir> {
         // Register the source arity on the cached callable: an `Rc<dyn Fn>` cannot
         // carry `Function.prototype.length`, and this accessor is the only place a
         // function *item*'s erased value is built.
-        let body = format!(
-            "SmeltUnknown::Function({{ let smelt_callback = {wrapper_text}; let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = {inner}; {register}(&smelt_erased_fn, {length}.0); smelt_erased_fn }})",
+        let body = self.carrier_format(format_args!(
+            "SmeltUnknown::Function({{ let smelt_callback = {wrapper_text}; let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, {ERROR_BOX}>> = {inner}; {register}(&smelt_erased_fn, {length}.0); smelt_erased_fn }})",
             register = smelt_stdlib::runtime_symbols::function_length::REGISTER,
             length = self.operand_function_length(operand)?,
-        );
+        ));
         drop(hoisted);
         Ok(Some((key, body)))
     }
@@ -5286,9 +5252,9 @@ impl<'mir> FunctionEmitter<'mir> {
         if !closure.captures.is_empty() || self.is_erased_unknown_rest_function(function) {
             return Ok(None);
         }
-        let scoped_text = self.type_text_with_impl_trait(dest_ty, false)?;
+        let scoped_text = self.type_text(dest_ty)?;
         let hoisted = HoistedModuleItemScope::enter(self);
-        let module_text = self.type_text_with_impl_trait(dest_ty, false)?;
+        let module_text = self.type_text(dest_ty)?;
         if module_text != scoped_text {
             return Ok(None);
         }
@@ -5356,15 +5322,15 @@ impl<'mir> FunctionEmitter<'mir> {
             // A `void`-returning callback erased to a callable value returns
             // JavaScript `undefined`, not `null`.
             if source.may_throw {
-                format!(
-                    "{{ {call}?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}"
-                )
+                self.carrier_format(format_args!(
+                    "{{ {call}?; Ok::<SmeltUnknown, {ERROR_BOX}>(SmeltUnknown::Undefined) }}"
+                ))
             } else {
-                format!("{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}")
+                self.carrier_format(format_args!("{{ {call}; Ok::<SmeltUnknown, {ERROR_BOX}>(SmeltUnknown::Undefined) }}"))
             }
         } else if matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_))) {
             let value = self.erase_value_text(&call, source.return_ty)?;
-            format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
+            self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({value})"))
         } else if self.is_erased_class_type(source.return_ty) {
             // A return value skips erasure only when its Rust
             // representation already IS `SmeltUnknown`
@@ -5375,18 +5341,18 @@ impl<'mir> FunctionEmitter<'mir> {
             if source.may_throw {
                 call
             } else {
-                format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({call})")
+                self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({call})"))
             }
         } else if source.may_throw {
             let value = self.erase_value_text(&format!("{call}?"), source.return_ty)?;
-            format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
+            self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({value})"))
         } else {
             let value = self.erase_value_text(&call, source.return_ty)?;
-            format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
+            self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({value})"))
         };
-        Ok(format!(
+        Ok(self.carrier_format(format_args!(
             "::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text})"
-        ))
+        )))
     }
 
     /// Registration text linking an erased callable to the class it constructs.
@@ -5485,15 +5451,15 @@ impl<'mir> FunctionEmitter<'mir> {
             // A `void`-returning callback erased to a callable value returns
             // JavaScript `undefined`, not `null`.
             if source.may_throw {
-                format!(
-                    "{{ {call}?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}"
-                )
+                self.carrier_format(format_args!(
+                    "{{ {call}?; Ok::<SmeltUnknown, {ERROR_BOX}>(SmeltUnknown::Undefined) }}"
+                ))
             } else {
-                format!("{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}")
+                self.carrier_format(format_args!("{{ {call}; Ok::<SmeltUnknown, {ERROR_BOX}>(SmeltUnknown::Undefined) }}"))
             }
         } else if matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_))) {
             let value = self.erase_value_text(&call, source.return_ty)?;
-            format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
+            self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({value})"))
         } else if self.is_erased_class_type(source.return_ty) {
             // A return value skips erasure only when its Rust
             // representation already IS `SmeltUnknown`
@@ -5504,18 +5470,18 @@ impl<'mir> FunctionEmitter<'mir> {
             if source.may_throw {
                 call
             } else {
-                format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({call})")
+                self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({call})"))
             }
         } else if source.may_throw {
             let value = self.erase_value_text(&format!("{call}?"), source.return_ty)?;
-            format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
+            self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({value})"))
         } else {
             let value = self.erase_value_text(&call, source.return_ty)?;
-            format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
+            self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({value})"))
         };
-        Ok(Some(format!(
+        Ok(Some(self.carrier_format(format_args!(
             "::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text})"
-        )))
+        ))))
     }
 
     /// Gets the type of an operand.
@@ -5551,17 +5517,13 @@ impl<'mir> FunctionEmitter<'mir> {
     pub(super) fn type_contains_noncloneable(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
             Some(Type::Future(_)) => true,
-            Some(Type::Generator { .. }) => false,
-            Some(Type::GeneratorResult { .. }) => false,
-            Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
-                self.type_contains_noncloneable(*item)
-            }
-            Some(Type::Dict(key, value)) => {
-                self.type_contains_noncloneable(*key) || self.type_contains_noncloneable(*value)
-            }
-            Some(Type::Tuple(items)) => items
-                .iter()
-                .any(|item| self.type_contains_noncloneable(*item)),
+            Some(
+                container @ (Type::List(_)
+                | Type::Set(_)
+                | Type::Optional(_)
+                | Type::Dict(_, _)
+                | Type::Tuple(_)),
+            ) => container.children().any(|child| self.type_contains_noncloneable(child)),
             // A union's cloneability is its RUST representation's, not its
             // arms'. A union that erases stores a `SmeltUnknown`, and a union
             // with concrete storage stores a generated `SmeltUnion…` that
@@ -5576,7 +5538,6 @@ impl<'mir> FunctionEmitter<'mir> {
             // (5 × E0382 in Hono's `html.rs`). Erasing a value to inspect it is
             // a read, not a move — the same rule the concrete-union arm of
             // `coercion::erase` already states.
-            Some(Type::Union(_)) => false,
             _ => false,
         }
     }
@@ -5585,43 +5546,9 @@ impl<'mir> FunctionEmitter<'mir> {
     pub(super) fn type_contains_unknown(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => true,
-            Some(
-                Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item),
-            ) => self.type_contains_unknown(*item),
-            Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
-                self.type_contains_unknown(*key) || self.type_contains_unknown(*value)
-            }
-            Some(Type::Tuple(items)) => items.iter().any(|item| self.type_contains_unknown(*item)),
-            Some(Type::Generator {
-                yield_ty,
-                return_ty,
-                next_ty,
-                ..
-            }) => {
-                self.type_contains_unknown(*yield_ty)
-                    || self.type_contains_unknown(*return_ty)
-                    || self.type_contains_unknown(*next_ty)
-            }
-            Some(Type::GeneratorResult {
-                yield_ty,
-                return_ty,
-            }) => {
-                self.type_contains_unknown(*yield_ty)
-                    || self.type_contains_unknown(*return_ty)
-            }
-            Some(
-                Type::None
-                | Type::Bool
-                | Type::Int
-                | Type::FixedInt(_)
-                | Type::BigInt
-                | Type::Float
-                | Type::String
-                | Type::Never
-                | Type::Function(_)
-                | Type::Class { .. },
-            )
-            | None => false,
+            // A callable and a nominal type carry their own storage.
+            Some(Type::Function(_) | Type::Class { .. }) | None => false,
+            Some(other) => other.children().any(|child| self.type_contains_unknown(child)),
         }
     }
 
@@ -5706,7 +5633,7 @@ impl<'mir> FunctionEmitter<'mir> {
     /// original object identity for Map/Set keys. `SmeltRecord` preserves that
     /// identity while keeping structural equality for assertions.
     pub(super) fn dict_uses_smelt_record(&self, key_ty: TypeId) -> bool {
-        crate::stdlib::needs_unknown_type(self.mir)
+        self.context.demand().has(Need::Unknown)
             && self.mir.types.get(key_ty) == Some(&Type::String)
     }
 
@@ -5788,7 +5715,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
             return None;
         };
-        let class = self.mir.classes.iter().find(|class| class.name == *name)?;
+        let class = crate::classes::find_class(self.mir, *name)?;
         let store_field = crate::classes::effective_class_fields(self.mir, class)
             .into_iter()
             .find(|field| {
@@ -5814,11 +5741,7 @@ impl<'mir> FunctionEmitter<'mir> {
         // A shape (interface / synthetic object-literal shape) is a record type
         // in exactly the same sense a class is, so its declared fields answer
         // here too; the reference-record field paths in `place` rely on it.
-        let Some(fields) = self
-            .mir
-            .classes
-            .iter()
-            .find(|class| class.name == *name)
+        let Some(fields) = crate::classes::find_class(self.mir, *name)
             .map(|class| crate::classes::effective_class_fields(self.mir, class))
             .or_else(|| {
                 self.mir
@@ -5861,7 +5784,7 @@ impl<'mir> FunctionEmitter<'mir> {
         fields.iter().find_map(|candidate| {
             self.symbol_source_name(candidate.name)
                 .ok()
-                .filter(|source| *source == "__smelt_call")
+                .filter(|source| *source == SMELT_CALL)
                 .map(|_| candidate.ty)
         })
     }
@@ -6161,12 +6084,23 @@ impl<'mir> FunctionEmitter<'mir> {
             .ok_or_else(|| EmitError::new("callee local reference out of bounds"))
     }
 
-    /// Gets the generated variable name for a local.
-    pub(super) fn local_name(&self, local: LocalId) -> Result<&str, EmitError> {
-        self.names
+    /// How a local is bound in the generated Rust scope.
+    pub(super) fn local_binding(&self, local: LocalId) -> Result<&LocalBinding, EmitError> {
+        self.bindings
             .get(&local)
-            .map(String::as_str)
-            .map_or(Ok("SmeltUnknown::Null"), Ok)
+            .ok_or_else(|| EmitError::new(format!("local {} has no Rust binding", local.0)))
+    }
+
+    /// The Rust text of a local's binding, for output that names it.
+    ///
+    /// Rendering is what counts as a use (see [`BindingUses`]); a question about
+    /// the binding asks [`Self::local_binding`] instead.
+    ///
+    /// [`BindingUses`]: local_binding::BindingUses
+    pub(super) fn local_name(&self, local: LocalId) -> Result<Cow<'_, str>, EmitError> {
+        let binding = self.local_binding(local)?;
+        self.binding_uses.record(binding);
+        Ok(binding.text())
     }
 
     /// How the source language of the body being emitted spells an absent value.
@@ -6192,36 +6126,6 @@ impl<'mir> FunctionEmitter<'mir> {
             .symbols
             .get(symbol)
             .ok_or_else(|| EmitError::new("MIR references an unknown symbol"))
-    }
-
-    /// Return whether a type is Remeda's internal `MatchFnResult` wrapper.
-    pub(super) fn is_match_fn_result_type(&self, ty: TypeId) -> Result<bool, EmitError> {
-        Ok(matches!(
-            self.mir.types.get(ty),
-            Some(Type::Class { name, .. }) if smelt_stdlib::typescript_stdlib_class(self.symbol_name(*name)?)
-                == Some(smelt_stdlib::StdlibClass::MatchFnResult)
-        ))
-    }
-
-    /// Return the generic payload type carried by a `MatchFnResult<T>` value.
-    ///
-    /// Older generated code erased this field through `SmeltUnknown`, but
-    /// date-fns parser matches instantiate it with concrete payloads such as
-    /// `String`. Preserving the payload type avoids emitting unknown-pattern
-    /// casts against concrete Rust values.
-    pub(super) fn match_fn_result_value_type(
-        &self,
-        ty: TypeId,
-    ) -> Result<Option<TypeId>, EmitError> {
-        let Some(Type::Class { name, args }) = self.mir.types.get(ty) else {
-            return Ok(None);
-        };
-        if smelt_stdlib::typescript_stdlib_class(self.symbol_name(*name)?)
-            != Some(smelt_stdlib::StdlibClass::MatchFnResult)
-        {
-            return Ok(None);
-        }
-        Ok(args.first().copied())
     }
 
     /// Gets the original source spelling of a symbol when runtime object keys
@@ -6280,290 +6184,26 @@ pub(crate) fn is_erased_unknown_rest_function_in(
     )
 }
 
-/// Return whether an operand reads a specific local.
-pub(super) fn operand_uses_local(operand: &Operand, local: LocalId) -> bool {
-    match operand {
-        Operand::Copy(place) | Operand::Move(place) => place_reads_local(place, local),
-        Operand::Const(_) => false,
-    }
-}
-
-/// Return whether reading a place observes a specific local.
-fn place_reads_local(place: &Place, local: LocalId) -> bool {
-    match place {
-        Place::Local(candidate)
-        | Place::Field {
-            base: candidate, ..
-        } => *candidate == local,
-        Place::Index { base, index, .. } => *base == local || operand_uses_local(index, local),
-        // No base local, but the index operand still observes one.
-        Place::Global { projection, .. } => global_projection_reads_local(projection, local),
-    }
-}
-
-/// Return whether an assignment place reads a local before writing.
-pub(super) fn assignment_place_reads_local(place: &Place, local: LocalId) -> bool {
-    match place {
-        Place::Local(_) => false,
-        Place::Field { base, .. } => *base == local,
-        Place::Index { base, index, .. } => *base == local || operand_uses_local(index, local),
-        Place::Global { projection, .. } => global_projection_reads_local(projection, local),
-    }
-}
-
-/// Return whether a mutable-global projection observes a specific local.
+/// The callback operands an rvalue renders by re-emitting the closure's text at
+/// the use site (`closure_operand_text` and its declared-type sibling) rather than
+/// by naming the closure's local.
 ///
-/// A field projection names a symbol and reads nothing; an index projection
-/// carries an operand that is evaluated before the cell is borrowed, and that
-/// operand can name a local. Answering `false` for it would let the emitter
-/// treat the local as dead at the write.
-fn global_projection_reads_local(
-    projection: &smelt_mir::GlobalProjection,
-    local: LocalId,
-) -> bool {
-    match projection {
-        smelt_mir::GlobalProjection::Field(_) => false,
-        smelt_mir::GlobalProjection::Index { index, .. } => operand_uses_local(index, local),
-    }
-}
-
-/// Return whether an rvalue may read a local.
-pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
+/// `ListCallback` inlines too, but is left out: its closures keep a binding.
+/// Anything not listed counts as naming the local, so a new callback rvalue costs
+/// at most a dead binding, never a missing one.
+fn inlined_callback_operands(value: &Rvalue) -> Vec<&Operand> {
     match value {
-        Rvalue::Use(operand)
-        | Rvalue::Len(operand)
-        | Rvalue::NumericAbs(operand)
-        | Rvalue::PrimitiveCast { operand, .. }
-        | Rvalue::StringCase { operand, .. }
-        | Rvalue::StringTrim { operand, .. }
-        | Rvalue::Await(operand) => operand_uses_local(operand, local),
-        Rvalue::List(items)
-        | Rvalue::Set(items)
-        | Rvalue::Tuple(items)
-        | Rvalue::Closure {
-            captures: items, ..
-        }
-        | Rvalue::NumericHypot { args: items }
-        | Rvalue::AsyncOp { args: items, .. } => items
-            .iter()
-            .any(|operand| operand_uses_local(operand, local)),
-        Rvalue::NumericExtrema { args, spread, .. } => {
-            args.iter().any(|operand| operand_uses_local(operand, local))
-                || spread
-                    .as_ref()
-                    .is_some_and(|operand| operand_uses_local(operand, local))
-        }
-        Rvalue::Dict(entries) => entries.iter().any(|(key, entry_value)| {
-            operand_uses_local(key, local) || operand_uses_local(entry_value, local)
-        }),
-        Rvalue::Binary { lhs, rhs, .. }
-        | Rvalue::NumericPow {
-            base: lhs,
-            exponent: rhs,
-        }
-        | Rvalue::NumericAtan2 { y: lhs, x: rhs }
-        | Rvalue::StringAffix {
-            haystack: lhs,
-            needle: rhs,
+        Rvalue::ListReduce { callback, .. }
+        | Rvalue::ListFromLengthMap { callback, .. }
+        | Rvalue::RegexReplaceCallback { callback, .. } => vec![callback],
+        Rvalue::ListSort { comparator, key, .. } => comparator.iter().chain(key).collect(),
+        Rvalue::ListSorted { key, .. } => key.iter().collect(),
+        Rvalue::FormDataOp {
+            op: smelt_hir::FormDataOp::ForEach,
+            args,
             ..
-        }
-        | Rvalue::StringSearch {
-            haystack: lhs,
-            needle: rhs,
-            ..
-        }
-        | Rvalue::DefineProperties {
-            target: lhs,
-            descriptors: rhs,
-        }
-        | Rvalue::StringContains {
-            haystack: lhs,
-            needle: rhs,
-            ..
-        }
-        | Rvalue::ListContains {
-            list: lhs,
-            item: rhs,
-        }
-        | Rvalue::SetContains {
-            set: lhs,
-            item: rhs,
-        }
-        | Rvalue::ListCallback {
-            list: lhs,
-            callback: rhs,
-            ..
-        }
-        | Rvalue::DictContainsKey {
-            dict: lhs,
-            key: rhs,
-            ..
-        }
-        | Rvalue::StringJoin {
-            items: lhs,
-            separator: rhs,
-        } => operand_uses_local(lhs, local) || operand_uses_local(rhs, local),
-        Rvalue::Unary { operand, .. }
-        | Rvalue::NumericRound { operand, .. }
-        | Rvalue::NumericPredicate { operand, .. }
-        | Rvalue::NumericUnaryFunc { operand, .. }
-        | Rvalue::UnknownIs { value: operand, .. }
-        | Rvalue::TypeofValue { value: operand }
-        | Rvalue::PrototypeSentinel { value: operand, .. }
-        | Rvalue::BoxPrimitive { value: operand }
-        | Rvalue::ObjectFromPrototype { prototype: operand }
-        | Rvalue::UnknownCast { value: operand, .. }
-        | Rvalue::DateFromValue { value: operand }
-        | Rvalue::InstanceOf { value: operand, .. } => operand_uses_local(operand, local),
-        Rvalue::Conditional {
-            cond,
-            then_operand,
-            else_operand,
-        } => {
-            operand_uses_local(cond, local)
-                || operand_uses_local(then_operand, local)
-                || operand_uses_local(else_operand, local)
-        }
-        Rvalue::FunctionTableLookup { key, cases } => {
-            operand_uses_local(key, local)
-                || cases
-                    .iter()
-                    .any(|(_, case)| operand_uses_local(case, local))
-        }
-        Rvalue::OptionalField { receiver, .. } | Rvalue::BoundField { receiver, .. } => {
-            operand_uses_local(receiver, local)
-        }
-        Rvalue::OptionalIndex { receiver, index } => {
-            operand_uses_local(receiver, local) || operand_uses_local(index, local)
-        }
-        Rvalue::OptionalMethod { receiver, args, .. }
-        | Rvalue::UnionMethod { receiver, args, .. }
-        | Rvalue::BoundMethod { receiver, args, .. } => {
-            operand_uses_local(receiver, local)
-                || args
-                    .iter()
-                    .any(|operand| operand_uses_local(operand, local))
-        }
-        Rvalue::OptionalCoalesce { optional, fallback } => {
-            operand_uses_local(optional, local) || operand_uses_local(fallback, local)
-        }
-        Rvalue::Struct { fields, .. } => fields
-            .iter()
-            .any(|(_, field_value)| operand_uses_local(field_value, local)),
-        Rvalue::CallableObjectAssign {
-            callable,
-            props,
-            spreads,
-        } => {
-            operand_uses_local(callable, local)
-                || props
-                    .iter()
-                    .any(|(_, field_value)| operand_uses_local(field_value, local))
-                || spreads
-                    .iter()
-                    .any(|spread_value| operand_uses_local(spread_value, local))
-        }
-        Rvalue::ExternalClassInstance { args, .. } => args
-            .iter()
-            .any(|operand| operand_uses_local(operand, local)),
-        Rvalue::ClosureCall { callee, args } => {
-            operand_uses_local(callee, local)
-                || args
-                    .iter()
-                    .any(|operand| operand_uses_local(operand, local))
-        }
-        Rvalue::ClosureCallSpread { callee, args } => {
-            operand_uses_local(callee, local) || operand_uses_local(args, local)
-        }
-        // A host-global override write reads its stored value operand; the read
-        // and presence probes take no operands. Missing this arm would let the
-        // `_ => false` fallthrough elide a closure whose only use is the write.
-        Rvalue::HostGlobalWrite { value: stored, .. } => operand_uses_local(stored, local),
-        // An `EventEmitter` operation reads its receiver and every argument. The
-        // listener argument of `on`/`once`/`off` is almost always a closure temp
-        // whose ONLY use is this rvalue, so without this arm the `_ => false`
-        // fallthrough elides the closure's own statement and the emitted code
-        // references an undeclared temporary.
-        Rvalue::EventEmitterOp { emitter, args, .. } => {
-            operand_uses_local(emitter, local)
-                || args
-                    .iter()
-                    .any(|operand| operand_uses_local(operand, local))
-        }
-        // The `node:http` operations, for the same reason: `createServer`'s
-        // handler and `listen`'s listening callback are closure temps whose
-        // ONLY use is the rvalue that consumes them.
-        Rvalue::HttpCreateServer { handler } => operand_uses_local(handler, local),
-        Rvalue::HttpCreateFetchServer { fetch } => operand_uses_local(fetch, local),
-        Rvalue::SqliteOpen { path } => operand_uses_local(path, local),
-        Rvalue::SqliteOp { receiver, args, .. } => {
-            operand_uses_local(receiver, local) || args.iter().any(|arg| operand_uses_local(arg, local))
-        }
-        Rvalue::HttpServerOp { server, args, .. } => {
-            operand_uses_local(server, local)
-                || args
-                    .iter()
-                    .any(|operand| operand_uses_local(operand, local))
-        }
-        Rvalue::IncomingMessageOp { message, .. } => operand_uses_local(message, local),
-        Rvalue::ServerResponseOp { response, args, .. } => {
-            operand_uses_local(response, local)
-                || args
-                    .iter()
-                    .any(|operand| operand_uses_local(operand, local))
-        }
-        // A Vitest mock construction reads its wrapped implementation (often a
-        // closure temp whose ONLY use is this rvalue — missing this arm elides
-        // that closure's declaration); the matcher queries read the mock and
-        // their expected operands.
-        Rvalue::VitestMockFn { implementation } => implementation
-            .as_ref()
-            .is_some_and(|implementation| operand_uses_local(implementation, local)),
-        Rvalue::VitestMockCalledTimes { mock, count } => {
-            operand_uses_local(mock, local) || operand_uses_local(count, local)
-        }
-        Rvalue::VitestMockCalledWith { mock, args, .. } => {
-            operand_uses_local(mock, local)
-                || args
-                    .iter()
-                    .any(|operand| operand_uses_local(operand, local))
-        }
-        Rvalue::VitestMockLastResolvedWith { mock, expected } => {
-            operand_uses_local(mock, local) || operand_uses_local(expected, local)
-        }
-        Rvalue::VitestAsymmetricEqual { actual, expected } => {
-            operand_uses_local(actual, local) || operand_uses_local(expected, local)
-        }
-        Rvalue::VitestSpyOn { target, name } => {
-            operand_uses_local(target, local) || operand_uses_local(name, local)
-        }
-        // A receiver bind reads BOTH the callable it wraps and the receiver it
-        // installs. The callee is very often a closure temp whose only use is
-        // this rvalue (`greeting.call(right)` on a module-level function item),
-        // so missing this arm let the `_ => false` fallthrough elide that
-        // closure's declaration and the bind referenced an undefined local.
-        // `Rvalue::ThisRead` genuinely reads no local and needs no arm.
-        Rvalue::BindThis { callee, receiver } => {
-            operand_uses_local(callee, local) || operand_uses_local(receiver, local)
-        }
-        _ => false,
-    }
-}
-
-/// Return whether a terminator may read a local.
-pub(super) fn terminator_uses_local(terminator: &Terminator, local: LocalId) -> bool {
-    match terminator {
-        Terminator::Goto(_) | Terminator::Unreachable => false,
-        Terminator::Call { callee, args, .. } => {
-            matches!(callee, Callee::Indirect(operand) if operand_uses_local(operand, local))
-                || args.iter().any(|arg| operand_uses_local(arg, local))
-        }
-        Terminator::Await { future, .. } => operand_uses_local(future, local),
-        Terminator::Switch { cond, .. } => operand_uses_local(cond, local),
-        Terminator::Match { scrutinee, .. } => operand_uses_local(scrutinee, local),
-        Terminator::Return(operand) | Terminator::Throw(operand) => {
-            operand_uses_local(operand, local)
-        }
+        } => args.first().into_iter().collect(),
+        _ => Vec::new(),
     }
 }
 
@@ -6588,7 +6228,7 @@ pub(super) fn terminator_successors(terminator: &Terminator) -> Vec<smelt_mir::B
             .map(|arm| arm.target)
             .chain(default.iter().copied())
             .collect(),
-        Terminator::Return(_) | Terminator::Throw(_) | Terminator::Unreachable => Vec::new(),
+        Terminator::Return(_) | Terminator::Throw(_) => Vec::new(),
     }
 }
 
@@ -6643,160 +6283,15 @@ fn emitted_tail_returns(out: &str) -> bool {
         .is_some_and(|line| line.trim_start().starts_with("return "))
 }
 
-/// Tokens that mark a trial-rendered generic free-function body as needing the
-/// erased runtime, so real generics would produce type errors.
-///
-/// These are the erased carrier types and the JavaScript-semantics methods /
-/// conversions that are only implemented for `SmeltUnknown` (and primitives),
-/// not for an arbitrary generic `T`. A body that mentions any of them inspects,
-/// compares, hashes, keys, or erases a `T`-typed value — operations the generic
-/// bounds (`Clone + Default + IntoSmeltUnknown + SmeltFromUnknown`) do not
-/// support on a bare `T` (e.g. `js_strict_eq`, `same_js_key`) or that force a
-/// `T`-vs-`SmeltUnknown` mismatch.
-const ERASED_CARRIER_TOKENS: &[&str] = &[
-    "SmeltUnknown",
-    "SmeltObject",
-    "SmeltArray",
-    "SmeltRecord",
-    "SmeltJsMap",
-    "js_strict_eq",
-    "same_js_key",
-    "smelt_from_unknown",
-    "into_smelt_unknown",
-];
-
-/// Return whether a trial-rendered generic free-function body still needs the
-/// erased runtime carrier.
-///
-/// A generic free function only emits real Rust generics when its body keeps
-/// every type parameter opaque. If the body — rendered with the type parameters
-/// in scope — references any erased carrier type or JavaScript-semantics helper
-/// (see [`ERASED_CARRIER_TOKENS`]), the body inspects, compares, or erases a
-/// `T`-typed value (for example a null/undefined check, a deep-equality
-/// comparison, or a map-keying operation). Emitting real generics for such a
-/// body produces `T`-vs-`SmeltUnknown` mismatches or missing-trait errors, so
-/// the caller falls back to the fully erased signature.
-///
-/// This is a deliberately conservative textual check: any listed token in the
-/// trial body disqualifies generic emission. A pure passthrough body
-/// (`return x;`, `return xs.get(..)..;`) contains none of them and keeps its
-/// generics.
-fn body_needs_erased_carrier(body: &str) -> bool {
-    let stripped = strip_throw_payloads(&strip_mut_list_adapter_blocks(body));
-    ERASED_CARRIER_TOKENS
-        .iter()
-        .any(|token| stripped.contains(token))
-}
-
-/// Removes `smelt_throw(..)` payload expressions from a trial body.
-///
-/// A thrown value is a genuine dynamic boundary, exactly like the mutable-list
-/// adapter above: `smelt_throw` takes an erased `SmeltUnknown` and returns a
-/// `Box<dyn std::error::Error>`, so the payload never touches a type parameter
-/// and cannot leak one. But it is BUILT out of `SmeltUnknown` / `SmeltObject` /
-/// `SmeltRecord`, so leaving it in the trial body means a single
-/// `throw new Error(..)` disqualifies the whole function from real generics.
-///
-/// That is not a hypothetical cost. In es-toolkit 19 emitted functions contain
-/// `smelt_throw`, and for four of them — `chunk`, `combinations`, `sampleSize`,
-/// `windowed` — the throw is the ONLY erased-carrier mention in an otherwise
-/// fully opaque body. `chunk<T>` therefore lowered to
-/// `chunk(SmeltList<SmeltUnknown>, f64)`, and every element it copies pays an
-/// out-of-line `SmeltUnknown::clone` plus drop glue that compiles to nothing at
-/// a concrete `T`. Measured on the same data and operation, the typed
-/// instantiation of `uniq` costs 10,472,619 instructions against the erased
-/// one's 14,464,861 — 1.38x, purely for carrying the tag.
-///
-/// The scan tracks string literals so a message containing a parenthesis (or a
-/// `\"` escape) cannot end the payload early; the surrounding body is left
-/// untouched, so anything the function does with `T` outside a throw still
-/// disqualifies it.
-fn strip_throw_payloads(body: &str) -> String {
-    const MARKER: &str = "smelt_throw(";
-    let mut result = body.to_owned();
-    while let Some(marker_pos) = result.find(MARKER) {
-        let open = marker_pos.saturating_add(MARKER.len()).saturating_sub(1);
-        let bytes = result.as_bytes();
-        let mut depth = 0_usize;
-        let mut close_pos = None;
-        let mut in_string = false;
-        let mut escaped = false;
-        for (offset, &byte) in bytes.iter().enumerate().skip(open) {
-            if in_string {
-                match byte {
-                    _ if escaped => escaped = false,
-                    b'\\' => escaped = true,
-                    b'"' => in_string = false,
-                    _ => {}
-                }
-                continue;
-            }
-            match byte {
-                b'"' => in_string = true,
-                b'(' => depth = depth.saturating_add(1),
-                b')' => {
-                    depth = depth.saturating_sub(1);
-                    if depth == 0 {
-                        close_pos = Some(offset);
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        let Some(payload_end) = close_pos else {
-            break;
-        };
-        result.replace_range(marker_pos..=payload_end, "");
-    }
-    result
-}
-
-/// Removes convert-in-place mutable-list adapter blocks from a trial body.
-///
-/// The adapter (see `call::static_call_mut_list_adapter_text`) deliberately
-/// erases a generic element to `SmeltUnknown` and un-erases it again at a real
-/// dynamic boundary: a generic caller forwarding a `&mut` list into an erased
-/// callee. That controlled boundary conversion is not a `T` leak, so its erased
-/// carrier tokens must not disqualify the caller from emitting real generics.
-/// Each adapter block is delimited by its leading `smelt_mut_arg_` binding; this
-/// removes the enclosing brace-balanced block so the cleanliness check sees only
-/// the surrounding (opaque) body.
-fn strip_mut_list_adapter_blocks(body: &str) -> String {
-    const MARKER: &str = "let mut smelt_mut_arg_";
-    let mut result = body.to_owned();
-    while let Some(marker_pos) = result.find(MARKER) {
-        // Find the `{` that opens the adapter block (the nearest one before the
-        // marker binding).
-        let Some(open) = result[..marker_pos].rfind('{') else {
-            break;
-        };
-        // Brace-match forward from `open` to find the block's closing `}`.
-        let bytes = result.as_bytes();
-        let mut depth = 0_usize;
-        let mut close_pos = None;
-        for (offset, &byte) in bytes.iter().enumerate().skip(open) {
-            match byte {
-                b'{' => depth = depth.saturating_add(1),
-                b'}' => {
-                    depth = depth.saturating_sub(1);
-                    if depth == 0 {
-                        close_pos = Some(offset);
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        let Some(close_pos) = close_pos else {
-            break;
-        };
-        result.replace_range(open..=close_pos, "");
-    }
-    result
-}
-
 // Constant formatting continues in `literals.rs`.
+
+/// What an adapter knows about the callable it wraps.
+struct AdapterSource {
+    /// Whether the source's call yields a future.
+    returns_future: bool,
+    /// Whether that future's output can be an error.
+    output_may_throw: bool,
+}
 
 /// Renders an async callback adapter: an inner async call whose settled output is
 /// re-typed for the adapter's own return type.
@@ -6816,7 +6311,7 @@ fn strip_mut_list_adapter_blocks(body: &str) -> String {
 /// `smelt_async_output` to the adapter's output type.
 fn async_adapter_future_text(call_text: &str, awaited_text: &str) -> String {
     format!(
-        "{{ let smelt_async_source = {call_text}; SmeltFuture::from_future(Box::pin(async move {{ let smelt_async_output = smelt_async_source.await?; Ok::<_, Box<dyn std::error::Error>>({awaited_text}) }})) }}"
+        "{{ let smelt_async_source = {call_text}; SmeltFuture::from_future(Box::pin(async move {{ let smelt_async_output = smelt_async_source.await?; Ok::<_, {ERROR_BOX}>({awaited_text}) }})) }}"
     )
 }
 

@@ -3582,6 +3582,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[allow(dead_code)]
 struct Ticker(::std::rc::Rc<::std::cell::RefCell<TickerInner>>);
 #[derive(Debug, Default)]
@@ -3673,8 +3675,6 @@ impl SmeltFromUnknown for Sizer {
         result
     }
 }
-
-// @smelt:prelude-end — generated program below
 
 fn main() {
     let ticker: Ticker;

@@ -54,15 +54,13 @@ use smelt_codegen_rust::{KindCounts, TypednessCounts};
 
 use crate::{
     CliResult, config_parser, lowering,
-    manifest::{exclusion_base, manifest_relative_path},
     pipeline,
+    report::{self, GatedOutcome, ReportFormat},
+    source_files::{exclusion_base, manifest_relative_path},
 };
 
 /// File name of the sidecar `smelt build` writes next to the generated `src/`.
 pub(crate) const SIDECAR_FILE_NAME: &str = "smelt-typedness.json";
-
-/// Report output format; the `--format` value enum shared by every report.
-pub(crate) type TypednessFormat = crate::cli_parser::ReportFormat;
 
 /// One program's record: its counts, or `None` when it failed to lower.
 pub(crate) type ProgramRecord = Option<TypednessCounts>;
@@ -98,7 +96,7 @@ pub(crate) struct TypednessReportOptions<'a> {
     /// Inputs; see the module docs.
     pub(crate) paths: &'a [PathBuf],
     /// Output format.
-    pub(crate) format: TypednessFormat,
+    pub(crate) format: ReportFormat,
     /// Baseline to compare against.
     pub(crate) baseline: Option<PathBuf>,
     /// Rewrite the baseline with every record that is no less typed.
@@ -114,23 +112,15 @@ pub(crate) struct Worsening {
     pub(crate) detail: String,
 }
 
-/// The outcome of a run: rendered text and the regressions found.
-pub(crate) struct TypednessOutcome {
-    /// The report in the requested format.
-    pub(crate) rendered: String,
-    /// Everything that became less typed than the baseline.
-    pub(crate) worsened: Vec<Worsening>,
-}
-
 /// Run a report: measure, compare, optionally update the baseline, render.
-pub(crate) fn typedness_report(options: &TypednessReportOptions<'_>) -> CliResult<TypednessOutcome> {
+pub(crate) fn typedness_report(options: &TypednessReportOptions<'_>) -> CliResult<GatedOutcome> {
     let mut programs = BTreeMap::new();
     for path in options.paths {
         programs.extend(measure_input(path)?);
     }
-    let report = TypednessReport::from_programs(programs);
+    let measured = TypednessReport::from_programs(programs);
     let baseline = match &options.baseline {
-        Some(path) if path.is_file() => Some(load_report(path)?),
+        Some(path) if path.is_file() => Some(report::load_json::<TypednessReport>(path, "")?),
         Some(path) if !options.update_baseline => {
             return Err(format!("baseline `{}` does not exist", path.display()).into());
         }
@@ -138,19 +128,19 @@ pub(crate) fn typedness_report(options: &TypednessReportOptions<'_>) -> CliResul
     };
     let worsened = baseline
         .as_ref()
-        .map(|baseline| compare(&report, baseline))
+        .map(|baseline| compare(&measured, baseline))
         .unwrap_or_default();
     if options.update_baseline
         && let Some(path) = &options.baseline
     {
-        let updated = updated_baseline(&report, baseline.as_ref());
+        let updated = updated_baseline(&measured, baseline.as_ref());
         write_report_if_changed(path, &updated)?;
     }
     let rendered = match options.format {
-        TypednessFormat::Json => render_json(&report)?,
-        TypednessFormat::Markdown => render_markdown(&report, baseline.as_ref(), &worsened),
+        ReportFormat::Json => render_json(&measured)?,
+        ReportFormat::Markdown => render_markdown(&measured, baseline.as_ref(), &worsened),
     };
-    Ok(TypednessOutcome { rendered, worsened })
+    Ok(GatedOutcome { rendered, regression: regression_message(&worsened) })
 }
 
 /// Measure one input path into program records.
@@ -162,14 +152,14 @@ fn measure_input(path: &Path) -> CliResult<BTreeMap<String, ProgramRecord>> {
             .ok_or_else(|| {
                 format!("`{}` holds no `{SIDECAR_FILE_NAME}`", path.display())
             })?;
-        return Ok(load_report(&sidecar)?.programs);
+        return Ok(report::load_json::<TypednessReport>(&sidecar, "")?.programs);
     }
     let name = path.to_string_lossy().replace('\\', "/");
     if path
         .extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
     {
-        return Ok(load_report(path)?.programs);
+        return Ok(report::load_json::<TypednessReport>(path, "")?.programs);
     }
     if path.file_name().is_some_and(|file| file == "Smelt.toml") {
         return measure_manifest(path);
@@ -185,11 +175,7 @@ fn measure_input(path: &Path) -> CliResult<BTreeMap<String, ProgramRecord>> {
 
 /// Lower a manifest in-process and measure every source file.
 fn measure_manifest(manifest_path: &Path) -> CliResult<BTreeMap<String, ProgramRecord>> {
-    let config = config_parser::parse(
-        manifest_path
-            .to_str()
-            .ok_or("manifest path contains invalid UTF-8")?,
-    )?;
+    let config = config_parser::parse_path(manifest_path)?;
     let (krate, _) = lowering::lower_manifest_entries(&config, manifest_path)?;
     let mir = pipeline::lower_to_optimized_mir(&krate)?;
     let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
@@ -218,12 +204,24 @@ pub(crate) fn programs_of(
     programs
 }
 
-/// Load a report (sidecar or baseline).
-fn load_report(path: &Path) -> CliResult<TypednessReport> {
-    let text = std::fs::read_to_string(path)
-        .map_err(|error| format!("failed to read `{}`: {error}", path.display()))?;
-    serde_json::from_str(&text)
-        .map_err(|error| format!("failed to parse `{}`: {error}", path.display()).into())
+/// The gate's failure message, when any program became less typed.
+fn regression_message(worsened: &[Worsening]) -> Option<String> {
+    if worsened.is_empty() {
+        return None;
+    }
+    let mut message = format!(
+        "typedness regressed: {} program(s)/kind(s) became less typed than the baseline:",
+        worsened.len()
+    );
+    for worsening in worsened {
+        let _ = write!(message, "\n  {}: {}", worsening.program, worsening.detail);
+    }
+    message.push_str(
+        "\nMake the program at least as typed again, or (only for a documented, \
+         justified boundary) re-snapshot with --update-baseline. See the \
+         `Typedness ratchet` policy in AGENTS.md.",
+    );
+    Some(message)
 }
 
 /// Serialize a report deterministically (pretty JSON, trailing newline).
@@ -235,12 +233,7 @@ fn render_json(report: &TypednessReport) -> CliResult<String> {
 
 /// Write a report to `path` only when its bytes change.
 pub(crate) fn write_report_if_changed(path: &Path, report: &TypednessReport) -> CliResult<()> {
-    let text = render_json(report)?;
-    if std::fs::read_to_string(path).is_ok_and(|existing| existing == text) {
-        return Ok(());
-    }
-    std::fs::write(path, text)?;
-    Ok(())
+    report::write_if_changed(path, &render_json(report)?)
 }
 
 /// The three kinds, by name.
@@ -323,11 +316,7 @@ pub(crate) fn updated_baseline(
 
 /// Typed share as a percentage with one decimal, `-` for an empty kind.
 fn share(counts: KindCounts) -> String {
-    if counts.total() == 0 {
-        return "-".to_owned();
-    }
-    let permille = counts.typed().saturating_mul(1000) / counts.total();
-    format!("{}.{}%", permille / 10, permille % 10)
+    report::truncated_share(counts.typed(), counts.total())
 }
 
 /// Render the Markdown report.
@@ -433,7 +422,7 @@ mod tests {
             "p.ts".to_owned(),
             Some(counts(1, 0, 2)),
         )]));
-        assert!(compare(&report, &baseline).is_empty());
+        assert_eq!(compare(&report, &baseline), Vec::new());
         assert_eq!(updated_baseline(&report, Some(&baseline)).programs["p.ts"], Some(counts(1, 0, 2)));
     }
 

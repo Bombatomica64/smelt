@@ -57,6 +57,7 @@
 //! different object. Those are not proven cycle-only, so correctness wins and
 //! they keep leaking as before.
 
+use smelt_stdlib::runtime_symbols::markers::SMELT_CALL;
 use std::collections::{HashMap, HashSet};
 
 use smelt_hir::Symbol;
@@ -65,8 +66,6 @@ use smelt_mir::{
     BasicBlock, ClosureId, FuncId, LocalDecl, LocalId, Mir, MirFunction, Operand, Place, Rvalue,
     Statement,
 };
-
-use super::core::{rvalue_uses_local, terminator_uses_local};
 
 /// The closures that capture their receiver weakly, and the fields they live in.
 #[derive(Debug, Default, Clone)]
@@ -207,7 +206,7 @@ pub(crate) fn closure_slot(mir: &Mir, ty: smelt_hir::TypeId) -> Option<&'static 
                 mir.names
                     .get(field.name)
                     .or_else(|| mir.symbols.get(field.name))
-                    == Some("__smelt_call")
+                    == Some(SMELT_CALL)
             };
             let has_call = mir
                 .interfaces
@@ -330,13 +329,7 @@ fn listener_registrations(blocks: &[BasicBlock]) -> Vec<(ClosureId, LocalId)> {
             continue;
         };
         let uses = statements()
-            .filter(|candidate| match candidate {
-                Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => {
-                    rvalue_uses_local(value, *dest)
-                }
-                Statement::DictEntryUpdate { value, .. } => rvalue_uses_local(value, *dest),
-                Statement::StorageLive(_) | Statement::StorageDead(_) => false,
-            })
+            .filter(|candidate| candidate.value().reads_local(*dest))
             .count()
             .saturating_add(
                 blocks
@@ -345,7 +338,7 @@ fn listener_registrations(blocks: &[BasicBlock]) -> Vec<(ClosureId, LocalId)> {
                         block
                             .terminator
                             .as_ref()
-                            .is_some_and(|terminator| terminator_uses_local(terminator, *dest))
+                            .is_some_and(|terminator| terminator.reads_local(*dest))
                     })
                     .count(),
             );
@@ -376,51 +369,30 @@ fn only_use_is_field_store(
     let mut uses = 0usize;
     for block in &function.blocks {
         for statement in &block.statements {
-            match statement {
-                Statement::Assign { dest, value } => {
-                    if *dest == holder && !matches!(value, Rvalue::Closure { .. }) {
-                        // Reassigned: the closure is not the only value it holds.
-                        return None;
-                    }
-                    if rvalue_uses_local(value, holder) {
-                        uses = uses.saturating_add(1);
-                    }
+            // Reassigned: the closure is not the only value it holds.
+            if let Statement::Assign { dest, value } = statement
+                && *dest == holder
+                && !matches!(value, Rvalue::Closure { .. })
+            {
+                return None;
+            }
+            if statement.reads_local(holder) {
+                uses = uses.saturating_add(1);
+                if let Statement::AssignPlace {
+                    place: Place::Field { base, field },
+                    value: Rvalue::Use(operand),
+                } = statement
+                    && *base == instance
+                    && operand_is_local(operand, holder)
+                {
+                    store = Some(*field);
                 }
-                Statement::AssignPlace { place, value } => {
-                    if rvalue_uses_local(value, holder)
-                        || super::core::assignment_place_reads_local(place, holder)
-                    {
-                        uses = uses.saturating_add(1);
-                        if let (Place::Field { base, field }, Rvalue::Use(operand)) = (place, value)
-                            && *base == instance
-                            && operand_is_local(operand, holder)
-                        {
-                            store = Some(*field);
-                        }
-                    }
-                }
-                Statement::DictEntryUpdate {
-                    index,
-                    default,
-                    value,
-                    base,
-                    ..
-                } => {
-                    if *base == holder
-                        || super::core::operand_uses_local(index, holder)
-                        || super::core::operand_uses_local(default, holder)
-                        || rvalue_uses_local(value, holder)
-                    {
-                        uses = uses.saturating_add(1);
-                    }
-                }
-                Statement::StorageLive(_) | Statement::StorageDead(_) => {}
             }
         }
         if block
             .terminator
             .as_ref()
-            .is_some_and(|terminator| terminator_uses_local(terminator, holder))
+            .is_some_and(|terminator| terminator.reads_local(holder))
         {
             uses = uses.saturating_add(1);
         }
@@ -617,18 +589,6 @@ pub(crate) fn capture_prelude_text(name: &str, source: &str, shared: bool) -> St
     } else {
         format!("let smelt_capture_{name} = SmeltWeakReceiver::new(&{source});")
     }
-}
-
-/// How a weak-receiver capture named `name` is read inside the closure body.
-///
-/// The shape of a shared capture (`(*smelt_capture_x.borrow_mut())`), so
-/// nested closures and the rendered-text rewrites treat it as one; see
-/// `rendered_text_rewrite::WEAK_RECEIVER_UPGRADE`.
-pub(crate) fn capture_access_text(name: &str) -> String {
-    format!(
-        "(*smelt_capture_{name}{}.borrow_mut())",
-        super::rendered_text_rewrite::WEAK_RECEIVER_UPGRADE
-    )
 }
 
 impl super::FunctionEmitter<'_> {

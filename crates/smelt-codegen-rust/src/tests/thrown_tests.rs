@@ -487,7 +487,7 @@ export function reject(flag: boolean): number {
 ///
 /// `emit_throwing_call_terminator` renders a `catch_unwind` recovery for every
 /// caught call, and the prelude emits the helpers behind
-/// `stdlib::needs_panic_route`. The two decisions used to be independent, so a
+/// `Need::PanicRoute`. The two decisions used to be independent, so a
 /// `try` around a call to a NON-throwing function emitted a call to
 /// `smelt_panic_message` into a crate whose prelude never declared it (E0425).
 const PANIC_ROUTE_HELPERS: &[&str] = &[

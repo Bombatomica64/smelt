@@ -3521,6 +3521,8 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:prelude-end — generated program below
+
 #[allow(dead_code)]
 struct Slot<T, U, V> {
     first: T,
@@ -3722,8 +3724,6 @@ impl<A: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, B: Clon
     }
 }
 
-// @smelt:prelude-end — generated program below
-
 fn main() {
     let holder: Holder;
     let relabelled: Slot<bool, String, f64>;
@@ -3731,7 +3731,8 @@ fn main() {
     let pair: Pair<bool, SmeltList<bool>>;
     let _smelt_tmp_7: Slot<bool, String, f64>;
     let _smelt_tmp_19: SmeltList<bool>;
-    let _smelt_tmp_22: f64;
+    let _smelt_tmp_21: bool;
+    let _smelt_tmp_23: f64;
     let _smelt_tmp_4: Slot<bool, String, f64> = Slot::new(true, "one".to_owned(), 1.0);
     let _smelt_tmp_5: Holder = Holder::new(_smelt_tmp_4);
     holder = _smelt_tmp_5;
@@ -3753,10 +3754,11 @@ fn main() {
     _smelt_tmp_19 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<bool> = vec![false, true]; smelt_list_items }));
     let _smelt_tmp_20: Pair<bool, SmeltList<bool>> = Pair::new(true, _smelt_tmp_19);
     pair = _smelt_tmp_20;
-    let _smelt_tmp_21: SmeltList<bool> = pair.tail();
-    _smelt_tmp_22 = _smelt_tmp_21.len() as f64;
-    let _smelt_tmp_23: SmeltList<bool> = pair.tail();
-    let _ = { println!("{} {} {}", pair.head, smelt_console_number(_smelt_tmp_22), _smelt_tmp_23.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| false)); };
+    _smelt_tmp_21 = pair.head;
+    let _smelt_tmp_22: SmeltList<bool> = pair.tail();
+    _smelt_tmp_23 = _smelt_tmp_22.len() as f64;
+    let _smelt_tmp_24: SmeltList<bool> = pair.tail();
+    let _ = { println!("{} {} {}", _smelt_tmp_21, smelt_console_number(_smelt_tmp_23), _smelt_tmp_24.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| false)); };
     return;
 }
 
@@ -3881,11 +3883,12 @@ impl<A: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, B: Clon
 use super::*;
 
 pub(crate) fn relabel(slot: Slot<bool, String, f64>, label: String) -> Slot<bool, String, f64> {
-    let _smelt_tmp_3: f64;
-    let _smelt_tmp_2: f64 = slot.count();
-    _smelt_tmp_3 = _smelt_tmp_2 * 2.0;
-    let _smelt_tmp_4: Slot<bool, String, f64> = Slot::new(slot.first, label.clone(), _smelt_tmp_3);
-    return _smelt_tmp_4;
+    let _smelt_tmp_4: f64;
+    let _smelt_tmp_2: bool = slot.first;
+    let _smelt_tmp_3: f64 = slot.count();
+    _smelt_tmp_4 = _smelt_tmp_3 * 2.0;
+    let _smelt_tmp_5: Slot<bool, String, f64> = Slot::new(_smelt_tmp_2, label.clone(), _smelt_tmp_4);
+    return _smelt_tmp_5;
 }
 
 pub(crate) fn read_config(input: Config<String, f64>) -> String {

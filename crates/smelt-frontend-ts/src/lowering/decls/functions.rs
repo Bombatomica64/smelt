@@ -711,7 +711,7 @@ impl ModuleBuilder<'_> {
                         Some(Type::String) => Some(self.ctx.krate.types.intern(Type::String)),
                         Some(Type::Tuple(items)) => {
                             let items = items.clone();
-                            Some(self.reconciled_inferred_types(items))
+                            Some(self.joined_inferred_type(items))
                         }
                         _ => None,
                     }
@@ -724,7 +724,7 @@ impl ModuleBuilder<'_> {
                 yielded.push(item_ty);
             }
         }
-        let yield_ty = self.reconciled_inferred_types(yielded);
+        let yield_ty = self.joined_inferred_type(yielded);
 
         let mut returned = Vec::new();
         Self::collect_return_types_from_block(body, body.root, &mut returned);
@@ -735,7 +735,7 @@ impl ModuleBuilder<'_> {
                 returned.push(none_ty);
             }
         }
-        let return_ty = self.reconciled_inferred_types(returned);
+        let return_ty = self.joined_inferred_type(returned);
         let next_ty = self.erase(ErasureReason::MissingAnnotation);
         self.ctx.krate.types.intern(Type::Generator {
             is_async,
@@ -790,18 +790,49 @@ impl ModuleBuilder<'_> {
             .is_none_or(|stmt| !matches!(stmt, Stmt::Return(_)))
     }
 
-    /// Reconcile inferred body types without erasing heterogeneous values.
-    pub(in crate::lowering) fn reconciled_inferred_types(
+    /// The one join of the types a body answers with: its returns, its yields.
+    ///
+    /// Types with a common shape take it, by the same rules a ternary's arms use
+    /// (`number | undefined` is `Optional`, `Int` and `Float` are `Float`, two
+    /// compatible function types are one). Types without one stay a union: the
+    /// join never erases a value it could still name, and only a type already
+    /// erased stays erased. No types is `undefined`.
+    pub(in crate::lowering) fn joined_inferred_type(
         &mut self,
         mut types: Vec<smelt_hir::TypeId>,
     ) -> smelt_hir::TypeId {
         types.sort_unstable_by_key(|ty| ty.0);
         types.dedup();
-        match types.as_slice() {
-            [] => self.ctx.krate.types.intern(Type::None),
-            [single] => *single,
-            _ => self.ctx.krate.types.intern(Type::Union(types)),
+        let Some((&first, rest)) = types.split_first() else {
+            return self.ctx.krate.types.intern(Type::None);
+        };
+        let mut joined = first;
+        for &ty in rest {
+            let Some(pair) = self.common_shape(joined, ty) else {
+                return self.ctx.krate.types.intern(Type::Union(types));
+            };
+            joined = pair;
         }
+        joined
+    }
+
+    /// The single shape two inferred types share, if they have one.
+    fn common_shape(
+        &mut self,
+        left: smelt_hir::TypeId,
+        right: smelt_hir::TypeId,
+    ) -> Option<smelt_hir::TypeId> {
+        let either_erased = self.type_contains_unknown(left) || self.type_contains_unknown(right);
+        let has_no_single_shape = |ty: Option<&Type>| matches!(ty, Some(Type::Union(_)));
+        if !either_erased
+            && (has_no_single_shape(self.ctx.krate.types.get(left))
+                || has_no_single_shape(self.ctx.krate.types.get(right)))
+        {
+            return None;
+        }
+        let shared = self.conditional_branch_type(left, right, None, 0, 0).ok()?;
+        let lost_a_type = self.ctx.krate.types.get(shared) == Some(&Type::Unknown) && !either_erased;
+        (!lost_a_type).then_some(shared)
     }
 
     /// Return whether a TypeScript formal parameter has a default value.
@@ -1504,6 +1535,7 @@ impl ModuleBuilder<'_> {
         // disambiguation exists for the Rust type system, not for the program.
         let symbol = self.ctx.krate.symbols.intern(&internal_name);
         self.ctx.krate.names.record(symbol, class_source_name);
+        self.ctx.local_class_expressions.insert(symbol);
         Some(symbol)
     }
 
@@ -3262,22 +3294,8 @@ impl ModuleBuilder<'_> {
         // covers modeled host constructors; the error and collection builtins below
         // are a hard-coded name list kept alongside it.
         let allowed_builtin = smelt_stdlib::host_object_by_class(name).is_some()
-            || matches!(
-                name,
-                "Date"
-                    | "Error"
-                    | "EvalError"
-                    | "RangeError"
-                    | "ReferenceError"
-                    | "SyntaxError"
-                    | "TypeError"
-                    | "URIError"
-                    | "AggregateError"
-                    | "Map"
-                    | "ReadonlyMap"
-                    | "Set"
-                    | "ReadonlySet"
-            );
+            || smelt_stdlib::is_error_class_name(name)
+            || matches!(name, "Date" | "Map" | "ReadonlyMap" | "Set" | "ReadonlySet");
         if !allowed_builtin
             && !self.classes.contains(name)
             && !self.imports.is_value(name)
