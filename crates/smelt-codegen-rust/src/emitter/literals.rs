@@ -92,6 +92,11 @@ pub(super) fn assigned_locals(
                 locals.insert(*base);
             }
         }
+        if let Some(Terminator::Call { callee: Callee::Op(op, Some(_)), .. }) = &block.terminator
+            && let Some(local) = op.mutated_receiver().and_then(operand_mutation_root)
+        {
+            locals.insert(local);
+        }
         if let Some(Terminator::Call {
             callee: Callee::Static(func),
             args,

@@ -420,7 +420,7 @@ fn body_only_moves(
             && local_mentions(*dest)
         {
             let mut mentioned = args.iter().any(&mentions);
-            if let smelt_mir::Callee::Op(op) = callee {
+            if let smelt_mir::Callee::Op(op, _) = callee {
                 op.reads(|operand| mentioned |= mentions(operand));
             }
             if !mentioned {
@@ -997,7 +997,7 @@ fn body_uses_bound_only_through_trait(
             let projected = match terminator {
                 Terminator::Call { callee, args, .. } => {
                     let mut projects = args.iter().any(operand_projects);
-                    if let smelt_mir::Callee::Op(op) = callee {
+                    if let smelt_mir::Callee::Op(op, _) = callee {
                         op.reads(|operand| projects |= operand_projects(operand));
                     }
                     projects

@@ -60,3 +60,9 @@ clone-strategy = "aggressive"
 fn lambda_arithmetic() -> TestResult {
     verify_python_parity("lambda_arithmetic")
 }
+
+/// A raise from a `map`, `filter` or `sorted` callback reaches the enclosing `try`.
+#[test]
+fn try_around_raising_callback() -> TestResult {
+    verify_python_parity("try_around_raising_callback")
+}

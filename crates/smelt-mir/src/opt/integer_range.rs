@@ -530,7 +530,7 @@ fn useful_locals(
             }
         }
         if let Some(Terminator::Call {
-            callee: crate::Callee::Op(op),
+            callee: crate::Callee::Op(op, _),
             ..
         }) = &block.terminator
         {
@@ -1556,7 +1556,7 @@ impl Rewriter<'_> {
                     crate::Callee::Indirect(operand) => {
                         self.rewrite_number_operand(operand, prelude);
                     }
-                    crate::Callee::Op(op) => {
+                    crate::Callee::Op(op, _) => {
                         op.reads_mut(|operand| self.rewrite_number_operand(operand, prelude));
                     }
                     crate::Callee::Static(_)

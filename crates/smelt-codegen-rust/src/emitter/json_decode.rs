@@ -559,7 +559,7 @@ fn json_decode_targets(mir: &Mir) -> Vec<TypeId> {
     for (blocks, locals) in bodies {
         for block in blocks {
             if let Some(Terminator::Call {
-                callee: Callee::Op(op),
+                callee: Callee::Op(op, _),
                 ..
             }) = &block.terminator
                 && let Rvalue::JsonParse {

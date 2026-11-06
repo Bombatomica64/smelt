@@ -151,7 +151,7 @@ impl FunctionEmitter<'_> {
                             })
                         })
                     }
-                    Callee::Builtin(_) | Callee::Op(_) | Callee::BaseInit(_) => false,
+                    Callee::Builtin(_) | Callee::Op(..) | Callee::BaseInit(_) => false,
                 };
             }
             false
@@ -787,7 +787,7 @@ impl FunctionEmitter<'_> {
                         )
                 })
             }
-            Callee::Builtin(_) | Callee::Op(_) | Callee::BaseInit(_) => false,
+            Callee::Builtin(_) | Callee::Op(..) | Callee::BaseInit(_) => false,
         }
     }
 

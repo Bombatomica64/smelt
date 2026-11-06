@@ -244,7 +244,7 @@ macro_rules! walk_terminator_operands {
             Terminator::Call { callee, args, .. } => {
                 match callee {
                     Callee::Indirect(operand) => $visit(operand),
-                    Callee::Op(op) => op.$op_reads(&mut $visit),
+                    Callee::Op(op, _) => op.$op_reads(&mut $visit),
                     Callee::Static(_) | Callee::Builtin(_) | Callee::BaseInit(_) => {}
                 }
                 for arg in args {
@@ -790,7 +790,7 @@ mod tests {
             callee: Callee::Op(Box::new(Rvalue::UrlNew {
                 input: copy(A),
                 base: Some(copy(B)),
-            })),
+            }), None),
             args: Vec::new(),
             dest: C,
             target: BlockId(0),

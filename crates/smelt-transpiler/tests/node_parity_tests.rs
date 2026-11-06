@@ -100,6 +100,12 @@ fn imported_type_predicate() -> TestResult {
     verify_node_parity_with("imported_type_predicate", &["predicates.ts"])
 }
 
+/// A throw from a `map` or `sort` callback reaches the enclosing `try`.
+#[test]
+fn try_around_raising_callback() -> TestResult {
+    verify_node_parity("try_around_raising_callback")
+}
+
 /// A parameter does not hide a module constant from other functions.
 #[test]
 fn parameter_shadows_module_const() -> TestResult {

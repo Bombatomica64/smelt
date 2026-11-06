@@ -893,7 +893,8 @@ impl FunctionEmitter<'_> {
                 };
                 Ok(format!("{{ {macro_name}!(\"{format_spec}\", {value}); }}").into())
             }
-            Callee::Op(op) => Ok(self.fallible_op_call(op)?.text),
+            Callee::Op(op, Some(ty)) => Ok(self.rvalue_text_for_dest(op, *ty)?.into()),
+            Callee::Op(op, None) => Ok(self.fallible_op_call(op)?.text),
             Callee::BaseInit(func) => self.base_initializer_call_text(*func, args),
             Callee::Static(func) => {
                 let function = self
@@ -3065,7 +3066,8 @@ impl FunctionEmitter<'_> {
             Callee::Builtin(
                 BuiltinFn::ConsoleLog { .. } | BuiltinFn::ConsoleWrite | BuiltinFn::ConsoleErrorWrite,
             ) => self.none_ty,
-            Callee::Op(op) => return Ok(self.fallible_op_call(op)?.source_ty),
+            Callee::Op(_, Some(ty)) => return Ok(*ty),
+            Callee::Op(op, None) => return Ok(self.fallible_op_call(op)?.source_ty),
             Callee::Static(func) | Callee::BaseInit(func) => {
                 let function = self
                     .mir

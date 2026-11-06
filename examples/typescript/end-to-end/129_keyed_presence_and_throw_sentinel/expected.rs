@@ -3968,7 +3968,6 @@ impl Router {
     let _smelt_tmp_7: TrieNode;
     let _smelt_tmp_8: SmeltList<String>;
     let _smelt_tmp_9: ::std::rc::Rc<dyn Fn(String, i64, &SmeltList<String>) -> bool>;
-    let _smelt_tmp_10: SmeltList<String>;
     let _smelt_tmp_12: bool;
     _smelt_tmp_4 = self.0.borrow().tries.clone().get(&method.clone());
     _smelt_tmp_5 = !(_smelt_tmp_4.clone().is_none());
@@ -3979,10 +3978,12 @@ impl Router {
     let _smelt_tmp_1: bool = closure_arg_0.clone() != "".to_owned();
     _smelt_tmp_1
     });
-    _smelt_tmp_10 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
     let _smelt_tmp_1: bool = closure_arg_0.clone() != "".to_owned();
     _smelt_tmp_1
-    }); let smelt_array = _smelt_tmp_8; let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value });
+    }); let smelt_array = _smelt_tmp_8; let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value }))) {
+        Ok(__smelt_value) => {
+            let _smelt_tmp_10: SmeltList<String> = __smelt_value;
     match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| _smelt_tmp_7.insert(_smelt_tmp_10))) {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_11: () = __smelt_value;
@@ -3996,6 +3997,19 @@ impl Router {
     return Err::<_, Box<dyn std::error::Error>>(smelt_throw({ let smelt_object_value = _smelt_tmp_13; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_reference_object_identity(&smelt_struct_value.0), { let smelt_lazy_handle = smelt_struct_value.clone(); move || { let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("name".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().name.clone()).into()))); smelt_object_entries.push(("message".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().message.clone()).into()))); if let Some(value) = smelt_object_value.0.borrow().stack.clone() { smelt_object_entries.push(("stack".to_owned(), SmeltUnknown::String(value.into()))); } smelt_object_entries.push(("cause".to_owned(), smelt_object_value.0.borrow().cause.clone())); smelt_object_entries.push(("__smelt_error".to_owned(), SmeltUnknown::String("Error".into()))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("UnsupportedPathError".into()))); smelt_object_entries } }).smelt_with_origin(smelt_struct_value.clone())) }));
     } else {
     return Err::<_, Box<dyn std::error::Error>>(smelt_throw(e));
+    }
+        }
+        Err(__smelt_panic) => {
+            let __smelt_error = smelt_panic_message(&*__smelt_panic);
+            let e = smelt_panic_error_value(&*__smelt_panic);
+    _smelt_tmp_12 = e.clone().js_strict_eq(&SmeltUnknown::Symbol("Symbol()@237".to_owned().into()));
+    if _smelt_tmp_12 {
+    let _smelt_tmp_13: UnsupportedPathError = UnsupportedPathError::new(Some(path.clone()));
+    return Err::<_, Box<dyn std::error::Error>>(smelt_throw({ let smelt_object_value = _smelt_tmp_13; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_reference_object_identity(&smelt_struct_value.0), { let smelt_lazy_handle = smelt_struct_value.clone(); move || { let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("name".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().name.clone()).into()))); smelt_object_entries.push(("message".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().message.clone()).into()))); if let Some(value) = smelt_object_value.0.borrow().stack.clone() { smelt_object_entries.push(("stack".to_owned(), SmeltUnknown::String(value.into()))); } smelt_object_entries.push(("cause".to_owned(), smelt_object_value.0.borrow().cause.clone())); smelt_object_entries.push(("__smelt_error".to_owned(), SmeltUnknown::String("Error".into()))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("UnsupportedPathError".into()))); smelt_object_entries } }).smelt_with_origin(smelt_struct_value.clone())) }));
+    } else {
+    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(e));
+    }
+        }
     }
         }
         Err(__smelt_panic) => {

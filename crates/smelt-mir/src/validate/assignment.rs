@@ -411,7 +411,7 @@ fn validate_callee(
         Callee::Indirect(operand) => {
             validate_operand(mir, function, definitions, operand, errors);
         }
-        Callee::Op(op) => {
+        Callee::Op(op, _) => {
             op.reads(|operand| validate_operand(mir, function, definitions, operand, errors));
         }
     }

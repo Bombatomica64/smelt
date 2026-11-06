@@ -547,7 +547,7 @@ impl RuntimeDemand {
         if unwind.is_some() {
             self.add(Need::PanicRoute);
         }
-        if let Callee::Op(op) = callee {
+        if let Callee::Op(op, _) = callee {
             self.scan_rvalue(op);
         }
     }
