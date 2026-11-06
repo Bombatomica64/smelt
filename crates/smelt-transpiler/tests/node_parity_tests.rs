@@ -160,6 +160,12 @@ fn erased_member_calls() -> TestResult {
     verify_node_parity("erased_member_calls")
 }
 
+/// A generator's `T` reachable only through a union stays what the definition yields.
+#[test]
+fn generator_type_through_union() -> TestResult {
+    verify_node_parity("generator_type_through_union")
+}
+
 /// Array-valued ternary arms join instead of one adopting the other's type.
 #[test]
 fn conditional_list_arms() -> TestResult {

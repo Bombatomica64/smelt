@@ -132,12 +132,30 @@ impl ModuleBuilder<'_> {
             }
         }
         self.bind_from_asserted_return(type_params, return_ty, call.span, &mut substitutions);
+        // A parameter reachable only through a union has no Rust generic to carry
+        // it, so the definition yields it erased, and a generator's yield type
+        // has no conversion at the call: the result keeps what the definition
+        // returns.
+        if matches!(self.ctx.krate.types.get(return_ty), Some(Type::Generator { .. })) {
+            substitutions.retain(|name, _| {
+                params.iter().any(|param| self.mentions_outside_a_union(*param, *name))
+            });
+        }
         self.complete_callee_type_substitution(type_params, &mut substitutions);
         let substituted = self.substitute_type_params(return_ty, &substitutions);
         if self.renders_as_erased_function(substituted) {
             return Ok(return_ty);
         }
         Ok(self.widened_call_type(resolved, substituted))
+    }
+
+    /// Whether type parameter `name` occurs in `ty` at a position no union encloses.
+    fn mentions_outside_a_union(&self, ty: smelt_hir::TypeId, name: smelt_hir::Symbol) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Union(_)) | None => false,
+            Some(Type::TypeParam { name: found, .. }) => *found == name,
+            Some(other) => other.children().any(|child| self.mentions_outside_a_union(child, name)),
+        }
     }
 
     /// The bindings a call's explicit type arguments spell, if it has any that

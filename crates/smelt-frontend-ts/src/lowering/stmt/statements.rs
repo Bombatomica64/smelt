@@ -43,8 +43,12 @@ impl ModuleBuilder<'_> {
             return;
         };
         let name = id.name.as_str();
+        let plain = self.intern_type_name(name);
         let taken = self.classes.item(name).is_some()
-            || (self.classes.in_body() && self.classes.declared_in_module(name));
+            || (self.classes.in_body() && self.classes.declared_in_module(name))
+            || self.ctx.krate.items.iter().any(
+                |item| matches!(item, smelt_hir::Item::Class(lowered) if lowered.name == plain),
+            );
         if !taken {
             return;
         }
