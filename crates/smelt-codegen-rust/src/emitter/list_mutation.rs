@@ -332,46 +332,35 @@ impl FunctionEmitter<'_> {
             return None;
         }
         let mut origin = None;
-        for block in &self.function.blocks {
-            for statement in &block.statements {
-                let Statement::Assign {
-                    dest,
-                    value: Rvalue::Use(source),
-                } = statement
-                else {
-                    continue;
-                };
-                if *dest == local {
-                    if origin.is_some() {
-                        return None;
-                    }
-                    origin = match source {
-                        Operand::Copy(Place::Field { base, field })
-                        | Operand::Move(Place::Field { base, field }) => {
-                            Some(ListAliasOrigin::Field {
-                                base: *base,
-                                field: *field,
-                            })
-                        }
-                        Operand::Copy(Place::Index { base, index, .. })
-                        | Operand::Move(Place::Index { base, index, .. }) => {
-                            Some(ListAliasOrigin::Index {
-                                base: *base,
-                                index: index.clone(),
-                            })
-                        }
-                        Operand::Copy(Place::Local(source_local))
-                        | Operand::Move(Place::Local(source_local)) => {
-                            self.list_alias_origin_inner(*source_local, seen)
-                        }
-                        // A global-rooted place is an assignment target, never
-                        // a source operand, so it is not an alias origin.
-                        Operand::Copy(Place::Global { .. })
-                        | Operand::Move(Place::Global { .. }) => None,
-                        Operand::Const(_) => None,
-                    };
-                }
+        for source in self.local_write_index().use_sources.get(&local).into_iter().flatten() {
+            if origin.is_some() {
+                return None;
             }
+            origin = match source {
+                Operand::Copy(Place::Field { base, field })
+                | Operand::Move(Place::Field { base, field }) => {
+                    Some(ListAliasOrigin::Field {
+                        base: *base,
+                        field: *field,
+                    })
+                }
+                Operand::Copy(Place::Index { base, index, .. })
+                | Operand::Move(Place::Index { base, index, .. }) => {
+                    Some(ListAliasOrigin::Index {
+                        base: *base,
+                        index: index.clone(),
+                    })
+                }
+                Operand::Copy(Place::Local(source_local))
+                | Operand::Move(Place::Local(source_local)) => {
+                    self.list_alias_origin_inner(*source_local, seen)
+                }
+                // A global-rooted place is an assignment target, never
+                // a source operand, so it is not an alias origin.
+                Operand::Copy(Place::Global { .. })
+                | Operand::Move(Place::Global { .. }) => None,
+                Operand::Const(_) => None,
+            };
         }
         origin
     }
