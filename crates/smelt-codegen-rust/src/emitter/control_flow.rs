@@ -209,28 +209,10 @@ impl FunctionEmitter<'_> {
         if let Some((cond, then_block, else_block, cond_statement_idx)) =
             self.while_header(block)?
         {
-            let has_header_work = block
-                .statements
-                .iter()
-                .enumerate()
-                .any(|(idx, _)| idx != cond_statement_idx);
             let then = self.block(then_block)?;
             let else_ = self.block(else_block)?;
             let loop_declared = self.declared_scope();
-            if has_header_work {
-                out.push_str("    loop {\n");
-                for statement in &block.statements {
-                    self.emit_statement_for_block(block, statement, out)?;
-                }
-                out.push_str(&format!(
-                    "    if !({}) {{ break; }}\n",
-                    self.truthy_operand_text(&Operand::Copy(Place::Local(
-                        self.switch_cond_local(block)?
-                    )))?
-                ));
-            } else {
-                out.push_str(&format!("    while {cond} {{\n"));
-            }
+            self.open_while_loop(block, &cond, cond_statement_idx, out)?;
             self.emit_block_until_goto(
                 then,
                 block.id,
@@ -247,29 +229,11 @@ impl FunctionEmitter<'_> {
         if let Some((cond, then_block, latch_block, else_block, cond_statement_idx)) =
             self.while_header_with_latch(block)?
         {
-            let has_header_work = block
-                .statements
-                .iter()
-                .enumerate()
-                .any(|(idx, _)| idx != cond_statement_idx);
             let then = self.block(then_block)?;
             let latch = self.block(latch_block)?;
             let else_ = self.block(else_block)?;
             let loop_declared = self.declared_scope();
-            if has_header_work {
-                out.push_str("    loop {\n");
-                for statement in &block.statements {
-                    self.emit_statement_for_block(block, statement, out)?;
-                }
-                out.push_str(&format!(
-                    "    if !({}) {{ break; }}\n",
-                    self.truthy_operand_text(&Operand::Copy(Place::Local(
-                        self.switch_cond_local(block)?
-                    )))?
-                ));
-            } else {
-                out.push_str(&format!("    while {cond} {{\n"));
-            }
+            self.open_while_loop(block, &cond, cond_statement_idx, out)?;
             self.emit_block_until_goto(
                 then,
                 latch_block,
@@ -386,7 +350,7 @@ impl FunctionEmitter<'_> {
                 // A `typeof` whose destination was narrowed to `&'static str`
                 // skips the owned copy entirely -- the borrowed spelling IS the
                 // value. See `emitter::typeof_str_locals`.
-                let raw_rendered_value = match value {
+                let rendered_value = match value {
                     // A base initializer copy is handed its instance: the
                     // constructor's allocation of `this` becomes the receiver.
                     Rvalue::Struct { .. } if self.is_base_initializer_receiver(*dest) => {
@@ -399,18 +363,6 @@ impl FunctionEmitter<'_> {
                     }
                     _ => self.rvalue_text_for_dest(value, local.ty)?,
                 };
-                let rendered_value =
-                    if matches!(self.mir.types.get(local.ty), Some(Type::Function(_)))
-                        && raw_rendered_value == "Default::default()"
-                    {
-                        self.default_value(local.ty)?
-                    } else {
-                        raw_rendered_value
-                    };
-                if name == "SmeltUnknown::Null" {
-                    out.push_str(&format!("    let _ = {rendered_value};\n"));
-                    return Ok(());
-                }
                 if self.deferred_capture_cells.borrow().contains(dest) {
                     // The cell was declared without a value; its one
                     // assignment creates it (see `capture_cell_created_at_assignment`).
@@ -438,7 +390,7 @@ impl FunctionEmitter<'_> {
                         || self.predeclared_locals.contains(dest)
                         || self.mutable_locals.contains(dest))
                 {
-                    format!(": {}", self.type_text_with_impl_trait(local.ty, false)?)
+                    format!(": {}", self.type_text(local.ty)?)
                 } else if matches!(self.mir.types.get(local.ty), Some(Type::Function(_))) {
                     String::new()
                 } else if matches!(self.function.origin, HirOrigin::ClassConstructor { .. })
@@ -633,15 +585,15 @@ impl FunctionEmitter<'_> {
                     // immutably while it is mutably borrowed (E0502). This mirrors the
                     // `Index` erased-object path below. Non-self-referential values
                     // keep the simpler inline form to avoid churn.
-                    let base_name = self.local_name(*base)?.to_owned();
+                    let base_name = self.local_name(*base)?.into_owned();
                     // A write through an erased reference-class VIEW also lands
                     // on the instance the view stands for; see
                     // `view_write_through`. The value is bound once so the view
                     // and the instance receive the same value.
                     if self.context.erased_view_write_through() {
-                        out.push_str(&format!(
+                        out.push_str(&self.carrier_format(format_args!(
                             "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), smelt_value.clone()); smelt_object_write_through(map, {field_name:?}, &smelt_value); }}, SmeltUnknown::Array(values) => {{ values.set_named_property({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Function(function) => {{ smelt_set_function_property(function, {field_name:?}, smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n"
-                        ));
+                        )));
                         return Ok(());
                     }
                     // A FUNCTION receiver keeps being a function: the write
@@ -651,13 +603,13 @@ impl FunctionEmitter<'_> {
                     // through to the primitive arm replaced the callable with a
                     // one-property record, so `(f as any).x = 1` lost `f`.
                     if rendered_value.contains(&base_name) {
-                        out.push_str(&format!(
+                        out.push_str(&self.carrier_format(format_args!(
                             "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Array(values) => {{ values.set_named_property({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Function(function) => {{ smelt_set_function_property(function, {field_name:?}, smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n"
-                        ));
+                        )));
                     } else {
-                        out.push_str(&format!(
+                        out.push_str(&self.carrier_format(format_args!(
                             "    match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), {rendered_value}); }}, SmeltUnknown::Array(values) => {{ values.set_named_property({field_name:?}.to_owned(), {rendered_value}); }}, SmeltUnknown::Function(function) => {{ smelt_set_function_property(function, {field_name:?}, {rendered_value}); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), {rendered_value})]))); }} }}\n"
-                        ));
+                        )));
                     }
                     return Ok(());
                 }
@@ -855,7 +807,9 @@ impl FunctionEmitter<'_> {
             Place::Local(_) => {}
         }
 
+        self.binding_uses.take_mut_borrows();
         let rendered_value = self.rvalue_text_for_dest(value, self.place_ty(place)?)?;
+        let value_mut_borrows = self.binding_uses.take_mut_borrows();
         if let Place::Local(local) = place
             && (!self.is_local_declared(*local)
                 || (matches!(self.local_decl(*local)?.kind, LocalKind::Temp)
@@ -876,24 +830,56 @@ impl FunctionEmitter<'_> {
             } else {
                 out.push_str(&format!(
                     "    let {mutability}{name}: {} = {rendered_value};\n",
-                    self.type_text_with_impl_trait(decl.ty, false)?
+                    self.type_text(decl.ty)?
                 ));
             }
             self.mark_local_declared(*local);
             return Ok(());
         }
-        let assignment = self.assignment_place_text(place)?;
-        if assignment == "SmeltUnknown::Null" {
-            out.push_str(&format!("    let _ = {rendered_value};\n"));
-            return Ok(());
-        }
-        if assignment.starts_with("(*smelt_capture_") && rendered_value.contains(&assignment) {
+        let target = self.assignment_place_target(place)?;
+        let assignment = target.text();
+        // The target's guard is taken after the value is evaluated, so a value
+        // that holds its own guard on the same cell has to finish first.
+        if target
+            .guarded_cell()
+            .is_some_and(|cell| value_mut_borrows.contains(&cell.cell))
+        {
             out.push_str(&format!(
                 "    {{ let smelt_next_value = {rendered_value}; {assignment} = smelt_next_value; }}\n"
             ));
             return Ok(());
         }
         out.push_str(&format!("    {assignment} = {rendered_value};\n"));
+        Ok(())
+    }
+
+    /// Opens the loop of a `while` header: a plain `while cond` when the header
+    /// block computes nothing but the condition, or a `loop` that re-runs its
+    /// statements and breaks on the condition when it does.
+    fn open_while_loop(
+        &self,
+        block: &BasicBlock,
+        cond: &str,
+        cond_statement_idx: usize,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        let has_header_work = block
+            .statements
+            .iter()
+            .enumerate()
+            .any(|(idx, _)| idx != cond_statement_idx);
+        if !has_header_work {
+            out.push_str(&format!("    while {cond} {{\n"));
+            return Ok(());
+        }
+        out.push_str("    loop {\n");
+        for statement in &block.statements {
+            self.emit_statement_for_block(block, statement, out)?;
+        }
+        out.push_str(&format!(
+            "    if !({}) {{ break; }}\n",
+            self.truthy_operand_text(&Operand::Copy(Place::Local(self.switch_cond_local(block)?)))?
+        ));
         Ok(())
     }
 
@@ -997,16 +983,19 @@ impl FunctionEmitter<'_> {
                     ));
                     if body_return_ty == self.none_ty {
                         out.push_str("    let _ = smelt_adopted;\n");
+                        self.binding_uses.record_early_return();
                         out.push_str("    return Ok(());\n");
                     } else {
                         let value =
                             self.value_at_type_text("smelt_adopted", item_ty, body_return_ty, &self.render_scope())?;
+                        self.binding_uses.record_early_return();
                         out.push_str(&format!("    return Ok({value});\n"));
                     }
                     return Ok(());
                 }
                 if matches!(self.function.origin, HirOrigin::ClassConstructor { .. }) {
                     if self.function.can_throw {
+                        self.binding_uses.record_early_return();
                         out.push_str(&format!(
                             "    return Ok({});\n",
                             self.operand_text(operand)?
@@ -1027,10 +1016,10 @@ impl FunctionEmitter<'_> {
                     }
                     if self.function.can_throw || self.function.is_async {
                         if self.function.is_generator {
-                            out.push_str(
-                                "    return Ok::<(), Box<dyn std::error::Error>>(());\n",
-                            );
+                            self.binding_uses.record_early_return();
+                            out.push_str(&format!("    return Ok::<(), {ERROR_BOX}>(());\n"));
                         } else {
+                            self.binding_uses.record_early_return();
                             out.push_str("    return Ok(());\n");
                         }
                     } else {
@@ -1049,22 +1038,26 @@ impl FunctionEmitter<'_> {
                         let value = self.default_value(body_return_ty)?;
                         if self.function.is_generator {
                             let return_ty_text =
-                                self.type_text_with_impl_trait(body_return_ty, false)?;
+                                self.type_text(body_return_ty)?;
+                            self.binding_uses.record_early_return();
                             out.push_str(&format!(
-                                "    return Ok::<{return_ty_text}, Box<dyn std::error::Error>>({value});\n"
+                                "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n"
                             ));
                         } else {
+                            self.binding_uses.record_early_return();
                             out.push_str(&format!("    return Ok({value});\n"));
                         }
                     } else {
                         let value = self.value_at_type(operand, body_return_ty)?;
                         if self.function.is_generator {
                             let return_ty_text =
-                                self.type_text_with_impl_trait(body_return_ty, false)?;
+                                self.type_text(body_return_ty)?;
+                            self.binding_uses.record_early_return();
                             out.push_str(&format!(
-                                "    return Ok::<{return_ty_text}, Box<dyn std::error::Error>>({value});\n"
+                                "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n"
                             ));
                         } else {
+                            self.binding_uses.record_early_return();
                             out.push_str(&format!("    return Ok({value});\n"));
                         }
                     }
@@ -1131,12 +1124,7 @@ impl FunctionEmitter<'_> {
                 self.mark_local_declared(dest);
                 return Ok(());
             }
-            let mut call_text = self.call_text(callee, args)?;
-            if args.is_empty() && call_text.ends_with("(Vec::new())") {
-                call_text = format!("{}()", call_text.trim_end_matches("(Vec::new())"));
-            } else if call_text == "(fn_)(Vec::new())" {
-                "(fn_)()".clone_into(&mut call_text);
-            }
+            let call_text = self.call_text(callee, args)?.into_expression();
             out.push_str(&format!("    let _ = {call_text};\n"));
             self.mark_local_declared(dest);
             return Ok(());
@@ -1173,7 +1161,7 @@ impl FunctionEmitter<'_> {
         if matches!(callee, Callee::BaseInit(_)) {
             return Ok("Self".to_owned());
         }
-        self.type_text_with_impl_trait(ty, false)
+        self.type_text(ty)
     }
 
     /// Emits the region reached after a terminator, honoring loop context.
@@ -1288,7 +1276,7 @@ impl FunctionEmitter<'_> {
         } else {
             out.push_str(&format!(
                 "    let {mutability}{name}: {} = {value};\n",
-                self.type_text_with_impl_trait(local.ty, false)?
+                self.type_text(local.ty)?
             ));
         }
         self.mark_local_declared(dest);
@@ -1329,8 +1317,9 @@ impl FunctionEmitter<'_> {
             Continuation::InLoop { .. } => None,
         });
         let arm_continuation = joined_continuation.as_ref().unwrap_or(continuation);
-        let call_text = self.call_text(callee, args)?;
-        let Some(raw_call) = call_text.strip_suffix('?') else {
+        let rendered = self.call_text(callee, args)?;
+        if !rendered.propagates() {
+            let call_text = rendered.into_call();
             out.push_str(&format!(
                 "    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| {call_text})) {{\n"
             ));
@@ -1404,7 +1393,7 @@ impl FunctionEmitter<'_> {
                     }
                     _ => self.default_value(exception_decl.ty)?,
                 };
-                out.push_str(&self.exception_binding_text(exception_local, exception_name, &value));
+                out.push_str(&self.exception_binding_text(exception_local, &exception_name, &value));
                 self.mark_local_declared(exception_local);
             }
             self.emit_continuation(handler.catch_block, arm_continuation, out)?;
@@ -1420,7 +1409,8 @@ impl FunctionEmitter<'_> {
                 declared_before_arms.keep();
             }
             return Ok(());
-        };
+        }
+        let raw_call = rendered.into_call();
         let source_ty = self.call_source_ty(callee)?;
         // Seam 3 (`emitter::seam_assertions`): `__smelt_value` below is the
         // value the EMITTED call produced, and it is coerced from the DECLARED
@@ -1472,7 +1462,7 @@ impl FunctionEmitter<'_> {
             // value a panic-routed throw parked in `SMELT_PANIC_VALUE`, and a
             // class-and-message record only for a panic with no parked value.)
             let value = self.caught_error_value_text(exception_decl.ty, "__smelt_error")?;
-            out.push_str(&self.exception_binding_text(exception_local, exception_name, &value));
+            out.push_str(&self.exception_binding_text(exception_local, &exception_name, &value));
             self.mark_local_declared(exception_local);
         }
         self.emit_continuation(handler.catch_block, arm_continuation, out)?;
@@ -1497,7 +1487,7 @@ impl FunctionEmitter<'_> {
                 }
                 _ => self.default_value(exception_decl.ty)?,
             };
-            out.push_str(&self.exception_binding_text(exception_local, exception_name, &value));
+            out.push_str(&self.exception_binding_text(exception_local, &exception_name, &value));
             self.mark_local_declared(exception_local);
         }
         self.emit_continuation(handler.catch_block, arm_continuation, out)?;
@@ -1578,7 +1568,7 @@ impl FunctionEmitter<'_> {
             let value_text = self.value_at_type_text("__smelt_value", source_ty, local.ty, &self.render_scope())?;
             out.push_str(&format!(
                 "            let {mutability}{name}: {} = {value_text};\n",
-                self.type_text_with_impl_trait(local.ty, false)?
+                self.type_text(local.ty)?
             ));
         }
         self.mark_local_declared(dest);
@@ -1602,7 +1592,7 @@ impl FunctionEmitter<'_> {
             let exception_name = self.local_name(exception_local)?;
             let exception_decl = self.local_decl(exception_local)?;
             let value = self.caught_error_value_text(exception_decl.ty, "__smelt_error")?;
-            out.push_str(&self.exception_binding_text(exception_local, exception_name, &value));
+            out.push_str(&self.exception_binding_text(exception_local, &exception_name, &value));
             self.mark_local_declared(exception_local);
         }
         self.emit_continuation(handler.catch_block, arm_continuation, out)?;
@@ -1708,7 +1698,7 @@ impl FunctionEmitter<'_> {
                 let else_text = self.rvalue_text_for_dest(else_value, local.ty)?;
                 out.push_str(&format!(
                     "    let {name}: {} = if {} {{ {then_text} }} else {{ {else_text} }};\n",
-                    self.type_text_with_impl_trait(local.ty, false)?,
+                    self.type_text(local.ty)?,
                     self.truthy_operand_text(cond)?
                 ));
                 self.mark_local_declared(*then_dest);
@@ -1727,7 +1717,7 @@ impl FunctionEmitter<'_> {
                 let default_text = self.default_value(local.ty)?;
                 out.push_str(&format!(
                     "    let mut {name}: {} = {default_text};\n",
-                    self.type_text_with_impl_trait(local.ty, false)?
+                    self.type_text(local.ty)?
                 ));
                 self.mark_local_declared(then_dest);
                 let branch_declared = self.declared_scope();
@@ -3677,27 +3667,9 @@ impl FunctionEmitter<'_> {
             ) {
                 return Ok(false);
             }
-            let has_header_work = block
-                .statements
-                .iter()
-                .enumerate()
-                .any(|(idx, _)| idx != cond_statement_idx);
             let then = self.block(then_block)?;
             let loop_declared = self.declared_scope();
-            if has_header_work {
-                out.push_str("    loop {\n");
-                for statement in &block.statements {
-                    self.emit_statement_for_block(block, statement, out)?;
-                }
-                out.push_str(&format!(
-                    "    if !({}) {{ break; }}\n",
-                    self.truthy_operand_text(&Operand::Copy(Place::Local(
-                        self.switch_cond_local(block)?
-                    )))?
-                ));
-            } else {
-                out.push_str(&format!("    while {cond} {{\n"));
-            }
+            self.open_while_loop(block, &cond, cond_statement_idx, out)?;
             self.emit_block_until_goto(
                 then,
                 block.id,
@@ -3723,28 +3695,10 @@ impl FunctionEmitter<'_> {
             ) {
                 return Ok(false);
             }
-            let has_header_work = block
-                .statements
-                .iter()
-                .enumerate()
-                .any(|(idx, _)| idx != cond_statement_idx);
             let then = self.block(then_block)?;
             let latch = self.block(latch_block)?;
             let loop_declared = self.declared_scope();
-            if has_header_work {
-                out.push_str("    loop {\n");
-                for statement in &block.statements {
-                    self.emit_statement_for_block(block, statement, out)?;
-                }
-                out.push_str(&format!(
-                    "    if !({}) {{ break; }}\n",
-                    self.truthy_operand_text(&Operand::Copy(Place::Local(
-                        self.switch_cond_local(block)?
-                    )))?
-                ));
-            } else {
-                out.push_str(&format!("    while {cond} {{\n"));
-            }
+            self.open_while_loop(block, &cond, cond_statement_idx, out)?;
             self.emit_block_until_goto(
                 then,
                 latch_block,
@@ -3788,8 +3742,9 @@ impl FunctionEmitter<'_> {
     fn default_return_statement(&self) -> Result<String, EmitError> {
         let value = self.default_value(self.function.return_ty)?;
         if self.function.can_throw {
+            self.binding_uses.record_early_return();
             Ok(format!(
-                "    return Ok::<_, Box<dyn std::error::Error>>({value});\n"
+                "    return Ok::<_, {ERROR_BOX}>({value});\n"
             ))
         } else {
             Ok(format!("    return {value};\n"))

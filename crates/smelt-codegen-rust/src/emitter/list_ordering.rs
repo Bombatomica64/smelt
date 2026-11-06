@@ -180,10 +180,10 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) {
             let item_text = self.extract_value_text("item", *value_ty, &self.render_scope())?;
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "match {}.clone() {{ SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(idx, item)| (idx as i64, {item_text})).collect::<Vec<_>>(), _ => Vec::new() }}",
                 self.operand_text(list)?
-            ));
+            )));
         }
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("enumerate() argument must be a list"));
@@ -326,9 +326,9 @@ impl FunctionEmitter<'_> {
                     "{{ let smelt_needle = {item_text}; {list_text}.iter().position(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).expect(\"list index missing item\") as i64 }}"
                 ));
             }
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "{{ let smelt_needle = {item_text}; {list_text}.iter().position(|item| item.same_js_key(&smelt_needle)).expect(\"list index missing item\") as i64 }}"
-            ));
+            )));
         }
         Ok(format!(
             "{list_text}.iter().position(|item| item == &{item_text}).expect(\"list index missing item\") as i64"
@@ -429,21 +429,21 @@ impl FunctionEmitter<'_> {
                     // A concrete-union `Option` payload projects each present
                     // value back to `SmeltUnknown` before the erased number match.
                     let unwrapped = if self.concrete_union_members(item).is_some() {
-                        format!("{bound_text}.map(|value| value.into_smelt_unknown()).unwrap_or(SmeltUnknown::Null)")
+                        self.carrier_format(format_args!("{bound_text}.map(|value| value.into_smelt_unknown()).unwrap_or(SmeltUnknown::Null)"))
                     } else {
-                        format!("{bound_text}.unwrap_or(SmeltUnknown::Null)")
+                        self.carrier_format(format_args!("{bound_text}.unwrap_or(SmeltUnknown::Null)"))
                     };
-                    format!(
+                    self.carrier_format(format_args!(
                         "match {unwrapped} {{ SmeltUnknown::Number(value) => value, _ => {default_text} }}"
-                    )
+                    ))
                 }
                 _ => bound_text,
             },
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
                 let scrutinee = self.erase_concrete_union_text(&bound_text, bound_ty);
-                format!(
+                self.carrier_format(format_args!(
                     "match {scrutinee} {{ SmeltUnknown::Number(value) => value, _ => {default_text} }}"
-                )
+                ))
             }
             _ => bound_text,
         };

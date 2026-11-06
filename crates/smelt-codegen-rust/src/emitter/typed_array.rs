@@ -19,6 +19,7 @@
 //! statically and shares storage or copies exactly as the spec says.
 
 use super::*;
+use crate::emitter::call::CallText;
 
 impl FunctionEmitter<'_> {
     /// Emit a `new <view>(..)` / `new ArrayBuffer(..)` construction.
@@ -36,7 +37,7 @@ impl FunctionEmitter<'_> {
         // constructor with no element kind at all: the kind arrives with each
         // accessor instead, so the construction takes a window and nothing
         // more. It is asked before the kind lookup because it has none.
-        if class_name == "DataView" {
+        if smelt_stdlib::is_data_view_class(class_name) {
             return self.data_view_new_text(args);
         }
         let Some(kind) = crate::typed_array_prelude::kind_expression(class_name) else {
@@ -197,7 +198,7 @@ impl FunctionEmitter<'_> {
             Some(argument) => format!("(({}) as f64).max(0.0) as usize", self.numeric_operand_text(argument)?),
             None => "0".to_owned(),
         };
-        Ok(format!("SmeltArrayBuffer::{constructor}({byte_length})"))
+        Ok(self.carrier_format(format_args!("SmeltArrayBuffer::{constructor}({byte_length})")))
     }
 
     /// Emit a `DataView` accessor call: `getInt16(0)`, `setFloat64(0, x, true)`.
@@ -224,7 +225,7 @@ impl FunctionEmitter<'_> {
         write: bool,
         element: smelt_stdlib::TypedArrayElement,
         args: &[Operand],
-    ) -> Result<String, EmitError> {
+    ) -> Result<CallText, EmitError> {
         let Some((view, accessor_args)) = args.split_first() else {
             return Err(EmitError::new(
                 "internal: a `DataView` accessor call takes its receiver first",
@@ -265,14 +266,12 @@ impl FunctionEmitter<'_> {
         } else {
             (crate::thrown::DATA_VIEW_GET_FN, crate::thrown::DATA_VIEW_SET_FN)
         };
-        Ok(match value {
+        Ok(CallText::propagating(match value {
             Some(value) => format!(
-                "{set_adapter}(&{view_text}, {kind}, {offset}, {value}, {little_endian})?"
+                "{set_adapter}(&{view_text}, {kind}, {offset}, {value}, {little_endian})"
             ),
-            None => format!(
-                "{get_adapter}(&{view_text}, {kind}, {offset}, {little_endian})?"
-            ),
-        })
+            None => format!("{get_adapter}(&{view_text}, {kind}, {offset}, {little_endian})"),
+        }))
     }
 
     /// Render an operand as an `SmeltArrayBuffer`.
@@ -287,7 +286,7 @@ impl FunctionEmitter<'_> {
         }
         let ty = self.operand_ty(operand)?;
         let erased = self.erase_value_text(&text, ty)?;
-        Ok(format!("SmeltArrayBuffer::smelt_from_unknown({erased})"))
+        Ok(self.carrier_format(format_args!("SmeltArrayBuffer::smelt_from_unknown({erased})")))
     }
 
     /// Render an operand as an `f64`, coercing an erased one at the boundary.

@@ -136,7 +136,7 @@ impl FunctionEmitter<'_> {
             // mechanism came from.
             _ => Err(EmitError::new(format!(
                 "`new Headers(init)` initializer type is not modeled: {} (initializer `{init_text}`)",
-                self.type_text_with_impl_trait(init_ty, false)?,
+                self.type_text(init_ty)?,
             ))),
         }
     }
@@ -271,7 +271,7 @@ impl FunctionEmitter<'_> {
             }
             _ => Err(EmitError::new(format!(
                 "`new URLSearchParams(init)` initializer type is not modeled: {}",
-                self.type_text_with_impl_trait(init_ty, false)?
+                self.type_text(init_ty)?
             ))),
         }
     }
@@ -479,13 +479,13 @@ impl FunctionEmitter<'_> {
             let erased = self.erase(input)?;
             let coerced =
                 self.js_string_coercion_match_text("smelt_input", self.absent_spelling());
-            format!(
+            self.carrier_format(format_args!(
                 "match {erased} {{ \
                  SmeltUnknown::Object(value) if value.contains_key(\"{SMELT_REQUEST}\") => {{ \
                  let smelt_input_request = <SmeltRequest as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(value)); \
                  {source_request} }}, \
                  smelt_input => {{ let smelt_input_url = {coerced}; {source_url} }} }}"
-            )
+            ))
         };
         // `init.signal` does not become the request's signal: the spec makes
         // the request's a DEPENDENT signal that follows the given one, which is
@@ -658,7 +658,7 @@ impl FunctionEmitter<'_> {
             // Same handle-clone-into-the-block shape as `Response::text`; see
             // the comment there for why the receiver is not moved.
             smelt_hir::RequestOp::Text => format!(
-                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(smelt_request.take_text()?) }})) }}"
+                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(smelt_request.take_text()?) }})) }}"
             ),
             // Same `text()` + fallible `JSON.parse` shape as `Response::json`.
             smelt_hir::RequestOp::Json => format!(
@@ -669,15 +669,15 @@ impl FunctionEmitter<'_> {
             // OWN `Content-Type` to the parser: the encoding (and a multipart
             // boundary) is a header, not a property of the bytes.
             smelt_hir::RequestOp::FormData => format!(
-                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_content_type = smelt_request.headers().get(\"content-type\"); Ok::<_, Box<dyn std::error::Error>>(smelt_form_data_from_body(smelt_content_type, smelt_request.body().take_bytes()?)?) }})) }}"
+                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_content_type = smelt_request.headers().get(\"content-type\"); Ok::<_, {ERROR_BOX}>(smelt_form_data_from_body(smelt_content_type, smelt_request.body().take_bytes()?)?) }})) }}"
             ),
             // The two BYTE readers; see the `Response` pair for why they are
             // two members rather than one.
-            smelt_hir::RequestOp::ArrayBuffer => format!(
-                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(SmeltArrayBuffer::from_bytes(smelt_request.body().take_bytes()?)) }})) }}"
-            ),
+            smelt_hir::RequestOp::ArrayBuffer => self.carrier_format(format_args!(
+                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltArrayBuffer::from_bytes(smelt_request.body().take_bytes()?)) }})) }}"
+            )),
             smelt_hir::RequestOp::Bytes => format!(
-                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(SmeltTypedArray::from_bytes(smelt_request.body().take_bytes()?)) }})) }}"
+                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltTypedArray::from_bytes(smelt_request.body().take_bytes()?)) }})) }}"
             ),
         })
     }
@@ -818,10 +818,10 @@ impl FunctionEmitter<'_> {
                 // each is emitted only where that type is, keyed on the same
                 // gate that decides whether it exists at all.
                 let byte_arm = if self.context.demand().has(Need::ByteArray) {
-                    format!(
+                    self.carrier_format(format_args!(
                         "SmeltUnknown::Object(value) if {elements}(&SmeltUnknown::Object(value.clone())).is_some() => SmeltBody::from_bytes(SmeltTypedArray::smelt_from_unknown(SmeltUnknown::Object(value)).to_bytes()), ",
                         elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS,
-                    )
+                    ))
                 } else {
                     String::new()
                 };
@@ -844,16 +844,16 @@ impl FunctionEmitter<'_> {
                 } else {
                     ""
                 };
-                Ok(format!(
+                Ok(self.carrier_format(format_args!(
                     "match {body_text} {{ SmeltUnknown::String(value) => SmeltBody::from_text(&value.to_string()), \
                      SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltBody::empty(), \
                      {byte_arm}{blob_arm}{search_params_arm}{form_data_arm}\
                      value => panic!(\"body arm is not modeled yet: {{value:?}}\") }}"
-                ))
+                )))
             }
             _ => Err(EmitError::new(format!(
                 "body must be a string or null; this `BodyInit` arm is not modeled yet: {}",
-                self.type_text_with_impl_trait(body_ty, false)?
+                self.type_text(body_ty)?
             ))),
         }
     }
@@ -917,7 +917,7 @@ impl FunctionEmitter<'_> {
             // the body through the future is observable on the original, which
             // is exactly what the spec says happens.
             smelt_hir::ResponseOp::Text => format!(
-                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) }})) }}"
+                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(smelt_response.take_text()?) }})) }}"
             ),
             // `json()` is `text()` followed by the fallible `JSON.parse`
             // adapter, so malformed text rejects with the same catchable
@@ -929,16 +929,16 @@ impl FunctionEmitter<'_> {
             // The two BYTE readers, one `take_bytes` apart: storage owns the
             // bytes, a view is an element window over them. Both consume the
             // body, like every other reader.
-            smelt_hir::ResponseOp::ArrayBuffer => format!(
-                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(SmeltArrayBuffer::from_bytes(smelt_response.body().take_bytes()?)) }})) }}"
-            ),
+            smelt_hir::ResponseOp::ArrayBuffer => self.carrier_format(format_args!(
+                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltArrayBuffer::from_bytes(smelt_response.body().take_bytes()?)) }})) }}"
+            )),
             smelt_hir::ResponseOp::Bytes => format!(
-                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(SmeltTypedArray::from_bytes(smelt_response.body().take_bytes()?)) }})) }}"
+                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltTypedArray::from_bytes(smelt_response.body().take_bytes()?)) }})) }}"
             ),
             // Same shape as `Request::formData`; see the comment there for why
             // the parser is handed the header rather than only the bytes.
             smelt_hir::ResponseOp::FormData => format!(
-                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_content_type = smelt_response.headers().get(\"content-type\"); Ok::<_, Box<dyn std::error::Error>>(smelt_form_data_from_body(smelt_content_type, smelt_response.body().take_bytes()?)?) }})) }}"
+                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_content_type = smelt_response.headers().get(\"content-type\"); Ok::<_, {ERROR_BOX}>(smelt_form_data_from_body(smelt_content_type, smelt_response.body().take_bytes()?)?) }})) }}"
             ),
         })
     }
@@ -999,15 +999,15 @@ impl FunctionEmitter<'_> {
         Ok(match op {
             smelt_hir::EventEmitterOp::On | smelt_hir::EventEmitterOp::Once => {
                 let once = matches!(op, smelt_hir::EventEmitterOp::Once);
-                format!(
+                self.carrier_format(format_args!(
                     "{{ let smelt_listener = match {} {{ SmeltUnknown::Function(smelt_function) => smelt_function, _ => ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Undefined)) }}; {receiver}.add(&{event_text}, smelt_listener, {once}) }}",
                     listener(1)?
-                )
+                ))
             }
-            smelt_hir::EventEmitterOp::Off => format!(
+            smelt_hir::EventEmitterOp::Off => self.carrier_format(format_args!(
                 "{{ let smelt_listener = match {} {{ SmeltUnknown::Function(smelt_function) => smelt_function, _ => ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Undefined)) }}; {receiver}.remove(&{event_text}, &smelt_listener) }}",
                 listener(1)?
-            ),
+            )),
             smelt_hir::EventEmitterOp::RemoveAll => {
                 format!("{receiver}.remove_all(&{event_text})")
             }

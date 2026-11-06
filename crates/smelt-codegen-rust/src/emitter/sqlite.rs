@@ -68,9 +68,9 @@ impl FunctionEmitter<'_> {
                         let float_ty = self.type_id(Type::Float)?;
                         let string_ty = self.type_id(Type::String)?;
                         let changes_ty = self.type_id(Type::Dict(string_ty, float_ty))?;
-                        let text = format!(
+                        let text = self.carrier_format(format_args!(
                             "{{ let (smelt_changes, smelt_last_insert_rowid) = {receiver_text}.run(&[{parameters}])?; SmeltRecord::from([(\"changes\".to_owned(), smelt_changes), (\"lastInsertRowid\".to_owned(), smelt_last_insert_rowid)]) }}"
-                        );
+                        ));
                         self.value_at_type_text(&text, changes_ty, dest_ty, &scope)
                     }
                 }

@@ -39,7 +39,7 @@ impl FunctionEmitter<'_> {
                 // An erased needle compares against each element erased to the
                 // runtime `SmeltUnknown` value (JS `Set.prototype.has`).
                 let erased = self.erase_value_text("value.clone()", item_ty)?;
-                format!("{set_text}.iter().any(|value| ({erased}).same_js_key(&smelt_needle))")
+                self.carrier_format(format_args!("{set_text}.iter().any(|value| ({erased}).same_js_key(&smelt_needle))"))
             } else {
                 return Ok("false".to_owned());
             };

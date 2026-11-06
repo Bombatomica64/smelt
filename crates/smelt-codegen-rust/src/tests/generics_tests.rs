@@ -1317,7 +1317,7 @@ fn an_erased_union_return_demotes_the_parameters_with_it() {
     // A union return mentioning `T` has no concrete Rust spelling, so it renders
     // `SmeltUnknown`; the body therefore has to erase its `T` at the return
     // seam, which is exactly what the body-cleanliness trial
-    // (`body_needs_erased_carrier`) demotes a signature for. Parameters, return
+    // (`renders_real_generics`) demotes a signature for. Parameters, return
     // and body all land on the erased ABI, and the call site — which already
     // demotes when the substituted return is not nameable — agrees with them.
     //

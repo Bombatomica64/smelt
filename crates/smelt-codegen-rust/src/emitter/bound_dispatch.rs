@@ -27,7 +27,7 @@ use crate::rust::RustIdent;
 use crate::type_substitution::TypeSubstitution;
 
 /// The error type every generated `Result` carries.
-const ERROR_TYPE: &str = "Box<dyn std::error::Error>";
+const ERROR_TYPE: &str = crate::thrown::ERROR_BOX;
 
 /// Write every planned bound trait and its implementations.
 ///
@@ -232,9 +232,9 @@ impl FunctionEmitter<'_> {
         } else {
             ".unwrap_or_else(|error| smelt_panic_throw(error))"
         };
-        let call = format!(
+        let call = self.carrier_format(format_args!(
             "match smelt_get_unknown_field(&{receiver_text}, {method_name:?}) {{ SmeltUnknown::Function(smelt_method) => (smelt_method)(vec![{erased_args}]){propagate}, _ => SmeltUnknown::Undefined }}"
-        );
+        ));
         // MIR interns `unknown` for every program with a bound member read
         // (`intern_bound_dispatch_carrier_type`).
         let unknown_ty = self.type_id(Type::Unknown)?;

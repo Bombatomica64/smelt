@@ -38,7 +38,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn throw_terminator_text(&self, operand: &Operand) -> Result<String, EmitError> {
         let payload = self.thrown_payload_text(operand)?;
         Ok(format!(
-            "    return Err::<_, Box<dyn std::error::Error>>({payload});\n"
+            "    return Err::<_, {ERROR_BOX}>({payload});\n"
         ))
     }
 
@@ -52,6 +52,7 @@ impl FunctionEmitter<'_> {
     /// through `smelt_throw`, and a program with no erased values keeps the plain
     /// string `std::io::Error` form.
     pub(super) fn thrown_payload_text(&self, operand: &Operand) -> Result<String, EmitError> {
+        let _boundary = self.context.carrier_boundary();
         if !self.context.demand().has(Need::Unknown) {
             return Ok(format!(
                 "std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", {})).into()",

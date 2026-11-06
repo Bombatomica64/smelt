@@ -462,11 +462,7 @@ impl FunctionEmitter<'_> {
             (Type::Tuple(items), None) => Some(items.clone()),
             (Type::Dict(_, value) | Type::JsMap(_, value), _) => Some(vec![*value]),
             (Type::Class { name, args }, Some(field)) => {
-                let (params, fields) = self
-                    .mir
-                    .classes
-                    .iter()
-                    .find(|class| class.name == *name)
+                let (params, fields) = crate::classes::find_class(self.mir, *name)
                     .map(|class| (&class.type_params, &class.fields))
                     .or_else(|| {
                         self.mir
@@ -487,7 +483,7 @@ impl FunctionEmitter<'_> {
                     .map(|def| def.name)
                     .zip(args.iter().copied())
                     .collect();
-                Some(vec![crate::classes::substitute_existing_type(
+                Some(vec![crate::generic_bindings::substitute_existing_type(
                     self.mir,
                     declared,
                     &substitutions,
@@ -499,7 +495,7 @@ impl FunctionEmitter<'_> {
 
     /// Classify one type as the Rust output renders it in this function.
     pub(crate) fn typedness_of(&self, ty: TypeId) -> Typedness {
-        let Ok(text) = self.type_text(ty) else {
+        let Ok(text) = self.signature_type_text(ty) else {
             return Typedness::Erased;
         };
         if mentions_erased(&text) {

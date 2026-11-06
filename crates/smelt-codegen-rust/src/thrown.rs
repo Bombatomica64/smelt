@@ -53,6 +53,12 @@
 use smelt_stdlib::runtime_symbols::markers::SMELT_ERROR;
 
 
+/// The error type of every fallible generated function.
+pub(crate) const ERROR_BOX: &str = "Box<dyn std::error::Error>";
+
+/// The return type of a constructor that can throw.
+pub(crate) const RESULT_SELF: &str = "Result<Self, Box<dyn std::error::Error>>";
+
 /// Name of the generated adapter that enters the error channel.
 ///
 /// `smelt_throw(value: SmeltUnknown) -> Box<dyn std::error::Error>`.

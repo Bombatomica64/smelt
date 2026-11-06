@@ -139,10 +139,10 @@ impl FunctionEmitter<'_> {
         {
             return Ok(bytes_text);
         }
-        Ok(format!(
+        Ok(self.carrier_format(format_args!(
             "SmeltTypedArray::smelt_from_unknown({}).to_bytes()",
             self.erase(data)?
-        ))
+        )))
     }
 
     /// A `CryptoKey` operand as a `SmeltCryptoKey` value: the concrete key, or
@@ -154,7 +154,7 @@ impl FunctionEmitter<'_> {
         {
             return Ok(format!("({}).clone()", self.operand_text(key)?));
         }
-        Ok(format!("SmeltCryptoKey::smelt_from_unknown({})", self.erase(key)?))
+        Ok(self.carrier_format(format_args!("SmeltCryptoKey::smelt_from_unknown({})", self.erase(key)?)))
     }
 
     /// `importKey`'s usages as a `Vec<String>`: a string list is copied, and
@@ -166,10 +166,10 @@ impl FunctionEmitter<'_> {
         {
             return Ok(format!("({}).borrow().clone()", self.operand_text(usages)?));
         }
-        Ok(format!(
+        Ok(self.carrier_format(format_args!(
             "match {} {{ SmeltUnknown::Array(items) => items.into_vec().into_iter().filter_map(|item| match item {{ SmeltUnknown::String(text) => Some(text.to_string()), _ => None }}).collect::<Vec<String>>(), _ => Vec::new() }}",
             self.erase(usages)?
-        ))
+        )))
     }
 
     /// Render the bytes of a concrete union whose every arm is byte-backed.

@@ -66,10 +66,7 @@ pub(crate) fn constructed_class_ty(
     mir: &Mir,
     class: smelt_hir::Symbol,
 ) -> Result<Option<smelt_hir::TypeId>, EmitError> {
-    let Some(constructor) = mir
-        .classes
-        .iter()
-        .find(|candidate| candidate.name == class)
+    let Some(constructor) = crate::classes::find_class(mir, class)
         .and_then(|candidate| candidate.constructor)
     else {
         return Ok(None);

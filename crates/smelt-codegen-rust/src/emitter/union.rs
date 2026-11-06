@@ -40,9 +40,19 @@ impl FunctionEmitter<'_> {
         ty: TypeId,
         substitution: &TypeSubstitution<'_>,
     ) -> Result<String, EmitError> {
+        self.union_rust_type_in(ty, substitution).map(RustType::into_string)
+    }
+
+    /// The generated enum of a concrete union, with its arguments resolved
+    /// through `substitution`.
+    pub(super) fn union_rust_type_in(
+        &self,
+        ty: TypeId,
+        substitution: &TypeSubstitution<'_>,
+    ) -> Result<RustType, EmitError> {
         let params = self.union_type_params(ty)?;
         if params.is_empty() {
-            return Ok(union_name(ty));
+            return Ok(RustType::raw(union_name(ty)));
         }
         let args = params
             .iter()
@@ -52,11 +62,11 @@ impl FunctionEmitter<'_> {
                     .types
                     .lookup(&Type::TypeParam { name: *param })
                     .ok_or_else(|| EmitError::new("union type parameter is not interned"))?;
-                Ok(self.rust_type(param_ty, false, substitution)?.into_string())
+                self.rust_type(param_ty, false, substitution)
             })
-            .collect::<Result<Vec<_>, EmitError>>()?
-            .join(", ");
-        Ok(format!("{}<{args}>", union_name(ty)))
+            .collect::<Result<Vec<_>, EmitError>>()?;
+        let text = args.iter().map(RustType::as_str).collect::<Vec<_>>().join(", ");
+        Ok(RustType::composed(format!("{}<{text}>", union_name(ty)), &args))
     }
 
     /// Spell a concrete union with the generated enum's OWN declared
@@ -102,39 +112,11 @@ impl FunctionEmitter<'_> {
                     params.push(*name);
                 }
             }
-            Type::Optional(item) | Type::List(item) | Type::Set(item) | Type::Future(item) => {
-                self.collect_union_type_params(*item, params)?;
-            }
-            Type::Dict(key, value) | Type::JsMap(key, value) => {
-                self.collect_union_type_params(*key, params)?;
-                self.collect_union_type_params(*value, params)?;
-            }
-            Type::Tuple(items) | Type::Union(items) => {
-                for item in items {
-                    self.collect_union_type_params(*item, params)?;
+            other => {
+                for child in other.children() {
+                    self.collect_union_type_params(child, params)?;
                 }
             }
-            Type::Class { args, .. } => {
-                for arg in args {
-                    self.collect_union_type_params(*arg, params)?;
-                }
-            }
-            Type::Function(function) => {
-                for param in &function.params {
-                    self.collect_union_type_params(*param, params)?;
-                }
-                self.collect_union_type_params(function.return_ty, params)?;
-            }
-            Type::Generator { yield_ty, return_ty, next_ty, .. } => {
-                self.collect_union_type_params(*yield_ty, params)?;
-                self.collect_union_type_params(*return_ty, params)?;
-                self.collect_union_type_params(*next_ty, params)?;
-            }
-            Type::GeneratorResult { yield_ty, return_ty } => {
-                self.collect_union_type_params(*yield_ty, params)?;
-                self.collect_union_type_params(*return_ty, params)?;
-            }
-            Type::Unknown | Type::Never | Type::None | Type::Bool | Type::Int | Type::FixedInt(_) | Type::BigInt | Type::Float | Type::String => {}
         }
         Ok(())
     }
@@ -190,11 +172,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name, args }) = self.mir.types.get(member_ty) else {
             return Err(EmitError::new("union method member must be a class value"));
         };
-        let class = self
-            .mir
-            .classes
-            .iter()
-            .find(|class| class.name == *name)
+        let class = crate::classes::find_class(self.mir, *name)
             .ok_or_else(|| EmitError::new("union method class is not materialized"))?;
         let function = class
             .methods
@@ -208,7 +186,7 @@ impl FunctionEmitter<'_> {
             .zip(args.iter().copied())
             .map(|(param, arg)| (param.name, arg))
             .collect::<HashMap<_, _>>();
-        Ok(self.substitute_type_params_in_type(function.return_ty, &substitutions))
+        Ok(crate::generic_bindings::substitute_existing_type(self.mir, function.return_ty, &substitutions))
     }
 
     /// Return canonical members when a union has fully concrete Rust storage.
@@ -233,22 +211,16 @@ impl FunctionEmitter<'_> {
             // union directly in a union is flattened away by normalization.
             Some(Type::Union(_)) => self.concrete_union_members(ty).is_some(),
             Some(Type::Class { .. }) => !self.is_erased_class_type(ty),
-            Some(Type::List(item) | Type::Set(item) | Type::Future(item)) => {
-                self.union_member_is_concrete(*item)
-            }
-            Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
-                self.union_member_is_concrete(*key) && self.union_member_is_concrete(*value)
-            }
-            Some(Type::Tuple(items)) => items
-                .iter()
-                .all(|item| self.union_member_is_concrete(*item)),
-            Some(Type::Function(function)) => {
-                function
-                    .params
-                    .iter()
-                    .all(|param| self.union_member_is_concrete(*param))
-                    && self.union_member_is_concrete(function.return_ty)
-            }
+            Some(
+                container @ (Type::List(_)
+                | Type::Set(_)
+                | Type::Future(_)
+                | Type::Dict(_, _)
+                | Type::JsMap(_, _)
+                | Type::Tuple(_)
+                | Type::Function(_)
+                | Type::GeneratorResult { .. }),
+            ) => container.children().all(|child| self.union_member_is_concrete(child)),
             Some(Type::Generator {
                 yield_ty,
                 return_ty,
@@ -259,13 +231,6 @@ impl FunctionEmitter<'_> {
                 // The caller-provided `.next(value)` type is not stored in the
                 // generated wrapper, so a dynamic next-input boundary does not
                 // make the generator value itself an erased runtime object.
-            }
-            Some(Type::GeneratorResult {
-                yield_ty,
-                return_ty,
-            }) => {
-                self.union_member_is_concrete(*yield_ty)
-                    && self.union_member_is_concrete(*return_ty)
             }
             Some(Type::Bool | Type::Int | Type::FixedInt(_) | Type::BigInt | Type::Float | Type::String) => true,
             // Nullish unions remain `Option`/erased-boundary work. Keeping them
@@ -299,9 +264,9 @@ impl FunctionEmitter<'_> {
         // A caller that already owns a clone needs no second one; `.clone().clone()`
         // is not what a hand-writing Rust team would produce.
         if value_text.ends_with(".clone()") {
-            return format!("{value_text}.into_smelt_unknown()");
+            return self.carrier_format(format_args!("{value_text}.into_smelt_unknown()"));
         }
-        format!("{value_text}.clone().into_smelt_unknown()")
+        self.carrier_format(format_args!("{value_text}.clone().into_smelt_unknown()"))
     }
 
     /// Wrap a concrete value in the matching variant of a target union.
@@ -569,7 +534,7 @@ impl FunctionEmitter<'_> {
                 .enumerate()
                 .map(|(index, member)| {
                     if *member == awaited {
-                        let awaited_text = self.type_text_with_impl_trait(awaited, false)?;
+                        let awaited_text = self.type_text(awaited)?;
                         Ok(format!(
                             "{source_name}::M{index}(value) => SmeltFuture::<{awaited_text}>::resolved(value)"
                         ))
@@ -757,12 +722,13 @@ impl FunctionEmitter<'_> {
         let Ok(class_name) = self.symbol_name(class) else {
             return false;
         };
+        let rule = smelt_stdlib::instance_of_rule(class_name);
         match self.mir.types.get(member) {
             Some(Type::Class { name, .. }) => self.class_extends_or_equals(*name, class),
-            Some(Type::Future(_)) => class_name == "Promise",
-            Some(Type::List(_) | Type::Tuple(_)) => class_name == "Array",
-            Some(Type::JsMap(_, _)) => class_name == "Map",
-            Some(Type::Set(_)) => class_name == "Set",
+            Some(Type::Future(_)) => rule == Some(smelt_stdlib::InstanceOfRule::Promise),
+            Some(Type::List(_) | Type::Tuple(_)) => rule == Some(smelt_stdlib::InstanceOfRule::Array),
+            Some(Type::JsMap(_, _)) => rule == Some(smelt_stdlib::InstanceOfRule::Map),
+            Some(Type::Set(_)) => rule == Some(smelt_stdlib::InstanceOfRule::Set),
             _ => false,
         }
     }
@@ -860,9 +826,9 @@ impl FunctionEmitter<'_> {
                 continue;
             }
             let member_text = self.rust_type(member, false, substitution)?.into_string();
-            body.push_str(&format!(
+            body.push_str(&self.carrier_format(format_args!(
                 "        if let SmeltUnknown::Object(smelt_host) = &value {{ if let Some(smelt_origin) = smelt_host.smelt_origin::<{member_text}>() {{ return Self::M{index}(smelt_origin); }} }}\n"
-            ));
+            )));
         }
         for (position, &index) in order.iter().enumerate() {
             let Some(&member) = members.get(index) else {
@@ -883,7 +849,7 @@ impl FunctionEmitter<'_> {
                 .any(|param| substitution.spells(*param))
             {
                 let member_text = self.rust_type(member, false, substitution)?.into_string();
-                format!("<{member_text} as SmeltFromUnknown>::smelt_from_unknown(value)")
+                self.carrier_format(format_args!("<{member_text} as SmeltFromUnknown>::smelt_from_unknown(value)"))
             } else {
                 self.extract_value_text("value", member, &self.render_scope())?
             };
@@ -993,9 +959,9 @@ impl FunctionEmitter<'_> {
             return if ambiguous {
                 None
             } else {
-                Some(format!(
+                Some(self.carrier_format(format_args!(
                     "(matches!(&value, SmeltUnknown::Array(smelt_arms) if smelt_arms.len() == {arity}))"
-                ))
+                )))
             };
         }
         let Some(Type::Class { name, .. }) = self.mir.types.get(member) else {
@@ -1004,11 +970,7 @@ impl FunctionEmitter<'_> {
         if let Some(interface) = self.mir.interfaces.iter().find(|interface| interface.name == *name) {
             return self.interface_member_structural_guard(interface, &siblings);
         }
-        let fields = self
-            .mir
-            .classes
-            .iter()
-            .find(|class| class.name == *name)
+        let fields = crate::classes::find_class(self.mir, *name)
             .map(|class| {
                 class
                     .fields
@@ -1025,9 +987,9 @@ impl FunctionEmitter<'_> {
                     .any(|sibling| !self.union_member_has_field(*sibling, field))
             })
             .map(|field| {
-                format!(
+                self.carrier_format(format_args!(
                     "matches!(&value, SmeltUnknown::Object(map) if map.contains_key({field:?}))"
-                )
+                ))
             })
             .collect::<Vec<_>>();
         if distinguishing.is_empty() {
@@ -1083,9 +1045,9 @@ impl FunctionEmitter<'_> {
                         .is_some_and(|other| other.iter().all(|value| !literals.contains(value)))
                 });
             if absent_somewhere {
-                tests.push(format!(
+                tests.push(self.carrier_format(format_args!(
                     "matches!(&value, SmeltUnknown::Object(map) if map.contains_key({key:?}))"
-                ));
+                )));
             }
             if literal_disjoint
                 && let Some(test) = Self::literal_field_test(key, literals)
@@ -1679,11 +1641,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
             return None;
         };
-        let fields = self
-            .mir
-            .classes
-            .iter()
-            .find(|class| class.name == *name)
+        let fields = crate::classes::find_class(self.mir, *name)
             .map(|class| crate::classes::effective_class_fields(self.mir, class))
             .or_else(|| {
                 self.mir
@@ -1766,7 +1724,7 @@ impl FunctionEmitter<'_> {
         if depth > 64 {
             return false;
         }
-        let Some(class) = self.mir.classes.iter().find(|class| class.name == name) else {
+        let Some(class) = crate::classes::find_class(self.mir, name) else {
             return false;
         };
         let named = |symbol: Symbol| self.symbol_name(symbol) == Ok(member);

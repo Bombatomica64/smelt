@@ -151,9 +151,9 @@ impl FunctionEmitter<'_> {
         // adapter, and `smelt-unknown-report` classifies it by the
         // `fn __smelt_get_callable_field(` marker (see its
         // `live_callable_field_getter_is_a_boundary` test).
-        Ok(format!(
+        Ok(self.carrier_format(format_args!(
             "    /// The live value of a callable own field, for a read through this instance's erased view.\n    #[allow(dead_code, unreachable_patterns)]\n    fn {GET_CALLABLE_METHOD}(&self, key: &str) -> SmeltUnknown {{ match key {{ {arms}_ => SmeltUnknown::Undefined }} }}\n"
-        ))
+        )))
     }
 
     /// Render the `__smelt_set_field` method of one reference class.
@@ -201,8 +201,8 @@ impl FunctionEmitter<'_> {
                 }
             ));
         }
-        Ok(format!(
+        Ok(self.carrier_format(format_args!(
             "    /// Assign an own-property field from a write through this instance's erased view.\n    #[allow(dead_code, unreachable_patterns)]\n    fn {SET_FIELD_METHOD}(&self, key: &str, value: SmeltUnknown) {{\n        match key {{\n{arms}            _ => {{ let _ = value; }}\n        }}\n    }}\n"
-        ))
+        )))
     }
 }
