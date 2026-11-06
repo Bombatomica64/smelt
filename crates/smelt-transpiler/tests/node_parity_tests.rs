@@ -94,6 +94,12 @@ fn parameter_shadows_module_const() -> TestResult {
     verify_node_parity("parameter_shadows_module_const")
 }
 
+/// `replace` substitutes ToString of the replacer's answer.
+#[test]
+fn replace_callback_tostring() -> TestResult {
+    verify_node_parity("replace_callback_tostring")
+}
+
 /// Array-valued ternary arms join instead of one adopting the other's type.
 #[test]
 fn conditional_list_arms() -> TestResult {
