@@ -1,6 +1,7 @@
 //! HIR types: the `Type` enum, `FunctionType`, and the `TypeInterner` that
 //! hands out `TypeId`s for them.
 
+use elsa::FrozenVec;
 use serde::{Deserialize, Serialize};
 
 use crate::UnknownKind;
@@ -345,18 +346,46 @@ pub struct TypeInterner {
     /// answers exactly the id the scan found (the first, and only, equal type).
     #[serde(skip)]
     index: std::collections::HashMap<Type, TypeId>,
+    /// Types first asked for after lowering, by a consumer holding `&self`.
+    ///
+    /// Append-only, with ids that continue past `types`, so no existing id
+    /// changes meaning. [`Self::all`] and [`Self::lookup`] deliberately do not
+    /// see them: what the PROGRAM spells is a fixed set, and the backend's
+    /// decisions about it must not depend on the order it renders in.
+    #[serde(skip)]
+    late: LateTypes,
+}
+
+/// The append-only tail of a [`TypeInterner`].
+#[derive(Default, Clone)]
+struct LateTypes(FrozenVec<Box<Type>>);
+
+impl std::fmt::Debug for LateTypes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "LateTypes({})", self.0.len())
+    }
+}
+
+/// `ty` in its interned form: union members in canonical order, deduplicated.
+fn canonical(mut ty: Type) -> Type {
+    if let Type::Union(items) = &mut ty {
+        items.sort_unstable_by_key(|item| item.0);
+        items.dedup();
+    }
+    ty
 }
 
 impl TypeInterner {
     /// Returns the `TypeId` for `ty`, inserting it if needed.
     pub fn intern(&mut self, mut ty: Type) -> TypeId {
+        debug_assert!(
+            self.late.0.is_empty(),
+            "late ids continue past `types`, so interning has to finish first"
+        );
         // Union identity must not depend on source spelling order. Besides
         // deduplicating equivalent types, canonical member order gives Rust
         // codegen one stable tagged-enum definition for `A | B` and `B | A`.
-        if let Type::Union(items) = &mut ty {
-            items.sort_unstable_by_key(|item| item.0);
-            items.dedup();
-        }
+        ty = canonical(ty);
         if self.index.len() != self.types.len() {
             // First occurrence wins, as the scan did, should a deserialized
             // table ever carry a duplicate.
@@ -401,10 +430,34 @@ impl TypeInterner {
             .map(|idx| TypeId(id_index(idx)))
     }
 
+    /// Returns the id of `ty` through a shared reference, adding it if the
+    /// program does not spell it.
+    ///
+    /// This is what lets codegen, which holds `&Mir`, name a type it derives
+    /// (the answer type of an operation, a substituted field) without lowering
+    /// having to predict it.
+    #[must_use]
+    pub fn intern_late(&self, ty: Type) -> TypeId {
+        if let Some(id) = self.lookup(&ty) {
+            return id;
+        }
+        let ty = canonical(ty);
+        let late = &self.late.0;
+        let existing = (0..late.len()).find(|&index| late.get(index) == Some(&ty));
+        let index = existing.unwrap_or_else(|| {
+            late.push(Box::new(ty));
+            late.len() - 1
+        });
+        TypeId(id_index(self.types.len() + index))
+    }
+
     #[must_use]
     /// Looks up a type by ID.
     pub fn get(&self, id: TypeId) -> Option<&Type> {
-        self.types.get(id.0 as usize)
+        let index = id.0 as usize;
+        self.types
+            .get(index)
+            .or_else(|| self.late.0.get(index.checked_sub(self.types.len())?))
     }
 
     #[must_use]
@@ -417,6 +470,18 @@ impl TypeInterner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_late_type_extends_the_table_without_changing_what_it_spells() {
+        let mut types = TypeInterner::default();
+        let string = types.intern(Type::String);
+        let late = types.intern_late(Type::Float);
+        assert_eq!(types.intern_late(Type::String), string);
+        assert_eq!(types.intern_late(Type::Float), late);
+        assert_eq!(types.get(late), Some(&Type::Float));
+        assert_eq!(types.all(), [Type::String].as_slice());
+        assert_eq!(types.lookup(&Type::Float), None);
+    }
 
     #[test]
     fn canonicalizes_union_member_order() {

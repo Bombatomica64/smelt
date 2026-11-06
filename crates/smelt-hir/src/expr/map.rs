@@ -37,1127 +37,154 @@ fn map_opt<E>(
     item.map(f).transpose()
 }
 
-impl ExprKind {
-    /// Rebuild this expression kind with each direct child [`ExprId`] mapped
-    /// through `f`, leaving all other payload (operators, symbols, types,
-    /// bodies, blocks, locals) unchanged.
-    ///
-    /// # Errors
-    ///
-    /// Returns the first error produced by `f`; no partial mapping is
-    /// observable because the kind is rebuilt by value.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive match over every ExprKind variant is intentionally one function"
-    )]
-    pub fn try_map_child_exprs<E>(
-        self,
-        f: &mut impl FnMut(ExprId) -> Result<ExprId, E>,
-    ) -> Result<Self, E> {
-        Ok(match self {
-            // Leaf kinds without direct child expression IDs. `Closure` and
-            // `Lambda` reference crate-global bodies; `Local` and `Block`
-            // reference body-local arenas that this shallow mapper preserves.
-            kind @ (Self::Literal(_)
-            | Self::Local(_)
-            | Self::Item(_)
-            | Self::GlobalGet { .. }
-            | Self::Closure(_)
-            | Self::NumericRandom
-            | Self::DateNow
-            | Self::DateResetNow
-            | Self::VitestRestoreAllMocks
-            | Self::DateTimezoneOffset
-            | Self::DateResetTimezoneOffset
-            | Self::Block(_)
-            | Self::Lambda { .. }) => kind,
-            Self::Call { callee, args } => Self::Call {
-                callee: f(callee)?,
-                args: map_vec(args, f)?,
-            },
-            Self::GeneratorYield { value } => Self::GeneratorYield { value: f(value)? },
-            Self::GeneratorNext {
-                generator,
-                value,
-                kind,
-            } => Self::GeneratorNext {
-                generator: f(generator)?,
-                value: value.map(&mut *f).transpose()?,
-                kind,
-            },
-            Self::GeneratorDone { result } => Self::GeneratorDone { result: f(result)? },
-            Self::GeneratorValue { result } => Self::GeneratorValue { result: f(result)? },
-            Self::GeneratorDelegate { generator } => Self::GeneratorDelegate {
-                generator: f(generator)?,
-            },
-            Self::ThisRead => Self::ThisRead,
-            Self::BindThis { callee, receiver } => Self::BindThis {
-                callee: f(callee)?,
-                receiver: f(receiver)?,
-            },
-            Self::ClosureCall { callee, args } => Self::ClosureCall {
-                callee: f(callee)?,
-                args: map_vec(args, f)?,
-            },
-            Self::Construct { callee, args } => Self::Construct {
-                callee: f(callee)?,
-                args: map_vec(args, f)?,
-            },
-            Self::ClosureCallSpread { callee, args } => Self::ClosureCallSpread {
-                callee: f(callee)?,
-                args: f(args)?,
-            },
-            Self::Method {
-                receiver,
-                method,
-                args,
-            } => Self::Method {
-                receiver: f(receiver)?,
-                method,
-                args: map_vec(args, f)?,
-            },
-            Self::Field { receiver, field } => Self::Field {
-                receiver: f(receiver)?,
-                field,
-            },
-            Self::OptionalField { receiver, field } => Self::OptionalField {
-                receiver: f(receiver)?,
-                field,
-            },
-            Self::Index { receiver, index } => Self::Index {
-                receiver: f(receiver)?,
-                index: f(index)?,
-            },
-            Self::OptionalIndex { receiver, index } => Self::OptionalIndex {
-                receiver: f(receiver)?,
-                index: f(index)?,
-            },
-            Self::OptionalMethod {
-                receiver,
-                method,
-                args,
-            } => Self::OptionalMethod {
-                receiver: f(receiver)?,
-                method,
-                args: map_vec(args, f)?,
-            },
-            Self::OptionalCoalesce { optional, fallback } => Self::OptionalCoalesce {
-                optional: f(optional)?,
-                fallback: f(fallback)?,
-            },
-            Self::GlobalSet { item, value } => Self::GlobalSet {
-                item,
-                value: f(value)?,
-            },
-            Self::TypeAssert { value } => Self::TypeAssert { value: f(value)? },
-            Self::Len { operand } => Self::Len {
-                operand: f(operand)?,
-            },
-            Self::NumericAbs { operand } => Self::NumericAbs {
-                operand: f(operand)?,
-            },
-            Self::NumericRound { op, operand } => Self::NumericRound {
-                op,
-                operand: f(operand)?,
-            },
-            Self::NumericExtrema { op, args, spread } => Self::NumericExtrema {
-                op,
-                args: map_vec(args, f)?,
-                spread: map_opt(spread, f)?,
-            },
-            Self::NumericHypot { args } => Self::NumericHypot {
-                args: map_vec(args, f)?,
-            },
-            Self::NumericPredicate { op, operand } => Self::NumericPredicate {
-                op,
-                operand: f(operand)?,
-            },
-            Self::NumericUnaryFunc { op, operand } => Self::NumericUnaryFunc {
-                op,
-                operand: f(operand)?,
-            },
-            Self::NumericPow { base, exponent } => Self::NumericPow {
-                base: f(base)?,
-                exponent: f(exponent)?,
-            },
-            Self::NumericAtan2 { y, x } => Self::NumericAtan2 { y: f(y)?, x: f(x)? },
-            Self::NumericRandomInt { start, end } => Self::NumericRandomInt {
-                start: f(start)?,
-                end: f(end)?,
-            },
-            Self::NumericToStringRadix { operand, radix } => Self::NumericToStringRadix {
-                operand: f(operand)?,
-                radix: f(radix)?,
-            },
-            Self::NumericToFixed { operand, digits } => Self::NumericToFixed {
-                operand: f(operand)?,
-                digits: f(digits)?,
-            },
-            Self::ParseIntRadix { operand, radix } => Self::ParseIntRadix {
-                operand: f(operand)?,
-                radix: f(radix)?,
-            },
-            Self::PrimitiveCast { op, operand } => Self::PrimitiveCast {
-                op,
-                operand: f(operand)?,
-            },
-            Self::StringCase { op, operand } => Self::StringCase {
-                op,
-                operand: f(operand)?,
-            },
-            Self::StringNormalize { form, operand } => Self::StringNormalize {
-                form,
-                operand: f(operand)?,
-            },
-            Self::UriTranscode { op, operand } => Self::UriTranscode {
-                op,
-                operand: f(operand)?,
-            },
-            Self::ObjectToStringTag { operand } => Self::ObjectToStringTag {
-                operand: f(operand)?,
-            },
-            Self::StructuredClone { operand } => Self::StructuredClone {
-                operand: f(operand)?,
-            },
-            Self::StringTrim { side, operand } => Self::StringTrim {
-                side,
-                operand: f(operand)?,
-            },
-            Self::StringLocaleCompare { left, right } => Self::StringLocaleCompare {
-                left: f(left)?,
-                right: f(right)?,
-            },
-            Self::StringAffix {
-                op,
-                haystack,
-                needle,
-            } => Self::StringAffix {
-                op,
-                haystack: f(haystack)?,
-                needle: f(needle)?,
-            },
-            Self::StringSearch {
-                op,
-                haystack,
-                needle,
-                from_index,
-            } => Self::StringSearch {
-                op,
-                haystack: f(haystack)?,
-                needle: f(needle)?,
-                from_index: map_opt(from_index, f)?,
-            },
-            Self::StringReplace {
-                op,
-                haystack,
-                pattern,
-                replacement,
-            } => Self::StringReplace {
-                op,
-                haystack: f(haystack)?,
-                pattern: f(pattern)?,
-                replacement: f(replacement)?,
-            },
-            Self::StringRemoveAffix {
-                op,
-                haystack,
-                affix,
-            } => Self::StringRemoveAffix {
-                op,
-                haystack: f(haystack)?,
-                affix: f(affix)?,
-            },
-            Self::StringRepeat { operand, count } => Self::StringRepeat {
-                operand: f(operand)?,
-                count: f(count)?,
-            },
-            Self::StringPad {
-                op,
-                operand,
-                target_len,
-                pad,
-            } => Self::StringPad {
-                op,
-                operand: f(operand)?,
-                target_len: f(target_len)?,
-                pad: f(pad)?,
-            },
-            Self::StringPredicate { op, operand } => Self::StringPredicate {
-                op,
-                operand: f(operand)?,
-            },
-            Self::RegexIsMatch {
-                op,
-                pattern,
-                haystack,
-            } => Self::RegexIsMatch {
-                op,
-                pattern: f(pattern)?,
-                haystack: f(haystack)?,
-            },
-            Self::RegexReplace {
-                op,
-                pattern,
-                haystack,
-                replacement,
-            } => Self::RegexReplace {
-                op,
-                pattern: f(pattern)?,
-                haystack: f(haystack)?,
-                replacement: f(replacement)?,
-            },
-            Self::RegexReplaceCallback {
-                op,
-                pattern,
-                haystack,
-                callback,
-                args,
-            } => Self::RegexReplaceCallback {
-                op,
-                pattern: f(pattern)?,
-                haystack: f(haystack)?,
-                callback: f(callback)?,
-                args,
-            },
-            Self::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
-                Self::RegexReplaceFirstMatchUppercase {
-                    pattern: f(pattern)?,
-                    haystack: f(haystack)?,
-                }
-            }
-            Self::RegexSplit { pattern, haystack } => Self::RegexSplit {
-                pattern: f(pattern)?,
-                haystack: f(haystack)?,
-            },
-            Self::RegexFind { pattern, haystack } => Self::RegexFind {
-                pattern: f(pattern)?,
-                haystack: f(haystack)?,
-            },
-            Self::RegexTest { regex, haystack } => Self::RegexTest {
-                regex: f(regex)?,
-                haystack: f(haystack)?,
-            },
-            Self::RegexExec { regex, haystack } => Self::RegexExec {
-                regex: f(regex)?,
-                haystack: f(haystack)?,
-            },
-            Self::RegexMatchAll { regex, haystack } => Self::RegexMatchAll {
-                regex: f(regex)?,
-                haystack: f(haystack)?,
-            },
-            Self::StringCharAt { operand, index } => Self::StringCharAt {
-                operand: f(operand)?,
-                index: f(index)?,
-            },
-            Self::StringCharCodeAt { operand, index } => Self::StringCharCodeAt {
-                operand: f(operand)?,
-                index: f(index)?,
-            },
-            Self::StringContains {
-                haystack,
-                needle,
-                from_index,
-            } => Self::StringContains {
-                haystack: f(haystack)?,
-                needle: f(needle)?,
-                from_index: map_opt(from_index, f)?,
-            },
-            Self::StringSlice {
-                operand,
-                start,
-                end,
-            } => Self::StringSlice {
-                operand: f(operand)?,
-                start: map_opt(start, f)?,
-                end: map_opt(end, f)?,
-            },
-            Self::ListContains { list, item } => Self::ListContains {
-                list: f(list)?,
-                item: f(item)?,
-            },
-            Self::SetContains { set, item } => Self::SetContains {
-                set: f(set)?,
-                item: f(item)?,
-            },
-            Self::SetDisjoint { left, right } => Self::SetDisjoint {
-                left: f(left)?,
-                right: f(right)?,
-            },
-            Self::SetRelation { op, left, right } => Self::SetRelation {
-                op,
-                left: f(left)?,
-                right: f(right)?,
-            },
-            Self::SetAdd { set, item } => Self::SetAdd {
-                set: f(set)?,
-                item: f(item)?,
-            },
-            Self::SetRemove { op, set, item } => Self::SetRemove {
-                op,
-                set: f(set)?,
-                item: f(item)?,
-            },
-            Self::SetClear { set } => Self::SetClear { set: f(set)? },
-            Self::SetCopy { set } => Self::SetCopy { set: f(set)? },
-            Self::SetBinary { op, left, right } => Self::SetBinary {
-                op,
-                left: f(left)?,
-                right: f(right)?,
-            },
-            Self::SetProjection { op, set } => Self::SetProjection { op, set: f(set)? },
-            Self::EventEmitterNew => Self::EventEmitterNew,
-            Self::ProcessEnvRead { name } => Self::ProcessEnvRead { name },
-            Self::EventEmitterOp { op, emitter, args } => {
-                let emitter = f(emitter)?;
-                let mut mapped = Vec::with_capacity(args.len());
-                for arg in args {
-                    mapped.push(f(arg)?);
-                }
-                Self::EventEmitterOp {
-                    op,
-                    emitter,
-                    args: mapped,
-                }
-            }
-            Self::HttpCreateServer { handler } => Self::HttpCreateServer {
-                handler: f(handler)?,
-            },
-            Self::HttpCreateFetchServer { fetch } => Self::HttpCreateFetchServer { fetch: f(fetch)? },
-            Self::SqliteOpen { path } => Self::SqliteOpen { path: f(path)? },
-            Self::SqliteOp { op, receiver, args } => {
-                let receiver = f(receiver)?;
-                let mut mapped = Vec::with_capacity(args.len());
-                for arg in args {
-                    mapped.push(f(arg)?);
-                }
-                Self::SqliteOp { op, receiver, args: mapped }
-            }
-            Self::HttpServerOp { op, server, args } => {
-                let server = f(server)?;
-                let mut mapped = Vec::with_capacity(args.len());
-                for arg in args {
-                    mapped.push(f(arg)?);
-                }
-                Self::HttpServerOp {
-                    op,
-                    server,
-                    args: mapped,
-                }
-            }
-            Self::IncomingMessageOp { op, message } => Self::IncomingMessageOp {
-                op,
-                message: f(message)?,
-            },
-            Self::ServerResponseOp { op, response, args } => {
-                let response = f(response)?;
-                let mut mapped = Vec::with_capacity(args.len());
-                for arg in args {
-                    mapped.push(f(arg)?);
-                }
-                Self::ServerResponseOp {
-                    op,
-                    response,
-                    args: mapped,
-                }
-            }
-            Self::RequestNew {
-                input,
-                method,
-                headers,
-                body,
-                signal,
-                init_members,
-            } => Self::RequestNew {
-                init_members: {
-                    let mut mapped = Vec::with_capacity(init_members.len());
-                    for (member, value) in init_members {
-                        mapped.push((member, f(value)?));
-                    }
-                    mapped
-                },
-                input: f(input)?,
-                method: match method {
-                    Some(method) => Some(f(method)?),
-                    None => None,
-                },
-                headers: match headers {
-                    Some(headers) => Some(f(headers)?),
-                    None => None,
-                },
-                body: match body {
-                    Some(body) => Some(f(body)?),
-                    None => None,
-                },
-                signal: match signal {
-                    Some(signal) => Some(f(signal)?),
-                    None => None,
-                },
-            },
-            Self::RequestOp { op, request, args } => {
-                let request = f(request)?;
-                let mut mapped = Vec::with_capacity(args.len());
-                for arg in args {
-                    mapped.push(f(arg)?);
-                }
-                Self::RequestOp {
-                    op,
-                    request,
-                    args: mapped,
-                }
-            }
-            Self::ResponseNew {
-                body,
-                status,
-                status_text,
-                headers,
-            } => Self::ResponseNew {
-                body: match body {
-                    Some(body) => Some(f(body)?),
-                    None => None,
-                },
-                status: match status {
-                    Some(status) => Some(f(status)?),
-                    None => None,
-                },
-                status_text: match status_text {
-                    Some(status_text) => Some(f(status_text)?),
-                    None => None,
-                },
-                headers: match headers {
-                    Some(headers) => Some(f(headers)?),
-                    None => None,
-                },
-            },
-            Self::ResponseOp { op, response, args } => {
-                let response = f(response)?;
-                let mut mapped = Vec::with_capacity(args.len());
-                for arg in args {
-                    mapped.push(f(arg)?);
-                }
-                Self::ResponseOp {
-                    op,
-                    response,
-                    args: mapped,
-                }
-            }
-            Self::TextEncoderNew => Self::TextEncoderNew,
-            Self::TextDecoderNew { label } => Self::TextDecoderNew {
-                label: match label {
-                    Some(label) => Some(f(label)?),
-                    None => None,
-                },
-            },
-            Self::TextEncoderOp { op, encoder, args } => {
-                let encoder = f(encoder)?;
-                let mut mapped = Vec::with_capacity(args.len());
-                for arg in args {
-                    mapped.push(f(arg)?);
-                }
-                Self::TextEncoderOp {
-                    op,
-                    encoder,
-                    args: mapped,
-                }
-            }
-            Self::TextDecoderOp { op, decoder, args } => {
-                let decoder = f(decoder)?;
-                let mut mapped = Vec::with_capacity(args.len());
-                for arg in args {
-                    mapped.push(f(arg)?);
-                }
-                Self::TextDecoderOp {
-                    op,
-                    decoder,
-                    args: mapped,
-                }
-            }
-            Self::Base64Transcode { op, operand } => Self::Base64Transcode {
-                op,
-                operand: f(operand)?,
-            },
-            Self::GlobalObject => Self::GlobalObject,
-            Self::HostModuleCall { op, args } => {
-                let mut mapped = Vec::with_capacity(args.len());
-                for arg in args {
-                    mapped.push(f(arg)?);
-                }
-                Self::HostModuleCall { op, args: mapped }
-            }
-            Self::RegExpCompile { pattern, flags } => Self::RegExpCompile {
-                pattern: f(pattern)?,
-                flags: f(flags)?,
-            },
-            Self::TypedArrayNew { class_name, args } => {
-                let mut mapped = Vec::with_capacity(args.len());
-                for arg in args {
-                    mapped.push(f(arg)?);
-                }
-                Self::TypedArrayNew {
-                    class_name,
-                    args: mapped,
-                }
-            }
-            Self::DataViewAccess {
-                write,
-                element,
-                view,
-                args,
-            } => {
-                let view = f(view)?;
-                let mut mapped = Vec::with_capacity(args.len());
-                for arg in args {
-                    mapped.push(f(arg)?);
-                }
-                Self::DataViewAccess {
-                    write,
-                    element,
-                    view,
-                    args: mapped,
-                }
-            }
-            Self::BigIntCall { op, args } => {
-                let mut mapped = Vec::with_capacity(args.len());
-                for arg in args {
-                    mapped.push(f(arg)?);
-                }
-                Self::BigIntCall { op, args: mapped }
-            }
-            Self::ByteArrayOp { op, bytes, args } => {
-                let bytes = f(bytes)?;
-                let mut mapped = Vec::with_capacity(args.len());
-                for arg in args {
-                    mapped.push(f(arg)?);
-                }
-                Self::ByteArrayOp {
-                    op,
-                    bytes,
-                    args: mapped,
-                }
-            }
-            Self::FormDataNew => Self::FormDataNew,
-            Self::AbortSignalOp { op, args } => {
-                let mut mapped = Vec::with_capacity(args.len());
-                for arg in args {
-                    mapped.push(f(arg)?);
-                }
-                Self::AbortSignalOp { op, args: mapped }
-            }
-            Self::CryptoOp { op, args } => {
-                let mut mapped = Vec::with_capacity(args.len());
-                for arg in args {
-                    mapped.push(f(arg)?);
-                }
-                Self::CryptoOp { op, args: mapped }
-            }
-            Self::FormDataOp { op, form, args } => {
-                let form = f(form)?;
-                let mut mapped = Vec::with_capacity(args.len());
-                for arg in args {
-                    mapped.push(f(arg)?);
-                }
-                Self::FormDataOp {
-                    op,
-                    form,
-                    args: mapped,
-                }
-            }
-            Self::UrlSearchParamsNew { init } => Self::UrlSearchParamsNew {
-                init: match init {
-                    Some(init) => Some(f(init)?),
-                    None => None,
-                },
-            },
-            Self::UrlNew { input, base } => Self::UrlNew {
-                input: f(input)?,
-                base: match base {
-                    Some(base) => Some(f(base)?),
-                    None => None,
-                },
-            },
-            Self::UrlOp { op, url, args } => {
-                let url = f(url)?;
-                let mut mapped = Vec::with_capacity(args.len());
-                for arg in args {
-                    mapped.push(f(arg)?);
-                }
-                Self::UrlOp {
-                    op,
-                    url,
-                    args: mapped,
-                }
-            }
-            Self::UrlSearchParamsOp { op, params, args } => {
-                let params = f(params)?;
-                let mut mapped = Vec::with_capacity(args.len());
-                for arg in args {
-                    mapped.push(f(arg)?);
-                }
-                Self::UrlSearchParamsOp {
-                    op,
-                    params,
-                    args: mapped,
-                }
-            }
-            Self::HeadersNew { init } => Self::HeadersNew {
-                init: match init {
-                    Some(init) => Some(f(init)?),
-                    None => None,
-                },
-            },
-            Self::HeadersOp { op, headers, args } => {
-                let headers = f(headers)?;
-                let mut mapped = Vec::with_capacity(args.len());
-                for arg in args {
-                    mapped.push(f(arg)?);
-                }
-                Self::HeadersOp {
-                    op,
-                    headers,
-                    args: mapped,
-                }
-            }
-            Self::ListConcat { left, right } => Self::ListConcat {
-                left: f(left)?,
-                right: f(right)?,
-            },
-            Self::ConcatSpread { value } => Self::ConcatSpread { value: f(value)? },
-            Self::ListSearch {
-                op,
-                list,
-                item,
-                from_index,
-            } => Self::ListSearch {
-                op,
-                list: f(list)?,
-                item: f(item)?,
-                from_index: map_opt(from_index, f)?,
-            },
-            Self::ListCallback { op, list, callback } => Self::ListCallback {
-                op,
-                list: f(list)?,
-                callback: f(callback)?,
-            },
-            Self::ListFromLength { length } => Self::ListFromLength { length: f(length)? },
-            Self::ListFromLengthMap { length, callback } => Self::ListFromLengthMap {
-                length: f(length)?,
-                callback: f(callback)?,
-            },
-            Self::ListReduce {
-                list,
-                initial,
-                callback,
-                from_right,
-            } => Self::ListReduce {
-                list: f(list)?,
-                initial: map_opt(initial, f)?,
-                callback: f(callback)?,
-                from_right,
-            },
-            Self::ListSlice { list, start, end } => Self::ListSlice {
-                list: f(list)?,
-                start: map_opt(start, f)?,
-                end: map_opt(end, f)?,
-            },
-            Self::ListSplice {
-                list,
-                start,
-                delete_count,
-                items,
-                mutate,
-            } => Self::ListSplice {
-                list: f(list)?,
-                start: f(start)?,
-                delete_count: map_opt(delete_count, f)?,
-                items: items
-                    .into_iter()
-                    .map(|item| {
-                        Ok(ListSpliceItem {
-                            value: f(item.value)?,
-                            spread: item.spread,
-                        })
-                    })
-                    .collect::<Result<Vec<_>, E>>()?,
-                mutate,
-            },
-            Self::ListFill {
-                list,
-                value,
-                start,
-                end,
-            } => Self::ListFill {
-                list: f(list)?,
-                value: f(value)?,
-                start: map_opt(start, f)?,
-                end: map_opt(end, f)?,
-            },
-            Self::ListCopyWithin {
-                list,
-                target,
-                start,
-                end,
-            } => Self::ListCopyWithin {
-                list: f(list)?,
-                target: f(target)?,
-                start: f(start)?,
-                end: map_opt(end, f)?,
-            },
-            Self::ListWith { list, index, value } => Self::ListWith {
-                list: f(list)?,
-                index: f(index)?,
-                value: f(value)?,
-            },
-            Self::ListFlat { list, depth } => Self::ListFlat {
-                list: f(list)?,
-                depth: map_opt(depth, f)?,
-            },
-            Self::ListProjection { op, list } => Self::ListProjection { op, list: f(list)? },
-            Self::ListPush { list, item } => Self::ListPush {
-                list: f(list)?,
-                item: f(item)?,
-            },
-            Self::ListExtend { list, other } => Self::ListExtend {
-                list: f(list)?,
-                other: f(other)?,
-            },
-            Self::ListInsert { list, index, item } => Self::ListInsert {
-                list: f(list)?,
-                index: f(index)?,
-                item: f(item)?,
-            },
-            Self::ListUnshift { list, items } => Self::ListUnshift {
-                list: f(list)?,
-                items: map_vec(items, f)?,
-            },
-            Self::ListReverse { list } => Self::ListReverse { list: f(list)? },
-            Self::ListClear { list } => Self::ListClear { list: f(list)? },
-            Self::ListCopy { list } => Self::ListCopy { list: f(list)? },
-            Self::ListCount { list, item } => Self::ListCount {
-                list: f(list)?,
-                item: f(item)?,
-            },
-            Self::ListSum { list } => Self::ListSum { list: f(list)? },
-            Self::ListBoolFold { op, list } => Self::ListBoolFold { op, list: f(list)? },
-            Self::ListSorted { list, key, reverse } => Self::ListSorted {
-                list: f(list)?,
-                key: map_opt(key, f)?,
-                reverse,
-            },
-            Self::ListReversed { list } => Self::ListReversed { list: f(list)? },
-            Self::ListEnumerate { list } => Self::ListEnumerate { list: f(list)? },
-            Self::ListZip { left, right } => Self::ListZip {
-                left: f(left)?,
-                right: f(right)?,
-            },
-            Self::ListRange { start, end, step } => Self::ListRange {
-                start: f(start)?,
-                end: f(end)?,
-                step: f(step)?,
-            },
-            Self::ListRandomChoice { list } => Self::ListRandomChoice { list: f(list)? },
-            Self::ListIndex { list, item } => Self::ListIndex {
-                list: f(list)?,
-                item: f(item)?,
-            },
-            Self::ListRemove { list, item } => Self::ListRemove {
-                list: f(list)?,
-                item: f(item)?,
-            },
-            Self::ListSort {
-                list,
-                comparator,
-                key,
-                reverse,
-            } => Self::ListSort {
-                list: f(list)?,
-                comparator: map_opt(comparator, f)?,
-                key: map_opt(key, f)?,
-                reverse,
-            },
-            Self::ListPop { list } => Self::ListPop { list: f(list)? },
-            Self::ListShift { list } => Self::ListShift { list: f(list)? },
-            Self::ListNext { list } => Self::ListNext { list: f(list)? },
-            Self::TupleContains { tuple, item } => Self::TupleContains {
-                tuple: f(tuple)?,
-                item: f(item)?,
-            },
-            Self::DictContainsKey { dict, key, lookup } => Self::DictContainsKey {
-                dict: f(dict)?,
-                key: f(key)?,
-                lookup,
-            },
-            Self::DictSet { dict, key, value } => Self::DictSet {
-                dict: f(dict)?,
-                key: f(key)?,
-                value: f(value)?,
-            },
-            Self::DictRemoveKey { dict, key } => Self::DictRemoveKey {
-                dict: f(dict)?,
-                key: f(key)?,
-            },
-            Self::DictGet { dict, key, default } => Self::DictGet {
-                dict: f(dict)?,
-                key: f(key)?,
-                default: map_opt(default, f)?,
-            },
-            Self::DictSetDefault { dict, key, default } => Self::DictSetDefault {
-                dict: f(dict)?,
-                key: f(key)?,
-                default: f(default)?,
-            },
-            Self::DictClear { dict } => Self::DictClear { dict: f(dict)? },
-            Self::DictPop { dict, key, default } => Self::DictPop {
-                dict: f(dict)?,
-                key: f(key)?,
-                default: map_opt(default, f)?,
-            },
-            Self::DictUpdate { dict, other } => Self::DictUpdate {
-                dict: f(dict)?,
-                other: f(other)?,
-            },
-            Self::DictAssign { target, sources } => Self::DictAssign {
-                target: f(target)?,
-                sources: map_vec(sources, f)?,
-            },
-            Self::CallableObjectAssign {
-                callable,
-                props,
-                spreads,
-            } => Self::CallableObjectAssign {
-                callable: f(callable)?,
-                props: props
-                    .into_iter()
-                    .map(|(name, value)| Ok((name, f(value)?)))
-                    .collect::<Result<Vec<_>, E>>()?,
-                spreads: map_vec(spreads, f)?,
-            },
-            Self::DictCopy { dict } => Self::DictCopy { dict: f(dict)? },
-            Self::DictProjection { op, dict } => Self::DictProjection { op, dict: f(dict)? },
-            Self::StringSplit {
-                haystack,
-                separator,
-                limit,
-            } => Self::StringSplit {
-                haystack: f(haystack)?,
-                separator: f(separator)?,
-                limit: map_opt(limit, f)?,
-            },
-            Self::StringChars { haystack } => Self::StringChars {
-                haystack: f(haystack)?,
-            },
-            Self::StringJoin { items, separator } => Self::StringJoin {
-                items: f(items)?,
-                separator: f(separator)?,
-            },
-            Self::JsonStringify { value } => Self::JsonStringify { value: f(value)? },
-            Self::JsonParse { text, decode } => Self::JsonParse {
-                text: f(text)?,
-                decode,
-            },
-            Self::HttpGetText { url } => Self::HttpGetText { url: f(url)? },
-            Self::DateSetNow { timestamp } => Self::DateSetNow {
-                timestamp: f(timestamp)?,
-            },
-            Self::DateSetTimezoneOffset { offset } => Self::DateSetTimezoneOffset {
-                offset: f(offset)?,
-            },
-            Self::VitestMockFn { implementation } => Self::VitestMockFn {
-                implementation: map_opt(implementation, f)?,
-            },
-            Self::VitestMockCalledTimes { mock, count } => Self::VitestMockCalledTimes {
-                mock: f(mock)?,
-                count: f(count)?,
-            },
-            Self::VitestMockCalledWith { mock, args, last } => Self::VitestMockCalledWith {
-                mock: f(mock)?,
-                args: map_vec(args, f)?,
-                last,
-            },
-            Self::VitestSpyOn { target, name } => Self::VitestSpyOn {
-                target: f(target)?,
-                name: f(name)?,
-            },
-            Self::VitestAsymmetricEqual { actual, expected } => Self::VitestAsymmetricEqual {
-                actual: f(actual)?,
-                expected: f(expected)?,
-            },
-            Self::VitestMockLastResolvedWith { mock, expected } => {
-                Self::VitestMockLastResolvedWith {
-                    mock: f(mock)?,
-                    expected: f(expected)?,
-                }
-            }
-            Self::DateTimezoneContext { timezone } => Self::DateTimezoneContext {
-                timezone: f(timezone)?,
-            },
-            Self::DateToIsoString { timestamp_ms } => Self::DateToIsoString {
-                timestamp_ms: f(timestamp_ms)?,
-            },
-            Self::DateToString { timestamp_ms } => Self::DateToString {
-                timestamp_ms: f(timestamp_ms)?,
-            },
-            Self::DateToUtcString { timestamp_ms } => Self::DateToUtcString {
-                timestamp_ms: f(timestamp_ms)?,
-            },
-            Self::JsonIndent { text, space } => Self::JsonIndent {
-                text: f(text)?,
-                space: f(space)?,
-            },
-            Self::DateFromParts { parts } => Self::DateFromParts {
-                parts: map_vec(parts, f)?,
-            },
-            Self::DateFromValue { value } => Self::DateFromValue { value: f(value)? },
-            Self::DateGetPart { part, timestamp_ms } => Self::DateGetPart {
-                part,
-                timestamp_ms: f(timestamp_ms)?,
-            },
-            Self::DateSetPart {
-                part,
-                timestamp_ms,
-                values,
-            } => Self::DateSetPart {
-                part,
-                timestamp_ms: f(timestamp_ms)?,
-                values: map_vec(values, f)?,
-            },
-            Self::UrlField { field, url } => Self::UrlField { field, url: f(url)? },
-            Self::FileReadText { path } => Self::FileReadText { path: f(path)? },
-            Self::FileWriteText { path, text } => Self::FileWriteText {
-                path: f(path)?,
-                text: f(text)?,
-            },
-            Self::BlobOp { op, blob, args } => {
-                let blob = f(blob)?;
-                let mut mapped = Vec::with_capacity(args.len());
-                for arg in args {
-                    mapped.push(f(arg)?);
-                }
-                Self::BlobOp {
-                    op,
-                    blob,
-                    args: mapped,
-                }
-            }
-            Self::BlobFromParts {
-                parts,
-                blob_type,
-                name,
-                last_modified,
-            } => Self::BlobFromParts {
-                parts: f(parts)?,
-                blob_type: f(blob_type)?,
-                name: map_opt(name, f)?,
-                last_modified: map_opt(last_modified, f)?,
-            },
-            Self::HostConstruct { class_name, args } => Self::HostConstruct {
-                class_name,
-                args: map_vec(args, f)?,
-            },
-            Self::BuiltinNamespace { name } => Self::BuiltinNamespace { name },
-            Self::ArgumentsObject { fixed, rest } => Self::ArgumentsObject {
-                fixed: map_vec(fixed, f)?,
-                rest: map_opt(rest, f)?,
-            },
-            Self::HostGlobalRead { class } => Self::HostGlobalRead { class },
-            Self::HostGlobalWrite { class, value } => Self::HostGlobalWrite {
-                class,
-                value: f(value)?,
-            },
-            Self::HostGlobalPresent { class } => Self::HostGlobalPresent { class },
-            Self::BinOp { op, lhs, rhs } => Self::BinOp {
-                op,
-                lhs: f(lhs)?,
-                rhs: f(rhs)?,
-            },
-            Self::UnaryOp { op, operand } => Self::UnaryOp {
-                op,
-                operand: f(operand)?,
-            },
-            Self::Conditional {
-                cond,
-                then_expr,
-                else_expr,
-            } => Self::Conditional {
-                cond: f(cond)?,
-                then_expr: f(then_expr)?,
-                else_expr: f(else_expr)?,
-            },
-            Self::FunctionTableLookup { key, cases } => Self::FunctionTableLookup {
-                key: f(key)?,
-                cases: cases
-                    .into_iter()
-                    .map(|(name, value)| Ok((name, f(value)?)))
-                    .collect::<Result<Vec<_>, E>>()?,
-            },
-            Self::InstanceOf { value, class } => Self::InstanceOf {
-                value: f(value)?,
-                class,
-            },
-            Self::InstanceOfValue { value, target } => Self::InstanceOfValue {
-                value: f(value)?,
-                target: f(target)?,
-            },
-            Self::UnknownIs { value, kind } => Self::UnknownIs {
-                value: f(value)?,
-                kind,
-            },
-            Self::TypeofValue { value } => Self::TypeofValue { value: f(value)? },
-            Self::PrototypeSentinel { value, own_slot_shadows } => Self::PrototypeSentinel { value: f(value)?, own_slot_shadows },
-            Self::BoxPrimitive { value } => Self::BoxPrimitive { value: f(value)? },
-            Self::DefineProperties {
-                target,
-                descriptors,
-            } => Self::DefineProperties {
-                target: f(target)?,
-                descriptors: f(descriptors)?,
-            },
-            Self::ObjectFromPrototype { prototype } => Self::ObjectFromPrototype {
-                prototype: f(prototype)?,
-            },
-            Self::UnknownCast { value, target } => Self::UnknownCast {
-                value: f(value)?,
-                target,
-            },
-            Self::ListLit(items) => Self::ListLit(map_vec(items, f)?),
-            Self::SetLit(items) => Self::SetLit(map_vec(items, f)?),
-            Self::ListToSet { list } => Self::ListToSet { list: f(list)? },
-            Self::ListPairsToDict { list } => Self::ListPairsToDict { list: f(list)? },
-            Self::DictLit(entries) => Self::DictLit(
-                entries
-                    .into_iter()
-                    .map(|(key, value)| Ok((f(key)?, f(value)?)))
-                    .collect::<Result<Vec<_>, E>>()?,
-            ),
-            Self::TupleLit(items) => Self::TupleLit(map_vec(items, f)?),
-            Self::TupleToList { tuple } => Self::TupleToList { tuple: f(tuple)? },
-            Self::ListToTuple { list } => Self::ListToTuple { list: f(list)? },
-            Self::TupleToSet { tuple } => Self::TupleToSet { tuple: f(tuple)? },
-            Self::TupleIndex { tuple, index } => Self::TupleIndex {
-                tuple: f(tuple)?,
-                index,
-            },
-            Self::TupleSlice { tuple, start, end } => Self::TupleSlice {
-                tuple: f(tuple)?,
-                start,
-                end,
-            },
-            Self::New { class, args } => Self::New {
-                class,
-                args: map_vec(args, f)?,
-            },
-            Self::BaseConstructorInit {
-                base,
-                receiver,
-                args,
-            } => Self::BaseConstructorInit {
-                base,
-                receiver: f(receiver)?,
-                args: map_vec(args, f)?,
-            },
-            Self::Await(value) => Self::Await(f(value)?),
-            Self::AsyncOp { op, args } => Self::AsyncOp {
-                op,
-                args: map_vec(args, f)?,
-            },
-        })
-    }
+/// Map the value of every key-value pair through `f`, preserving the keys.
+fn map_pairs<K, E>(
+    items: Vec<(K, ExprId)>,
+    f: &mut impl FnMut(ExprId) -> Result<ExprId, E>,
+) -> Result<Vec<(K, ExprId)>, E> {
+    items
+        .into_iter()
+        .map(|(key, value)| Ok((key, f(value)?)))
+        .collect()
 }
+
+/// Expands to one op field with each child [`ExprId`] passed through `$f`.
+macro_rules! map_op_field {
+    ($f:ident, one, $field:ident) => { $f($field)? };
+    ($f:ident, opt, $field:ident) => { map_opt($field, $f)? };
+    ($f:ident, many, $field:ident) => { map_vec($field, $f)? };
+    ($f:ident, splice, $field:ident) => {
+        $field
+            .into_iter()
+            .map(|item| {
+                Ok(ListSpliceItem {
+                    value: $f(item.value)?,
+                    spread: item.spread,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    ($f:ident, symbol_pairs, $field:ident) => { map_pairs($field, $f)? };
+    ($f:ident, { $key:ty }, $field:ident) => { map_pairs($field, $f)? };
+    ($f:ident, [$data:ty], $field:ident) => { $field };
+    ($f:ident, (sym $label:literal), $field:ident) => { $field };
+    ($f:ident, (ty), $field:ident) => { $field };
+}
+
+/// Generates [`ExprKind::try_map_child_exprs`]: the arms of the forms only HIR
+/// has, then one generated arm per op-table entry.
+macro_rules! define_try_map_child_exprs {
+    ($(
+        $(#[$meta:meta])*
+        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt $(@ $role:tt)?),* $(,)? })?
+        $($fact:ident $fact_value:tt)*
+        => $display:tt;
+    )*) => {
+        impl ExprKind {
+            /// Rebuild this expression kind with each direct child [`ExprId`] mapped
+            /// through `f`, leaving all other payload (operators, symbols, types,
+            /// bodies, blocks, locals) unchanged.
+            ///
+            /// # Errors
+            ///
+            /// Returns the first error produced by `f`; no partial mapping is
+            /// observable because the kind is rebuilt by value.
+            #[expect(
+                clippy::too_many_lines,
+                reason = "exhaustive match over every ExprKind variant is intentionally one function"
+            )]
+            pub fn try_map_child_exprs<E>(
+                self,
+                f: &mut impl FnMut(ExprId) -> Result<ExprId, E>,
+            ) -> Result<Self, E> {
+                Ok(match self {
+                    // Leaf kinds without direct child expression IDs. `Closure` and
+                    // `Lambda` reference crate-global bodies; `Local` and `Block`
+                    // reference body-local arenas that this shallow mapper preserves.
+                    kind @ (Self::Literal(_)
+                    | Self::Local(_)
+                    | Self::Item(_)
+                    | Self::GlobalGet { .. }
+                    | Self::Closure(_)
+                    | Self::Block(_)
+                    | Self::Lambda { .. }) => kind,
+                    Self::Call { callee, args } => Self::Call {
+                        callee: f(callee)?,
+                        args: map_vec(args, f)?,
+                    },
+                    Self::GeneratorYield { value } => Self::GeneratorYield { value: f(value)? },
+                    Self::Method {
+                        receiver,
+                        method,
+                        args,
+                    } => Self::Method {
+                        receiver: f(receiver)?,
+                        method,
+                        args: map_vec(args, f)?,
+                    },
+                    Self::Field { receiver, field } => Self::Field {
+                        receiver: f(receiver)?,
+                        field,
+                    },
+                    Self::Index { receiver, index } => Self::Index {
+                        receiver: f(receiver)?,
+                        index: f(index)?,
+                    },
+                    Self::GlobalSet { item, value } => Self::GlobalSet {
+                        item,
+                        value: f(value)?,
+                    },
+                    Self::TypeAssert { value } => Self::TypeAssert { value: f(value)? },
+                    Self::BinOp { op, lhs, rhs } => Self::BinOp {
+                        op,
+                        lhs: f(lhs)?,
+                        rhs: f(rhs)?,
+                    },
+                    Self::UnaryOp { op, operand } => Self::UnaryOp {
+                        op,
+                        operand: f(operand)?,
+                    },
+                    Self::Conditional {
+                        cond,
+                        then_expr,
+                        else_expr,
+                    } => Self::Conditional {
+                        cond: f(cond)?,
+                        then_expr: f(then_expr)?,
+                        else_expr: f(else_expr)?,
+                    },
+                    Self::ListLit(items) => Self::ListLit(map_vec(items, f)?),
+                    Self::SetLit(items) => Self::SetLit(map_vec(items, f)?),
+                    Self::DictLit(entries) => Self::DictLit(
+                        entries
+                            .into_iter()
+                            .map(|(key, value)| Ok((f(key)?, f(value)?)))
+                            .collect::<Result<Vec<_>, E>>()?,
+                    ),
+                    Self::TupleLit(items) => Self::TupleLit(map_vec(items, f)?),
+                    Self::New { class, args } => Self::New {
+                        class,
+                        args: map_vec(args, f)?,
+                    },
+                    Self::BaseConstructorInit {
+                        base,
+                        receiver,
+                        args,
+                    } => Self::BaseConstructorInit {
+                        base,
+                        receiver: f(receiver)?,
+                        args: map_vec(args, f)?,
+                    },
+                    Self::Await(value) => Self::Await(f(value)?),
+                    $(
+                        Self::$name $({ $($field),* })? => Self::$name $({
+                            $($field: map_op_field!(f, $kind, $field)),*
+                        })?,
+                    )*
+                })
+            }
+        }
+    };
+}
+
+crate::for_each_op!(define_try_map_child_exprs);

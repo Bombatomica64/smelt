@@ -52,11 +52,8 @@ per-`Type` mechanics.
   - `tag_check(operand, kind)` — runtime *narrowing* ("is this tag a String?"),
     a guard, not value coercion.
 - **Why verbs, not a single `value_at_type`** — erase is *target-free*: boxing
-  into the `SmeltUnknown` runtime value needs no MIR type. Spelling it as
-  `value_at_type(op, <Unknown TypeId>)` would require `Type::Unknown` to be
-  interned in the program's type table, which is not guaranteed
-  (`type_id(Type::Unknown)` fails otherwise). So erase (and the text-level
-  extract, whose source is `Unknown`) must stay first-class verbs.
+  into the `SmeltUnknown` runtime value needs no MIR type, so erase (and the
+  text-level extract, whose source is `Unknown`) stay first-class verbs.
 - **Behind the seam (private)** — the structural-record / function-shape
   adapters and the per-`Type` match arms that decide the concrete Rust text.
 

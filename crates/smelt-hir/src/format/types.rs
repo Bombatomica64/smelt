@@ -284,8 +284,3 @@ pub(super) fn local_ref(local: LocalId) -> String {
 pub(super) fn expr_ref(expr: ExprId) -> String {
     format!("#{}", expr.0)
 }
-
-/// Formats an optional expression reference as text.
-pub(super) fn optional_expr_ref(expr: Option<ExprId>) -> String {
-    expr.map_or_else(|| "_".to_owned(), expr_ref)
-}

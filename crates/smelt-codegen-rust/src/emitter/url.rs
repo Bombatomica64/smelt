@@ -5,8 +5,8 @@
 //!
 //! * [`Rvalue::UrlOp`](smelt_mir::Rvalue::UrlOp): a component read
 //!   (`url.pathname()`), an infallible component write, or `searchParams`;
-//! * the fallible calls `BuiltinFn::UrlNew` and `BuiltinFn::UrlSetHref`, whose
-//!   trailing `?` is what marks them throwing to the call-terminator emitter.
+//! * the fallible calls `Rvalue::UrlNew` and the `href` setter, whose trailing
+//!   `?` is what marks them throwing to the call-terminator emitter.
 
 use crate::emitter::call::CallText;
 use smelt_hir::{Type, TypeId, UrlField, UrlOp};
@@ -37,7 +37,7 @@ impl FunctionEmitter<'_> {
     ///
     /// A write answers the ASSIGNED text, which is what the source assignment
     /// expression evaluates to. The `href` write never reaches here: it throws,
-    /// so MIR lowers it to `BuiltinFn::UrlSetHref`.
+    /// so MIR gives it a call terminator (`Callee::Op`).
     pub(super) fn url_op_text(
         &self,
         op: UrlOp,

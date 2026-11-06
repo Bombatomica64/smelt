@@ -331,18 +331,14 @@ fn terminator_can_throw(terminator: &Terminator, throwing: &[bool]) -> bool {
             ..
         } => true,
         Terminator::Await { unwind: None, .. } => true,
-        // A fallible builtin with no handler in scope leaves the function
-        // through its error channel, so the enclosing function throws. Asked of
-        // the builtin itself (`BuiltinFn::is_fallible`) rather than named here:
-        // this arm used to name `JsonParse` alone, so the URI decoders — added
-        // later, and fallible in exactly the same way — never marked their
-        // caller, and `decodeURI` outside a `try` emitted a `?` in a function
-        // returning no `Result`.
+        // A fallible operation with no handler in scope leaves the function
+        // through its error channel, so the enclosing function throws. Being a
+        // callee at all is what says the op can throw.
         Terminator::Call {
-            callee: Callee::Builtin(builtin),
+            callee: Callee::Op(_),
             unwind: None,
             ..
-        } => builtin.is_fallible(),
+        } => true,
         Terminator::Goto(_)
         | Terminator::Call { .. }
         | Terminator::Await { .. }

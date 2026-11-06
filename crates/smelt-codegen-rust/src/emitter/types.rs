@@ -1,5 +1,6 @@
 //! Types emission helpers.
 
+use crate::runtime_demand::Need;
 use super::*;
 use crate::generic_bindings::substitute_existing_type;
 use crate::rust::{RustIdent, RustShape};
@@ -1188,17 +1189,13 @@ impl FunctionEmitter<'_> {
     /// clamped because Python element indexing raises when the normalized index
     /// is still outside the collection; the generated Rust keeps that behavior
     /// with `expect` on negative conversion and the eventual indexed lookup.
-    /// Finds the type ID for a given type.
-    #[track_caller]
+    /// The id of `needle`, whether or not the program spells it.
+    ///
+    /// Infallible in practice; the `Result` keeps the signature every caller
+    /// composes with `?`. To ask whether the program spells a type, use
+    /// [`Self::find_type_id`].
     pub(super) fn type_id(&self, needle: Type) -> Result<TypeId, EmitError> {
-        let caller = ::std::panic::Location::caller();
-        self.find_type_id(&needle).ok_or_else(|| {
-            EmitError::new(format!(
-                "type table does not contain literal operand type {needle:?} at {}:{}",
-                caller.file(),
-                caller.line()
-            ))
-        })
+        Ok(self.mir.types.intern_late(needle))
     }
 
     /// Find the interned stdlib `RegExp` class type, if the program uses it.
@@ -1317,8 +1314,12 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Finds the type ID for a type when that type is present in the MIR table.
+    /// Finds the type ID for a type the program has: one in the MIR table, or
+    /// the erased carrier when an operation answers through it.
     pub(super) fn find_type_id(&self, needle: &Type) -> Option<TypeId> {
+        if *needle == Type::Unknown && self.context.demand().has(Need::ErasedAnswer) {
+            return Some(self.mir.types.intern_late(Type::Unknown));
+        }
         let type_index = self.mir.types.all().iter().position(|ty| ty == needle)?;
         let compact = compact_index(type_index, "type index does not fit u32").ok()?;
         Some(TypeId(compact))

@@ -25,8 +25,7 @@ use std::convert::TryFrom;
 use smelt_hir::{BodyId, Literal as HirLiteral, Span, Type, TypeId};
 
 use crate::{
-    BuiltinFn, Callee, ClosureId, Constant, FuncId, LocalId, Mir, MirClosure, MirFunction, Operand,
-    Place, Terminator,
+    ClosureId, Constant, FuncId, LocalId, Mir, MirClosure, MirFunction, Operand, Place
 };
 
 /// The `LoweringCtx` state machine, its constructors, and shared accessors.
@@ -45,6 +44,8 @@ mod place;
 mod stmt;
 /// The lexical control-scope stack (loops, `try` regions) and block cursor.
 mod scope;
+/// Lowering of the operations the op table transcribes.
+mod transcribe;
 
 /// Closure ABI ownership: construction, escape analysis, and throwing widening.
 mod closures;
@@ -711,16 +712,9 @@ fn lower_module_bodies(
 /// the steps after it; the order below is the only one that satisfies all of
 /// them.
 fn run_finalization_passes(mir: &mut Mir) {
-    // Requires: every body lowered. Establishes: the return type of every
-    // fallible builtin call is in the type table (the backend coerces through
-    // it).
-    intern_fallible_builtin_return_types(mir);
-    // Requires: every body lowered. Establishes: `unknown` is interned when a
-    // body reads a member through a type parameter's bound (the erased
-    // fallback converts from it).
-    intern_bound_dispatch_carrier_type(mir);
     // Requires: every body lowered. Establishes: each generic record
-    // instantiation the program uses is interned.
+    // instantiation the program uses is in the table, so its declaration and
+    // record helpers are emitted.
     passes::generic_records::intern_generic_record_instantiations(mir);
     // Requires: closures constructed. Establishes: `escapes` on every closure
     // (invariants 1-2 in `closures`), which throwing widening reads.
@@ -735,7 +729,8 @@ fn run_finalization_passes(mir: &mut Mir) {
     // Requires: final local types. Establishes: operational type
     // normalization the emitter relies on.
     crate::normalize_operational_types(mir);
-    // Requires: normalized types. Establishes: inherited member types interned.
+    // Requires: normalized types. Establishes: every type an inherited member
+    // copy is emitted at is in the table, so its declaration is emitted.
     passes::inherited_types::intern_inherited_member_types(mir);
 }
 
@@ -790,101 +785,6 @@ fn throwing_state(mir: &Mir) -> Vec<u64> {
         state.extend(closure.captures.iter().map(|capture| u64::from(capture.ty.0)));
     }
     state
-}
-
-/// Interns `unknown` when any body reads a member through a type parameter's
-/// class or interface bound (`Rvalue::BoundMethod` / `Rvalue::BoundField`).
-///
-/// Wherever such a parameter does not become a real Rust generic, codegen
-/// renders the access — and any field write through the same parameter — as a
-/// dynamic member lookup on the erased carrier and converts its result from
-/// `unknown`. Before these reads were typed through the bound they were
-/// themselves `unknown`-typed, so the type was always interned; a program whose
-/// only `unknown` they were must still find it.
-fn intern_bound_dispatch_carrier_type(mir: &mut Mir) {
-    let reads_through_bound = |blocks: &[crate::BasicBlock]| {
-        blocks.iter().flat_map(|block| &block.statements).any(|statement| {
-            matches!(
-                statement,
-                crate::Statement::Assign {
-                    value: crate::Rvalue::BoundMethod { .. } | crate::Rvalue::BoundField { .. },
-                    ..
-                }
-            )
-        })
-    };
-    if mir.functions.iter().any(|function| reads_through_bound(&function.blocks))
-        || mir.closures.iter().any(|closure| reads_through_bound(&closure.blocks))
-    {
-        mir.types.intern(Type::Unknown);
-    }
-}
-
-/// Interns the return type of every fallible builtin the program calls.
-///
-/// A `Terminator::Call` records the destination's type, not the callee's, so a
-/// builtin whose own return type appears nowhere else in the program would
-/// leave that type absent from the table — and the backend, which asks for the
-/// callee's return type to coerce the call result, would find nothing.
-///
-/// Such builtins include `JSON.parse`, whose result is a dynamic
-/// JavaScript value (`Type::Unknown`) regardless of the destination it is
-/// asserted into; the URI decoders and the base64 builtins, which answer a
-/// `String`; and the `DataView` accessors, which answer a number (read) or
-/// `undefined` (write). Collecting the types first and interning afterwards
-/// keeps this one scan over every call terminator, so another fallible
-/// builtin needs only its own arm.
-fn intern_fallible_builtin_return_types(mir: &mut Mir) {
-    let mut needed = Vec::new();
-    for terminator in mir
-        .functions
-        .iter()
-        .flat_map(|function| function.blocks.iter())
-        .chain(mir.closures.iter().flat_map(|closure| closure.blocks.iter()))
-        .filter_map(|block| block.terminator.as_ref())
-    {
-        if let Terminator::Call {
-            callee: Callee::Builtin(builtin),
-            ..
-        } = terminator
-        {
-            match builtin {
-                BuiltinFn::JsonParse { .. } => needed.push(Type::Unknown),
-                BuiltinFn::UriDecode(_) | BuiltinFn::Base64(_) => needed.push(Type::String),
-                // A read answers a number and a write answers `undefined`, and
-                // both spellings are already in the table wherever an accessor
-                // was lowered — the frontend types the node. Interning them
-                // anyway costs nothing and keeps the arm honest about what the
-                // call produces.
-                BuiltinFn::DataViewAccess { write, element } => {
-                    needed.push(if *write {
-                        Type::None
-                    } else if element.is_bigint() {
-                        Type::BigInt
-                    } else {
-                        Type::Float
-                    });
-                }
-                BuiltinFn::BigInt(op) => needed.push(if op.returns_string() {
-                    Type::String
-                } else {
-                    Type::BigInt
-                }),
-                // The result is the frontend's `RegExp` (or `URL`) class
-                // type, which it interned when it typed the node.
-                BuiltinFn::ConsoleLog { .. }
-                | BuiltinFn::ConsoleWrite
-                | BuiltinFn::ConsoleErrorWrite
-                | BuiltinFn::RegExpCompile
-                | BuiltinFn::UrlNew
-                | BuiltinFn::UrlSetHref
-                | BuiltinFn::HostModule(_) => {}
-            }
-        }
-    }
-    for ty in needed {
-        mir.types.intern(ty);
-    }
 }
 
 /// Return whether `module` contains any function marked as a source test.

@@ -6,9 +6,7 @@
 //!   coerce a value to a concrete target type (both endpoints are known and
 //!   interned). The general entry; it dispatches to erase/extract internally.
 //! - `erase(op)` / `erase_value_text(text, src)` — box a typed value into
-//!   `SmeltUnknown`. This direction is *target-free*: it must not require a
-//!   `Type::Unknown` to be interned (it often is not), so it cannot be spelled
-//!   as `value_at_type(op, <Unknown TypeId>)`.
+//!   `SmeltUnknown`. This direction is *target-free*: boxing needs no MIR type.
 //! - `extract(op, target)` / `extract_value_text(text, target)` — pull a typed
 //!   value back out of `SmeltUnknown`.
 //! - `tag_check(op, kind)` — runtime narrowing (`is this tag a String?`), which
@@ -912,7 +910,8 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(slot_ty),
             Some(Type::Function(slot)) if self.is_erased_unknown_rest_function(slot)
         );
-        if slot_is_erased && let Ok(unknown_ty) = self.type_id(Type::Unknown) {
+        if slot_is_erased {
+            let unknown_ty = self.type_id(Type::Unknown)?;
             let erased = self.value_at_type_text(value_text, source, unknown_ty, scope)?;
             return self.value_at_type_text(&erased, unknown_ty, slot_ty, scope);
         }

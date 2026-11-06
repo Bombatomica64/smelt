@@ -6,7 +6,7 @@
 //! merely fail to be catchable: a fallible *rvalue* has no unwind edge in MIR,
 //! so the `catch` block ends up with no predecessor, MIR drops it, and the
 //! fallback the source wrote is **absent from the generated crate**. They now
-//! lower to `Terminator::Call { Callee::Builtin(BuiltinFn::UriDecode(op)),
+//! lower to `Terminator::Call { Callee::Op(UriTranscode),
 //! unwind }`, the same shape `JSON.parse` has always used.
 //!
 //! These have to execute. A type-level test cannot tell a dropped handler from

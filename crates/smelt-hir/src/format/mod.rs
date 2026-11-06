@@ -16,7 +16,7 @@ use list::{collection_text, expr_list_text};
 use literals::{literal_text, pattern_text};
 use map::dict_lit_text;
 use std::fmt::Write as _;
-use types::{expr_ref, item_ref, item_text, local_ref, optional_expr_ref, type_ref, type_text};
+use types::{expr_ref, item_ref, item_text, local_ref, type_ref, type_text};
 
 /// Append formatted text to the output buffer.
 fn push_fmt(out: &mut String, args: std::fmt::Arguments<'_>) {

@@ -21,9 +21,9 @@
     reason = "crate-visible helpers are shared with the emitter shards"
 )]
 
-use smelt_hir::{AsyncOp, Type};
+use smelt_hir::Type;
 use smelt_mir::{
-    BasicBlock, BuiltinFn, Callee, LocalDecl, LocalId, Mir, Operand, Place, Rvalue, Statement,
+    BasicBlock, Callee, LocalDecl, LocalId, Mir, Operand, Place, Rvalue, Statement,
     Terminator,
 };
 use smelt_stdlib::{BackendDependency, StdlibClass};
@@ -35,6 +35,10 @@ use crate::stdlib::{module_hash_set_key_safe, stdlib_class_of_class_symbol};
 pub(crate) enum Need {
     /// The erased `SmeltUnknown` carrier and everything written against it.
     Unknown,
+    /// An operation whose answer is erased though nothing has to spell `unknown`:
+    /// a dynamic `JSON.parse`, a member read through a bound. The carrier counts
+    /// as present in the program (see `FunctionEmitter::find_type_id`).
+    ErasedAnswer,
     /// The identity-bearing `SmeltList<T>`.
     SmeltList,
     /// The `smelt_next_object_id` reference-identity counter.
@@ -247,6 +251,7 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::Body, &[Need::ObjectIds]),
     (Need::BodyHostMethod, &[Need::JsonParse]),
     (Need::JsonParse, &[Need::DepSerdeJson]),
+    (Need::ErasedAnswer, &[Need::Unknown]),
     (
         Need::HttpServer,
         &[Need::Headers, Need::EventEmitter, Need::Timers, Need::ObjectIds, Need::HostOrigins],
@@ -349,7 +354,7 @@ impl RuntimeDemand {
             if !function.type_params.is_empty() {
                 self.add(Need::Unknown);
             }
-            if function.absent == smelt_mir::AbsentSpelling::None {
+            if function.language == smelt_hir::Language::Python {
                 self.add(Need::PythonNumberFormat);
             }
             if function.is_generator {
@@ -535,148 +540,62 @@ impl RuntimeDemand {
         if unwind.is_some() {
             self.add(Need::PanicRoute);
         }
-        let Callee::Builtin(builtin) = callee else {
-            return;
-        };
-        match builtin {
-            BuiltinFn::UrlNew | BuiltinFn::UrlSetHref => self.add(Need::UrlThrowing),
-            BuiltinFn::DataViewAccess { .. } => self.add(Need::DataViewAccess),
-            BuiltinFn::JsonParse { .. } => self.add(Need::JsonParse),
-            BuiltinFn::UriDecode(_) => self.add(Need::UriDecode),
-            BuiltinFn::Base64(_) => self.add(Need::Base64),
-            BuiltinFn::HostModule(smelt_hir::HostModuleOp::Hash(_)) => self.add(Need::NodeHash),
-            BuiltinFn::RegExpCompile => self.add(Need::RegExpCompile),
-            BuiltinFn::BigInt(smelt_hir::BigIntOp::JsonStringify) => self.add(Need::DepSerdeJson),
-            _ => {}
-        }
-    }
-
-    /// Records what one rvalue demands.
-    fn scan_rvalue(&mut self, rvalue: &Rvalue) {
-        if rvalue_needs_regex(rvalue) {
-            self.add(Need::DepRegex);
-        }
-        if rvalue_needs_chrono(rvalue) {
-            self.add(Need::DepChrono);
-        }
-        if rvalue_needs_url(rvalue) {
-            self.add(Need::DepUrl);
-        }
-        if rvalue_arms_a_timer(rvalue) {
-            self.add(Need::Timers);
-        }
-        match rvalue {
-            // A wholly typed program that stringifies still names the carrier:
-            // ECMA-262's rules live in `Serialize for SmeltUnknown`.
-            Rvalue::JsonStringify { .. } => {
-                self.add(Need::Unknown);
-                self.add(Need::DepSerdeJson);
-            }
-            Rvalue::UnknownCast { .. } | Rvalue::UnknownIs { .. } => self.add(Need::Unknown),
-            Rvalue::HeadersNew { .. } | Rvalue::HeadersOp { .. } => self.add(Need::Headers),
-            Rvalue::ResponseNew { .. } => self.add(Need::Response),
-            Rvalue::ResponseOp { op, .. } => {
-                self.add(Need::Response);
-                match op {
-                    smelt_hir::ResponseOp::FormData => self.add(Need::FormData),
-                    smelt_hir::ResponseOp::Json => self.add(Need::JsonParse),
-                    _ => {}
-                }
-            }
-            Rvalue::RequestNew { .. } => self.add(Need::Request),
-            Rvalue::RequestOp { op, .. } => {
-                self.add(Need::Request);
-                match op {
-                    smelt_hir::RequestOp::FormData => self.add(Need::FormData),
-                    smelt_hir::RequestOp::Json => self.add(Need::JsonParse),
-                    _ => {}
-                }
-            }
-            Rvalue::HttpCreateFetchServer { .. } => self.add(Need::FetchServer),
-            Rvalue::AsyncOp { op, .. } => {
-                self.add(Need::DepTokio);
-                match op {
-                    // `fetch` builds a response, so a program that only calls it
-                    // still carries the runtime type.
-                    AsyncOp::HttpFetch => {
-                        self.add(Need::Response);
-                        self.add(Need::DepReqwest);
-                    }
-                    AsyncOp::HttpGetText => self.add(Need::DepReqwest),
-                    _ => {}
-                }
-            }
-            Rvalue::HttpGetText { .. } => self.add(Need::DepReqwest),
-            Rvalue::EventEmitterNew | Rvalue::EventEmitterOp { .. } => self.add(Need::EventEmitter),
-            Rvalue::SqliteOpen { .. } | Rvalue::SqliteOp { .. } => self.add(Need::Sqlite),
-            Rvalue::HttpCreateServer { .. }
-            | Rvalue::HttpServerOp { .. }
-            | Rvalue::IncomingMessageOp { .. }
-            | Rvalue::ServerResponseOp { .. } => self.add(Need::HttpServer),
-            Rvalue::UrlSearchParamsNew { .. } | Rvalue::UrlSearchParamsOp { .. } => {
-                self.add(Need::UrlSearchParams);
-            }
-            Rvalue::UrlOp { .. } => self.add(Need::Url),
-            Rvalue::CryptoOp { op, .. } => match op {
-                smelt_hir::CryptoOp::GetRandomValues => self.add(Need::CryptoRandomValues),
-                smelt_hir::CryptoOp::Digest => self.add(Need::CryptoDigest),
-                smelt_hir::CryptoOp::ImportKey
-                | smelt_hir::CryptoOp::Sign
-                | smelt_hir::CryptoOp::Verify => self.add(Need::CryptoKey),
-                smelt_hir::CryptoOp::RandomUuid => self.add(Need::DepUuid),
-            },
-            Rvalue::FormDataNew | Rvalue::FormDataOp { .. } => self.add(Need::FormData),
-            Rvalue::TextEncoderNew | Rvalue::TextEncoderOp { .. } => self.add(Need::TextEncoder),
-            Rvalue::TextDecoderNew { .. } | Rvalue::TextDecoderOp { .. } => {
-                self.add(Need::TextDecoder);
-            }
-            Rvalue::ByteArrayOp { .. } | Rvalue::TypedArrayNew { .. } => self.add(Need::ByteArray),
-            Rvalue::BlobFromParts { .. } | Rvalue::BlobOp { .. } => self.add(Need::Blob),
-            Rvalue::JsonIndent { .. } => self.add(Need::JsonIndent),
-            Rvalue::UriTranscode { .. } => self.add(Need::UriEncode),
-            Rvalue::StringLocaleCompare { .. } => self.add(Need::LocaleCompare),
-            Rvalue::StringNormalize { .. } => self.add(Need::DepUnicodeNormalization),
-            Rvalue::DateNow | Rvalue::DateSetNow { .. } | Rvalue::DateResetNow => {
-                self.add(Need::DateNow);
-            }
-            Rvalue::DateTimezoneOffset
-            | Rvalue::DateSetTimezoneOffset { .. }
-            | Rvalue::DateResetTimezoneOffset => self.add(Need::DateTimezoneOffset),
-            Rvalue::DateTimezoneContext { .. } => self.add(Need::DepChronoTz),
-            Rvalue::VitestMockFn { .. }
-            | Rvalue::VitestMockCalledTimes { .. }
-            | Rvalue::VitestMockCalledWith { .. }
-            | Rvalue::VitestMockLastResolvedWith { .. }
-            | Rvalue::VitestAsymmetricEqual { .. }
-            | Rvalue::VitestSpyOn { .. }
-            | Rvalue::VitestRestoreAllMocks => self.add(Need::VitestMock),
-            Rvalue::HostGlobalRead { .. }
-            | Rvalue::HostGlobalWrite { .. }
-            | Rvalue::HostGlobalPresent { .. } => self.add(Need::HostOverride),
-            Rvalue::NumericRandom
-            | Rvalue::NumericRandomInt { .. }
-            | Rvalue::ListRandomChoice { .. } => self.add(Need::DepRand),
-            Rvalue::NumericRound {
-                op: smelt_hir::NumericRoundOp::Round,
-                ..
-            } => self.add(Need::MathRound),
-            Rvalue::HostModuleCall {
-                op: smelt_hir::HostModuleOp::Path(_),
-                ..
-            } => self.add(Need::NodePath),
-            Rvalue::GlobalObject => self.add(Need::GlobalObject),
-            Rvalue::StructuredClone { .. } => self.add(Need::StructuredClone),
-            Rvalue::TypeofValue { .. } => self.add(Need::Typeof),
-            Rvalue::ConcatSpread { .. } => self.add(Need::ConcatSpread),
-            Rvalue::DefineProperties { .. } => self.add(Need::DefineProperties),
-            Rvalue::ThisRead => self.add(Need::ThisRead),
-            Rvalue::BindThis { .. } => self.add(Need::ThisChannel),
-            Rvalue::Construct { .. } => self.add(Need::Construct),
-            Rvalue::InstanceOfValue { .. } => self.add(Need::InstanceOfValue),
-            _ => {}
+        if let Callee::Op(op) = callee {
+            self.scan_rvalue(op);
         }
     }
 }
+
+/// Adds the runtime families one op states in its `needs` fact.
+macro_rules! add_op_needs {
+    ($demand:ident,) => {};
+    ($demand:ident, needs ($($need:ident $(if $condition:expr)?),* $(,)?) $($rest:tt)*) => {
+        $(
+            if true $(&& $condition)? {
+                $demand.add(Need::$need);
+            }
+        )*
+    };
+    ($demand:ident, $other:ident $value:tt $($rest:tt)*) => {
+        add_op_needs!($demand, $($rest)*);
+    };
+}
+
+/// Generates [`RuntimeDemand::scan_rvalue`] from the op table's `needs` facts.
+macro_rules! define_scan_rvalue {
+    ($(
+        $(#[$meta:meta])*
+        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt $(@ $role:tt)?),* $(,)? })?
+        $($fact:ident $fact_value:tt)*
+        => $display:tt;
+    )*) => {
+        impl RuntimeDemand {
+            /// Records what one rvalue demands, whether it is assigned or is the
+            /// callee of a call terminator.
+            #[allow(
+                unused_variables,
+                reason = "each arm binds every field; a fact reads the ones it needs"
+            )]
+            fn scan_rvalue(&mut self, rvalue: &Rvalue) {
+                match rvalue {
+                    $(
+                        Rvalue::$name $({ $($field,)* })? => {
+                            add_op_needs!(self, $($fact $fact_value)*);
+                        }
+                    )*
+                    // Wherever the parameter is not a real Rust generic, a read
+                    // through its bound converts from the erased carrier.
+                    Rvalue::BoundMethod { .. } | Rvalue::BoundField { .. } => {
+                        self.add(Need::ErasedAnswer);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    };
+}
+
+smelt_hir::for_each_op!(define_scan_rvalue);
 
 /// The bit of a [`Need`].
 #[expect(
@@ -758,91 +677,6 @@ fn local_holds_a_body(mir: &Mir, locals: &[LocalDecl], base: LocalId) -> bool {
     matches!(
         stdlib_class_of_class_symbol(mir, *name),
         Some(StdlibClass::Request | StdlibClass::Response)
-    )
-}
-
-/// Whether an rvalue compiles or runs through the regex crates.
-const fn rvalue_needs_regex(rvalue: &Rvalue) -> bool {
-    matches!(
-        rvalue,
-        Rvalue::RegexIsMatch { .. }
-            | Rvalue::RegexReplace { .. }
-            | Rvalue::RegexReplaceCallback { .. }
-            | Rvalue::RegexReplaceFirstMatchUppercase { .. }
-            | Rvalue::RegexSplit { .. }
-            | Rvalue::RegexFind { .. }
-            | Rvalue::RegexExec { .. }
-            // A `test` answers a `bool`, so its result type never reveals it.
-            | Rvalue::RegexTest { .. }
-            | Rvalue::RegexMatchAll { .. }
-            | Rvalue::StringSplit { .. }
-            | Rvalue::StringSearch {
-                op: smelt_hir::StringSearchOp::Regex,
-                ..
-            }
-    )
-}
-
-/// Whether an rvalue uses Chrono APIs.
-const fn rvalue_needs_chrono(rvalue: &Rvalue) -> bool {
-    matches!(
-        rvalue,
-        Rvalue::DateNow
-            | Rvalue::DateSetNow { .. }
-            | Rvalue::DateResetNow
-            | Rvalue::DateToIsoString { .. }
-            | Rvalue::DateToString { .. }
-            | Rvalue::DateToUtcString { .. }
-            | Rvalue::JsonIndent { .. }
-            | Rvalue::DateFromParts { .. }
-            | Rvalue::DateFromValue { .. }
-            | Rvalue::DateGetPart { .. }
-            | Rvalue::DateSetPart { .. }
-            | Rvalue::DateTimezoneContext { .. }
-    )
-}
-
-/// Whether an rvalue parses or serializes through the `url` crate.
-///
-/// A `Request` serializes its input through `url::Url`, which is what makes
-/// `new Request('https://a.test').url` read back `https://a.test/`.
-const fn rvalue_needs_url(rvalue: &Rvalue) -> bool {
-    matches!(
-        rvalue,
-        Rvalue::UrlField { .. }
-            | Rvalue::UrlSearchParamsNew { .. }
-            | Rvalue::UrlSearchParamsOp { .. }
-            | Rvalue::RequestNew { .. }
-    )
-}
-
-/// Whether an rvalue schedules work on the timer or promise task queues.
-const fn rvalue_arms_a_timer(rvalue: &Rvalue) -> bool {
-    matches!(
-        rvalue,
-        // `AbortSignal.timeout(ms)` schedules its abort on the promise task
-        // queue, and its result type mentions nothing async.
-        Rvalue::AbortSignalOp {
-            op: smelt_hir::AbortSignalOp::Timeout,
-            ..
-        } | Rvalue::AsyncOp {
-            op: AsyncOp::Sleep
-                | AsyncOp::ExitDrain
-                | AsyncOp::Resolve
-                | AsyncOp::Reject
-                | AsyncOp::SetTimeout
-                | AsyncOp::ClearTimeout
-                | AsyncOp::SetInterval
-                | AsyncOp::ClearInterval
-                | AsyncOp::Promise
-                | AsyncOp::Then
-                | AsyncOp::Catch
-                | AsyncOp::Finally
-                // `smelt_promise_race` drives the same task queue.
-                | AsyncOp::Race
-                | AsyncOp::SpawnLocal,
-            ..
-        }
     )
 }
 

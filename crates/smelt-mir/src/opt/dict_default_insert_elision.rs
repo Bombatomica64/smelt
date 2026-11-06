@@ -20,7 +20,7 @@
 //!   %2[copy %5] = move %12
 //!   goto bb6
 //! bb6:
-//!   %14 = list_push copy %2[copy %5], move %4
+//!   %14 = dict_entry_push copy %2[copy %5], move %4
 //! ```
 //!
 //! and this pass rewrites `bb2`'s terminator to `goto bb6` and deletes `%10`
@@ -28,9 +28,9 @@
 //!
 //! # Why the seeding store is redundant
 //!
-//! The Rust backend renders a [`Rvalue::ListPush`] whose receiver is a
-//! [`Place::Index`] as `m.entry_or_insert(k, || <default for the value type>)
-//! .borrow_mut().push(item)` (see `list_push_text` in
+//! The Rust backend renders a [`Rvalue::DictEntryPush`] as
+//! `m.entry_or_insert(k, || <default for the value type>)
+//! .borrow_mut().push(item)` (see `dict_entry_push_text` in
 //! `smelt-codegen-rust/src/emitter/list_mutation.rs`). `entry_or_insert` already
 //! means "the entry at `k`, inserting the value type's default first when `k` is
 //! absent". So the guarded store performs exactly the work the mutation is about
@@ -320,13 +320,13 @@ fn join_creates_entry(function: &MirFunction, join: BlockId, entry: Entry<'_>) -
         return false;
     };
     let Some(Statement::Assign {
-        value: Rvalue::ListPush { list, .. },
+        value: Rvalue::DictEntryPush { entry: pushed, .. },
         ..
     }) = block.statements.first()
     else {
         return false;
     };
-    let Some(Place::Index { base, index, .. }) = list.place() else {
+    let Some(Place::Index { base, index, .. }) = pushed.place() else {
         return false;
     };
     if *base != entry.base {

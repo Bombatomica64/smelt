@@ -20,12 +20,11 @@
 //! mutation at the *place* and deletes both copies.
 //!
 //! ```text
-//! %len = list_push copy %dict[copy %key], ..
+//! %len = dict_entry_push copy %dict[copy %key], ..
 //! ```
 //!
-//! A `Rvalue::ListPush` whose receiver is a [`Place::Index`] therefore means
-//! "append to the list stored at this place, in place"; the Rust backend renders
-//! it through the container's entry accessor.
+//! [`Rvalue::DictEntryPush`] is that mutation; the Rust backend renders it through
+//! the container's entry accessor.
 //!
 //! # Correctness
 //!
@@ -206,15 +205,15 @@ fn apply_fusion(function: &mut MirFunction, fusion: &Fusion) {
     else {
         return;
     };
-    let receiver = source.clone();
-    let Some(Statement::Assign {
-        value: Rvalue::ListPush { list, .. },
-        ..
-    }) = block.statements.get_mut(push_index)
-    else {
+    let entry = source.clone();
+    let Some(Statement::Assign { value, .. }) = block.statements.get_mut(push_index) else {
         return;
     };
-    *list = receiver;
+    let Rvalue::ListPush { item, .. } = value else {
+        return;
+    };
+    let item = item.clone();
+    *value = Rvalue::DictEntryPush { entry, item };
     block.statements.remove(write_back_index);
     block.statements.remove(fusion.start);
 }
