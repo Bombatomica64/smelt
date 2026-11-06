@@ -85,11 +85,11 @@ pub(crate) fn program_writes_erased_fields(mir: &Mir) -> bool {
 /// struct adapter (`smelt_struct_value`, `smelt_object_entries`), so the two
 /// views of one instance agree.
 pub(crate) fn erased_view_entry_expr(receiver: &RustExpr, entries: &str, live_reads: bool) -> RustExpr {
-    let setter = format!(
+    let setter = RustExpr::loose(format!(
         "{entries}.push(({SET_FIELD_KEY:?}.to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({{ let smelt_receiver = {receiver}.clone(); move |smelt_args: Vec<SmeltUnknown>| {{ if let Some(SmeltUnknown::String(smelt_key)) = smelt_args.first() {{ smelt_receiver.{SET_FIELD_METHOD}(&smelt_key.to_string(), smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)); }} Ok(SmeltUnknown::Undefined) }} }})))); "
-    );
+    ));
     if !live_reads {
-        return RustExpr::from(setter);
+        return setter;
     }
     // The live-read hook (see `LIVE_MEMBER_PRELUDE`).
     RustExpr::loose(format!(

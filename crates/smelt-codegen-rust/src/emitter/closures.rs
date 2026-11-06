@@ -221,7 +221,7 @@ impl FunctionEmitter<'_> {
                     )
                 }
             };
-            let callback_text = format!("::std::rc::Rc::new({adjusted_closure})");
+            let callback_text = RustExpr::loose(format!("::std::rc::Rc::new({adjusted_closure})"));
             if let Some(Type::Function(function)) = self.mir.types.get(dest_ty)
                 && self.is_erased_unknown_rest_function(function)
                 && !function.may_throw
@@ -258,11 +258,11 @@ impl FunctionEmitter<'_> {
                     ErasedCallTargetAbi::ByValueClosure,
                 )?;
                 let call = if source_closure.can_throw {
-                    format!(
+                    RustExpr::atom(format!(
                         "(smelt_callback)({args}).unwrap_or_else(|error| smelt_panic_throw(error))"
-                    )
+                    ))
                 } else {
-                    format!("(smelt_callback)({args})")
+                    RustExpr::atom(format!("(smelt_callback)({args})"))
                 };
                 let unknown_ty = self.type_id(Type::Unknown)?;
                 let return_text =
@@ -273,14 +273,14 @@ impl FunctionEmitter<'_> {
                         // the callback result behave as in JS.
                         self.carrier_format(format_args!("{{ {call}; SmeltUnknown::Undefined }}"))
                     } else {
-                        self.rendered_at_type(&RustExpr::opaque(&call), source_closure.return_ty, unknown_ty, &self.render_scope())?.into_string()
+                        self.rendered_at_type(&call, source_closure.return_ty, unknown_ty, &self.render_scope())?.into_string()
                     };
                 let length = source_closure
                     .required_params
                     .unwrap_or_else(|| source_closure.rest.unwrap_or(source_closure.params.len()));
-                let erased_function = self.carrier_format(format_args!(
+                let erased_function = RustExpr::loose(self.carrier_format(format_args!(
                     "SmeltErasedFunction {{ callback: {{ let smelt_callback = ::std::rc::Rc::new({adjusted_closure}); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}) }}, length: {length}.0, object: None }}"
-                ));
+                )));
                 // A bare function-item-as-value wrapper carries a stable item
                 // key. Building this `SmeltErasedFunction` inline would mint a
                 // fresh callback `Rc` on every call, so two calls of the same
@@ -296,12 +296,12 @@ impl FunctionEmitter<'_> {
                         .function_item_erased_fn_accessors
                         .borrow_mut()
                         .entry(key)
-                        .or_insert(erased_function);
+                        .or_insert(erased_function.into_string());
                     return Ok(RustExpr::opaque(format!("__smelt_fn_erased_{key}()")));
                 }
-                return Ok(RustExpr::from(erased_function));
+                return Ok(erased_function);
             }
-            return Ok(RustExpr::from(callback_text));
+            return Ok(callback_text);
         }
         Ok(RustExpr::from(closure))
     }
@@ -646,7 +646,7 @@ impl FunctionEmitter<'_> {
                     let local = emitter.local_decl(*param)?;
                     let needs_mut = emitter.local_binding_needs_mut(*param);
                     let mutability = if needs_mut { "mut " } else { "" };
-                    let name = emitter.local_name(*param)?.into_owned();
+                    let name = RustExpr::from(emitter.local_name(*param)?.into_owned());
                     let local_ty_text = emitter.type_text(local.ty)?;
                     // Only re-type a parameter when the contextual function
                     // dropped an optional wrapper the closure's own local kept
@@ -667,7 +667,7 @@ impl FunctionEmitter<'_> {
                     // `clippy::single_match_else` rejects.
                     if let Some(target_ty) = retype {
                         let target_ty_text = emitter.type_text(target_ty)?;
-                        let coerced = emitter.rendered_at_type(&RustExpr::opaque(&name), target_ty, local.ty, &self.render_scope())?;
+                        let coerced = emitter.rendered_at_type(&name, target_ty, local.ty, &self.render_scope())?;
                         param_rebinds.push_str(&format!(
                             "let {mutability}{name}: {local_ty_text} = {coerced};\n"
                         ));
@@ -1032,10 +1032,10 @@ impl FunctionEmitter<'_> {
                     return None;
                 }
                 let source_name = self.local_binding(capture.source_local).ok()?.text().into_owned();
-                let name = capture_aliases
+                let name = RustExpr::from(capture_aliases
                     .get(&capture.source_local)
                     .cloned()
-                    .unwrap_or_else(|| source_name.clone());
+                    .unwrap_or_else(|| source_name.clone()));
                 if let Some(source_cell) = self.local_binding(capture.source_local).ok()?.shared_cell() {
                     // The source binding already renders through shared storage
                     // (it was captured from an enclosing shared closure). The
@@ -1048,7 +1048,7 @@ impl FunctionEmitter<'_> {
                         .insert(cell.clone())
                         .then(|| format!("let {cell} = {cell}.clone();"));
                 }
-                cloned_captures.insert(name.clone()).then(|| {
+                cloned_captures.insert(name.clone().into_string()).then(|| {
                     if self.is_weak_emitter_capture(id, capture) {
                         return weak_receiver::emitter_prelude_text(&name, &source_name);
                     }

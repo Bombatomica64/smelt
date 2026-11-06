@@ -79,11 +79,11 @@ impl FunctionEmitter<'_> {
         }
         let field_name = sanitize_ident(self.symbol_name(source_field.name)?);
         let field_read = if self.is_reference_class_type(source) {
-            format!("smelt_slot_receiver.0.borrow().{field_name}.clone()")
+            RustExpr::chain(format!("smelt_slot_receiver.0.borrow().{field_name}.clone()")).ending_in_clone()
         } else {
-            format!("smelt_slot_receiver.{field_name}.clone()")
+            RustExpr::chain(format!("smelt_slot_receiver.{field_name}.clone()")).ending_in_clone()
         };
-        let callee = self.rendered_at_type(&RustExpr::opaque(&field_read), source_field.ty, target_field.ty, scope)?;
+        let callee = self.rendered_at_type(&field_read, source_field.ty, target_field.ty, scope)?;
         // Every generated class implements `IntoSmeltUnknown`, so the deferred
         // erasure calls it instead of inlining the class's whole erased view
         // into each slot (which multiplied a class with many callable fields
@@ -149,7 +149,7 @@ impl FunctionEmitter<'_> {
             .map(|index| format!("smelt_slot_arg_{index}"))
             .collect::<Vec<_>>()
             .join(", ");
-        Ok(Some(RustExpr::from(self.carrier_format(format_args!(
+        Ok(Some(RustExpr::atom(self.carrier_format(format_args!(
             "{{ let smelt_slot_source: SmeltUnknown = {record_map}.clone().into_smelt_unknown(); \
              let smelt_slot: {ty} = ::std::rc::Rc::new(move |{args}| {{ \
              let smelt_slot_callee = {callee}; \

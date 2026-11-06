@@ -217,8 +217,8 @@ impl FunctionEmitter<'_> {
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ");
             let suffix = if *throws { "?" } else { "" };
-            let call = format!("{receiver_text}.{}({args_text}){suffix}", member.rust_name);
-            return self.rendered_at_type(&RustExpr::opaque(&call), *ret, dest_ty, &self.render_scope()).map(RustExpr::from);
+            let call = RustExpr::opaque(format!("{receiver_text}.{}({args_text}){suffix}", member.rust_name));
+            return self.rendered_at_type(&call, *ret, dest_ty, &self.render_scope());
         }
         // The parameter erased here: look the method up on the erased value,
         // as JavaScript does, and call it through the erased call ABI.
@@ -233,13 +233,13 @@ impl FunctionEmitter<'_> {
         } else {
             ".unwrap_or_else(|error| smelt_panic_throw(error))"
         };
-        let call = self.carrier_format(format_args!(
+        let call = RustExpr::atom(self.carrier_format(format_args!(
             "match smelt_get_unknown_field(&{receiver_text}, {method_name:?}) {{ SmeltUnknown::Function(smelt_method) => (smelt_method)(vec![{erased_args}]){propagate}, _ => SmeltUnknown::Undefined }}"
-        ));
+        )));
         // MIR interns `unknown` for every program with a bound member read
         // (`intern_bound_dispatch_carrier_type`).
         let unknown_ty = self.type_id(Type::Unknown)?;
-        self.rendered_at_type(&RustExpr::opaque(&call), unknown_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+        self.rendered_at_type(&call, unknown_ty, dest_ty, &self.render_scope())
     }
 
     /// Render `receiver.field` where the receiver's type is a bounded type
@@ -256,13 +256,13 @@ impl FunctionEmitter<'_> {
         if let Some(member) = self.bound_trait_member(receiver_ty, bound, field)
             && let BoundMemberKind::Field { ty } = &member.kind
         {
-            let read = format!("{receiver_text}.{}()", member.rust_name);
-            return self.rendered_at_type(&RustExpr::opaque(&read), *ty, dest_ty, &self.render_scope()).map(RustExpr::from);
+            let read = RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.{}()", member.rust_name));
+            return self.rendered_at_type(&read, *ty, dest_ty, &self.render_scope());
         }
         let field_name = self.symbol_name(field)?;
-        let read = format!("smelt_get_unknown_field(&{receiver_text}, {field_name:?})");
+        let read = RustExpr::chain(format!("smelt_get_unknown_field(&{receiver_text}, {field_name:?})"));
         let unknown_ty = self.type_id(Type::Unknown)?;
-        self.rendered_at_type(&RustExpr::opaque(&read), unknown_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+        self.rendered_at_type(&read, unknown_ty, dest_ty, &self.render_scope())
     }
 
     /// The receiver of a bound member access, borrowed in place: both the

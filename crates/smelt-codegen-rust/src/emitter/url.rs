@@ -53,8 +53,8 @@ impl FunctionEmitter<'_> {
         let scope = self.render_scope();
         match op {
             UrlOp::Get(field) => {
-                let text = format!("{receiver}.{}()", Self::url_getter(field));
-                self.rendered_at_type(&RustExpr::opaque(&text), string_ty, dest_ty, &scope).map(RustExpr::from)
+                let text = RustExpr::postfix_on(&receiver, format!("{receiver}.{}()", Self::url_getter(field)));
+                self.rendered_at_type(&text, string_ty, dest_ty, &scope)
             }
             UrlOp::Set(field) => {
                 if !field.is_settable() || field == UrlField::Href {
@@ -67,11 +67,11 @@ impl FunctionEmitter<'_> {
                     .first()
                     .ok_or_else(|| EmitError::new("a `URL` setter takes one value"))?;
                 let value_text = self.value_at_type(value, string_ty)?;
-                let text = format!(
+                let text = RustExpr::atom(format!(
                     "{{ let smelt_url_value: String = {value_text}; {receiver}.set_{}(&smelt_url_value); smelt_url_value }}",
                     Self::url_getter(field)
-                );
-                self.rendered_at_type(&RustExpr::opaque(&text), string_ty, dest_ty, &scope).map(RustExpr::from)
+                ));
+                self.rendered_at_type(&text, string_ty, dest_ty, &scope)
             }
             UrlOp::SearchParams => {
                 let params_ty = self
@@ -84,7 +84,7 @@ impl FunctionEmitter<'_> {
                     params_ty,
                     dest_ty,
                     &scope,
-                ).map(RustExpr::from)
+                )
             }
         }
     }
@@ -102,7 +102,7 @@ impl FunctionEmitter<'_> {
             ),
             None => "None".to_owned(),
         };
-        Ok(CallText::propagating(format!("{URL_NEW_FN}({input_text}.as_str(), {base_text})")))
+        Ok(CallText::propagating(RustExpr::postfix_on(&URL_NEW_FN, format!("{URL_NEW_FN}({input_text}.as_str(), {base_text})"))))
     }
 
     /// Render the fallible `url.href = text` call.
@@ -112,7 +112,7 @@ impl FunctionEmitter<'_> {
         };
         let url_text = self.operand_borrow_expr(url)?;
         let value_text = self.string_like_operand_expr(value, "URL href")?;
-        Ok(CallText::propagating(format!("{URL_SET_HREF_FN}(&{url_text}, {value_text})")))
+        Ok(CallText::propagating(RustExpr::postfix_on(&URL_SET_HREF_FN, format!("{URL_SET_HREF_FN}(&{url_text}, {value_text})"))))
     }
 
     /// The type a fallible `URL` call answers: the `URL` class for the

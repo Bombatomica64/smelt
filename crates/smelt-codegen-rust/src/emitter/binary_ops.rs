@@ -113,7 +113,7 @@ impl FunctionEmitter<'_> {
             let index_text = self.operand_expr(index)?;
             self.property_key_to_string_expr(&index_text, source_key)?
         } else {
-            RustExpr::from(self.value_at_type(index, key_ty)?)
+            self.value_at_type(index, key_ty)?
         };
         let base_text = self.local_value(*base)?;
         Ok(Some(RustExpr::postfix_on(&base_text, format!("{base_text}.get(&{key_text})"))))
@@ -310,24 +310,24 @@ impl FunctionEmitter<'_> {
             if strict_nullish {
                 let distinct = (provably_null(lhs) && provably_undefined(rhs))
                     || (provably_undefined(lhs) && provably_null(rhs));
-                (!distinct).to_string()
+                RustExpr::from((!distinct).to_string())
             } else {
-                "true".to_owned()
+                RustExpr::path("true")
             }
         } else if lhs_is_erased && rhs_is_none {
-            format!(
+            RustExpr::atom(format!(
                 "matches!({}, {})",
                 self.operand_expr(lhs)?,
                 nullish_pattern(rhs)
-            )
+            ))
         } else if rhs_is_erased && lhs_is_none {
-            format!(
+            RustExpr::atom(format!(
                 "matches!({}, {})",
                 self.operand_expr(rhs)?,
                 nullish_pattern(lhs)
-            )
+            ))
         } else if lhs_is_none || rhs_is_none {
-            "false".to_owned()
+            RustExpr::path("false")
         } else if lhs_is_erased || rhs_is_erased {
             // Both sides are compared through `SmeltUnknown`'s JS-equality impls,
             // so both operands must be genuine `SmeltUnknown` values. `erase()` is
@@ -356,16 +356,16 @@ impl FunctionEmitter<'_> {
             if js_strict {
                 // JavaScript `===`/`!==` on erased values: reference identity for
                 // objects/arrays/functions, value for primitives, NaN-unequal.
-                self.carrier_format(format_args!("{lhs_text}.js_strict_eq({rhs_reference_text})"))
+                RustExpr::postfix_on(&lhs_text, self.carrier_format(format_args!("{lhs_text}.js_strict_eq({rhs_reference_text})")))
             } else if strict {
                 // `Object.is` / `a === b || Object.is(a,b)` SameValueZero idiom:
                 // NaN-equal, reference objects.
-                self.carrier_format(format_args!("{lhs_text}.same_js_key({rhs_reference_text})"))
+                RustExpr::postfix_on(&lhs_text, self.carrier_format(format_args!("{lhs_text}.same_js_key({rhs_reference_text})")))
             } else {
                 // Loose/structural `==`/`!=` on erased values: SmeltUnknown's
                 // structural `Eq` (deep), which the `toEqual`/`toStrictEqual`
                 // matchers and `isDeepEqual` depend on.
-                format!("{lhs_text} == {rhs_text}")
+                RustExpr::loose(format!("{lhs_text} == {rhs_text}"))
             }
         } else {
             return Ok(None);
@@ -379,7 +379,7 @@ impl FunctionEmitter<'_> {
             ) {
                 RustExpr::loose(format!("!({text})"))
             } else {
-                RustExpr::from(text)
+                text
             },
         ))
     }
@@ -420,12 +420,12 @@ impl FunctionEmitter<'_> {
                 self.reference_identity_expr(&RustExpr::path("right"), right_inner),
             )
         {
-            let text = format!(
+            let text = RustExpr::atom(format!(
                 "match ({}.as_ref(), {}.as_ref()) {{ (Some(left), Some(right)) => {left_identity} == {right_identity}, (None, None) => true, _ => false }}",
                 self.operand_expr(lhs)?,
                 self.operand_expr(rhs)?
-            );
-            return Ok(Some(if negate { RustExpr::loose(format!("!({text})")) } else { RustExpr::from(text) }));
+            ));
+            return Ok(Some(if negate { RustExpr::loose(format!("!({text})")) } else { text }));
         }
         // Exactly one side is optional and both hold reference values: an absent
         // optional is `undefined`, which is never the same reference as a
@@ -443,11 +443,8 @@ impl FunctionEmitter<'_> {
                 self.reference_identity_expr(&RustExpr::path("value"), inner),
                 self.reference_identity_expr(&self.operand_expr(bare_operand)?, bare_ty),
             ) {
-                let text = format!(
-                    "{}.as_ref().is_some_and(|value| {inner_identity} == {bare_identity})",
-                    self.operand_expr(option_operand)?
-                );
-                return Ok(Some(if negate { RustExpr::loose(format!("!({text})")) } else { RustExpr::from(text) }));
+                let text = { let receiver = self.operand_expr(option_operand)?; RustExpr::postfix_on(&receiver, format!("{receiver}.as_ref().is_some_and(|value| {inner_identity} == {bare_identity})")) };
+                return Ok(Some(if negate { RustExpr::loose(format!("!({text})")) } else { text }));
             }
         }
         let text = if let Some(inner) = lhs_inner
@@ -487,7 +484,7 @@ impl FunctionEmitter<'_> {
         } else {
             return Ok(None);
         } };
-        Ok(Some(if negate { RustExpr::loose(format!("!({text})")) } else { RustExpr::from(text) }))
+        Ok(Some(if negate { RustExpr::loose(format!("!({text})")) } else { text }))
     }
 
     /// Emits equality between `Option<SmeltUnknown>`-like storage and a JS
@@ -787,7 +784,7 @@ impl FunctionEmitter<'_> {
             ) {
                 RustExpr::loose(format!("!({equal_text})"))
             } else {
-                RustExpr::from(equal_text)
+                equal_text
             },
         ))
     }
@@ -838,7 +835,7 @@ impl FunctionEmitter<'_> {
             ) {
                 RustExpr::loose(format!("!({equal_text})"))
             } else {
-                RustExpr::from(equal_text)
+                equal_text
             },
         ))
     }
@@ -913,8 +910,8 @@ impl FunctionEmitter<'_> {
                 // `.len()` is the list's own inherent method; `.iter()` reads
                 // the shared buffer. Both are shared borrows, so comparing a
                 // list against itself is fine.
-                let left_read = list_read_expr(&RustExpr::opaque(left));
-                let right_read = list_read_expr(&RustExpr::opaque(right));
+                let left_read = list_read_expr(&RustExpr::opaque(&left));
+                let right_read = list_read_expr(&RustExpr::opaque(&right));
                 RustExpr::loose(format!(
                     "{left}.len() == {right}.len() && {left_read}.iter().zip({right_read}.iter()).all(|(left_item, right_item)| {item_equal})"
                 ))
@@ -961,9 +958,9 @@ impl FunctionEmitter<'_> {
         // callables to link, so pointer identity of the shared `Rc` is the
         // whole answer.
         let compare = if self.context.demand().has(Need::Unknown) {
-            "smelt_same_function_identity"
+            RustExpr::path("smelt_same_function_identity")
         } else {
-            "::std::rc::Rc::ptr_eq"
+            RustExpr::loose("::std::rc::Rc::ptr_eq")
         };
         Ok(RustExpr::postfix_on(&compare, format!(
             "{compare}(&{{ let smelt_lhs_fn: {fn_ty} = {left}.clone(); smelt_lhs_fn }}, &{{ let smelt_rhs_fn: {fn_ty} = {right}.clone(); smelt_rhs_fn }})"
@@ -1142,16 +1139,16 @@ impl FunctionEmitter<'_> {
             (Some(Type::Int | Type::Float), Some(Type::Int | Type::Float)) if same_value => {
                 let lhs_text = self.float_operand_expr(lhs)?;
                 let rhs_text = self.float_operand_expr(rhs)?;
-                format!(
+                RustExpr::atom(format!(
                     "{{ let lhs: f64 = {lhs_text}; let rhs: f64 = {rhs_text}; (lhs.is_nan() && rhs.is_nan()) || (lhs == rhs && (lhs != 0.0 || lhs.is_sign_negative() == rhs.is_sign_negative())) }}"
-                )
+                ))
             }
             (Some(Type::Function(_)), Some(Type::Function(_))) if lhs_ty == rhs_ty => {
                 self.function_ptr_eq_expr(
                     &self.operand_expr(lhs)?,
                     &self.operand_expr(rhs)?,
                     lhs_ty,
-                )?.into_string()
+                )?
             }
             _ if self.is_reference_type(lhs_ty) || self.is_reference_type(rhs_ty) => {
                 let lhs_identity =
@@ -1159,11 +1156,11 @@ impl FunctionEmitter<'_> {
                 let rhs_identity =
                     self.reference_identity_expr(&self.operand_expr(rhs)?, rhs_ty);
                 match (lhs_identity, rhs_identity) {
-                    (Some(left), Some(right)) => format!("{left} == {right}"),
+                    (Some(left), Some(right)) => RustExpr::loose(format!("{left} == {right}")),
                     // Either a reference value whose representation has no id,
                     // or a reference compared against a non-reference: neither
                     // can be the same JS reference.
-                    _ => "false".to_owned(),
+                    _ => RustExpr::path("false"),
                 }
             }
             _ => return Ok(None),
@@ -1171,7 +1168,7 @@ impl FunctionEmitter<'_> {
         Ok(Some(if negate {
             RustExpr::loose(format!("!({equal_text})"))
         } else {
-            RustExpr::from(equal_text)
+            equal_text
         }))
     }
 
@@ -1205,7 +1202,7 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         }
         if self.equality_shapes_are_definitely_incompatible(lhs_ty, rhs_ty) {
-            let text = "false".to_owned();
+            let text = RustExpr::path("false");
             return Ok(Some(
                 if matches!(
                     op,
@@ -1215,7 +1212,7 @@ impl FunctionEmitter<'_> {
                 ) {
                     RustExpr::loose(format!("!({text})"))
                 } else {
-                    RustExpr::from(text)
+                    text
                 },
             ));
         }
@@ -1224,22 +1221,22 @@ impl FunctionEmitter<'_> {
         let rhs_needs_erased = self.type_contains_unknown(rhs_ty)
             || self.has_dynamic_shape(rhs_ty);
         let text = if lhs_needs_erased && !rhs_needs_erased {
-            format!(
+            RustExpr::loose(format!(
                 "{} == {}",
                 self.operand_expr(lhs)?,
                 self.value_at_type(rhs, lhs_ty)?
-            )
+            ))
         } else if rhs_needs_erased && !lhs_needs_erased {
             if matches!(self.mir.types.get(lhs_ty), Some(Type::Tuple(_)))
                 && matches!(self.mir.types.get(rhs_ty), Some(Type::List(_)))
             {
-                format!("{} == {}", self.erase(lhs)?, self.erase(rhs)?)
+                RustExpr::loose(format!("{} == {}", self.erase(lhs)?, self.erase(rhs)?))
             } else {
-                format!(
+                RustExpr::loose(format!(
                     "{} == {}",
                     self.value_at_type(lhs, rhs_ty)?,
                     self.operand_expr(rhs)?
-                )
+                ))
             }
         } else {
             return Ok(None);
@@ -1247,7 +1244,7 @@ impl FunctionEmitter<'_> {
         Ok(Some(if op == smelt_hir::BinOp::NotEq {
             RustExpr::loose(format!("!({text})"))
         } else {
-            RustExpr::from(text)
+            text
         }))
     }
 
@@ -1404,17 +1401,17 @@ impl FunctionEmitter<'_> {
         }
         let lhs_text = self.string_like_operand_expr(lhs, "string addition")?;
         let rhs_text = self.string_like_operand_expr(rhs, "string addition")?;
-        let text = format!("{lhs_text} + &{rhs_text}");
+        let text = RustExpr::loose(format!("{lhs_text} + &{rhs_text}"));
         if dest_is_string {
-            return Ok(Some(RustExpr::from(text)));
+            return Ok(Some(text));
         }
         let string_ty = self.type_id(Type::String)?;
-        Ok(Some(RustExpr::from(self.rendered_at_type(
-            &RustExpr::opaque(&text),
+        Ok(Some(self.rendered_at_type(
+            &text,
             string_ty,
             dest_ty,
             &self.render_scope(),
-        )?)))
+        )?))
     }
 
     /// Emits arithmetic involving erased operands through JavaScript-like numbers.
@@ -1463,7 +1460,7 @@ impl FunctionEmitter<'_> {
             )),
             Some(Type::Float) => numeric,
             Some(Type::String) => {
-                RustExpr::postfix_on(&numeric.parenthesized_if_needed(), format!("{}.to_string()", numeric.parenthesized_if_needed()))
+                { let receiver = numeric.parenthesized_if_needed(); RustExpr::postfix_on(&receiver, format!("{receiver}.to_string()")) }
             }
             // The erased target is already an `f64` value in argument position
             // (no reassociation); the coercion seam owns the `Number` tag text.
@@ -1500,12 +1497,9 @@ impl FunctionEmitter<'_> {
         let fallback = match self.mir.types.get(inner) {
             Some(Type::Int) => "0_i64",
             Some(Type::Float) => "0.0",
-            _ => return Ok(RustExpr::from(self.operand_expr(operand)?)),
+            _ => return Ok(self.operand_expr(operand)?),
         };
-        Ok(RustExpr::postfix_on(&self.operand_expr(operand)?, format!(
-            "{}.unwrap_or({fallback})",
-            self.operand_expr(operand)?
-        )))
+        Ok({ let receiver = self.operand_expr(operand)?; RustExpr::postfix_on(&receiver, format!("{receiver}.unwrap_or({fallback})")) })
     }
 
     /// Emits an unwrapped optional arithmetic operand coerced to `target`.
@@ -1516,6 +1510,6 @@ impl FunctionEmitter<'_> {
         target: TypeId,
     ) -> Result<RustExpr, EmitError> {
         let value = self.option_value(operand, inner)?;
-        self.rendered_at_type(&value, inner, target, &self.render_scope()).map(RustExpr::from)
+        self.rendered_at_type(&value, inner, target, &self.render_scope())
     }
 }

@@ -227,7 +227,7 @@ impl FunctionEmitter<'_> {
                     self.place_expr(&Place::Local(*local))
                 }
                 Operand::Copy(place) | Operand::Move(place) => {
-                    Ok(RustExpr::postfix_on(&self.place_expr(place)?, format!("{}.as_str()", self.place_expr(place)?)))
+                    Ok({ let receiver = self.place_expr(place)?; RustExpr::postfix_on(&receiver, format!("{receiver}.as_str()")) })
                 }
                 Operand::Const(Constant::String(value)) => Ok(RustExpr::chain(format!("{value:?}"))),
                 Operand::Const(_) => self.operand_expr(operand),
@@ -236,7 +236,7 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(operand_ty),
             Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String)
         ) {
-            Ok(RustExpr::postfix_on(&self.operand_expr(operand)?, format!("{}.as_deref()", self.operand_expr(operand)?)))
+            Ok({ let receiver = self.operand_expr(operand)?; RustExpr::postfix_on(&receiver, format!("{receiver}.as_deref()")) })
         } else {
             self.operand_expr(operand)
         }

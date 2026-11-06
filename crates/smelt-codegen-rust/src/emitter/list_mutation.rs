@@ -62,7 +62,7 @@ impl FunctionEmitter<'_> {
             let index_text = self.operand_expr(index.as_ref())?;
             self.property_key_to_string_expr(&index_text, source_key)?
         } else {
-            RustExpr::from(self.value_at_type(index.as_ref(), entry_key_ty)?)
+            self.value_at_type(index.as_ref(), entry_key_ty)?
         };
         let default_value = self.default_value(entry_ty)?;
         let item_text = self.value_at_type(item, *item_ty)?;
@@ -170,7 +170,7 @@ impl FunctionEmitter<'_> {
             // non-object base), and the `other =>` arm has to create the object.
             // Storing an already-stored handle back over itself is a pointer
             // write, so there is nothing to gain from making it conditional.
-            return Ok(RustExpr::from(self.carrier_format(format_args!(
+            return Ok(RustExpr::atom(self.carrier_format(format_args!(
                 "{{ let smelt_array = match {base_text}.clone() {{ SmeltUnknown::Object(map) => match smelt_get_object_field(&map, \"{field_name}\") {{ SmeltUnknown::Array(values) => values, _ => SmeltArray::new(Vec::new()) }}, _ => SmeltArray::new(Vec::new()) }}; let smelt_push_item = ({item_text}).into_smelt_unknown(); smelt_array.push(smelt_push_item); let smelt_result = {result}; let smelt_value = SmeltUnknown::Array(smelt_array); match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert(\"{field_name}\".to_owned(), smelt_value); }}, other => {{ let map = SmeltObject::new(Vec::from([(\"{field_name}\".to_owned(), smelt_value)])); *other = SmeltUnknown::Object(map); }} }} smelt_result }}"
             ))));
         }
@@ -199,7 +199,7 @@ impl FunctionEmitter<'_> {
             let push_expr =
                 format!("let smelt_push_item = {item_text}; {list_mut}.push(smelt_push_item);");
             let smelt_value_text = self.erased_array_writeback_value(&list_text, list_ty);
-            return Ok(RustExpr::from(self.carrier_format(format_args!(
+            return Ok(RustExpr::atom(self.carrier_format(format_args!(
                 "{{ {push_expr} let smelt_result = {result}; let smelt_value = {smelt_value_text}; match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert(\"{field_name}\".to_owned(), smelt_value); }}, other => {{ let map = SmeltObject::new(Vec::from([(\"{field_name}\".to_owned(), smelt_value)])); *other = SmeltUnknown::Object(map); }} }} smelt_result }}"
             ))));
         }
@@ -216,7 +216,7 @@ impl FunctionEmitter<'_> {
                 let index_text = self.operand_expr(index.as_ref())?;
                 self.property_key_to_string_expr(&index_text, source_key)?
             } else {
-                RustExpr::from(self.value_at_type(index.as_ref(), *key_ty)?)
+                self.value_at_type(index.as_ref(), *key_ty)?
             };
             let item_text = self.value_at_type(item, *item_ty)?;
             let result = if returns_length {
@@ -309,9 +309,9 @@ impl FunctionEmitter<'_> {
     /// one is erased to `SmeltUnknown` and aliases.
     fn erased_array_writeback_value(&self, list_text: &RustExpr, list_ty: TypeId) -> RustExpr {
         if self.list_items_render_as_unknown(list_ty, &self.render_scope()) {
-            RustExpr::from(self.carrier_format(format_args!("SmeltUnknown::Array({list_text}.clone().into())")))
+            RustExpr::atom(self.carrier_format(format_args!("SmeltUnknown::Array({list_text}.clone().into())")))
         } else {
-            RustExpr::from(self.carrier_format(format_args!(
+            RustExpr::atom(self.carrier_format(format_args!(
                 "SmeltUnknown::Array({list_text}.clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect())"
             )))
         }
@@ -403,7 +403,7 @@ impl FunctionEmitter<'_> {
         let other_text = if self.operand_ty(other)? == list_ty {
             self.operand_expr(other)?
         } else {
-            RustExpr::from(self.value_at_type(other, list_ty)?)
+            self.value_at_type(other, list_ty)?
         };
         let returns_length = match self.mir.types.get(dest_ty) {
             Some(Type::Float) => true,
@@ -579,7 +579,7 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Optional(_)) => {
                 let pop_ty = self.type_id(Type::Optional(item_ty))?;
-                self.rendered_at_type(&RustExpr::postfix_on(&list_mut, format!("{list_mut}.pop()")), pop_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+                self.rendered_at_type(&RustExpr::postfix_on(&list_mut, format!("{list_mut}.pop()")), pop_ty, dest_ty, &self.render_scope())
             }
             _ => self.rendered_at_type(
                 &RustExpr::postfix_on(&list_mut, format!("{list_mut}.pop().expect(\"pop from empty list\")")),
@@ -719,7 +719,7 @@ impl FunctionEmitter<'_> {
                     "{{ let smelt_needle = {item_text}; let remove_index = {list_read}.iter().position(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).expect(\"list remove missing item\"); {list_mut}.remove(remove_index); () }}"
                 )));
             }
-            return Ok(RustExpr::from(self.carrier_format(format_args!(
+            return Ok(RustExpr::atom(self.carrier_format(format_args!(
                 "{{ let smelt_needle = {item_text}; let remove_index = {list_read}.iter().position(|item| item.same_js_key(&smelt_needle)).expect(\"list remove missing item\"); {list_mut}.remove(remove_index); () }}"
             ))));
         }
@@ -768,9 +768,9 @@ impl FunctionEmitter<'_> {
         // the elements were an inline `Vec`.
         let list_mut = list_write_expr(&list_text);
         let result_text = if returns_list {
-            format!("{list_text}.clone()")
+            RustExpr::postfix_on(&list_text, format!("{list_text}.clone()")).ending_in_clone()
         } else {
-            "()".to_owned()
+            RustExpr::atom("()")
         };
         if let Some(comparator_operand) = comparator {
             return self.list_sort_comparator_expr(
@@ -778,7 +778,7 @@ impl FunctionEmitter<'_> {
                 element_ty,
                 returns_list,
                 &list_mut,
-                &RustExpr::opaque(&result_text),
+                &result_text,
             );
         }
         if key.is_some() || reverse {

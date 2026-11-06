@@ -58,21 +58,21 @@ impl FunctionEmitter<'_> {
                 match op {
                     SqliteOp::All => {
                         let rows_ty = self.type_id(Type::List(unknown_ty))?;
-                        let text = format!("{receiver_text}.smelt_sqlite_all(&[{parameters}])?");
-                        self.rendered_at_type(&RustExpr::opaque(&text), rows_ty, dest_ty, &scope).map(RustExpr::from)
+                        let text = RustExpr::loose(format!("{receiver_text}.smelt_sqlite_all(&[{parameters}])?"));
+                        self.rendered_at_type(&text, rows_ty, dest_ty, &scope)
                     }
                     SqliteOp::Get => {
-                        let text = format!("{receiver_text}.smelt_sqlite_get(&[{parameters}])?");
-                        self.rendered_at_type(&RustExpr::opaque(&text), unknown_ty, dest_ty, &scope).map(RustExpr::from)
+                        let text = RustExpr::loose(format!("{receiver_text}.smelt_sqlite_get(&[{parameters}])?"));
+                        self.rendered_at_type(&text, unknown_ty, dest_ty, &scope)
                     }
                     _ => {
                         let float_ty = self.type_id(Type::Float)?;
                         let string_ty = self.type_id(Type::String)?;
                         let changes_ty = self.type_id(Type::Dict(string_ty, float_ty))?;
-                        let text = self.carrier_format(format_args!(
+                        let text = RustExpr::atom(self.carrier_format(format_args!(
                             "{{ let (smelt_changes, smelt_last_insert_rowid) = {receiver_text}.run(&[{parameters}])?; SmeltRecord::from([(\"changes\".to_owned(), smelt_changes), (\"lastInsertRowid\".to_owned(), smelt_last_insert_rowid)]) }}"
-                        ));
-                        self.rendered_at_type(&RustExpr::opaque(&text), changes_ty, dest_ty, &scope).map(RustExpr::from)
+                        )));
+                        self.rendered_at_type(&text, changes_ty, dest_ty, &scope)
                     }
                 }
             }

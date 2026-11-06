@@ -40,7 +40,7 @@ impl FunctionEmitter<'_> {
         match op {
             smelt_hir::TextEncoderOp::Encoding => {
                 let string_ty = self.type_id(Type::String)?;
-                self.rendered_at_type(&RustExpr::postfix_on(&receiver, format!("{receiver}.encoding()")), string_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+                self.rendered_at_type(&RustExpr::postfix_on(&receiver, format!("{receiver}.encoding()")), string_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::TextEncoderOp::Encode => {
                 // `encode()` with no argument encodes the empty string, which
@@ -69,18 +69,18 @@ impl FunctionEmitter<'_> {
         let string_ty = self.type_id(Type::String)?;
         match op {
             smelt_hir::TextDecoderOp::Encoding => {
-                self.rendered_at_type(&RustExpr::postfix_on(&receiver, format!("{receiver}.encoding()")), string_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+                self.rendered_at_type(&RustExpr::postfix_on(&receiver, format!("{receiver}.encoding()")), string_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::TextDecoderOp::Decode => {
                 let text = match args.first() {
                     // `decode()` with no argument answers the empty string.
-                    None => format!("{receiver}.decode(&SmeltUint8Array::new())"),
+                    None => RustExpr::postfix_on(&receiver, format!("{receiver}.decode(&SmeltUint8Array::new())")),
                     Some(arg) => {
                         let bytes = self.byte_view_argument_expr(arg)?;
-                        format!("{receiver}.decode(&{bytes})")
+                        RustExpr::postfix_on(&receiver, format!("{receiver}.decode(&{bytes})"))
                     }
                 };
-                self.rendered_at_type(&RustExpr::opaque(&text), string_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+                self.rendered_at_type(&text, string_ty, dest_ty, &self.render_scope())
             }
         }
     }
@@ -100,11 +100,11 @@ impl FunctionEmitter<'_> {
         if let Some(Type::Class { name, .. }) = self.mir.types.get(arg_ty)
             && self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::TypedArray)
         {
-            return Ok(RustExpr::from(text));
+            return Ok(text);
         }
         let ty = self.operand_ty(arg)?;
         let erased = self.erase_rendered(&text, ty)?;
-        Ok(RustExpr::from(self.carrier_format(format_args!("SmeltTypedArray::smelt_from_unknown({erased})"))))
+        Ok(RustExpr::atom(self.carrier_format(format_args!("SmeltTypedArray::smelt_from_unknown({erased})"))))
     }
 
     /// Emit a member read or method call on the concrete typed-array family.
@@ -206,7 +206,7 @@ impl FunctionEmitter<'_> {
                 )
             }
         };
-        self.rendered_at_type(&RustExpr::opaque(&text), source_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+        self.rendered_at_type(&RustExpr::opaque(&text), source_ty, dest_ty, &self.render_scope())
     }
 
     /// Render the `(start, end)` pair every range member of the family takes.

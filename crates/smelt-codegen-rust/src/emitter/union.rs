@@ -157,8 +157,8 @@ impl FunctionEmitter<'_> {
         let mut arms = Vec::with_capacity(members.len());
         for (index, member) in members.iter().copied().enumerate() {
             let return_ty = self.union_member_method_return_type(member, method)?;
-            let call = format!("value.{method_name}({args_text})");
-            let converted = self.rendered_at_type(&RustExpr::opaque(&call), return_ty, dest_ty, &self.render_scope())?;
+            let call = RustExpr::chain(format!("value.{method_name}({args_text})"));
+            let converted = self.rendered_at_type(&call, return_ty, dest_ty, &self.render_scope())?;
             arms.push(format!("{union}::M{index}(value) => {converted}"));
         }
         Ok(RustExpr::atom(format!("match {receiver_text} {{ {} }}", arms.join(", "))))
@@ -260,14 +260,14 @@ impl FunctionEmitter<'_> {
     /// temporary is redundant but harmless; moving a place is a hard error.
     pub(super) fn erase_concrete_union_expr(&self, value_text: &RustExpr, ty: TypeId) -> RustExpr {
         if self.concrete_union_members(ty).is_none() {
-            return RustExpr::from(value_text.to_owned());
+            return value_text.to_owned();
         }
         // A caller that already owns a clone needs no second one; `.clone().clone()`
         // is not what a hand-writing Rust team would produce.
         if value_text.ends_with(".clone()") {
-            return RustExpr::from(self.carrier_format(format_args!("{value_text}.into_smelt_unknown()")));
+            return RustExpr::postfix_on(&value_text, self.carrier_format(format_args!("{value_text}.into_smelt_unknown()")));
         }
-        RustExpr::from(self.carrier_format(format_args!("{value_text}.clone().into_smelt_unknown()")))
+        RustExpr::postfix_on(&value_text, self.carrier_format(format_args!("{value_text}.clone().into_smelt_unknown()")))
     }
 
     /// Wrap a concrete value in the matching variant of a target union.
@@ -356,10 +356,7 @@ impl FunctionEmitter<'_> {
                 <= 1
         {
             let erased = self.erase_rendered(value_text, source)?;
-            return Ok(Some(RustExpr::atom_on(&union_name(target), format!(
-                "{}::from_smelt_unknown({erased})",
-                union_name(target)
-            ))));
+            return Ok(Some({ let receiver = union_name(target); RustExpr::atom_on(&receiver, format!("{receiver}::from_smelt_unknown({erased})")) }));
         }
         // An erased source (object-field read, erased return, nullish default)
         // carries a `SmeltUnknown`; reconstruct the concrete union by routing the
@@ -369,10 +366,7 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(source),
             Some(Type::Unknown | Type::TypeParam { .. })
         ) {
-            return Ok(Some(RustExpr::atom_on(&union_name(target), format!(
-                "{}::from_smelt_unknown({value_text})",
-                union_name(target)
-            ))));
+            return Ok(Some({ let receiver = union_name(target); RustExpr::atom_on(&receiver, format!("{receiver}::from_smelt_unknown({value_text})")) }));
         }
         Ok(None)
     }
@@ -850,7 +844,7 @@ impl FunctionEmitter<'_> {
                 .any(|param| substitution.spells(*param))
             {
                 let member_text = self.rust_type(member, false, substitution)?.into_string();
-                RustExpr::from(self.carrier_format(format_args!("<{member_text} as SmeltFromUnknown>::smelt_from_unknown(value)")))
+                RustExpr::loose(self.carrier_format(format_args!("<{member_text} as SmeltFromUnknown>::smelt_from_unknown(value)")))
             } else {
                 RustExpr::from(self.extract_rendered(&RustExpr::path("value"), member, &self.render_scope())?.into_string())
             } };

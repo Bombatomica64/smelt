@@ -184,7 +184,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<Option<RustExpr>, EmitError> {
         match self.mir.types.get(self.operand_ty(index)?) {
             Some(Type::FixedInt(smelt_hir::IntWidth::Usize)) => {
-                Ok(Some(RustExpr::from(self.operand_expr(index)?)))
+                Ok(Some(self.operand_expr(index)?))
             }
             // `usize::try_from` accepts any signed width directly, so the
             // integer is bound as it is.

@@ -128,7 +128,7 @@ impl FunctionEmitter<'_> {
             _ => format!("{receiver_text}.len()"),
         };
         if let Some(width) = fixed_width {
-            return Ok(RustExpr::from(Self::fixed_int_len_expr(len_expr, width)));
+            return Ok(Self::fixed_int_len_expr(len_expr, width));
         }
         Ok(RustExpr::opaque(format!("{len_expr} as {cast}")))
     }
@@ -141,7 +141,7 @@ impl FunctionEmitter<'_> {
         ) {
             return Err(EmitError::new("numeric abs operand must be numeric"));
         }
-        Ok(RustExpr::postfix_on(&self.operand_expr(operand)?, format!("{}.abs()", self.operand_expr(operand)?)))
+        Ok({ let receiver = self.operand_expr(operand)?; RustExpr::postfix_on(&receiver, format!("{receiver}.abs()")) })
     }
 
     /// Converts a numeric rounding operation to Rust text.
@@ -155,7 +155,7 @@ impl FunctionEmitter<'_> {
         if matches!(self.mir.types.get(operand_ty), Some(Type::Int)) {
             let operand_expr = self.operand_expr(operand)?;
             return Ok(if matches!(self.mir.types.get(dest_ty), Some(Type::Int)) {
-                RustExpr::from(operand_expr)
+                operand_expr
             } else {
                 RustExpr::opaque(format!("{operand_expr} as f64"))
             });
@@ -181,16 +181,16 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("numeric round operand must be numeric"));
         };
         let text = match method_name {
-            Some(method_name) => format!("{operand_expr}.{method_name}()"),
-            None => format!(
+            Some(method_name) => RustExpr::postfix_on(&operand_expr, format!("{operand_expr}.{method_name}()")),
+            None => RustExpr::chain(format!(
                 "{helper}({operand_expr})",
                 helper = smelt_stdlib::runtime_symbols::math::ROUND,
-            ),
+            )),
         };
         if matches!(self.mir.types.get(dest_ty), Some(Type::Int)) {
             Ok(RustExpr::opaque(format!("{text} as i64")))
         } else {
-            Ok(RustExpr::from(text))
+            Ok(text)
         }
     }
 
@@ -239,11 +239,11 @@ impl FunctionEmitter<'_> {
             Some((first, rest)) => {
                 let mut seed = render_arg(first)?;
                 for arg in rest {
-                    seed = format!("{seed}.{method_name}({})", render_arg(arg)?);
+                    seed = RustExpr::postfix_on(&seed, format!("{seed}.{method_name}({})", render_arg(arg)?)).into_string();
                 }
                 seed
             }
-            None => identity.to_owned(),
+            None => RustExpr::from(identity.to_owned()).into_string(),
         };
         // Reduce every element of a spread numeric list with the same
         // `min`/`max` method, converting each element to the destination type.
@@ -254,9 +254,9 @@ impl FunctionEmitter<'_> {
                 _ => return Err(EmitError::new("numeric extrema spread must be a list")),
             };
             let element_text = self.rendered_at_type(&RustExpr::path("smelt_element"), element_ty, dest_ty, &self.render_scope())?;
-            rendered = format!(
+            rendered = RustExpr::postfix_on(&list_text, format!(
                 "{list_text}.iter().cloned().fold({rendered}, |smelt_acc, smelt_element| smelt_acc.{method_name}({element_text}))"
-            );
+            )).into_string();
         }
         Ok(RustExpr::from(rendered))
     }
@@ -271,11 +271,11 @@ impl FunctionEmitter<'_> {
                 return Err(EmitError::new("numeric hypot operands must be numeric"));
             }
         }
-        let mut rendered = "0.0f64".to_owned();
+        let mut rendered = RustExpr::path("0.0f64");
         for arg in args {
-            rendered = format!("{rendered}.hypot({})", self.float_operand_expr(arg)?);
+            rendered = RustExpr::from(RustExpr::postfix_on(&rendered, format!("{rendered}.hypot({})", self.float_operand_expr(arg)?)));
         }
-        Ok(RustExpr::from(rendered))
+        Ok(rendered)
     }
 
     /// Converts a numeric predicate operation to Rust text.
@@ -305,10 +305,7 @@ impl FunctionEmitter<'_> {
                     "smelt_value.fract() == 0.0 && smelt_value.abs() <= 9007199254740991.0"
                 }
             };
-            return Ok(RustExpr::postfix_on(&self.operand_expr(operand)?, format!(
-                "{}.map_or(false, |smelt_value| {{ let smelt_value = smelt_value as f64; {test} }})",
-                self.operand_expr(operand)?
-            )));
+            return Ok({ let receiver = self.operand_expr(operand)?; RustExpr::postfix_on(&receiver, format!("{receiver}.map_or(false, |smelt_value| {{ let smelt_value = smelt_value as f64; {test} }})")) });
         }
         // `Number.isSafeInteger` performs NO type coercion: ECMAScript returns
         // `false` for every argument whose type is not Number, so `'1'` is not a
@@ -322,7 +319,7 @@ impl FunctionEmitter<'_> {
                 return Ok(RustExpr::path("false"));
             }
             let value_text = self.value_at_type(operand, self.type_id(Type::Unknown)?)?;
-            return Ok(RustExpr::from(self.carrier_format(format_args!(
+            return Ok(RustExpr::atom(self.carrier_format(format_args!(
                 "(match {value_text} {{ SmeltUnknown::Number(smelt_value) => smelt_value.fract() == 0.0 && smelt_value.abs() <= 9007199254740991.0, _ => false }})"
             ))));
         }
@@ -491,7 +488,7 @@ impl FunctionEmitter<'_> {
             )?;
             let radix_text = self.operand_expr(radix)?;
             let number_text = self.radix_digits_expr(&RustExpr::path("smelt_radix_value"), &radix_text);
-            return Ok(RustExpr::from(self.carrier_format(format_args!(
+            return Ok(RustExpr::atom(self.carrier_format(format_args!(
                 "match {}.clone() {{ SmeltUnknown::Number(smelt_radix_value) => {number_text}, {}_ => {fallback} }}",
                 self.operand_expr(operand)?,
                 self.bigint_unknown_arm(&self.carrier_format(format_args!(
@@ -627,7 +624,7 @@ impl FunctionEmitter<'_> {
         ) {
             Ok(RustExpr::atom(format!("({operand_expr} as f64)")))
         } else {
-            Ok(RustExpr::from(operand_expr))
+            Ok(operand_expr)
         }
     }
 

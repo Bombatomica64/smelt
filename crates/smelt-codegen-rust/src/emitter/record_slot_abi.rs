@@ -266,8 +266,8 @@ impl FunctionEmitter<'_> {
         record_ty: TypeId,
         field: &MirField,
     ) -> Result<RustExpr, EmitError> {
-        Ok(RustExpr::from(self
+        Ok(self
             .record_slot_abi_adapter(&RustExpr::opaque(&value_text), record_ty, field)?
-            .unwrap_or(RustExpr::from(value_text))))
+            .unwrap_or(RustExpr::from(value_text)))
     }
 }

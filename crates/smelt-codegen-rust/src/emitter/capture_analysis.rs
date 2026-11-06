@@ -328,10 +328,10 @@ impl FunctionEmitter<'_> {
                     // `call::mut_list_adapter_arg` has and this
                     // single-expression seam does not, so the hazard is named
                     // here rather than papered over.
-                    RustExpr::from(self.value_at_type(operand, target)?)
+                    self.value_at_type(operand, target)?
                 }
             }
-            Operand::Const(_) => RustExpr::from(self.value_at_type(operand, target)?),
+            Operand::Const(_) => self.value_at_type(operand, target)?,
         };
         Ok(RustExpr::loose(format!("&mut {text}")))
     }
@@ -456,11 +456,11 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         let place_expr = self.place_expr(place)?;
         if matches!(self.mir.types.get(place_ty), Some(Type::List(_))) {
-            return Ok(RustExpr::from(self.carrier_format(format_args!(
+            return Ok(RustExpr::atom_on(&place_expr, self.carrier_format(format_args!(
                 "{place_expr}.clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<SmeltList<_>>()"
             ))));
         }
-        Ok(RustExpr::from(self.carrier_format(format_args!("{place_expr}.clone().into_smelt_unknown()"))))
+        Ok(RustExpr::postfix_on(&place_expr, self.carrier_format(format_args!("{place_expr}.clone().into_smelt_unknown()"))))
     }
 
     /// Returns whether a non-escaping capture must share outer storage.

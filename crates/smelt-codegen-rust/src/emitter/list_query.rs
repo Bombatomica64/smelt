@@ -53,7 +53,7 @@ impl FunctionEmitter<'_> {
         let item_text = if self.operand_ty(item)? == element_ty {
             self.operand_expr(item)?
         } else {
-            RustExpr::from(self.rendered_at_type(&self.operand_expr(item)?, self.operand_ty(item)?, element_ty, &self.render_scope())?)
+            self.rendered_at_type(&self.operand_expr(item)?, self.operand_ty(item)?, element_ty, &self.render_scope())?
         };
         // `operand_borrow_expr` is this borrow, plus the shared-capture guard the
         // hand-rolled version lacked (see its doc comment); the list's own shared
@@ -75,7 +75,7 @@ impl FunctionEmitter<'_> {
                         "{{ let smelt_needle = {item_text}; {borrowed_list_text}.iter().{method_name}(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).map_or(-1.0, |idx| idx as f64) }}"
                     )));
                 }
-                return Ok(RustExpr::from(self.carrier_format(format_args!(
+                return Ok(RustExpr::atom(self.carrier_format(format_args!(
                     "{{ let smelt_needle = {item_text}; {borrowed_list_text}.iter().{method_name}(|item| item.same_js_key(&smelt_needle)).map_or(-1.0, |idx| idx as f64) }}"
                 ))));
             }
@@ -186,16 +186,16 @@ impl FunctionEmitter<'_> {
         // way `list_map_closure` does so the predicate observes the inner
         // value rather than a `Result`; a non-throwing callback is used directly.
         let raw_call_text = if function_ty.may_throw {
-            format!(
+            RustExpr::atom(format!(
                 "({callback_call_text}).unwrap_or_else(|error: {ERROR_BOX}| smelt_panic_throw(error))"
-            )
+            ))
         } else {
-            callback_call_text.into_string()
+            callback_call_text
         };
         let call_text = if self.mir.types.get(function_ty.return_ty) == Some(&Type::Bool) {
             raw_call_text
         } else {
-            self.value_truthy_expr(&RustExpr::opaque(&raw_call_text), function_ty.return_ty)?.into_string()
+            RustExpr::from(self.value_truthy_expr(&raw_call_text, function_ty.return_ty)?.into_string())
         };
         let prefix = format!(
             "let smelt_callback = {closure_expr}; {prefix}",
@@ -301,14 +301,14 @@ impl FunctionEmitter<'_> {
         let callback_call_text =
             self.callback_invocation_expr(function_ty, &call_args.join(", "));
         let call_text = if function_ty.may_throw {
-            format!(
+            RustExpr::atom(format!(
                 "({callback_call_text}).unwrap_or_else(|error: {ERROR_BOX}| smelt_panic_throw(error))"
-            )
+            ))
         } else {
-            callback_call_text.into_string()
+            callback_call_text
         };
         let value_text =
-            self.rendered_at_type(&RustExpr::opaque(&call_text), function_ty.return_ty, *dest_item_ty, &self.render_scope())?;
+            self.rendered_at_type(&call_text, function_ty.return_ty, *dest_item_ty, &self.render_scope())?;
         Ok(RustExpr::from(iteration_block(
             &format!("let smelt_callback = {closure_expr}; {}", list_iteration.prefix),
             &format!("{}.iter().enumerate().map(|(index, item)| {{ {value_text} }}).collect::<Vec<_>>()", list_iteration.iter_text),
@@ -413,12 +413,12 @@ impl FunctionEmitter<'_> {
             // treats the text as that declared type. Read it back out through
             // the checked extraction so a `(...args: any[]) => string` mapper
             // yields `String`s.
-            let call = format!("smelt_callback.call({args})");
+            let call = RustExpr::chain(format!("smelt_callback.call({args})"));
             if self.renders_erased(function_ty.return_ty).unwrap_or(false) {
-                return RustExpr::from(call);
+                return call;
             }
-            RustExpr::from(self.extract_rendered(&RustExpr::opaque(&call), function_ty.return_ty, &self.render_scope())
-                .unwrap_or(RustExpr::from(call)))
+            self.extract_rendered(&call, function_ty.return_ty, &self.render_scope())
+                .unwrap_or(call)
         } else {
             RustExpr::atom(format!("(smelt_callback)({args})"))
         }
@@ -516,12 +516,12 @@ impl FunctionEmitter<'_> {
                 self.type_id(Type::Float)?
             };
             let index_value = if self.mir.types.get(index_param_ty) == Some(&Type::Int) {
-                "index as i64"
+                RustExpr::cast("index as i64")
             } else {
-                "index as f64"
+                RustExpr::cast("index as f64")
             };
             call_args.push(self.rendered_at_type(
-                &RustExpr::opaque(index_value),
+                &index_value,
                 index_source_ty,
                 index_param_ty,
                 &self.render_scope(),
@@ -767,7 +767,7 @@ impl FunctionEmitter<'_> {
                 }
                 continue;
             }
-            call_args.push(self.rendered_at_type(&RustExpr::opaque(value_text), source_ty, param_ty, &self.render_scope())?.into_string());
+            call_args.push(self.rendered_at_type(&RustExpr::opaque(&value_text), source_ty, param_ty, &self.render_scope())?.into_string());
         }
         if let Some(initial_operand) = initial
             && self.operand_ty(initial_operand)? != dest_ty
@@ -856,7 +856,7 @@ impl FunctionEmitter<'_> {
                     "{{ let smelt_needle = {item_text}; {list_text}.iter().filter(|item| **item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).count() as i64 }}"
                 )));
             }
-            return Ok(RustExpr::from(self.carrier_format(format_args!(
+            return Ok(RustExpr::atom(self.carrier_format(format_args!(
                 "{{ let smelt_needle = {item_text}; {list_text}.iter().filter(|item| item.same_js_key(&smelt_needle)).count() as i64 }}"
             ))));
         }
@@ -884,14 +884,8 @@ impl FunctionEmitter<'_> {
             ));
         }
         match self.mir.types.get(*item_ty) {
-            Some(Type::Int) => Ok(RustExpr::atom_on(&list_read_expr(&self.operand_expr(list)?), format!(
-                "{}.iter().copied().sum::<i64>()",
-                list_read_expr(&self.operand_expr(list)?)
-            ))),
-            Some(Type::Float) => Ok(RustExpr::atom_on(&list_read_expr(&self.operand_expr(list)?), format!(
-                "{}.iter().copied().sum::<f64>()",
-                list_read_expr(&self.operand_expr(list)?)
-            ))),
+            Some(Type::Int) => Ok({ let receiver = list_read_expr(&self.operand_expr(list)?); RustExpr::atom_on(&receiver, format!("{receiver}.iter().copied().sum::<i64>()")) }),
+            Some(Type::Float) => Ok({ let receiver = list_read_expr(&self.operand_expr(list)?); RustExpr::atom_on(&receiver, format!("{receiver}.iter().copied().sum::<f64>()")) }),
             _ => Err(EmitError::new("list sum supports int and float lists")),
         }
     }
@@ -918,10 +912,7 @@ impl FunctionEmitter<'_> {
             smelt_hir::BoolFoldOp::All => "all",
             smelt_hir::BoolFoldOp::Any => "any",
         };
-        Ok(RustExpr::postfix_on(&list_read_expr(&self.operand_expr(list)?), format!(
-            "{}.iter().copied().{method_name}(|value| value)",
-            list_read_expr(&self.operand_expr(list)?)
-        )))
+        Ok({ let receiver = list_read_expr(&self.operand_expr(list)?); RustExpr::postfix_on(&receiver, format!("{receiver}.iter().copied().{method_name}(|value| value)")) })
     }
 
     // Sorted-list helpers continue in `list_ordering.rs`.

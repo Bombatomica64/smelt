@@ -96,9 +96,9 @@ pub(crate) fn emit_record_into_smelt_unknown_impl(
                     let field_source = if accessor_owner
                         .is_some_and(|owner| accessor_prelude::is_accessor_field(mir, owner, field.name))
                     {
-                        format!("({})", accessor_prelude::read_expr(&format!("self.{field_name}")))
+                        RustExpr::atom(format!("({})", accessor_prelude::read_expr(&format!("self.{field_name}"))))
                     } else {
-                        format!("self.{field_name}")
+                        RustExpr::path(format!("self.{field_name}"))
                     };
                     let value = match mir.types.get(field.ty) {
                         Some(Type::Optional(inner)) if absent_is_null => {
@@ -112,11 +112,11 @@ pub(crate) fn emit_record_into_smelt_unknown_impl(
                             mir,
                             context,
                             scoped_type_params,
-                            &RustExpr::opaque(&field_source),
+                            &field_source,
                             field.ty,
                         )
                         .map_or_else(
-                            || record_field_unknown_expr(mir, &RustExpr::opaque(&field_source), field.ty),
+                            || record_field_unknown_expr(mir, &field_source, field.ty),
                             Ok,
                         ).map(RustExpr::into_string),
                     }

@@ -190,44 +190,44 @@ impl FunctionEmitter<'_> {
             self.value_at_type(arg, string_ty).map(RustExpr::into_string)
         };
         let text = match op {
-            smelt_hir::HeadersOp::Get => format!("{receiver}.get(&{})", name(0)?),
-            smelt_hir::HeadersOp::Has => format!("{receiver}.has(&{})", name(0)?),
+            smelt_hir::HeadersOp::Get => RustExpr::postfix_on(&receiver, format!("{receiver}.get(&{})", name(0)?)),
+            smelt_hir::HeadersOp::Has => RustExpr::postfix_on(&receiver, format!("{receiver}.has(&{})", name(0)?)),
             smelt_hir::HeadersOp::Set => {
-                format!("{receiver}.set(&{}, &{})", name(0)?, name(1)?)
+                RustExpr::postfix_on(&receiver, format!("{receiver}.set(&{}, &{})", name(0)?, name(1)?))
             }
             smelt_hir::HeadersOp::Append => {
-                format!("{receiver}.append(&{}, &{})", name(0)?, name(1)?)
+                RustExpr::postfix_on(&receiver, format!("{receiver}.append(&{}, &{})", name(0)?, name(1)?))
             }
-            smelt_hir::HeadersOp::Delete => format!("{receiver}.delete(&{})", name(0)?),
-            smelt_hir::HeadersOp::Keys => format!("{receiver}.keys()"),
-            smelt_hir::HeadersOp::Values => format!("{receiver}.values()"),
-            smelt_hir::HeadersOp::Entries => format!("{receiver}.entries_sorted()"),
-            smelt_hir::HeadersOp::GetSetCookie => format!("{receiver}.get_set_cookie()"),
+            smelt_hir::HeadersOp::Delete => RustExpr::postfix_on(&receiver, format!("{receiver}.delete(&{})", name(0)?)),
+            smelt_hir::HeadersOp::Keys => RustExpr::postfix_on(&receiver, format!("{receiver}.keys()")),
+            smelt_hir::HeadersOp::Values => RustExpr::postfix_on(&receiver, format!("{receiver}.values()")),
+            smelt_hir::HeadersOp::Entries => RustExpr::postfix_on(&receiver, format!("{receiver}.entries_sorted()")),
+            smelt_hir::HeadersOp::GetSetCookie => RustExpr::postfix_on(&receiver, format!("{receiver}.get_set_cookie()")),
         };
         // The mutating operations are `void` in the source, so their statement
         // form is the call itself; the reads coerce to their destination.
         match op {
             smelt_hir::HeadersOp::Set
             | smelt_hir::HeadersOp::Append
-            | smelt_hir::HeadersOp::Delete => Ok(RustExpr::from(text)),
+            | smelt_hir::HeadersOp::Delete => Ok(text),
             smelt_hir::HeadersOp::Get => {
                 let string_option = self.type_id(Type::Optional(string_ty))?;
-                self.rendered_at_type(&RustExpr::opaque(&text), string_option, dest_ty, &self.render_scope()).map(RustExpr::from)
+                self.rendered_at_type(&text, string_option, dest_ty, &self.render_scope())
             }
             smelt_hir::HeadersOp::Has => {
                 let bool_ty = self.type_id(Type::Bool)?;
-                self.rendered_at_type(&RustExpr::opaque(&text), bool_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+                self.rendered_at_type(&text, bool_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::HeadersOp::Keys
             | smelt_hir::HeadersOp::Values
             | smelt_hir::HeadersOp::GetSetCookie => {
                 let list_ty = self.type_id(Type::List(string_ty))?;
-                self.rendered_at_type(&RustExpr::atom(format!("SmeltList::new({text})")), list_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+                self.rendered_at_type(&RustExpr::atom(format!("SmeltList::new({text})")), list_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::HeadersOp::Entries => {
                 let pair_ty = self.type_id(Type::Tuple(Vec::from([string_ty, string_ty])))?;
                 let list_ty = self.type_id(Type::List(pair_ty))?;
-                self.rendered_at_type(&RustExpr::atom(format!("SmeltList::new({text})")), list_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+                self.rendered_at_type(&RustExpr::atom(format!("SmeltList::new({text})")), list_ty, dest_ty, &self.render_scope())
             }
         }
     }
@@ -296,48 +296,48 @@ impl FunctionEmitter<'_> {
             self.value_at_type(arg, string_ty).map(RustExpr::into_string)
         };
         let text = match op {
-            smelt_hir::UrlSearchParamsOp::Get => format!("{receiver}.get(&{})", name(0)?),
-            smelt_hir::UrlSearchParamsOp::GetAll => format!("{receiver}.get_all(&{})", name(0)?),
-            smelt_hir::UrlSearchParamsOp::Has => format!("{receiver}.has(&{})", name(0)?),
+            smelt_hir::UrlSearchParamsOp::Get => RustExpr::postfix_on(&receiver, format!("{receiver}.get(&{})", name(0)?)),
+            smelt_hir::UrlSearchParamsOp::GetAll => RustExpr::postfix_on(&receiver, format!("{receiver}.get_all(&{})", name(0)?)),
+            smelt_hir::UrlSearchParamsOp::Has => RustExpr::postfix_on(&receiver, format!("{receiver}.has(&{})", name(0)?)),
             smelt_hir::UrlSearchParamsOp::Set => {
-                format!("{receiver}.set(&{}, &{})", name(0)?, name(1)?)
+                RustExpr::postfix_on(&receiver, format!("{receiver}.set(&{}, &{})", name(0)?, name(1)?))
             }
             smelt_hir::UrlSearchParamsOp::Append => {
-                format!("{receiver}.append(&{}, &{})", name(0)?, name(1)?)
+                RustExpr::postfix_on(&receiver, format!("{receiver}.append(&{}, &{})", name(0)?, name(1)?))
             }
-            smelt_hir::UrlSearchParamsOp::Delete => format!("{receiver}.delete(&{})", name(0)?),
-            smelt_hir::UrlSearchParamsOp::Sort => format!("{receiver}.sort()"),
-            smelt_hir::UrlSearchParamsOp::ToText => format!("{receiver}.to_text()"),
-            smelt_hir::UrlSearchParamsOp::Keys => format!("{receiver}.keys()"),
-            smelt_hir::UrlSearchParamsOp::Values => format!("{receiver}.values()"),
-            smelt_hir::UrlSearchParamsOp::Entries => format!("{receiver}.entries_in_order()"),
+            smelt_hir::UrlSearchParamsOp::Delete => RustExpr::postfix_on(&receiver, format!("{receiver}.delete(&{})", name(0)?)),
+            smelt_hir::UrlSearchParamsOp::Sort => RustExpr::postfix_on(&receiver, format!("{receiver}.sort()")),
+            smelt_hir::UrlSearchParamsOp::ToText => RustExpr::postfix_on(&receiver, format!("{receiver}.to_text()")),
+            smelt_hir::UrlSearchParamsOp::Keys => RustExpr::postfix_on(&receiver, format!("{receiver}.keys()")),
+            smelt_hir::UrlSearchParamsOp::Values => RustExpr::postfix_on(&receiver, format!("{receiver}.values()")),
+            smelt_hir::UrlSearchParamsOp::Entries => RustExpr::postfix_on(&receiver, format!("{receiver}.entries_in_order()")),
         };
         match op {
             smelt_hir::UrlSearchParamsOp::Set
             | smelt_hir::UrlSearchParamsOp::Append
             | smelt_hir::UrlSearchParamsOp::Delete
-            | smelt_hir::UrlSearchParamsOp::Sort => Ok(RustExpr::from(text)),
+            | smelt_hir::UrlSearchParamsOp::Sort => Ok(text),
             smelt_hir::UrlSearchParamsOp::Get => {
                 let string_option = self.type_id(Type::Optional(string_ty))?;
-                self.rendered_at_type(&RustExpr::opaque(&text), string_option, dest_ty, &self.render_scope()).map(RustExpr::from)
+                self.rendered_at_type(&text, string_option, dest_ty, &self.render_scope())
             }
             smelt_hir::UrlSearchParamsOp::Has => {
                 let bool_ty = self.type_id(Type::Bool)?;
-                self.rendered_at_type(&RustExpr::opaque(&text), bool_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+                self.rendered_at_type(&text, bool_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::UrlSearchParamsOp::ToText => {
-                self.rendered_at_type(&RustExpr::opaque(&text), string_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+                self.rendered_at_type(&text, string_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::UrlSearchParamsOp::GetAll
             | smelt_hir::UrlSearchParamsOp::Keys
             | smelt_hir::UrlSearchParamsOp::Values => {
                 let list_ty = self.type_id(Type::List(string_ty))?;
-                self.rendered_at_type(&RustExpr::atom(format!("SmeltList::new({text})")), list_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+                self.rendered_at_type(&RustExpr::atom(format!("SmeltList::new({text})")), list_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::UrlSearchParamsOp::Entries => {
                 let pair_ty = self.type_id(Type::Tuple(Vec::from([string_ty, string_ty])))?;
                 let list_ty = self.type_id(Type::List(pair_ty))?;
-                self.rendered_at_type(&RustExpr::atom(format!("SmeltList::new({text})")), list_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+                self.rendered_at_type(&RustExpr::atom(format!("SmeltList::new({text})")), list_ty, dest_ty, &self.render_scope())
             }
         }
     }
@@ -480,7 +480,7 @@ impl FunctionEmitter<'_> {
             let erased = self.erase(input)?;
             let coerced =
                 self.js_string_coercion_match_expr(&RustExpr::path("smelt_input"), self.absent_spelling());
-            RustExpr::from(self.carrier_format(format_args!(
+            RustExpr::atom(self.carrier_format(format_args!(
                 "match {erased} {{ \
                  SmeltUnknown::Object(value) if value.contains_key(\"{SMELT_REQUEST}\") => {{ \
                  let smelt_input_request = <SmeltRequest as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(value)); \
@@ -492,7 +492,7 @@ impl FunctionEmitter<'_> {
         // the request's a DEPENDENT signal that follows the given one, which is
         // why this registers a follow rather than storing the operand.
         let Some(signal) = signal else {
-            return Ok(RustExpr::from(request_text));
+            return Ok(request_text);
         };
         Ok(RustExpr::atom(format!(
             "{{ let smelt_request = {request_text}; smelt_request_follow_signal(smelt_request.id(), {}); smelt_request }}",
@@ -521,11 +521,11 @@ impl FunctionEmitter<'_> {
         init_members: &[(smelt_hir::RequestInitMember, Operand)],
         init_is_non_empty: bool,
     ) -> Result<RustExpr, EmitError> {
-        let method_expr = self.init_scalar_expr(method, &RustExpr::opaque(method_default))?;
-        let headers_expr = self.init_headers_expr(headers, &RustExpr::opaque(headers_default))?;
+        let method_expr = self.init_scalar_expr(method, &RustExpr::opaque(&method_default))?;
+        let headers_expr = self.init_headers_expr(headers, &RustExpr::opaque(&headers_default))?;
         // A `Request` at the REQUEST INIT's `body` slot shares its handle;
         // see the flag's documentation for the Node measurement behind it.
-        let body_expr = self.init_body_expr(body, &RustExpr::opaque(body_default), true)?;
+        let body_expr = self.init_body_expr(body, &RustExpr::opaque(&body_default), true)?;
         let init_expr = self.request_init_expr(init_default, init_members, init_is_non_empty)?;
         Ok(RustExpr::atom(format!(
             "SmeltRequest::from_parts_with_init(&{url_text}, {method_expr}, {headers_expr}, {body_expr}, {init_expr})"
@@ -620,7 +620,7 @@ impl FunctionEmitter<'_> {
         if matches!(member, smelt_hir::RequestInitMember::Referrer) {
             return RustExpr::atom(format!("SmeltRequestInit::serialize_referrer(&{value})"));
         }
-        RustExpr::from(value.to_owned())
+        value.to_owned()
     }
 
     /// Emit a `Request` member operation on a concrete receiver.
@@ -674,7 +674,7 @@ impl FunctionEmitter<'_> {
             )),
             // The two BYTE readers; see the `Response` pair for why they are
             // two members rather than one.
-            smelt_hir::RequestOp::ArrayBuffer => RustExpr::from(self.carrier_format(format_args!(
+            smelt_hir::RequestOp::ArrayBuffer => RustExpr::atom(self.carrier_format(format_args!(
                 "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltArrayBuffer::from_bytes(smelt_request.body().take_bytes()?)) }})) }}"
             ))),
             smelt_hir::RequestOp::Bytes => RustExpr::atom(format!(
@@ -731,7 +731,7 @@ impl FunctionEmitter<'_> {
         // `new Response(other.body, init)` does. Checked before the payload
         // conversions below because a handle needs none of them.
         if self.is_readable_stream_class_type(body_ty)? {
-            return Ok(RustExpr::from(body_text.to_owned()));
+            return Ok(body_text.to_owned());
         }
         // A `Blob` at the body position contributes its BYTES, and its `type`
         // becomes the body's content type — which is what makes
@@ -845,7 +845,7 @@ impl FunctionEmitter<'_> {
                 } else {
                     ""
                 };
-                Ok(RustExpr::from(self.carrier_format(format_args!(
+                Ok(RustExpr::atom(self.carrier_format(format_args!(
                     "match {body_text} {{ SmeltUnknown::String(value) => SmeltBody::from_text(&value.to_string()), \
                      SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltBody::empty(), \
                      {byte_arm}{blob_arm}{search_params_arm}{form_data_arm}\
@@ -930,7 +930,7 @@ impl FunctionEmitter<'_> {
             // The two BYTE readers, one `take_bytes` apart: storage owns the
             // bytes, a view is an element window over them. Both consume the
             // body, like every other reader.
-            smelt_hir::ResponseOp::ArrayBuffer => RustExpr::from(self.carrier_format(format_args!(
+            smelt_hir::ResponseOp::ArrayBuffer => RustExpr::atom(self.carrier_format(format_args!(
                 "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltArrayBuffer::from_bytes(smelt_response.body().take_bytes()?)) }})) }}"
             ))),
             smelt_hir::ResponseOp::Bytes => RustExpr::atom(format!(
@@ -1000,12 +1000,12 @@ impl FunctionEmitter<'_> {
         Ok(match op {
             smelt_hir::EventEmitterOp::On | smelt_hir::EventEmitterOp::Once => {
                 let once = matches!(op, smelt_hir::EventEmitterOp::Once);
-                RustExpr::from(self.carrier_format(format_args!(
+                RustExpr::atom(self.carrier_format(format_args!(
                     "{{ let smelt_listener = match {} {{ SmeltUnknown::Function(smelt_function) => smelt_function, _ => ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Undefined)) }}; {receiver}.add(&{event_text}, smelt_listener, {once}) }}",
                     listener(1)?
                 )))
             }
-            smelt_hir::EventEmitterOp::Off => RustExpr::from(self.carrier_format(format_args!(
+            smelt_hir::EventEmitterOp::Off => RustExpr::atom(self.carrier_format(format_args!(
                 "{{ let smelt_listener = match {} {{ SmeltUnknown::Function(smelt_function) => smelt_function, _ => ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Undefined)) }}; {receiver}.remove(&{event_text}, &smelt_listener) }}",
                 listener(1)?
             ))),
@@ -1041,9 +1041,9 @@ impl FunctionEmitter<'_> {
         if matches!(arg, Operand::Copy(_))
             && matches!(self.mir.types.get(ty), Some(Type::Function(_)))
         {
-            text = RustExpr::postfix_on(&text, format!("{text}.clone()")).ending_in_clone();
+            text = RustExpr::from(RustExpr::postfix_on(&text, format!("{text}.clone()")).ending_in_clone());
         }
-        self.erase_rendered(&text, ty).map(RustExpr::from)
+        self.erase_rendered(&text, ty)
     }
 
     /// Return whether a type names the generated `SmeltRequest` runtime type.
@@ -1102,7 +1102,7 @@ impl FunctionEmitter<'_> {
         default_text: &RustExpr,
     ) -> Result<RustExpr, EmitError> {
         let Some(operand) = operand else {
-            return Ok(RustExpr::from(default_text.to_owned()));
+            return Ok(default_text.to_owned());
         };
         let text = self.operand_expr(operand)?;
         if matches!(
@@ -1111,7 +1111,7 @@ impl FunctionEmitter<'_> {
         ) {
             return Ok(RustExpr::postfix_on(&text, format!("{text}.unwrap_or_else(|| {default_text})")));
         }
-        Ok(RustExpr::from(text))
+        Ok(text)
     }
 
     /// Render the `headers` init key as a `SmeltHeaders`.
@@ -1131,7 +1131,7 @@ impl FunctionEmitter<'_> {
         default_text: &RustExpr,
     ) -> Result<RustExpr, EmitError> {
         let Some(operand) = operand else {
-            return Ok(RustExpr::from(default_text.to_owned()));
+            return Ok(default_text.to_owned());
         };
         let ty = self.operand_ty(operand)?;
         if let Some(&Type::Optional(inner)) = self.mir.types.get(ty) {
@@ -1165,13 +1165,13 @@ impl FunctionEmitter<'_> {
         shares_a_request_body: bool,
     ) -> Result<RustExpr, EmitError> {
         let Some(operand) = operand else {
-            return Ok(RustExpr::from(default_text.to_owned()));
+            return Ok(default_text.to_owned());
         };
         let convert = |body_text: &str, body_ty: TypeId| -> Result<String, EmitError> {
             if shares_a_request_body && self.is_request_class_type(body_ty)? {
                 return Ok(format!("{body_text}.body()"));
             }
-            self.body_conversion_expr(&RustExpr::opaque(body_text), body_ty).map(RustExpr::into_string)
+            self.body_conversion_expr(&RustExpr::opaque(&body_text), body_ty).map(RustExpr::into_string)
         };
         let ty = self.operand_ty(operand)?;
         if let Some(&Type::Optional(inner)) = self.mir.types.get(ty) {

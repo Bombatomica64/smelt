@@ -71,19 +71,19 @@ impl FunctionEmitter<'_> {
         match op {
             smelt_hir::BlobOp::Size => {
                 let float_ty = self.type_id(Type::Float)?;
-                self.rendered_at_type(&RustExpr::postfix_on(&receiver, format!("{receiver}.size()")), float_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+                self.rendered_at_type(&RustExpr::postfix_on(&receiver, format!("{receiver}.size()")), float_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::BlobOp::LastModified => {
                 let float_ty = self.type_id(Type::Float)?;
-                self.rendered_at_type(&RustExpr::postfix_on(&receiver, format!("{receiver}.last_modified()")), float_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+                self.rendered_at_type(&RustExpr::postfix_on(&receiver, format!("{receiver}.last_modified()")), float_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::BlobOp::Type => {
                 let string_ty = self.type_id(Type::String)?;
-                self.rendered_at_type(&RustExpr::postfix_on(&receiver, format!("{receiver}.blob_type()")), string_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+                self.rendered_at_type(&RustExpr::postfix_on(&receiver, format!("{receiver}.blob_type()")), string_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::BlobOp::Name => {
                 let string_ty = self.type_id(Type::String)?;
-                self.rendered_at_type(&RustExpr::postfix_on(&receiver, format!("{receiver}.file_name()")), string_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+                self.rendered_at_type(&RustExpr::postfix_on(&receiver, format!("{receiver}.file_name()")), string_ty, dest_ty, &self.render_scope())
             }
             // The body readers are `async` in the spec even though a blob's
             // bytes are already in memory: the source awaits them, so the value
@@ -91,7 +91,7 @@ impl FunctionEmitter<'_> {
             smelt_hir::BlobOp::Text => Ok(RustExpr::atom(format!(
                 "{{ let smelt_blob = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(smelt_blob.to_text()) }})) }}"
             ))),
-            smelt_hir::BlobOp::ArrayBuffer => Ok(RustExpr::from(self.carrier_format(format_args!(
+            smelt_hir::BlobOp::ArrayBuffer => Ok(RustExpr::atom(self.carrier_format(format_args!(
                 "{{ let smelt_blob = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltArrayBuffer::from_bytes(smelt_blob.to_bytes())) }})) }}"
             )))),
             smelt_hir::BlobOp::Bytes => Ok(RustExpr::atom(format!(

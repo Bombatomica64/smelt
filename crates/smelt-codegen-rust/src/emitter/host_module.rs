@@ -100,7 +100,7 @@ impl FunctionEmitter<'_> {
         match op {
             HashOp::Create => {
                 let algorithm = self.string_like_operand_expr(arg(0)?, op.name())?;
-                Ok(CallText::propagating(format!("{}(&{algorithm})", prelude::HASH_CREATE_FN)))
+                Ok(CallText::propagating(RustExpr::postfix_on(&prelude::HASH_CREATE_FN, format!("{}(&{algorithm})", prelude::HASH_CREATE_FN))))
             }
             HashOp::Update => {
                 let hash = self.operand_expr(arg(0)?)?;
@@ -109,17 +109,17 @@ impl FunctionEmitter<'_> {
             HashOp::DigestText => {
                 let hash = self.operand_expr(arg(0)?)?;
                 let encoding = self.string_like_operand_expr(arg(1)?, op.name())?;
-                Ok(CallText::propagating(format!(
+                Ok(CallText::propagating(RustExpr::postfix_on(&prelude::HASH_DIGEST_TEXT_FN, format!(
                     "{}(&{hash}, &{encoding})",
                     prelude::HASH_DIGEST_TEXT_FN
-                )))
+                ))))
             }
             HashOp::DigestBytes => {
                 let hash = self.operand_expr(arg(0)?)?;
-                Ok(CallText::propagating(format!(
+                Ok(CallText::propagating(RustExpr::postfix_on(&prelude::HASH_DIGEST_BYTES_FN, format!(
                     "{}(&{hash}).map(SmeltUint8Array::from_bytes)",
                     prelude::HASH_DIGEST_BYTES_FN
-                )))
+                ))))
             }
         }
     }
@@ -146,34 +146,34 @@ impl FunctionEmitter<'_> {
         let data_ty = self.operand_ty(data)?;
         if matches!(self.mir.types.get(data_ty), Some(Type::String)) {
             let text = self.string_like_operand_expr(data, "hash.update data")?;
-            return Ok(CallText::propagating(format!(
+            return Ok(CallText::propagating(RustExpr::postfix_on(&prelude::HASH_UPDATE_TEXT_FN, format!(
                 "{}(&{hash}, &{text}, &{encoding})",
                 prelude::HASH_UPDATE_TEXT_FN
-            )));
+            ))));
         }
         if self.is_typed_array_view_class_type(data_ty)?
             || self.operand_is_array_buffer(data)?
             || self.is_data_view_class_type(data_ty)?
         {
-            return Ok(CallText::propagating(format!(
+            return Ok(CallText::propagating(RustExpr::postfix_on(&prelude::HASH_UPDATE_BYTES_FN, format!(
                 "{}(&{hash}, &({}).to_bytes())",
                 prelude::HASH_UPDATE_BYTES_FN,
                 self.operand_expr(data)?
-            )));
+            ))));
         }
         if let Some(bytes) = self.byte_source_union_bytes_expr(&self.operand_expr(data)?, data_ty)?
         {
-            return Ok(CallText::propagating(format!(
+            return Ok(CallText::propagating(RustExpr::postfix_on(&prelude::HASH_UPDATE_BYTES_FN, format!(
                 "{}(&{hash}, &{bytes})",
                 prelude::HASH_UPDATE_BYTES_FN
-            )));
+            ))));
         }
         let erased = self.erase(data)?;
-        Ok(CallText::propagating(self.carrier_format(format_args!(
+        Ok(CallText::propagating(RustExpr::atom(self.carrier_format(format_args!(
             "{{ let smelt_value = {erased}; match &smelt_value {{ SmeltUnknown::String(text) => {text_fn}(&{hash}, &text.to_string(), &{encoding}), _ => {bytes_fn}(&{hash}, &SmeltTypedArray::smelt_from_unknown(smelt_value.clone()).to_bytes()) }} }}",
             text_fn = prelude::HASH_UPDATE_TEXT_FN,
             bytes_fn = prelude::HASH_UPDATE_BYTES_FN,
-        ))))
+        )))))
     }
 
     /// Whether a type is the concrete `DataView` class.

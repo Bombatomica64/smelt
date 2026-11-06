@@ -65,16 +65,16 @@ impl FunctionEmitter<'_> {
         let erased = if matches!(self.mir.types.get(operand_ty), Some(Type::Unknown)) {
             value_text
         } else {
-            RustExpr::from(self.erase_rendered(&value_text, operand_ty)?)
+            self.erase_rendered(&value_text, operand_ty)?
         };
-        Ok(RustExpr::from(thrown::throw_expr(&erased)))
+        Ok(thrown::throw_expr(&erased))
     }
 
     /// Renders the payload for a rejection with no reason (`Promise.reject()`),
     /// which JavaScript settles with `undefined`.
     pub(super) fn undefined_thrown_payload_expr(&self) -> RustExpr {
         if self.context.demand().has(Need::Unknown) {
-            return RustExpr::from(thrown::throw_expr("SmeltUnknown::Undefined"));
+            return thrown::throw_expr("SmeltUnknown::Undefined");
         }
         RustExpr::atom("std::io::Error::new(std::io::ErrorKind::Other, \"undefined\").into()")
     }
@@ -92,8 +92,8 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         match self.mir.types.get(exception_ty) {
             Some(Type::String) => Ok(RustExpr::postfix_on(&error_text, format!("{error_text}.to_string()"))),
-            Some(Type::Unknown) => Ok(RustExpr::from(thrown::thrown_value_expr(error_text))),
-            _ => self.default_value(exception_ty).map(RustExpr::from),
+            Some(Type::Unknown) => Ok(thrown::thrown_value_expr(error_text)),
+            _ => self.default_value(exception_ty),
         }
     }
 
@@ -128,7 +128,7 @@ impl FunctionEmitter<'_> {
                 if let Statement::Assign { dest, value } = statement
                     && *dest == local
                 {
-                    return Ok(Some(RustExpr::from(self.rvalue_expr_for_dest(value, ty)?)));
+                    return Ok(Some(self.rvalue_expr_for_dest(value, ty)?));
                 }
             }
         }

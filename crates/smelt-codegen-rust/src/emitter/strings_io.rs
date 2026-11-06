@@ -46,14 +46,14 @@ impl FunctionEmitter<'_> {
                 "{{ let timestamp_ms = ({text}) as f64; if !timestamp_ms.is_finite() || timestamp_ms == i64::MIN as f64 {{ f64::NAN }} else {{ timestamp_ms }} }}"
             ))),
             // An erased destination holds the Date as its marker record.
-            _ if self.has_dynamic_shape(dest_ty) => Ok(RustExpr::from(self.carrier_format(format_args!(
+            _ if self.has_dynamic_shape(dest_ty) => Ok(RustExpr::atom(self.carrier_format(format_args!(
                 "{{ let timestamp_ms = ({text}) as f64; let timestamp_ms = if !timestamp_ms.is_finite() || timestamp_ms == i64::MIN as f64 {{ f64::NAN }} else {{ timestamp_ms }}; SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"{SMELT_DATE}\".to_owned(), SmeltUnknown::Number(timestamp_ms))]))) }}"
             )))),
             Some(Type::Optional(inner)) => {
                 let inner_text = self.date_timestamp_result_expr(text, *inner)?;
                 Ok(RustExpr::chain(format!("Some({inner_text})")))
             }
-            _ => Ok(RustExpr::from(text.to_owned())),
+            _ => Ok(text.to_owned()),
         }
     }
 
@@ -115,10 +115,10 @@ impl FunctionEmitter<'_> {
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                 ))
         {
-            return Ok(RustExpr::from(result_text));
+            return Ok(result_text);
         }
         let receiver_text = self.operand_expr(receiver)?;
-        Ok(RustExpr::from(self.carrier_format(format_args!(
+        Ok(RustExpr::atom(self.carrier_format(format_args!(
             "{{ let smelt_date_result = {result_text}; if let (SmeltUnknown::Object(result), SmeltUnknown::Object(receiver)) = (&smelt_date_result, {receiver_text}) {{ for (key, value) in receiver.iter() {{ if key != \"{SMELT_DATE}\" {{ result.insert(key, value); }} }} }} smelt_date_result }}"
         ))))
     }
@@ -223,7 +223,7 @@ impl FunctionEmitter<'_> {
             return self.date_timestamp_value(&erased, unknown_ty);
         }
         match self.mir.types.get(ty) {
-            Some(Type::Int | Type::Float) => Ok(RustExpr::from(value_text.to_owned())),
+            Some(Type::Int | Type::Float) => Ok(value_text.to_owned()),
             Some(Type::Bool) => Ok(RustExpr::loose(format!("if {value_text} {{ 1.0 }} else {{ 0.0 }}"))),
             Some(Type::String) => Ok(RustExpr::atom(format!(
                 "chrono::DateTime::parse_from_rfc3339(&{value_text}).or_else(|_| chrono::DateTime::parse_from_str(&{value_text}, \"%a %b %d %Y %H:%M:%S GMT%z\")).map(|date| date.timestamp_millis() as f64).or_else(|_| chrono::NaiveDate::parse_from_str(&{value_text}, \"%Y/%m/%d\").or_else(|_| chrono::NaiveDate::parse_from_str(&{value_text}, \"%Y-%m-%d\")).map(|date| date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis() as f64)).unwrap_or_else(|_| {value_text}.parse::<f64>().unwrap_or(f64::NAN))"
@@ -242,7 +242,7 @@ impl FunctionEmitter<'_> {
                         Some(Type::Unknown | Type::TypeParam { .. } | Type::Never | Type::Union(_))
                     ) =>
             {
-                Ok(RustExpr::from(self.carrier_format(format_args!(
+                Ok(RustExpr::atom(self.carrier_format(format_args!(
                     "match {value_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => chrono::DateTime::parse_from_rfc3339(&value).or_else(|_| chrono::DateTime::parse_from_str(&value, \"%a %b %d %Y %H:%M:%S GMT%z\")).map(|date| date.timestamp_millis() as f64).or_else(|_| chrono::NaiveDate::parse_from_str(&value, \"%Y/%m/%d\").or_else(|_| chrono::NaiveDate::parse_from_str(&value, \"%Y-%m-%d\")).map(|date| date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis() as f64)).unwrap_or_else(|_| value.parse::<f64>().unwrap_or(f64::NAN)), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
                 ))))
             }

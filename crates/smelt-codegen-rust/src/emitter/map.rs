@@ -95,11 +95,7 @@ impl FunctionEmitter<'_> {
         // copied the whole map for a membership test; in es-toolkit's `groupBy` that
         // ran once per element (`result.clone().contains_key(..)` inside the loop),
         // making an O(n) pass O(n^2) in the accumulated map.
-        Ok(RustExpr::postfix_on(&self.operand_borrow_expr(dict)?, format!(
-            "{}.contains_key({})",
-            self.operand_borrow_expr(dict)?,
-            self.dict_key_reference_expr(key, *key_ty)?
-        )))
+        Ok({ let receiver = self.operand_borrow_expr(dict)?; RustExpr::postfix_on(&receiver, format!("{receiver}.contains_key({})", self.dict_key_reference_expr(key, *key_ty)?)) })
     }
 
     /// Whether a string-keyed dict's values are the erased dynamic type.
@@ -178,9 +174,9 @@ impl FunctionEmitter<'_> {
             let get_text =
                 if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
                     || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
-                    format!("{}.get({})", self.operand_borrow_expr(dict)?, key_text)
+                    RustExpr::postfix_on(&self.operand_borrow_expr(dict)?, format!("{}.get({})", self.operand_borrow_expr(dict)?, key_text))
                 } else {
-                    format!("{}.get({}).cloned()", self.operand_borrow_expr(dict)?, key_text)
+                    RustExpr::postfix_on(&self.operand_borrow_expr(dict)?, format!("{}.get({}).cloned()", self.operand_borrow_expr(dict)?, key_text))
                 };
             return Ok(RustExpr::postfix_on(&get_text, format!(
                 "{get_text}.unwrap_or({})",
@@ -194,7 +190,7 @@ impl FunctionEmitter<'_> {
             // An absent key reads as `undefined`, matching JavaScript's
             // dynamic property semantics; `null` is a value only a store puts
             // there, and the two differ under `===`.
-            return Ok(RustExpr::from(self.carrier_format(format_args!(
+            return Ok(RustExpr::postfix_on(&self.operand_expr(dict)?, self.carrier_format(format_args!(
                 "{}.get({}).unwrap_or(SmeltUnknown::Undefined)",
                 self.operand_expr(dict)?,
                 key_text
@@ -207,22 +203,18 @@ impl FunctionEmitter<'_> {
                 let get_text =
                     if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
                     || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
-                        format!("{}.get({})", self.operand_borrow_expr(dict)?, key_text)
+                        RustExpr::postfix_on(&self.operand_borrow_expr(dict)?, format!("{}.get({})", self.operand_borrow_expr(dict)?, key_text))
                     } else {
-                        format!("{}.get({}).cloned()", self.operand_borrow_expr(dict)?, key_text)
+                        RustExpr::postfix_on(&self.operand_borrow_expr(dict)?, format!("{}.get({}).cloned()", self.operand_borrow_expr(dict)?, key_text))
                     };
                 Ok(RustExpr::postfix_on(&get_text, format!("{get_text}.flatten()")))
             }
             (_, Some(Type::Optional(dest_inner))) if dest_inner == value_ty => {
                 if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
                     || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
-                    Ok(RustExpr::postfix_on(&self.operand_borrow_expr(dict)?, format!("{}.get({})", self.operand_borrow_expr(dict)?, key_text)))
+                    Ok({ let receiver = self.operand_borrow_expr(dict)?; RustExpr::postfix_on(&receiver, format!("{receiver}.get({})", key_text)) })
                 } else {
-                    Ok(RustExpr::postfix_on(&self.operand_expr(dict)?, format!(
-                        "{}.get({}).cloned()",
-                        self.operand_expr(dict)?,
-                        key_text
-                    )))
+                    Ok({ let receiver = self.operand_expr(dict)?; RustExpr::postfix_on(&receiver, format!("{receiver}.get({}).cloned()", key_text)) })
                 }
             }
             _ => Err(EmitError::new(
@@ -299,10 +291,10 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("dict merge receiver must be a dict"));
         };
         if !self.dict_key_operand_is_compatible(key, *key_ty)? {
-            return Ok(RustExpr::from(self.operand_expr(dict)?));
+            return Ok(self.operand_expr(dict)?);
         }
         if !self.dict_value_operand_is_compatible(value, *value_ty)? {
-            return Ok(RustExpr::from(self.operand_expr(dict)?));
+            return Ok(self.operand_expr(dict)?);
         }
         if dest_ty != dict_ty {
             return Err(EmitError::new(
@@ -417,13 +409,13 @@ impl FunctionEmitter<'_> {
             return Ok(RustExpr::postfix_on(&key_text, format!("{key_text}.clone().unwrap_or({default})")));
         }
         if operand_ty == key_ty {
-            return self.value_at_type(key, key_ty).map(RustExpr::from);
+            return self.value_at_type(key, key_ty);
         }
         if self.mir.types.get(key_ty) == Some(&Type::String) {
             let key_text = self.operand_expr(key)?;
             return self.property_key_to_string_expr(&key_text, operand_ty);
         }
-        self.value_at_type(key, key_ty).map(RustExpr::from)
+        self.value_at_type(key, key_ty)
     }
 
     /// Render a dictionary key for an argument position spelled `&K`.
@@ -464,7 +456,7 @@ impl FunctionEmitter<'_> {
                 if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) =
                     dict
                 {
-                    return Ok(RustExpr::from(self.carrier_format(format_args!(
+                    return Ok(RustExpr::atom(self.carrier_format(format_args!(
                         "match &mut {} {{ SmeltUnknown::Object(map) => map.remove(&{key_text}).is_some(), _ => true }}",
                         self.local_mut_value(*local)?
                     ))));
@@ -506,11 +498,7 @@ impl FunctionEmitter<'_> {
                 "dict remove receiver must be a place operand",
             ));
         };
-        Ok(RustExpr::postfix_on(&self.assignment_place_expr(dict_place)?, format!(
-            "{}.remove({}).is_some()",
-            self.assignment_place_expr(dict_place)?,
-            self.dict_key_reference_expr(key, *key_ty)?
-        )))
+        Ok({ let receiver = self.assignment_place_expr(dict_place)?; RustExpr::postfix_on(&receiver, format!("{receiver}.remove({}).is_some()", self.dict_key_reference_expr(key, *key_ty)?)) })
     }
 
     /// Converts a dictionary pop operation to Rust text.
@@ -709,10 +697,7 @@ impl FunctionEmitter<'_> {
         }
         let value_text =
             self.rendered_at_type(&RustExpr::chain("value.clone()").ending_in_clone(), *source_value, *target_value, &self.render_scope())?;
-        Ok(Some(RustExpr::postfix_on(&self.operand_expr(source)?, format!(
-            "{}.iter().map(|(key, value)| (key.clone(), {value_text}))",
-            self.operand_expr(source)?
-        ))))
+        Ok(Some({ let receiver = self.operand_expr(source)?; RustExpr::postfix_on(&receiver, format!("{receiver}.iter().map(|(key, value)| (key.clone(), {value_text}))")) }))
     }
 
     /// Converts an unknown object-spread source into the typed record target.
@@ -757,7 +742,7 @@ impl FunctionEmitter<'_> {
         } else {
             self.carrier_format(format_args!("IntoSmeltUnknown::into_smelt_unknown({source_text}.clone())"))
         };
-        Ok(RustExpr::from(self.carrier_format(format_args!(
+        Ok(RustExpr::atom(self.carrier_format(format_args!(
             "match {scrutinee_text} {{ SmeltUnknown::Object(map) => SmeltRecord::with_id_from_entries(map.id, map.into_iter().map(|(key, value)| (key, {value_text}))), _ => SmeltRecord::new() }}"
         ))))
     }
@@ -808,9 +793,9 @@ impl FunctionEmitter<'_> {
                 let erased = if source_is_record {
                     self.erase_rendered(&RustExpr::postfix_on(&dict_text, format!("{dict_text}.clone()")).ending_in_clone(), dict_ty)?
                 } else {
-                    RustExpr::from(self.carrier_format(format_args!("({dict_text}.clone()).into_smelt_unknown()")))
+                    RustExpr::atom(self.carrier_format(format_args!("({dict_text}.clone()).into_smelt_unknown()")))
                 };
-                return Ok(RustExpr::from(self.carrier_format(format_args!(
+                return Ok(RustExpr::atom(self.carrier_format(format_args!(
                     "match {erased} {{ SmeltUnknown::Object(map) => SmeltRecord::with_id_from_entries(map.id, map.into_iter()), _ => Default::default() }}"
                 ))));
             }
@@ -822,7 +807,7 @@ impl FunctionEmitter<'_> {
             ));
         }
         // The copy itself is the clone; reading by borrow keeps it at one.
-        Ok(RustExpr::postfix_on(&self.operand_borrow_expr(dict)?, format!("{}.clone()", self.operand_borrow_expr(dict)?)).ending_in_clone())
+        Ok({ let receiver = self.operand_borrow_expr(dict)?; RustExpr::postfix_on(&receiver, format!("{receiver}.clone()")) }.ending_in_clone())
     }
 
     /// Converts a dictionary projection operation to Rust text.
@@ -837,7 +822,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
         ) {
             return match op {
-                smelt_hir::DictProjectionOp::FromEntries => Ok(RustExpr::from(self.carrier_format(format_args!(
+                smelt_hir::DictProjectionOp::FromEntries => Ok(RustExpr::atom(self.carrier_format(format_args!(
                     "match {dict_text} {{ SmeltUnknown::Array(entries) => entries.into_iter().filter_map(|entry| match entry {{ SmeltUnknown::Array(values) if values.len() >= 2 => {{ let mut values = values.into_iter(); let key = match values.next()? {{ SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), _ => return None }}; Some((key, values.next()?)) }}, _ => None }}).collect::<SmeltRecord<String, SmeltUnknown>>(), _ => SmeltRecord::new() }}"
                 )))),
                 // A byte-backed host record's own enumerable properties are its
@@ -851,11 +836,11 @@ impl FunctionEmitter<'_> {
                 // followed by the named properties in its side table, which is
                 // the order `Object.keys(['a'])` -> `["0"]` and
                 // `Object.keys(withNamedProp)` -> `["0", "x"]` report.
-                smelt_hir::DictProjectionOp::Keys => Ok(RustExpr::from(self.carrier_format(format_args!(
+                smelt_hir::DictProjectionOp::Keys => Ok(RustExpr::atom(self.carrier_format(format_args!(
                     "match {dict_text} {{ SmeltUnknown::Object(map) => {index_keys}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| map.keys().into_iter().filter(|key| !key.starts_with(\"{SMELT_SYMBOL}\") && !key.starts_with(\"{SMELT_PROTO}:\") && !key.starts_with(\"{SMELT_METHOD}:\") && key != \"{SMELT_CLASS}\").collect()), SmeltUnknown::Array(values) => values.own_keys(), _ => Vec::new() }}",
                     index_keys = smelt_stdlib::runtime_symbols::byte_buffer::INDEX_KEYS,
                 )))),
-                smelt_hir::DictProjectionOp::ForInKeys => Ok(RustExpr::from(self.carrier_format(format_args!(
+                smelt_hir::DictProjectionOp::ForInKeys => Ok(RustExpr::atom(self.carrier_format(format_args!(
                     "match {dict_text} {{ SmeltUnknown::Object(map) => {index_keys}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| smelt_for_in_object_keys(&map)), SmeltUnknown::Array(values) => values.own_keys(), _ => Vec::new() }}",
                     index_keys = smelt_stdlib::runtime_symbols::byte_buffer::INDEX_KEYS,
                 )))),
@@ -864,7 +849,7 @@ impl FunctionEmitter<'_> {
                 // the projection maps those storage keys back to symbol values.
                 // An array's own keys are its indices and named properties, all
                 // strings.
-                smelt_hir::DictProjectionOp::OwnKeys => Ok(RustExpr::from(self.carrier_format(format_args!(
+                smelt_hir::DictProjectionOp::OwnKeys => Ok(RustExpr::atom(self.carrier_format(format_args!(
                     "match {dict_text} {{ SmeltUnknown::Object(map) => {index_keys}(&SmeltUnknown::Object(map.clone())).map_or_else(|| smelt_own_object_keys(&map), |keys| keys.into_iter().map(|key| SmeltUnknown::String(key.as_str().into())).collect()), SmeltUnknown::Array(values) => values.own_keys().into_iter().map(|key| SmeltUnknown::String(key.as_str().into())).collect(), _ => Vec::new() }}",
                     index_keys = smelt_stdlib::runtime_symbols::byte_buffer::INDEX_KEYS,
                 )))),
@@ -875,17 +860,17 @@ impl FunctionEmitter<'_> {
                 // `target[symbols[i]] = v` wrote a plain string key. Re-tagging the
                 // description as `SmeltUnknown::Symbol` keeps the round trip: the
                 // property-key mapping turns that tag back into the prefixed key.
-                smelt_hir::DictProjectionOp::Symbols => Ok(RustExpr::from(self.carrier_format(format_args!(
+                smelt_hir::DictProjectionOp::Symbols => Ok(RustExpr::atom(self.carrier_format(format_args!(
                     "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys().into_iter().filter_map(|key| smelt_own_symbol_key_value(&key)).collect(), _ => Vec::new() }}"
                 )))),
                 // `Object.values`/`Object.entries` of a byte-backed view are its
                 // decoded elements, paired with their index keys — the same own-key
                 // set `Object.keys` reports above.
-                smelt_hir::DictProjectionOp::Values => Ok(RustExpr::from(self.carrier_format(format_args!(
+                smelt_hir::DictProjectionOp::Values => Ok(RustExpr::atom(self.carrier_format(format_args!(
                     "match {dict_text} {{ SmeltUnknown::Object(map) => {elements}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| map.iter().filter(|(key, _)| !key.starts_with(\"{SMELT_SYMBOL}\") && !key.starts_with(\"{SMELT_PROTO}:\") && !key.starts_with(\"{SMELT_METHOD}:\") && key != \"{SMELT_CLASS}\").map(|(_, value)| value).collect()), SmeltUnknown::Array(values) => values.own_entries().into_iter().map(|(_, value)| value).collect(), _ => Vec::new() }}",
                     elements = smelt_stdlib::runtime_symbols::byte_buffer::OWN_ELEMENTS,
                 )))),
-                smelt_hir::DictProjectionOp::Entries => Ok(RustExpr::from(self.carrier_format(format_args!(
+                smelt_hir::DictProjectionOp::Entries => Ok(RustExpr::atom(self.carrier_format(format_args!(
                     "match {dict_text} {{ SmeltUnknown::Object(map) => {elements}(&SmeltUnknown::Object(map.clone())).map_or_else(|| map.clone().into_iter().filter(|(key, _)| !key.starts_with(\"{SMELT_SYMBOL}\") && !key.starts_with(\"{SMELT_PROTO}:\") && !key.starts_with(\"{SMELT_METHOD}:\") && key != \"{SMELT_CLASS}\").collect::<Vec<_>>(), |values| values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect::<Vec<_>>()), SmeltUnknown::Array(values) => values.own_entries(), _ => Vec::new() }}",
                     elements = smelt_stdlib::runtime_symbols::byte_buffer::OWN_ELEMENTS,
                 )))),
@@ -946,7 +931,7 @@ impl FunctionEmitter<'_> {
                     // representation markers and restores symbol tags, then the
                     // symbol filter drops the symbol-keyed properties
                     // `Object.keys` never reports.
-                    Ok(RustExpr::from(self.carrier_format(format_args!(
+                    Ok(RustExpr::atom(self.carrier_format(format_args!(
                         "smelt_own_js_map_entries(&{dict_text}).into_iter().filter(|(key, _)| !matches!(key, SmeltUnknown::Symbol(_))).map(|(key, _)| key).collect::<Vec<_>>()"
                     ))))
                 } else {
@@ -1015,7 +1000,7 @@ impl FunctionEmitter<'_> {
                     // The mirror image of the `Keys` arm: the same own-entry
                     // helper restores a `__smelt_symbol:` storage key to its tag,
                     // and this arm keeps exactly the keys that filter drops.
-                    Ok(RustExpr::from(self.carrier_format(format_args!(
+                    Ok(RustExpr::atom(self.carrier_format(format_args!(
                         "smelt_own_js_map_entries(&{dict_text}).into_iter().map(|(key, _)| key).filter(|key| matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
                     ))))
                 } else {
@@ -1049,7 +1034,7 @@ impl FunctionEmitter<'_> {
                     }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     // Own, non-symbol entries only -- same rule as the `Keys` arm.
-                    Ok(RustExpr::from(self.carrier_format(format_args!(
+                    Ok(RustExpr::atom(self.carrier_format(format_args!(
                         "smelt_own_js_map_entries(&{dict_text}).into_iter().filter(|(key, _)| !matches!(key, SmeltUnknown::Symbol(_))).map(|(_, value)| value).collect::<Vec<_>>()"
                     ))))
                 } else {
@@ -1083,7 +1068,7 @@ impl FunctionEmitter<'_> {
                     }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     // Own, non-symbol entries only -- same rule as the `Keys` arm.
-                    Ok(RustExpr::from(self.carrier_format(format_args!(
+                    Ok(RustExpr::atom(self.carrier_format(format_args!(
                         "smelt_own_js_map_entries(&{dict_text}).into_iter().filter(|(key, _)| !matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
                     ))))
                 } else {

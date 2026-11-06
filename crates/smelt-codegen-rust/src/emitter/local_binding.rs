@@ -115,6 +115,17 @@ impl LocalBinding {
         }
     }
 
+    /// The binding as an expression, read or written in place.
+    pub(super) fn expr(&self) -> RustExpr {
+        match self {
+            Self::SharedCapture(cell) => cell.write_expr(),
+            Self::WeakEmitter { name } => super::weak_receiver::emitter_access_expr(name),
+            Self::Plain(_) | Self::Receiver | Self::ClosureArg(_) | Self::SelfOwned => {
+                RustExpr::path(self.text())
+            }
+        }
+    }
+
     /// The Rust binding a moved closure or block clones to own this value: the
     /// cell of a shared capture, the weak handle of a weak emitter, the name of
     /// anything else.

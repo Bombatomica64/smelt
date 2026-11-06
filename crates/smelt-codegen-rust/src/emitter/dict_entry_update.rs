@@ -26,7 +26,6 @@
 //! it keeps the emission independent of whether the local analysis chose to
 //! predeclare the temporary.
 
-use crate::rust::RustExpr;
 use super::*;
 
 impl FunctionEmitter<'_> {
@@ -77,7 +76,7 @@ impl FunctionEmitter<'_> {
             let index_text = self.operand_expr(index)?;
             self.property_key_to_string_expr(&index_text, source_key)?
         } else {
-            RustExpr::from(self.value_at_type(index, key_ty)?)
+            self.value_at_type(index, key_ty)?
         };
         let default_text = self.value_at_type(default, entry_ty)?;
         // `SmeltJsMap` and `SmeltRecord` both expose `entry_or_insert`, which

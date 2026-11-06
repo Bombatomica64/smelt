@@ -39,7 +39,7 @@ impl FunctionEmitter<'_> {
                 };
                 let value_text = self.string_like_operand_expr(value, "base64 input")?;
                 (
-                    CallText::propagating(format!("{adapter}({value_text}.as_str())")),
+                    CallText::propagating(RustExpr::postfix_on(&adapter, format!("{adapter}({value_text}.as_str())"))),
                     self.type_id(Type::String)?,
                 )
             }
@@ -84,10 +84,10 @@ impl FunctionEmitter<'_> {
                     EmitError::new("a RegExp compile call needs the RegExp class type interned")
                 })?;
                 (
-                    CallText::propagating(format!(
+                    CallText::propagating(RustExpr::postfix_on(&crate::thrown::REGEXP_COMPILE_FN, format!(
                         "{}({pattern}, {flags})",
                         crate::thrown::REGEXP_COMPILE_FN
-                    )),
+                    ))),
                     source_ty,
                 )
             }
@@ -106,7 +106,7 @@ impl FunctionEmitter<'_> {
                 };
                 let value_text = self.string_like_operand_expr(value, "URI decoder input")?;
                 (
-                    CallText::propagating(format!("{adapter}({value_text}.as_str())")),
+                    CallText::propagating(RustExpr::postfix_on(&adapter, format!("{adapter}({value_text}.as_str())"))),
                     self.type_id(Type::String)?,
                 )
             }

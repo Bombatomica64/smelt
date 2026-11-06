@@ -38,7 +38,7 @@ impl FunctionEmitter<'_> {
                     ),
                     None => "smelt_abort_default_reason()".to_owned(),
                 };
-                self.carrier_format(format_args!("SmeltUnknown::Object(smelt_abort_signal_record(Some({reason})))"))
+                RustExpr::atom(self.carrier_format(format_args!("SmeltUnknown::Object(smelt_abort_signal_record(Some({reason})))")))
             }
             // `AbortSignal.timeout(ms)` answers a NOT-yet-aborted signal and
             // schedules the abort. The scheduled callback holds a clone of the
@@ -64,7 +64,7 @@ impl FunctionEmitter<'_> {
                     ));
                 };
                 let float_ty = self.type_id(Type::Float)?;
-                self.carrier_format(format_args!(
+                RustExpr::atom(self.carrier_format(format_args!(
                     "{{ let smelt_signal = smelt_abort_signal_record(None); \
                      let smelt_handle = smelt_signal.clone(); \
                      let _ = {set_timeout}(::std::rc::Rc::new(::std::cell::RefCell::new(move || {{ \
@@ -73,9 +73,9 @@ impl FunctionEmitter<'_> {
                      SmeltUnknown::Object(smelt_signal) }}",
                     set_timeout = smelt_stdlib::runtime_symbols::timers::SET_TIMEOUT,
                     delay = self.value_at_type(delay, float_ty)?,
-                ))
+                )))
             }
         };
-        self.rendered_at_type(&RustExpr::opaque(&call), unknown_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+        self.rendered_at_type(&call, unknown_ty, dest_ty, &self.render_scope())
     }
 }

@@ -135,8 +135,8 @@ impl RustExpr {
     /// An expression whose producer does not state its form.
     #[must_use]
     #[track_caller]
-    pub fn opaque(text: impl Into<String>) -> Self {
-        Self::with_precedence(text, Precedence::Unstated)
+    pub fn opaque(text: impl AsRef<str>) -> Self {
+        Self::with_precedence(text.as_ref(), Precedence::Unstated)
     }
 
     /// `text`, a postfix applied to `receiver`: it binds as `receiver` does.

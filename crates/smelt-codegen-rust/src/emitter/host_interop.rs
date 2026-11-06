@@ -51,11 +51,11 @@ impl FunctionEmitter<'_> {
         let slot = self.host_override_slot_ident(class)?;
         let name = self.symbol_name(class)?.to_owned();
         let unknown_ty = self.type_id(Type::Unknown)?;
-        let call = format!(
+        let call = RustExpr::postfix_on(&slot, format!(
             "{slot}.with(|slot| {read}(slot, {name:?}))",
             read = smelt_stdlib::runtime_symbols::host_override::READ,
-        );
-        self.rendered_at_type(&RustExpr::opaque(&call), unknown_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+        ));
+        self.rendered_at_type(&call, unknown_ty, dest_ty, &self.render_scope())
     }
 
     /// Emit a write to a host constructor's override slot
@@ -71,11 +71,11 @@ impl FunctionEmitter<'_> {
         let slot = self.host_override_slot_ident(class)?;
         let erased = self.erase(value)?;
         let unknown_ty = self.type_id(Type::Unknown)?;
-        let call = format!(
+        let call = RustExpr::postfix_on(&slot, format!(
             "{slot}.with(|slot| {write}(slot, {erased}))",
             write = smelt_stdlib::runtime_symbols::host_override::WRITE,
-        );
-        self.rendered_at_type(&RustExpr::opaque(&call), unknown_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+        ));
+        self.rendered_at_type(&call, unknown_ty, dest_ty, &self.render_scope())
     }
 
     /// Emit a presence probe of a host constructor's override slot
@@ -118,12 +118,12 @@ impl FunctionEmitter<'_> {
             .map(|arg| self.erase(arg))
             .collect::<Result<Vec<_>, _>>()?;
         let unknown_ty = self.type_id(Type::Unknown)?;
-        let call = format!(
+        let call = RustExpr::chain(format!(
             "{construct}({kind:?}, vec![{args}])",
             construct = smelt_stdlib::runtime_symbols::host::REFLECTED_CONSTRUCT,
             args = arg_texts.join(", "),
-        );
-        self.rendered_at_type(&RustExpr::opaque(&call), unknown_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+        ));
+        self.rendered_at_type(&call, unknown_ty, dest_ty, &self.render_scope())
     }
 
     /// Emit the interned value for a global builtin name used as a value.
@@ -136,11 +136,11 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         let unknown_ty = self.type_id(Type::Unknown)?;
-        let call = format!(
+        let call = RustExpr::chain(format!(
             "{namespace}({name:?})",
             namespace = smelt_stdlib::runtime_symbols::host::BUILTIN_NAMESPACE,
-        );
-        self.rendered_at_type(&RustExpr::opaque(&call), unknown_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+        ));
+        self.rendered_at_type(&call, unknown_ty, dest_ty, &self.render_scope())
     }
 
     /// Emit the enclosing function's `arguments` object from its parameters.
@@ -163,12 +163,12 @@ impl FunctionEmitter<'_> {
             None => "None".to_owned(),
         };
         let unknown_ty = self.type_id(Type::Unknown)?;
-        let call = format!(
+        let call = RustExpr::chain(format!(
             "{helper}(vec![{fixed}], {rest_text})",
             helper = smelt_stdlib::runtime_symbols::host::ARGUMENTS_OBJECT,
             fixed = fixed_texts.join(", "),
-        );
-        self.rendered_at_type(&RustExpr::opaque(&call), unknown_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+        ));
+        self.rendered_at_type(&call, unknown_ty, dest_ty, &self.render_scope())
     }
 
     /// Converts a blocking HTTP GET operation to Rust text.
@@ -203,7 +203,7 @@ impl FunctionEmitter<'_> {
     /// its value: `NAME.with(|_| ())`. Used for a slot read whose result is
     /// never consumed.
     pub(super) fn global_touch_expr(&self, global: u32) -> RustExpr {
-        RustExpr::postfix_on(&crate::globals::global_static_name(self.mir, global), format!("{}.with(|_| ())", crate::globals::global_static_name(self.mir, global)))
+        { let receiver = crate::globals::global_static_name(self.mir, global); RustExpr::postfix_on(&receiver, format!("{receiver}.with(|_| ())")) }
     }
 
     /// Whether a mutable global of this type is backed by a `Cell` rather than
@@ -307,7 +307,7 @@ impl FunctionEmitter<'_> {
                 if self.mir.types.get(key_ty) == Some(&Type::String) {
                     self.string_like_operand_expr(index, "global index")?
                 } else {
-                    RustExpr::from(self.value_at_type(index, key_ty)?)
+                    self.value_at_type(index, key_ty)?
                 }
             }
         };
@@ -361,7 +361,7 @@ impl FunctionEmitter<'_> {
         } else {
             format!("({args_text},)")
         };
-        Ok(RustExpr::from(self.carrier_format(format_args!(
+        Ok(RustExpr::atom(self.carrier_format(format_args!(
             "{{ let _smelt_external_args = {args_tuple_text}; let _smelt_external = Vec::from([(\"__class\".to_owned(), SmeltUnknown::String({class_name:?}.into()))]); SmeltUnknown::Object(SmeltObject::new(_smelt_external)) }}"
         ))))
     }

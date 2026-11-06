@@ -28,7 +28,7 @@ impl FunctionEmitter<'_> {
             // form, so the formatting is not respelled here.
             smelt_hir::CryptoOp::RandomUuid => {
                 let string_ty = self.type_id(Type::String)?;
-                self.rendered_at_type(&RustExpr::atom("uuid::Uuid::new_v4().to_string()"), string_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+                self.rendered_at_type(&RustExpr::atom("uuid::Uuid::new_v4().to_string()"), string_ty, dest_ty, &self.render_scope())
             }
             // The argument is passed BY REFERENCE: the helper fills the view
             // through its shared byte storage and hands back a value sharing
@@ -138,9 +138,9 @@ impl FunctionEmitter<'_> {
         if let Some(bytes_text) =
             self.byte_source_union_bytes_expr(&self.operand_expr(data)?, data_ty)?
         {
-            return Ok(RustExpr::from(bytes_text));
+            return Ok(bytes_text);
         }
-        Ok(RustExpr::from(self.carrier_format(format_args!(
+        Ok(RustExpr::atom(self.carrier_format(format_args!(
             "SmeltTypedArray::smelt_from_unknown({}).to_bytes()",
             self.erase(data)?
         ))))
@@ -155,7 +155,7 @@ impl FunctionEmitter<'_> {
         {
             return Ok(RustExpr::atom(format!("({}).clone()", self.operand_expr(key)?)).ending_in_clone());
         }
-        Ok(RustExpr::from(self.carrier_format(format_args!("SmeltCryptoKey::smelt_from_unknown({})", self.erase(key)?))))
+        Ok(RustExpr::atom(self.carrier_format(format_args!("SmeltCryptoKey::smelt_from_unknown({})", self.erase(key)?))))
     }
 
     /// `importKey`'s usages as a `Vec<String>`: a string list is copied, and
@@ -167,7 +167,7 @@ impl FunctionEmitter<'_> {
         {
             return Ok(RustExpr::atom(format!("({}).borrow().clone()", self.operand_expr(usages)?)).ending_in_clone());
         }
-        Ok(RustExpr::from(self.carrier_format(format_args!(
+        Ok(RustExpr::atom(self.carrier_format(format_args!(
             "match {} {{ SmeltUnknown::Array(items) => items.into_vec().into_iter().filter_map(|item| match item {{ SmeltUnknown::String(text) => Some(text.to_string()), _ => None }}).collect::<Vec<String>>(), _ => Vec::new() }}",
             self.erase(usages)?
         ))))

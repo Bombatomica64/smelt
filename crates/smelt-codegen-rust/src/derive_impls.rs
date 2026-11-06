@@ -90,7 +90,7 @@ pub(crate) fn emit_default_impl_for_storage_type(
             ));
             continue;
         }
-        field_defaults.push((field_name, field_type_text, RustExpr::from(default_value), is_callable_slot));
+        field_defaults.push((field_name, field_type_text, default_value, is_callable_slot));
     }
     let delegating_field_types = field_defaults
         .iter()

@@ -97,7 +97,7 @@ impl FunctionEmitter<'_> {
                     self.erase_concrete_union_expr(&self.operand_expr(tuple)?, tuple_ty);
                 let unknown_value = self.unknown_index_expr(&tuple_text, &index_operand)?;
                 let unknown_ty = self.type_id(Type::Unknown)?;
-                return self.rendered_at_type(&unknown_value, unknown_ty, dest_ty, &self.render_scope()).map(RustExpr::from);
+                return self.rendered_at_type(&unknown_value, unknown_ty, dest_ty, &self.render_scope());
             }
             // A narrowed optional union or `unknown` holds the tuple the
             // narrowing proved.
@@ -109,7 +109,7 @@ impl FunctionEmitter<'_> {
                 let erased = self.erase_rendered(&self.operand_expr(tuple)?, tuple_ty)?;
                 let unknown_value = self.unknown_index_expr(&erased, &index_operand)?;
                 let unknown_ty = self.type_id(Type::Unknown)?;
-                return self.rendered_at_type(&unknown_value, unknown_ty, dest_ty, &self.render_scope()).map(RustExpr::from);
+                return self.rendered_at_type(&unknown_value, unknown_ty, dest_ty, &self.render_scope());
             }
             return Err(EmitError::new("tuple index receiver must be a tuple"));
         };
@@ -121,7 +121,7 @@ impl FunctionEmitter<'_> {
                 "tuple index destination must match the tuple field type",
             ));
         }
-        Ok(RustExpr::postfix_on(&self.operand_expr(tuple)?, format!("{}.{}.clone()", self.operand_expr(tuple)?, index)).ending_in_clone())
+        Ok({ let receiver = self.operand_expr(tuple)?; RustExpr::postfix_on(&receiver, format!("{receiver}.{}.clone()", index)) }.ending_in_clone())
     }
 
     /// Converts a statically-known tuple slice operation to Rust text.
@@ -201,10 +201,7 @@ impl FunctionEmitter<'_> {
                 "tuple-to-set destination must be set of the tuple item type",
             ));
         }
-        Ok(RustExpr::atom_on(&self.set_container_name(item_ty), format!(
-            "{}::from([{items_text}])",
-            self.set_container_name(item_ty)
-        )))
+        Ok({ let receiver = self.set_container_name(item_ty); RustExpr::atom_on(&receiver, format!("{receiver}::from([{items_text}])")) })
     }
 
     /// Returns tuple fields and their shared item type for homogeneous tuple conversions.

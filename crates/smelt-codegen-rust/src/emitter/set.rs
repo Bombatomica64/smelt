@@ -62,11 +62,7 @@ impl FunctionEmitter<'_> {
         // equals `-0`, and objects/functions match by reference identity — the
         // JS `Set.prototype.has` semantics — rather than `HashSet`'s structural
         // `Eq`.
-        Ok(RustExpr::postfix_on(&self.operand_expr(set)?, format!(
-            "{}.contains({})",
-            self.operand_expr(set)?,
-            self.shared_reference_argument_expr(item, item_ty)?
-        )))
+        Ok({ let receiver = self.operand_expr(set)?; RustExpr::postfix_on(&receiver, format!("{receiver}.contains({})", self.shared_reference_argument_expr(item, item_ty)?)) })
     }
 
     /// Converts a set disjointness predicate to Rust text.
@@ -76,11 +72,7 @@ impl FunctionEmitter<'_> {
         right: &Operand,
     ) -> Result<RustExpr, EmitError> {
         self.validate_set_pair_operands(left, right, "set isdisjoint")?;
-        Ok(RustExpr::postfix_on(&self.operand_expr(left)?, format!(
-            "{}.is_disjoint(&{})",
-            self.operand_expr(left)?,
-            self.operand_expr(right)?
-        )))
+        Ok({ let receiver = self.operand_expr(left)?; RustExpr::postfix_on(&receiver, format!("{receiver}.is_disjoint(&{})", self.operand_expr(right)?)) })
     }
 
     /// Converts a set relation predicate to Rust text.
@@ -95,11 +87,7 @@ impl FunctionEmitter<'_> {
             smelt_hir::SetRelationOp::IsSubset => "is_subset",
             smelt_hir::SetRelationOp::IsSuperset => "is_superset",
         };
-        Ok(RustExpr::postfix_on(&self.operand_expr(left)?, format!(
-            "{}.{method}(&{})",
-            self.operand_expr(left)?,
-            self.operand_expr(right)?
-        )))
+        Ok({ let receiver = self.operand_expr(left)?; RustExpr::postfix_on(&receiver, format!("{receiver}.{method}(&{})", self.operand_expr(right)?)) })
     }
 
     /// Converts a set insertion operation to Rust text.
@@ -199,7 +187,7 @@ impl FunctionEmitter<'_> {
                 "set copy destination must match the receiver set type",
             ));
         }
-        Ok(RustExpr::postfix_on(&self.operand_expr(set)?, format!("{}.clone()", self.operand_expr(set)?)).ending_in_clone())
+        Ok({ let receiver = self.operand_expr(set)?; RustExpr::postfix_on(&receiver, format!("{receiver}.clone()")) }.ending_in_clone())
     }
 
     /// Converts a set algebra operation to Rust text.
@@ -230,12 +218,8 @@ impl FunctionEmitter<'_> {
             smelt_hir::SetBinaryOp::Difference => "difference",
             smelt_hir::SetBinaryOp::SymmetricDifference => "symmetric_difference",
         };
-        Ok(RustExpr::postfix_on(&self.operand_expr(left)?, format!(
-            "{}.{}(&{}).cloned().collect()",
-            self.operand_expr(left)?,
-            method,
-            self.operand_expr(right)?
-        )))
+        Ok({ let receiver = self.operand_expr(left)?; RustExpr::postfix_on(&receiver, format!("{receiver}.{}(&{}).cloned().collect()", method,
+            self.operand_expr(right)?)) })
     }
 
     /// Converts a set projection operation to Rust text.

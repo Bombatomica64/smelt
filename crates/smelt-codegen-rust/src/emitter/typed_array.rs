@@ -199,7 +199,7 @@ impl FunctionEmitter<'_> {
             Some(argument) => format!("(({}) as f64).max(0.0) as usize", self.numeric_operand_expr(argument)?),
             None => "0".to_owned(),
         };
-        Ok(RustExpr::from(self.carrier_format(format_args!("SmeltArrayBuffer::{constructor}({byte_length})"))))
+        Ok(RustExpr::opaque(self.carrier_format(format_args!("SmeltArrayBuffer::{constructor}({byte_length})"))))
     }
 
     /// Emit a `DataView` accessor call: `getInt16(0)`, `setFloat64(0, x, true)`.
@@ -283,11 +283,11 @@ impl FunctionEmitter<'_> {
     fn array_buffer_operand_expr(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
         let text = self.operand_expr(operand)?;
         if self.operand_is_array_buffer(operand)? {
-            return Ok(RustExpr::from(text));
+            return Ok(text);
         }
         let ty = self.operand_ty(operand)?;
         let erased = self.erase_rendered(&text, ty)?;
-        Ok(RustExpr::from(self.carrier_format(format_args!("SmeltArrayBuffer::smelt_from_unknown({erased})"))))
+        Ok(RustExpr::atom(self.carrier_format(format_args!("SmeltArrayBuffer::smelt_from_unknown({erased})"))))
     }
 
     /// Render an operand as an `f64`, coercing an erased one at the boundary.
@@ -295,7 +295,7 @@ impl FunctionEmitter<'_> {
         let ty = self.operand_ty(operand)?;
         let text = self.operand_expr(operand)?;
         let float_ty = self.type_id(Type::Float)?;
-        self.rendered_at_type(&text, ty, float_ty, &self.render_scope()).map(RustExpr::from)
+        self.rendered_at_type(&text, ty, float_ty, &self.render_scope())
     }
 
     /// Emit an indexed element READ on a typed-array view, if the base is one.

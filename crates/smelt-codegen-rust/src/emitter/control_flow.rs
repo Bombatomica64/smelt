@@ -1265,9 +1265,9 @@ impl FunctionEmitter<'_> {
         } else {
             ""
         };
-        let raw_value = format!("{}.await?", self.await_operand_expr(future)?);
+        let raw_value = RustExpr::loose(format!("{}.await?", self.await_operand_expr(future)?));
         let source_ty = self.awaited_output_ty(future)?;
-        let value = self.rendered_at_type(&RustExpr::opaque(&raw_value), source_ty, local.ty, &self.render_scope())?;
+        let value = self.rendered_at_type(&raw_value, source_ty, local.ty, &self.render_scope())?;
         if matches!(
             self.mir.types.get(local.ty),
             Some(Type::Future(_) | Type::Function(_))
@@ -1378,7 +1378,7 @@ impl FunctionEmitter<'_> {
                 let exception_name = self.local_name(exception_local)?;
                 let exception_decl = self.local_decl(exception_local)?;
                 let value = match self.mir.types.get(exception_decl.ty) {
-                    Some(Type::String) => "__smelt_error".to_owned(),
+                    Some(Type::String) => RustExpr::path("__smelt_error"),
                     // The recovered panic is presented through the shared
                     // exception-payload record, built by
                     // `caught_panic_error_value_expr`; see
@@ -1389,11 +1389,11 @@ impl FunctionEmitter<'_> {
                     // must still answer `error.name === 'URIError'`. See
                     // `thrown::emit_panic_route_support`.
                     Some(Type::Unknown) => {
-                        crate::thrown::caught_panic_error_value_expr("__smelt_panic").into_string()
+                        crate::thrown::caught_panic_error_value_expr("__smelt_panic")
                     }
-                    _ => self.default_value(exception_decl.ty)?.into_string(),
+                    _ => self.default_value(exception_decl.ty)?,
                 };
-                out.push_str(&self.exception_binding_expr(exception_local, &exception_name, &RustExpr::opaque(&value)));
+                out.push_str(&self.exception_binding_expr(exception_local, &exception_name, &value));
                 self.mark_local_declared(exception_local);
             }
             self.emit_continuation(handler.catch_block, arm_continuation, out)?;
@@ -1477,17 +1477,17 @@ impl FunctionEmitter<'_> {
             let exception_name = self.local_name(exception_local)?;
             let exception_decl = self.local_decl(exception_local)?;
             let value = match self.mir.types.get(exception_decl.ty) {
-                Some(Type::String) => "__smelt_error".to_owned(),
+                Some(Type::String) => RustExpr::path("__smelt_error"),
                 // Same exception-payload record as the sibling call terminator;
                 // see `thrown::panic_payload_record_expr`.
                 // Same class-preserving recovery as the sibling call
                 // terminator; see `thrown::emit_panic_route_support`.
                 Some(Type::Unknown) => {
-                    crate::thrown::caught_panic_error_value_expr("__smelt_panic").into_string()
+                    crate::thrown::caught_panic_error_value_expr("__smelt_panic")
                 }
-                _ => self.default_value(exception_decl.ty)?.into_string(),
+                _ => self.default_value(exception_decl.ty)?,
             };
-            out.push_str(&self.exception_binding_expr(exception_local, &exception_name, &RustExpr::opaque(&value)));
+            out.push_str(&self.exception_binding_expr(exception_local, &exception_name, &value));
             self.mark_local_declared(exception_local);
         }
         self.emit_continuation(handler.catch_block, arm_continuation, out)?;

@@ -38,7 +38,7 @@ impl FunctionEmitter<'_> {
         match op {
             smelt_hir::FormDataOp::Has => {
                 let bool_ty = self.type_id(Type::Bool)?;
-                self.rendered_at_type(&RustExpr::postfix_on(&receiver, format!("{receiver}.has(&{})", name(0)?)), bool_ty, dest_ty, &self.render_scope()).map(RustExpr::from)
+                self.rendered_at_type(&RustExpr::postfix_on(&receiver, format!("{receiver}.has(&{})", name(0)?)), bool_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::FormDataOp::Delete => Ok(RustExpr::postfix_on(&receiver, format!("{receiver}.delete(&{})", name(0)?))),
             smelt_hir::FormDataOp::Set | smelt_hir::FormDataOp::Append => {
@@ -57,7 +57,7 @@ impl FunctionEmitter<'_> {
                     list_ty,
                     dest_ty,
                     &self.render_scope(),
-                ).map(RustExpr::from)
+                )
             }
             smelt_hir::FormDataOp::Get => {
                 let value_ty = self.form_data_value_type_id()?;
@@ -68,7 +68,7 @@ impl FunctionEmitter<'_> {
                     source_ty,
                     dest_ty,
                     &self.render_scope(),
-                ).map(RustExpr::from)
+                )
             }
             smelt_hir::FormDataOp::GetAll | smelt_hir::FormDataOp::Values => {
                 let value_ty = self.form_data_value_type_id()?;
@@ -86,7 +86,7 @@ impl FunctionEmitter<'_> {
                     source_ty,
                     dest_ty,
                     &self.render_scope(),
-                ).map(RustExpr::from)
+                )
             }
             smelt_hir::FormDataOp::Entries => {
                 // The DESTINATION's own pair type wins when it has one. The
@@ -109,7 +109,7 @@ impl FunctionEmitter<'_> {
                     source_ty,
                     dest_ty,
                     &self.render_scope(),
-                ).map(RustExpr::from)
+                )
             }
             // The one callback member on this surface. It walks the same
             // insertion-ordered entry list `entries()` answers and calls back

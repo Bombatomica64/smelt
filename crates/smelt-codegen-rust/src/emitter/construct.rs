@@ -38,8 +38,8 @@ impl FunctionEmitter<'_> {
             .map(|arg| self.erase(arg))
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
-        let call_text = format!("smelt_construct({callee_text}, ::std::vec![{arg_texts}])");
-        self.extract_rendered(&RustExpr::opaque(&call_text), dest_ty, &self.render_scope()).map(RustExpr::from)
+        let call_text = RustExpr::chain(format!("smelt_construct({callee_text}, ::std::vec![{arg_texts}])"));
+        self.extract_rendered(&call_text, dest_ty, &self.render_scope())
     }
 
     /// Render JavaScript `value instanceof target` for a runtime constructor.

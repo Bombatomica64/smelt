@@ -142,10 +142,7 @@ impl FunctionEmitter<'_> {
                 "reversed() destination must match the input list type",
             ));
         }
-        Ok(RustExpr::atom_on(&list_read_expr(&self.operand_expr(list)?), format!(
-            "{}.iter().rev().cloned().collect::<Vec<_>>()",
-            list_read_expr(&self.operand_expr(list)?)
-        )))
+        Ok({ let receiver = list_read_expr(&self.operand_expr(list)?); RustExpr::atom_on(&receiver, format!("{receiver}.iter().rev().cloned().collect::<Vec<_>>()")) })
     }
 
     /// Converts list enumeration materialization to Rust text.
@@ -181,7 +178,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) {
             let item_text = self.extract_rendered(&RustExpr::path("item"), *value_ty, &self.render_scope())?;
-            return Ok(RustExpr::from(self.carrier_format(format_args!(
+            return Ok(RustExpr::atom(self.carrier_format(format_args!(
                 "match {}.clone() {{ SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(idx, item)| (idx as i64, {item_text})).collect::<Vec<_>>(), _ => Vec::new() }}",
                 self.operand_expr(list)?
             ))));
@@ -194,10 +191,7 @@ impl FunctionEmitter<'_> {
                 "enumerate() destination must contain (int, item) tuples",
             ));
         }
-        Ok(RustExpr::atom_on(&list_read_expr(&self.operand_expr(list)?), format!(
-            "{}.iter().cloned().enumerate().map(|(idx, item)| (idx as i64, item)).collect::<Vec<_>>()",
-            list_read_expr(&self.operand_expr(list)?)
-        )))
+        Ok({ let receiver = list_read_expr(&self.operand_expr(list)?); RustExpr::atom_on(&receiver, format!("{receiver}.iter().cloned().enumerate().map(|(idx, item)| (idx as i64, item)).collect::<Vec<_>>()")) })
     }
 
     /// Converts Python `zip(left, right)` materialization to Rust text.
@@ -232,11 +226,7 @@ impl FunctionEmitter<'_> {
                 "zip() destination tuple items must match argument item types",
             ));
         }
-        Ok(RustExpr::atom_on(&list_read_expr(&self.operand_expr(left)?), format!(
-            "{}.iter().cloned().zip({}.iter().cloned()).collect::<Vec<_>>()",
-            list_read_expr(&self.operand_expr(left)?),
-            list_read_expr(&self.operand_expr(right)?)
-        )))
+        Ok({ let receiver = list_read_expr(&self.operand_expr(left)?); RustExpr::atom_on(&receiver, format!("{receiver}.iter().cloned().zip({}.iter().cloned()).collect::<Vec<_>>()", list_read_expr(&self.operand_expr(right)?))) })
     }
 
     /// Converts a Python `range(...)` materialization to Rust text.
@@ -327,7 +317,7 @@ impl FunctionEmitter<'_> {
                     "{{ let smelt_needle = {item_text}; {list_text}.iter().position(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).expect(\"list index missing item\") as i64 }}"
                 )));
             }
-            return Ok(RustExpr::from(self.carrier_format(format_args!(
+            return Ok(RustExpr::atom(self.carrier_format(format_args!(
                 "{{ let smelt_needle = {item_text}; {list_text}.iter().position(|item| item.same_js_key(&smelt_needle)).expect(\"list index missing item\") as i64 }}"
             ))));
         }
@@ -399,17 +389,17 @@ impl FunctionEmitter<'_> {
         kind: SliceLenKind,
     ) -> Result<RustExpr, EmitError> {
         let len_source = match kind {
-            SliceLenKind::Len => format!("{receiver_text}.len()"),
-            SliceLenKind::Chars => format!("{receiver_text}.chars().count()"),
+            SliceLenKind::Len => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.len()")),
+            SliceLenKind::Chars => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.chars().count()")),
         };
-        let start_text = self.slice_start_expr(maybe_start, &RustExpr::opaque(&len_source))?;
+        let start_text = self.slice_start_expr(maybe_start, &len_source)?;
         let end_text = match maybe_end {
             Some(bound) => self.normalized_slice_bound_expr_with_default(
                 bound,
-                &RustExpr::opaque(&len_source),
+                &len_source,
                 &RustExpr::opaque(format!("{len_source} as f64")),
             )?,
-            None => RustExpr::from(len_source),
+            None => len_source,
         };
         Ok(RustExpr::postfix_on(&end_text, format!("{end_text}.saturating_sub({start_text})")))
     }
