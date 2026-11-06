@@ -1,11 +1,11 @@
-//! String collation helpers.
-//!
-//! The emitted names live in `smelt_stdlib::runtime_symbols::strings`, and the
-//! `runtime_manifest_symbol_names_match` test in `smelt-codegen-rust` pins the
-//! item text below to those constants so the definition and the call sites
-//! cannot drift.
+// String collation helpers.
+//
+// The emitted names live in `smelt_stdlib::runtime_symbols::strings`, and the
+// `runtime_manifest_symbol_names_match` test in `smelt-codegen-rust` pins the
+// item text below to those constants so the definition and the call sites
+// cannot drift.
 
-// @smelt:item smelt_locale_compare
+// @smelt:item smelt_locale_compare when locale_compare
 /// JavaScript `String.prototype.localeCompare(other)` with no `locales` or
 /// `options` arguments, i.e. the host's default collation.
 ///
@@ -50,10 +50,11 @@ fn smelt_locale_compare(left: &str, right: &str) -> f64 {
         ::std::cmp::Ordering::Equal => 0.0,
     }
 }
+
 // @smelt:item-end
 
 #[cfg(test)]
-mod tests {
+mod strings_tests {
     use super::smelt_locale_compare;
 
     /// Equal strings collate equal.

@@ -1,33 +1,35 @@
-//! Shared mutable captures for closures.
-//!
-//! A JavaScript closure captures its enclosing `let` by *reference*: two
-//! closures created in the same scope observe each other's writes, and so does
-//! the enclosing function. Generated Rust models one such variable as an
-//! `Rc<RefCell<T>>` that every closure over the same scope must reach — and the
-//! closures are emitted independently, so they need a way to find the *same*
-//! cell at run time.
-//!
-//! The key is `(scope, slot)`: `scope` is a fresh id minted per scope
-//! instantiation by [`smelt_next_capture_scope`], and `slot` is the address of
-//! the captured local, which distinguishes the variables within one scope. The
-//! registry holds `Weak` handles, so it never keeps a cell alive once its
-//! closures drop it. A dead entry is overwritten on re-lookup of its key rather
-//! than removed when the cell drops.
+// Shared mutable captures for closures.
+//
+// A JavaScript closure captures its enclosing `let` by *reference*: two
+// closures created in the same scope observe each other's writes, and so does
+// the enclosing function. Generated Rust models one such variable as an
+// `Rc<RefCell<T>>` that every closure over the same scope must reach — and the
+// closures are emitted independently, so they need a way to find the *same*
+// cell at run time.
+//
+// The key is `(scope, slot)`: `scope` is a fresh id minted per scope
+// instantiation by [`smelt_next_capture_scope`], and `slot` is the address of
+// the captured local, which distinguishes the variables within one scope. The
+// registry holds `Weak` handles, so it never keeps a cell alive once its
+// closures drop it. A dead entry is overwritten on re-lookup of its key rather
+// than removed when the cell drops.
 
-// @smelt:item SMELT_NEXT_CAPTURE_SCOPE
+// @smelt:item SMELT_NEXT_CAPTURE_SCOPE when shared_captures
 thread_local! {
     static SMELT_NEXT_CAPTURE_SCOPE: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
     static SMELT_SHARED_CAPTURES: ::std::cell::RefCell<::std::collections::HashMap<(usize, usize), ::std::rc::Weak<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
 }
+
 // @smelt:item-end
 
-// @smelt:item smelt_next_capture_scope
+// @smelt:item smelt_next_capture_scope when shared_captures
 fn smelt_next_capture_scope() -> usize {
     SMELT_NEXT_CAPTURE_SCOPE.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id })
 }
+
 // @smelt:item-end
 
-// @smelt:item smelt_shared_capture
+// @smelt:item smelt_shared_capture when shared_captures
 fn smelt_shared_capture<T: Clone + 'static>(scope: usize, slot: *mut T, initial: T) -> ::std::rc::Rc<::std::cell::RefCell<T>> {
     let key = (scope, slot as usize);
     SMELT_SHARED_CAPTURES.with(|captures| {
@@ -41,10 +43,11 @@ fn smelt_shared_capture<T: Clone + 'static>(scope: usize, slot: *mut T, initial:
         value
     })
 }
+
 // @smelt:item-end
 
 #[cfg(test)]
-mod tests {
+mod captures_tests {
     use super::{smelt_next_capture_scope, smelt_shared_capture};
 
     /// Scope ids are distinct, so two instantiations never share a cell.

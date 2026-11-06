@@ -6423,7 +6423,13 @@ fn runtime_host_marker_registry_hides_boxed_primitive_wrappers() {
 /// `instanceof` codegen path, and this runtime filter share one source of truth.
 #[test]
 fn host_marker_registry_array_covers_registry_and_runtime_markers() {
-    let array = host_marker_registry_array();
+    let text = smelt_runtime::source::item_source("smelt_object_has_host_marker")
+        .expect("the host-marker helper is a runtime item");
+    let array = text
+        .split("has_internal_keys() && [")
+        .nth(1)
+        .and_then(|rest| rest.split(']').next())
+        .expect("the helper spells the marker array");
     for marker in smelt_stdlib::host_object_markers() {
         assert!(
             array.contains(&format!("\"{marker}\"")),

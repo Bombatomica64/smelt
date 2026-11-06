@@ -1,11 +1,11 @@
-//! URI encoding helpers (`encodeURI` and friends).
-//!
-//! The emitted names live in `smelt_stdlib::runtime_symbols::strings`, and the
-//! `runtime_manifest_symbol_names_match` test in `smelt-codegen-rust` pins the
-//! item text below to those constants so the definition and the call sites
-//! cannot drift.
+// URI encoding helpers (`encodeURI` and friends).
+//
+// The emitted names live in `smelt_stdlib::runtime_symbols::strings`, and the
+// `runtime_manifest_symbol_names_match` test in `smelt-codegen-rust` pins the
+// item text below to those constants so the definition and the call sites
+// cannot drift.
 
-// @smelt:item smelt_encode_uri
+// @smelt:item smelt_encode_uri when uri_encode
 /// JavaScript `encodeURI`: percent-encode `value` as a full URI.
 ///
 /// Leaves the ECMA-262 `encodeURI` unescaped set intact — ASCII alphanumerics,
@@ -31,9 +31,10 @@ fn smelt_encode_uri(value: &str) -> String {
     }
     encoded
 }
+
 // @smelt:item-end
 
-// @smelt:item smelt_encode_uri_component
+// @smelt:item smelt_encode_uri_component when uri_encode
 /// JavaScript `encodeURIComponent`: percent-encode `value` as one URI component.
 ///
 /// Differs from `encodeURI` by exactly the URI reserved separators: ECMA-262
@@ -59,9 +60,10 @@ fn smelt_encode_uri_component(value: &str) -> String {
     }
     encoded
 }
+
 // @smelt:item-end
 
-// @smelt:item smelt_decode_uri_octets
+// @smelt:item smelt_decode_uri_octets when uri_encode
 /// Shared percent-decoder for `decodeURI` and `decodeURIComponent`.
 ///
 /// ECMA-262 gives both one algorithm (`Decode`) parameterized by a *preserve
@@ -135,9 +137,10 @@ fn smelt_decode_uri_octets(value: &str, preserve: &str) -> ::std::option::Option
     }
     Some(out)
 }
+
 // @smelt:item-end
 
-// @smelt:item smelt_decode_uri
+// @smelt:item smelt_decode_uri when uri_encode
 /// JavaScript `decodeURI`: percent-decode a full URI.
 ///
 /// The URI reserved separators `; / ? : @ & = + $ , #` stay ESCAPED, because
@@ -147,9 +150,10 @@ fn smelt_decode_uri_octets(value: &str, preserve: &str) -> ::std::option::Option
 fn smelt_decode_uri(value: &str) -> ::std::option::Option<String> {
     smelt_decode_uri_octets(value, ";/?:@&=+$,#")
 }
+
 // @smelt:item-end
 
-// @smelt:item smelt_decode_uri_component
+// @smelt:item smelt_decode_uri_component when uri_encode
 /// JavaScript `decodeURIComponent`: percent-decode one URI component.
 ///
 /// Preserves nothing: a component is already a single value, so every escape
@@ -158,10 +162,11 @@ fn smelt_decode_uri(value: &str) -> ::std::option::Option<String> {
 fn smelt_decode_uri_component(value: &str) -> ::std::option::Option<String> {
     smelt_decode_uri_octets(value, "")
 }
+
 // @smelt:item-end
 
 #[cfg(test)]
-mod tests {
+mod uri_tests {
     use super::{
         smelt_decode_uri, smelt_decode_uri_component, smelt_encode_uri,
         smelt_encode_uri_component,

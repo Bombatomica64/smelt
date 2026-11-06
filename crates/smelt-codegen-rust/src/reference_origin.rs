@@ -66,25 +66,6 @@
     reason = "crate-visible helpers are shared with the prelude emitter and the emitter shards"
 )]
 
-/// The field declaration added to `SmeltFieldStore` when origins are enabled.
-pub(crate) const STORE_FIELD_DECL: &str =
-    "    /// The live typed value this store is an erased view of, if any (see `smelt_with_origin`).\n    origin: Option<Box<dyn ::std::any::Any>>,";
-
-/// The `SmeltFieldStore` constructor field list suffix for the enabled layout.
-///
-/// Appended after `index: None` in the store's constructors so a store built
-/// by any path — a literal, a JSON parse, a spread copy — starts with no
-/// origin: only an erasure of a reference record sets one.
-pub(crate) const STORE_FIELD_INIT: &str = ", origin: None";
-
-/// The `SmeltObject` methods that stamp and read the origin slot.
-pub(crate) const OBJECT_METHODS: &str = "    /// Record the live typed value this erased object is a view of.\n    ///\n    /// Called by a reference record's erasure with a clone of its handle, so\n    /// narrowing the erased object back hands out the SAME instance rather than\n    /// a copy rebuilt from the field snapshot.\n    #[allow(dead_code)]\n    fn smelt_with_origin<T: 'static>(self, origin: T) -> Self { *self.store.origin_mut() = Some(Box::new(origin)); self }\n    /// The live typed value this erased object is a view of, when it is a `T`.\n    #[allow(dead_code)]\n    fn smelt_origin<T: Clone + 'static>(&self) -> Option<T> { self.store.origin().as_ref().and_then(|origin| origin.downcast_ref::<T>()).cloned() }";
-
-/// The `SmeltRecord` accessor reading the same slot through a record handle.
-///
-/// A record recovered at `Record<string, unknown>` shares the erased object's
-/// store (`smelt_shared_record`), so the origin survives that view too.
-pub(crate) const RECORD_IMPL: &str = "impl<K, V> SmeltRecord<K, V> {\n    /// The live typed value this record's store is an erased view of, when it is a `T`.\n    #[allow(dead_code)]\n    fn smelt_origin<T: Clone + 'static>(&self) -> Option<T> { self.store.origin().as_ref().and_then(|origin| origin.downcast_ref::<T>()).cloned() }\n}";
 
 /// Stamp `handle` (an expression yielding the typed reference handle) as the
 /// origin of the erased object built by `object_ctor`.

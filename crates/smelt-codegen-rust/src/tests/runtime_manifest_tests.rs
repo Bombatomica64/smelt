@@ -7,51 +7,69 @@
 //! is caught here rather than by a generated crate that silently lacks a helper.
 
 use super::*;
-use crate::runtime_prelude::{PreludeGate, emit_gate};
+use crate::runtime_prelude::{flag, rendered_text};
+use smelt_runtime::order::{Entry, ORDER};
+use smelt_runtime::source::{flag_names, item_names, item_source};
 
-/// Every item every gate names must resolve in the runtime source.
+/// Every item the order names resolves, and every item is in the order.
 ///
-/// This is the build-time-style check the plan asks for: it walks the whole
-/// manifest, not just the gates a particular program happens to turn on, and
-/// reports every missing `(gate, item)` pair at once.
+/// This walks the whole manifest, not just what one program turns on, and reports
+/// every problem at once. An item left out of the order would be compiled and
+/// tested here and silently never reach a generated crate.
 #[test]
-fn runtime_manifest_items_resolve() {
-    let mut missing = Vec::new();
-    for gate in PreludeGate::ALL {
-        for item in gate.items() {
-            if smelt_runtime::source::item_source(item).is_none() {
-                missing.push(format!("{gate:?} -> {item}"));
-            }
-        }
-    }
-    assert!(
-        missing.is_empty(),
-        "runtime prelude gates name items smelt-runtime does not define: {missing:?}"
-    );
+fn runtime_order_and_items_agree() {
+    let ordered: Vec<&str> = ORDER
+        .iter()
+        .filter_map(|entry| match entry {
+            Entry::Item(name) => Some(*name),
+            _ => None,
+        })
+        .collect();
+    let missing: Vec<_> = ordered
+        .iter()
+        .filter(|name| item_source(name).is_none())
+        .collect();
+    assert!(missing.is_empty(), "the order names undefined items: {missing:?}");
+    let unordered: Vec<_> = item_names()
+        .into_iter()
+        .filter(|name| !ordered.contains(name))
+        .collect();
+    assert!(unordered.is_empty(), "items no order reaches: {unordered:?}");
 }
 
-/// A gate naming a missing item is an `EmitError`, never an empty emission.
+/// Every flag a marker names is one the emitter can answer.
 ///
-/// Exercised through the real lookup by asking for a deliberately absent item,
-/// which is the failure mode the manifest test above guards against in the
-/// committed manifest.
+/// An unanswered flag would read as off, and the text behind it would vanish
+/// from every generated crate.
 #[test]
-fn a_missing_runtime_item_is_an_error() {
+fn every_runtime_flag_is_answered() {
+    let mut ctx = HirCtx::new();
+    assert!(to_hir("", FileId(0), &mut ctx).is_ok(), "HIR");
+    let Ok(mir) = smelt_mir::lower_hir(&ctx.krate) else {
+        panic!("MIR lowering failed");
+    };
+    let context = EmitContext::new(&mir).expect("an empty program has a context");
+    let unanswered: Vec<_> = flag_names()
+        .into_iter()
+        .filter(|name| flag(&context, name).is_none())
+        .collect();
+    assert!(unanswered.is_empty(), "flags nothing answers: {unanswered:?}");
+}
+
+/// A name with no region is not an item.
+#[test]
+fn a_missing_runtime_item_is_absent() {
     assert!(
-        smelt_runtime::source::item_source("smelt_definitely_not_an_item").is_none(),
+        item_source("smelt_definitely_not_an_item").is_none(),
         "the runtime must not resolve an invented item name"
     );
 }
 
-/// Emitting a gate writes its items in manifest order, each followed by a blank.
-///
-/// Pins the shape the hand-written `writer.line(...)` blocks had: item text
-/// verbatim at column zero, one blank line after each item.
+/// The identity counter comes before the list that mints from it, and no marker
+/// reaches generated text.
 #[test]
-fn emitting_a_gate_writes_items_in_order() {
-    let mut writer = CodeWriter::new();
-    emit_gate(&mut writer, PreludeGate::SmeltList).expect("list gate emits");
-    let source = writer.finish();
+fn rendered_text_keeps_order_and_drops_markers() {
+    let source = rendered_text(&|name| matches!(name, "object_ids" | "smelt_list"));
     let identity = source
         .find("fn smelt_next_object_id() -> usize {")
         .expect("identity helper is emitted");
@@ -62,14 +80,10 @@ fn emitting_a_gate_writes_items_in_order() {
         identity < list,
         "SmeltList::new calls smelt_next_object_id, so the helper must come first"
     );
-    assert!(
-        source.ends_with("}\n\n"),
-        "each emitted item is followed by a blank line: {source:?}"
-    );
-    assert!(
-        !source.contains("@smelt:item"),
-        "marker lines must never reach generated source"
-    );
+    let everything = rendered_text(&|_| true);
+    for marker in ["@smelt:", "//~", "/*@if", "/*@end"] {
+        assert!(!everything.contains(marker), "`{marker}` reached generated text");
+    }
 }
 
 /// Emitted runtime item names agree with the shared `runtime_symbols` constants.

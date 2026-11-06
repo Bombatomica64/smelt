@@ -1,42 +1,45 @@
-//! The clock shared by JavaScript timers and `Date.now()`.
-//!
-//! JS code routinely measures elapsed time with `Date.now()` while scheduling
-//! work with `setTimeout`, and expects the two to agree (a debounce reads
-//! `Date.now()` to size its `maxWait` timeout, then waits for that timeout to
-//! fire). Generated Rust runs deterministically on a virtual clock —
-//! `sleep`/timer draining fast-forwards time instead of really blocking — so
-//! both readings must come from one timeline.
-//!
-//! `SMELT_VIRTUAL_MS` is the accumulated fast-forward; real wall time keeps
-//! advancing on top of it so a synchronous busy-loop such as
-//! `while (Date.now() - start < 320) { ... }` (no `await` to fast-forward) still
-//! terminates on real elapsed time rather than spinning forever.
-//!
-//! `SMELT_DATE_NOW` and `SMELT_DATE_TIMEZONE_OFFSET` are the two test-visible
-//! overrides (`vi.setSystemTime`, timezone pinning); they are separate items
-//! because their gates are separate — a program that only reads `Date.now()`
-//! must not emit the timer queue.
+// The clock shared by JavaScript timers and `Date.now()`.
+//
+// JS code routinely measures elapsed time with `Date.now()` while scheduling
+// work with `setTimeout`, and expects the two to agree (a debounce reads
+// `Date.now()` to size its `maxWait` timeout, then waits for that timeout to
+// fire). Generated Rust runs deterministically on a virtual clock —
+// `sleep`/timer draining fast-forwards time instead of really blocking — so
+// both readings must come from one timeline.
+//
+// `SMELT_VIRTUAL_MS` is the accumulated fast-forward; real wall time keeps
+// advancing on top of it so a synchronous busy-loop such as
+// `while (Date.now() - start < 320) { ... }` (no `await` to fast-forward) still
+// terminates on real elapsed time rather than spinning forever.
+//
+// `SMELT_DATE_NOW` and `SMELT_DATE_TIMEZONE_OFFSET` are the two test-visible
+// overrides (`vi.setSystemTime`, timezone pinning); they are separate items
+// because their gates are separate — a program that only reads `Date.now()`
+// must not emit the timer queue.
 
-// @smelt:item SMELT_DATE_NOW
+// @smelt:item SMELT_DATE_NOW when date_now
 thread_local! {
     static SMELT_DATE_NOW: ::std::cell::Cell<Option<i64>> = const { ::std::cell::Cell::new(None) };
 }
+
 // @smelt:item-end
 
-// @smelt:item SMELT_DATE_TIMEZONE_OFFSET
+// @smelt:item SMELT_DATE_TIMEZONE_OFFSET when date_timezone_offset
 thread_local! {
     static SMELT_DATE_TIMEZONE_OFFSET: ::std::cell::Cell<f64> = const { ::std::cell::Cell::new(0.0) };
 }
+
 // @smelt:item-end
 
-// @smelt:item SMELT_VIRTUAL_MS
+// @smelt:item SMELT_VIRTUAL_MS when virtual_clock
 thread_local! {
     static SMELT_VIRTUAL_MS: ::std::cell::Cell<u64> = const { ::std::cell::Cell::new(0) };
     static SMELT_TIMER_EPOCH: ::std::cell::Cell<Option<::std::time::Instant>> = const { ::std::cell::Cell::new(None) };
 }
+
 // @smelt:item-end
 
-// @smelt:item smelt_mono_ms
+// @smelt:item smelt_mono_ms when virtual_clock
 /// Monotonic virtual + wall clock (ms) shared by JS timers and `Date.now()`.
 ///
 /// Returns real elapsed wall time since a fixed epoch plus the virtual
@@ -50,9 +53,10 @@ fn smelt_mono_ms() -> u64 {
     let real_ms = ::std::time::Instant::now().saturating_duration_since(epoch).as_millis() as u64;
     real_ms.saturating_add(SMELT_VIRTUAL_MS.with(::std::cell::Cell::get))
 }
+
 // @smelt:item-end
 
-// @smelt:item smelt_virtual_advance_to
+// @smelt:item smelt_virtual_advance_to when virtual_clock
 /// Fast-forward the virtual clock so `smelt_mono_ms()` reaches `target_ms`.
 fn smelt_virtual_advance_to(target_ms: u64) {
     let now = smelt_mono_ms();
@@ -60,10 +64,11 @@ fn smelt_virtual_advance_to(target_ms: u64) {
         SMELT_VIRTUAL_MS.with(|virtual_ms| virtual_ms.set(virtual_ms.get().saturating_add(target_ms - now)));
     }
 }
+
 // @smelt:item-end
 
 #[cfg(test)]
-mod tests {
+mod clock_tests {
     use super::{SMELT_DATE_NOW, SMELT_DATE_TIMEZONE_OFFSET, smelt_mono_ms, smelt_virtual_advance_to};
 
     /// The clock never runs backwards, whatever the mix of real and virtual time.

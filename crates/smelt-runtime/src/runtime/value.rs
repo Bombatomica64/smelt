@@ -1,37 +1,31 @@
-//! Value-core runtime items: JavaScript reference identity.
-//!
-//! Every JavaScript object, array, function, `Map`, `Set`, `Promise` and regexp
-//! match is a *reference* value: `a === b` asks whether two bindings name the
-//! same object, not whether their contents match. Generated Rust models that by
-//! stamping each such value with a process-unique `usize` minted here, so
-//! identity survives the erase/extract round trip through `SmeltUnknown`.
-//!
-//! The id counter is the crate-root end of the dependency chain: descendant
-//! modules (`value::list` and, in later phases, the erased-value core) call
-//! [`smelt_next_object_id`] through `use super::…`, which the emitted form does
-//! not need because every runtime item lands in one flat generated module.
+// Value-core runtime items: JavaScript reference identity.
+//
+// Every JavaScript object, array, function, `Map`, `Set`, `Promise` and regexp
+// match is a *reference* value: `a === b` asks whether two bindings name the
+// same object, not whether their contents match. Generated Rust models that by
+// stamping each such value with a process-unique `usize` minted here, so
+// identity survives the erase/extract round trip through `SmeltUnknown`.
+//
+// The id counter is the root of the dependency chain: every identity-bearing
+// runtime type mints from it.
 
-#[expect(
-    clippy::missing_const_for_fn,
-    reason = "list.rs items are emitted verbatim into generated crates; making these helpers `const fn` would change the bytes of every generated crate that uses SmeltList"
-)]
-pub mod list;
-
-// @smelt:item SMELT_NEXT_OBJECT_ID
+// @smelt:item SMELT_NEXT_OBJECT_ID when object_ids
 thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
+
 // @smelt:item-end
 
-// @smelt:item smelt_next_object_id
+// @smelt:item smelt_next_object_id when object_ids
 #[allow(dead_code)]
 fn smelt_next_object_id() -> usize {
     SMELT_NEXT_OBJECT_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id })
 }
+
 // @smelt:item-end
 
 #[cfg(test)]
-mod tests {
+mod value_tests {
     use super::smelt_next_object_id;
 
     /// Ids are minted strictly increasing, so no two live values share one.

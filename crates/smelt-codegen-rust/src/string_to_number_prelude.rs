@@ -32,7 +32,6 @@
     reason = "crate-visible helpers are shared with the parent module and the emitter shards"
 )]
 
-use crate::rust::CodeWriter;
 
 /// The emitted helper's name, so emit sites and the prelude agree on it.
 pub(crate) const STRING_TO_NUMBER_FN: &str = "smelt_string_to_number";
@@ -41,45 +40,4 @@ pub(crate) const STRING_TO_NUMBER_FN: &str = "smelt_string_to_number";
 /// the JavaScript rule, for an emit site that builds its code with `format!`.
 pub(crate) fn string_to_number_call(text: &str) -> String {
     format!("{STRING_TO_NUMBER_FN}(&({text}))")
-}
-
-/// Emit `smelt_string_to_number(&str) -> f64`.
-///
-/// Emitted unconditionally, like `smelt_number_to_string`: it is core coercion
-/// machinery, reached by `Number(s)`/`+s` on a static string as well as by the
-/// erased-value conversions, so no single feature flag owns it.
-pub(crate) fn emit(writer: &mut CodeWriter) {
-    writer.line("/// ECMA-262 `StringToNumber`: the number JavaScript's `Number(text)` answers.");
-    writer.line("#[allow(dead_code)]");
-    writer.block(
-        format!("fn {STRING_TO_NUMBER_FN}(text: &str) -> f64"),
-        |fn_writer| {
-            fn_writer.line("let text = text.trim_matches(|ch: char| matches!(ch, '\\u{9}'..='\\u{d}' | ' ' | '\\u{a0}' | '\\u{1680}' | '\\u{2000}'..='\\u{200a}' | '\\u{2028}' | '\\u{2029}' | '\\u{202f}' | '\\u{205f}' | '\\u{3000}' | '\\u{feff}'));");
-            fn_writer.line("if text.is_empty() { return 0.0; }");
-            // A radix literal is unsigned in the JS grammar (`-0x10` is NaN),
-            // so it is matched before the sign is taken.
-            fn_writer.line("let radix = match text.get(..2) { Some(\"0x\" | \"0X\") => 16, Some(\"0o\" | \"0O\") => 8, Some(\"0b\" | \"0B\") => 2, _ => 10 };");
-            fn_writer.block("if radix != 10", |radix_writer| {
-                radix_writer.line("let digits = &text[2..];");
-                radix_writer.line("if digits.is_empty() || !digits.chars().all(|ch| ch.is_digit(radix)) { return f64::NAN; }");
-                radix_writer.line("return digits.chars().fold(0.0, |value, ch| value * f64::from(radix) + f64::from(ch.to_digit(radix).unwrap_or(0)));");
-            });
-            fn_writer.line("let (sign, unsigned) = match text.as_bytes()[0] { b'+' => (1.0, &text[1..]), b'-' => (-1.0, &text[1..]), _ => (1.0, text) };");
-            fn_writer.line("if unsigned == \"Infinity\" { return sign * f64::INFINITY; }");
-            fn_writer.line("let bytes = unsigned.as_bytes();");
-            fn_writer.line("let digits_from = |mut at: usize| { while at < bytes.len() && bytes[at].is_ascii_digit() { at += 1; } at };");
-            fn_writer.line("let int_end = digits_from(0);");
-            fn_writer.line("let (frac_start, frac_end) = if bytes.get(int_end) == Some(&b'.') { (int_end + 1, digits_from(int_end + 1)) } else { (int_end, int_end) };");
-            fn_writer.line("if int_end == 0 && frac_end == frac_start { return f64::NAN; }");
-            fn_writer.line("let mut end = frac_end;");
-            fn_writer.block("if matches!(bytes.get(end), Some(b'e' | b'E'))", |exp_writer| {
-                exp_writer.line("let exp_start = if matches!(bytes.get(end + 1), Some(b'+' | b'-')) { end + 2 } else { end + 1 };");
-                exp_writer.line("end = digits_from(exp_start);");
-                exp_writer.line("if end == exp_start { return f64::NAN; }");
-            });
-            fn_writer.line("if end != bytes.len() { return f64::NAN; }");
-            fn_writer.line("unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)");
-        },
-    );
-    writer.blank_line();
 }

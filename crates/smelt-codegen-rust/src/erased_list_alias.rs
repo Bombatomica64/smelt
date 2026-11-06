@@ -58,7 +58,6 @@
 
 use smelt_hir::Type;
 
-use crate::rust::CodeWriter;
 
 /// The prelude helper that hands an erased generic list to an erased-list slot.
 ///
@@ -106,25 +105,4 @@ pub(crate) fn list_alias_text(value: &str) -> String {
 #[must_use]
 pub(crate) fn array_alias_text(value: &str) -> String {
     format!("SmeltUnknown::Array({ERASED_GENERIC_ARRAY_ALIAS_FN}({value}))")
-}
-
-/// Emits both alias helpers into the `SmeltUnknown` prelude.
-///
-/// Must follow the `From<SmeltList<SmeltUnknown>> for SmeltArray` impls, which
-/// the array helper's conversion goes through. Each helper is one `.into()`
-/// call marked `#[inline]`, so it compiles to the conversion #250 emitted
-/// inline and keeps that change's speedup.
-pub(crate) fn emit_prelude(writer: &mut CodeWriter) {
-    writer.line(
-        "/// Hand an erased generic list to an erased-list slot: the same array, never a copy.",
-    );
-    writer.line("#[inline]");
-    writer.line(format!(
-        "fn {ERASED_GENERIC_LIST_ALIAS_FN}(list: impl Into<SmeltList<SmeltUnknown>>) -> SmeltList<SmeltUnknown> {{ list.into() }}"
-    ));
-    writer.line("/// Hand an erased generic list to an `unknown` slot: the same array, never a copy.");
-    writer.line("#[inline]");
-    writer.line(format!(
-        "fn {ERASED_GENERIC_ARRAY_ALIAS_FN}(list: impl Into<SmeltArray>) -> SmeltArray {{ list.into() }}"
-    ));
 }

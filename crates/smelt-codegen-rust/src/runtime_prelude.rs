@@ -1,138 +1,218 @@
-//! Selection of runtime prelude items from the `smelt-runtime` crate.
+//! Writing the runtime into a generated crate.
 //!
-//! The runtime helpers that generated crates carry are written as real,
-//! compiled, unit-tested Rust in `smelt-runtime` (see that crate's docs). This
-//! module is the emitter's half of that arrangement: it maps each MIR-computed
-//! `needs_*` gate to the runtime items that gate requires, and copies their
-//! source text into the generated crate root verbatim.
-//!
-//! # What this module is not
-//!
-//! It is not a new gating mechanism. The `needs_*` predicates in `lib.rs` and
-//! `stdlib.rs` still decide *whether* a gate is on, with unchanged semantics;
-//! [`PreludeGate`] only names the item list each one pulls in. Nor does it make
-//! generated crates depend on `smelt-runtime`: the text is inlined, so generated
-//! crates stay self-contained and cannot skew against a runtime version.
+//! The runtime is real, compiled, unit-tested Rust in `smelt-runtime` (see that
+//! crate's docs). This module is the emitter's half of the arrangement: it answers
+//! the flags the runtime's markers name, from the program's
+//! [`RuntimeDemand`](crate::runtime_demand::RuntimeDemand), and copies the rendered
+//! text into the crate root in [`ORDER`]. Generated crates do not depend on
+//! `smelt-runtime`: the text is inlined, so they stay self-contained and cannot
+//! skew against a runtime version.
 //!
 //! # Failing loudly
 //!
-//! A gate that names an item the runtime does not define is a build-breaking
-//! mistake, not a silent omission: [`emit_gate`] returns an [`EmitError`] naming
-//! the gate and the missing item, and the `runtime_manifest_items_resolve` test
-//! in `src/tests/runtime_manifest_tests.rs` walks the whole manifest — every
-//! gate, not just the ones a given program turns on — so a typo fails the test
-//! suite rather than a user's build.
+//! An order entry with no region, or a marker naming a flag this module does not
+//! answer, is a build-breaking mistake rather than a silent omission:
+//! [`emit_entries`] returns an [`EmitError`], and the tests in
+//! `src/tests/runtime_manifest_tests.rs` walk the whole manifest, so a typo fails
+//! the test suite rather than a user's build.
 
 #![expect(
     clippy::redundant_pub_crate,
     reason = "crate-visible helpers are shared with the parent module and the emitter shards"
 )]
 
-use crate::{EmitError, rust::CodeWriter};
+use smelt_mir::Mir;
+use smelt_runtime::order::{Entry, ORDER, Slot};
+use smelt_runtime::source::{RenderedLine, holds, item_enabled, render_item};
 
-/// A runtime prelude gate: one `needs_*` predicate's worth of runtime items.
-///
-/// Each variant corresponds to an existing `needs_*` predicate computed from the
-/// MIR. Variants are listed in emission order so the manifest reads like the
-/// prelude it produces.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum PreludeGate {
-    /// `Date.now()` override slot (`needs_date_now`).
-    DateNow,
-    /// Timezone-offset override slot (`needs_date_timezone_offset`).
-    DateTimezoneOffset,
-    /// Virtual + wall clock shared by timers and `Date.now()`
-    /// (`needs_timer_helpers || needs_date_now`).
-    VirtualClock,
-    /// Shared mutable closure captures (`needs_shared_captures`).
-    SharedCaptures,
-    /// `encodeURI` (`Need::UriEncode`).
-    UriEncode,
-    /// The `smelt_locale_compare` string-collation helper backing
-    /// `String.prototype.localeCompare`.
-    LocaleCompare,
-    /// JS reference-identity minting on its own, for a regex/match program with
-    /// no list (`needs_regex && !needs_smelt_list`).
-    ObjectIdentity,
-    /// The identity-bearing typed list, which also mints ids
-    /// (`needs_smelt_list`).
-    SmeltList,
+use crate::emitter::EmitContext;
+use crate::runtime_demand::Need;
+use crate::{EmitError, rust::CodeWriter, stdlib};
+
+/// Splits [`ORDER`] around the program's interface types, which the runtime
+/// emitted after them is written against and the runtime before them is not.
+pub(crate) fn split_at_interfaces() -> (&'static [Entry], &'static [Entry]) {
+    let at = ORDER
+        .iter()
+        .position(|entry| *entry == Entry::Slot(Slot::ProgramInterfaces))
+        .unwrap_or(ORDER.len());
+    let (before, after) = ORDER.split_at(at);
+    (before, after.get(1..).unwrap_or_default())
 }
 
-impl PreludeGate {
-    /// Every gate, for exhaustive manifest checks.
-    ///
-    /// Only the manifest tests read this: emission reaches a gate through its
-    /// `needs_*` predicate, never by iterating the list.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the manifest test enumerates every gate; the emitter selects gates individually"
-        )
-    )]
-    pub(crate) const ALL: &'static [Self] = &[
-        Self::DateNow,
-        Self::DateTimezoneOffset,
-        Self::VirtualClock,
-        Self::SharedCaptures,
-        Self::UriEncode,
-        Self::LocaleCompare,
-        Self::ObjectIdentity,
-        Self::SmeltList,
-    ];
-
-    /// The runtime items this gate emits, in emission order.
-    ///
-    /// Two gates may name the same item (`SmeltList` re-lists the identity items
-    /// because `SmeltList::new` mints an id); the gates are mutually exclusive at
-    /// their call sites, exactly as the hand-written blocks were.
-    pub(crate) const fn items(self) -> &'static [&'static str] {
-        match self {
-            Self::DateNow => &["SMELT_DATE_NOW"],
-            Self::DateTimezoneOffset => &["SMELT_DATE_TIMEZONE_OFFSET"],
-            Self::VirtualClock => &["SMELT_VIRTUAL_MS", "smelt_mono_ms", "smelt_virtual_advance_to"],
-            Self::SharedCaptures => &[
-                "SMELT_NEXT_CAPTURE_SCOPE",
-                "smelt_next_capture_scope",
-                "smelt_shared_capture",
-            ],
-            Self::UriEncode => &[
-                "smelt_encode_uri",
-                "smelt_encode_uri_component",
-                "smelt_decode_uri_octets",
-                "smelt_decode_uri",
-                "smelt_decode_uri_component",
-            ],
-            Self::LocaleCompare => &["smelt_locale_compare"],
-            Self::ObjectIdentity => &["SMELT_NEXT_OBJECT_ID", "smelt_next_object_id"],
-            Self::SmeltList => &["SMELT_NEXT_OBJECT_ID", "smelt_next_object_id", "SmeltList"],
-        }
-    }
-}
-
-/// Emits every runtime item a gate requires, each followed by a blank line.
-///
-/// The text is copied verbatim from the runtime crate's source, one line at a
-/// time through the writer so indentation and the trailing blank line match the
-/// hand-written blocks this replaced byte for byte.
+/// Writes `entries` under the program's flags.
 ///
 /// # Errors
 ///
-/// Returns an [`EmitError`] naming the gate and the item when the runtime does
-/// not define an item the gate lists, so a manifest typo can never degrade into
-/// a generated crate that is missing a helper.
-pub(crate) fn emit_gate(writer: &mut CodeWriter, gate: PreludeGate) -> Result<(), EmitError> {
-    for item in gate.items() {
-        let source = smelt_runtime::source::item_source(item).ok_or_else(|| {
-            EmitError::new(format!(
-                "runtime prelude gate {gate:?} requires item `{item}`, which smelt-runtime does not define"
-            ))
-        })?;
-        for line in source.lines() {
-            writer.line(line);
+/// Returns an [`EmitError`] when an entry names an item the runtime does not
+/// define.
+pub(crate) fn emit_entries(
+    writer: &mut CodeWriter,
+    entries: &[Entry],
+    mir: &Mir,
+    context: &EmitContext,
+) -> Result<(), EmitError> {
+    let flags = |name: &str| flag(context, name).unwrap_or(false);
+    for entry in entries {
+        match entry {
+            Entry::Item(name) if item_enabled(name, &flags) => {
+                let lines = render_item(name, &flags).ok_or_else(|| {
+                    EmitError::new(format!("the runtime order names `{name}`, which smelt-runtime does not define"))
+                })?;
+                for line in lines {
+                    match line {
+                        RenderedLine::Text(text) => writer.line(text),
+                        RenderedLine::Slot(slot) => emit_slot(writer, slot, mir)?,
+                        _ => return Err(EmitError::new("unknown rendered runtime line")),
+                    }
+                }
+            }
+            Entry::Blank(expr) if holds(expr, &flags) => writer.blank_line(),
+            _ => {}
         }
-        writer.blank_line();
     }
     Ok(())
+}
+
+/// Renders the runtime under `flags`, for tests that read its text.
+///
+/// Slots hold program text, so they render as nothing here.
+#[cfg(test)]
+pub(crate) fn rendered_text(flags: &dyn Fn(&str) -> bool) -> String {
+    let mut text = String::new();
+    for entry in ORDER {
+        match entry {
+            Entry::Item(name) if item_enabled(name, flags) => {
+                for line in render_item(name, flags).unwrap_or_default() {
+                    if let RenderedLine::Text(line) = line {
+                        text.push_str(&line);
+                        text.push('\n');
+                    }
+                }
+            }
+            Entry::Blank(expr) if holds(expr, flags) => text.push('\n'),
+            _ => {}
+        }
+    }
+    text
+}
+
+/// Writes the lines of a program-dependent `slot`.
+fn emit_slot(writer: &mut CodeWriter, slot: &str, mir: &Mir) -> Result<(), EmitError> {
+    match slot {
+        "host_override_slots" => {
+            use smelt_stdlib::runtime_symbols::host_override::{OVERRIDE_ENUM, SLOT_PREFIX};
+            for (suffix, _name) in stdlib::host_override_slot_names(mir) {
+                writer.line(format!(
+                    "    static {SLOT_PREFIX}{suffix}: ::std::cell::RefCell<{OVERRIDE_ENUM}> = const {{ ::std::cell::RefCell::new({OVERRIDE_ENUM}::Native) }};",
+                ));
+            }
+            Ok(())
+        }
+        _ => Err(EmitError::new(format!("the runtime names an unknown slot `{slot}`"))),
+    }
+}
+
+/// Answers a flag named by a runtime marker, or `None` for a name nothing answers.
+pub(crate) fn flag(context: &EmitContext, name: &str) -> Option<bool> {
+    let demand = context.demand();
+    match name {
+        // A generated object keeps its origin slot for two different reasons.
+        "reference_origins" => Some(context.has_reference_classes() || demand.has(Need::HostOrigins)),
+        // Timers and `Date.now()` share one clock.
+        "virtual_clock" => Some(demand.has(Need::Timers) || demand.has(Need::DateNow)),
+        "crypto_any" => Some(
+            demand.has(Need::CryptoRandomValues)
+                || demand.has(Need::CryptoDigest)
+                || demand.has(Need::CryptoKey),
+        ),
+        // `[[Construct]]` and the `instanceof` walk share one callable lookup.
+        "callable_of" => Some(demand.has(Need::Construct) || demand.has(Need::InstanceOfValue)),
+        "write_through" => Some(context.erased_view_write_through()),
+        "reads_this" => Some(context.program_reads_this()),
+        _ => need_of_flag(name).map(|need| demand.has(need)),
+    }
+}
+
+/// The [`Need`] a marker's flag spells.
+fn need_of_flag(name: &str) -> Option<Need> {
+    Some(match name {
+        "unknown" => Need::Unknown,
+        "smelt_list" => Need::SmeltList,
+        "object_ids" => Need::ObjectIds,
+        "prim_set" => Need::PrimSet,
+        "panic_route" => Need::PanicRoute,
+        "bigint" => Need::BigInt,
+        "generator" => Need::Generator,
+        "timers" => Need::Timers,
+        "date_now" => Need::DateNow,
+        "date_timezone_offset" => Need::DateTimezoneOffset,
+        "date" => Need::Date,
+        "math_round" => Need::MathRound,
+        "shared_captures" => Need::SharedCaptures,
+        "uri_encode" => Need::UriEncode,
+        "uri_decode" => Need::UriDecode,
+        "json_indent" => Need::JsonIndent,
+        "json_parse" => Need::JsonParse,
+        "locale_compare" => Need::LocaleCompare,
+        "headers" => Need::Headers,
+        "response" => Need::Response,
+        "request" => Need::Request,
+        "body" => Need::Body,
+        "body_host_method" => Need::BodyHostMethod,
+        "form_data" => Need::FormData,
+        "blob" => Need::Blob,
+        "url_search_params" => Need::UrlSearchParams,
+        "url" => Need::Url,
+        "url_throwing" => Need::UrlThrowing,
+        "text_encoder" => Need::TextEncoder,
+        "text_decoder" => Need::TextDecoder,
+        "byte_array" => Need::ByteArray,
+        "data_view" => Need::DataView,
+        "data_view_access" => Need::DataViewAccess,
+        "crypto_random_values" => Need::CryptoRandomValues,
+        "crypto_digest" => Need::CryptoDigest,
+        "crypto_key" => Need::CryptoKey,
+        "node_path" => Need::NodePath,
+        "node_hash" => Need::NodeHash,
+        "event_emitter" => Need::EventEmitter,
+        "http_server" => Need::HttpServer,
+        "fetch_server" => Need::FetchServer,
+        "sqlite" => Need::Sqlite,
+        "base64" => Need::Base64,
+        "global_object" => Need::GlobalObject,
+        "unknown_assign" => Need::UnknownAssign,
+        "reg_exp_compile" => Need::RegExpCompile,
+        "vitest_mock" => Need::VitestMock,
+        "structured_clone" => Need::StructuredClone,
+        "typeof" => Need::Typeof,
+        "concat_spread" => Need::ConcatSpread,
+        "define_properties" => Need::DefineProperties,
+        "this_channel" => Need::ThisChannel,
+        "this_read" => Need::ThisRead,
+        "construct" => Need::Construct,
+        "instance_of_value" => Need::InstanceOfValue,
+        "host_override" => Need::HostOverride,
+        "host_origins" => Need::HostOrigins,
+        "erased_function" => Need::ErasedFunction,
+        "erased_list_alias" => Need::ErasedListAlias,
+        "optional_unknown_read" => Need::OptionalUnknownRead,
+        "accessors" => Need::Accessors,
+        "python_number_format" => Need::PythonNumberFormat,
+        "dep_tokio" => Need::DepTokio,
+        "dep_genawaiter" => Need::DepGenawaiter,
+        "dep_reqwest" => Need::DepReqwest,
+        "dep_serde_json" => Need::DepSerdeJson,
+        "dep_regex" => Need::DepRegex,
+        "dep_rand" => Need::DepRand,
+        "dep_chrono" => Need::DepChrono,
+        "dep_chrono_tz" => Need::DepChronoTz,
+        "dep_url" => Need::DepUrl,
+        "dep_unicode_normalization" => Need::DepUnicodeNormalization,
+        "dep_uuid" => Need::DepUuid,
+        "dep_sha" => Need::DepSha,
+        "dep_hmac" => Need::DepHmac,
+        "dep_md5" => Need::DepMd5,
+        _ => return None,
+    })
 }

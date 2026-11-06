@@ -1,56 +1,54 @@
-//! The identity-bearing statically-typed list — what `Type::List` lowers to.
-//!
-//! `SmeltList<T>` is a JavaScript array: a reference identity (`id`) plus a
-//! *shared* backing buffer (`Rc<RefCell<Vec<T>>>`). `Clone` bumps the refcount
-//! and keeps the id, so a cloned handle names the same array as the original —
-//! identity and storage agree. That is what makes `const b = a; b.push(x)`
-//! observable through `a`, an array passed to a function mutable by the callee,
-//! and an array read back out of an object, a `Map`, or an outer array the same
-//! array rather than a copy.
-//!
-//! This is the same treatment `SmeltArray` (the erased array) and `SmeltJsMap`
-//! already have, and for the same reason: JS arrays and Maps are reference
-//! values. It is deliberately stronger than `SmeltJsSet`'s copy-on-write store —
-//! copy-on-write is not enough here, because in the motivating case two handles
-//! are alive at the moment of the write (the container's stored handle and the
-//! local alias), so `Rc::make_mut` would copy and the write would be lost.
-//!
-//! A genuine JS array copy — `[...a]`, `slice()` — goes through
-//! [`SmeltList::fresh_copy`], which mints a new id *and* a new buffer. Keeping
-//! those operations copying is what stops shared storage from becoming
-//! over-sharing.
-//!
-//! # No `Deref`
-//!
-//! The elements live behind a `RefCell`, so there is no `&Vec<T>` to hand out
-//! that could outlive the borrow — the same argument the erased `SmeltArray`
-//! makes. Instead the type exposes [`SmeltList::borrow`] and
-//! [`SmeltList::borrow_mut`], and the emitter renders a list receiver as
-//! `list.borrow()` / `list.borrow_mut()`. Guards live to the end of the enclosing
-//! statement, which is safe because emitted code is three-address: see the
-//! invariant documented on `FunctionEmitter::local_value_text`. A read receiver
-//! must never be rendered with `borrow_mut`, because an index expression such as
-//! `arr.get({ .. arr.len() .. })` takes two simultaneous borrows of one cell —
-//! two shared borrows are fine, a second mutable one panics "already borrowed".
-//!
-//! `Debug` is hand-written rather than derived so that it forwards to the
-//! backing `Vec`: `console.log([1, 2, 3])` must print `[1.0, 2.0, 3.0]`, not the
-//! `SmeltList { .. }` wrapper, and the shared cell must not surface as
-//! `RefCell { value: [..] }`. `PartialEq`/`Hash` are structural for the same
-//! reason — JS `===` on arrays is emitted as an id comparison by the emitter, so
-//! these impls serve Rust-side containers and assertions.
-//!
-//! The `#[allow(dead_code)]` attributes inside the marked region are part of the
-//! emitted text: a generated crate uses only the constructors its program needs.
-//!
-//! The type is emitted whenever a list is used, independently of `SmeltUnknown`;
-//! the `SmeltUnknown`-dependent impls (erasure, `From<SmeltArray>`, serde) are
-//! still emitted by `smelt-codegen-rust`'s `needs_unknown` block and have not
-//! moved here yet.
+// The identity-bearing statically-typed list — what `Type::List` lowers to.
+//
+// `SmeltList<T>` is a JavaScript array: a reference identity (`id`) plus a
+// *shared* backing buffer (`Rc<RefCell<Vec<T>>>`). `Clone` bumps the refcount
+// and keeps the id, so a cloned handle names the same array as the original —
+// identity and storage agree. That is what makes `const b = a; b.push(x)`
+// observable through `a`, an array passed to a function mutable by the callee,
+// and an array read back out of an object, a `Map`, or an outer array the same
+// array rather than a copy.
+//
+// This is the same treatment `SmeltArray` (the erased array) and `SmeltJsMap`
+// already have, and for the same reason: JS arrays and Maps are reference
+// values. It is deliberately stronger than `SmeltJsSet`'s copy-on-write store —
+// copy-on-write is not enough here, because in the motivating case two handles
+// are alive at the moment of the write (the container's stored handle and the
+// local alias), so `Rc::make_mut` would copy and the write would be lost.
+//
+// A genuine JS array copy — `[...a]`, `slice()` — goes through
+// [`SmeltList::fresh_copy`], which mints a new id *and* a new buffer. Keeping
+// those operations copying is what stops shared storage from becoming
+// over-sharing.
+//
+// # No `Deref`
+//
+// The elements live behind a `RefCell`, so there is no `&Vec<T>` to hand out
+// that could outlive the borrow — the same argument the erased `SmeltArray`
+// makes. Instead the type exposes [`SmeltList::borrow`] and
+// [`SmeltList::borrow_mut`], and the emitter renders a list receiver as
+// `list.borrow()` / `list.borrow_mut()`. Guards live to the end of the enclosing
+// statement, which is safe because emitted code is three-address: see the
+// invariant documented on `FunctionEmitter::local_value_text`. A read receiver
+// must never be rendered with `borrow_mut`, because an index expression such as
+// `arr.get({ .. arr.len() .. })` takes two simultaneous borrows of one cell —
+// two shared borrows are fine, a second mutable one panics "already borrowed".
+//
+// `Debug` is hand-written rather than derived so that it forwards to the
+// backing `Vec`: `console.log([1, 2, 3])` must print `[1.0, 2.0, 3.0]`, not the
+// `SmeltList { .. }` wrapper, and the shared cell must not surface as
+// `RefCell { value: [..] }`. `PartialEq`/`Hash` are structural for the same
+// reason — JS `===` on arrays is emitted as an id comparison by the emitter, so
+// these impls serve Rust-side containers and assertions.
+//
+// The `#[allow(dead_code)]` attributes inside the marked region are part of the
+// emitted text: a generated crate uses only the constructors its program needs.
+//
+// The type is emitted whenever a list is used, independently of `SmeltUnknown`;
+// the `SmeltUnknown`-dependent impls (erasure, `From<SmeltArray>`, serde) are
+// still emitted by `smelt-codegen-rust`'s `needs_unknown` block and have not
+// moved here yet.
 
-use super::smelt_next_object_id;
-
-// @smelt:item SmeltList
+// @smelt:item SmeltList when smelt_list
 /// A JavaScript array: a reference identity plus a shared backing buffer.
 pub struct SmeltList<T> {
     id: usize,
@@ -109,10 +107,11 @@ impl<T: PartialEq> Eq for SmeltList<T> {}
 impl<T: ::std::hash::Hash> ::std::hash::Hash for SmeltList<T> { fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) { self.values.borrow().hash(state); } }
 impl<T> Default for SmeltList<T> { fn default() -> Self { Self::new(Vec::new()) } }
 impl<T: Clone> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Self { list.into_vec() } }
+
 // @smelt:item-end
 
 #[cfg(test)]
-mod tests {
+mod list_tests {
     use super::SmeltList;
 
     /// A fresh list mints a fresh identity; `Clone` shares it *and* the buffer.
