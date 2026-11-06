@@ -1129,7 +1129,7 @@ macro_rules! define_list_facts {
                       a variant added later degrades to a conservative `Escaping` verdict \
                       rather than to a silently wrong `Local` one"
         )]
-        #[allow(
+        #[expect(
             unused_variables,
             reason = "each arm binds every field; a fact reads the ones it needs"
         )]
@@ -1160,7 +1160,7 @@ macro_rules! define_list_facts {
                       `OperandRole::Escapes`. A variant added later fails safe instead of \
                       silently producing a wrong `Local` verdict"
         )]
-        #[allow(
+        #[expect(
             unused_variables,
             unused_mut,
             reason = "each arm binds every field; a field with no role contributes nothing"

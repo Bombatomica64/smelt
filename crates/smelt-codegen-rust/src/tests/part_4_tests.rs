@@ -909,7 +909,7 @@ const hits = values.filter((value) => selected.has(value));
 
     // The membership test only reads the needle, so it borrows the callback
     // parameter rather than cloning it and borrowing the copy. See
-    // `shared_reference_argument_text`.
+    // `shared_reference_argument_expr`.
     assert!(source.contains(".contains(&closure_arg_0)"), "{source}");
     assert!(
         !source.contains(".contains(&closure_arg_0.clone())"),
@@ -1054,7 +1054,7 @@ export function constructed(n: number): unknown[] {
 
     // Each slot evaluates the hole expression once rather than cloning one hole
     // `n` times: a Smelt reference value clones by SHARING, so `vec![hole; n]`
-    // gave every slot one buffer and one identity. See `list_from_length_text`.
+    // gave every slot one buffer and one identity. See `list_from_length_expr`.
     assert_eq!(
         source
             .matches("(0..array_from_length).map(|_| SmeltUnknown::Undefined)")

@@ -33,6 +33,7 @@
 
 /// The MIR stage as one call: lower, optimize, validate.
 mod compile;
+pub mod index;
 /// Promote erased-and-mutated record locals to an erased value representation.
 mod erased_record_promote;
 /// Compact MIR formatting utilities.

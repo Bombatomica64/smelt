@@ -41,10 +41,10 @@ export function use1(ns: number[]): number[] {
 }
 ",
     );
-    let Ok(root) = crate::emit_root(
+    let Ok(root) = crate::crate_builder::emit_root(
         &mir,
         GeneratedAllocator::System,
-        |_function, _context| crate::FreeFunctionHome::Root,
+        |_function, _context| crate::crate_builder::FreeFunctionHome::Root,
     ) else {
         panic!("emission failed");
     };

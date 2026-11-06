@@ -28,6 +28,7 @@
 //! that union named. Private (`#name`) fields are not reachable by a computed
 //! key and are never candidates.
 
+use crate::rust::RustExpr;
 use smelt_stdlib::runtime_symbols::markers::SMELT_CALL;
 use smelt_hir::{Type, TypeId};
 use smelt_mir::{LocalId, Operand, Rvalue};
@@ -40,13 +41,13 @@ impl FunctionEmitter<'_> {
     /// runtime key over the candidate fields (module docs). Returns `None`
     /// when the value is not a plain operand or no field can hold it, leaving
     /// the caller's existing fallback.
-    pub(super) fn class_keyed_field_write_text(
+    pub(super) fn class_keyed_field_write_expr(
         &self,
         base: LocalId,
         base_ty: TypeId,
         index: &Operand,
         value: &Rvalue,
-    ) -> Result<Option<String>, EmitError> {
+    ) -> Result<Option<RustExpr>, EmitError> {
         let Rvalue::Use(value_operand) = value else {
             return Ok(None);
         };
@@ -68,24 +69,24 @@ impl FunctionEmitter<'_> {
             if !assignable {
                 continue;
             }
-            let lvalue = self.assignment_place_text(&Place::Field {
+            let lvalue = self.assignment_place_expr(&Place::Field {
                 base,
                 field: field.name,
             })?;
             let converted =
-                self.value_at_type_text("smelt_keyed_value.clone()", value_ty, field.ty, &scope)?;
+                self.rendered_at_type(&RustExpr::chain("smelt_keyed_value.clone()").ending_in_clone(), value_ty, field.ty, &scope)?;
             arms.push(format!("{key:?} => {{ {lvalue} = {converted}; }}"));
         }
         if arms.is_empty() {
             return Ok(None);
         }
         let index_ty = self.operand_ty(index)?;
-        let key_text = self.property_key_to_string_text(&self.operand_text(index)?, index_ty)?;
-        Ok(Some(format!(
+        let key_text = self.property_key_to_string_expr(&self.operand_expr(index)?, index_ty)?;
+        Ok(Some(RustExpr::atom(format!(
             "{{ let smelt_keyed_value = {}; let smelt_key: String = {key_text}; match smelt_key.as_str() {{ {} _ => {{}} }} }}",
-            self.operand_text(value_operand)?,
+            self.operand_expr(value_operand)?,
             arms.join(" ")
-        )))
+        ))))
     }
 
     /// Whether two function types take the same parameters and return the

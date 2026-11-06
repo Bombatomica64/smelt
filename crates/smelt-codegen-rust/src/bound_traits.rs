@@ -268,7 +268,7 @@ fn plan_trait(
     let decl = if let Some(class) = crate::classes::find_class(mir, bound) {
         class.type_params.is_empty().then_some(BoundDecl::Class(class))?
     } else {
-        let interface = mir.interfaces.iter().find(|interface| interface.name == bound)?;
+        let interface = mir.interface_named(bound)?;
         interface.type_params.is_empty().then_some(BoundDecl::Interface(interface))?
     };
     // A member the trait cannot carry is left out, not the whole trait: a
@@ -539,7 +539,7 @@ fn implement_member(mir: &Mir, name: Symbol, is_class: bool, member: &BoundMembe
     let fields = if is_class {
         effective_class_fields(mir, crate::classes::find_class(mir, name)?)
     } else {
-        effective_interface_fields(mir, mir.interfaces.iter().find(|interface| interface.name == name)?)
+        effective_interface_fields(mir, mir.interface_named(name)?)
     };
     match &member.kind {
         BoundMemberKind::Field { ty } => fields
@@ -583,7 +583,7 @@ pub(crate) fn constraint_bound(mir: &Mir, constraint: Option<TypeId>) -> Option<
         Some(Type::Class { name, args })
             if args.is_empty()
                 && (crate::classes::find_class(mir, *name).is_some()
-                    || mir.interfaces.iter().any(|interface| interface.name == *name)) =>
+                    || mir.has_interface(*name)) =>
         {
             Some(*name)
         }

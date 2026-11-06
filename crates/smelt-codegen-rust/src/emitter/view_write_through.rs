@@ -22,6 +22,7 @@
 //! of it, so a program that never writes a property through an erased value
 //! is emitted exactly as before.
 
+use crate::rust::RustExpr;
 use smelt_stdlib::runtime_symbols::markers::{SMELT_GET_CALLABLE_FIELD, SMELT_SET_FIELD};
 use smelt_hir::Type;
 use smelt_mir::{Mir, Place, Statement};
@@ -83,17 +84,17 @@ pub(crate) fn program_writes_erased_fields(mir: &Mir) -> bool {
 /// `into_smelt_unknown` (`self`, `__smelt_entries`) and the emitter's inline
 /// struct adapter (`smelt_struct_value`, `smelt_object_entries`), so the two
 /// views of one instance agree.
-pub(crate) fn erased_view_entry_text(receiver: &str, entries: &str, live_reads: bool) -> String {
-    let setter = format!(
+pub(crate) fn erased_view_entry_expr(receiver: &RustExpr, entries: &str, live_reads: bool) -> RustExpr {
+    let setter = RustExpr::loose(format!(
         "{entries}.push(({SET_FIELD_KEY:?}.to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({{ let smelt_receiver = {receiver}.clone(); move |smelt_args: Vec<SmeltUnknown>| {{ if let Some(SmeltUnknown::String(smelt_key)) = smelt_args.first() {{ smelt_receiver.{SET_FIELD_METHOD}(&smelt_key.to_string(), smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)); }} Ok(SmeltUnknown::Undefined) }} }})))); "
-    );
+    ));
     if !live_reads {
         return setter;
     }
     // The live-read hook (see `LIVE_MEMBER_PRELUDE`).
-    format!(
+    RustExpr::loose(format!(
         "{setter}{entries}.push(({GET_CALLABLE_KEY:?}.to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({{ let smelt_receiver = {receiver}.clone(); move |smelt_args: Vec<SmeltUnknown>| {{ Ok(match smelt_args.first() {{ Some(SmeltUnknown::String(smelt_key)) => smelt_receiver.{GET_CALLABLE_METHOD}(&smelt_key.to_string()), _ => SmeltUnknown::Undefined }}) }} }})))); "
-    )
+    ))
 }
 
 /// Whether a reference class's erased view carries the live callable-field
@@ -134,7 +135,7 @@ impl FunctionEmitter<'_> {
                 crate::rust::RustIdent::new(self.mir.symbols.get(field.name).unwrap_or("field"))
                     .into_string();
             let Ok(erased) =
-                self.erase_value_text(&format!("self.0.borrow().{field_name}.clone()"), field.ty)
+                self.erase_rendered(&RustExpr::chain(format!("self.0.borrow().{field_name}.clone()")).ending_in_clone(), field.ty)
             else {
                 continue;
             };
@@ -143,7 +144,7 @@ impl FunctionEmitter<'_> {
             let erased = if self.weak_receiver_field(field.name) {
                 format!("smelt_keep_receiver_alive({erased}, self)")
             } else {
-                erased
+                erased.into_string()
             };
             arms.push_str(&format!("{key:?} => {erased}, "));
         }
@@ -174,8 +175,8 @@ impl FunctionEmitter<'_> {
             if !field.visibility.is_own_property() {
                 continue;
             }
-            let Ok(converted) = self.value_at_type_text(
-                "value",
+            let Ok(converted) = self.rendered_at_type(
+                &RustExpr::path("value"),
                 unknown_ty,
                 field.ty,
                 &self.render_scope(),

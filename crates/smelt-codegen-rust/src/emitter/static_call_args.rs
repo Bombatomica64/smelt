@@ -34,7 +34,7 @@
 //! is NOT the same function and cannot share this classifier without changing
 //! emitted bytes.
 //!
-//! And a THIRD: `call::static_call_mut_list_adapter_text`, the convert-in-place
+//! And a THIRD: `call::static_call_mut_list_adapter`, the convert-in-place
 //! adapter, recognisable by the `smelt_mut_call_result` wrapper it emits. It
 //! intercepts most `&mut` LIST arguments before this classifier is ever reached
 //! and carries its own argument loop and its own unifier
@@ -307,40 +307,40 @@ impl FunctionEmitter<'_> {
                         self.operand_ty(arg)?,
                     ) =>
             {
-                rendered_args.push(self.erase(arg)?);
+                rendered_args.push(self.erase(arg)?.into_string());
             }
             StaticArgumentKind::CalleeGeneric { target_ty } => {
-                rendered_args.push(self.callee_generic_argument_text(
+                rendered_args.push(self.callee_generic_argument_expr(
                     arg,
                     function,
                     target_ty,
                     free_function_type_params,
-                )?);
+                )?.into_string());
             }
             StaticArgumentKind::BorrowedCallback { target_ty } => {
-                rendered_args.push(self.borrowed_function_argument_text(
+                rendered_args.push(self.borrowed_function_argument_expr(
                     arg,
                     target_ty,
                     callee_bindings,
-                )?);
+                )?.into_string());
             }
             StaticArgumentKind::MutableReference {
                 substituted_target_ty,
             } => {
-                rendered_args.push(self.mutable_reference_argument_text(
+                rendered_args.push(self.mutable_reference_argument_expr(
                     arg,
                     substituted_target_ty,
                     Some(free_function_type_params),
-                )?);
+                )?.into_string());
             }
             StaticArgumentKind::MonomorphizingPassthrough { source_ty } => {
-                rendered_args.push(self.value_at_type(arg, source_ty)?);
+                rendered_args.push(self.value_at_type(arg, source_ty)?.into_string());
             }
             StaticArgumentKind::DemotingErased { place, source_ty } => {
-                rendered_args.push(self.demoting_erased_argument_text(place, source_ty)?);
+                rendered_args.push(self.demoting_erased_argument_expr(place, source_ty)?.into_string());
             }
             StaticArgumentKind::ErasedFunctionDefault { target_ty } => {
-                rendered_args.push(self.default_value(target_ty)?);
+                rendered_args.push(self.default_value(target_ty)?.into_string());
             }
             StaticArgumentKind::Coerced { target_ty } => {
                 // The target is the CALLEE's declared parameter type, so the
@@ -350,7 +350,7 @@ impl FunctionEmitter<'_> {
                     arg,
                     target_ty,
                     &self.callee_parameter_render_scope(function),
-                )?);
+                )?.into_string());
             }
         }
         Ok(())

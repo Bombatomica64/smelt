@@ -4,38 +4,43 @@ use super::*;
 use crate::rust::RustExpr;
 
 /// Converts a MIR constant to Rust source text.
-pub(crate) fn constant_text(constant: &Constant) -> String {
+pub(crate) fn constant_expr(constant: &Constant) -> RustExpr {
     match constant {
-        Constant::Bool(value) => value.to_string(),
-        Constant::Int(value) => value.to_string(),
-        Constant::BigInt(digits) => crate::bigint_prelude::literal_text(digits),
+        Constant::Bool(value) => RustExpr::path(value.to_string()),
+        Constant::Int(value) => number_literal(value.to_string(), *value < 0),
+        Constant::BigInt(digits) => crate::bigint_prelude::literal_expr(digits),
         Constant::Float(value) => {
             if value.is_infinite() {
                 return if value.is_sign_negative() {
-                    "f64::NEG_INFINITY".to_owned()
+                    RustExpr::atom("f64::NEG_INFINITY")
                 } else {
-                    "f64::INFINITY".to_owned()
+                    RustExpr::atom("f64::INFINITY")
                 };
             }
             if value.is_nan() {
-                return "f64::NAN".to_owned();
+                return RustExpr::atom("f64::NAN");
             }
             if value.fract() == 0.0 {
-                format!("{value:.1}")
+                number_literal(format!("{value:.1}"), value.is_sign_negative())
             } else {
-                value.to_string()
+                number_literal(value.to_string(), value.is_sign_negative())
             }
         }
-        Constant::String(value) => RustExpr::string_literal(value).into_string(),
+        Constant::String(value) => RustExpr::string_literal(value),
         Constant::Symbol(value) => {
-            format!(
+            RustExpr::atom(format!(
                 "SmeltUnknown::Symbol({}.into())",
                 RustExpr::string_literal(value).into_string()
-            )
+            ))
         }
-        Constant::Undefined => "()".to_owned(),
-        Constant::None => "()".to_owned(),
+        Constant::Undefined => RustExpr::unit(),
+        Constant::None => RustExpr::unit(),
     }
+}
+
+/// A number literal: a primary, unless the sign makes it a unary expression.
+fn number_literal(text: String, negative: bool) -> RustExpr {
+    if negative { RustExpr::loose(text) } else { RustExpr::chain(text) }
 }
 
 /// Computes the set of locals that are assigned after their initial declaration.

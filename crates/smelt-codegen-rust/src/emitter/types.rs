@@ -1,5 +1,7 @@
 //! Types emission helpers.
 
+use crate::rust::RustType;
+use crate::rust::RustExpr;
 use crate::runtime_demand::Need;
 use super::*;
 use crate::generic_bindings::substitute_existing_type;
@@ -22,9 +24,9 @@ pub(super) const ERASED_FUNCTION_DEFAULT: &str = "SmeltErasedFunction::default()
 /// Whether a callback parameter declared mutable gets a `&mut ` prefix.
 ///
 /// The callback-argument renderers historically differ here, and the difference
-/// is emitted bytes: `param_type_text`, the default-callback renderer, the
+/// is emitted bytes: `param_type`, the default-callback renderer, the
 /// virtual-method storage field and the rendered shape adapter apply it; the
-/// three caller-scope adapters bypass `function_type_param_text` and do not.
+/// three caller-scope adapters bypass `function_type_param` and do not.
 /// Preserved as an explicit axis rather than normalized, because normalizing it
 /// either way changes generated output. Whether the omission is a latent bug is
 /// a separate question from this consolidation.
@@ -42,20 +44,20 @@ impl FunctionEmitter<'_> {
     /// `FunctionType::mutable_params` is a Rust ABI marker used for structural
     /// method fields that must preserve JavaScript object mutation through a
     /// callback boundary.
-    pub(super) fn function_type_param_text(
+    pub(super) fn function_type_param(
         &self,
         function: &FunctionType,
         index: usize,
         param: TypeId,
         substitution: &TypeSubstitution<'_>,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustType, EmitError> {
         let param_text = self.rust_type(param, false, substitution)?;
         if function.mutable_params.contains(&index) {
-            Ok(format!("&mut {param_text}"))
+            Ok(RustType::raw(format!("&mut {param_text}")))
         } else if self.callback_param_is_shared_reference(function, index, param) {
-            Ok(format!("&{param_text}"))
+            Ok(RustType::raw(format!("&{param_text}")))
         } else {
-            Ok(param_text.into_string())
+            Ok(param_text)
         }
     }
 
@@ -97,7 +99,7 @@ impl FunctionEmitter<'_> {
     ///
     /// Emitter-synthesized callables -- the promise executor's `resolve`/`reject` are
     /// the case that needs this -- have no `FunctionType` to consult, but the closure
-    /// they build still has to match the spelling `function_type_param_text` gave the
+    /// they build still has to match the spelling `function_type_param` gave the
     /// `dyn Fn` it is assigned to. This answers the type-shape half of
     /// [`Self::callback_param_is_shared_reference`]; the two marker halves cannot apply
     /// to a synthesized parameter, which is never `&mut` and never a rest.
@@ -195,7 +197,7 @@ impl FunctionEmitter<'_> {
     /// parameter.
     ///
     /// The argument ladders that build a call from MIR operands
-    /// (`indirect_call_args_text` and friends) know how to borrow a place
+    /// (`indirect_call_args_expr` and friends) know how to borrow a place
     /// directly. The runtime-method lowerings do not go through those ladders —
     /// they hand-write argument text (`left.clone()`, `index as f64`,
     /// `SmeltUnknown::Null`) against a callback whose ABI is decided by
@@ -203,17 +205,17 @@ impl FunctionEmitter<'_> {
     /// reconciles the two: it adds the `&` those sites owe the parameter, and
     /// nothing else. Rust extends the temporary's lifetime to the end of the
     /// enclosing statement, so `&(expr)` is valid for a value with no name.
-    pub(super) fn callback_call_arg_text(
+    pub(super) fn callback_call_arg_expr(
         &self,
         function: &FunctionType,
         index: usize,
         param: TypeId,
         value_text: String,
-    ) -> String {
+    ) -> RustExpr {
         if self.callback_param_is_shared_reference(function, index, param) {
-            format!("&({value_text})")
+            RustExpr::loose(format!("&({value_text})"))
         } else {
-            value_text
+            RustExpr::from(value_text)
         }
     }
 
@@ -267,12 +269,12 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         match mutability {
             MutablePrefix::Apply => {
-                self.function_type_param_text(function, index, param, substitution)
+                self.function_type_param(function, index, param, substitution).map(RustType::into_string)
             }
             // `Ignore` drops only the `&mut ` axis. The shared-reference axis is
             // independent of it and must NOT be dropped: an arity-widening adapter
             // rendered here is cast to the very `dyn Fn(..)` that
-            // `function_type_param_text` spelled, so a parameter the type says is
+            // `function_type_param` spelled, so a parameter the type says is
             // `&T` has to be bound as `&T` here too or the cast does not compile.
             MutablePrefix::Ignore => {
                 let param_text = self.rust_type(param, false, substitution)?;
@@ -294,29 +296,29 @@ impl FunctionEmitter<'_> {
     /// Rust `String` spelling and decodes to U+FFFD. `fromCodePoint`: each
     /// number is one code point; the spec's `RangeError` for a non-integer or
     /// out-of-range value becomes U+FFFD here.
-    fn primitive_cast_list_text(
+    fn primitive_cast_list_expr(
         &self,
         op: smelt_hir::PrimitiveCastOp,
-        list_text: &str,
+        list_text: &RustExpr,
         _operand_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         match op {
-            smelt_hir::PrimitiveCastOp::FromCharCodes => Ok(format!(
+            smelt_hir::PrimitiveCastOp::FromCharCodes => Ok(RustExpr::atom(format!(
                 "{{ let smelt_units: Vec<u16> = {list_text}.borrow().iter().map(|smelt_code| {{ let smelt_code = *smelt_code; if smelt_code.is_finite() {{ smelt_code.trunc().rem_euclid(65536.0) as u16 }} else {{ 0 }} }}).collect(); String::from_utf16_lossy(&smelt_units) }}"
-            )),
-            smelt_hir::PrimitiveCastOp::FromCodePoints => Ok(format!(
+            ))),
+            smelt_hir::PrimitiveCastOp::FromCodePoints => Ok(RustExpr::atom_on(&list_text, format!(
                 "{list_text}.borrow().iter().map(|smelt_code| {{ let smelt_code = *smelt_code; if smelt_code.fract() == 0.0 && (0.0..=1_114_111.0).contains(&smelt_code) {{ char::from_u32(smelt_code as u32).unwrap_or(char::REPLACEMENT_CHARACTER) }} else {{ char::REPLACEMENT_CHARACTER }} }}).collect::<String>()"
-            )),
+            ))),
             _ => Err(EmitError::new("not a code-list conversion")),
         }
     }
 
-    pub(super) fn primitive_cast_text(
+    pub(super) fn primitive_cast_expr(
         &self,
         op: smelt_hir::PrimitiveCastOp,
         operand: &Operand,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let operand_ty = self.operand_ty(operand)?;
         let operand_type = self
             .mir
@@ -333,8 +335,8 @@ impl FunctionEmitter<'_> {
         // discriminants. Project a concrete-union operand back to its erased value
         // so those arms see the `SmeltUnknown` shape they expect. Non-concrete
         // unions are already stored erased, so this is a no-op for them.
-        let operand_text = self.erase_concrete_union_text(&self.operand_text(operand)?, operand_ty);
-        if let Some(text) = self.fixed_int_cast_text(op, dest_type, operand_type, &operand_text) {
+        let operand_expr = self.erase_concrete_union_expr(&self.operand_expr(operand)?, operand_ty);
+        if let Some(text) = self.fixed_int_cast_expr(op, dest_type, operand_type, &operand_expr) {
             return Ok(text);
         }
         // `String.fromCharCode(...view)` / `fromCodePoint(...view)` over a
@@ -346,31 +348,31 @@ impl FunctionEmitter<'_> {
         ) && matches!(dest_type, Type::String)
             && self.is_typed_array_view_class_type(operand_ty)?
         {
-            let elements = format!("SmeltList::from({operand_text}.to_elements())");
-            return self.primitive_cast_list_text(op, &elements, operand_ty);
+            let elements = RustExpr::atom(format!("SmeltList::from({operand_expr}.to_elements())"));
+            return self.primitive_cast_list_expr(op, &elements, operand_ty);
         }
         // A concrete `Date` (`SmeltDate`) converts through its time value:
         // `+d` / `d.getTime()` is the number, `String(d)` the date string, and
         // a date object is always truthy.
-        if let Some(handle) = self.date_handle_text(&operand_text, operand_ty) {
+        if let Some(handle) = self.date_handle_expr(&operand_expr, operand_ty) {
             match (op, dest_type) {
                 (
                     smelt_hir::PrimitiveCastOp::ToFloat | smelt_hir::PrimitiveCastOp::ToJsNumber,
                     Type::Float,
-                ) => return Ok(format!("{handle}.get_time()")),
+                ) => return Ok(RustExpr::postfix_on(&handle, format!("{handle}.get_time()"))),
                 (smelt_hir::PrimitiveCastOp::ToInt, Type::Int) => {
-                    return Ok(format!("{handle}.get_time() as i64"));
+                    return Ok(RustExpr::opaque(format!("{handle}.get_time() as i64")));
                 }
-                (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool) => return Ok("true".to_owned()),
+                (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool) => return Ok(RustExpr::path("true")),
                 (smelt_hir::PrimitiveCastOp::ToString, Type::String) => {
-                    return self.date_to_string_text(operand);
+                    return self.date_to_string_expr(operand);
                 }
                 _ => {}
             }
         }
         // `Number(d)` over a possibly-absent date: `undefined` is `NaN`.
         if let Type::Optional(inner) = operand_type
-            && let Some(handle) = self.date_handle_text("smelt_date", *inner)
+            && let Some(handle) = self.date_handle_expr(&RustExpr::path("smelt_date"), *inner)
             && matches!(
                 (op, dest_type),
                 (
@@ -379,25 +381,25 @@ impl FunctionEmitter<'_> {
                 )
             )
         {
-            return Ok(format!(
-                "({operand_text}).as_ref().map_or(f64::NAN, |smelt_date| {handle}.get_time())"
-            ));
+            return Ok(RustExpr::atom(format!(
+                "({operand_expr}).as_ref().map_or(f64::NAN, |smelt_date| {handle}.get_time())"
+            )));
         }
         // A bigint converts without ever being rounded through anything but its
         // own nearest `f64` (`Number(2n ** 64n)`), and prints without its `n`
         // (`String(10n)` is `"10"`).
         if matches!(operand_type, Type::BigInt) {
-            let value = self.bigint_ref_text(operand)?;
+            let value = self.bigint_ref_expr(operand)?;
             match (op, dest_type) {
                 (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool) => {
-                    return Ok(format!("!::num_traits::Zero::is_zero({value})"));
+                    return Ok(RustExpr::loose(format!("!::num_traits::Zero::is_zero({value})")));
                 }
                 (
                     smelt_hir::PrimitiveCastOp::ToFloat | smelt_hir::PrimitiveCastOp::ToJsNumber,
                     Type::Float,
-                ) => return Ok(format!("smelt_bigint_to_number({value})")),
+                ) => return Ok(RustExpr::chain(format!("smelt_bigint_to_number({value})"))),
                 (smelt_hir::PrimitiveCastOp::ToString, Type::String) => {
-                    return Ok(format!("({value}).to_string()"));
+                    return Ok(RustExpr::atom(format!("({value}).to_string()")));
                 }
                 _ => {}
             }
@@ -408,43 +410,43 @@ impl FunctionEmitter<'_> {
             | (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Float)
             | (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Float)
             | (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::String) => {
-                Ok(operand_text)
+                Ok(operand_expr)
             }
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Int) => {
-                Ok(format!("{operand_text} != 0"))
+                Ok(RustExpr::loose(format!("{operand_expr} != 0")))
             }
-            (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Float) => Ok(format!(
-                "{{ let smelt_number = {operand_text}; smelt_number != 0.0 && !smelt_number.is_nan() }}"
-            )),
+            (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Float) => Ok(RustExpr::atom(format!(
+                "{{ let smelt_number = {operand_expr}; smelt_number != 0.0 && !smelt_number.is_nan() }}"
+            ))),
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::String) => {
-                Ok(format!("!{operand_text}.is_empty()"))
+                Ok(RustExpr::loose(format!("!{operand_expr}.is_empty()")))
             }
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Union(_))
                 if self.union_is_constantly_truthy(operand_ty) =>
             {
-                Ok("true".to_owned())
+                Ok(RustExpr::path("true"))
             }
             (
                 smelt_hir::PrimitiveCastOp::ToBool,
                 Type::Bool,
                 Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Never,
-            ) => Ok(self.carrier_format(format_args!(
-                "match {operand_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), {smelt_bigint_arm}SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => !::num_traits::Zero::is_zero(&value),")
-            ))),
+            ) => Ok(RustExpr::atom(self.carrier_format(format_args!(
+                "match {operand_expr} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), {smelt_bigint_arm}SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => !::num_traits::Zero::is_zero(&value),")
+            )))),
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Class { .. }) => {
-                Ok("true".to_owned())
+                Ok(RustExpr::path("true"))
             }
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Optional(inner)) => {
-                self.optional_truthy_text(&operand_text, *inner)
+                self.optional_truthy_expr(&operand_expr, *inner)
             }
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Function(_)) => {
-                Ok("true".to_owned())
+                Ok(RustExpr::path("true"))
             }
             // Every object is truthy, collections included: `!obj` on a
             // `Record<K, V>` (rendered as a map) is `false`, never `true`.
             // These operands used to reach the `(_, Type::Bool, _)` default
             // below and read as `false`, so `if (!obj) return {}` returned
-            // early for every map. Same rule as `value_truthy_text`.
+            // early for every map. Same rule as `value_truthy_expr`.
             (
                 smelt_hir::PrimitiveCastOp::ToBool,
                 Type::Bool,
@@ -456,54 +458,54 @@ impl FunctionEmitter<'_> {
                 | Type::Future(_)
                 | Type::Generator { .. }
                 | Type::GeneratorResult { .. },
-            ) => Ok("true".to_owned()),
+            ) => Ok(RustExpr::path("true")),
             (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::Bool) => {
-                Ok(format!("if {operand_text} {{ 1_i64 }} else {{ 0_i64 }}"))
+                Ok(RustExpr::loose(format!("if {operand_expr} {{ 1_i64 }} else {{ 0_i64 }}")))
             }
             (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::Float) => {
-                Ok(format!("({operand_text} as f64).trunc() as i64"))
+                Ok(RustExpr::loose(format!("({operand_expr} as f64).trunc() as i64")))
             }
-            (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::String) => Ok(format!(
-                "{operand_text}.parse::<i64>().expect(\"int() parse failed\")"
-            )),
-            (smelt_hir::PrimitiveCastOp::ToInt, Type::Float, Type::String) => Ok(format!(
-                "{operand_text}.parse::<i64>().map(|value| value as f64).unwrap_or(f64::NAN)"
-            )),
+            (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::String) => Ok(RustExpr::atom_on(&operand_expr, format!(
+                "{operand_expr}.parse::<i64>().expect(\"int() parse failed\")"
+            ))),
+            (smelt_hir::PrimitiveCastOp::ToInt, Type::Float, Type::String) => Ok(RustExpr::atom_on(&operand_expr, format!(
+                "{operand_expr}.parse::<i64>().map(|value| value as f64).unwrap_or(f64::NAN)"
+            ))),
             (smelt_hir::PrimitiveCastOp::ToInt, Type::Float, Type::Optional(inner))
                 if matches!(self.mir.types.get(*inner), Some(Type::String)) =>
             {
-                Ok(format!(
-                    "{operand_text}.unwrap_or_default().parse::<i64>().map(|value| value as f64).unwrap_or(f64::NAN)"
-                ))
+                Ok(RustExpr::atom_on(&operand_expr, format!(
+                    "{operand_expr}.unwrap_or_default().parse::<i64>().map(|value| value as f64).unwrap_or(f64::NAN)"
+                )))
             }
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Bool) => {
-                Ok(format!("if {operand_text} {{ 1.0 }} else {{ 0.0 }}"))
+                Ok(RustExpr::loose(format!("if {operand_expr} {{ 1.0 }} else {{ 0.0 }}")))
             }
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Int) => {
-                Ok(format!("({operand_text} as f64)"))
+                Ok(RustExpr::atom(format!("({operand_expr} as f64)")))
             }
-            (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::String) => Ok(format!(
-                "{operand_text}.parse::<f64>().expect(\"float() parse failed\")"
-            )),
+            (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::String) => Ok(RustExpr::atom_on(&operand_expr, format!(
+                "{operand_expr}.parse::<f64>().expect(\"float() parse failed\")"
+            ))),
             (
                 smelt_hir::PrimitiveCastOp::FromCharCodes | smelt_hir::PrimitiveCastOp::FromCodePoints,
                 Type::String,
                 Type::List(_),
-            ) => self.primitive_cast_list_text(op, &operand_text, operand_ty),
-            (smelt_hir::PrimitiveCastOp::ParseFloat, Type::Float, Type::String) => Ok(format!(
-                "{operand_text}.parse::<f64>().unwrap_or(f64::NAN)"
-            )),
+            ) => self.primitive_cast_list_expr(op, &operand_expr, operand_ty),
+            (smelt_hir::PrimitiveCastOp::ParseFloat, Type::Float, Type::String) => Ok(RustExpr::atom_on(&operand_expr, format!(
+                "{operand_expr}.parse::<f64>().unwrap_or(f64::NAN)"
+            ))),
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Optional(inner))
                 if matches!(self.mir.types.get(*inner), Some(Type::Float)) =>
             {
-                Ok(format!("{operand_text}.unwrap_or(f64::NAN)"))
+                Ok(RustExpr::postfix_on(&operand_expr, format!("{operand_expr}.unwrap_or(f64::NAN)")))
             }
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Optional(inner))
                 if matches!(self.mir.types.get(*inner), Some(Type::Int)) =>
             {
-                Ok(format!(
-                    "{operand_text}.map_or(f64::NAN, |value| value as f64)"
-                ))
+                Ok(RustExpr::postfix_on(&operand_expr, format!(
+                    "{operand_expr}.map_or(f64::NAN, |value| value as f64)"
+                )))
             }
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Optional(inner))
                 if matches!(
@@ -511,77 +513,77 @@ impl FunctionEmitter<'_> {
                     Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Never)
                 ) || self.is_erased_class_type(*inner) =>
             {
-                Ok(self.carrier_format(format_args!(
-                    "{operand_text}.map_or(f64::NAN, |value| match value {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }})", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
-                )))
+                Ok(RustExpr::postfix_on(&operand_expr, self.carrier_format(format_args!(
+                    "{operand_expr}.map_or(f64::NAN, |value| match value {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }})", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
+                ))))
             }
             (
                 smelt_hir::PrimitiveCastOp::ToFloat,
                 Type::Float,
                 Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Never,
-            ) => Ok(self.carrier_format(format_args!(
-                "match {operand_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
-            ))),
+            ) => Ok(RustExpr::atom(self.carrier_format(format_args!(
+                "match {operand_expr} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
+            )))),
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Class { .. })
                 if self.is_erased_class_type(operand_ty) =>
             {
-                Ok(self.carrier_format(format_args!(
-                    "match {operand_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
-                )))
+                Ok(RustExpr::atom(self.carrier_format(format_args!(
+                    "match {operand_expr} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
+                ))))
             }
             (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Bool) => {
-                Ok(format!("if {operand_text} {{ 1.0 }} else {{ 0.0 }}"))
+                Ok(RustExpr::loose(format!("if {operand_expr} {{ 1.0 }} else {{ 0.0 }}")))
             }
             (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Int) => {
-                Ok(format!("({operand_text} as f64)"))
+                Ok(RustExpr::atom(format!("({operand_expr} as f64)")))
             }
             (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::String) => {
-                Ok(self.js_number_from_string_text(&operand_text))
+                Ok(self.js_number_from_string_expr(&operand_expr))
             }
             (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Optional(inner))
                 if matches!(self.mir.types.get(*inner), Some(Type::Float)) =>
             {
-                Ok(format!("{operand_text}.unwrap_or(f64::NAN)"))
+                Ok(RustExpr::postfix_on(&operand_expr, format!("{operand_expr}.unwrap_or(f64::NAN)")))
             }
             (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Optional(inner))
                 if matches!(self.mir.types.get(*inner), Some(Type::Int)) =>
             {
-                Ok(format!(
-                    "{operand_text}.map_or(f64::NAN, |value| value as f64)"
-                ))
+                Ok(RustExpr::postfix_on(&operand_expr, format!(
+                    "{operand_expr}.map_or(f64::NAN, |value| value as f64)"
+                )))
             }
             (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Optional(inner))
                 if matches!(self.mir.types.get(*inner), Some(Type::String)) =>
             {
-                let conversion = self.js_number_from_string_text("value");
-                Ok(format!(
-                    "{operand_text}.map_or(f64::NAN, |value| {conversion})"
-                ))
+                let conversion = self.js_number_from_string_expr(&RustExpr::path("value"));
+                Ok(RustExpr::postfix_on(&operand_expr, format!(
+                    "{operand_expr}.map_or(f64::NAN, |value| {conversion})"
+                )))
             }
             (
                 smelt_hir::PrimitiveCastOp::ToJsNumber,
                 Type::Float,
                 Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Never,
-            ) => Ok(self.js_number_from_unknown_text(&operand_text)),
+            ) => Ok(self.js_number_from_unknown_expr(&operand_expr)),
             (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Optional(inner))
                 if matches!(
                     self.mir.types.get(*inner),
                     Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Never)
                 ) || self.is_erased_class_type(*inner) =>
             {
-                let conversion = self.js_number_from_unknown_text("value");
-                Ok(format!(
-                    "{operand_text}.map_or(f64::NAN, |value| {conversion})"
-                ))
+                let conversion = self.js_number_from_unknown_expr(&RustExpr::path("value"));
+                Ok(RustExpr::postfix_on(&operand_expr, format!(
+                    "{operand_expr}.map_or(f64::NAN, |value| {conversion})"
+                )))
             }
             (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Class { .. })
                 if self.is_erased_class_type(operand_ty) =>
             {
-                Ok(self.js_number_from_unknown_text(&operand_text))
+                Ok(self.js_number_from_unknown_expr(&operand_expr))
             }
-            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Bool) => Ok(format!(
-                "if {operand_text} {{ \"True\".to_owned() }} else {{ \"False\".to_owned() }}"
-            )),
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Bool) => Ok(RustExpr::loose(format!(
+                "if {operand_expr} {{ \"True\".to_owned() }} else {{ \"False\".to_owned() }}"
+            ))),
             // `String(x)` and `x.toString()` on a NUMBER follow JavaScript's
             // own rule, which parts company with Rust's `Display` at both ends
             // of the range (`1e+21`, `1e-7`). An `Int` is still a JavaScript
@@ -592,24 +594,24 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Int)
                 if self.absent_spelling() == AbsentSpelling::None =>
             {
-                Ok(format!("{operand_text}.to_string()"))
+                Ok(RustExpr::postfix_on(&operand_expr, format!("{operand_expr}.to_string()")))
             }
             (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Float)
                 if self.absent_spelling() == AbsentSpelling::None =>
             {
-                Ok(format!(
-                    "{fn_name}({operand_text})",
+                Ok(RustExpr::chain(format!(
+                    "{fn_name}({operand_expr})",
                     fn_name = crate::number_format_prelude::PY_FLOAT_REPR_FN,
-                ))
+                )))
             }
-            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Int) => Ok(format!(
-                "{fn_name}({operand_text} as f64)",
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Int) => Ok(RustExpr::chain(format!(
+                "{fn_name}({operand_expr} as f64)",
                 fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
-            )),
-            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Float) => Ok(format!(
-                "{fn_name}({operand_text})",
+            ))),
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Float) => Ok(RustExpr::chain(format!(
+                "{fn_name}({operand_expr})",
                 fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
-            )),
+            ))),
             // `String(x)` on an absent optional is the language's absent WORD,
             // not the empty string. `unwrap_or_default()` answered `""`, so
             // `String(undefined)` printed nothing where Node prints
@@ -640,18 +642,18 @@ impl FunctionEmitter<'_> {
                     ),
                     _ => "value.to_string()".to_owned(),
                 };
-                Ok(format!(
-                    "{operand_text}.map_or_else(|| {:?}.to_owned(), |value| {present})",
+                Ok(RustExpr::postfix_on(&operand_expr, format!(
+                    "{operand_expr}.map_or_else(|| {:?}.to_owned(), |value| {present})",
                     self.absent_spelling().text(),
-                ))
+                )))
             }
             (smelt_hir::PrimitiveCastOp::ToString, Type::String, _) => {
-                self.string_like_operand_text(operand, "String")
+                self.string_like_operand_expr(operand, "String")
             }
-            (_, Type::Bool, _) => Ok("false".to_owned()),
-            (_, Type::Int, _) => Ok("0_i64".to_owned()),
-            (_, Type::Float, _) => Ok("0.0".to_owned()),
-            (_, Type::String, _) => Ok("String::new()".to_owned()),
+            (_, Type::Bool, _) => Ok(RustExpr::path("false")),
+            (_, Type::Int, _) => Ok(RustExpr::path("0_i64")),
+            (_, Type::Float, _) => Ok(RustExpr::path("0.0")),
+            (_, Type::String, _) => Ok(RustExpr::atom("String::new()")),
             (_, Type::Unknown | Type::Union(_) | Type::Never, _) => self.erase(operand),
             _ => self.default_value(dest_ty),
         }
@@ -660,38 +662,38 @@ impl FunctionEmitter<'_> {
     /// Emit JavaScript numeric conversion for a Rust string expression: the
     /// shared `smelt_string_to_number` runtime helper (ECMA-262
     /// `StringToNumber`), the one string-to-number rule every emit site uses.
-    fn js_number_from_string_text(&self, operand_text: &str) -> String {
-        crate::string_to_number_prelude::string_to_number_call(operand_text)
+    fn js_number_from_string_expr(&self, operand_expr: &RustExpr) -> RustExpr {
+        RustExpr::from(crate::string_to_number_prelude::string_to_number_call(operand_expr))
     }
 
     /// Emit JavaScript numeric conversion for an erased runtime value.
-    fn js_number_from_unknown_text(&self, operand_text: &str) -> String {
-        let string_conversion = self.js_number_from_string_text("value");
-        self.carrier_format(format_args!(
-            "match {operand_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => {string_conversion}, SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null => 0.0, SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
-        ))
+    fn js_number_from_unknown_expr(&self, operand_expr: &RustExpr) -> RustExpr {
+        let string_conversion = self.js_number_from_string_expr(&RustExpr::path("value"));
+        RustExpr::atom(self.carrier_format(format_args!(
+            "match {operand_expr} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => {string_conversion}, SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null => 0.0, SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
+        )))
     }
 
     /// Converts an optional value to JavaScript truthiness for its contained type.
-    pub(super) fn optional_truthy_text(
+    pub(super) fn optional_truthy_expr(
         &self,
-        operand_text: &str,
+        operand_expr: &RustExpr,
         inner_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         match self.mir.types.get(inner_ty) {
-            Some(Type::Bool) => Ok(format!("{operand_text}.clone().unwrap_or(false)")),
-            Some(Type::Int | Type::FixedInt(_)) => Ok(format!(
-                "{operand_text}.clone().is_some_and(|value| value != 0)"
-            )),
-            Some(Type::BigInt) => Ok(format!(
-                "{operand_text}.as_ref().is_some_and(|value| !::num_traits::Zero::is_zero(value))"
-            )),
-            Some(Type::Float) => Ok(format!(
-                "{operand_text}.clone().is_some_and(|value| value != 0.0 && !value.is_nan())"
-            )),
-            Some(Type::String) => Ok(format!(
-                "{operand_text}.clone().is_some_and(|value| !value.is_empty())"
-            )),
+            Some(Type::Bool) => Ok(RustExpr::postfix_on(&operand_expr, format!("{operand_expr}.clone().unwrap_or(false)"))),
+            Some(Type::Int | Type::FixedInt(_)) => Ok(RustExpr::postfix_on(&operand_expr, format!(
+                "{operand_expr}.clone().is_some_and(|value| value != 0)"
+            ))),
+            Some(Type::BigInt) => Ok(RustExpr::postfix_on(&operand_expr, format!(
+                "{operand_expr}.as_ref().is_some_and(|value| !::num_traits::Zero::is_zero(value))"
+            ))),
+            Some(Type::Float) => Ok(RustExpr::postfix_on(&operand_expr, format!(
+                "{operand_expr}.clone().is_some_and(|value| value != 0.0 && !value.is_nan())"
+            ))),
+            Some(Type::String) => Ok(RustExpr::postfix_on(&operand_expr, format!(
+                "{operand_expr}.clone().is_some_and(|value| !value.is_empty())"
+            ))),
             Some(Type::Union(_)) => {
                 // A concrete generated union (`SmeltUnionNNNN`) is not a
                 // `SmeltUnknown`, so its inner value cannot be matched against
@@ -699,22 +701,22 @@ impl FunctionEmitter<'_> {
                 // `IntoSmeltUnknown` boundary adapter first — truthiness is a
                 // genuine runtime-narrowing inspection of the tagged value, and
                 // only the resulting `bool` escapes, so no static shape is lost.
-                Ok(self.carrier_format(format_args!(
-                    "match {operand_text}.clone().map(|value| value.into_smelt_unknown()) {{ None => false, Some(SmeltUnknown::Null) | Some(SmeltUnknown::Undefined) => false, Some(SmeltUnknown::Bool(value)) => value, Some(SmeltUnknown::Number(value)) => value != 0.0 && !value.is_nan(), Some(SmeltUnknown::String(value)) => !value.is_empty(), {smelt_bigint_arm}Some(SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_)) => true }}", smelt_bigint_arm = self.bigint_unknown_arm("Some(SmeltUnknown::BigInt(value)) => !::num_traits::Zero::is_zero(&value),")
-                )))
+                Ok(RustExpr::atom(self.carrier_format(format_args!(
+                    "match {operand_expr}.clone().map(|value| value.into_smelt_unknown()) {{ None => false, Some(SmeltUnknown::Null) | Some(SmeltUnknown::Undefined) => false, Some(SmeltUnknown::Bool(value)) => value, Some(SmeltUnknown::Number(value)) => value != 0.0 && !value.is_nan(), Some(SmeltUnknown::String(value)) => !value.is_empty(), {smelt_bigint_arm}Some(SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_)) => true }}", smelt_bigint_arm = self.bigint_unknown_arm("Some(SmeltUnknown::BigInt(value)) => !::num_traits::Zero::is_zero(&value),")
+                ))))
             }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Never) => {
-                Ok(self.carrier_format(format_args!(
-                    "match {operand_text}.clone() {{ None => false, Some(SmeltUnknown::Null) | Some(SmeltUnknown::Undefined) => false, Some(SmeltUnknown::Bool(value)) => value, Some(SmeltUnknown::Number(value)) => value != 0.0 && !value.is_nan(), Some(SmeltUnknown::String(value)) => !value.is_empty(), {smelt_bigint_arm}Some(SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_)) => true }}", smelt_bigint_arm = self.bigint_unknown_arm("Some(SmeltUnknown::BigInt(value)) => !::num_traits::Zero::is_zero(&value),")
-                )))
+                Ok(RustExpr::atom(self.carrier_format(format_args!(
+                    "match {operand_expr}.clone() {{ None => false, Some(SmeltUnknown::Null) | Some(SmeltUnknown::Undefined) => false, Some(SmeltUnknown::Bool(value)) => value, Some(SmeltUnknown::Number(value)) => value != 0.0 && !value.is_nan(), Some(SmeltUnknown::String(value)) => !value.is_empty(), {smelt_bigint_arm}Some(SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_)) => true }}", smelt_bigint_arm = self.bigint_unknown_arm("Some(SmeltUnknown::BigInt(value)) => !::num_traits::Zero::is_zero(&value),")
+                ))))
             }
             Some(Type::Optional(inner)) => {
-                let nested = self.optional_truthy_text("value", *inner)?;
-                Ok(format!(
-                    "match {operand_text}.clone() {{ Some(value) => {nested}, None => false }}"
-                ))
+                let nested = self.optional_truthy_expr(&RustExpr::path("value"), *inner)?;
+                Ok(RustExpr::atom(format!(
+                    "match {operand_expr}.clone() {{ Some(value) => {nested}, None => false }}"
+                )))
             }
-            Some(Type::None) => Ok("false".to_owned()),
+            Some(Type::None) => Ok(RustExpr::path("false")),
             Some(Type::Class { .. })
             | Some(Type::Function(_))
             | Some(Type::List(_))
@@ -722,9 +724,9 @@ impl FunctionEmitter<'_> {
             | Some(Type::Dict(_, _))
             | Some(Type::JsMap(_, _))
             | Some(Type::Set(_))
-            | Some(Type::Future(_)) => Ok(format!("{operand_text}.is_some()")),
-            Some(Type::Generator { .. }) => Ok(format!("{operand_text}.is_some()")),
-            Some(Type::GeneratorResult { .. }) => Ok(format!("{operand_text}.is_some()")),
+            | Some(Type::Future(_)) => Ok(RustExpr::postfix_on(&operand_expr, format!("{operand_expr}.is_some()"))),
+            Some(Type::Generator { .. }) => Ok(RustExpr::postfix_on(&operand_expr, format!("{operand_expr}.is_some()"))),
+            Some(Type::GeneratorResult { .. }) => Ok(RustExpr::postfix_on(&operand_expr, format!("{operand_expr}.is_some()"))),
             None => Err(EmitError::new("optional truthiness inner type is unknown")),
         }
     }
@@ -761,49 +763,49 @@ impl FunctionEmitter<'_> {
     }
 
     /// Convert an operand to a Rust boolean using source-language truthiness.
-    pub(super) fn truthy_operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
+    pub(super) fn truthy_operand_expr(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
         let bool_ty = self.type_id(Type::Bool)?;
-        self.primitive_cast_text(smelt_hir::PrimitiveCastOp::ToBool, operand, bool_ty)
+        self.primitive_cast_expr(smelt_hir::PrimitiveCastOp::ToBool, operand, bool_ty)
     }
 
     /// Convert an already-rendered value expression to a Rust boolean using
     /// JavaScript/Python truthiness rules.
     ///
     /// This is the text-based counterpart to the `ToBool` arm of
-    /// [`Self::primitive_cast_text`]: callers that hold a rendered expression
+    /// [`Self::primitive_cast_expr`]: callers that hold a rendered expression
     /// (rather than an [`Operand`]) — such as an array predicate callback result —
     /// coerce it here. `value_text` is evaluated exactly once. Objects, arrays,
     /// functions, class instances, and other reference values are always truthy;
     /// primitives follow their per-type emptiness/zero rules; optionals defer to
-    /// [`Self::optional_truthy_text`].
-    pub(super) fn value_truthy_text(
+    /// [`Self::optional_truthy_expr`].
+    pub(super) fn value_truthy_expr(
         &self,
-        value_text: &str,
+        value_text: &RustExpr,
         ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         match self.mir.types.get(ty) {
             Some(Type::Bool) => Ok(value_text.to_owned()),
-            Some(Type::Int | Type::FixedInt(_)) => Ok(format!("({value_text}) != 0")),
-            Some(Type::BigInt) => Ok(format!("!::num_traits::Zero::is_zero(&({value_text}))")),
-            Some(Type::Float) => Ok(format!(
+            Some(Type::Int | Type::FixedInt(_)) => Ok(RustExpr::loose(format!("({value_text}) != 0"))),
+            Some(Type::BigInt) => Ok(RustExpr::loose(format!("!::num_traits::Zero::is_zero(&({value_text}))"))),
+            Some(Type::Float) => Ok(RustExpr::atom(format!(
                 "{{ let smelt_number = ({value_text}); smelt_number != 0.0 && !smelt_number.is_nan() }}"
-            )),
-            Some(Type::String) => Ok(format!("!({value_text}).is_empty()")),
+            ))),
+            Some(Type::String) => Ok(RustExpr::loose(format!("!({value_text}).is_empty()"))),
             Some(Type::Union(_)) => {
                 // A concrete generated union is not a `SmeltUnknown`; erase it
                 // through its `IntoSmeltUnknown` boundary adapter before the
-                // runtime-narrowing truthiness match (see `optional_truthy_text`).
-                Ok(self.carrier_format(format_args!(
+                // runtime-narrowing truthiness match (see `optional_truthy_expr`).
+                Ok(RustExpr::atom(self.carrier_format(format_args!(
                     "match ({value_text}).into_smelt_unknown() {{ SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), {smelt_bigint_arm}SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => !::num_traits::Zero::is_zero(&value),")
-                )))
+                ))))
             }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Never) => {
-                Ok(self.carrier_format(format_args!(
+                Ok(RustExpr::atom(self.carrier_format(format_args!(
                     "match ({value_text}) {{ SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), {smelt_bigint_arm}SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => !::num_traits::Zero::is_zero(&value),")
-                )))
+                ))))
             }
-            Some(Type::Optional(inner)) => self.optional_truthy_text(value_text, *inner),
-            Some(Type::None) => Ok(format!("{{ let _ = ({value_text}); false }}")),
+            Some(Type::Optional(inner)) => self.optional_truthy_expr(value_text, *inner),
+            Some(Type::None) => Ok(RustExpr::atom(format!("{{ let _ = ({value_text}); false }}"))),
             Some(
                 Type::Class { .. }
                 | Type::Function(_)
@@ -815,7 +817,7 @@ impl FunctionEmitter<'_> {
                 | Type::Future(_)
                 | Type::Generator { .. }
                 | Type::GeneratorResult { .. },
-            ) => Ok(format!("{{ let _ = ({value_text}); true }}")),
+            ) => Ok(RustExpr::atom(format!("{{ let _ = ({value_text}); true }}"))),
             None => Err(EmitError::new("predicate result type is unknown")),
         }
     }
@@ -823,7 +825,7 @@ impl FunctionEmitter<'_> {
     /// Returns whether a type is supported by the current JSON serializer path.
     pub(super) fn is_json_serializable_type(&self, ty: TypeId) -> bool {
         // A value whose EMITTED Rust type is already the erased carrier has
-        // nothing left to reject. `json_stringify_text` erases its operand
+        // nothing left to reject. `json_stringify_expr` erases its operand
         // unconditionally and lets `Serialize for SmeltUnknown` decide the
         // output at run time — that impl is where every ECMA-262 rule lives
         // (an integral number has no fraction, a non-finite one is `null`, an
@@ -853,7 +855,7 @@ impl FunctionEmitter<'_> {
             // A TYPE PARAMETER stringifies through the erased boundary, exactly
             // as `Unknown` does: `JSON.stringify(x)` on a generic `x: T` is
             // legal JavaScript for every instantiation, and the generated code
-            // erases the value first (`json_stringify_text` always does). Rejecting it
+            // erases the value first (`json_stringify_expr` always does). Rejecting it
             // made a generic helper that serializes its argument a blocker for
             // the whole crate.
             Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::Unknown)
@@ -946,7 +948,7 @@ impl FunctionEmitter<'_> {
                     return self.type_id(Type::Float);
                 }
                 // Likewise for a `String` base: `place::field_read_text` routes
-                // it to `string_field_text`, which renders `.length` as a
+                // it to `string_field_expr`, which renders `.length` as a
                 // character count and `.source` as a `String`. Reporting
                 // `Unknown` here made callers coerce an ALREADY concrete
                 // expression as if it were erased -- a `${s.length}`
@@ -954,16 +956,16 @@ impl FunctionEmitter<'_> {
                 // `i64` and did not compile. `string_field_read` decides the
                 // text and the type together; ask it for the type.
                 if matches!(self.mir.types.get(base_ty), Some(Type::String)) {
-                    return Ok(self.string_field_read("", *field)?.1);
+                    return Ok(self.string_field_read(&RustExpr::loose(""), *field)?.1);
                 }
                 // A GENERATED union receiver whose every arm declares the field
-                // at one type reads at that type: `place::place_text` dispatches
+                // at one type reads at that type: `place::place_expr` dispatches
                 // it through the union's own arms, so reporting the erased
                 // fallback here would make callers re-coerce an already concrete
                 // value. The text and the type are decided by the same rule.
                 if smelt_stdlib::typescript_field_rule(self.symbol_source_name(*field)?)
                     == Some(smelt_stdlib::FieldRule::TsLength)
-                    && self.concrete_union_length_read_text(*base)?.is_some()
+                    && self.concrete_union_length_read_expr(*base)?.is_some()
                 {
                     return self.type_id(Type::Float);
                 }
@@ -981,7 +983,7 @@ impl FunctionEmitter<'_> {
                 // A concrete builtin `RegExp` receiver exposes data properties
                 // with statically known concrete field types backed by the
                 // generated `SmeltRegExp` runtime shape. Resolve them here so
-                // the field operand's type agrees with `regexp_field_text` and
+                // the field operand's type agrees with `regexp_field_expr` and
                 // `field_access_type`; without this the generic class arm below
                 // (which only knows user classes/interfaces) would erase the
                 // read to `Unknown` and make callers re-coerce an already
@@ -1040,8 +1042,8 @@ impl FunctionEmitter<'_> {
                                 EmitError::new(format!(
                                     "optional record field `{}` is unknown on {}",
                                     self.symbol_name(*field).unwrap_or("<unnamed>"),
-                                    self.type_text(*inner)
-                                        .unwrap_or_else(|_| format!("{:?}", self.mir.types.get(*inner))),
+                                    self.rendered_type(*inner)
+                                        .unwrap_or_else(|_| RustType::from(format!("{:?}", self.mir.types.get(*inner)))),
                                 ))
                             })
                     }
@@ -1114,7 +1116,7 @@ impl FunctionEmitter<'_> {
             Place::Index { base, index, negative } => {
                 let base_ty = self.local_decl(*base)?.ty;
                 // Decided by the same rule that renders the read
-                // (`place::place_text`), so callers coerce from the arm-typed
+                // (`place::place_expr`), so callers coerce from the arm-typed
                 // value rather than re-narrowing an erased one.
                 if let Some((read_ty, _)) =
                     self.concrete_union_index_reads(base_ty, index, *negative)?
@@ -1123,7 +1125,7 @@ impl FunctionEmitter<'_> {
                 }
                 // An indexed read on a typed-array view decodes ONE element at
                 // the view's own width and renders as an `f64` (see
-                // `typed_array::typed_array_index_read_text`), so its value type
+                // `typed_array::typed_array_index_read_expr`), so its value type
                 // is `Float`, not the erased fallback the class arm below would
                 // report. Same rule as the concrete `.length` read above: the
                 // text and the type are decided together, so a caller coerces
@@ -1280,8 +1282,8 @@ impl FunctionEmitter<'_> {
     /// that cannot be rendered falls back to its debug shape rather than
     /// replacing the blocker being reported with a second one.
     fn blocker_type_text(&self, ty: TypeId) -> String {
-        self.type_text(ty)
-            .unwrap_or_else(|_err| format!("{:?}", self.mir.types.get(ty)))
+        self.rendered_type(ty)
+            .unwrap_or_else(|_err| RustType::from(format!("{:?}", self.mir.types.get(ty)))).into_string()
     }
 
     /// Resolve the result type of a field read on a synthetic match-result class.
@@ -1339,7 +1341,7 @@ impl FunctionEmitter<'_> {
     /// refinements a `Type::Function` carries, so every site that renders a
     /// function value (the canonical `Type::Function` arm of
     /// `rust_type`, and the borrowed callback parameter rendering in
-    /// `param_type_text`) agrees on the emitted Rust type:
+    /// `param_type`) agrees on the emitted Rust type:
     ///
     /// * a `Future` return renders as the promise value `SmeltFuture<T>`. A
     ///   synchronous throw from an async function surfaces as a *rejected
@@ -1350,31 +1352,31 @@ impl FunctionEmitter<'_> {
     /// Disagreement between two renderings of the same MIR function type is
     /// what silently turned a recoverable callback throw into a `panic!` at the
     /// parameter boundary, so the logic lives here rather than being repeated.
-    pub(super) fn function_value_return_type_text(
+    pub(super) fn function_value_return_type(
         &self,
         function: &FunctionType,
         substitution: &TypeSubstitution<'_>,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustType, EmitError> {
         if let Some(Type::Future(item)) = self.mir.types.get(function.return_ty) {
-            return Ok(format!(
+            return Ok(RustType::raw(format!(
                 "SmeltFuture<{}>",
                 self.rust_type(*item, false, substitution)?
-            ));
+            )));
         }
         let inner_return_ty = self
             .rust_type(function.return_ty, false, substitution)?
             .into_string();
         if function.may_throw {
-            return Ok(format!(
+            return Ok(RustType::raw(format!(
                 "Result<{inner_return_ty}, {ERROR_BOX}>"
-            ));
+            )));
         }
-        Ok(inner_return_ty)
+        Ok(RustType::from(inner_return_ty))
     }
 
     /// Whether a call to a function VALUE of this type answers a `Result`.
     ///
-    /// The mirror of [`Self::function_value_return_type_text`], and the reason
+    /// The mirror of [`Self::function_value_return_type`], and the reason
     /// it exists: a future-returning function reports even a SYNCHRONOUS throw
     /// as a rejected future, so no `Result` wraps its emitted return type and
     /// its call site must not render `?`. Reading `may_throw` directly at a call
@@ -1395,7 +1397,7 @@ impl FunctionEmitter<'_> {
     /// forward the same callback through multiple helper calls without
     /// consuming it. Generated closure state is stored in shared cells rather
     /// than requiring `FnMut` receiver access.
-    pub(super) fn param_type_text(&self, ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn param_type(&self, ty: TypeId) -> Result<RustType, EmitError> {
         if let Some(Type::Function(function)) = self.mir.types.get(ty) {
             // BOTH halves of the callback type render in the lexical scope of
             // the item being defined. They used to disagree — the parameters in
@@ -1404,8 +1406,8 @@ impl FunctionEmitter<'_> {
             // whose `T` was in scope emitted `Fn(SmeltUnknown) -> T`, so the
             // gate had to refuse every callback-borne type parameter outright.
             //
-            // `param_type_text` is only ever reached from
-            // `parameter_decl_type_text`, and that only from the four signature
+            // `param_type` is only ever reached from
+            // `parameter_decl_type`, and that only from the four signature
             // emitters, where `self` is always the emitter for the item being
             // DEFINED. The scope is therefore the callee's own, which is the
             // correct owner of a `T` inside its declared callback. Call-site
@@ -1418,27 +1420,27 @@ impl FunctionEmitter<'_> {
             // bound to it, or a throwing callback's `Result` is dropped at the
             // parameter boundary and its error is forced into a `panic!` by the
             // argument adapter.
-            return Ok(format!(
+            return Ok(RustType::raw(format!(
                 "&dyn {}",
                 self.callback_fn_trait_text(function, &substitution)?
-            ));
+            )));
         }
-        self.signature_type_text(ty)
+        self.signature_type(ty)
     }
 
     /// Render the `Fn({params}) -> {return}` trait text for one callback shape.
     ///
     /// The single producer of that inner text, shared by the borrowed
-    /// `&dyn Fn(..)` parameter rendering in [`Self::param_type_text`] and by the
+    /// `&dyn Fn(..)` parameter rendering in [`Self::param_type`] and by the
     /// `F{n}: Fn(..) + ?Sized` bound Increment 2 declares for a monomorphized
     /// callback parameter. Sharing it is what guarantees the parameter spelling
     /// and the bound spelling cannot drift — a signature whose `&F0` and whose
     /// `F0: Fn(..)` disagreed would either fail to compile or silently re-erase.
     ///
     /// Both halves go through the canonical helpers:
-    /// [`Self::function_type_param_text`] (so `FunctionType::mutable_params`
+    /// [`Self::function_type_param`] (so `FunctionType::mutable_params`
     /// still contributes its `&mut ` prefix) and
-    /// [`Self::function_value_return_type_text`] (so `may_throw` composes into
+    /// [`Self::function_value_return_type`] (so `may_throw` composes into
     /// `Result<T, Box<dyn std::error::Error>>` and a `Future` return into
     /// `SmeltFuture<T>`, with a generic return type substituted the same way in
     /// both positions).
@@ -1452,11 +1454,11 @@ impl FunctionEmitter<'_> {
             .iter()
             .enumerate()
             .map(|(index, param)| {
-                self.function_type_param_text(function, index, *param, substitution)
+                self.function_type_param(function, index, *param, substitution)
             })
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
-        let return_ty = self.function_value_return_type_text(function, substitution)?;
+        let return_ty = self.function_value_return_type(function, substitution)?;
         Ok(format!("Fn({params}) -> {return_ty}"))
     }
 
@@ -1464,7 +1466,7 @@ impl FunctionEmitter<'_> {
     /// with the callback parameter each one types.
     ///
     /// The one place both Increment-2 consumers ask — the `&F{n}` parameter
-    /// rendering in [`Self::parameter_decl_type_text`] and the bound rendering
+    /// rendering in [`Self::parameter_decl_type`] and the bound rendering
     /// in [`Self::callback_generic_bounds_text`]. Building both from one list is
     /// what keeps a declared bound and a used name in lockstep.
     ///
@@ -1481,11 +1483,12 @@ impl FunctionEmitter<'_> {
         if !matches!(self.function.origin, HirOrigin::Body(_)) {
             return Ok(Vec::new());
         }
-        crate::classes::callback_generic_params(
+        crate::generic_lifting::callback_generic_params(
             self.mir,
             self.function,
             &self.context.owned_callback_params,
             &self.context.bound_traits,
+            &self.context.erased_arguments,
         )
     }
 
@@ -1530,13 +1533,13 @@ impl FunctionEmitter<'_> {
     }
 
     /// Convert a concrete function parameter declaration to Rust.
-    pub(super) fn parameter_decl_type_text(&self, local: LocalId) -> Result<String, EmitError> {
+    pub(super) fn parameter_decl_type(&self, local: LocalId) -> Result<RustType, EmitError> {
         let ty = self.local_decl(local)?.ty;
         if self.parameter_needs_mutable_reference(local) {
-            return Ok(format!(
+            return Ok(RustType::raw(format!(
                 "&mut {}",
-                self.type_text(ty)?
-            ));
+                self.rendered_type(ty)?
+            )));
         }
         if matches!(self.mir.types.get(ty), Some(Type::Function(_))) {
             if !self.function_parameter_requires_owned(local)? {
@@ -1546,13 +1549,13 @@ impl FunctionEmitter<'_> {
                 // `&dyn Fn(..)`. `callback_generic_bounds_text` declares the
                 // matching bound from the same list.
                 if let Some(name) = self.callback_generic_name(local)? {
-                    return Ok(format!("&{name}"));
+                    return Ok(RustType::raw(format!("&{name}")));
                 }
-                return self.param_type_text(ty);
+                return self.param_type(ty);
             }
-            return self.type_text(ty);
+            return self.rendered_type(ty);
         }
-        self.param_type_text(ty)
+        self.param_type(ty)
     }
 
     /// Renders a type in the scope of the current function.
@@ -1562,18 +1565,18 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a type ID to its Rust text in a nested or value position.
-    pub(super) fn type_text(&self, ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn rendered_type(&self, ty: TypeId) -> Result<RustType, EmitError> {
         let rendered = self.lexical_rust_type(ty, false)?;
         if rendered.holds_carrier() {
             self.context.note_carrier_use();
         }
-        Ok(rendered.into_string())
+        Ok(rendered)
     }
 
     /// Converts a type ID to its Rust text at a signature root, where a callable
     /// parameter can be spelled `impl Fn(..)`.
-    pub(super) fn signature_type_text(&self, ty: TypeId) -> Result<String, EmitError> {
-        self.lexical_rust_type(ty, true).map(RustType::into_string)
+    pub(super) fn signature_type(&self, ty: TypeId) -> Result<RustType, EmitError> {
+        self.lexical_rust_type(ty, true)
     }
 
     /// Renders a template that spells the erased carrier, recording that it did.
@@ -1586,17 +1589,9 @@ impl FunctionEmitter<'_> {
     }
 
     /// [`Self::carrier_format`] for a template with no parameters.
-    pub(super) fn carrier_text(&self, text: &str) -> String {
+    pub(super) fn carrier_expr(&self, text: &RustExpr) -> RustExpr {
         self.context.note_carrier_use();
-        text.to_owned()
-    }
-
-    /// Records the erasure events of rendering `ty`, keeping no text.
-    ///
-    /// `smelt-erasure.json` lists these sites even though the output does not
-    /// spell the type there.
-    pub(super) fn note_type_erasures(&self, ty: TypeId) -> Result<(), EmitError> {
-        self.lexical_rust_type(ty, false).map(|_| ())
+        text.clone()
     }
 
     /// What `ty` renders to in the scope of the current function.
@@ -1681,11 +1676,12 @@ impl FunctionEmitter<'_> {
                 // Increment 5: this is the *subset* that lifts, not all-or-
                 // nothing. A parameter absent from it lowers through the same
                 // erasure path a fully-erased function uses.
-                return crate::classes::liftable_type_params(
+                return crate::generic_lifting::liftable_type_params(
                     self.mir,
                     self.function,
                     &self.context.owned_callback_params,
                     &self.context.bound_traits,
+                    &self.context.erased_arguments,
                 );
             }
         };
@@ -1866,7 +1862,7 @@ impl FunctionEmitter<'_> {
                 } {
                     return Ok(RustType::raw(http_type));
                 }
-                if !self.mir.classes.iter().any(|class| class.name == *name)
+                if !self.mir.has_class(*name)
                     && !self
                         .mir
                         .interfaces
@@ -2038,12 +2034,12 @@ impl FunctionEmitter<'_> {
                     .iter()
                     .enumerate()
                     .map(|(index, param)| {
-                        self.function_type_param_text(function, index, *param, substitution)
+                        self.function_type_param(function, index, *param, substitution)
                     })
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
                 let return_ty =
-                    self.function_value_return_type_text(function, substitution)?;
+                    self.function_value_return_type(function, substitution)?;
                 let text = if allow_impl_trait {
                     format!("impl Fn({params}) -> {return_ty}")
                 } else {
@@ -2094,12 +2090,12 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a function return type to Rust, including uncaught exception wrapping.
-    pub(super) fn return_type_text(&self, ty: TypeId) -> Result<String, EmitError> {
-        let inner = self.type_text(ty)?;
+    pub(super) fn return_type(&self, ty: TypeId) -> Result<RustType, EmitError> {
+        let inner = self.rendered_type(ty)?;
         if (self.function.is_async || self.function.can_throw)
             && !self.function.is_generator
         {
-            Ok(format!("Result<{inner}, {ERROR_BOX}>"))
+            Ok(RustType::raw(format!("Result<{inner}, {ERROR_BOX}>")))
         } else {
             Ok(inner)
         }
@@ -2113,9 +2109,9 @@ impl FunctionEmitter<'_> {
     /// es-toolkit's `isEqualWith` compares `[1, <hole>, 3]` against an explicitly
     /// written `[1, undefined, 3]` and must call them equal. Typed element types
     /// cannot represent a hole at all, so they keep their ordinary default.
-    pub(super) fn array_hole_value(&self, item_ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn array_hole_value(&self, item_ty: TypeId) -> Result<RustExpr, EmitError> {
         if matches!(self.mir.types.get(item_ty), Some(Type::Unknown)) {
-            return Ok(self.carrier_text("SmeltUnknown::Undefined"));
+            return Ok(self.carrier_expr(&RustExpr::undefined()));
         }
         self.default_value(item_ty)
     }
@@ -2133,100 +2129,98 @@ impl FunctionEmitter<'_> {
     }
 
     /// Gets the default value for a given type.
-    pub(super) fn default_value(&self, ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn default_value(&self, ty: TypeId) -> Result<RustExpr, EmitError> {
         match self
             .mir
             .types
             .get(ty)
             .ok_or_else(|| EmitError::new("MIR references an unknown type"))?
         {
-            Type::Bool => Ok("false".to_owned()),
-            Type::Int | Type::FixedInt(_) => Ok("0".to_owned()),
-            Type::BigInt => Ok(format!("{}::default()", crate::bigint_prelude::BIGINT_TYPE)),
-            Type::Float => Ok("0.0".to_owned()),
-            Type::String => Ok("String::new()".to_owned()),
-            Type::Unknown => Ok(self.null_value_text()),
-            Type::Never => Ok(self.null_value_text()),
-            Type::None => Ok("()".to_owned()),
+            Type::Bool => Ok(RustExpr::path("false")),
+            Type::Int | Type::FixedInt(_) => Ok(RustExpr::path("0")),
+            Type::BigInt => Ok(RustExpr::atom(format!("{}::default()", crate::bigint_prelude::BIGINT_TYPE)).delegating_default()),
+            Type::Float => Ok(RustExpr::path("0.0")),
+            Type::String => Ok(RustExpr::atom("String::new()")),
+            Type::Unknown => Ok(self.null_value()),
+            Type::Never => Ok(self.null_value()),
+            Type::None => Ok(RustExpr::unit()),
             // Annotate the element type: a bare `Vec::new()` is uninferable when
             // the default is used as a `.into_iter()`/`.map()` receiver whose
             // element type is not otherwise constrained (E0282).
-            Type::List(item) => Ok(format!(
+            Type::List(item) => Ok(RustExpr::atom(format!(
                 "SmeltList::new(Vec::<{}>::new())",
-                self.type_text(*item)?
-            )),
-            Type::Set(item) => Ok(format!("{}::new()", self.set_container_name(*item))),
+                self.rendered_type(*item)?
+            ))),
+            Type::Set(item) => Ok({ let receiver = self.set_container_name(*item); RustExpr::atom_on(&receiver, format!("{receiver}::new()")) }),
             Type::Dict(key, _) if self.dict_uses_smelt_record(*key) => {
-                Ok(self.carrier_text("SmeltRecord::new()"))
+                Ok(self.carrier_expr(&RustExpr::atom("SmeltRecord::new()")))
             }
             Type::Dict(key, _) if self.dict_uses_js_key_map(*key) => {
-                Ok(self.carrier_text("SmeltJsMap::new()"))
+                Ok(self.carrier_expr(&RustExpr::atom("SmeltJsMap::new()")))
             }
-            Type::Dict(_, _) => Ok("::std::collections::HashMap::new()".to_owned()),
-            Type::JsMap(_, _) => Ok(self.carrier_text("SmeltJsMap::new()")),
-            Type::Optional(inner) => Ok(format!(
+            Type::Dict(_, _) => Ok(RustExpr::loose("::std::collections::HashMap::new()")),
+            Type::JsMap(_, _) => Ok(self.carrier_expr(&RustExpr::atom("SmeltJsMap::new()"))),
+            Type::Optional(inner) => Ok(RustExpr::opaque(format!(
                 "None::<{}>",
-                self.type_text(self.flatten_optional_inner(*inner))?
-            )),
+                self.rendered_type(self.flatten_optional_inner(*inner))?
+            ))),
             Type::Tuple(items) => {
-                let items_text = items
+                let item_values = items
                     .iter()
                     .map(|item| self.default_value(*item))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .join(", ");
-                if items.len() == 1 {
-                    Ok(format!("({items_text},)"))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let items_text = item_values.join(", ");
+                let tuple = if items.len() == 1 {
+                    RustExpr::atom(format!("({items_text},)"))
                 } else {
-                    Ok(format!("({items_text})"))
-                }
+                    RustExpr::atom(format!("({items_text})"))
+                };
+                Ok(tuple.delegating_with(&item_values))
             }
             Type::TypeParam { name } if self.current_function_has_type_param(*name) => {
-                Ok("Default::default()".to_owned())
+                Ok(RustExpr::atom("Default::default()").delegating_default())
             }
             Type::Union(items) if self.concrete_union_members(ty).is_some() => {
                 let first = *items
                     .first()
                     .ok_or_else(|| EmitError::new("concrete union has no members"))?;
-                Ok(format!(
-                    "{}::M0({})",
-                    union::union_name(ty),
-                    self.default_value(first)?
-                ))
+                let arm = self.default_value(first)?;
+                Ok(RustExpr::atom(format!("{}::M0({arm})", union::union_name(ty))).delegating_with([&arm]))
             }
-            Type::TypeParam { .. } | Type::Union(_) => Ok(self.null_value_text()),
+            Type::TypeParam { .. } | Type::Union(_) => Ok(self.null_value()),
             Type::Class { name, .. } if self.is_regexp_class_symbol(*name)? => {
-                Ok("SmeltRegExp::new(String::new(), String::new())".to_owned())
+                Ok(RustExpr::atom("SmeltRegExp::new(String::new(), String::new())"))
             }
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?
                     == Some(smelt_stdlib::StdlibClass::Headers) =>
             {
-                Ok("SmeltHeaders::new()".to_owned())
+                Ok(RustExpr::atom("SmeltHeaders::new()"))
             }
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?
                     == Some(smelt_stdlib::StdlibClass::UrlSearchParams) =>
             {
-                Ok("SmeltUrlSearchParams::new()".to_owned())
+                Ok(RustExpr::atom("SmeltUrlSearchParams::new()"))
             }
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?
                     == Some(smelt_stdlib::StdlibClass::FormData) =>
             {
                 // An empty form, which is exactly what `new FormData()` is.
-                Ok("SmeltFormData::new()".to_owned())
+                Ok(RustExpr::atom("SmeltFormData::new()"))
             }
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?
                     == Some(smelt_stdlib::StdlibClass::Response) =>
             {
-                Ok("SmeltResponse::new()".to_owned())
+                Ok(RustExpr::atom("SmeltResponse::new()"))
             }
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?
                     == Some(smelt_stdlib::StdlibClass::TextEncoder) =>
             {
-                Ok("SmeltTextEncoder::new()".to_owned())
+                Ok(RustExpr::atom("SmeltTextEncoder::new()"))
             }
             // An empty, untyped blob: a blob with no bytes is a value the type
             // can hold.
@@ -2235,20 +2229,20 @@ impl FunctionEmitter<'_> {
                     .stdlib_class_of_symbol(*name)?
                     .is_some_and(smelt_stdlib::StdlibClass::is_blob_runtime_type) =>
             {
-                Ok("SmeltBlob::new()".to_owned())
+                Ok(RustExpr::atom("SmeltBlob::new()"))
             }
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?
                     == Some(smelt_stdlib::StdlibClass::TextDecoder) =>
             {
-                Ok("SmeltTextDecoder::new()".to_owned())
+                Ok(RustExpr::atom("SmeltTextDecoder::new()"))
             }
             // A slot assigned before it is read; see `SmeltHash`'s `Default`.
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?
                     == Some(smelt_stdlib::StdlibClass::NodeHash) =>
             {
-                Ok("SmeltHash::default()".to_owned())
+                Ok(RustExpr::atom("SmeltHash::default()").delegating_default())
             }
             // An empty byte view, which is what `new Uint8Array(0)` is: a view
             // with no bytes is a value the type can hold, unlike a server
@@ -2258,32 +2252,32 @@ impl FunctionEmitter<'_> {
                 if self.stdlib_class_of_symbol(*name)?
                     == Some(smelt_stdlib::StdlibClass::TypedArray) =>
             {
-                Ok("SmeltTypedArray::new()".to_owned())
+                Ok(RustExpr::atom("SmeltTypedArray::new()"))
             }
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?
                     == Some(smelt_stdlib::StdlibClass::ArrayBuffer) =>
             {
-                Ok(self.carrier_text("SmeltArrayBuffer::new(0)"))
+                Ok(self.carrier_expr(&RustExpr::atom("SmeltArrayBuffer::new(0)")))
             }
             // An empty window over empty storage, for the same reason.
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?
                     == Some(smelt_stdlib::StdlibClass::DataView) =>
             {
-                Ok("SmeltDataView::new()".to_owned())
+                Ok(RustExpr::atom("SmeltDataView::new()"))
             }
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?
                     == Some(smelt_stdlib::StdlibClass::CryptoKey) =>
             {
-                Ok("SmeltCryptoKey::default()".to_owned())
+                Ok(RustExpr::atom("SmeltCryptoKey::default()").delegating_default())
             }
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?
                     == Some(smelt_stdlib::StdlibClass::EventEmitter) =>
             {
-                Ok("SmeltEventEmitter::new()".to_owned())
+                Ok(RustExpr::atom("SmeltEventEmitter::new()"))
             }
             // A `ServerResponse` has a default — a fresh 200 with nothing set —
             // for the same reason a `Response` does. A `Server` and an
@@ -2295,7 +2289,7 @@ impl FunctionEmitter<'_> {
                 if self.stdlib_class_of_symbol(*name)?
                     == Some(smelt_stdlib::StdlibClass::ServerResponse) =>
             {
-                Ok("SmeltServerResponse::new()".to_owned())
+                Ok(RustExpr::atom("SmeltServerResponse::new()"))
             }
             // A database's default is a handle that was never opened: every
             // operation on it answers Node's "database is not open". A
@@ -2310,7 +2304,7 @@ impl FunctionEmitter<'_> {
                     )
                 ) =>
             {
-                Ok("Default::default()".to_owned())
+                Ok(RustExpr::atom("Default::default()").delegating_default())
             }
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?
@@ -2320,10 +2314,10 @@ impl FunctionEmitter<'_> {
                 // a request without a URL is not a value the type can hold.
                 // `about:blank` is the one URL the platform treats as "no
                 // document", so it is what an unreachable default uses.
-                Ok("SmeltRequest::from_parts(\"about:blank\", \"GET\".to_owned(), SmeltHeaders::new(), SmeltBody::empty())".to_owned())
+                Ok(RustExpr::atom("SmeltRequest::from_parts(\"about:blank\", \"GET\".to_owned(), SmeltHeaders::new(), SmeltBody::empty())"))
             }
             Type::Class { name, .. } if self.is_match_class_symbol(*name)? => {
-                Ok("SmeltMatch::default()".to_owned())
+                Ok(RustExpr::atom("SmeltMatch::default()").delegating_default())
             }
             // A generic class's default has to NAME the class when its type
             // arguments are unresolved: a bare `Default::default()` leaves them
@@ -2336,15 +2330,16 @@ impl FunctionEmitter<'_> {
             // instance, and every read of it goes through erasure.
             Type::Class { name, args } if args.is_empty() && self.class_type_param_count(*name) > 0 => {
                 let placeholders = vec!["SmeltUnknown"; self.class_type_param_count(*name)].join(", ");
-                Ok(format!(
+                Ok(RustExpr::atom(format!(
                     "{}::<{placeholders}>::default()",
                     sanitize_ident(self.symbol_name(*name)?)
                 ))
+                .delegating_default())
             }
-            Type::Class { .. } => Ok("Default::default()".to_owned()),
+            Type::Class { .. } => Ok(RustExpr::atom("Default::default()").delegating_default()),
             Type::Function(function) => {
                 if self.is_erased_unknown_rest_function(function) && !function.may_throw {
-                    return Ok(ERASED_FUNCTION_DEFAULT.to_owned());
+                    return Ok(RustExpr::from(ERASED_FUNCTION_DEFAULT.to_owned()));
                 }
                 // The synthesized default callback is emitted INSIDE the body
                 // that needs it, and it is bound to a handle whose type
@@ -2353,7 +2348,7 @@ impl FunctionEmitter<'_> {
                 // scope, or a generic function containing a defaulted callback
                 // emits `Rc<dyn Fn(T, ..)> = Rc::new(move |arg0: SmeltUnknown|
                 // ..)` and fails to type-check (E0631/E0308) inside its own
-                // body. This is the same split `param_type_text` had, in a fifth
+                // body. This is the same split `param_type` had, in a fifth
                 // renderer; both halves now agree.
                 let scope = self.current_function_type_params();
                 let substitution = TypeSubstitution::lexical(&scope);
@@ -2364,7 +2359,7 @@ impl FunctionEmitter<'_> {
                     .map(|(index, param)| {
                         Ok(format!(
                             "arg{index}: {}",
-                            self.function_type_param_text(function, index, *param, &substitution)?
+                            self.function_type_param(function, index, *param, &substitution)?
                         ))
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
@@ -2372,14 +2367,14 @@ impl FunctionEmitter<'_> {
                 let return_ty = if let Some(Type::Future(item)) =
                     self.mir.types.get(function.return_ty)
                 {
-                    format!("SmeltFuture<{}>", self.type_text(*item)?)
+                    format!("SmeltFuture<{}>", self.rendered_type(*item)?)
                 } else if function.may_throw {
                     format!(
                         "Result<{}, {ERROR_BOX}>",
-                        self.type_text(function.return_ty)?
+                        self.rendered_type(function.return_ty)?
                     )
                 } else {
-                    self.type_text(function.return_ty)?
+                    self.rendered_type(function.return_ty)?.into_string()
                 };
                 let return_value = self.default_value(function.return_ty)?;
                 let return_text = if let Some(Type::Future(item)) =
@@ -2390,24 +2385,24 @@ impl FunctionEmitter<'_> {
                 } else if function.may_throw {
                     format!("Ok::<_, {ERROR_BOX}>({return_value})")
                 } else {
-                    return_value
+                    return_value.into_string()
                 };
-                let function_type = self.type_text(ty)?;
-                Ok(format!(
+                let function_type = self.rendered_type(ty)?;
+                Ok(RustExpr::atom(format!(
                     "{{ let smelt_default_callback: {function_type} = ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ {return_text} }}); smelt_default_callback }}"
-                ))
+                )))
             }
-            Type::Future(item) => Ok(format!(
-                "SmeltFuture::resolved({})",
-                self.default_value(*item)?
-            )),
+            Type::Future(item) => {
+                let item_value = self.default_value(*item)?;
+                Ok(RustExpr::atom(format!("SmeltFuture::resolved({item_value})")).delegating_with([&item_value]))
+            }
             Type::Generator { .. } => Err(EmitError::new(
                 "a generator value has no eager default",
             )),
-            Type::GeneratorResult { return_ty, .. } => Ok(format!(
+            Type::GeneratorResult { return_ty, .. } => Ok(RustExpr::atom(format!(
                 "SmeltGeneratorResult::Complete({})",
                 self.default_value(*return_ty)?
-            )),
+            ))),
         }
     }
 
@@ -2424,7 +2419,7 @@ impl FunctionEmitter<'_> {
         &self,
         ty: TypeId,
         substitution: &TypeSubstitution<'_>,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         match self
             .mir
             .types
@@ -2432,12 +2427,12 @@ impl FunctionEmitter<'_> {
             .ok_or_else(|| EmitError::new("MIR references an unknown type"))?
         {
             Type::TypeParam { name } if substitution.spells(*name) => {
-                Ok("Default::default()".to_owned())
+                Ok(RustExpr::atom("Default::default()").delegating_default())
             }
-            Type::Optional(inner) => Ok(format!(
+            Type::Optional(inner) => Ok(RustExpr::opaque(format!(
                 "None::<{}>",
                 self.rust_type(self.flatten_optional_inner(*inner), false, substitution)?
-            )),
+            ))),
             // A list default annotates its element type, and that annotation has
             // to be spelled through THIS substitution. The unscoped
             // `default_value` arm this would otherwise fall through to reaches
@@ -2450,10 +2445,10 @@ impl FunctionEmitter<'_> {
             // got `SmeltList::new(Vec::<Router<SmeltUnknown>>::new())` in a
             // `Default for SmartRouterInner<T>` impl (E0308). Latent until H29
             // started emitting these impls for generic classes.
-            Type::List(item) => Ok(format!(
+            Type::List(item) => Ok(RustExpr::atom(format!(
                 "SmeltList::new(Vec::<{}>::new())",
                 self.rust_type(*item, false, substitution)?
-            )),
+            ))),
             Type::Function(function) => {
                 // An erased-unknown-rest function type renders as the concrete
                 // `SmeltErasedFunction` struct (see `rust_type`),
@@ -2464,7 +2459,7 @@ impl FunctionEmitter<'_> {
                 // default below emits an `Rc<dyn Fn(..)>` closure whose type
                 // mismatches the `SmeltErasedFunction` field (E0308).
                 if self.is_erased_unknown_rest_function(function) && !function.may_throw {
-                    return Ok(ERASED_FUNCTION_DEFAULT.to_owned());
+                    return Ok(RustExpr::from(ERASED_FUNCTION_DEFAULT.to_owned()));
                 }
                 let params = function
                     .params
@@ -2473,7 +2468,7 @@ impl FunctionEmitter<'_> {
                     .map(|(index, param)| {
                         Ok(format!(
                             "arg{index}: {}",
-                            self.function_type_param_text(function, index, *param, substitution)?
+                            self.function_type_param(function, index, *param, substitution)?
                         ))
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
@@ -2492,16 +2487,16 @@ impl FunctionEmitter<'_> {
                 let body = if function.may_throw {
                     format!("Ok::<_, {ERROR_BOX}>({return_value})")
                 } else {
-                    return_value
+                    return_value.into_string()
                 };
-                Ok(format!(
+                Ok(RustExpr::atom(format!(
                     "{{ let smelt_default_callback: ::std::rc::Rc<dyn Fn({}) -> {}> = ::std::rc::Rc::new(move |{}| -> {} {{ {} }}); smelt_default_callback }}",
                     function
                         .params
                         .iter()
                         .enumerate()
                         .map(|(index, param)| {
-                            self.function_type_param_text(function, index, *param, substitution)
+                            self.function_type_param(function, index, *param, substitution)
                         })
                         .collect::<Result<Vec<_>, EmitError>>()?
                         .join(", "),
@@ -2509,7 +2504,7 @@ impl FunctionEmitter<'_> {
                     params,
                     return_ty,
                     body
-                ))
+                )))
             }
             _ => self.default_value(ty),
         }
@@ -2637,13 +2632,13 @@ impl FunctionEmitter<'_> {
             // than as generated fields, so the field-pairing answer above is
             // `None` for one; it is still structurally assignable to a record
             // whose every declared member it exposes. Kept in lock-step with
-            // `host_class_to_record_adapter_text`, which emits that conversion.
+            // `host_class_to_record_adapter`, which emits that conversion.
             || self.host_class_record_adapter_available(source, target)
     }
 
     /// Whether every member a target record declares can be read off a host value.
     ///
-    /// The availability half of `host_class_to_record_adapter_text`: an
+    /// The availability half of `host_class_to_record_adapter`: an
     /// optional target field the source does not expose is absent, any other
     /// missing member means the conversion does not exist.
     fn host_class_record_adapter_available(&self, source: TypeId, target: TypeId) -> bool {
@@ -2660,7 +2655,7 @@ impl FunctionEmitter<'_> {
             let Ok(member) = self.symbol_source_name(field.name) else {
                 return false;
             };
-            match self.host_class_member_read_text("smelt_host_value", source, member) {
+            match self.host_class_member_read(&RustExpr::path("smelt_host_value"), source, member) {
                 Ok(Some(_)) => true,
                 Ok(None) => matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))),
                 Err(_) => false,

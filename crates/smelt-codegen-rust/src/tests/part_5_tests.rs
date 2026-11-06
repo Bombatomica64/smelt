@@ -625,7 +625,7 @@ fn emits_statement_position_map_set_on_erased_value_slot() {
     // Regression: a `Map<_, unknown>` (or inferred `Map<any, any>`) value slot is
     // erased to `SmeltUnknown`. A statement-position `map.set(k, concreteValue)`
     // whose result (the map) is unused must STILL emit the insert. The value-type
-    // guard in `dict_set_text` previously required an exact operand/slot type
+    // guard in `dict_set_expr` previously required an exact operand/slot type
     // match and, on the concrete-vs-erased mismatch, folded the whole call to a
     // plain receiver read — silently dropping the insert. es-toolkit's
     // `isEqualWith` map comparisons then saw two empty maps and mis-compared.
@@ -934,7 +934,7 @@ const length = values.push(4);
     assert!(source.contains("Vec<f64>"));
     // Each pushed item is materialized before the write borrow is taken, so
     // the value appears in the `let` and the call reads `push(smelt_push_item)`;
-    // see `list_push_text`.
+    // see `list_push_expr`.
     assert!(source.contains("let smelt_push_item = 3.0;"));
     assert!(source.contains("let smelt_push_item = 4.0;"));
     assert!(source.contains(".push(smelt_push_item);"));

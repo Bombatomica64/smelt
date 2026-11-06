@@ -5,6 +5,12 @@ use smelt_frontend_py as py_frontend;
 use smelt_frontend_ts::{HirCtx, to_hir};
 use smelt_hir::FileId;
 use smelt_stdlib::BackendDependency;
+use smelt_mir::HirOrigin;
+
+use crate::crate_builder::generated_deps;
+use crate::deps::GeneratedDep;
+use crate::emitter::EmitContext;
+use crate::runtime_demand::{Need, RuntimeDemand};
 
 /// Converts TypeScript source to generated Rust source.
 fn source_for(ts: &str) -> String {

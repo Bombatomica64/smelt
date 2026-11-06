@@ -705,7 +705,7 @@ export function both<T>(xs: T[], a: (item: T) => boolean, b: (item: T) => boolea
 #[test]
 fn callback_bound_renders_its_return_through_the_canonical_helper() {
     // The `F0` bound must be produced by `callback_fn_trait_text`, which routes
-    // the return through `function_value_return_type_text` — the single
+    // the return through `function_value_return_type` — the single
     // canonical renderer for the two return-position refinements a
     // `Type::Function` carries. Re-formatting the return inside the bound is how
     // the bound and the `&F0` parameter would drift apart, and how a throwing
@@ -891,7 +891,7 @@ fn callback_only_type_param_in_an_erased_rest_callback_still_demotes() {
     // parameter in its RETURN, so the position walk alone would accept it. It
     // must still demote: `rust_type` renders that whole shape as the concrete
     // struct `SmeltErasedFunction`, every call site hands one over by value
-    // (`function_shape_adapter_text` bails out early when both sides are that
+    // (`function_shape_adapter` bails out early when both sides are that
     // shape), and the struct implements no `Fn` trait — so there is neither a
     // bound to infer through nor an argument that satisfies one.
     //
@@ -997,7 +997,7 @@ fn call_site_adapter_omits_its_return_annotation_at_an_unmonomorphized_callee() 
     // `sink` demotes (its body assigns the callback result into an `unknown`),
     // so `sink`'s emitted `cb` is `&dyn Fn(f64) -> SmeltUnknown` and nothing in
     // its signature is unsolved. `outer` still lifts, and the omitted callback
-    // argument makes the call render `borrowed_default_function_text`'s
+    // argument makes the call render `borrowed_default_function_expr`'s
     // `Default::default()` body — inference-polymorphic, and therefore exactly
     // the body an annotation would pin.
     //

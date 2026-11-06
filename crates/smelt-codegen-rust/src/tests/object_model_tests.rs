@@ -257,7 +257,7 @@ export function matches(text: string): boolean {
 
 #[test]
 fn a_field_read_on_a_materialized_receiver_goes_through_the_same_helper() {
-    // The other erased-read emitter: `field_access_text` serves an optional
+    // The other erased-read emitter: `field_access_expr` serves an optional
     // receiver, a `?.` chain and a union-typed local, and it used to inline an
     // OBJECT-ONLY `match` of its own. That made the two spellings of one read
     // disagree the moment the receiver was not a record — an erased ARRAY
