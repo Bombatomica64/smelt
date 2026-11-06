@@ -100,6 +100,12 @@ fn replace_callback_tostring() -> TestResult {
     verify_node_parity("replace_callback_tostring")
 }
 
+/// A class satisfies `implements` through its base chain.
+#[test]
+fn implements_inherited_members() -> TestResult {
+    verify_node_parity("implements_inherited_members")
+}
+
 /// Array-valued ternary arms join instead of one adopting the other's type.
 #[test]
 fn conditional_list_arms() -> TestResult {
