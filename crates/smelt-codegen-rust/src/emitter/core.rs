@@ -4618,15 +4618,20 @@ impl<'mir> FunctionEmitter<'mir> {
                 .iter()
                 .zip(target_function.params.iter())
                 .any(|(source_param, target_param)| {
-                    source_param != target_param && {
-                        let bound = self.substituted_param_ty(*target_param, callee_bindings);
-                        !(bound == *source_param
-                            && crate::generic_bindings::type_mentions_only_params(
-                                self.mir,
-                                bound,
-                                &caller_generics,
-                            ))
+                    let bound = self.substituted_param_ty(*target_param, callee_bindings);
+                    if source_param == target_param {
+                        // The closure still names the callee's own parameter,
+                        // which is out of scope here and renders erased, while
+                        // this site instantiates that parameter (`bound`): the
+                        // two callback shapes differ although their ids agree.
+                        return bound != *target_param;
                     }
+                    !(bound == *source_param
+                        && crate::generic_bindings::type_mentions_only_params(
+                            self.mir,
+                            bound,
+                            &caller_generics,
+                        ))
                 });
         // The adapter's return is converted into the callee's declared callback
         // return type, which must be resolved through this call site's bindings

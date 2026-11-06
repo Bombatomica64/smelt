@@ -220,7 +220,7 @@ mod tests {
             types,
             symbols: smelt_hir::SymbolInterner::default(),
             names: smelt_hir::OriginalNameTable::default(),
-            accessor_fields: Default::default(),
+            accessor_fields: Vec::default(),
         }
     }
 

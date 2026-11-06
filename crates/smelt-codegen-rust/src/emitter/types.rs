@@ -1611,8 +1611,14 @@ impl FunctionEmitter<'_> {
         // An EMPTY enclosing set used to fall through to the origin rule below,
         // which for a closure's synthetic `HirOrigin::Body` function (declaring
         // no type parameters) answers the same empty set.
+        //
+        // A closure of an inherited copy is still spelled in the declaring
+        // base's scope, so that base's parameters are spellable in it too:
+        // `rust_type` renders each one as its argument in the receiving class.
         if let emit_role::EmitRole::Closure(scope) = &self.role {
-            return scope.enclosing_type_params.clone();
+            let mut params = scope.enclosing_type_params.clone();
+            params.extend(scope.inherited_type_args.keys().copied());
+            return params;
         }
         let class_name = match self.function.origin {
             // A base initializer copy renders in the impl it is emitted into,

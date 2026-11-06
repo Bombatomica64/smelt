@@ -12,6 +12,10 @@
 //!   parameters than its slot (`acc => ..` for `(value: T, i: number) => T`)
 //!   is evidence for the leading parameters and the return; JavaScript calls
 //!   it with both arguments and it ignores the second.
+//! * A callback that only widens a position (`acc: unknown`) does not stop a
+//!   value position from pinning `T`: TypeScript infers `T = number` for
+//!   `iterate(5, handler, 0)`, so the call stays concrete and the adapter
+//!   erases at the callback's own `unknown` parameter.
 //! * Where a site cannot pin `T`, every position instantiates it at
 //!   `SmeltUnknown`: a bare-`T` argument erases like the callback adapter
 //!   does. Mixing a concrete init value with an erased adapter was E0308.
@@ -38,6 +42,10 @@ export function sum(): unknown {
   const handler: (acc: unknown, idx: number) => number = (acc, idx) => (acc as number) + idx
   return iterate(5, handler, 0)
 }
+export function erasedSum(): unknown {
+  const handler: (acc: unknown, idx: number) => unknown = (acc, idx) => (acc as number) + idx
+  return iterate(5, handler, 0)
+}
 "#;
 
 /// A shorter callback plus a concrete init value pins `T = string`.
@@ -55,15 +63,35 @@ fn shorter_callback_and_init_value_monomorphize_the_call() {
     );
 }
 
-/// A site whose callback cannot pin `T` erases the init value too.
+/// A value position pins `T` past a callback that accepts `unknown`: the call
+/// stays at `T = number`, and only the callback's own parameter erases.
 #[test]
-fn demoted_call_site_erases_its_bare_type_param_argument() {
+fn value_position_pins_the_call_past_an_unknown_callback_parameter() {
     let source = source_for(FIXTURE);
     let sum = emitted_function_body(&source, "fn sum(");
     let call = sum
         .lines()
         .find(|line| line.contains("iterate("))
         .unwrap_or_else(|| panic!("`sum` calls iterate: {sum}"));
+    assert!(
+        call.contains("let _smelt_tmp_2: f64 = iterate(5.0, ")
+            && call.contains("move |arg0: &f64, arg1: f64| -> f64")
+            && call.contains("(&(SmeltUnknown::Number(arg0.clone() as f64)), arg1)")
+            && call.trim_end().ends_with(", 0.0);"),
+        "the site is monomorphized at f64: {call}"
+    );
+}
+
+/// A site whose callback returns `unknown` makes `T` unknown, as TypeScript
+/// infers it, and erases the init value too.
+#[test]
+fn demoted_call_site_erases_its_bare_type_param_argument() {
+    let source = source_for(FIXTURE);
+    let sum = emitted_function_body(&source, "fn erased_sum(");
+    let call = sum
+        .lines()
+        .find(|line| line.contains("iterate("))
+        .unwrap_or_else(|| panic!("`erasedSum` calls iterate: {sum}"));
     assert!(
         call.contains("move |arg0: &SmeltUnknown"),
         "the callback adapter is built for the erased T: {call}"
