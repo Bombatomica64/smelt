@@ -668,12 +668,7 @@ impl FunctionEmitter<'_> {
         }
         let lhs_text = self.operand_text(lhs)?;
         let rhs_text = self.operand_text(rhs)?;
-        let mut common_ty = self.common_numeric_type(lhs_ty, rhs_ty, dest_ty)?;
-        if matches!(self.mir.types.get(common_ty), Some(Type::Int))
-            && (lhs_text.contains(" as f64") || rhs_text.contains(" as f64"))
-        {
-            common_ty = self.type_id(Type::Float)?;
-        }
+        let common_ty = self.common_numeric_type(lhs_ty, rhs_ty, dest_ty)?;
         Ok(Some(format!(
             "{} {} {}",
             self.value_at_type_text(&lhs_text, lhs_ty, common_ty, &self.render_scope())?,

@@ -997,16 +997,19 @@ impl FunctionEmitter<'_> {
                     ));
                     if body_return_ty == self.none_ty {
                         out.push_str("    let _ = smelt_adopted;\n");
+                        self.binding_uses.record_early_return();
                         out.push_str("    return Ok(());\n");
                     } else {
                         let value =
                             self.value_at_type_text("smelt_adopted", item_ty, body_return_ty, &self.render_scope())?;
+                        self.binding_uses.record_early_return();
                         out.push_str(&format!("    return Ok({value});\n"));
                     }
                     return Ok(());
                 }
                 if matches!(self.function.origin, HirOrigin::ClassConstructor { .. }) {
                     if self.function.can_throw {
+                        self.binding_uses.record_early_return();
                         out.push_str(&format!(
                             "    return Ok({});\n",
                             self.operand_text(operand)?
@@ -1027,10 +1030,12 @@ impl FunctionEmitter<'_> {
                     }
                     if self.function.can_throw || self.function.is_async {
                         if self.function.is_generator {
+                            self.binding_uses.record_early_return();
                             out.push_str(
                                 "    return Ok::<(), Box<dyn std::error::Error>>(());\n",
                             );
                         } else {
+                            self.binding_uses.record_early_return();
                             out.push_str("    return Ok(());\n");
                         }
                     } else {
@@ -1050,10 +1055,12 @@ impl FunctionEmitter<'_> {
                         if self.function.is_generator {
                             let return_ty_text =
                                 self.type_text(body_return_ty)?;
+                            self.binding_uses.record_early_return();
                             out.push_str(&format!(
                                 "    return Ok::<{return_ty_text}, Box<dyn std::error::Error>>({value});\n"
                             ));
                         } else {
+                            self.binding_uses.record_early_return();
                             out.push_str(&format!("    return Ok({value});\n"));
                         }
                     } else {
@@ -1061,10 +1068,12 @@ impl FunctionEmitter<'_> {
                         if self.function.is_generator {
                             let return_ty_text =
                                 self.type_text(body_return_ty)?;
+                            self.binding_uses.record_early_return();
                             out.push_str(&format!(
                                 "    return Ok::<{return_ty_text}, Box<dyn std::error::Error>>({value});\n"
                             ));
                         } else {
+                            self.binding_uses.record_early_return();
                             out.push_str(&format!("    return Ok({value});\n"));
                         }
                     }
@@ -1131,12 +1140,7 @@ impl FunctionEmitter<'_> {
                 self.mark_local_declared(dest);
                 return Ok(());
             }
-            let mut call_text = self.call_text(callee, args)?;
-            if args.is_empty() && call_text.ends_with("(Vec::new())") {
-                call_text = format!("{}()", call_text.trim_end_matches("(Vec::new())"));
-            } else if call_text == "(fn_)(Vec::new())" {
-                "(fn_)()".clone_into(&mut call_text);
-            }
+            let call_text = self.call_text(callee, args)?.into_expression();
             out.push_str(&format!("    let _ = {call_text};\n"));
             self.mark_local_declared(dest);
             return Ok(());
@@ -1329,8 +1333,9 @@ impl FunctionEmitter<'_> {
             Continuation::InLoop { .. } => None,
         });
         let arm_continuation = joined_continuation.as_ref().unwrap_or(continuation);
-        let call_text = self.call_text(callee, args)?;
-        let Some(raw_call) = call_text.strip_suffix('?') else {
+        let rendered = self.call_text(callee, args)?;
+        if !rendered.propagates() {
+            let call_text = rendered.into_call();
             out.push_str(&format!(
                 "    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| {call_text})) {{\n"
             ));
@@ -1420,7 +1425,8 @@ impl FunctionEmitter<'_> {
                 declared_before_arms.keep();
             }
             return Ok(());
-        };
+        }
+        let raw_call = rendered.into_call();
         let source_ty = self.call_source_ty(callee)?;
         // Seam 3 (`emitter::seam_assertions`): `__smelt_value` below is the
         // value the EMITTED call produced, and it is coerced from the DECLARED
@@ -3788,6 +3794,7 @@ impl FunctionEmitter<'_> {
     fn default_return_statement(&self) -> Result<String, EmitError> {
         let value = self.default_value(self.function.return_ty)?;
         if self.function.can_throw {
+            self.binding_uses.record_early_return();
             Ok(format!(
                 "    return Ok::<_, Box<dyn std::error::Error>>({value});\n"
             ))

@@ -1897,15 +1897,12 @@ impl FunctionEmitter<'_> {
         if matches!(self.local_decl(*local)?.kind, LocalKind::Temp) {
             return Ok(None);
         }
-        // Use the SAME in-scope reference `operand_text` emits, minus the trailing
-        // `.clone()` it appends — the local's *source* name (`local_name`) is not
-        // always the emitted Rust variable (temps/renames), which produced
-        // "cannot find value" errors. The identity key reads the live binding
+        // The in-scope place, not the local's source name: a renamed binding or a
+        // shared capture is not spelled like its source. The identity key reads the
+        // live binding
         // (via `.as_ptr()`, which auto-(de)refs both `Vec` and `&Vec` locals);
         // the erased values still come from the cloned text.
-        let text = self.operand_text(operand)?;
-        let bare = text.strip_suffix(".clone()").unwrap_or(text.as_str());
-        Ok(Some(bare.to_owned()))
+        Ok(Some(self.place_text(&Place::Local(*local))?))
     }
 
     /// Return the BARE name of a source future local being erased, if any.
@@ -1928,9 +1925,7 @@ impl FunctionEmitter<'_> {
         {
             return Ok(None);
         }
-        let text = self.operand_text(operand)?;
-        let bare = text.strip_suffix(".clone()").unwrap_or(text.as_str());
-        Ok(Some(bare.to_owned()))
+        Ok(Some(self.place_text(&Place::Local(*local))?))
     }
 
     /// The per-entry value erasure for a dict operand crossing into `unknown`.
@@ -3357,7 +3352,6 @@ impl FunctionEmitter<'_> {
             {
                 Ok(text.to_owned())
             }
-            Some(Type::List(_)) if text.contains(".concat(") => Ok(text.to_owned()),
             // Extracting an erased value into the unit type means the source
             // language discards it (a `=> void` callback ignores whatever it
             // returns; JS does not assert the value is null). Drop it instead of

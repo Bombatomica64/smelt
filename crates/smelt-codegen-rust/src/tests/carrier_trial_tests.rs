@@ -42,3 +42,38 @@ export function identity<T>(value: T): T {
     );
     assert!(source.contains("fn identity<T"), "{source}");
 }
+
+#[test]
+fn a_throwing_call_in_a_body_with_no_error_channel_panics_instead() {
+    let source = source_for(
+        r#"
+function risky(n: number): number {
+    if (n < 0) {
+        throw new Error("negative");
+    }
+    return n;
+}
+const values = [1, 2].map((n) => risky(n));
+console.log(values);
+"#,
+    );
+    assert!(source.contains("risky(") && source.contains("?"), "{source}");
+}
+
+#[test]
+fn an_async_closure_with_an_early_return_pins_its_block_type() {
+    let source = source_for(
+        r"
+const pick = async (items: number[]): Promise<number> => {
+    for (const item of items) {
+        if (item > 1) {
+            return item;
+        }
+    }
+    return 2;
+};
+pick([1, 2]);
+",
+    );
+    assert!(source.contains("let smelt_async_value: f64"), "{source}");
+}

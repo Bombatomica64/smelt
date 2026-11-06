@@ -16,7 +16,6 @@
 //! error the source could raise.
 
 use super::*;
-use crate::type_substitution::TypeSubstitution;
 
 impl FunctionEmitter<'_> {
     /// Emit `createServer(handler)`.
@@ -57,9 +56,9 @@ impl FunctionEmitter<'_> {
         if matches!(fetch, Operand::Copy(_)) {
             text = format!("{text}.clone()");
         }
-        let substitution = TypeSubstitution::erased();
-        let request_text = self.function_type_param_text(function, 0, request_ty, &substitution)?;
-        let mut args = vec![if request_text.starts_with('&') {
+        let request_by_reference = function.mutable_params.contains(&0)
+            || self.callback_param_is_shared_reference(function, 0, request_ty);
+        let mut args = vec![if request_by_reference {
             "&smelt_fetch_request".to_owned()
         } else {
             "smelt_fetch_request".to_owned()

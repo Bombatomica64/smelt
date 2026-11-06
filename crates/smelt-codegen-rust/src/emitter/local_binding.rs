@@ -178,6 +178,8 @@ pub(super) struct BindingUses {
     self_owned: Cell<bool>,
     /// Capture cells mutably borrowed since the last [`Self::take_mut_borrows`].
     mut_borrowed_cells: RefCell<HashSet<String>>,
+    /// Whether a body wrote an early `return Ok(..)`.
+    early_return: Cell<bool>,
 }
 
 impl BindingUses {
@@ -203,6 +205,21 @@ impl BindingUses {
     /// Whether the receiver handle was named since [`Self::reset_self_owned`].
     pub(super) fn self_owned_used(&self) -> bool {
         self.self_owned.get()
+    }
+
+    /// Records that the body wrote an early `return Ok(..)`.
+    pub(super) fn record_early_return(&self) {
+        self.early_return.set(true);
+    }
+
+    /// Runs `render`, answering whether it wrote an early return. A use inside
+    /// counts for the enclosing body too.
+    pub(super) fn tracking_early_return<T>(&self, render: impl FnOnce() -> T) -> (T, bool) {
+        let outer = self.early_return.replace(false);
+        let result = render();
+        let inner = self.early_return.get();
+        self.early_return.set(outer || inner);
+        (result, inner)
     }
 
     /// Answers the cells mutably borrowed so far and clears the record.

@@ -394,7 +394,7 @@ impl FunctionEmitter<'_> {
             // `Default::default()` is an ambiguous `Into` source (both Vec and
             // SmeltList satisfy it); emit the SmeltList default directly.
             if text == "Default::default()" {
-                return Ok("SmeltList::default()".to_owned());
+                    return Ok("SmeltList::default()".to_owned());
             }
             return Ok(format!("Into::<SmeltList<_>>::into({text})"));
         }
@@ -574,6 +574,7 @@ impl FunctionEmitter<'_> {
                 unwind,
                 cleanup,
             } => {
+                self.binding_uses.record_early_return();
                 let returned = if self.function.is_async || self.function.can_throw {
                     "return Ok(value)"
                 } else {
@@ -594,6 +595,7 @@ impl FunctionEmitter<'_> {
                     String::new()
                 };
                 let returned = if cleanup.is_some() {
+                    self.binding_uses.record_early_return();
                     let final_return = if self.function.is_async || self.function.can_throw {
                         "return Ok(smelt_forced_return)"
                     } else {
@@ -710,6 +712,7 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("yield* emitted outside generator body"));
                 };
                 let operand = self.operand_text(generator)?;
+                self.binding_uses.record_early_return();
                 let return_command = if self.function.is_async || self.function.can_throw {
                     "return Ok(value)"
                 } else {

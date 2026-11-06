@@ -61,6 +61,70 @@ enum MutListArgKind {
     UnionInjected,
 }
 
+/// A rendered call, and whether it propagates the callee's error.
+///
+/// `call_text` keeps the `?` apart from the call: a caller that cannot propagate
+/// (a body with no error channel, a `try` block with a catch arm) handles the
+/// `Result` itself.
+#[derive(Clone, Debug)]
+pub(super) struct CallText {
+    /// The call expression, without any `?`.
+    call: String,
+    /// Whether the call yields a `Result` this body propagates with `?`.
+    propagates: bool,
+}
+
+impl CallText {
+    /// A call that yields its value directly.
+    pub(super) fn plain(call: impl Into<String>) -> Self {
+        Self {
+            call: call.into(),
+            propagates: false,
+        }
+    }
+
+    /// A call that yields a `Result` whose error propagates.
+    pub(super) fn propagating(call: impl Into<String>) -> Self {
+        Self {
+            call: call.into(),
+            propagates: true,
+        }
+    }
+
+    /// `call`, propagating exactly when the callee can throw.
+    pub(super) fn propagating_if(call: impl Into<String>, propagates: bool) -> Self {
+        Self {
+            call: call.into(),
+            propagates,
+        }
+    }
+
+    /// The call as an expression of its value.
+    pub(super) fn into_expression(self) -> String {
+        if self.propagates {
+            format!("{}?", self.call)
+        } else {
+            self.call
+        }
+    }
+
+    /// Whether the call propagates the callee's error.
+    pub(super) const fn propagates(&self) -> bool {
+        self.propagates
+    }
+
+    /// The call expression, without any `?`.
+    pub(super) fn into_call(self) -> String {
+        self.call
+    }
+}
+
+impl From<String> for CallText {
+    fn from(call: String) -> Self {
+        Self::plain(call)
+    }
+}
+
 /// How a mutable-list argument's caller-side place is spelled in Rust.
 ///
 /// The adapter both *reads* the place's current contents into a temporary and
@@ -797,7 +861,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a function call to its Rust text representation.
-    pub(super) fn call_text(&self, callee: &Callee, args: &[Operand]) -> Result<String, EmitError> {
+    pub(super) fn call_text(&self, callee: &Callee, args: &[Operand]) -> Result<CallText, EmitError> {
         match callee {
             Callee::Builtin(BuiltinFn::ConsoleLog { absent }) => {
                 let rendered_args = args
@@ -805,7 +869,7 @@ impl FunctionEmitter<'_> {
                     .map(|arg| self.console_arg_text(arg, *absent))
                     .collect::<Result<Vec<_>, _>>()?;
                 if rendered_args.is_empty() {
-                    Ok("{ println!(); }".to_owned())
+                    Ok("{ println!(); }".to_owned().into())
                 } else {
                     let format = rendered_args
                         .iter()
@@ -817,7 +881,7 @@ impl FunctionEmitter<'_> {
                         .map(|(_, value)| value)
                         .collect::<Vec<_>>()
                         .join(", ");
-                    Ok(format!("{{ println!(\"{format}\", {arg_values}); }}"))
+                    Ok(format!("{{ println!(\"{format}\", {arg_values}); }}").into())
                 }
             }
             Callee::Builtin(BuiltinFn::ConsoleWrite | BuiltinFn::ConsoleErrorWrite) => {
@@ -834,7 +898,7 @@ impl FunctionEmitter<'_> {
                 } else {
                     "eprint"
                 };
-                Ok(format!("{{ {macro_name}!(\"{format_spec}\", {value}); }}"))
+                Ok(format!("{{ {macro_name}!(\"{format_spec}\", {value}); }}").into())
             }
             Callee::Builtin(BuiltinFn::JsonParse { target }) => {
                 let text = args
@@ -850,21 +914,21 @@ impl FunctionEmitter<'_> {
                 // boundary: parse AND decode strictly, throwing a catchable
                 // `TypeError` on a mismatch (see `emitter::json_decode`).
                 if let Some(decoded) = self.json_decode_target(*target) {
-                    return Ok(format!(
-                        "{}(&{})?",
+                    return Ok(CallText::propagating(format!(
+                        "{}(&{})",
                         json_decode::json_decode_entry_name(decoded),
                         self.operand_text(text)?
-                    ));
+                    )));
                 }
                 // The trailing `?` is what marks this call fallible to
                 // `emit_throwing_call_terminator`, which then renders the
                 // `Ok(Ok(v)) / Ok(Err(e))` shape that binds the caught
                 // `SyntaxError` and jumps to the handler's catch block.
-                Ok(format!(
-                    "{}(&{})?",
+                Ok(CallText::propagating(format!(
+                    "{}(&{})",
                     crate::thrown::JSON_PARSE_FN,
                     self.operand_text(text)?
-                ))
+                )))
             }
             Callee::Builtin(BuiltinFn::Base64(op)) => {
                 let value = args.first().ok_or_else(|| {
@@ -879,7 +943,7 @@ impl FunctionEmitter<'_> {
                 // binds the caught `InvalidCharacterError` and jumps to the
                 // handler's catch block.
                 let value_text = self.string_like_operand_text(value, "base64 input")?;
-                Ok(format!("{adapter}({value_text}.as_str())?"))
+                Ok(CallText::propagating(format!("{adapter}({value_text}.as_str())")))
             }
             Callee::Builtin(BuiltinFn::DataViewAccess { write, element }) => {
                 self.data_view_access_text(*write, *element, args)
@@ -900,10 +964,10 @@ impl FunctionEmitter<'_> {
                 // The trailing `?` is what marks the call fallible to
                 // `emit_throwing_call_terminator`, which binds the caught
                 // `SyntaxError` and jumps to the handler's catch block.
-                Ok(format!(
-                    "{}({pattern}, {flags})?",
+                Ok(CallText::propagating(format!(
+                    "{}({pattern}, {flags})",
                     crate::thrown::REGEXP_COMPILE_FN
-                ))
+                )))
             }
             Callee::Builtin(BuiltinFn::UriDecode(op)) => {
                 let value = args.first().ok_or_else(|| {
@@ -930,7 +994,7 @@ impl FunctionEmitter<'_> {
                 // `Ok(Ok(v)) / Ok(Err(e))` shape binding the caught `URIError`
                 // and jumping to the handler's catch block.
                 let value_text = self.string_like_operand_text(value, "URI decoder input")?;
-                Ok(format!("{adapter}({value_text}.as_str())?"))
+                Ok(CallText::propagating(format!("{adapter}({value_text}.as_str())")))
             }
             Callee::BaseInit(func) => self.base_initializer_call_text(*func, args),
             Callee::Static(func) => {
@@ -963,9 +1027,9 @@ impl FunctionEmitter<'_> {
                         rendered_args.push(self.default_value(target_ty)?);
                     }
                     let arg_values = rendered_args.join(", ");
-                    return Ok(format!(
-                        "{class_name}::new({arg_values}){}",
-                        self.throwing_call_suffix(function)
+                    return Ok(CallText::propagating_if(
+                        format!("{class_name}::new({arg_values})"),
+                        self.call_is_throwing(function),
                     ));
                 }
                 if let HirOrigin::ClassMethod { method, .. } = function.origin {
@@ -977,7 +1041,7 @@ impl FunctionEmitter<'_> {
                         Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                     ) || self.is_erased_class_type(self.operand_ty(receiver)?)
                     {
-                        return self.default_value(function.return_ty);
+                        return self.default_value(function.return_ty).map(CallText::from);
                     }
                     let receiver_text = match receiver {
                         Operand::Copy(place) | Operand::Move(place) => self.place_text(place)?,
@@ -989,7 +1053,7 @@ impl FunctionEmitter<'_> {
                     if let Some(field_call) =
                         self.call_virtual_function_field_text(receiver, &method_name, rest)?
                     {
-                        return Ok(field_call);
+                        return Ok(field_call.into());
                     }
                     // Route the built-in `Array.prototype.concat` to the list-concat
                     // helper. This is gated on the receiver's *static* type being a
@@ -1006,7 +1070,7 @@ impl FunctionEmitter<'_> {
                         let Some(first_rest) = rest.first() else {
                             return Err(EmitError::new("concat receiver argument is missing"));
                         };
-                        return self.list_concat_text(receiver, first_rest);
+                        return self.list_concat_text(receiver, first_rest).map(CallText::from);
                     }
                     let class_type_params = self.callee_class_type_params(function);
                     let mut rendered_args = rest
@@ -1119,7 +1183,7 @@ impl FunctionEmitter<'_> {
                     } else {
                         format!("{{ {} {call} }}", prebound.join(" "))
                     };
-                    return Ok(format!("{call}{}", self.throwing_call_suffix(function)));
+                    return Ok(CallText::propagating_if(call, self.call_is_throwing(function)));
                 }
                 if let HirOrigin::ClassStaticMethod { class, method, .. } = function.origin {
                     // `Class.staticMethod(args)` lowers to the receiver-free
@@ -1144,9 +1208,9 @@ impl FunctionEmitter<'_> {
                         rendered_args.push(self.default_value(target_ty)?);
                     }
                     let arg_values = rendered_args.join(", ");
-                    return Ok(format!(
-                        "{class_name}::{method_name}({arg_values}){}",
-                        self.throwing_call_suffix(function)
+                    return Ok(CallText::propagating_if(
+                        format!("{class_name}::{method_name}({arg_values})"),
+                        self.call_is_throwing(function),
                     ));
                 }
                 let rust_function_name = self.function_rust_name(function)?;
@@ -1176,9 +1240,9 @@ impl FunctionEmitter<'_> {
                             .map(|arg| self.erase(arg))
                             .collect::<Result<Vec<_>, _>>()?
                             .join(", ");
-                        return Ok(format!(
-                            "{rust_function_name}(vec![{items}]){}",
-                            self.throwing_call_suffix(function)
+                        return Ok(CallText::propagating_if(
+                            format!("{rust_function_name}(vec![{items}])"),
+                            self.call_is_throwing(function),
                         ));
                     }
                 }
@@ -1259,9 +1323,9 @@ impl FunctionEmitter<'_> {
                         rendered_args.push(self.default_value(self.local_decl(*param)?.ty)?);
                     }
                     let arg_values = rendered_args.join(", ");
-                    return Ok(format!(
-                        "{rust_function_name}({arg_values}){}",
-                        self.throwing_call_suffix(function)
+                    return Ok(CallText::propagating_if(
+                        format!("{rust_function_name}({arg_values})"),
+                        self.call_is_throwing(function),
                     ));
                 }
                 let free_function_type_params =
@@ -1330,9 +1394,9 @@ impl FunctionEmitter<'_> {
                     }
                 }
                 let arg_values = rendered_args.join(", ");
-                Ok(format!(
-                    "{rust_function_name}({arg_values}){}",
-                    self.throwing_call_suffix(function)
+                Ok(CallText::propagating_if(
+                    format!("{rust_function_name}({arg_values})"),
+                    self.call_is_throwing(function),
                 ))
             }
             Callee::Indirect(indirect_callee) => {
@@ -1351,7 +1415,7 @@ impl FunctionEmitter<'_> {
                         .map(|arg| self.erase(arg))
                         .collect::<Result<Vec<_>, EmitError>>()?;
                     let args_expr = format!("vec![{}]", rendered_args.join(", "));
-                    return Ok(self.dynamic_callable_dispatch_text(&callee_text, &args_expr, self.prototype_method_not_callable(indirect_callee).as_deref()));
+                    return Ok(self.dynamic_callable_dispatch_text(&callee_text, &args_expr, self.prototype_method_not_callable(indirect_callee).as_deref()).into());
                 }
                 let Some(Type::Function(function)) = self.mir.types.get(callee_ty) else {
                     return Err(EmitError::new("indirect call target is not a function"));
@@ -1370,7 +1434,7 @@ impl FunctionEmitter<'_> {
                     return Ok(format!(
                         "({callee_text}).call({})",
                         self.erased_call_argument_vector_text(indirect_callee, args)?
-                    ));
+                    ).into());
                 }
                 // A rest-only callee invoked with positional arguments takes them
                 // packed into its single rest `SmeltList` parameter; without this
@@ -1413,9 +1477,12 @@ impl FunctionEmitter<'_> {
                     // pays one more refcount.
                     return Ok(format!(
                         "{{ let smelt_callable = ::std::clone::Clone::clone(&{callee_text}); (smelt_callable)({rendered_args}){suffix} }}"
-                    ));
+                    ).into());
                 }
-                Ok(format!("({callee_text})({rendered_args}){suffix}"))
+                Ok(CallText::propagating_if(
+                    format!("({callee_text})({rendered_args})"),
+                    self.function_value_call_is_fallible(function),
+                ))
             }
         }
     }
@@ -2713,12 +2780,7 @@ impl FunctionEmitter<'_> {
         // rendering and compare.
         #[cfg(debug_assertions)]
         let monomorphization_before_arguments = self.sampled_call_monomorphization(callee, args);
-        let mut call_text = self.call_text(callee, args)?;
-        if args.is_empty() && call_text.ends_with("(Vec::new())") {
-            call_text = format!("{}()", call_text.trim_end_matches("(Vec::new())"));
-        } else if call_text == "(fn_)(Vec::new())" {
-            "(fn_)()".clone_into(&mut call_text);
-        }
+        let mut call_text = self.call_text(callee, args)?.into_expression();
         #[cfg(debug_assertions)]
         self.debug_assert_call_monomorphization_stable(
             &self.sampled_callee_name(callee),
@@ -3008,18 +3070,18 @@ impl FunctionEmitter<'_> {
         {
             return Ok(call_text);
         }
-        let mut call_text = self.call_text(callee, args)?;
+        let rendered = self.call_text(callee, args)?;
         // A closure body that is itself fallible returns
         // `Result<_, Box<dyn std::error::Error>>`, so a throwing call inside it
         // keeps its `?` and the error stays recoverable for whoever invokes the
         // callback. Only a closure whose Rust signature genuinely cannot carry
         // an error (a non-throwing body, or a generator whose `?` would target
         // the step output) collapses the error into a `panic!`.
-        if let Some(stripped) = call_text.strip_suffix('?')
-            && !self.body_can_propagate_error()
-        {
-            call_text = format!("{stripped}.unwrap_or_else(|error| smelt_panic_throw(error))");
-        }
+        let mut call_text = if rendered.propagates() && !self.body_can_propagate_error() {
+            format!("{}.unwrap_or_else(|error| smelt_panic_throw(error))", rendered.into_call())
+        } else {
+            rendered.into_expression()
+        };
         call_text = self.wrap_native_async_call_text(callee, call_text)?;
         // The emitted return, not the declared one. A monomorphized generic
         // callee really evaluates to its declared return with this call site's
@@ -3103,7 +3165,7 @@ impl FunctionEmitter<'_> {
     /// takes that type's default, as a `Base::new(..)` call does. A throwing
     /// base constructor makes the initializer fallible, so the call carries the
     /// same `?` suffix a throwing `new` does.
-    fn base_initializer_call_text(&self, func: FuncId, args: &[Operand]) -> Result<String, EmitError> {
+    fn base_initializer_call_text(&self, func: FuncId, args: &[Operand]) -> Result<CallText, EmitError> {
         let function = self
             .mir
             .functions
@@ -3133,11 +3195,13 @@ impl FunctionEmitter<'_> {
             let target_ty = self.function_local_decl(function, *param)?.ty;
             rendered_args.push(self.default_value(target_ty)?);
         }
-        Ok(format!(
-            "Self::{}({}){}",
-            crate::base_init::base_initializer_name(self.mir, class)?,
-            rendered_args.join(", "),
-            self.throwing_call_suffix(function)
+        Ok(CallText::propagating_if(
+            format!(
+                "Self::{}({})",
+                crate::base_init::base_initializer_name(self.mir, class)?,
+                rendered_args.join(", "),
+            ),
+            self.call_is_throwing(function),
         ))
     }
 

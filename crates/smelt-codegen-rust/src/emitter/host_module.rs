@@ -10,6 +10,7 @@
 //! reads its erased input.
 
 use super::*;
+use crate::emitter::call::CallText;
 use crate::host_module_prelude as prelude;
 use smelt_hir::{HashOp, HostModuleOp, PathOp};
 
@@ -84,7 +85,7 @@ impl FunctionEmitter<'_> {
         &self,
         host_op: HostModuleOp,
         args: &[Operand],
-    ) -> Result<String, EmitError> {
+    ) -> Result<CallText, EmitError> {
         let HostModuleOp::Hash(op) = host_op else {
             return Err(EmitError::new(
                 "internal: an infallible host-module call reached the call path",
@@ -98,7 +99,7 @@ impl FunctionEmitter<'_> {
         match op {
             HashOp::Create => {
                 let algorithm = self.string_like_operand_text(arg(0)?, op.name())?;
-                Ok(format!("{}(&{algorithm})?", prelude::HASH_CREATE_FN))
+                Ok(CallText::propagating(format!("{}(&{algorithm})", prelude::HASH_CREATE_FN)))
             }
             HashOp::Update => {
                 let hash = self.operand_text(arg(0)?)?;
@@ -107,17 +108,17 @@ impl FunctionEmitter<'_> {
             HashOp::DigestText => {
                 let hash = self.operand_text(arg(0)?)?;
                 let encoding = self.string_like_operand_text(arg(1)?, op.name())?;
-                Ok(format!(
-                    "{}(&{hash}, &{encoding})?",
+                Ok(CallText::propagating(format!(
+                    "{}(&{hash}, &{encoding})",
                     prelude::HASH_DIGEST_TEXT_FN
-                ))
+                )))
             }
             HashOp::DigestBytes => {
                 let hash = self.operand_text(arg(0)?)?;
-                Ok(format!(
-                    "{}(&{hash}).map(SmeltUint8Array::from_bytes)?",
+                Ok(CallText::propagating(format!(
+                    "{}(&{hash}).map(SmeltUint8Array::from_bytes)",
                     prelude::HASH_DIGEST_BYTES_FN
-                ))
+                )))
             }
         }
     }
@@ -136,7 +137,7 @@ impl FunctionEmitter<'_> {
         hash: &str,
         data: &Operand,
         encoding_operand: Option<&Operand>,
-    ) -> Result<String, EmitError> {
+    ) -> Result<CallText, EmitError> {
         let encoding = encoding_operand
             .map(|operand| self.string_like_operand_text(operand, "hash.update encoding"))
             .transpose()?
@@ -144,34 +145,34 @@ impl FunctionEmitter<'_> {
         let data_ty = self.operand_ty(data)?;
         if matches!(self.mir.types.get(data_ty), Some(Type::String)) {
             let text = self.string_like_operand_text(data, "hash.update data")?;
-            return Ok(format!(
-                "{}(&{hash}, &{text}, &{encoding})?",
+            return Ok(CallText::propagating(format!(
+                "{}(&{hash}, &{text}, &{encoding})",
                 prelude::HASH_UPDATE_TEXT_FN
-            ));
+            )));
         }
         if self.is_typed_array_view_class_type(data_ty)?
             || self.operand_is_array_buffer(data)?
             || self.is_data_view_class_type(data_ty)?
         {
-            return Ok(format!(
-                "{}(&{hash}, &({}).to_bytes())?",
+            return Ok(CallText::propagating(format!(
+                "{}(&{hash}, &({}).to_bytes())",
                 prelude::HASH_UPDATE_BYTES_FN,
                 self.operand_text(data)?
-            ));
+            )));
         }
         if let Some(bytes) = self.byte_source_union_bytes_text(&self.operand_text(data)?, data_ty)?
         {
-            return Ok(format!(
-                "{}(&{hash}, &{bytes})?",
+            return Ok(CallText::propagating(format!(
+                "{}(&{hash}, &{bytes})",
                 prelude::HASH_UPDATE_BYTES_FN
-            ));
+            )));
         }
         let erased = self.erase(data)?;
-        Ok(self.carrier_format(format_args!(
-            "{{ let smelt_value = {erased}; match &smelt_value {{ SmeltUnknown::String(text) => {text_fn}(&{hash}, &text.to_string(), &{encoding}), _ => {bytes_fn}(&{hash}, &SmeltTypedArray::smelt_from_unknown(smelt_value.clone()).to_bytes()) }} }}?",
+        Ok(CallText::propagating(self.carrier_format(format_args!(
+            "{{ let smelt_value = {erased}; match &smelt_value {{ SmeltUnknown::String(text) => {text_fn}(&{hash}, &text.to_string(), &{encoding}), _ => {bytes_fn}(&{hash}, &SmeltTypedArray::smelt_from_unknown(smelt_value.clone()).to_bytes()) }} }}",
             text_fn = prelude::HASH_UPDATE_TEXT_FN,
             bytes_fn = prelude::HASH_UPDATE_BYTES_FN,
-        )))
+        ))))
     }
 
     /// Whether a type is the concrete `DataView` class.

@@ -713,7 +713,10 @@ impl FunctionEmitter<'_> {
             };
             let mut body_text = param_rebinds;
             emitter.emit_mutable_local_preludes(&mut body_text)?;
-            emitter.emit_closure_block(emitter.entry_block()?, &mut body_text)?;
+            let (emitted, body_returns_early) = emitter
+                .binding_uses
+                .tracking_early_return(|| emitter.emit_closure_block(emitter.entry_block()?, &mut body_text));
+            emitted?;
             let returns_future = matches!(
                 emitter.mir.types.get(function.return_ty),
                 Some(Type::Future(_))
@@ -862,7 +865,7 @@ impl FunctionEmitter<'_> {
                 // whose `Ok` type equals the erased `SmeltUnknown` or the concrete
                 // `output_text` the `Ok::<..>` returns already use.
                 let async_value_annotation: Option<String> =
-                    if body_text.contains("return Ok") {
+                    if body_returns_early {
                         // Explicit returns diverge from the inner block, so pin
                         // its otherwise-unconstrained binding for Rust inference.
                         // Reaching this branch already proves the wrapper is
@@ -1177,6 +1180,7 @@ impl FunctionEmitter<'_> {
                 out.push_str(&format!("    {};\n", self.operand_text(operand)?));
             }
             if self.function.can_throw || self.function.is_async {
+                self.binding_uses.record_early_return();
                 out.push_str("    return Ok::<(), Box<dyn std::error::Error>>(());\n");
             } else {
                 out.push_str("    return ();\n");
@@ -1195,6 +1199,7 @@ impl FunctionEmitter<'_> {
         let value = self.value_at_type(operand, return_ty)?;
         if self.function.can_throw || self.function.is_async {
             let return_ty_text = self.type_text(return_ty)?;
+            self.binding_uses.record_early_return();
             out.push_str(&format!(
                 "    return Ok::<{return_ty_text}, Box<dyn std::error::Error>>({value});\n"
             ));

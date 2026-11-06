@@ -704,6 +704,7 @@ impl<'mir> FunctionEmitter<'mir> {
         self.flow.record(flow_state::Flow::Diverges);
         let return_ty = self.body_return_ty();
         if self.function.can_throw {
+            self.binding_uses.record_early_return();
             out.push_str(&format!(
                 "    return Ok({});\n",
                 self.default_value(return_ty)?
@@ -3092,14 +3093,12 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Returns the Rust suffix needed when calling a throwing function.
     pub(super) fn throwing_call_suffix(&self, callee: &MirFunction) -> &'static str {
-        if callee.can_throw
-            && !callee.is_async
-            && !callee.is_generator
-        {
-            "?"
-        } else {
-            ""
-        }
+        if self.call_is_throwing(callee) { "?" } else { "" }
+    }
+
+    /// Whether a call of `callee` yields a `Result` this body propagates.
+    pub(super) fn call_is_throwing(&self, callee: &MirFunction) -> bool {
+        callee.can_throw && !callee.is_async && !callee.is_generator
     }
 
     /// Converts an operand to its Rust text representation.
