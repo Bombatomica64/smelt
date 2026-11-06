@@ -52,11 +52,11 @@ use oxc::parser::{ParseOptions, Parser};
 use oxc::span::SourceType;
 use oxc::syntax::operator::{BinaryOperator, LogicalOperator, UnaryOperator};
 use smelt_hir::{
-    AsyncOp, BinOp, Body, CallbackCallArg, CallbackExpr, CallbackExprKind, CaptureMode, Class,
+    AsyncOp, BinOp, Body, CaptureMode, Class,
     ClosureCapture, ConstItem, DictProjectionOp, Expr, ExprKind, Field, FileId, Function,
     FunctionOwner, FunctionType, Item, Language, ListCallbackOp, ListSearchOp, Literal, LocalDecl,
     MethodSig, Module, ModuleId, Param, ParamSig, Pattern, PrimitiveCastOp, SetProjectionOp,
-    SourceFile, Span, Stmt, StringAffixOp, StringCaseOp, StringPadOp, Type, UnaryOp, UnknownKind,
+    SourceFile, Span, Stmt, StringPadOp, Type, UnaryOp, UnknownKind,
     Visibility,
 };
 

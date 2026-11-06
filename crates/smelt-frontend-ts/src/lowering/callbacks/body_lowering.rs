@@ -6,7 +6,7 @@ use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::state::local_scope::ScopeGroups;
 use crate::lowering::{
     Argument, ArrayExpressionElement, AssignmentTarget, BinaryOperator, BindingPattern,
-    Body, CallbackExpr, CallbackExprKind, CaptureMode, ChainElement, ClosureCapture, Expr,
+    Body, CaptureMode, ChainElement, ClosureCapture, Expr,
     ExprKind, Expression, ForStatementInit, ForStatementLeft, FunctionType, HashMap, HashSet,
     LocalDecl, ModuleBuilder, ObjectPropertyKind, Param, SimpleAssignmentTarget, SmeltError, Span, Statement, Stmt, Type,
 };
@@ -927,75 +927,6 @@ impl ModuleBuilder<'_> {
             ty: closure_ty,
             span,
         }))
-    }
-
-    /// Returns whether a legacy callback expression contains a source throw.
-    pub(in crate::lowering) fn callback_expr_contains_throw(callback: &CallbackExpr) -> bool {
-        match &callback.kind {
-            CallbackExprKind::Throw { .. } => true,
-            CallbackExprKind::Unary { operand, .. } => Self::callback_expr_contains_throw(operand),
-            CallbackExprKind::Binary { lhs, rhs, .. } => {
-                Self::callback_expr_contains_throw(lhs) || Self::callback_expr_contains_throw(rhs)
-            }
-            CallbackExprKind::UnknownIs { value, .. } => Self::callback_expr_contains_throw(value),
-            CallbackExprKind::TypeofValue { value } => Self::callback_expr_contains_throw(value),
-            CallbackExprKind::Conditional {
-                cond,
-                then_expr,
-                else_expr,
-            } => {
-                Self::callback_expr_contains_throw(cond)
-                    || Self::callback_expr_contains_throw(then_expr)
-                    || Self::callback_expr_contains_throw(else_expr)
-            }
-            CallbackExprKind::Call { callee, args } => {
-                Self::callback_expr_contains_throw(callee)
-                    || args
-                        .iter()
-                        .any(|arg| Self::callback_expr_contains_throw(&arg.expr))
-            }
-            CallbackExprKind::MethodCall { receiver, args, .. } => {
-                Self::callback_expr_contains_throw(receiver)
-                    || args
-                        .iter()
-                        .any(|arg| Self::callback_expr_contains_throw(&arg.expr))
-            }
-            CallbackExprKind::ListLit(items) => {
-                items.iter().any(Self::callback_expr_contains_throw)
-            }
-            CallbackExprKind::DictLit(entries) => entries
-                .iter()
-                .any(|(_, value)| Self::callback_expr_contains_throw(value)),
-            CallbackExprKind::Sequence { effects, result } => {
-                effects.iter().any(Self::callback_expr_contains_throw)
-                    || Self::callback_expr_contains_throw(result)
-            }
-            CallbackExprKind::FunctionTableLookup { key, .. } => {
-                Self::callback_expr_contains_throw(key)
-            }
-            CallbackExprKind::AssignCapture { value, .. } => {
-                Self::callback_expr_contains_throw(value)
-            }
-            CallbackExprKind::Index { receiver, .. }
-            | CallbackExprKind::Field { receiver, .. }
-            | CallbackExprKind::HasField { receiver, .. }
-            | CallbackExprKind::FieldTruthy { receiver, .. }
-            | CallbackExprKind::ValueTruthy { value: receiver } => {
-                Self::callback_expr_contains_throw(receiver)
-            }
-            CallbackExprKind::DynamicIndex { receiver, index } => {
-                Self::callback_expr_contains_throw(receiver)
-                    || Self::callback_expr_contains_throw(index)
-            }
-            CallbackExprKind::HasDynamicField { receiver, field } => {
-                Self::callback_expr_contains_throw(receiver)
-                    || Self::callback_expr_contains_throw(field)
-            }
-            CallbackExprKind::Param(_)
-            | CallbackExprKind::Capture(_)
-            | CallbackExprKind::Function(_)
-            | CallbackExprKind::Literal(_) => false,
-        }
     }
 
     /// Returns whether a lowered body directly contains an `await` expression.

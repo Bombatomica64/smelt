@@ -889,12 +889,6 @@ impl ModuleBuilder<'_> {
                     body,
                 )?,
             },
-            _ => {
-                return Err(SmeltError::unsupported(
-                    span,
-                    "Python callback expression is not lowered into a closure body yet",
-                ));
-            }
         };
         Ok(body.push_expr(HirExpr {
             kind,
@@ -934,70 +928,17 @@ impl ModuleBuilder<'_> {
                     });
                 }
             }
-            CallbackExprKind::AssignCapture { target, value } => {
-                if let Some(local_decl) = usize::try_from(target.0)
-                    .ok()
-                    .and_then(|index| body.locals.get(index))
-                {
-                    captures.insert(
-                        *target,
-                        ClosureCapture {
-                            source_local: *target,
-                            body_local: None,
-                            symbol: local_decl
-                                .name
-                                .unwrap_or_else(|| self.intern_name("__capture")),
-                            ty: local_decl.ty,
-                            mode: CaptureMode::ByMut,
-                        },
-                    );
-                }
-                self.collect_callback_captures(value, body, captures);
-            }
             CallbackExprKind::ListLit(items) => {
                 for item in items {
                     self.collect_callback_captures(item, body, captures);
                 }
             }
-            CallbackExprKind::Sequence { effects, result } => {
-                for effect in effects {
-                    self.collect_callback_captures(effect, body, captures);
-                }
-                self.collect_callback_captures(result, body, captures);
-            }
-            CallbackExprKind::DictLit(entries) => {
-                for (_, value) in entries {
-                    self.collect_callback_captures(value, body, captures);
-                }
-            }
-            CallbackExprKind::Throw { message } => {
-                if let Some(thrown_message) = message {
-                    self.collect_callback_captures(thrown_message, body, captures);
-                }
-            }
             CallbackExprKind::Index { receiver, .. }
-            | CallbackExprKind::Field { receiver, .. }
-            | CallbackExprKind::HasField { receiver, .. }
-            | CallbackExprKind::FieldTruthy { receiver, .. }
-            | CallbackExprKind::ValueTruthy { value: receiver } => {
+            | CallbackExprKind::Field { receiver, .. } => {
                 self.collect_callback_captures(receiver, body, captures);
-            }
-            CallbackExprKind::DynamicIndex { receiver, index } => {
-                self.collect_callback_captures(receiver, body, captures);
-                self.collect_callback_captures(index, body, captures);
-            }
-            CallbackExprKind::HasDynamicField { receiver, field } => {
-                self.collect_callback_captures(receiver, body, captures);
-                self.collect_callback_captures(field, body, captures);
             }
             CallbackExprKind::Unary { operand, .. } => {
                 self.collect_callback_captures(operand, body, captures);
-            }
-            CallbackExprKind::UnknownIs { value, .. } => {
-                self.collect_callback_captures(value, body, captures);
-            }
-            CallbackExprKind::TypeofValue { value } => {
-                self.collect_callback_captures(value, body, captures);
             }
             CallbackExprKind::Binary { lhs, rhs, .. } => {
                 self.collect_callback_captures(lhs, body, captures);
@@ -1012,24 +953,7 @@ impl ModuleBuilder<'_> {
                 self.collect_callback_captures(then_expr, body, captures);
                 self.collect_callback_captures(else_expr, body, captures);
             }
-            CallbackExprKind::Call { callee, args } => {
-                self.collect_callback_captures(callee, body, captures);
-                for arg in args {
-                    self.collect_callback_captures(&arg.expr, body, captures);
-                }
-            }
-            CallbackExprKind::MethodCall { receiver, args, .. } => {
-                self.collect_callback_captures(receiver, body, captures);
-                for arg in args {
-                    self.collect_callback_captures(&arg.expr, body, captures);
-                }
-            }
-            CallbackExprKind::FunctionTableLookup { key, .. } => {
-                self.collect_callback_captures(key, body, captures);
-            }
-            CallbackExprKind::Param(_)
-            | CallbackExprKind::Function(_)
-            | CallbackExprKind::Literal(_) => {}
+            CallbackExprKind::Param(_) | CallbackExprKind::Literal(_) => {}
         }
     }
 

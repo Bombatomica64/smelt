@@ -2,9 +2,9 @@
 //! into a closure value. An inline literal lowers through its closure body; a
 //! name or a callable value is wrapped in a forwarding closure.
 
+use super::forwarding::ForwardingCallback;
 use crate::lowering::{
-    Argument, BinOp, Body, CallbackExpr, CallbackExprKind, ClosureCallback, ExprKind, Expression,
-    Item, Literal, ModuleBuilder, SmeltError, Span, Type,
+    Argument, Body, ClosureCallback, ExprKind, Expression, Item, ModuleBuilder, SmeltError, Type,
 };
 use oxc::span::GetSpan;
 use smelt_hir::ErasureReason;
@@ -125,12 +125,7 @@ impl ModuleBuilder<'_> {
             self.reject_unresolved_callback_import(name, span_start, span_end)?;
             let callback = self.opaque_member_callback(expected_param_tys);
             let return_ty = callback.ty;
-            let expr = self.callback_expr_to_closure(
-                &callback,
-                expected_param_tys,
-                self.span(span_start, span_end),
-                body,
-            )?;
+            let expr = self.forwarding_closure(callback, expected_param_tys, self.span(span_start, span_end), body)?;
             return Ok(ClosureCallback { expr, return_ty });
         }
         if !self.scope.is_bound(name) {
@@ -149,12 +144,7 @@ impl ModuleBuilder<'_> {
         if self.callback_local_value_is_callable_surface(local_ty) {
             let callback = self.opaque_local_callback(local, local_ty, expected_param_tys);
             let return_ty = callback.ty;
-            let expr = self.callback_expr_to_closure(
-                &callback,
-                expected_param_tys,
-                self.span(span_start, span_end),
-                body,
-            )?;
+            let expr = self.forwarding_closure(callback, expected_param_tys, self.span(span_start, span_end), body)?;
             return Ok(ClosureCallback { expr, return_ty });
         }
         Err(SmeltError::unsupported(
@@ -288,7 +278,7 @@ impl ModuleBuilder<'_> {
                     let span = self.span(argument.span().start, argument.span().end);
                     let return_ty = callback.ty;
                     let expr =
-                        self.callback_expr_to_closure(&callback, expected_param_tys, span, body)?;
+                        self.forwarding_closure(callback, expected_param_tys, span, body)?;
                     return Ok(ClosureCallback { expr, return_ty });
                 }
             } else {
@@ -296,18 +286,13 @@ impl ModuleBuilder<'_> {
                 let callback = self.opaque_member_callback(expected_param_tys);
                 let return_ty = callback.ty;
                 let expr =
-                    self.callback_expr_to_closure(&callback, expected_param_tys, span, body)?;
+                    self.forwarding_closure(callback, expected_param_tys, span, body)?;
                 return Ok(ClosureCallback { expr, return_ty });
             }
         }
         let callback = self.arrow_callback(argument, expected_param_tys, body)?;
         let return_ty = callback.ty;
-        let expr = self.callback_expr_to_closure(
-            &callback,
-            expected_param_tys,
-            self.span(argument.span().start, argument.span().end),
-            body,
-        )?;
+        let expr = self.forwarding_closure(callback, expected_param_tys, self.span(argument.span().start, argument.span().end), body)?;
         Ok(ClosureCallback { expr, return_ty })
     }
 
@@ -332,7 +317,7 @@ impl ModuleBuilder<'_> {
         direct_ty: smelt_hir::TypeId,
         expected_param_tys: &[smelt_hir::TypeId],
         body: &mut Body,
-    ) -> Option<CallbackExpr> {
+    ) -> Option<ForwardingCallback> {
         if !matches!(argument, Argument::CallExpression(_)) {
             return None;
         }
@@ -362,16 +347,7 @@ impl ModuleBuilder<'_> {
         match self.arrow_callback(argument, expected_param_tys, body) {
             Ok(callback) => {
                 let span = self.span(argument.span().start, argument.span().end);
-                let callback = self.coerce_callback_expr_to_truthy(callback, span)?;
-                let expr = self.callback_expr_to_closure_with_return_ty(
-                    bool_ty,
-                    &callback,
-                    expected_param_tys,
-                    None,
-                    None,
-                    span,
-                    body,
-                )?;
+                let expr = self.forwarding_predicate_closure(callback, expected_param_tys, span, body)?;
                 Ok(ClosureCallback { expr, return_ty: bool_ty })
             }
             Err(error) => {
@@ -403,16 +379,7 @@ impl ModuleBuilder<'_> {
                             )
                         })
                         .unwrap_or_else(|| self.opaque_member_callback(expected_param_tys));
-                    let callback = self.coerce_callback_expr_to_truthy(callback, span)?;
-                    let expr = self.callback_expr_to_closure_with_return_ty(
-                        bool_ty,
-                        &callback,
-                        expected_param_tys,
-                        None,
-                        None,
-                        span,
-                        body,
-                    )?;
+                    let expr = self.forwarding_predicate_closure(callback, expected_param_tys, span, body)?;
                     return Ok(ClosureCallback {
                         expr,
                         return_ty: bool_ty,
@@ -447,89 +414,6 @@ impl ModuleBuilder<'_> {
                     ))
                 }
             }
-        }
-    }
-
-    /// Convert a callback expression result into the boolean value used by JS predicates.
-    pub(in crate::lowering) fn coerce_callback_expr_to_truthy(
-        &mut self,
-        callback: CallbackExpr,
-        span: Span,
-    ) -> Result<CallbackExpr, SmeltError> {
-        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        if callback.ty == bool_ty {
-            return Ok(callback);
-        }
-        match callback.kind {
-            CallbackExprKind::DynamicIndex { receiver, index } => Ok(CallbackExpr {
-                kind: CallbackExprKind::HasDynamicField {
-                    receiver,
-                    field: index,
-                },
-                ty: bool_ty,
-            }),
-            CallbackExprKind::Field { receiver, field } => Ok(CallbackExpr {
-                kind: CallbackExprKind::FieldTruthy { receiver, field },
-                ty: bool_ty,
-            }),
-            // An erased or type-parameter predicate result is coerced with a real
-            // JavaScript truthiness test, not a `typeof x === "boolean"` tag
-            // check (which is close to the inverse of it).
-            kind if matches!(
-                self.ctx.krate.types.get(callback.ty),
-                Some(Type::Unknown | Type::TypeParam { .. })
-            ) =>
-            {
-                Ok(CallbackExpr {
-                    kind: CallbackExprKind::ValueTruthy {
-                        value: Box::new(CallbackExpr {
-                            kind,
-                            ty: callback.ty,
-                        }),
-                    },
-                    ty: bool_ty,
-                })
-            }
-            kind if self.ctx.krate.types.get(callback.ty) == Some(&Type::String) => {
-                let string_ty = self.ctx.krate.types.intern(Type::String);
-                Ok(CallbackExpr {
-                    kind: CallbackExprKind::Binary {
-                        op: BinOp::NotEq,
-                        lhs: Box::new(CallbackExpr {
-                            kind,
-                            ty: callback.ty,
-                        }),
-                        rhs: Box::new(CallbackExpr {
-                            kind: CallbackExprKind::Literal(Literal::String(String::new())),
-                            ty: string_ty,
-                        }),
-                    },
-                    ty: bool_ty,
-                })
-            }
-            kind if self.is_nullishable_type(callback.ty)
-                || self.type_is_truthy_condition_surface(callback.ty) =>
-            {
-                let none_ty = self.ctx.krate.types.intern(Type::None);
-                Ok(CallbackExpr {
-                    kind: CallbackExprKind::Binary {
-                        op: BinOp::NotEq,
-                        lhs: Box::new(CallbackExpr {
-                            kind,
-                            ty: callback.ty,
-                        }),
-                        rhs: Box::new(CallbackExpr {
-                            kind: CallbackExprKind::Literal(Literal::None),
-                            ty: none_ty,
-                        }),
-                    },
-                    ty: bool_ty,
-                })
-            }
-            _ => Err(SmeltError::unsupported(
-                span,
-                "array predicate callback return cannot be coerced to boolean",
-            )),
         }
     }
 

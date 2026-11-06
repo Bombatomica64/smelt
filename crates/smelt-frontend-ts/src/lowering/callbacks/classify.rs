@@ -2,11 +2,11 @@
 //! arrow/function callback recognizers, factory predicates, and opaque
 //! (local/member) callback values, plus building callbacks from param lists.
 
+use super::forwarding::{ForwardTarget, ForwardingCallback};
 use crate::lowering::js_text::js_str_text;
 use crate::lowering::{
-    Argument, BinOp, Body, CallbackCallArg, CallbackExpr, CallbackExprKind,
-    CaptureMode, ClosureCapture, Expr, ExprKind, Expression, FunctionType, HashMap, Item,
-    Literal, LocalDecl, ModuleBuilder, Param, SmeltError, Span, Type,
+    Argument, Body, Expr, ExprKind, Expression, FunctionType, HashMap, Item,
+    LocalDecl, ModuleBuilder, Param, SmeltError, Span, Type,
 };
 use smelt_hir::ErasureReason;
 use oxc::span::GetSpan;
@@ -113,385 +113,13 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Convert stored callback call arguments into normal HIR argument expressions.
-    pub(in crate::lowering) fn callback_call_args_to_body_exprs(
-        &mut self,
-        call_args: &[CallbackCallArg],
-        args: &[smelt_hir::ExprId],
-        body: &mut Body,
-        span: Span,
-    ) -> Result<Vec<smelt_hir::ExprId>, SmeltError> {
-        call_args
-            .iter()
-            .map(|arg| {
-                self.callback_expr_to_body_expr(&arg.expr, args, body, span)
-            })
-            .collect()
-    }
-
-    /// Expand spread callback arguments into fixed function parameters and an optional rest list.
-    pub(in crate::lowering) fn callback_spread_call_args_to_body_exprs(
-        &mut self,
-        function: &FunctionType,
-        call_args: &[CallbackCallArg],
-        args: &[smelt_hir::ExprId],
-        body: &mut Body,
-        span: Span,
-    ) -> Result<Vec<smelt_hir::ExprId>, SmeltError> {
-        let mut lowered = Vec::new();
-        let mut fixed_index = 0usize;
-        let rest_index = function.rest.unwrap_or(function.params.len());
-        let rest_ty = function.rest.and_then(|index| {
-            function
-                .params
-                .get(index)
-                .copied()
-                .filter(|ty| matches!(self.ctx.krate.types.get(*ty), Some(Type::List(_))))
-        });
-        let mut rest_list = None;
-        for (arg_index, arg) in call_args.iter().enumerate() {
-            if !arg.spread {
-                let value = self.callback_expr_to_body_expr(&arg.expr, args, body, span)?;
-                if function.rest.is_some() && fixed_index >= rest_index {
-                    let rest_ty = rest_ty.ok_or_else(|| {
-                        SmeltError::unsupported(span, "callback rest spread type is not a list")
-                    })?;
-                    let list = body.push_expr(Expr {
-                        kind: ExprKind::ListLit(vec![value]),
-                        ty: rest_ty,
-                        span,
-                    });
-                    rest_list = Some(rest_list.map_or(list, |left| {
-                        body.push_expr(Expr {
-                            kind: ExprKind::ListConcat { left, right: list },
-                            ty: rest_ty,
-                            span,
-                        })
-                    }));
-                } else {
-                    lowered.push(value);
-                    fixed_index += 1;
-                }
-                continue;
-            }
-
-            let spread_list = self.callback_expr_to_body_expr(&arg.expr, args, body, span)?;
-            let remaining_fixed_values = call_args
-                .get(arg_index + 1..)
-                .unwrap_or(&[])
-                .iter()
-                .filter(|remaining_arg| !remaining_arg.spread)
-                .count();
-            let fixed_target = rest_index.saturating_sub(remaining_fixed_values);
-            let mut consumed_from_spread = 0usize;
-            while fixed_index < fixed_target {
-                let index = self.usize_float_literal(consumed_from_spread, span, body)?;
-                let ty = function
-                    .params
-                    .get(fixed_index)
-                    .copied()
-                    .unwrap_or_else(|| {
-                        self.index_type(Self::expr_ty(body, spread_list))
-                            .unwrap_or_else(|_| Self::expr_ty(body, spread_list))
-                    });
-                let kind = if matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_))) {
-                    ExprKind::OptionalIndex {
-                        receiver: spread_list,
-                        index,
-                    }
-                } else {
-                    ExprKind::Index {
-                        receiver: spread_list,
-                        index,
-                    }
-                };
-                lowered.push(body.push_expr(Expr { kind, ty, span }));
-                fixed_index += 1;
-                consumed_from_spread += 1;
-            }
-
-            if let Some(rest_ty) = rest_ty {
-                let rest_piece = if consumed_from_spread == 0 {
-                    spread_list
-                } else {
-                    let start = self.usize_float_literal(consumed_from_spread, span, body)?;
-                    body.push_expr(Expr {
-                        kind: ExprKind::ListSlice {
-                            list: spread_list,
-                            start: Some(start),
-                            end: None,
-                        },
-                        ty: rest_ty,
-                        span,
-                    })
-                };
-                rest_list = Some(rest_list.map_or(rest_piece, |left| {
-                    body.push_expr(Expr {
-                        kind: ExprKind::ListConcat {
-                            left,
-                            right: rest_piece,
-                        },
-                        ty: rest_ty,
-                        span,
-                    })
-                }));
-            }
-        }
-        if let Some(rest_ty) = rest_ty {
-            lowered.push(rest_list.unwrap_or_else(|| {
-                body.push_expr(Expr {
-                    kind: ExprKind::ListLit(Vec::new()),
-                    ty: rest_ty,
-                    span,
-                })
-            }));
-        }
-        Ok(lowered)
-    }
-
-    /// Pack callback call arguments that contain spreads into a single list expression.
-    pub(in crate::lowering) fn callback_packed_spread_call_args(
-        &mut self,
-        item_ty: smelt_hir::TypeId,
-        call_args: &[CallbackCallArg],
-        args: &[smelt_hir::ExprId],
-        body: &mut Body,
-        span: Span,
-    ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
-        let mut current_items = Vec::new();
-        let mut packed = None;
-        for arg in call_args {
-            if arg.spread {
-                if !current_items.is_empty() {
-                    let left = body.push_expr(Expr {
-                        kind: ExprKind::ListLit(std::mem::take(&mut current_items)),
-                        ty: list_ty,
-                        span,
-                    });
-                    packed = Some(packed.map_or(left, |existing| {
-                        body.push_expr(Expr {
-                            kind: ExprKind::ListConcat {
-                                left: existing,
-                                right: left,
-                            },
-                            ty: list_ty,
-                            span,
-                        })
-                    }));
-                }
-                let spread_expr = self.callback_expr_to_body_expr(&arg.expr, args, body, span)?;
-                packed = Some(packed.map_or(spread_expr, |existing| {
-                    body.push_expr(Expr {
-                        kind: ExprKind::ListConcat {
-                            left: existing,
-                            right: spread_expr,
-                        },
-                        ty: list_ty,
-                        span,
-                    })
-                }));
-                continue;
-            }
-            current_items.push(self.callback_expr_to_body_expr(&arg.expr, args, body, span)?);
-        }
-        if !current_items.is_empty() {
-            let right = body.push_expr(Expr {
-                kind: ExprKind::ListLit(current_items),
-                ty: list_ty,
-                span,
-            });
-            packed = Some(packed.map_or(right, |existing| {
-                body.push_expr(Expr {
-                    kind: ExprKind::ListConcat {
-                        left: existing,
-                        right,
-                    },
-                    ty: list_ty,
-                    span,
-                })
-            }));
-        }
-        Ok(packed.unwrap_or_else(|| {
-            body.push_expr(Expr {
-                kind: ExprKind::ListLit(Vec::new()),
-                ty: list_ty,
-                span,
-            })
-        }))
-    }
-
-    /// Recursively collect captures and upgrade assigned captures to mutable mode.
-    pub(in crate::lowering) fn collect_callback_captures(
-        &mut self,
-        callback: &CallbackExpr,
-        body: &Body,
-        captures: &mut HashMap<smelt_hir::LocalId, ClosureCapture>,
-    ) {
-        match &callback.kind {
-            CallbackExprKind::Capture(local) => {
-                if let Some(local_decl) = usize::try_from(local.0)
-                    .ok()
-                    .and_then(|index| body.locals.get(index))
-                {
-                    // A capture is normally by reference: the value is already
-                    // in the local when the closure is built, so a clone of it
-                    // is the value the closure observes forever. A binding this
-                    // closure READS BEFORE ITS DECLARATION is the one shape
-                    // where that is wrong -- the slot is still empty at capture
-                    // time and the declaration fills it later -- so it is
-                    // captured through the shared cell instead, exactly as an
-                    // assigned capture is.
-                    let mode = if local_decl
-                        .name
-                        .and_then(|symbol| self.ctx.krate.symbols.get(symbol))
-                        .is_some_and(|name| self.is_forward_referenced_local(name))
-                    {
-                        CaptureMode::ByMut
-                    } else {
-                        CaptureMode::ByRef
-                    };
-                    captures.entry(*local).or_insert_with(|| ClosureCapture {
-                        source_local: *local,
-                        body_local: None,
-                        symbol: local_decl
-                            .name
-                            .unwrap_or_else(|| self.ctx.krate.symbols.intern("__capture")),
-                        ty: local_decl.ty,
-                        mode,
-                    });
-                }
-            }
-            CallbackExprKind::AssignCapture { target, value } => {
-                if let Some(local_decl) = usize::try_from(target.0)
-                    .ok()
-                    .and_then(|index| body.locals.get(index))
-                {
-                    captures.insert(
-                        *target,
-                        ClosureCapture {
-                            source_local: *target,
-                            body_local: None,
-                            symbol: local_decl
-                                .name
-                                .unwrap_or_else(|| self.ctx.krate.symbols.intern("__capture")),
-                            ty: local_decl.ty,
-                            mode: CaptureMode::ByMut,
-                        },
-                    );
-                }
-                self.collect_callback_captures(value, body, captures);
-            }
-            CallbackExprKind::ListLit(items) => {
-                for item in items {
-                    self.collect_callback_captures(item, body, captures);
-                }
-            }
-            CallbackExprKind::Sequence { effects, result } => {
-                for effect in effects {
-                    self.collect_callback_captures(effect, body, captures);
-                }
-                self.collect_callback_captures(result, body, captures);
-            }
-            CallbackExprKind::DictLit(entries) => {
-                for (_, value) in entries {
-                    self.collect_callback_captures(value, body, captures);
-                }
-            }
-            CallbackExprKind::Throw { message } => {
-                if let Some(message) = message {
-                    self.collect_callback_captures(message, body, captures);
-                }
-            }
-            CallbackExprKind::Index { receiver, .. }
-            | CallbackExprKind::Field { receiver, .. }
-            | CallbackExprKind::HasField { receiver, .. }
-            | CallbackExprKind::FieldTruthy { receiver, .. }
-            | CallbackExprKind::ValueTruthy { value: receiver } => {
-                self.collect_callback_captures(receiver, body, captures);
-            }
-            CallbackExprKind::DynamicIndex { receiver, index } => {
-                self.collect_callback_captures(receiver, body, captures);
-                self.collect_callback_captures(index, body, captures);
-            }
-            CallbackExprKind::HasDynamicField { receiver, field } => {
-                self.collect_callback_captures(receiver, body, captures);
-                self.collect_callback_captures(field, body, captures);
-            }
-            CallbackExprKind::Unary { operand, .. } => {
-                self.collect_callback_captures(operand, body, captures);
-            }
-            CallbackExprKind::Binary { lhs, rhs, .. } => {
-                self.collect_callback_captures(lhs, body, captures);
-                self.collect_callback_captures(rhs, body, captures);
-            }
-            CallbackExprKind::UnknownIs { value, .. } => {
-                self.collect_callback_captures(value, body, captures);
-            }
-            CallbackExprKind::TypeofValue { value } => {
-                self.collect_callback_captures(value, body, captures);
-            }
-            CallbackExprKind::Conditional {
-                cond,
-                then_expr,
-                else_expr,
-            } => {
-                self.collect_callback_captures(cond, body, captures);
-                self.collect_callback_captures(then_expr, body, captures);
-                self.collect_callback_captures(else_expr, body, captures);
-            }
-            CallbackExprKind::Call { callee, args } => {
-                self.collect_callback_captures(callee, body, captures);
-                for arg in args {
-                    self.collect_callback_captures(&arg.expr, body, captures);
-                }
-            }
-            CallbackExprKind::MethodCall {
-                receiver,
-                method,
-                args,
-            } => {
-                if self.ctx.krate.symbols.get(*method).is_some_and(|name| {
-                    matches!(name, "push" | "pop" | "shift" | "unshift" | "splice")
-                }) && let CallbackExprKind::Capture(local) = receiver.kind
-                    && let Some(local_decl) = usize::try_from(local.0)
-                        .ok()
-                        .and_then(|index| body.locals.get(index))
-                {
-                    captures.insert(
-                        local,
-                        ClosureCapture {
-                            source_local: local,
-                            body_local: None,
-                            symbol: local_decl
-                                .name
-                                .unwrap_or_else(|| self.ctx.krate.symbols.intern("__capture")),
-                            ty: local_decl.ty,
-                            mode: CaptureMode::ByMut,
-                        },
-                    );
-                }
-                self.collect_callback_captures(receiver, body, captures);
-                for arg in args {
-                    self.collect_callback_captures(&arg.expr, body, captures);
-                }
-            }
-            CallbackExprKind::FunctionTableLookup { key, .. } => {
-                self.collect_callback_captures(key, body, captures);
-            }
-            CallbackExprKind::Param(_)
-            | CallbackExprKind::Function(_)
-            | CallbackExprKind::Literal(_) => {}
-        }
-    }
-
     /// Lower a supported arrow callback to a typed expression tree.
     pub(in crate::lowering) fn arrow_callback(
         &mut self,
         argument: &Argument<'_>,
         expected_param_tys: &[smelt_hir::TypeId],
         body: &mut Body,
-    ) -> Result<CallbackExpr, SmeltError> {
+    ) -> Result<ForwardingCallback, SmeltError> {
         if let Some(callback) = self.asserted_arrow_callback(argument, expected_param_tys, body)? {
             return Ok(callback);
         }
@@ -531,7 +159,7 @@ impl ModuleBuilder<'_> {
             }
             if let Argument::ArrayExpression(array) = argument
                 && let Some(callback) =
-                    self.matches_property_iteratee_callback(array, expected_param_tys, body)?
+                    self.matches_property_iteratee_callback(array, body)?
             {
                 return Ok(callback);
             }
@@ -546,10 +174,9 @@ impl ModuleBuilder<'_> {
     /// expression tree, if the name statically names a callable value.
     ///
     /// Handles, in resolution order:
-    /// - a module-level function item, called by name through
-    ///   [`CallbackExprKind::Function`];
+    /// - a module-level function item, called by name;
     /// - a local/parameter binding whose static type is a `Type::Function`,
-    ///   called through a captured [`CallbackExprKind::Capture`];
+    ///   called through a capture;
     /// - an opaque callable value — an import or forward-declared function whose
     ///   body is not visible here — modeled as an [`Self::opaque_member_callback`].
     ///
@@ -564,7 +191,7 @@ impl ModuleBuilder<'_> {
         end: u32,
         expected_param_tys: &[smelt_hir::TypeId],
         body: &Body,
-    ) -> Result<Option<CallbackExpr>, SmeltError> {
+    ) -> Result<Option<ForwardingCallback>, SmeltError> {
         if let Some(item) = self.items.get(name).copied() {
             let span = self.span(start, end);
             let Item::Function(function) = self.item_ref(item) else {
@@ -579,59 +206,20 @@ impl ModuleBuilder<'_> {
             let function_ty = self.item_expr_type(item, span)?;
             // JavaScript ignores callback arguments beyond the declared
             // parameters, so a reference declaring fewer parameters than the
-            // receiver supplies — down to zero (`values.filter(stubTrue)`) —
-            // is called with just its declared prefix.
-            let args = expected_param_tys
-                .iter()
-                .copied()
-                .take(function_params_len)
-                .enumerate()
-                .map(|(index, ty)| CallbackCallArg {
-                    expr: CallbackExpr {
-                        kind: CallbackExprKind::Param(index),
-                        ty,
-                    },
-                    spread: false,
-                })
-                .collect();
-            return Ok(Some(CallbackExpr {
-                kind: CallbackExprKind::Call {
-                    callee: Box::new(CallbackExpr {
-                        kind: CallbackExprKind::Function(function_name),
-                        ty: function_ty,
-                    }),
-                    args,
-                },
+            // receiver supplies, down to zero (`values.filter(stubTrue)`), is
+            // called with just its declared prefix.
+            return Ok(Some(ForwardingCallback {
+                target: ForwardTarget::Item { function: function_name, ty: function_ty },
+                arity: function_params_len.min(expected_param_tys.len()),
                 ty: function_return_ty,
             }));
         }
         if let Some(local) = self.scope.lookup(name) {
             let local_ty = Self::local_ty(body, local);
             if let Some(Type::Function(function)) = self.ctx.krate.types.get(local_ty).cloned() {
-                // Same arity rule as item references above: fewer declared
-                // parameters (including zero) ignore the extra supplied
-                // arguments.
-                let args = expected_param_tys
-                    .iter()
-                    .copied()
-                    .take(function.params.len())
-                    .enumerate()
-                    .map(|(index, ty)| CallbackCallArg {
-                        expr: CallbackExpr {
-                            kind: CallbackExprKind::Param(index),
-                            ty,
-                        },
-                        spread: false,
-                    })
-                    .collect();
-                return Ok(Some(CallbackExpr {
-                    kind: CallbackExprKind::Call {
-                        callee: Box::new(CallbackExpr {
-                            kind: CallbackExprKind::Capture(local),
-                            ty: local_ty,
-                        }),
-                        args,
-                    },
+                return Ok(Some(ForwardingCallback {
+                    target: ForwardTarget::Local { local, ty: local_ty },
+                    arity: function.params.len().min(expected_param_tys.len()),
                     ty: function.return_ty,
                 }));
             }
@@ -669,9 +257,8 @@ impl ModuleBuilder<'_> {
     fn matches_property_iteratee_callback(
         &mut self,
         array: &oxc::ast::ast::ArrayExpression<'_>,
-        expected_param_tys: &[smelt_hir::TypeId],
         body: &mut Body,
-    ) -> Result<Option<CallbackExpr>, SmeltError> {
+    ) -> Result<Option<ForwardingCallback>, SmeltError> {
         let [first, second] = array.elements.as_slice() else {
             return Ok(None);
         };
@@ -681,35 +268,18 @@ impl ModuleBuilder<'_> {
         let Some(value_expression) = second.as_expression() else {
             return Ok(None);
         };
-        let item_ty = expected_param_tys
-            .first()
-            .copied()
-            .unwrap_or_else(|| self.erase_with(ErasureReason::MissingAnnotation, "iteratee element"));
         // JavaScript builds the iteratee array once, at the call.
         let source_value = self.expression(value_expression, body)?;
         let value_ty = Self::expr_ty(body, source_value);
         let span = self.span(array.span.start, array.span.end);
         let symbol = self.ctx.krate.symbols.intern("__iteratee_value");
         let local = self.capture_bind_value(source_value, value_ty, symbol, span, body);
-        let value = CallbackExpr { kind: CallbackExprKind::Capture(local), ty: value_ty };
         let field = self.intern_source_name(&js_str_text(path.value));
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let field_ty = self.erase_with(ErasureReason::ByName, &js_str_text(path.value));
-        Ok(Some(CallbackExpr {
-            kind: CallbackExprKind::Binary {
-                op: BinOp::JsStrictEq,
-                lhs: Box::new(CallbackExpr {
-                    kind: CallbackExprKind::Field {
-                        receiver: Box::new(CallbackExpr {
-                            kind: CallbackExprKind::Param(0),
-                            ty: item_ty,
-                        }),
-                        field,
-                    },
-                    ty: field_ty,
-                }),
-                rhs: Box::new(value),
-            },
+        Ok(Some(ForwardingCallback {
+            target: ForwardTarget::MatchesProperty { field, field_ty, value: local, value_ty },
+            arity: 1,
             ty: bool_ty,
         }))
     }
@@ -720,7 +290,7 @@ impl ModuleBuilder<'_> {
         argument: &Argument<'_>,
         expected_param_tys: &[smelt_hir::TypeId],
         body: &Body,
-    ) -> Result<Option<CallbackExpr>, SmeltError> {
+    ) -> Result<Option<ForwardingCallback>, SmeltError> {
         match argument {
             Argument::TSAsExpression(as_expr) => Ok(Some(self.arrow_callback_expression(
                 &as_expr.expression,
@@ -750,7 +320,7 @@ impl ModuleBuilder<'_> {
         expression: &Expression<'_>,
         expected_param_tys: &[smelt_hir::TypeId],
         body: &Body,
-    ) -> Result<CallbackExpr, SmeltError> {
+    ) -> Result<ForwardingCallback, SmeltError> {
         match expression {
             Expression::ParenthesizedExpression(parenthesized) => {
                 self.arrow_callback_expression(&parenthesized.expression, expected_param_tys, body)
@@ -928,7 +498,7 @@ impl ModuleBuilder<'_> {
         local: smelt_hir::LocalId,
         local_ty: smelt_hir::TypeId,
         expected_param_tys: &[smelt_hir::TypeId],
-    ) -> CallbackExpr {
+    ) -> ForwardingCallback {
         let unknown_ty = if self.ctx.krate.types.get(local_ty) == Some(&Type::Unknown) {
             // not a new erasure: the callee local is already erased
             self.unknown_type()
@@ -936,32 +506,15 @@ impl ModuleBuilder<'_> {
             // A type-parameter or function-union callee has no single return type.
             self.erase_with(ErasureReason::TypeLevel, "opaque local callback")
         };
-        let args = expected_param_tys
-            .iter()
-            .copied()
-            .enumerate()
-            .map(|(index, ty)| CallbackCallArg {
-                expr: CallbackExpr {
-                    kind: CallbackExprKind::Param(index),
-                    ty,
-                },
-                spread: false,
-            })
-            .collect();
-        CallbackExpr {
-            kind: CallbackExprKind::Call {
-                callee: Box::new(CallbackExpr {
-                    kind: CallbackExprKind::Capture(local),
-                    ty: local_ty,
-                }),
-                args,
-            },
+        ForwardingCallback {
+            target: ForwardTarget::Local { local, ty: local_ty },
+            arity: expected_param_tys.len(),
             ty: unknown_ty,
         }
     }
 
     /// Build an opaque callback expression for imported predicate/function members.
-    pub(in crate::lowering) fn opaque_member_callback(&mut self, expected_param_tys: &[smelt_hir::TypeId]) -> CallbackExpr {
+    pub(in crate::lowering) fn opaque_member_callback(&mut self, expected_param_tys: &[smelt_hir::TypeId]) -> ForwardingCallback {
         let unknown_ty = self.erase_with(ErasureReason::UntypedPackage, "opaque member callback");
         let function_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: expected_param_tys.to_vec(),
@@ -972,26 +525,9 @@ impl ModuleBuilder<'_> {
             is_async: false,
             may_throw: false,
         }));
-        let args = expected_param_tys
-            .iter()
-            .copied()
-            .enumerate()
-            .map(|(index, ty)| CallbackCallArg {
-                expr: CallbackExpr {
-                    kind: CallbackExprKind::Param(index),
-                    ty,
-                },
-                spread: false,
-            })
-            .collect();
-        CallbackExpr {
-            kind: CallbackExprKind::Call {
-                callee: Box::new(CallbackExpr {
-                    kind: CallbackExprKind::Literal(Literal::None),
-                    ty: function_ty,
-                }),
-                args,
-            },
+        ForwardingCallback {
+            target: ForwardTarget::Opaque { ty: function_ty },
+            arity: expected_param_tys.len(),
             ty: unknown_ty,
         }
     }
