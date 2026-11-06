@@ -426,9 +426,7 @@ impl FunctionEmitter<'_> {
             Rvalue::Use(operand)
                 if (matches!(self.mir.types.get(dest_ty), Some(Type::Unknown))
                     || matches!(self.mir.types.get(dest_ty), Some(Type::TypeParam { .. }))
-                        && self
-                            .type_text_with_impl_trait(dest_ty, false)
-                            .is_ok_and(|text| text == "SmeltUnknown"))
+                        && self.renders_erased(dest_ty).unwrap_or(false))
                     && matches!(
                         self.mir.types.get(self.operand_ty(operand)?),
                         Some(Type::Optional(inner)) if *inner == dest_ty
@@ -561,7 +559,7 @@ impl FunctionEmitter<'_> {
                         // `impl Trait` is illegal in a `let` annotation, and the
                         // annotation is precisely what drives parameter inference
                         // here, so the boxed `dyn` spelling is required.
-                        ty = self.type_text_with_impl_trait(callee_ty, false)?,
+                        ty = self.type_text(callee_ty)?,
                     ));
                 }
                 {
@@ -622,7 +620,7 @@ impl FunctionEmitter<'_> {
                         )?;
                         catch_text.push_str(&format!(
                             "let {exception_name}: {} = {exception_value};\n",
-                            self.type_text_with_impl_trait(exception_decl.ty, false)?
+                            self.type_text(exception_decl.ty)?
                         ));
                         self.mark_local_declared(exception_local);
                     }
@@ -959,7 +957,7 @@ impl FunctionEmitter<'_> {
                     // Annotate the backing Vec with the element type so heterogeneous
                     // closures coerce to the shared `Rc<dyn Fn>` element (the dest
                     // annotation used to drive this before `Type::List` became SmeltList).
-                    let elem_text = self.type_text_with_impl_trait(item_ty, false)?;
+                    let elem_text = self.type_text(item_ty)?;
                     return Ok(format!(
                         "SmeltList::from({{ let smelt_list_items: Vec<{elem_text}> = vec![{items_text}]; smelt_list_items }})"
                     ));
@@ -1047,7 +1045,7 @@ impl FunctionEmitter<'_> {
                             if matches!(self.mir.types.get(value_ty), Some(Type::Function(_))) {
                                 format!(
                                     "{{ let smelt_fn: {} = {}; smelt_fn }}",
-                                    self.type_text_with_impl_trait(value_ty, false)?,
+                                    self.type_text(value_ty)?,
                                     self.value_at_type(entry_value, value_ty)?
                                 )
                             } else {
@@ -1507,8 +1505,7 @@ impl FunctionEmitter<'_> {
                 {
                     return self.value_at_type_text(&projected, *target, dest_ty, &self.render_scope());
                 }
-                let target_rust_ty = self.type_text_with_impl_trait(*target, false)?;
-                let cast_text = if target_rust_ty == "SmeltUnknown" {
+                let cast_text = if self.renders_erased(*target)? {
                     self.erase(unknown_value)?
                 } else {
                     self.extract(unknown_value, *target, &self.render_scope())?
@@ -1964,17 +1961,7 @@ impl FunctionEmitter<'_> {
                             } else {
                                 self.closure_value_argument_text(arg, *param)?
                             };
-                            if self.type_text(*param)? == "Vec<SmeltUnknown>"
-                                && text
-                                    .contains(".into_iter().map(|value| value).collect::<Vec<_>>()")
-                            {
-                                Ok(text.replace(
-                                    ".into_iter().map(|value| value).collect::<Vec<_>>()",
-                                    ".into_iter().map(|value| value.into_smelt_unknown()).collect::<Vec<_>>()",
-                                ))
-                            } else {
-                                Ok(text)
-                            }
+                            Ok(text)
                         })
                         .collect::<Result<Vec<_>, _>>()?;
                     // A padded argument is a fresh temporary, so a
@@ -3013,7 +3000,7 @@ impl FunctionEmitter<'_> {
             // `undefined`. An optional-chained read (`options?.times`) of an
             // optional property reaches here, and must not panic on the absent
             // key the source type explicitly allows.
-            if self.type_text_with_impl_trait(*value, false)? == "SmeltUnknown" {
+            if self.renders_erased(*value)? {
                 let cloned = if self.dict_uses_smelt_record(*key) { "" } else { ".cloned()" };
                 return Ok(format!(
                     "{receiver_text}.get({field_name:?}){cloned}.unwrap_or({})",

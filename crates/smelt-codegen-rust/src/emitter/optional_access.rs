@@ -104,7 +104,7 @@ impl FunctionEmitter<'_> {
         // absent key, which must become `None`, not a `Some` of a union
         // decoded from `undefined`.
         if !matches!(self.mir.types.get(field_ty), Some(Type::Unknown))
-            && self.type_text_with_impl_trait(field_ty, false)? != "SmeltUnknown"
+            && !self.renders_erased(field_ty)?
         {
             return Ok(None);
         }

@@ -188,7 +188,7 @@ impl FunctionEmitter<'_> {
         }
         if dest_ty == *value_ty
             && self.mir.types.get(*key_ty) == Some(&Type::String)
-            && self.type_text_with_impl_trait(*value_ty, false)? == "SmeltUnknown"
+            && self.renders_erased(*value_ty)?
         {
             // An absent key reads as `undefined`, matching JavaScript's
             // dynamic property semantics; `null` is a value only a store puts
@@ -785,7 +785,7 @@ impl FunctionEmitter<'_> {
             // rest of `const { strict, ...rest } = options` was empty once
             // `type Options = { .. }` became a struct.
             let source_is_unknown_like =
-                self.type_text_with_impl_trait(dict_ty, false)? == "SmeltUnknown";
+                self.renders_erased(dict_ty)?;
             let source_is_record = matches!(self.mir.types.get(dict_ty), Some(Type::Class { .. }));
             if (source_is_unknown_like || source_is_record)
                 && matches!(
@@ -1115,7 +1115,7 @@ impl FunctionEmitter<'_> {
             // printed it twice and without the span.
             return Err(EmitError::new(format!(
                 "JSON stringify value must be JSON-serializable, got {}",
-                self.type_text_with_impl_trait(self.operand_ty(value)?, false)?,
+                self.type_text(self.operand_ty(value)?)?,
             )));
         }
         // Serialize through the erased carrier, ALWAYS. `JSON.stringify` is

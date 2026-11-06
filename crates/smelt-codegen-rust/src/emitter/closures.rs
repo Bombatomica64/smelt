@@ -483,7 +483,7 @@ impl FunctionEmitter<'_> {
                     Ok(format!(
                         "arg{index}: {}{}",
                         by_ref_prefix(index, param_ty),
-                        self.type_text_with_impl_trait(param_ty, false)?
+                        self.type_text(param_ty)?
                     ))
                 })
                 .collect::<Result<Vec<_>, EmitError>>()?;
@@ -491,13 +491,13 @@ impl FunctionEmitter<'_> {
                 param_decls.push(format!(
                     "_arg{index}: {}{}",
                     by_ref_prefix(closure.params.len() + index, *extra_ty),
-                    self.type_text_with_impl_trait(*extra_ty, false)?
+                    self.type_text(*extra_ty)?
                 ));
             }
             return Ok(format!(
                 "|{}| -> {} {{ {} }}",
                 param_decls.join(", "),
-                self.type_text_with_impl_trait(return_ty, false)?,
+                self.type_text(return_ty)?,
                 self.default_value(return_ty)?
             ));
         }
@@ -635,7 +635,7 @@ impl FunctionEmitter<'_> {
                     let needs_mut = emitter.local_binding_needs_mut(*param);
                     let mutability = if needs_mut { "mut " } else { "" };
                     let name = emitter.local_name(*param)?.into_owned();
-                    let local_ty_text = emitter.type_text_with_impl_trait(local.ty, false)?;
+                    let local_ty_text = emitter.type_text(local.ty)?;
                     // Only re-type a parameter when the contextual function
                     // dropped an optional wrapper the closure's own local kept
                     // flat (source `target?: V` lowers the destination param to
@@ -654,7 +654,7 @@ impl FunctionEmitter<'_> {
                     // `match`: the fall-through arm below is a block, which
                     // `clippy::single_match_else` rejects.
                     if let Some(target_ty) = retype {
-                        let target_ty_text = emitter.type_text_with_impl_trait(target_ty, false)?;
+                        let target_ty_text = emitter.type_text(target_ty)?;
                         let coerced = emitter.value_at_type_text(&name, target_ty, local.ty, &self.render_scope())?;
                         param_rebinds.push_str(&format!(
                             "let {mutability}{name}: {local_ty_text} = {coerced};\n"
@@ -697,7 +697,7 @@ impl FunctionEmitter<'_> {
                 params.push(format!(
                     "_arg{index}: {}{}",
                     by_ref_prefix(closure.params.len() + index, *extra_ty),
-                    emitter.type_text_with_impl_trait(*extra_ty, false)?
+                    emitter.type_text(*extra_ty)?
                 ));
             }
             let params_text = params.join(", ");
@@ -793,7 +793,7 @@ impl FunctionEmitter<'_> {
                     Some(Type::Future(item)) => *item,
                     _ => function.return_ty,
                 };
-                let output_text = emitter.type_text_with_impl_trait(output_ty, false)?;
+                let output_text = emitter.type_text(output_ty)?;
                 let return_ty = format!("Result<{output_text}, Box<dyn std::error::Error>>");
                 // Whether `smelt_async_value` is itself a future to await is read
                 // from the MIR return operand types, not from the emitted text.
@@ -943,7 +943,7 @@ impl FunctionEmitter<'_> {
                 // parameters are pinned; the `Ok::<T, _>` returns emitted for this
                 // closure already use this same `T`, so the annotation is exact.
                 let return_ty_text =
-                    emitter.type_text_with_impl_trait(function.return_ty, false)?;
+                    emitter.type_text(function.return_ty)?;
                 format!(
                     "|{params_text}| -> Result<{return_ty_text}, Box<dyn std::error::Error>> {{{owned_param_prelude_block}\n{body_text}    }}"
                 )
@@ -968,7 +968,7 @@ impl FunctionEmitter<'_> {
                 // the coercion site, which is what the source says the closure
                 // produces.
                 let return_ty_text =
-                    emitter.type_text_with_impl_trait(function.return_ty, false)?;
+                    emitter.type_text(function.return_ty)?;
                 format!(
                     "|{params_text}| -> {return_ty_text} {{{owned_param_prelude_block}\n{body_text}    }}"
                 )
@@ -1194,7 +1194,7 @@ impl FunctionEmitter<'_> {
         };
         let value = self.value_at_type(operand, return_ty)?;
         if self.function.can_throw || self.function.is_async {
-            let return_ty_text = self.type_text_with_impl_trait(return_ty, false)?;
+            let return_ty_text = self.type_text(return_ty)?;
             out.push_str(&format!(
                 "    return Ok::<{return_ty_text}, Box<dyn std::error::Error>>({value});\n"
             ));
@@ -1369,7 +1369,7 @@ impl FunctionEmitter<'_> {
                     };
                     let value = self.value_at_type(operand, return_ty)?;
                     if self.function.can_throw {
-                        let return_ty_text = self.type_text_with_impl_trait(return_ty, false)?;
+                        let return_ty_text = self.type_text(return_ty)?;
                         out.push_str(&format!(
                             "    Ok::<{return_ty_text}, Box<dyn std::error::Error>>({value})\n"
                         ));
@@ -1425,7 +1425,7 @@ impl FunctionEmitter<'_> {
                 let name = self.local_name(*dest)?;
                 out.push_str(&format!(
                     "    let {name}: {} = {call_text};\n",
-                    self.type_text_with_impl_trait(local.ty, false)?
+                    self.type_text(local.ty)?
                 ));
                 self.mark_local_declared(*dest);
                 self.emit_closure_block_inner(self.block(*target)?, out, active, stop, in_loop)
@@ -1462,7 +1462,7 @@ impl FunctionEmitter<'_> {
                 let value = format!("{}.await?", self.await_operand_text(future)?);
                 out.push_str(&format!(
                     "    let {name}: {} = {value};\n",
-                    self.type_text_with_impl_trait(local.ty, false)?
+                    self.type_text(local.ty)?
                 ));
                 self.mark_local_declared(*dest);
                 self.emit_closure_block_inner(self.block(*target)?, out, active, stop, in_loop)

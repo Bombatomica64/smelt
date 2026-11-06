@@ -466,12 +466,12 @@ impl FunctionEmitter<'_> {
             }
         }
         if let Some(left_item_ty) = left_item
-            && self.is_erased_concat_operand(right_ty)
+            && self.has_dynamic_shape(right_ty)
         {
             return self.type_id(Type::List(left_item_ty));
         }
         if let Some(right_item_ty) = right_item
-            && self.is_erased_concat_operand(left_ty)
+            && self.has_dynamic_shape(left_ty)
         {
             return self.type_id(Type::List(right_item_ty));
         }
@@ -479,11 +479,6 @@ impl FunctionEmitter<'_> {
         self.type_id(Type::List(unknown_ty))
     }
 
-    /// Whether a concat operand erases to a runtime `SmeltUnknown` value, so its
-    /// elements must be unwrapped when collected alongside a concrete-typed side.
-    fn is_erased_concat_operand(&self, ty: TypeId) -> bool {
-        self.has_dynamic_shape(ty)
-    }
 
     /// Return whether an operand is statically known to be an empty list.
     fn is_empty_list_operand(&self, operand: &Operand) -> Result<bool, EmitError> {

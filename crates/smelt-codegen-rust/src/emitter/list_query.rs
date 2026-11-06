@@ -78,7 +78,7 @@ impl FunctionEmitter<'_> {
         // is no longer inline in the iterator chain, so Rust cannot infer the
         // element type from `&_`; spelling it out keeps the standalone binding
         // well-typed (E0282).
-        let element_type_text = self.type_text(element_ty)?;
+        let element_type_text = self.signature_type_text(element_ty)?;
         let predicate = if self.list_item_uses_same_value_zero(element_ty) {
             if self.mir.types.get(element_ty) == Some(&Type::Float) {
                 "|item: &f64| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())".to_owned()
@@ -385,10 +385,7 @@ impl FunctionEmitter<'_> {
             // the checked extraction so a `(...args: any[]) => string` mapper
             // yields `String`s.
             let call = format!("smelt_callback.call({args})");
-            let returns_erased = self
-                .type_text_with_impl_trait(function_ty.return_ty, false)
-                .is_ok_and(|text| text == "SmeltUnknown");
-            if returns_erased {
+            if self.renders_erased(function_ty.return_ty).unwrap_or(false) {
                 return call;
             }
             self.extract_value_text(&call, function_ty.return_ty, &self.render_scope())

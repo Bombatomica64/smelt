@@ -815,7 +815,7 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// The Rust type a local's declaration spells.
     ///
-    /// The same text as [`Self::type_text_with_impl_trait`] for the local's MIR
+    /// The same text as [`Self::type_text`] for the local's MIR
     /// type, except for a local holding a `typeof` result: MIR has one string
     /// type and no borrowed one, so it types that local `String` while the value
     /// it holds is one of seven `&'static str` literals.
@@ -827,7 +827,7 @@ impl<'mir> FunctionEmitter<'mir> {
         if self.local_is_static_typeof_str(local) {
             return Ok("&'static str".to_owned());
         }
-        self.type_text_with_impl_trait(ty, false)
+        self.type_text(ty)
     }
 
     /// The value a local's declaration is seeded with before its first
@@ -852,9 +852,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let binding = self.local_binding(local)?.text();
         let name = binding.as_ref();
         let is_callable = matches!(self.mir.types.get(decl.ty), Some(Type::Function(_)))
-            || self
-                .type_text_with_impl_trait(decl.ty, false)?
-                .contains("dyn Fn");
+            || self.lexical_rust_type(decl.ty, false)?.holds_callable();
         // A callable compiler temp used to be seeded unconditionally. That
         // allocated a fresh default closure (`Rc::new(..)`) at every entry of
         // the function even when the temp is only assigned in one branch and
@@ -914,7 +912,7 @@ impl<'mir> FunctionEmitter<'mir> {
         // erasing consumer the binding is provably dead: the erase re-renders the
         // call, so nothing reads the name we would otherwise bind.
         match self.sole_use_erase_target(local)? {
-            Some(target) => Ok(self.target_is_erased(target)),
+            Some(target) => Ok(self.has_dynamic_shape(target)),
             None => Ok(false),
         }
     }
@@ -1065,12 +1063,6 @@ impl<'mir> FunctionEmitter<'mir> {
         }
     }
 
-    /// Returns whether a coercion target is an erased boundary (`Unknown`,
-    /// a type parameter, a union, or an erased class) — i.e. one that routes a
-    /// value through [`Self::erase`].
-    fn target_is_erased(&self, target: TypeId) -> bool {
-        self.has_dynamic_shape(target)
-    }
 
     /// Returns whether a local is read anywhere in the function body.
     pub(super) fn local_has_uses(&self, local: LocalId) -> bool {
@@ -1527,13 +1519,13 @@ impl<'mir> FunctionEmitter<'mir> {
         target: TypeId,
     ) -> Result<Option<String>, EmitError> {
         let scoped = (
-            self.type_text_with_impl_trait(source, false)?,
-            self.type_text_with_impl_trait(target, false)?,
+            self.type_text(source)?,
+            self.type_text(target)?,
         );
         let hoisted = HoistedModuleItemScope::enter(self);
         let module = (
-            self.type_text_with_impl_trait(source, false)?,
-            self.type_text_with_impl_trait(target, false)?,
+            self.type_text(source)?,
+            self.type_text(target)?,
         );
         if module != scoped {
             return Ok(None);
@@ -1916,10 +1908,10 @@ impl<'mir> FunctionEmitter<'mir> {
             let return_ty = if function_ty.may_throw {
                 format!(
                     "Result<{}, Box<dyn std::error::Error>>",
-                    self.type_text_with_impl_trait(function_ty.return_ty, false)?
+                    self.type_text(function_ty.return_ty)?
                 )
             } else {
-                self.type_text_with_impl_trait(function_ty.return_ty, false)?
+                self.type_text(function_ty.return_ty)?
             };
             let wrapped_body = if function_ty.may_throw {
                 format!("Ok::<_, Box<dyn std::error::Error>>({body})")
@@ -2038,7 +2030,7 @@ impl<'mir> FunctionEmitter<'mir> {
             // `Parser::parse`, E0599).
             "smelt_struct_value.clone()".to_owned()
         } else {
-            let target_ty = self.type_text_with_impl_trait(target, false)?;
+            let target_ty = self.type_text(target)?;
             format!("<{target_ty} as Default>::default()")
         };
         let receiver_rebind = match receiver {
@@ -2078,10 +2070,10 @@ impl<'mir> FunctionEmitter<'mir> {
         let return_ty = if function_ty.may_throw {
             format!(
                 "Result<{}, Box<dyn std::error::Error>>",
-                self.type_text_with_impl_trait(function_ty.return_ty, false)?
+                self.type_text(function_ty.return_ty)?
             )
         } else {
-            self.type_text_with_impl_trait(function_ty.return_ty, false)?
+            self.type_text(function_ty.return_ty)?
         };
         let wrapped_body = if function_ty.may_throw && !source_can_throw {
             format!("Ok::<_, Box<dyn std::error::Error>>({body})")
@@ -2745,7 +2737,7 @@ impl<'mir> FunctionEmitter<'mir> {
         if self.is_base_initializer_receiver(local) {
             return Ok("Self".to_owned());
         }
-        self.type_text_with_impl_trait(ty, false)
+        self.type_text(ty)
     }
 
     /// Whether this method's declared return type is its own declaring class and
@@ -2860,7 +2852,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     // receiver (which previously produced E0597). Reference-class
                     // receivers clone as a cheap `Rc` handle preserving identity;
                     // value classes derive `Clone`.
-                    let inner_ret = self.type_text_with_impl_trait(self.function.return_ty, false)?;
+                    let inner_ret = self.type_text(self.function.return_ty)?;
                     out.push_str(&format!(
                         "    fn {name}({rendered_params}) -> SmeltFuture<{inner_ret}> {{\n"
                     ));
@@ -3072,7 +3064,7 @@ impl<'mir> FunctionEmitter<'mir> {
         // Preserved verbatim here because replacing it with an explicitly empty
         // substitution changes emitted output whenever `functions[0]` is
         // generic; fixing it needs its own byte-verified change.
-        .type_text_with_impl_trait(ty, false)
+        .type_text(ty)
     }
 
     /// Converts a type ID to Rust text under an explicitly supplied
@@ -3088,9 +3080,18 @@ impl<'mir> FunctionEmitter<'mir> {
         ty: TypeId,
         substitution: &TypeSubstitution<'_>,
     ) -> Result<String, EmitError> {
-        FunctionEmitter::type_renderer(mir, context, ty)?
-        .rust_type(ty, false, substitution)
-        .map(RustType::into_string)
+        Self::rust_type_with_scoped_type_params(mir, context, ty, substitution)
+            .map(RustType::into_string)
+    }
+
+    /// The rendered type of `ty` under `substitution`, outside any function.
+    pub(crate) fn rust_type_with_scoped_type_params(
+        mir: &Mir,
+        context: &EmitContext,
+        ty: TypeId,
+        substitution: &TypeSubstitution<'_>,
+    ) -> Result<RustType, EmitError> {
+        FunctionEmitter::type_renderer(mir, context, ty)?.rust_type(ty, false, substitution)
     }
 
     /// Converts a type ID to a default expression with scoped type parameters.
@@ -4078,7 +4079,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 "{{ let smelt_callback = {value_text}.clone(); SmeltErasedFunction {{ callback: ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {{ let arg0: {rest_text} = SmeltList::from(smelt_args); {erased_return} }}), length: {length}.0, object: None }} }}"
             )));
         }
-        let target_text = self.type_text_with_impl_trait(target, false)?;
+        let target_text = self.type_text(target)?;
         Ok(Some(format!(
             "{{ let smelt_callback = {value_text}.clone(); let smelt_adapted: {target_text} = ::std::rc::Rc::new(move |{}| {returned}); smelt_adapted }}",
             arg_decls.join(", ")
@@ -4226,13 +4227,10 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             format!("({callback_text})({args})")
         };
-        let source_type_text = self.type_text_with_impl_trait(self.operand_ty(operand)?, false)?;
         let source_returns_future = source.is_async
-            || matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_)))
-            || source_type_text.contains("Future<Output");
-        let source_async_output_may_throw = source.may_throw
-            || self.operand_closure_can_throw(operand)?
-            || source_type_text.contains("Future<Output = Result");
+            || matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_)));
+        let source_async_output_may_throw =
+            source.may_throw || self.operand_closure_can_throw(operand)?;
         let call_value = if source_async_output_may_throw
             && source_returns_future
             && !target_function.may_throw
@@ -4313,7 +4311,7 @@ impl<'mir> FunctionEmitter<'mir> {
             && !source_async_output_may_throw
             && let Some(Type::Future(item)) = self.mir.types.get(source.return_ty)
         {
-            let item_text = self.type_text_with_impl_trait(*item, false)?;
+            let item_text = self.type_text(*item)?;
             format!(
                 "SmeltFuture::from_future(Box::pin(async move {{ Ok::<{item_text}, Box<dyn std::error::Error>>({default_adjusted_return_text}.await?) }}))"
             )
@@ -4325,7 +4323,7 @@ impl<'mir> FunctionEmitter<'mir> {
             && let Some(Type::Future(item)) = self.mir.types.get(target_function.return_ty)
             && !(source.may_throw && source_returns_future)
         {
-            let item_text = self.type_text_with_impl_trait(*item, false)?;
+            let item_text = self.type_text(*item)?;
             format!(
                 "SmeltFuture::from_future(Box::pin(async move {{ Ok::<{item_text}, Box<dyn std::error::Error>>({default_adjusted_return_text}.await?) }}))"
             )
@@ -4714,11 +4712,8 @@ impl<'mir> FunctionEmitter<'mir> {
         // that effective form. Computing it after the forwarding, as this used to,
         // left the zero-copy arm handing an owned value to a callback declared to
         // take a reference (E0308).
-        let source_type_text_for_params =
-            self.type_text_with_impl_trait(self.operand_ty(operand)?, false)?;
         let body_is_static_future = source.is_async
             || matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_)))
-            || source_type_text_for_params.contains("Future<Output")
             || matches!(self.mir.types.get(target_return_ty), Some(Type::Future(_)));
         let forwarded = source
             .params
@@ -4904,13 +4899,10 @@ impl<'mir> FunctionEmitter<'mir> {
             )
         };
         let uses_adapted_callback = callback_prelude.is_some();
-        let source_type_text = self.type_text_with_impl_trait(self.operand_ty(operand)?, false)?;
         let source_returns_future = source.is_async
-            || matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_)))
-            || source_type_text.contains("Future<Output");
-        let source_async_output_may_throw = source.may_throw
-            || self.operand_closure_can_throw(operand)?
-            || source_type_text.contains("Future<Output = Result");
+            || matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_)));
+        let source_async_output_may_throw =
+            source.may_throw || self.operand_closure_can_throw(operand)?;
         let call_value = if source_async_output_may_throw
             && source_returns_future
             && !target_function.may_throw
@@ -5049,7 +5041,7 @@ impl<'mir> FunctionEmitter<'mir> {
             && !source_async_output_may_throw
             && let Some(Type::Future(item)) = self.mir.types.get(source.return_ty)
         {
-            let item_text = self.type_text_with_impl_trait(*item, false)?;
+            let item_text = self.type_text(*item)?;
             format!(
                 "SmeltFuture::from_future(Box::pin(async move {{ Ok::<{item_text}, Box<dyn std::error::Error>>({default_adjusted_return_text}.await?) }}))"
             )
@@ -5061,7 +5053,7 @@ impl<'mir> FunctionEmitter<'mir> {
             && let Some(Type::Future(item)) = self.mir.types.get(target_return_ty)
             && !(source.may_throw && source_returns_future)
         {
-            let item_text = self.type_text_with_impl_trait(*item, false)?;
+            let item_text = self.type_text(*item)?;
             format!(
                 "SmeltFuture::from_future(Box::pin(async move {{ Ok::<{item_text}, Box<dyn std::error::Error>>({default_adjusted_return_text}.await?) }}))"
             )
@@ -5325,9 +5317,9 @@ impl<'mir> FunctionEmitter<'mir> {
         if !closure.captures.is_empty() || self.is_erased_unknown_rest_function(function) {
             return Ok(None);
         }
-        let scoped_text = self.type_text_with_impl_trait(dest_ty, false)?;
+        let scoped_text = self.type_text(dest_ty)?;
         let hoisted = HoistedModuleItemScope::enter(self);
-        let module_text = self.type_text_with_impl_trait(dest_ty, false)?;
+        let module_text = self.type_text(dest_ty)?;
         if module_text != scoped_text {
             return Ok(None);
         }

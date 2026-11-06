@@ -499,7 +499,7 @@ impl FunctionEmitter<'_> {
 
     /// Classify one type as the Rust output renders it in this function.
     pub(crate) fn typedness_of(&self, ty: TypeId) -> Typedness {
-        let Ok(text) = self.type_text(ty) else {
+        let Ok(text) = self.signature_type_text(ty) else {
             return Typedness::Erased;
         };
         if mentions_erased(&text) {

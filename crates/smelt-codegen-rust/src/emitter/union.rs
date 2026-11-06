@@ -569,7 +569,7 @@ impl FunctionEmitter<'_> {
                 .enumerate()
                 .map(|(index, member)| {
                     if *member == awaited {
-                        let awaited_text = self.type_text_with_impl_trait(awaited, false)?;
+                        let awaited_text = self.type_text(awaited)?;
                         Ok(format!(
                             "{source_name}::M{index}(value) => SmeltFuture::<{awaited_text}>::resolved(value)"
                         ))

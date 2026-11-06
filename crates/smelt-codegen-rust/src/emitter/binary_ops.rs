@@ -174,8 +174,8 @@ impl FunctionEmitter<'_> {
             // optional number against an erased `SmeltUnknown` such as a
             // `.length` read (es-toolkit `includes`).
             let side_erased = |emitter: &Self, ty: TypeId, inner: Option<TypeId>| match inner {
-                Some(inner_ty) => emitter.is_erased_relational(inner_ty),
-                None => emitter.is_erased_relational(ty),
+                Some(inner_ty) => emitter.has_dynamic_shape(inner_ty),
+                None => emitter.has_dynamic_shape(ty),
             };
             let lhs_erased_inner = side_erased(self, lhs_ty, lhs_inner);
             let rhs_erased_inner = side_erased(self, rhs_ty, rhs_inner);
@@ -192,7 +192,7 @@ impl FunctionEmitter<'_> {
                 // non-optional side extracts directly at its own type.
                 let side_text = |emitter: &Self, operand: &Operand, inner: Option<TypeId>| {
                     match inner {
-                        Some(inner_ty) if emitter.is_erased_relational(inner_ty) => {
+                        Some(inner_ty) if emitter.has_dynamic_shape(inner_ty) => {
                             let erased = emitter.erase(operand)?;
                             emitter.value_at_type_text(&erased, unknown_ty, float_ty, &self.render_scope())
                         }
@@ -582,8 +582,8 @@ impl FunctionEmitter<'_> {
         {
             return Ok(None);
         }
-        let lhs_erased = self.is_erased_relational(lhs_ty);
-        let rhs_erased = self.is_erased_relational(rhs_ty);
+        let lhs_erased = self.has_dynamic_shape(lhs_ty);
+        let rhs_erased = self.has_dynamic_shape(rhs_ty);
         if !lhs_erased && !rhs_erased {
             return Ok(None);
         }
@@ -956,7 +956,7 @@ impl FunctionEmitter<'_> {
         right: &str,
         ty: TypeId,
     ) -> Result<String, EmitError> {
-        let fn_ty = self.type_text_with_impl_trait(ty, false)?;
+        let fn_ty = self.type_text(ty)?;
         // `smelt_same_function_identity` (which also answers through identity
         // links a callable gains crossing the erased ABI) lives in the
         // `SmeltUnknown` runtime. A program without that runtime has no erased
@@ -1482,13 +1482,6 @@ impl FunctionEmitter<'_> {
         matches!(self.mir.types.get(ty), Some(Type::Int | Type::Float))
     }
 
-    /// Returns whether a type is erased for the purpose of a JS relational
-    /// comparison — an `unknown`, a union (concrete or erased), a generic type
-    /// param, or an erased class type. Such values must be coerced with
-    /// `ToNumber` before an `f64` `<`/`>`/`<=`/`>=` comparison resolves.
-    fn is_erased_relational(&self, ty: TypeId) -> bool {
-        self.has_dynamic_shape(ty)
-    }
 
     /// Chooses the Rust scalar type for mixed numeric arithmetic.
     fn common_numeric_type(

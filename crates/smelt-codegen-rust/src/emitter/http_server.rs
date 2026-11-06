@@ -228,7 +228,7 @@ impl FunctionEmitter<'_> {
             smelt_hir::IncomingMessageOp::Method => format!("{receiver}.method()"),
             smelt_hir::IncomingMessageOp::Url => format!("{receiver}.url()"),
             smelt_hir::IncomingMessageOp::Headers => {
-                let container = self.type_text(dest_ty)?;
+                let container = self.signature_type_text(dest_ty)?;
                 format!(
                     "<{container} as ::std::iter::FromIterator<(String, String)>>::from_iter({receiver}.headers())"
                 )

@@ -50,7 +50,7 @@ impl FunctionEmitter<'_> {
                         return Ok(format!("{base_text}.get(&{key_text}).cloned().flatten()"));
                     }
                     if self.mir.types.get(*key) == Some(&Type::String)
-                        && self.type_text_with_impl_trait(*value, false)? == "SmeltUnknown"
+                        && self.renders_erased(*value)?
                     {
                         // A property the record does not hold reads as
                         // `undefined` in JavaScript, never `null`. The two are

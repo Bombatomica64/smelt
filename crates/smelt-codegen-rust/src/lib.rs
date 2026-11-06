@@ -2865,7 +2865,7 @@ fn emit_function_field_origin_restore(
     key: &str,
     field_ty: TypeId,
 ) {
-    let Ok(field_ty_text) = FunctionEmitter::type_text_for_with_scoped_type_params(
+    let Ok(field_ty_rendered) = FunctionEmitter::rust_type_with_scoped_type_params(
         mir,
         context,
         field_ty,
@@ -2876,7 +2876,7 @@ fn emit_function_field_origin_restore(
     // Origins are recorded only for typed `Rc` callables (the erasure in
     // `emitter/coercion.rs`), so a field spelled any other way (an erased
     // `SmeltErasedFunction`) has no origin to find and keeps its `Default`.
-    if !field_ty_text.starts_with("::std::rc::Rc<") {
+    if field_ty_rendered.shape() != rust::RustShape::Callable {
         return;
     }
     body.block(format!("if let Some(field) = object.get({key:?})"), |assign| {
@@ -2884,7 +2884,7 @@ fn emit_function_field_origin_restore(
             "let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };",
         );
         assign.line(format!(
-            "if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<{field_ty_text}>(&smelt_function)) {{ result.{field_name} = smelt_origin; }}"
+            "if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<{field_ty_rendered}>(&smelt_function)) {{ result.{field_name} = smelt_origin; }}"
         ));
     });
 }

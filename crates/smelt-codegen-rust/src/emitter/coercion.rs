@@ -19,7 +19,7 @@
 use super::*;
 use crate::emitter::rendered_text_rewrite::{borrowed_value_text, cloned_value_text};
 use crate::erased_list_alias;
-use crate::rust::RustIdent;
+use crate::rust::{RustIdent, RustShape};
 use smelt_hir::FunctionType;
 
 impl FunctionEmitter<'_> {
@@ -38,7 +38,7 @@ impl FunctionEmitter<'_> {
         if left == right {
             return Ok(true);
         }
-        Ok(self.type_text(left)? == self.type_text(right)?)
+        Ok(self.signature_type_text(left)? == self.signature_type_text(right)?)
     }
 
     /// Render a collected container's target type so it names what the element
@@ -2723,7 +2723,7 @@ impl FunctionEmitter<'_> {
         // all (`lazy_view`). A generic one stays eager, because the `'static`
         // boxed builder could not name its type parameters.
         if self.is_reference_class_type(target)
-            && !self.type_text_with_impl_trait(target, false)?.contains('<')
+            && self.rust_shape(target)? != RustShape::GenericClass
         {
             let lazy = crate::lazy_view::lazy_reference_object_text(
                 "smelt_reference_object_identity(&smelt_struct_value.0)",
@@ -3280,9 +3280,9 @@ impl FunctionEmitter<'_> {
     /// conversion is rendered in, so hoisting changes where the text lives
     /// and not what it does.
     fn hoisted_record_conversion(&self, text: &str, target: TypeId) -> Result<Option<String>, EmitError> {
-        let scoped_text = self.type_text_with_impl_trait(target, false)?;
+        let scoped_text = self.type_text(target)?;
         let hoisted = HoistedModuleItemScope::enter(self);
-        let module_text = self.type_text_with_impl_trait(target, false)?;
+        let module_text = self.type_text(target)?;
         if module_text != scoped_text {
             return Ok(None);
         }
@@ -3473,7 +3473,7 @@ impl FunctionEmitter<'_> {
             // inverse of the `SmeltJsMap` erasure adapter, so `unknown -> Map`
             // extraction stays lossless.
             Some(Type::JsMap(_, _)) => {
-                let target_text = self.type_text_with_impl_trait(target, false)?;
+                let target_text = self.type_text(target)?;
                 Ok(format!(
                     "<{target_text} as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())"
                 ))
@@ -3577,13 +3577,13 @@ impl FunctionEmitter<'_> {
             // parameter list that round-tripped through erased dataflow came back
             // EMPTY with no diagnostic.
             Some(Type::Class { .. }) if self.is_fetch_runtime_class_type(target)? => {
-                let rust_type = self.type_text_with_impl_trait(target, false)?;
+                let rust_type = self.type_text(target)?;
                 Ok(format!(
                     "<{rust_type} as SmeltFromUnknown>::smelt_from_unknown({smelt_owned_text})"
                 ))
             }
             Some(Type::Class { .. })
-                if self.type_text_with_impl_trait(target, false)? == "SmeltUnknown" =>
+                if self.renders_erased(target)? =>
             {
                 Ok(text.to_owned())
             }
@@ -3616,7 +3616,7 @@ impl FunctionEmitter<'_> {
             // sets have this impl; a `HashSet`-backed primitive set keeps the
             // `Default::default()` fallback below.
             Some(Type::Set(item)) if !self.type_is_hash_set_key_safe(*item) => {
-                let target_text = self.type_text_with_impl_trait(target, false)?;
+                let target_text = self.type_text(target)?;
                 Ok(format!(
                     "<{target_text} as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())"
                 ))
@@ -3639,7 +3639,8 @@ impl FunctionEmitter<'_> {
                 // type parameter the scope spells (a generic union enum's own
                 // parameter inside its `from_smelt_unknown`) stays spelled.
                 let target_text = self.rust_type(target, false, &scope.substitution())?.into_string();
-                let return_ty = self.rust_type(function.return_ty, false, &scope.substitution())?.into_string();
+                let rendered_return = self.rust_type(function.return_ty, false, &scope.substitution())?;
+                let return_ty = rendered_return.as_str();
                 // The adapter closure is cast to `target_text`, so its
                 // PARAMETER types render in the same `scope`: a parameter the
                 // scope spells (`&T`) must be bound as `&T`, or the closure
@@ -3660,7 +3661,7 @@ impl FunctionEmitter<'_> {
                 let converted_return_text = if let Some(Type::Future(item)) =
                     self.mir.types.get(function.return_ty)
                 {
-                    drop(self.type_text_with_impl_trait(*item, false)?);
+                    drop(self.type_text(*item)?);
                     // JavaScript `await` flattens promise chains: an erased
                     // callable adapted to a promise-returning signature may
                     // itself return an erased promise (e.g. a Vitest
@@ -3676,7 +3677,7 @@ impl FunctionEmitter<'_> {
                     format!(
                         "SmeltFuture::from_future(Box::pin(async move {{ let smelt_flattened = smelt_await_flatten((smelt_result).into_smelt_unknown()).await?; Ok::<_, Box<dyn std::error::Error>>({converted_item}) }}))"
                     )
-                } else if return_ty == "SmeltUnknown" {
+                } else if rendered_return.shape() == RustShape::Erased {
                     "smelt_result".to_owned()
                 } else {
                     self.extract_value_text("smelt_result", function.return_ty, scope)?

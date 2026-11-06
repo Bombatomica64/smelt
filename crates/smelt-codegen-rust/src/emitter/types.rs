@@ -1,7 +1,7 @@
 //! Types emission helpers.
 
 use super::*;
-use crate::rust::RustIdent;
+use crate::rust::{RustIdent, RustShape};
 use smelt_hir::{ErasureReason, FunctionType};
 
 /// The default value of the erased-function carrier, `SmeltErasedFunction`.
@@ -183,7 +183,7 @@ impl FunctionEmitter<'_> {
                 let substitution = TypeSubstitution::lexical(&scope);
                 matches!(
                     self.rust_type(param, false, &substitution),
-                    Ok(rendered) if rendered.as_str() == "SmeltUnknown"
+                    Ok(rendered) if rendered.shape() == RustShape::Erased
                 )
             }
         }
@@ -844,10 +844,7 @@ impl FunctionEmitter<'_> {
         // A value with a REAL Rust representation still goes through the arms
         // below, so a user class with an unserializable field is still a named
         // blocker rather than silently becoming `{}`.
-        if self
-            .type_text_with_impl_trait(ty, false)
-            .is_ok_and(|text| text == "SmeltUnknown")
-        {
+        if self.renders_erased(ty).unwrap_or(false) {
             return true;
         }
         match self.mir.types.get(ty) {
@@ -1043,7 +1040,7 @@ impl FunctionEmitter<'_> {
                                 EmitError::new(format!(
                                     "optional record field `{}` is unknown on {}",
                                     self.symbol_name(*field).unwrap_or("<unnamed>"),
-                                    self.type_text_with_impl_trait(*inner, false)
+                                    self.type_text(*inner)
                                         .unwrap_or_else(|_| format!("{:?}", self.mir.types.get(*inner))),
                                 ))
                             })
@@ -1287,7 +1284,7 @@ impl FunctionEmitter<'_> {
     /// that cannot be rendered falls back to its debug shape rather than
     /// replacing the blocker being reported with a second one.
     fn blocker_type_text(&self, ty: TypeId) -> String {
-        self.type_text_with_impl_trait(ty, false)
+        self.type_text(ty)
             .unwrap_or_else(|_err| format!("{:?}", self.mir.types.get(ty)))
     }
 
@@ -1326,11 +1323,6 @@ impl FunctionEmitter<'_> {
         let type_index = self.mir.types.all().iter().position(|ty| ty == needle)?;
         let compact = compact_index(type_index, "type index does not fit u32").ok()?;
         Some(TypeId(compact))
-    }
-
-    /// Converts a type ID to its Rust text representation.
-    pub(super) fn type_text(&self, ty: TypeId) -> Result<String, EmitError> {
-        self.type_text_with_impl_trait(ty, true)
     }
 
     /// Return the innermost non-optional type for defensive Rust `Option<T>` emission.
@@ -1431,7 +1423,7 @@ impl FunctionEmitter<'_> {
                 self.callback_fn_trait_text(function, &substitution)?
             ));
         }
-        self.type_text(ty)
+        self.signature_type_text(ty)
     }
 
     /// Render the `Fn({params}) -> {return}` trait text for one callback shape.
@@ -1543,7 +1535,7 @@ impl FunctionEmitter<'_> {
         if self.parameter_needs_mutable_reference(local) {
             return Ok(format!(
                 "&mut {}",
-                self.type_text_with_impl_trait(ty, false)?
+                self.type_text(ty)?
             ));
         }
         if matches!(self.mir.types.get(ty), Some(Type::Function(_))) {
@@ -1558,20 +1550,36 @@ impl FunctionEmitter<'_> {
                 }
                 return self.param_type_text(ty);
             }
-            return self.type_text_with_impl_trait(ty, false);
+            return self.type_text(ty);
         }
         self.param_type_text(ty)
     }
 
-    /// Convert a type ID to Rust, controlling whether root `impl Trait` is legal.
-    pub(super) fn type_text_with_impl_trait(
-        &self,
-        ty: TypeId,
-        allow_impl_trait: bool,
-    ) -> Result<String, EmitError> {
+    /// Renders a type in the scope of the current function.
+    pub(super) fn lexical_rust_type(&self, ty: TypeId, allow_impl_trait: bool) -> Result<RustType, EmitError> {
         let scope = self.current_function_type_params();
         self.rust_type(ty, allow_impl_trait, &TypeSubstitution::lexical(&scope))
-            .map(RustType::into_string)
+    }
+
+    /// Converts a type ID to its Rust text in a nested or value position.
+    pub(super) fn type_text(&self, ty: TypeId) -> Result<String, EmitError> {
+        self.lexical_rust_type(ty, false).map(RustType::into_string)
+    }
+
+    /// Converts a type ID to its Rust text at a signature root, where a callable
+    /// parameter can be spelled `impl Fn(..)`.
+    pub(super) fn signature_type_text(&self, ty: TypeId) -> Result<String, EmitError> {
+        self.lexical_rust_type(ty, true).map(RustType::into_string)
+    }
+
+    /// What `ty` renders to in the scope of the current function.
+    pub(super) fn rust_shape(&self, ty: TypeId) -> Result<RustShape, EmitError> {
+        Ok(self.lexical_rust_type(ty, false)?.shape())
+    }
+
+    /// Whether `ty` renders to the runtime carrier in the current scope.
+    pub(super) fn renders_erased(&self, ty: TypeId) -> Result<bool, EmitError> {
+        Ok(self.rust_shape(ty)? == RustShape::Erased)
     }
 
     /// Return whether `param` is a type parameter in scope for the current
@@ -1693,10 +1701,10 @@ impl FunctionEmitter<'_> {
             Type::BigInt => Ok(RustType::raw(crate::bigint_prelude::BIGINT_TYPE)),
             Type::Float => Ok(RustType::raw("f64")),
             Type::String => Ok(RustType::raw("String")),
-            Type::Unknown => Ok(RustType::raw("SmeltUnknown")),
+            Type::Unknown => Ok(RustType::erased()),
             Type::Never => {
                 self.note_backend_erasure(ErasureReason::NeverValue, String::new());
-                Ok(RustType::raw("SmeltUnknown"))
+                Ok(RustType::erased())
             }
             // A declaring base's parameter inside an inherited copy renders as
             // its argument in the receiving class's scope. Call-site bindings
@@ -1708,8 +1716,9 @@ impl FunctionEmitter<'_> {
                 self.with_inherited_bound(|| self.rust_type(bound, allow_impl_trait, substitution))
             }
             Type::TypeParam { name } => match substitution.resolve(*name)? {
-                Resolved::Spelled(param) => Ok(RustType::raw(
+                Resolved::Spelled(param) => Ok(RustType::with_shape(
                     RustIdent::new(self.symbol_name(param)?).into_string(),
+                    RustShape::Generic,
                 )),
                 // The substituted type is a *caller-side* type: its own type
                 // parameters live in the caller's world, not the callee's, so
@@ -1738,7 +1747,7 @@ impl FunctionEmitter<'_> {
                 Resolved::Erased => {
                     let param = self.symbol_name(*name).unwrap_or("?").to_owned();
                     self.note_backend_erasure(ErasureReason::ErasedGeneric, param);
-                    Ok(RustType::raw("SmeltUnknown"))
+                    Ok(RustType::erased())
                 }
             },
             Type::Class { name, args } => {
@@ -1842,7 +1851,7 @@ impl FunctionEmitter<'_> {
                 {
                     let class = self.symbol_name(*name).unwrap_or("?").to_owned();
                     self.note_backend_erasure(ErasureReason::UnresolvedClass, class);
-                    return Ok(RustType::raw("SmeltUnknown"));
+                    return Ok(RustType::erased());
                 }
                 let type_name = sanitize_ident(self.symbol_name(*name)?);
                 // A parameter the declaration dropped is dropped here too, and
@@ -1870,7 +1879,10 @@ impl FunctionEmitter<'_> {
                         Ok(RustType::raw(type_name))
                     } else {
                         let placeholders = vec!["_"; declared_params].join(", ");
-                        Ok(RustType::raw(format!("{type_name}<{placeholders}>")))
+                        Ok(RustType::with_shape(
+                            format!("{type_name}<{placeholders}>"),
+                            RustShape::GenericClass,
+                        ))
                     }
                 } else {
                     // A reference interned before the declaration's defaults were
@@ -1895,34 +1907,42 @@ impl FunctionEmitter<'_> {
                                 .map(|interface| interface.type_params.clone())
                         })
                         .unwrap_or_default();
-                    let mut arg_texts = args
+                    let mut rendered_args = args
                         .iter()
-                        .map(|arg| Ok(self.rust_type(*arg, false, substitution)?.into_string()))
+                        .map(|arg| self.rust_type(*arg, false, substitution))
                         .collect::<Result<Vec<_>, EmitError>>()?;
                     for param in declared.iter().skip(args.len()) {
-                        arg_texts.push(match param.default {
-                            Some(default) => self.rust_type(default, false, substitution)?.into_string(),
-                            None => "SmeltUnknown".to_owned(),
+                        rendered_args.push(match param.default {
+                            Some(default) => self.rust_type(default, false, substitution)?,
+                            None => RustType::erased(),
                         });
                     }
-                    let positions = (0..arg_texts.len()).collect::<Vec<_>>();
+                    let positions = (0..rendered_args.len()).collect::<Vec<_>>();
                     let carried = elision.retain_carried(*name, positions);
                     if carried.is_empty() {
                         return Ok(RustType::raw(type_name));
                     }
-                    let arg_text = carried
+                    let carried_args = carried
                         .iter()
-                        .filter_map(|index| arg_texts.get(*index).cloned())
+                        .filter_map(|index| rendered_args.get(*index))
+                        .collect::<Vec<_>>();
+                    let arg_text = carried_args
+                        .iter()
+                        .map(|arg| arg.as_str())
                         .collect::<Vec<_>>()
                         .join(", ");
-                    Ok(RustType::raw(format!("{type_name}<{arg_text}>")))
+                    Ok(RustType::with_shape(
+                        format!("{type_name}<{arg_text}>"),
+                        RustShape::GenericClass,
+                    )
+                    .holding_callable(carried_args.iter().any(|arg| arg.holds_callable())))
                 }
             }
             Type::None => Ok(RustType::raw("()")),
-            Type::List(item) => Ok(RustType::raw(format!(
-                "SmeltList<{}>",
-                self.rust_type(*item, false, substitution)?
-            ))),
+            Type::List(item) => {
+                let item = self.rust_type(*item, false, substitution)?;
+                Ok(RustType::composed(format!("SmeltList<{item}>"), [&item]))
+            }
             // An insertion-ORDERED set, because JavaScript specifies `Set`
             // iteration as insertion order and a Rust `HashSet` has none (H52).
             // `SmeltPrimSet` keeps a `Vec` of entries beside a hash index, so
@@ -1930,55 +1950,55 @@ impl FunctionEmitter<'_> {
             // but erases each element for SameValueZero membership, which would
             // drag the whole `SmeltUnknown` carrier into any program holding a
             // `Set<string>`. `set_container_name` picks between the two.
-            Type::Set(item) => Ok(RustType::raw(format!(
-                "{}<{}>",
-                self.set_container_name(*item),
-                self.rust_type(*item, false, substitution)?
-            ))),
-            Type::Dict(key, value) if self.dict_uses_smelt_record(*key) => Ok(RustType::raw(format!(
-                "SmeltRecord<String, {}>",
-                self.rust_type(*value, false, substitution)?
-            ))),
-            Type::Dict(key, value) if self.dict_uses_js_key_map(*key) => Ok(RustType::raw(format!(
-                "SmeltJsMap<{}, {}>",
-                self.rust_type(*key, false, substitution)?,
-                self.rust_type(*value, false, substitution)?
-            ))),
-            Type::Dict(key, value) => Ok(RustType::raw(format!(
-                "::std::collections::HashMap<{}, {}>",
-                self.rust_type(*key, false, substitution)?,
-                self.rust_type(*value, false, substitution)?
-            ))),
+            Type::Set(item) => {
+                let container = self.set_container_name(*item);
+                let item = self.rust_type(*item, false, substitution)?;
+                Ok(RustType::composed(format!("{container}<{item}>"), [&item]))
+            }
+            Type::Dict(key, value) if self.dict_uses_smelt_record(*key) => {
+                let value = self.rust_type(*value, false, substitution)?;
+                Ok(RustType::composed(format!("SmeltRecord<String, {value}>"), [&value]))
+            }
+            Type::Dict(key, value) if self.dict_uses_js_key_map(*key) => {
+                let key = self.rust_type(*key, false, substitution)?;
+                let value = self.rust_type(*value, false, substitution)?;
+                Ok(RustType::composed(format!("SmeltJsMap<{key}, {value}>"), [&key, &value]))
+            }
+            Type::Dict(key, value) => {
+                let key = self.rust_type(*key, false, substitution)?;
+                let value = self.rust_type(*value, false, substitution)?;
+                Ok(RustType::composed(
+                    format!("::std::collections::HashMap<{key}, {value}>"),
+                    [&key, &value],
+                ))
+            }
             // A source-spelled `Map` always uses the `SmeltJsMap` container, even
             // when string-keyed. Unlike a string-keyed `Record` (which uses
             // `SmeltRecord`), `SmeltJsMap`'s `IntoSmeltUnknown` stamps the
             // `__smelt_map` marker so erased `Map`s remain observable as Maps
             // (`isMap`, `[object Map]`, structural `isEqual`).
-            Type::JsMap(key, value) => Ok(RustType::raw(format!(
-                "SmeltJsMap<{}, {}>",
-                self.rust_type(*key, false, substitution)?,
-                self.rust_type(*value, false, substitution)?
-            ))),
-            Type::Tuple(items) => {
-                let items_text = items
-                    .iter()
-                    .map(|item| Ok(self.rust_type(*item, false, substitution)?.into_string()))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .join(", ");
-                if items.len() == 1 {
-                    Ok(RustType::raw(format!("({items_text},)")))
-                } else {
-                    Ok(RustType::raw(format!("({items_text})")))
-                }
+            Type::JsMap(key, value) => {
+                let key = self.rust_type(*key, false, substitution)?;
+                let value = self.rust_type(*value, false, substitution)?;
+                Ok(RustType::composed(format!("SmeltJsMap<{key}, {value}>"), [&key, &value]))
             }
-            Type::Optional(item) => Ok(RustType::raw(format!(
-                "Option<{}>",
-                self.rust_type(
-                    self.flatten_optional_inner(*item),
-                    false,
-                    substitution,
-                )?
-            ))),
+            Type::Tuple(items) => {
+                let items = items
+                    .iter()
+                    .map(|item| self.rust_type(*item, false, substitution))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let items_text = items.iter().map(RustType::as_str).collect::<Vec<_>>().join(", ");
+                let text = if items.len() == 1 {
+                    format!("({items_text},)")
+                } else {
+                    format!("({items_text})")
+                };
+                Ok(RustType::composed(text, &items))
+            }
+            Type::Optional(item) => {
+                let item = self.rust_type(self.flatten_optional_inner(*item), false, substitution)?;
+                Ok(RustType::composed(format!("Option<{item}>"), [&item]))
+            }
             // The generated enum's arguments resolve through the same
             // substitution as every other type parameter at this position, so
             // a parameter free here (a callable type's own `<T>`, an erased
@@ -1991,11 +2011,11 @@ impl FunctionEmitter<'_> {
                     ErasureReason::ErasedUnion,
                     format!("union of {} arms", arms.len()),
                 );
-                Ok(RustType::raw("SmeltUnknown"))
+                Ok(RustType::erased())
             }
             Type::Function(function) => {
                 if self.is_erased_unknown_rest_function(function) && !function.may_throw {
-                    return Ok(RustType::raw("SmeltErasedFunction"));
+                    return Ok(RustType::with_shape("SmeltErasedFunction", RustShape::ErasedFunction));
                 }
                 let params = function
                     .params
@@ -2008,45 +2028,52 @@ impl FunctionEmitter<'_> {
                     .join(", ");
                 let return_ty =
                     self.function_value_return_type_text(function, substitution)?;
-                if allow_impl_trait {
-                    Ok(RustType::raw(format!("impl Fn({params}) -> {return_ty}")))
+                let text = if allow_impl_trait {
+                    format!("impl Fn({params}) -> {return_ty}")
                 } else {
-                    Ok(RustType::raw(format!("::std::rc::Rc<dyn Fn({params}) -> {return_ty}>")))
-                }
+                    format!("::std::rc::Rc<dyn Fn({params}) -> {return_ty}>")
+                };
+                Ok(RustType::with_shape(text, RustShape::Callable))
             }
             // A source `Promise<T>` / `Type::Future(T)` lowers to the generic
             // promise-value ABI `SmeltFuture<T>` in every position, so the same
             // MIR future type renders one Rust type everywhere.
-            Type::Future(item) => Ok(RustType::raw(format!(
-                "SmeltFuture<{}>",
-                self.rust_type(*item, false, substitution)?
-            ))),
+            Type::Future(item) => {
+                let item = self.rust_type(*item, false, substitution)?;
+                Ok(RustType::composed(format!("SmeltFuture<{item}>"), [&item]))
+            }
             Type::Generator {
                 is_async,
                 yield_ty,
                 return_ty,
                 next_ty,
-            } => Ok(RustType::raw(format!(
-                "Smelt{}Generator<{}, {}, {}>",
-                if *is_async { "Async" } else { "" },
-                self.rust_type(*yield_ty, false, substitution)?,
-                self.rust_type(*return_ty, false, substitution)?,
-                self.rust_type(*next_ty, false, substitution)?
-            ))),
+            } => {
+                let yielded = self.rust_type(*yield_ty, false, substitution)?;
+                let returned = self.rust_type(*return_ty, false, substitution)?;
+                let next = self.rust_type(*next_ty, false, substitution)?;
+                let flavour = if *is_async { "Async" } else { "" };
+                Ok(RustType::composed(
+                    format!("Smelt{flavour}Generator<{yielded}, {returned}, {next}>"),
+                    [&yielded, &returned, &next],
+                ))
+            }
             Type::GeneratorResult {
                 yield_ty,
                 return_ty,
-            } => Ok(RustType::raw(format!(
-                "SmeltGeneratorResult<{}, {}>",
-                self.rust_type(*yield_ty, false, substitution)?,
-                self.rust_type(*return_ty, false, substitution)?
-            ))),
+            } => {
+                let yielded = self.rust_type(*yield_ty, false, substitution)?;
+                let returned = self.rust_type(*return_ty, false, substitution)?;
+                Ok(RustType::composed(
+                    format!("SmeltGeneratorResult<{yielded}, {returned}>"),
+                    [&yielded, &returned],
+                ))
+            }
         }
     }
 
     /// Converts a function return type to Rust, including uncaught exception wrapping.
     pub(super) fn return_type_text(&self, ty: TypeId) -> Result<String, EmitError> {
-        let inner = self.type_text_with_impl_trait(ty, false)?;
+        let inner = self.type_text(ty)?;
         if (self.function.is_async || self.function.can_throw)
             && !self.function.is_generator
         {
@@ -2092,7 +2119,7 @@ impl FunctionEmitter<'_> {
             // element type is not otherwise constrained (E0282).
             Type::List(item) => Ok(format!(
                 "SmeltList::new(Vec::<{}>::new())",
-                self.type_text_with_impl_trait(*item, false)?
+                self.type_text(*item)?
             )),
             Type::Set(item) => Ok(format!("{}::new()", self.set_container_name(*item))),
             Type::Dict(key, _) if self.dict_uses_smelt_record(*key) => {
@@ -2105,7 +2132,7 @@ impl FunctionEmitter<'_> {
             Type::JsMap(_, _) => Ok("SmeltJsMap::new()".to_owned()),
             Type::Optional(inner) => Ok(format!(
                 "None::<{}>",
-                self.type_text_with_impl_trait(self.flatten_optional_inner(*inner), false)?
+                self.type_text(self.flatten_optional_inner(*inner))?
             )),
             Type::Tuple(items) => {
                 let items_text = items
@@ -2311,14 +2338,14 @@ impl FunctionEmitter<'_> {
                 let return_ty = if let Some(Type::Future(item)) =
                     self.mir.types.get(function.return_ty)
                 {
-                    format!("SmeltFuture<{}>", self.type_text_with_impl_trait(*item, false)?)
+                    format!("SmeltFuture<{}>", self.type_text(*item)?)
                 } else if function.may_throw {
                     format!(
                         "Result<{}, Box<dyn std::error::Error>>",
-                        self.type_text_with_impl_trait(function.return_ty, false)?
+                        self.type_text(function.return_ty)?
                     )
                 } else {
-                    self.type_text_with_impl_trait(function.return_ty, false)?
+                    self.type_text(function.return_ty)?
                 };
                 let return_value = self.default_value(function.return_ty)?;
                 let return_text = if let Some(Type::Future(item)) =
@@ -2331,7 +2358,7 @@ impl FunctionEmitter<'_> {
                 } else {
                     return_value
                 };
-                let function_type = self.type_text_with_impl_trait(ty, false)?;
+                let function_type = self.type_text(ty)?;
                 Ok(format!(
                     "{{ let smelt_default_callback: {function_type} = ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ {return_text} }}); smelt_default_callback }}"
                 ))
@@ -2380,7 +2407,7 @@ impl FunctionEmitter<'_> {
             // A list default annotates its element type, and that annotation has
             // to be spelled through THIS substitution. The unscoped
             // `default_value` arm this would otherwise fall through to reaches
-            // for `type_text_with_impl_trait`, which rebuilds a substitution from
+            // for `lexical_rust_type`, which rebuilds a substitution from
             // the CURRENT FUNCTION's type parameters — and there is no current
             // function here: `default_value_for_with_scoped_type_params` hosts
             // itself on `functions[0]` purely to have an emitter, so a class type

@@ -434,7 +434,7 @@ impl FunctionEmitter<'_> {
                         || self.predeclared_locals.contains(dest)
                         || self.mutable_locals.contains(dest))
                 {
-                    format!(": {}", self.type_text_with_impl_trait(local.ty, false)?)
+                    format!(": {}", self.type_text(local.ty)?)
                 } else if matches!(self.mir.types.get(local.ty), Some(Type::Function(_))) {
                     String::new()
                 } else if matches!(self.function.origin, HirOrigin::ClassConstructor { .. })
@@ -874,7 +874,7 @@ impl FunctionEmitter<'_> {
             } else {
                 out.push_str(&format!(
                     "    let {mutability}{name}: {} = {rendered_value};\n",
-                    self.type_text_with_impl_trait(decl.ty, false)?
+                    self.type_text(decl.ty)?
                 ));
             }
             self.mark_local_declared(*local);
@@ -1049,7 +1049,7 @@ impl FunctionEmitter<'_> {
                         let value = self.default_value(body_return_ty)?;
                         if self.function.is_generator {
                             let return_ty_text =
-                                self.type_text_with_impl_trait(body_return_ty, false)?;
+                                self.type_text(body_return_ty)?;
                             out.push_str(&format!(
                                 "    return Ok::<{return_ty_text}, Box<dyn std::error::Error>>({value});\n"
                             ));
@@ -1060,7 +1060,7 @@ impl FunctionEmitter<'_> {
                         let value = self.value_at_type(operand, body_return_ty)?;
                         if self.function.is_generator {
                             let return_ty_text =
-                                self.type_text_with_impl_trait(body_return_ty, false)?;
+                                self.type_text(body_return_ty)?;
                             out.push_str(&format!(
                                 "    return Ok::<{return_ty_text}, Box<dyn std::error::Error>>({value});\n"
                             ));
@@ -1173,7 +1173,7 @@ impl FunctionEmitter<'_> {
         if matches!(callee, Callee::BaseInit(_)) {
             return Ok("Self".to_owned());
         }
-        self.type_text_with_impl_trait(ty, false)
+        self.type_text(ty)
     }
 
     /// Emits the region reached after a terminator, honoring loop context.
@@ -1288,7 +1288,7 @@ impl FunctionEmitter<'_> {
         } else {
             out.push_str(&format!(
                 "    let {mutability}{name}: {} = {value};\n",
-                self.type_text_with_impl_trait(local.ty, false)?
+                self.type_text(local.ty)?
             ));
         }
         self.mark_local_declared(dest);
@@ -1578,7 +1578,7 @@ impl FunctionEmitter<'_> {
             let value_text = self.value_at_type_text("__smelt_value", source_ty, local.ty, &self.render_scope())?;
             out.push_str(&format!(
                 "            let {mutability}{name}: {} = {value_text};\n",
-                self.type_text_with_impl_trait(local.ty, false)?
+                self.type_text(local.ty)?
             ));
         }
         self.mark_local_declared(dest);
@@ -1708,7 +1708,7 @@ impl FunctionEmitter<'_> {
                 let else_text = self.rvalue_text_for_dest(else_value, local.ty)?;
                 out.push_str(&format!(
                     "    let {name}: {} = if {} {{ {then_text} }} else {{ {else_text} }};\n",
-                    self.type_text_with_impl_trait(local.ty, false)?,
+                    self.type_text(local.ty)?,
                     self.truthy_operand_text(cond)?
                 ));
                 self.mark_local_declared(*then_dest);
@@ -1727,7 +1727,7 @@ impl FunctionEmitter<'_> {
                 let default_text = self.default_value(local.ty)?;
                 out.push_str(&format!(
                     "    let mut {name}: {} = {default_text};\n",
-                    self.type_text_with_impl_trait(local.ty, false)?
+                    self.type_text(local.ty)?
                 ));
                 self.mark_local_declared(then_dest);
                 let branch_declared = self.declared_scope();

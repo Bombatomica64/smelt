@@ -374,25 +374,97 @@ mod tests {
 /// `RustType` an internal representation later is a change behind these same
 /// constructors.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RustType(String);
+pub struct RustType {
+    /// The rendered Rust text.
+    text: String,
+    /// What the type is, recorded by the arm that rendered it.
+    shape: RustShape,
+    /// Whether a typed `dyn Fn` callable appears anywhere inside this type.
+    holds_callable: bool,
+}
+
+/// What a rendered Rust type is, for a decision that depends on the output type
+/// rather than the MIR type.
+///
+/// MIR cannot answer these on its own: whether a `T` erases, or a union stays
+/// on the dynamic carrier, depends on the scope the type renders in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RustShape {
+    /// The runtime carrier `SmeltUnknown`.
+    Erased,
+    /// The erased callable `SmeltErasedFunction`.
+    ErasedFunction,
+    /// A typed callable, `Rc<dyn Fn(..)>` or `impl Fn(..)`.
+    Callable,
+    /// A type parameter spelled as a Rust generic.
+    Generic,
+    /// A nominal type spelled with type arguments (`Name<..>`).
+    GenericClass,
+    /// Any other concrete type.
+    Concrete,
+}
 
 impl RustType {
-    /// Wraps already-rendered Rust type text.
+    /// A concrete type holding no callable, from already-rendered text.
     #[must_use]
     pub fn raw(text: impl Into<String>) -> Self {
-        Self(text.into())
+        Self::with_shape(text, RustShape::Concrete)
+    }
+
+    /// `text`, of the given shape.
+    #[must_use]
+    pub fn with_shape(text: impl Into<String>, shape: RustShape) -> Self {
+        Self {
+            text: text.into(),
+            shape,
+            holds_callable: shape == RustShape::Callable,
+        }
+    }
+
+    /// The runtime carrier.
+    #[must_use]
+    pub fn erased() -> Self {
+        Self::with_shape("SmeltUnknown", RustShape::Erased)
+    }
+
+    /// A concrete type built around `parts`, which it holds.
+    #[must_use]
+    pub fn composed<'a>(text: impl Into<String>, parts: impl IntoIterator<Item = &'a Self>) -> Self {
+        Self {
+            holds_callable: parts.into_iter().any(|part| part.holds_callable),
+            ..Self::raw(text)
+        }
+    }
+
+    /// This type, recorded as holding a callable when `holds_callable`.
+    #[must_use]
+    pub fn holding_callable(mut self, holds_callable: bool) -> Self {
+        self.holds_callable |= holds_callable;
+        self
+    }
+
+    /// What this type is.
+    #[must_use]
+    pub fn shape(&self) -> RustShape {
+        self.shape
+    }
+
+    /// Whether a typed `dyn Fn` callable appears anywhere inside this type.
+    #[must_use]
+    pub fn holds_callable(&self) -> bool {
+        self.holds_callable
     }
 
     /// Returns the rendered source text for this type.
     #[must_use]
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.text
     }
 
     /// Consumes the type and returns its rendered source text.
     #[must_use]
     pub fn into_string(self) -> String {
-        self.0
+        self.text
     }
 }
 
@@ -400,5 +472,27 @@ impl std::fmt::Display for RustType {
     /// Writes the rendered type text.
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(self.as_str())
+    }
+}
+
+#[cfg(test)]
+mod rust_type_tests {
+    use super::*;
+
+    #[test]
+    fn a_callable_inside_a_composed_type_is_visible_from_outside() {
+        let callable = RustType::with_shape("::std::rc::Rc<dyn Fn()>", RustShape::Callable);
+        let list = RustType::composed("SmeltList<::std::rc::Rc<dyn Fn()>>", [&callable]);
+        let optional = RustType::composed("Option<SmeltList<::std::rc::Rc<dyn Fn()>>>", [&list]);
+        assert!(optional.holds_callable());
+        assert_eq!(optional.shape(), RustShape::Concrete);
+    }
+
+    #[test]
+    fn a_plain_type_holds_no_callable() {
+        let item = RustType::raw("f64");
+        assert!(!RustType::composed("SmeltList<f64>", [&item]).holds_callable());
+        assert!(!RustType::erased().holds_callable());
+        assert_eq!(RustType::erased().as_str(), "SmeltUnknown");
     }
 }

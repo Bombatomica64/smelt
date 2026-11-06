@@ -136,7 +136,7 @@ impl FunctionEmitter<'_> {
             // mechanism came from.
             _ => Err(EmitError::new(format!(
                 "`new Headers(init)` initializer type is not modeled: {} (initializer `{init_text}`)",
-                self.type_text_with_impl_trait(init_ty, false)?,
+                self.type_text(init_ty)?,
             ))),
         }
     }
@@ -271,7 +271,7 @@ impl FunctionEmitter<'_> {
             }
             _ => Err(EmitError::new(format!(
                 "`new URLSearchParams(init)` initializer type is not modeled: {}",
-                self.type_text_with_impl_trait(init_ty, false)?
+                self.type_text(init_ty)?
             ))),
         }
     }
@@ -853,7 +853,7 @@ impl FunctionEmitter<'_> {
             }
             _ => Err(EmitError::new(format!(
                 "body must be a string or null; this `BodyInit` arm is not modeled yet: {}",
-                self.type_text_with_impl_trait(body_ty, false)?
+                self.type_text(body_ty)?
             ))),
         }
     }

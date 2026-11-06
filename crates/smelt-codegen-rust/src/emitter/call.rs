@@ -5,6 +5,7 @@ use crate::generic_bindings::{
     CalleeTypeParamBindings, bind_class_type_params, collect_bindings_from_types,
     substituted_type_id, substitution_matches, type_param_occurs,
 };
+use crate::rust::RustShape;
 use smelt_hir::FunctionType;
 
 /// The concrete instantiation one static call site pins on a generic callee.
@@ -415,7 +416,7 @@ impl FunctionEmitter<'_> {
                     }
                     _ => format!("({executor_text})(smelt_resolve, smelt_reject);"),
                 };
-                let output_text = self.type_text(output_ty)?;
+                let output_text = self.signature_type_text(output_ty)?;
                 // `Promise<void>` still accepts an ignored optional value, but
                 // a concrete `Promise<T>` exposes a typed resolver. Keeping the
                 // resolver parameter at `T` lets named executors pass through
@@ -425,7 +426,7 @@ impl FunctionEmitter<'_> {
                 } else {
                     output_ty
                 };
-                let resolve_input_text = self.type_text(resolve_input_ty)?;
+                let resolve_input_text = self.signature_type_text(resolve_input_ty)?;
                 // The executor's declared `resolve` type goes through
                 // `function_type_param_text`, so a list-typed resolver argument is
                 // spelled `&SmeltList<..>` there. This synthesized resolver has to
@@ -1342,7 +1343,7 @@ impl FunctionEmitter<'_> {
                 // statement and terminator forms changes whether it is emittable
                 // at all.
                 let callee_ty = self.operand_ty(indirect_callee)?;
-                if self.callee_is_dynamically_dispatched(callee_ty) {
+                if self.has_dynamic_shape(callee_ty) {
                     let callee_text = self.operand_text(indirect_callee)?;
                     let rendered_args = args
                         .iter()
@@ -2555,17 +2556,17 @@ impl FunctionEmitter<'_> {
         // erases it. The callee renders its element with generics only when it
         // emits real Rust generics, which is what `callee_generics` encodes.
         let caller_scope = self.current_function_type_params();
-        let arg_element_text = self
-            .rust_type(*arg_item, false, &TypeSubstitution::lexical(&caller_scope))?
-            .into_string();
-        let param_element_text = self
-            .rust_type(
-                *target_item,
-                false,
-                &TypeSubstitution::callee_emission(callee_generics),
-            )?
-            .into_string();
-        if arg_element_text == param_element_text {
+        let arg_element = self.rust_type(
+            *arg_item,
+            false,
+            &TypeSubstitution::lexical(&caller_scope),
+        )?;
+        let param_element = self.rust_type(
+            *target_item,
+            false,
+            &TypeSubstitution::callee_emission(callee_generics),
+        )?;
+        if arg_element.as_str() == param_element.as_str() {
             // Already invariance-compatible: the ordinary call path passes the
             // place (or the forwarded reference) straight through.
             return Ok(None);
@@ -2587,7 +2588,7 @@ impl FunctionEmitter<'_> {
         // type, such as `SmeltErasedFunction`) has no such element bridge; leave
         // those on the ordinary call path rather than emit conversions that cannot
         // type-check.
-        if param_element_text == "SmeltUnknown" {
+        if param_element.shape() == RustShape::Erased {
             return Ok(Some((place, MutListArgKind::Erased)));
         }
         if self
@@ -3067,14 +3068,6 @@ impl FunctionEmitter<'_> {
             .unwrap_or_else(|| "<unnameable callee>".to_owned())
     }
 
-    /// Returns whether a callee's type carries no static signature, so its call
-    /// must go through the run-time callable dispatch.
-    ///
-    /// Mirrors the `Rvalue::ClosureCall` erased-callee test so both call forms
-    /// classify a callee identically.
-    pub(super) fn callee_is_dynamically_dispatched(&self, callee_ty: TypeId) -> bool {
-        self.has_dynamic_shape(callee_ty)
-    }
 
     /// Bind every argument that reads through a `RefCell` borrow to a local.
     ///
@@ -3221,7 +3214,7 @@ impl FunctionEmitter<'_> {
                 // A dynamically dispatched callee has no static signature, so
                 // its call produces the erased carrier (see the matching arm in
                 // `indirect` call emission).
-                if self.callee_is_dynamically_dispatched(callee_ty) {
+                if self.has_dynamic_shape(callee_ty) {
                     return self.type_id(Type::Unknown);
                 }
                 // An erased-rest callable (`(...args: any) => LazyFn`) is the
