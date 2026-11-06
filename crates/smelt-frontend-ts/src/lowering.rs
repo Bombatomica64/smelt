@@ -19,6 +19,7 @@ mod postfix_deferral;
 mod presence_tested_locals;
 mod type_param_owners;
 mod promise_resolution;
+mod source_facts;
 mod specialization;
 pub(in crate::lowering) mod spread_arguments;
 mod state;
@@ -494,6 +495,7 @@ pub fn to_hir_with_options(
     );
     builder.ts_facts = options.ts_facts.filter(|facts| facts.has_file(path));
     builder.type_param_owners = type_param_owners::type_param_owners(&parsed.program);
+    builder.source_facts = source_facts::SourceFacts::collect(&parsed.program);
     builder.program(&parsed.program)
 }
 
@@ -548,6 +550,7 @@ pub fn predeclare_type_declarations_with_path(
         Vec::new(),
     );
     builder.type_param_owners = type_param_owners::type_param_owners(&parsed.program);
+    builder.source_facts = source_facts::SourceFacts::collect(&parsed.program);
     // Import provenance first: every surface below may name an imported
     // ambiguous type, and only provenance lets it ask the rename map for the
     // exporting module's rendering (see `predeclare_import_provenance`).
@@ -783,8 +786,10 @@ struct ModuleBuilder<'ctx> {
     file_id: FileId,
     /// Source path for module metadata.
     path: String,
-    /// Source text for cheap declaration-order probes.
+    /// Source text for diagnostics and spelled-out spans.
     source: String,
+    /// Declarations and reads of this module, from its AST.
+    source_facts: source_facts::SourceFacts,
     /// Mutable reference to the HIR context.
     ctx: &'ctx mut HirCtx,
     /// Per-body local state: name bindings, `Date`-identity and explicit-`any`

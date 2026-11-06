@@ -502,15 +502,7 @@ impl ModuleBuilder<'_> {
         qualify_private_name: bool,
     ) -> Option<(smelt_hir::ItemId, Option<smelt_hir::ItemId>)> {
         let return_ty = declared_return_ty?;
-        let body_span = arrow.body.span();
-        let body_text = self
-            .source
-            .get(
-                usize::try_from(body_span.start).unwrap_or(usize::MAX)
-                    ..usize::try_from(body_span.end).unwrap_or(usize::MAX),
-            )
-            .unwrap_or_default();
-        if !Self::mentions_identifier(body_text, name_text) {
+        if !self.source_facts.mentions(arrow.body.span(), name_text) {
             return None;
         }
         let name = self.arrow_item_symbol(name_text, preserve_source_name, qualify_private_name);

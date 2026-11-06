@@ -1,0 +1,83 @@
+//! Declaration and read questions are answered by the AST, not by source text.
+
+use super::*;
+
+/// Whether any body of the crate holds an expression satisfying `predicate`.
+fn any_expr(ctx: &HirCtx, predicate: impl Fn(&ExprKind) -> bool) -> bool {
+    ctx.krate.bodies.iter().flat_map(|body| &body.exprs).any(|expr| predicate(&expr.kind))
+}
+
+/// `class URLParser` does not declare `URL`, so `new URL(..)` stays the host
+/// constructor. A longer name used to satisfy the prefix probe.
+#[test]
+fn a_longer_class_name_does_not_declare_the_host_constructor() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+class URLParser {}
+export const page = new URL("https://example.com/");
+export const parser = new URLParser();
+"#),
+        &mut ctx,
+    )?;
+    ensure!(any_expr(&ctx, |kind| matches!(kind, ExprKind::UrlNew { .. })));
+    Ok(())
+}
+
+/// A comment is no declaration either.
+#[test]
+fn a_comment_does_not_declare_a_class() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+// class URL is the host one here.
+export const page = new URL("https://example.com/");
+"#),
+        &mut ctx,
+    )?;
+    ensure!(any_expr(&ctx, |kind| matches!(kind, ExprKind::UrlNew { .. })));
+    Ok(())
+}
+
+/// `interface ArrayBufferViewLike` does not shadow the ambient `ArrayBufferView`.
+#[test]
+fn a_longer_type_name_does_not_shadow_an_ambient_type() -> Result<(), String> {
+    let source = r"
+interface ArrayBufferViewLike { size: number }
+export function bytes(view: ArrayBufferView): number { return view.byteLength; }
+";
+    let mut with_longer = HirCtx::new();
+    lower_ok(source, &mut with_longer)?;
+    let shadowed = (0..).map_while(|index| with_longer.krate.types.get(smelt_hir::TypeId(index))).any(
+        |ty| {
+            matches!(ty, Type::Class { name, .. }
+                if with_longer.krate.symbols.get(*name) == Some("ArrayBufferView"))
+        },
+    );
+    ensure!(!shadowed, "`ArrayBufferView` must keep its ambient lowering");
+    Ok(())
+}
+
+/// A later declaration still answers for an earlier read, which is why the facts
+/// exist. A commented-out declaration is not one.
+#[test]
+fn a_comment_does_not_declare_a_module_callable() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r"
+// const later = (): number => 1;
+export const first = (): number => later();
+"),
+        &mut ctx,
+    )?;
+    ensure!(!errors.is_empty(), "`later` must stay unresolved");
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+export const first = (): number => later();
+function later(): number { return 1; }
+"),
+        &mut ctx,
+    )?;
+    Ok(())
+}

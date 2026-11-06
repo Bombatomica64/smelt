@@ -2682,61 +2682,13 @@ impl<'builder> ModuleBuilder<'builder> {
     /// `clearTimeout(timeoutId)` into a silent no-op. Such a local is
     /// predeclared by `predeclare_forward_referenced_locals` and never reaches
     /// here; if one still does, it must fail loudly as an unresolved name.
-    ///
-    /// Module level is read off the declaration's INDENTATION, which is what
-    /// distinguishes the two in source text: a top-level declaration starts a
-    /// line (optionally after `export `/`declare `), a function-local one is
-    /// indented inside a block.
     pub(in crate::lowering) fn source_contains_forward_callable(&self, name: &str) -> bool {
-        let const_prefix = format!("const {name}");
-        let function_prefix = format!("function {name}(");
-        self.source_declaration_is_module_level(&function_prefix, |_| true)
-            || self.source_declaration_is_module_level(&const_prefix, |suffix| {
-                suffix.starts_with(" =") || suffix.starts_with(':')
-            })
-    }
-
-    /// Return whether `prefix` occurs at the start of a line (module level).
-    ///
-    /// `suffix_is_declaration` inspects the text right after the prefix, so a
-    /// caller can require `=` or `:` and not match a longer name.
-    fn source_declaration_is_module_level(
-        &self,
-        prefix: &str,
-        suffix_is_declaration: impl Fn(&str) -> bool,
-    ) -> bool {
-        let mut searched = 0usize;
-        while let Some(offset) = self.source.get(searched..).and_then(|rest| {
-            rest.find(prefix)
-                .map(|relative| searched.saturating_add(relative))
-        }) {
-            searched = offset.saturating_add(prefix.len());
-            if !self
-                .source
-                .get(searched..)
-                .is_some_and(&suffix_is_declaration)
-            {
-                continue;
-            }
-            // Everything between the line start and the declaration keyword must
-            // be a modifier, not indentation: `export`/`declare` keep a
-            // declaration at module level, leading whitespace does not.
-            let line_start = self.source[..offset]
-                .rfind('\n')
-                .map_or(0, |newline| newline.saturating_add(1));
-            let lead = self.source[line_start..offset].trim_end();
-            if lead.is_empty() || matches!(lead, "export" | "declare" | "export declare") {
-                return true;
-            }
-        }
-        false
+        self.source_facts.declares_module_callable(name)
     }
 
     /// Return whether the module source declares a class with this local name.
     pub(in crate::lowering) fn source_contains_class(&self, name: &str) -> bool {
-        let class_prefix = format!("class {name}");
-        let exported_class_prefix = format!("export class {name}");
-        self.source.contains(&class_prefix) || self.source.contains(&exported_class_prefix)
+        self.source_facts.declares_class(name)
     }
 
     /// Rewrites the receiver for `value[index]?.method()` to optional indexing.

@@ -4838,10 +4838,9 @@ impl ModuleBuilder<'_> {
     ///
     /// A source declaration of the same name wins for the bare spelling: Hono declares its own
     /// `interface ResponseInit<T extends StatusCode>` and refers to the ambient
-    /// one as `globalThis.ResponseInit` precisely to escape it. The source probe
-    /// is the same one `source_contains_class` uses for the sibling shadowing
-    /// question, because a declaration later in the file must win over a
-    /// reference earlier in it.
+    /// one as `globalThis.ResponseInit` precisely to escape it. The answer comes
+    /// from the module's facts, because a declaration later in the file must win
+    /// over a reference earlier in it.
     fn ambient_init_interface_type(&mut self, name_text: &str) -> Option<smelt_hir::TypeId> {
         let bare = name_text.strip_prefix("globalThis.").unwrap_or(name_text);
         let keys = smelt_stdlib::fetch_init_keys(bare)?;
@@ -4956,22 +4955,12 @@ impl ModuleBuilder<'_> {
         self.types.module_declares_type_name(name.name.as_str())
     }
 
-    /// Whether the source text declares a type of this name.
+    /// Whether the module declares a type of this name.
     ///
-    /// The same textual probe as [`Self::source_contains_class`], and for the
-    /// same reason: a declaration can appear after the reference that needs to
-    /// know about it, so the interface registry is not yet populated when the
-    /// question is asked.
-    /// Whether the module's source text spells a declaration of the type `name`.
+    /// A declaration can appear after the reference that needs to know about it,
+    /// so the interface registry is not yet populated when the question is asked.
     pub(in crate::lowering) fn source_declares_type(&self, name: &str) -> bool {
-        [
-            format!("interface {name}"),
-            format!("type {name}"),
-            format!("class {name}"),
-            format!("enum {name}"),
-        ]
-        .iter()
-        .any(|needle| self.source.contains(needle.as_str()))
+        self.source_facts.declares_type(name)
     }
 
 }
