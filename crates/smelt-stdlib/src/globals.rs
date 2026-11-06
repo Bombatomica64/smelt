@@ -27,6 +27,11 @@ pub const ERROR_CLASS_NAMES: &[&str] = &[
     "AggregateError",
 ];
 
+/// The names the ambient global object answers to in the non-DOM profile.
+///
+/// `window` is absent: it is DOM-only.
+pub const GLOBAL_OBJECT_ALIASES: &[&str] = &["globalThis", "global", "self"];
+
 /// The Node.js release the deterministic non-DOM, Node-compatible target
 /// profile reports.
 ///
@@ -117,16 +122,13 @@ pub fn is_error_class_name(name: &str) -> bool {
 /// (ECMAScript intrinsics plus widely available Web/Node runtime globals).
 #[must_use]
 pub fn is_javascript_global_builtin(name: &str) -> bool {
-    matches!(
+    is_error_class_name(name) || GLOBAL_OBJECT_ALIASES.contains(&name) || matches!(
         name,
         // Core constructors and namespaces.
         "Array" | "Object" | "Number" | "String" | "Boolean" | "BigInt"
         | "Symbol" | "Function" | "Math" | "JSON" | "Reflect" | "Proxy"
         | "Date" | "RegExp" | "Promise" | "Map" | "Set" | "WeakMap"
         | "WeakSet" | "WeakRef" | "Iterator" | "Generator" | "Intl"
-        // Error constructors.
-        | "Error" | "TypeError" | "RangeError" | "SyntaxError"
-        | "ReferenceError" | "EvalError" | "URIError" | "AggregateError"
         // Binary data / typed arrays.
         | "ArrayBuffer" | "SharedArrayBuffer" | "DataView" | "Int8Array"
         | "Uint8Array" | "Uint8ClampedArray" | "Int16Array" | "Uint16Array"
@@ -138,7 +140,7 @@ pub fn is_javascript_global_builtin(name: &str) -> bool {
         | "queueMicrotask" | "setTimeout" | "clearTimeout" | "setInterval"
         | "clearInterval"
         // Ambient globals and environment objects.
-        | "globalThis" | "global" | "self" | "window" | "console" | "process"
+        | "window" | "console" | "process"
         // Common Web / Node runtime classes.
         | "TextEncoder" | "TextDecoder" | "URL" | "URLSearchParams" | "Blob"
         | "File" | "FormData" | "Headers" | "Request" | "Response" | "Buffer"

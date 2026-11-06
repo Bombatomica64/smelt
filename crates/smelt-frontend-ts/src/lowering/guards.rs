@@ -235,6 +235,7 @@ impl ModuleBuilder<'_> {
             // `Buffer`, `DataView`) all carry a registry marker their `instanceof`
             // resolves through.
             || smelt_stdlib::byte_buffer_role(target).is_some()
+            || smelt_stdlib::is_error_class_name(target)
             || matches!(
                 target,
                 "Promise"
@@ -261,14 +262,6 @@ impl ModuleBuilder<'_> {
                     | "Symbol"
                     | "AbortController"
                     | "AbortSignal"
-                    | "Error"
-                    | "EvalError"
-                    | "RangeError"
-                    | "ReferenceError"
-                    | "SyntaxError"
-                    | "TypeError"
-                    | "URIError"
-                    | "AggregateError"
                     // Host `DOMException`: es-toolkit's `AbortError`/`TimeoutError`
                     // tests probe `value instanceof DOMException`. A `new
                     // DOMException(...)` erases to a record carrying

@@ -715,17 +715,7 @@ impl<'builder> ModuleBuilder<'builder> {
             }));
         }
         if let Expression::Identifier(callee_ident) = &call.callee {
-            if matches!(
-                callee_ident.name.as_str(),
-                "Error"
-                    | "EvalError"
-                    | "RangeError"
-                    | "ReferenceError"
-                    | "SyntaxError"
-                    | "TypeError"
-                    | "URIError"
-                    | "AggregateError"
-            ) {
+            if smelt_stdlib::is_error_class_name(callee_ident.name.as_str()) {
                 return self.error_function_call(call, body);
             }
             if self.scope.is_bound(callee_ident.name.as_str()) {

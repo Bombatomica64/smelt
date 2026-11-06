@@ -4,6 +4,7 @@ use crate::lowering::js_text::js_str_text;
 use std::collections::{HashMap, HashSet};
 
 use indexmap::IndexMap;
+use smelt_stdlib::FetchInitKeyKind;
 
 use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
@@ -3788,26 +3789,10 @@ impl ModuleBuilder<'_> {
         name_text: &str,
     ) -> Option<Vec<Field>> {
         let bare = name_text.strip_prefix("globalThis.").unwrap_or(name_text);
-        let keys: &[&str] = match bare {
-            "ResponseInit" => &["status", "statusText", "headers"],
-            "RequestInit" => &[
-                "method",
-                "headers",
-                "body",
-                "cache",
-                "credentials",
-                "integrity",
-                "keepalive",
-                "mode",
-                "redirect",
-                "referrer",
-                "referrerPolicy",
-            ],
-            _ => return None,
-        };
+        let keys = smelt_stdlib::fetch_init_keys(bare)?;
         let class = self.intern_type_name(bare);
         let mut fields = Vec::new();
-        for key in keys {
+        for (key, _) in keys {
             let field = self.intern_source_name(key);
             // The registry answers with the key's OPTIONAL type; a field table
             // carries the bare type plus an `optional` flag, so unwrap the one
@@ -3892,6 +3877,7 @@ impl ModuleBuilder<'_> {
             // is what the construction site's conversion accepts directly; the
             // other spellings reach it as literals, which keep their own types.
             ("ResponseInit" | "RequestInit", "headers") => self.headers_type(),
+            ("RequestInit", "signal") => self.abort_signal_type(),
             // The STORED `RequestInit` members: WebIDL enumerations, which
             // surface as `string`, plus the one `boolean`. Read from the same
             // table the request itself stores them in, so the init surface and
@@ -3912,6 +3898,15 @@ impl ModuleBuilder<'_> {
             _ => return None,
         };
         Some(self.ctx.krate.types.intern(Type::Optional(inner)))
+    }
+
+    /// The ambient `AbortSignal` class type.
+    fn abort_signal_type(&mut self) -> smelt_hir::TypeId {
+        let name = self.intern_type_name("AbortSignal");
+        self.ctx.krate.types.intern(Type::Class {
+            name,
+            args: Vec::new(),
+        })
     }
 
     /// Return declared fields for built-in classes that Smelt does not import from lib.d.ts.
@@ -3961,17 +3956,7 @@ impl ModuleBuilder<'_> {
             .names
             .get(class)
             .or_else(|| self.ctx.krate.symbols.get(class))?;
-        if !matches!(
-            class_name,
-            "Error"
-                | "EvalError"
-                | "RangeError"
-                | "ReferenceError"
-                | "SyntaxError"
-                | "TypeError"
-                | "URIError"
-                | "AggregateError"
-        ) {
+        if !smelt_stdlib::is_error_class_name(class_name) {
             return None;
         }
         let field_name = self.ctx.krate.symbols.get(field)?;
@@ -4859,31 +4844,7 @@ impl ModuleBuilder<'_> {
     /// reference earlier in it.
     fn ambient_init_interface_type(&mut self, name_text: &str) -> Option<smelt_hir::TypeId> {
         let bare = name_text.strip_prefix("globalThis.").unwrap_or(name_text);
-        let keys: &[(&str, AmbientInitKey)] = match bare {
-            "ResponseInit" => &[
-                ("status", AmbientInitKey::Number),
-                ("statusText", AmbientInitKey::Text),
-                ("headers", AmbientInitKey::HeadersInit),
-            ],
-            // The stored members are a literal table, not derived from
-            // `RequestInitMember`; the key set and the getter surface are kept in step
-            // by hand.
-            "RequestInit" => &[
-                ("method", AmbientInitKey::Text),
-                ("headers", AmbientInitKey::HeadersInit),
-                ("body", AmbientInitKey::Text),
-                ("signal", AmbientInitKey::AbortSignal),
-                ("cache", AmbientInitKey::Text),
-                ("credentials", AmbientInitKey::Text),
-                ("integrity", AmbientInitKey::Text),
-                ("keepalive", AmbientInitKey::Boolean),
-                ("mode", AmbientInitKey::Text),
-                ("redirect", AmbientInitKey::Text),
-                ("referrer", AmbientInitKey::Text),
-                ("referrerPolicy", AmbientInitKey::Text),
-            ],
-            _ => return None,
-        };
+        let keys = smelt_stdlib::fetch_init_keys(bare)?;
         // A source declaration of the BARE name wins for the bare spelling —
         // Hono declares its own `interface ResponseInit<T extends StatusCode>`
         // and must keep it. The `globalThis.`-qualified spelling is the source
@@ -4908,17 +4869,11 @@ impl ModuleBuilder<'_> {
             .iter()
             .map(|(key, kind)| {
                 let field_ty = match kind {
-                    AmbientInitKey::Number => self.ctx.krate.types.intern(Type::Float),
-                    AmbientInitKey::Text => self.ctx.krate.types.intern(Type::String),
-                    AmbientInitKey::Boolean => self.ctx.krate.types.intern(Type::Bool),
-                    AmbientInitKey::HeadersInit => self.headers_init_type(),
-                    AmbientInitKey::AbortSignal => {
-                        let signal = self.intern_type_name("AbortSignal");
-                        self.ctx.krate.types.intern(Type::Class {
-                            name: signal,
-                            args: Vec::new(),
-                        })
-                    }
+                    FetchInitKeyKind::Number => self.ctx.krate.types.intern(Type::Float),
+                    FetchInitKeyKind::Text => self.ctx.krate.types.intern(Type::String),
+                    FetchInitKeyKind::Boolean => self.ctx.krate.types.intern(Type::Bool),
+                    FetchInitKeyKind::HeadersInit => self.headers_init_type(),
+                    FetchInitKeyKind::AbortSignal => self.abort_signal_type(),
                 };
                 let optional_ty = self.ctx.krate.types.intern(Type::Optional(field_ty));
                 Field {
@@ -5021,21 +4976,3 @@ impl ModuleBuilder<'_> {
 
 }
 
-/// The typed shape of one ambient init key.
-///
-/// Small closed set rather than a `TypeId` per key, because the type has to be
-/// interned against the live crate while the key table stays a `const`.
-#[derive(Clone, Copy)]
-enum AmbientInitKey {
-    /// A `number` key (`status`).
-    Number,
-    /// A `string` key (`statusText`, `method`, the modeled `body` arm, and
-    /// every stored `RequestInit` member but `keepalive`).
-    Text,
-    /// A `boolean` key (`keepalive`).
-    Boolean,
-    /// The `HeadersInit` union.
-    HeadersInit,
-    /// An `AbortSignal` (`RequestInit.signal`).
-    AbortSignal,
-}

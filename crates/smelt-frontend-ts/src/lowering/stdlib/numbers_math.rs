@@ -10,7 +10,7 @@ use oxc::ast::ast::{Argument, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{
     Body, Expr, ExprKind, FunctionType, Literal, NumericExtremaOp, NumericPredicateOp,
-    NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, Span, StringReplaceOp, Type,
+    NumericRoundOp, PrimitiveCastOp, Span, StringReplaceOp, Type,
 };
 use smelt_stdlib::RuleId;
 
@@ -1263,22 +1263,10 @@ impl ModuleBuilder<'_> {
         if object.name != "Math" {
             return Ok(None);
         }
-        let op = match member.property.name.as_str() {
-            "sqrt" => NumericUnaryFuncOp::Sqrt,
-            "cbrt" => NumericUnaryFuncOp::Cbrt,
-            "sign" => NumericUnaryFuncOp::Sign,
-            "sin" => NumericUnaryFuncOp::Sin,
-            "cos" => NumericUnaryFuncOp::Cos,
-            "tan" => NumericUnaryFuncOp::Tan,
-            "asin" => NumericUnaryFuncOp::Asin,
-            "acos" => NumericUnaryFuncOp::Acos,
-            "atan" => NumericUnaryFuncOp::Atan,
-            "log" => NumericUnaryFuncOp::Log,
-            "log10" => NumericUnaryFuncOp::Log10,
-            "log2" => NumericUnaryFuncOp::Log2,
-            "exp" => NumericUnaryFuncOp::Exp,
-            "clz32" => NumericUnaryFuncOp::Clz32,
-            _ => return Ok(None),
+        let Some(op) = smelt_stdlib::math_function(member.property.name.as_str())
+            .and_then(stdlib_dispatch::math_unary_op)
+        else {
+            return Ok(None);
         };
         if call.arguments.len() != 1 {
             return Err(SmeltError::unsupported(

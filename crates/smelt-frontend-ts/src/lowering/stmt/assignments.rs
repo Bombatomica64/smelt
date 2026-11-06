@@ -5,6 +5,8 @@
 //! optional chains, and the lowering of assignment/update targets.
 
 use crate::SmeltError;
+use crate::lowering::stdlib_dispatch;
+use smelt_stdlib::MathFunction;
 use crate::lowering::js_text::js_str_text;
 use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::{AssignmentTarget, ChainElement, Expression, SimpleAssignmentTarget};
@@ -12,7 +14,7 @@ use oxc::span::GetSpan;
 use oxc::syntax::operator::{AssignmentOperator, UpdateOperator};
 use smelt_hir::{
     BinOp, Body, CaptureMode, ErasureReason, ClosureCapture, DictProjectionOp, Expr, ExprKind, FunctionType, Item,
-    Literal, LocalDecl, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Param, Pattern,
+    Literal, LocalDecl, NumericPredicateOp, NumericRoundOp, Param, Pattern,
     PrimitiveCastOp, Span, Stmt, Type, UnknownKind,
 };
 
@@ -1144,17 +1146,7 @@ impl ModuleBuilder<'_> {
         if object.name != "Number" {
             return None;
         }
-        let value = match member.property.name.as_str() {
-            "NaN" => f64::NAN,
-            "POSITIVE_INFINITY" => f64::INFINITY,
-            "NEGATIVE_INFINITY" => f64::NEG_INFINITY,
-            "MAX_VALUE" => f64::MAX,
-            "MIN_VALUE" => f64::MIN_POSITIVE,
-            "MAX_SAFE_INTEGER" => 9_007_199_254_740_991.0_f64,
-            "MIN_SAFE_INTEGER" => -9_007_199_254_740_991.0_f64,
-            "EPSILON" => f64::EPSILON,
-            _ => return None,
-        };
+        let value = smelt_stdlib::number_constant(member.property.name.as_str())?;
         let ty = self.ctx.krate.types.intern(Type::Float);
         Some(body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::Float(value)),
@@ -1279,17 +1271,7 @@ impl ModuleBuilder<'_> {
         // `Math.PI` reference (e.g. `chunk(xs, Math.PI)` in the chunk spec)
         // resolves to a concrete number instead of an unresolved `Math`
         // identifier. These match the ECMAScript spec constant values.
-        if let Some(constant) = match member.property.name.as_str() {
-            "PI" => Some(std::f64::consts::PI),
-            "E" => Some(std::f64::consts::E),
-            "LN2" => Some(std::f64::consts::LN_2),
-            "LN10" => Some(std::f64::consts::LN_10),
-            "LOG2E" => Some(std::f64::consts::LOG2_E),
-            "LOG10E" => Some(std::f64::consts::LOG10_E),
-            "SQRT2" => Some(std::f64::consts::SQRT_2),
-            "SQRT1_2" => Some(std::f64::consts::FRAC_1_SQRT_2),
-            _ => None,
-        } {
+        if let Some(constant) = smelt_stdlib::math_constant(member.property.name.as_str()) {
             return Some(outer_body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Float(constant)),
                 ty: number_ty,
@@ -1310,79 +1292,25 @@ impl ModuleBuilder<'_> {
             ty: number_ty,
             span,
         });
-        let result_kind = match member.property.name.as_str() {
-            "abs" => ExprKind::NumericAbs {
+        let function = smelt_stdlib::math_function(member.property.name.as_str())?;
+        let result_kind = match function {
+            MathFunction::Abs => ExprKind::NumericAbs {
                 operand: value_expr,
             },
-            "floor" => ExprKind::NumericRound {
-                op: NumericRoundOp::Floor,
-                operand: value_expr,
-            },
-            "ceil" => ExprKind::NumericRound {
-                op: NumericRoundOp::Ceil,
-                operand: value_expr,
-            },
-            "round" => ExprKind::NumericRound {
-                op: NumericRoundOp::Round,
-                operand: value_expr,
-            },
-            "trunc" => ExprKind::NumericRound {
-                op: NumericRoundOp::Trunc,
-                operand: value_expr,
-            },
-            "sqrt" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Sqrt,
-                operand: value_expr,
-            },
-            "cbrt" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Cbrt,
-                operand: value_expr,
-            },
-            "sign" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Sign,
-                operand: value_expr,
-            },
-            "sin" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Sin,
-                operand: value_expr,
-            },
-            "cos" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Cos,
-                operand: value_expr,
-            },
-            "tan" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Tan,
-                operand: value_expr,
-            },
-            "asin" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Asin,
-                operand: value_expr,
-            },
-            "acos" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Acos,
-                operand: value_expr,
-            },
-            "atan" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Atan,
-                operand: value_expr,
-            },
-            "log" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Log,
-                operand: value_expr,
-            },
-            "log10" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Log10,
-                operand: value_expr,
-            },
-            "log2" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Log2,
-                operand: value_expr,
-            },
-            "exp" => ExprKind::NumericUnaryFunc {
-                op: NumericUnaryFuncOp::Exp,
-                operand: value_expr,
-            },
-            _ => return None,
+            MathFunction::Clz32 => return None,
+            _ => {
+                if let Some(op) = stdlib_dispatch::math_round_op(function) {
+                    ExprKind::NumericRound {
+                        op,
+                        operand: value_expr,
+                    }
+                } else {
+                    ExprKind::NumericUnaryFunc {
+                        op: stdlib_dispatch::math_unary_op(function)?,
+                        operand: value_expr,
+                    }
+                }
+            }
         };
         let result = closure_body.push_expr(Expr {
             kind: result_kind,

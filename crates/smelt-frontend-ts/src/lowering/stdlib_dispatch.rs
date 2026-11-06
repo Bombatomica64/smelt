@@ -1,57 +1,41 @@
 //! TypeScript standard-library dispatch against shared rule metadata.
 
 use oxc::ast::ast::{CallExpression, Expression};
-use smelt_stdlib::RuleId;
+use smelt_hir::{NumericRoundOp, NumericUnaryFuncOp};
+use smelt_stdlib::{MathFunction, RuleId};
 
-/// Pure `Math.*` calls that can be folded while reading exported constants.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum PureMathCall {
-    /// `Math.abs(value)`.
-    Abs,
-    /// `Math.floor(value)`.
-    Floor,
-    /// `Math.ceil(value)`.
-    Ceil,
-    /// `Math.round(value)`.
-    Round,
-    /// `Math.trunc(value)`.
-    Trunc,
-    /// `Math.max(...values)`.
-    Max,
-    /// `Math.min(...values)`.
-    Min,
-    /// `Math.hypot(...values)`.
-    Hypot,
-    /// `Math.sqrt(value)`.
-    Sqrt,
-    /// `Math.cbrt(value)`.
-    Cbrt,
-    /// `Math.sign(value)`.
-    Sign,
-    /// `Math.sin(value)`.
-    Sin,
-    /// `Math.cos(value)`.
-    Cos,
-    /// `Math.tan(value)`.
-    Tan,
-    /// `Math.asin(value)`.
-    Asin,
-    /// `Math.acos(value)`.
-    Acos,
-    /// `Math.atan(value)`.
-    Atan,
-    /// `Math.log(value)`.
-    Log,
-    /// `Math.log10(value)`.
-    Log10,
-    /// `Math.log2(value)`.
-    Log2,
-    /// `Math.exp(value)`.
-    Exp,
-    /// `Math.pow(base, exponent)`.
-    Pow,
-    /// `Math.atan2(y, x)`.
-    Atan2,
+/// The `NumericRound` operation of a rounding `Math` function.
+#[must_use]
+pub(super) const fn math_round_op(function: MathFunction) -> Option<NumericRoundOp> {
+    match function {
+        MathFunction::Floor => Some(NumericRoundOp::Floor),
+        MathFunction::Ceil => Some(NumericRoundOp::Ceil),
+        MathFunction::Round => Some(NumericRoundOp::Round),
+        MathFunction::Trunc => Some(NumericRoundOp::Trunc),
+        _ => None,
+    }
+}
+
+/// The `NumericUnaryFunc` operation of a single-argument `Math` function.
+#[must_use]
+pub(super) const fn math_unary_op(function: MathFunction) -> Option<NumericUnaryFuncOp> {
+    match function {
+        MathFunction::Sqrt => Some(NumericUnaryFuncOp::Sqrt),
+        MathFunction::Cbrt => Some(NumericUnaryFuncOp::Cbrt),
+        MathFunction::Sign => Some(NumericUnaryFuncOp::Sign),
+        MathFunction::Sin => Some(NumericUnaryFuncOp::Sin),
+        MathFunction::Cos => Some(NumericUnaryFuncOp::Cos),
+        MathFunction::Tan => Some(NumericUnaryFuncOp::Tan),
+        MathFunction::Asin => Some(NumericUnaryFuncOp::Asin),
+        MathFunction::Acos => Some(NumericUnaryFuncOp::Acos),
+        MathFunction::Atan => Some(NumericUnaryFuncOp::Atan),
+        MathFunction::Log => Some(NumericUnaryFuncOp::Log),
+        MathFunction::Log10 => Some(NumericUnaryFuncOp::Log10),
+        MathFunction::Log2 => Some(NumericUnaryFuncOp::Log2),
+        MathFunction::Exp => Some(NumericUnaryFuncOp::Exp),
+        MathFunction::Clz32 => Some(NumericUnaryFuncOp::Clz32),
+        _ => None,
+    }
 }
 
 /// Return the shared stdlib rule matching a TypeScript call expression.
@@ -88,7 +72,7 @@ fn namespace_path(expr: &Expression<'_>) -> Option<String> {
 
 /// Return the pure Math operation for a static `Math.*` call, excluding non-foldable APIs.
 #[must_use]
-pub(super) fn pure_math_call(call: &CallExpression<'_>) -> Option<PureMathCall> {
+pub(super) fn pure_math_call(call: &CallExpression<'_>) -> Option<MathFunction> {
     let Expression::StaticMemberExpression(member) = &call.callee else {
         return None;
     };
@@ -98,32 +82,9 @@ pub(super) fn pure_math_call(call: &CallExpression<'_>) -> Option<PureMathCall> 
     if object.name != "Math" {
         return None;
     }
-    match member.property.name.as_str() {
-        "abs" => Some(PureMathCall::Abs),
-        "floor" => Some(PureMathCall::Floor),
-        "ceil" => Some(PureMathCall::Ceil),
-        "round" => Some(PureMathCall::Round),
-        "trunc" => Some(PureMathCall::Trunc),
-        "max" => Some(PureMathCall::Max),
-        "min" => Some(PureMathCall::Min),
-        "hypot" => Some(PureMathCall::Hypot),
-        "sqrt" => Some(PureMathCall::Sqrt),
-        "cbrt" => Some(PureMathCall::Cbrt),
-        "sign" => Some(PureMathCall::Sign),
-        "sin" => Some(PureMathCall::Sin),
-        "cos" => Some(PureMathCall::Cos),
-        "tan" => Some(PureMathCall::Tan),
-        "asin" => Some(PureMathCall::Asin),
-        "acos" => Some(PureMathCall::Acos),
-        "atan" => Some(PureMathCall::Atan),
-        "log" => Some(PureMathCall::Log),
-        "log10" => Some(PureMathCall::Log10),
-        "log2" => Some(PureMathCall::Log2),
-        "exp" => Some(PureMathCall::Exp),
-        "pow" => Some(PureMathCall::Pow),
-        "atan2" => Some(PureMathCall::Atan2),
-        _ => None,
-    }
+    smelt_stdlib::math_function(member.property.name.as_str()).filter(|function| {
+        !matches!(function, MathFunction::Imul | MathFunction::Clz32 | MathFunction::Random)
+    })
 }
 
 /// Return the rule matching a static member call.

@@ -13,6 +13,7 @@ use crate::lowering::{
     ModuleBuilder, RestParam, ambient_globals, stdlib_dispatch,
 };
 use crate::SmeltError;
+use smelt_stdlib::MathFunction;
 use oxc::ast::ast::{
     Argument, BindingPattern, Expression,
 };
@@ -890,8 +891,8 @@ return_ty,
         let Expression::Identifier(object) = &member.object else {
             return false;
         };
-        matches!(object.name.as_str(), "globalThis" | "global" | "self")
-            && matches!(member.property.name.as_str(), "DOMException")
+        smelt_stdlib::GLOBAL_OBJECT_ALIASES.contains(&object.name.as_str())
+            && member.property.name == "DOMException"
     }
 
     /// Fold a supported unary expression inside an exported const initializer.
@@ -953,23 +954,10 @@ return_ty,
             return Ok(value);
         }
         if let Expression::Identifier(object) = &member.object {
-            let value = match (object.name.as_str(), member.property.name.as_str()) {
-                ("Number", "NaN") => Some(f64::NAN),
-                ("Number", "POSITIVE_INFINITY") => Some(f64::INFINITY),
-                ("Number", "NEGATIVE_INFINITY") => Some(f64::NEG_INFINITY),
-                ("Number", "MAX_VALUE") => Some(f64::MAX),
-                ("Number", "MIN_VALUE") => Some(f64::MIN_POSITIVE),
-                ("Number", "MAX_SAFE_INTEGER") => Some(9_007_199_254_740_991.0_f64),
-                ("Number", "MIN_SAFE_INTEGER") => Some(-9_007_199_254_740_991.0_f64),
-                ("Number", "EPSILON") => Some(f64::EPSILON),
-                ("Math", "PI") => Some(std::f64::consts::PI),
-                ("Math", "E") => Some(std::f64::consts::E),
-                ("Math", "LN2") => Some(std::f64::consts::LN_2),
-                ("Math", "LN10") => Some(std::f64::consts::LN_10),
-                ("Math", "LOG2E") => Some(std::f64::consts::LOG2_E),
-                ("Math", "LOG10E") => Some(std::f64::consts::LOG10_E),
-                ("Math", "SQRT2") => Some(std::f64::consts::SQRT_2),
-                ("Math", "SQRT1_2") => Some(std::f64::consts::FRAC_1_SQRT_2),
+            let property = member.property.name.as_str();
+            let value = match object.name.as_str() {
+                "Number" => smelt_stdlib::number_constant(property),
+                "Math" => smelt_stdlib::math_constant(property),
                 _ => None,
             };
             if let Some(value) = value {
@@ -1143,38 +1131,38 @@ return_ty,
     }
 
     /// Fold one pure numeric Math operation using JavaScript-compatible f64 behavior.
-    pub(in crate::lowering) fn fold_pure_math_const(op: stdlib_dispatch::PureMathCall, args: &[f64]) -> Option<f64> {
-        use stdlib_dispatch::PureMathCall;
+    pub(in crate::lowering) fn fold_pure_math_const(op: MathFunction, args: &[f64]) -> Option<f64> {
         match op {
-            PureMathCall::Abs => single_arg(args).map(f64::abs),
-            PureMathCall::Floor => single_arg(args).map(f64::floor),
-            PureMathCall::Ceil => single_arg(args).map(f64::ceil),
-            PureMathCall::Round => single_arg(args).map(f64::round),
-            PureMathCall::Trunc => single_arg(args).map(f64::trunc),
-            PureMathCall::Max => Some(args.iter().copied().fold(f64::NEG_INFINITY, f64::max)),
-            PureMathCall::Min => Some(args.iter().copied().fold(f64::INFINITY, f64::min)),
-            PureMathCall::Hypot => Some(args.iter().map(|arg| arg * arg).sum::<f64>().sqrt()),
-            PureMathCall::Sqrt => single_arg(args).map(f64::sqrt),
-            PureMathCall::Cbrt => single_arg(args).map(f64::cbrt),
-            PureMathCall::Sign => single_arg(args).map(|arg| {
+            MathFunction::Abs => single_arg(args).map(f64::abs),
+            MathFunction::Floor => single_arg(args).map(f64::floor),
+            MathFunction::Ceil => single_arg(args).map(f64::ceil),
+            MathFunction::Round => single_arg(args).map(f64::round),
+            MathFunction::Trunc => single_arg(args).map(f64::trunc),
+            MathFunction::Max => Some(args.iter().copied().fold(f64::NEG_INFINITY, f64::max)),
+            MathFunction::Min => Some(args.iter().copied().fold(f64::INFINITY, f64::min)),
+            MathFunction::Hypot => Some(args.iter().map(|arg| arg * arg).sum::<f64>().sqrt()),
+            MathFunction::Sqrt => single_arg(args).map(f64::sqrt),
+            MathFunction::Cbrt => single_arg(args).map(f64::cbrt),
+            MathFunction::Sign => single_arg(args).map(|arg| {
                 if arg.is_nan() || arg == 0.0_f64 {
                     arg
                 } else {
                     arg.signum()
                 }
             }),
-            PureMathCall::Sin => single_arg(args).map(f64::sin),
-            PureMathCall::Cos => single_arg(args).map(f64::cos),
-            PureMathCall::Tan => single_arg(args).map(f64::tan),
-            PureMathCall::Asin => single_arg(args).map(f64::asin),
-            PureMathCall::Acos => single_arg(args).map(f64::acos),
-            PureMathCall::Atan => single_arg(args).map(f64::atan),
-            PureMathCall::Log => single_arg(args).map(f64::ln),
-            PureMathCall::Log10 => single_arg(args).map(f64::log10),
-            PureMathCall::Log2 => single_arg(args).map(f64::log2),
-            PureMathCall::Exp => single_arg(args).map(f64::exp),
-            PureMathCall::Pow => two_args(args).map(|(base, exponent)| base.powf(exponent)),
-            PureMathCall::Atan2 => two_args(args).map(|(y, x)| y.atan2(x)),
+            MathFunction::Sin => single_arg(args).map(f64::sin),
+            MathFunction::Cos => single_arg(args).map(f64::cos),
+            MathFunction::Tan => single_arg(args).map(f64::tan),
+            MathFunction::Asin => single_arg(args).map(f64::asin),
+            MathFunction::Acos => single_arg(args).map(f64::acos),
+            MathFunction::Atan => single_arg(args).map(f64::atan),
+            MathFunction::Log => single_arg(args).map(f64::ln),
+            MathFunction::Log10 => single_arg(args).map(f64::log10),
+            MathFunction::Log2 => single_arg(args).map(f64::log2),
+            MathFunction::Exp => single_arg(args).map(f64::exp),
+            MathFunction::Pow => two_args(args).map(|(base, exponent)| base.powf(exponent)),
+            MathFunction::Atan2 => two_args(args).map(|(y, x)| y.atan2(x)),
+            _ => None,
         }
     }
 
