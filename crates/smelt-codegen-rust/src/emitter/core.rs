@@ -2617,9 +2617,9 @@ impl<'mir> FunctionEmitter<'mir> {
         // failed to adapt its erased `__smelt_call` slot to the overload the
         // call site selected, emitting a raw field read and an E0308.
         if self.is_erased_unknown_rest_function(source_function) {
-            return self.type_id(Type::Unknown).is_ok_and(|unknown_ty| {
-                self.can_render_non_function_dict_value_as(unknown_ty, target_function.return_ty)
-            });
+            let unknown_ty = self.mir.types.intern_late(Type::Unknown);
+            return self
+                .can_render_non_function_dict_value_as(unknown_ty, target_function.return_ty);
         }
         // A trailing rest parameter in the SOURCE collects every target
         // argument from its position on (`(...args) => ..` stored in a

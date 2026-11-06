@@ -35,6 +35,10 @@ use crate::stdlib::{module_hash_set_key_safe, stdlib_class_of_class_symbol};
 pub(crate) enum Need {
     /// The erased `SmeltUnknown` carrier and everything written against it.
     Unknown,
+    /// An operation whose answer is erased though nothing has to spell `unknown`:
+    /// a dynamic `JSON.parse`, a member read through a bound. The carrier counts
+    /// as present in the program (see `FunctionEmitter::find_type_id`).
+    ErasedAnswer,
     /// The identity-bearing `SmeltList<T>`.
     SmeltList,
     /// The `smelt_next_object_id` reference-identity counter.
@@ -247,6 +251,7 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::Body, &[Need::ObjectIds]),
     (Need::BodyHostMethod, &[Need::JsonParse]),
     (Need::JsonParse, &[Need::DepSerdeJson]),
+    (Need::ErasedAnswer, &[Need::Unknown]),
     (
         Need::HttpServer,
         &[Need::Headers, Need::EventEmitter, Need::Timers, Need::ObjectIds, Need::HostOrigins],
@@ -578,6 +583,11 @@ macro_rules! define_scan_rvalue {
                             add_op_needs!(self, $($fact $fact_value)*);
                         }
                     )*
+                    // Wherever the parameter is not a real Rust generic, a read
+                    // through its bound converts from the erased carrier.
+                    Rvalue::BoundMethod { .. } | Rvalue::BoundField { .. } => {
+                        self.add(Need::ErasedAnswer);
+                    }
                     _ => {}
                 }
             }

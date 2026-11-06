@@ -2435,7 +2435,7 @@ macro_rules! op_group_transcribed {
             }
                 fallible(true)
                 call(if target.is_some() { "@json_decode" } else { "@json_parse" }.to_owned())
-                needs(JsonParse)
+                needs(JsonParse, ErasedAnswer)
                 => (format!(
                     "{} {text}",
                     if target.is_some() { "json_decode" } else { "json_parse" }
