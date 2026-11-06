@@ -3179,6 +3179,25 @@ impl FunctionEmitter<'_> {
                     self.erase(operand)?
                 ),
             ))
+        } else if absent == AbsentSpelling::Undefined
+            && matches!(
+                self.mir.types.get(ty),
+                Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))
+            )
+            && self.type_mentions_any(ty, &self.current_function_type_params())
+        {
+            // A container of a Rust generic has no `SmeltInspect` impl: its
+            // elements print through the erased carrier their bound provides.
+            self.context.mark_console_inspect_used();
+            Ok((
+                "{}",
+                format!(
+                    "{}::{}(&{})",
+                    crate::console_inspect_prelude::INSPECT_TRAIT,
+                    crate::console_inspect_prelude::CONSOLE_TEXT_METHOD,
+                    self.erase(operand)?
+                ),
+            ))
         } else if matches!(
             self.mir.types.get(ty),
             Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))

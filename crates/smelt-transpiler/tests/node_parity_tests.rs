@@ -106,6 +106,12 @@ fn implements_inherited_members() -> TestResult {
     verify_node_parity("implements_inherited_members")
 }
 
+/// A container of a type parameter prints through `util.inspect`, never Rust `Debug`.
+#[test]
+fn console_erased_generic() -> TestResult {
+    verify_node_parity("console_erased_generic")
+}
+
 /// Array-valued ternary arms join instead of one adopting the other's type.
 #[test]
 fn conditional_list_arms() -> TestResult {
