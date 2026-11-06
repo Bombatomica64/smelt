@@ -2746,20 +2746,12 @@ impl<'builder> ModuleBuilder<'builder> {
         ]
     }
 
-    /// Return whether the module source declares a callable with this local name
-    /// AT MODULE LEVEL.
+    /// Return whether the module declares a callable with this name, at any depth.
     ///
-    /// The caller uses this to resolve a name that is not in scope yet as a
-    /// module global, which for `Type::Unknown` FABRICATES an empty object.
-    /// That is defensible for a module-level binding lowered later in the file
-    /// (`module_global_expression` recreates its value), and wrong for a
-    /// FUNCTION-LOCAL one: a local read before its declaration is a binding,
-    /// not a host global, and answering `{}` for it turned
-    /// `clearTimeout(timeoutId)` into a silent no-op. Such a local is
-    /// predeclared by `predeclare_forward_referenced_locals` and never reaches
-    /// here; if one still does, it must fail loudly as an unresolved name.
+    /// The caller uses this to resolve a name that is not in scope yet: a later
+    /// declaration, or a nested function naming itself in its own body.
     pub(in crate::lowering) fn source_contains_forward_callable(&self, name: &str) -> bool {
-        self.source_facts.declares_module_callable(name)
+        self.source_facts.declares_forward_callable(name)
     }
 
     /// Return whether the module source declares a class with this local name.

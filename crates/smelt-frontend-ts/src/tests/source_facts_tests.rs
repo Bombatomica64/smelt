@@ -82,6 +82,26 @@ function later(): number { return 1; }
     Ok(())
 }
 
+/// A named function expression can pass itself along from its own body.
+#[test]
+fn a_named_function_expression_names_itself_as_a_callback() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+function apply(run: (next: unknown) => boolean): boolean { return run(1); }
+export function top(): boolean {
+  return apply(
+    function visit(value: unknown): boolean {
+      return apply(visit);
+    },
+  );
+}
+"),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
 /// A binding named like a recognized global is that binding, whichever rule
 /// would have claimed the spelling.
 #[test]
