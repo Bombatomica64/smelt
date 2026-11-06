@@ -81,3 +81,9 @@ impl<'smelt_set, T> IntoIterator for &'smelt_set SmeltPrimSet<T> { type Item = &
 impl<T: Clone + ::std::cmp::Eq + ::std::hash::Hash> PartialEq for SmeltPrimSet<T> { fn eq(&self, other: &Self) -> bool { self.store.entries.len() == other.store.entries.len() && self.store.entries.iter().all(|value| other.contains(value)) } }
 
 // @smelt:item-end
+
+// @smelt:item impl_SmeltFromUnknown_for_SmeltPrimSet_T when prim_set & unknown
+/// Recover a primitive `Set` from its erased array, or a `SmeltJsSet` marker.
+impl<T: SmeltFromUnknown + Clone + ::std::cmp::Eq + ::std::hash::Hash> SmeltFromUnknown for SmeltPrimSet<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { let members = match value { SmeltUnknown::Array(members) => members, SmeltUnknown::Object(object) => match object.get("__smelt_set") { Some(SmeltUnknown::Array(members)) => members, _ => return Self::default() }, _ => return Self::default() }; members.into_vec().into_iter().map(T::smelt_from_unknown).collect() } }
+
+// @smelt:item-end

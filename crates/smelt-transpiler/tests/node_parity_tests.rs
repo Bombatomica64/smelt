@@ -130,6 +130,12 @@ fn closure_param_written_by_closure() -> TestResult {
     verify_node_parity("closure_param_written_by_closure")
 }
 
+/// A `Set` that crosses `unknown` keeps its members and insertion order.
+#[test]
+fn erased_set_order() -> TestResult {
+    verify_node_parity("erased_set_order")
+}
+
 /// Array-valued ternary arms join instead of one adopting the other's type.
 #[test]
 fn conditional_list_arms() -> TestResult {

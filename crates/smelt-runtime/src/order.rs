@@ -150,6 +150,7 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("smelt_url_new_throwing"),
     Entry::Blank("unknown"),
     Entry::Item("smelt_class_value"),
+    Entry::Item("impl_SmeltFromUnknown_for_SmeltPrimSet_T"),
     Entry::Item("impl_Eq_for_SmeltUnknown"),
     Entry::Item("impl_PartialOrd_f64_for_SmeltUnknown"),
     Entry::Item("impl_PartialOrd_SmeltUnknown_for_f64"),
