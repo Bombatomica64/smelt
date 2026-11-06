@@ -63,13 +63,9 @@ use smelt_hir::{
 /// module binding, and counting it would lift a binding nothing outside the
 /// module body ever looks at.
 ///
-/// The subtraction ignores the block structure that would make shadowing exact,
-/// so the error is one-directional: a name both bound somewhere in the item AND
-/// read as the module binding elsewhere in it is treated as not read. That
-/// shape — one identifier meaning two different things in one function, one of
-/// them a module-level class instance — leaves the read on the old path, which
-/// is now a NAMED BLOCKER rather than a fabricated empty record, so the honest
-/// failure is what a miss produces.
+/// Bindings are subtracted per lexical scope: each function and block keeps its
+/// own, and what stays free in it reaches the enclosing scope. A parameter of one
+/// function says nothing about what its neighbour reads.
 struct ReadNameCollector {
     /// Identifier names referenced inside the item.
     names: HashSet<String>,
@@ -78,6 +74,16 @@ struct ReadNameCollector {
 }
 
 impl ReadNameCollector {
+    /// Run `visit` as one lexical scope: what it leaves free joins this scope's
+    /// reads, and what it binds stays inside.
+    fn in_own_scope(&mut self, visit: impl FnOnce(&mut Self)) {
+        let names = std::mem::take(&mut self.names);
+        let bound = std::mem::take(&mut self.bound);
+        visit(self);
+        let inner = std::mem::replace(self, Self { names, bound });
+        self.names.extend(inner.into_free_names());
+    }
+
     /// The names read but not bound by the item.
     fn into_free_names(self) -> HashSet<String> {
         let Self { names, bound } = self;
@@ -96,6 +102,27 @@ impl<'a> oxc::ast_visit::Visit<'a> for ReadNameCollector {
 
     fn visit_binding_identifier(&mut self, binding: &oxc::ast::ast::BindingIdentifier<'a>) {
         self.bound.insert(binding.name.as_str().to_owned());
+    }
+
+    fn visit_function(
+        &mut self,
+        function: &oxc::ast::ast::Function<'a>,
+        flags: oxc::semantic::ScopeFlags,
+    ) {
+        self.in_own_scope(|this| oxc::ast_visit::walk::walk_function(this, function, flags));
+    }
+
+    fn visit_arrow_function_expression(
+        &mut self,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'a>,
+    ) {
+        self.in_own_scope(|this| {
+            oxc::ast_visit::walk::walk_arrow_function_expression(this, arrow);
+        });
+    }
+
+    fn visit_block_statement(&mut self, block: &oxc::ast::ast::BlockStatement<'a>) {
+        self.in_own_scope(|this| oxc::ast_visit::walk::walk_block_statement(this, block));
     }
 }
 

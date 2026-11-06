@@ -88,6 +88,12 @@ fn rest_value_calls() -> TestResult {
     verify_node_parity("rest_value_calls")
 }
 
+/// A parameter does not hide a module constant from other functions.
+#[test]
+fn parameter_shadows_module_const() -> TestResult {
+    verify_node_parity("parameter_shadows_module_const")
+}
+
 /// Array-valued ternary arms join instead of one adopting the other's type.
 #[test]
 fn conditional_list_arms() -> TestResult {
