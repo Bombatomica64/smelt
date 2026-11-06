@@ -12557,11 +12557,17 @@ export function guardedViaLocal(cb: (...args: unknown[]) => unknown): unknown {
     // N source arguments. Nesting that list as a single vector element calls the
     // callback with one array argument instead of two — it compiles and silently
     // passes the wrong arity, so the packed list must be handed over as the
-    // vector itself. Both call forms must render the same argument text.
+    // vector itself. The statement form takes the list written inside the call
+    // (`RestCallFusion`); the terminator form, inside `try`, passes its temporary.
     assert_eq!(
-        source.matches(".call(_smelt_tmp_2)").count(),
-        2,
-        "both call forms pass the packed argument list as the argument vector:\n{source}"
+        source.matches(".call(Into::<SmeltList<_>>::into(").count(),
+        1,
+        "the statement form passes the packed list as the argument vector:\n{source}"
+    );
+    assert_eq!(
+        source.matches(".call(_smelt_tmp_").count(),
+        1,
+        "the terminator form passes the packed list as the argument vector:\n{source}"
     );
     assert!(
         !source.contains(".call(vec![SmeltUnknown::Array("),
