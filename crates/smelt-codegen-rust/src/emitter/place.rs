@@ -802,7 +802,7 @@ impl FunctionEmitter<'_> {
         let Type::Class { name, .. } = self.mir.types.get(ty)? else {
             return None;
         };
-        let class = self.mir.classes.iter().find(|class| class.name == *name)?;
+        let class = crate::classes::find_class(self.mir, *name)?;
         if let Some(descriptor) = class
             .descriptors
             .iter()
@@ -848,11 +848,7 @@ impl FunctionEmitter<'_> {
         class_symbol: Symbol,
         descriptor: &MirDescriptor,
     ) -> Result<String, EmitError> {
-        let descriptor_class = self
-            .mir
-            .classes
-            .iter()
-            .find(|candidate| candidate.name == class_symbol)
+        let descriptor_class = crate::classes::find_class(self.mir, class_symbol)
             .ok_or_else(|| EmitError::new("descriptor class is not materialized"))?;
         let class_name = crate::classes::class_name_text(self.mir, descriptor_class)?;
         let fields = descriptor

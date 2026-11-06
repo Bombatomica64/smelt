@@ -1825,10 +1825,7 @@ impl FunctionEmitter<'_> {
             // class type parameters relevant to argument pass-through here.
             HirOrigin::Body(_) | HirOrigin::ClassStaticMethod { .. } => return Vec::new(),
         };
-        self.mir
-            .classes
-            .iter()
-            .find(|class| class.name == class_name)
+        crate::classes::find_class(self.mir, class_name)
             .map(|class| class.type_params.iter().map(|param| param.name).collect())
             .unwrap_or_default()
     }
@@ -2944,20 +2941,20 @@ impl FunctionEmitter<'_> {
             return Some(receiver_ty);
         }
         let inherited = crate::classes::inherited_type_substitution(self.mir, *name, declaring);
-        let receiver_class = self.mir.classes.iter().find(|class| class.name == *name)?;
+        let receiver_class = crate::classes::find_class(self.mir, *name)?;
         let receiver_args: HashMap<Symbol, TypeId> = receiver_class
             .type_params
             .iter()
             .map(|param| param.name)
             .zip(args.iter().copied())
             .collect();
-        let declaring_class = self.mir.classes.iter().find(|class| class.name == declaring)?;
+        let declaring_class = crate::classes::find_class(self.mir, declaring)?;
         let declaring_args = declaring_class
             .type_params
             .iter()
             .map(|param| {
                 let in_receiver_scope = inherited.get(&param.name).copied()?;
-                Some(crate::classes::substitute_existing_type(
+                Some(crate::generic_bindings::substitute_existing_type(
                     self.mir,
                     in_receiver_scope,
                     &receiver_args,
@@ -3932,11 +3929,7 @@ impl FunctionEmitter<'_> {
             if class_name == target {
                 return true;
             }
-            current = self
-                .mir
-                .classes
-                .iter()
-                .find(|class| class.name == class_name)
+            current = crate::classes::find_class(self.mir, class_name)
                 .and_then(|class| class.base);
         }
         false

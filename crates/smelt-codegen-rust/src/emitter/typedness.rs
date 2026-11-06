@@ -462,11 +462,7 @@ impl FunctionEmitter<'_> {
             (Type::Tuple(items), None) => Some(items.clone()),
             (Type::Dict(_, value) | Type::JsMap(_, value), _) => Some(vec![*value]),
             (Type::Class { name, args }, Some(field)) => {
-                let (params, fields) = self
-                    .mir
-                    .classes
-                    .iter()
-                    .find(|class| class.name == *name)
+                let (params, fields) = crate::classes::find_class(self.mir, *name)
                     .map(|class| (&class.type_params, &class.fields))
                     .or_else(|| {
                         self.mir
@@ -487,7 +483,7 @@ impl FunctionEmitter<'_> {
                     .map(|def| def.name)
                     .zip(args.iter().copied())
                     .collect();
-                Some(vec![crate::classes::substitute_existing_type(
+                Some(vec![crate::generic_bindings::substitute_existing_type(
                     self.mir,
                     declared,
                     &substitutions,

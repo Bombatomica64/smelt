@@ -247,7 +247,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty) else {
             return Ok("");
         };
-        let Some(class) = self.mir.classes.iter().find(|class| class.name == *name) else {
+        let Some(class) = crate::classes::find_class(self.mir, *name) else {
             return Ok("");
         };
         for method_id in &class.methods {
@@ -291,7 +291,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty) else {
             return Ok(None);
         };
-        if let Some(class) = self.mir.classes.iter().find(|class| class.name == *name) {
+        if let Some(class) = crate::classes::find_class(self.mir, *name) {
             for method_id in &class.methods {
                 let function = self
                     .mir

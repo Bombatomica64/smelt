@@ -72,11 +72,7 @@ impl FunctionEmitter<'_> {
         let Type::Class { name, .. } = self.mir.types.get(record_ty)? else {
             return None;
         };
-        let (declared_ty, type_params) = self
-            .mir
-            .classes
-            .iter()
-            .find(|class| class.name == *name)
+        let (declared_ty, type_params) = crate::classes::find_class(self.mir, *name)
             .and_then(|class| {
                 let declared = crate::classes::effective_class_fields(self.mir, class)
                     .into_iter()

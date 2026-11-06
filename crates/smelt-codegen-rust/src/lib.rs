@@ -2507,7 +2507,7 @@ fn type_supports_partial_eq(
             if context.is_reference_class(name) {
                 return true;
             }
-            let Some(class) = mir.classes.iter().find(|candidate| candidate.name == name) else {
+            let Some(class) = crate::classes::find_class(mir, name) else {
                 // A shape (interface / synthetic object-literal shape) is a
                 // by-value struct that derives `PartialEq` under this same rule,
                 // so a field holding one is comparable exactly when the shape's
@@ -3141,7 +3141,7 @@ fn type_is_json_serializable(mir: &Mir, ty: TypeId, seen: &mut Vec<smelt_hir::Sy
             }
             seen.push(*name);
             let serializable =
-                if let Some(class) = mir.classes.iter().find(|class| class.name == *name) {
+                if let Some(class) = crate::classes::find_class(mir, *name) {
                     effective_class_fields(mir, class)
                         .iter()
                         .all(|field| type_is_json_serializable(mir, field.ty, seen))

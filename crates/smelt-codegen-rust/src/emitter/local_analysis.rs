@@ -336,11 +336,7 @@ impl FunctionEmitter<'_> {
         // ask. Hono reaches this through the interface side — `Router<T>`
         // declares `add(method, path, handler: T)` and is instantiated at
         // `Router<[unknown, RouterRoute]>`.
-        let declared_ty = self
-            .mir
-            .classes
-            .iter()
-            .find(|class| class.name == *name)
+        let declared_ty = crate::classes::find_class(self.mir, *name)
             .and_then(|class| {
                 crate::classes::effective_class_fields(self.mir, class)
                     .into_iter()

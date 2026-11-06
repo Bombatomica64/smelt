@@ -1694,7 +1694,7 @@ impl<'mir> FunctionEmitter<'mir> {
         while let Some(class_name) = current
             && seen.insert(class_name)
         {
-            let Some(class) = self.mir.classes.iter().find(|class| class.name == class_name) else {
+            let Some(class) = crate::classes::find_class(self.mir, class_name) else {
                 return false;
             };
             let declares = class.abstract_methods.iter().any(|method| method.name == field)
@@ -2095,7 +2095,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
             return None;
         };
-        self.mir.classes.iter().find(|class| class.name == *name)
+        crate::classes::find_class(self.mir, *name)
     }
 
     /// Find a concrete method implementation on a class or its base chain.
@@ -2104,11 +2104,7 @@ impl<'mir> FunctionEmitter<'mir> {
         class_name: Symbol,
         method: Symbol,
     ) -> Option<&MirFunction> {
-        let class = self
-            .mir
-            .classes
-            .iter()
-            .find(|class| class.name == class_name)?;
+        let class = crate::classes::find_class(self.mir, class_name)?;
         for method_id in &class.methods {
             let Some(function) = self.function_by_id(*method_id) else {
                 continue;
@@ -2132,11 +2128,7 @@ impl<'mir> FunctionEmitter<'mir> {
         class_name: Symbol,
         method: Symbol,
     ) -> Option<&MirFunction> {
-        let class = self
-            .mir
-            .classes
-            .iter()
-            .find(|class| class.name == class_name)?;
+        let class = crate::classes::find_class(self.mir, class_name)?;
         class.methods.iter().find_map(|method_id| {
             let function = self.function_by_id(*method_id)?;
             matches!(
@@ -2652,11 +2644,7 @@ impl<'mir> FunctionEmitter<'mir> {
     fn inherited_substitution(&self, owner: Symbol) -> emit_role::InheritedSubstitution {
         let substitutions =
             crate::classes::inherited_member_substitution(self.mir, self.function, owner);
-        let owner_params: HashSet<Symbol> = self
-            .mir
-            .classes
-            .iter()
-            .find(|class| class.name == owner)
+        let owner_params: HashSet<Symbol> = crate::classes::find_class(self.mir, owner)
             .map(|class| class.type_params.iter().map(|param| param.name).collect())
             .unwrap_or_default();
         emit_role::InheritedSubstitution {
@@ -5585,17 +5573,13 @@ impl<'mir> FunctionEmitter<'mir> {
     pub(super) fn type_contains_noncloneable(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
             Some(Type::Future(_)) => true,
-            Some(Type::Generator { .. }) => false,
-            Some(Type::GeneratorResult { .. }) => false,
-            Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
-                self.type_contains_noncloneable(*item)
-            }
-            Some(Type::Dict(key, value)) => {
-                self.type_contains_noncloneable(*key) || self.type_contains_noncloneable(*value)
-            }
-            Some(Type::Tuple(items)) => items
-                .iter()
-                .any(|item| self.type_contains_noncloneable(*item)),
+            Some(
+                container @ (Type::List(_)
+                | Type::Set(_)
+                | Type::Optional(_)
+                | Type::Dict(_, _)
+                | Type::Tuple(_)),
+            ) => container.children().any(|child| self.type_contains_noncloneable(child)),
             // A union's cloneability is its RUST representation's, not its
             // arms'. A union that erases stores a `SmeltUnknown`, and a union
             // with concrete storage stores a generated `SmeltUnion…` that
@@ -5610,7 +5594,6 @@ impl<'mir> FunctionEmitter<'mir> {
             // (5 × E0382 in Hono's `html.rs`). Erasing a value to inspect it is
             // a read, not a move — the same rule the concrete-union arm of
             // `coercion::erase` already states.
-            Some(Type::Union(_)) => false,
             _ => false,
         }
     }
@@ -5619,43 +5602,9 @@ impl<'mir> FunctionEmitter<'mir> {
     pub(super) fn type_contains_unknown(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => true,
-            Some(
-                Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item),
-            ) => self.type_contains_unknown(*item),
-            Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
-                self.type_contains_unknown(*key) || self.type_contains_unknown(*value)
-            }
-            Some(Type::Tuple(items)) => items.iter().any(|item| self.type_contains_unknown(*item)),
-            Some(Type::Generator {
-                yield_ty,
-                return_ty,
-                next_ty,
-                ..
-            }) => {
-                self.type_contains_unknown(*yield_ty)
-                    || self.type_contains_unknown(*return_ty)
-                    || self.type_contains_unknown(*next_ty)
-            }
-            Some(Type::GeneratorResult {
-                yield_ty,
-                return_ty,
-            }) => {
-                self.type_contains_unknown(*yield_ty)
-                    || self.type_contains_unknown(*return_ty)
-            }
-            Some(
-                Type::None
-                | Type::Bool
-                | Type::Int
-                | Type::FixedInt(_)
-                | Type::BigInt
-                | Type::Float
-                | Type::String
-                | Type::Never
-                | Type::Function(_)
-                | Type::Class { .. },
-            )
-            | None => false,
+            // A callable and a nominal type carry their own storage.
+            Some(Type::Function(_) | Type::Class { .. }) | None => false,
+            Some(other) => other.children().any(|child| self.type_contains_unknown(child)),
         }
     }
 
@@ -5822,7 +5771,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
             return None;
         };
-        let class = self.mir.classes.iter().find(|class| class.name == *name)?;
+        let class = crate::classes::find_class(self.mir, *name)?;
         let store_field = crate::classes::effective_class_fields(self.mir, class)
             .into_iter()
             .find(|field| {
@@ -5848,11 +5797,7 @@ impl<'mir> FunctionEmitter<'mir> {
         // A shape (interface / synthetic object-literal shape) is a record type
         // in exactly the same sense a class is, so its declared fields answer
         // here too; the reference-record field paths in `place` rely on it.
-        let Some(fields) = self
-            .mir
-            .classes
-            .iter()
-            .find(|class| class.name == *name)
+        let Some(fields) = crate::classes::find_class(self.mir, *name)
             .map(|class| crate::classes::effective_class_fields(self.mir, class))
             .or_else(|| {
                 self.mir

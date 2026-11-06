@@ -1514,11 +1514,7 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::Struct { class, fields } => {
                 let class_name = sanitize_ident(self.symbol_name(*class)?);
-                let mir_class = self
-                    .mir
-                    .classes
-                    .iter()
-                    .find(|item| item.name == *class)
+                let mir_class = crate::classes::find_class(self.mir, *class)
                     .ok_or_else(|| EmitError::new("struct rvalue references an unknown class"))?;
                 let effective_fields = self
                     .structural_record_fields(dest_ty)
@@ -2603,7 +2599,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty) else {
             return self.type_id(Type::Unknown);
         };
-        if let Some(class) = self.mir.classes.iter().find(|class| class.name == *name) {
+        if let Some(class) = crate::classes::find_class(self.mir, *name) {
             return Ok(crate::classes::effective_class_fields(self.mir, class)
                 .into_iter()
                 .find(|class_field| class_field.name == field)
@@ -3214,7 +3210,7 @@ impl FunctionEmitter<'_> {
         class: Symbol,
         method: Symbol,
     ) -> Result<Option<String>, EmitError> {
-        let Some(class_item) = self.mir.classes.iter().find(|item| item.name == class) else {
+        let Some(class_item) = crate::classes::find_class(self.mir, class) else {
             return Ok(None);
         };
         if !class_item
@@ -3241,7 +3237,7 @@ impl FunctionEmitter<'_> {
         if self.context.is_reference_class(class) {
             return Ok("self.clone()".to_owned());
         }
-        let Some(class_item) = self.mir.classes.iter().find(|item| item.name == class) else {
+        let Some(class_item) = crate::classes::find_class(self.mir, class) else {
             return Ok("(*self).clone()".to_owned());
         };
         let mut class_name = crate::classes::class_name_text(self.mir, class_item)?;

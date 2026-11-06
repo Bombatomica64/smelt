@@ -1,6 +1,7 @@
 //! Types emission helpers.
 
 use super::*;
+use crate::generic_bindings::substitute_existing_type;
 use crate::rust::{RustIdent, RustShape};
 use smelt_hir::{ErasureReason, FunctionType};
 
@@ -882,7 +883,7 @@ impl FunctionEmitter<'_> {
                 if self.is_host_object_class(*name) {
                     return true;
                 }
-                if let Some(class) = self.mir.classes.iter().find(|class| class.name == *name) {
+                if let Some(class) = crate::classes::find_class(self.mir, *name) {
                     crate::classes::effective_class_fields(self.mir, class)
                         .iter()
                         .all(|field| self.is_json_serializable_type(field.ty))
@@ -1058,7 +1059,7 @@ impl FunctionEmitter<'_> {
                     // was.
                     Some(Type::Class { name, args }) => {
                         let field_ty = if let Some(class) =
-                            self.mir.classes.iter().find(|class| class.name == *name)
+                            crate::classes::find_class(self.mir, *name)
                         {
                             self.substitute_record_field_type_params(
                                 &class.type_params,
@@ -1670,10 +1671,7 @@ impl FunctionEmitter<'_> {
                 );
             }
         };
-        self.mir
-            .classes
-            .iter()
-            .find(|class| class.name == class_name)
+        crate::classes::find_class(self.mir, class_name)
             .map(|class| class.type_params.iter().map(|param| param.name).collect())
             .unwrap_or_default()
     }
@@ -1874,11 +1872,7 @@ impl FunctionEmitter<'_> {
                     // well-formed. Emit inference placeholders `<_, _>` per
                     // declared type parameter and let Rust unify them from the
                     // initializer (was E0107 in the generated `ImmutableCache`).
-                    let declared_params = self
-                        .mir
-                        .classes
-                        .iter()
-                        .find(|class| class.name == *name)
+                    let declared_params = crate::classes::find_class(self.mir, *name)
                         .map_or(0, |class| class.type_params.len());
                     let declared_params = elision
                         .retain_carried(*name, (0..declared_params).collect::<Vec<_>>())
@@ -1901,11 +1895,7 @@ impl FunctionEmitter<'_> {
                     // positions take the declared defaults, and the erased
                     // carrier where a parameter has none, keeping the arity the
                     // struct declares.
-                    let declared = self
-                        .mir
-                        .classes
-                        .iter()
-                        .find(|class| class.name == *name)
+                    let declared = crate::classes::find_class(self.mir, *name)
                         .map(|class| class.type_params.clone())
                         .or_else(|| {
                             self.mir
@@ -2509,10 +2499,7 @@ impl FunctionEmitter<'_> {
                 fields,
             ));
         }
-        self.mir
-            .classes
-            .iter()
-            .find(|class| class.name == *name)
+        crate::classes::find_class(self.mir, *name)
             .map(|class| {
                 self.substitute_record_field_type_params(
                     &class.type_params,
@@ -2532,11 +2519,7 @@ impl FunctionEmitter<'_> {
         // spelled here either (`Context_1::<SmeltUnknown, ..>::default()` for a
         // `Context_1` whose three parameters were all elided was E0107 in the
         // Hono crate). Same rule as the type renderer's `retain_carried`.
-        let declared = self
-            .mir
-            .classes
-            .iter()
-            .find(|class| class.name == name)
+        let declared = crate::classes::find_class(self.mir, name)
             .map_or(0, |class| class.type_params.len());
         self.context
             .type_param_elision()
@@ -2575,92 +2558,10 @@ impl FunctionEmitter<'_> {
         fields
             .into_iter()
             .map(|mut field| {
-                field.ty = self.substitute_type_params_in_type(field.ty, &substitutions);
+                field.ty = substitute_existing_type(self.mir, field.ty, &substitutions);
                 field
             })
             .collect()
-    }
-
-    /// Substitute type parameters in a type, reusing already-interned MIR types.
-    pub(super) fn substitute_type_params_in_type(
-        &self,
-        ty: TypeId,
-        substitutions: &HashMap<Symbol, TypeId>,
-    ) -> TypeId {
-        let Some(ty_kind) = self.mir.types.get(ty) else {
-            return ty;
-        };
-        match ty_kind {
-            Type::TypeParam { name } => substitutions.get(name).copied().unwrap_or(ty),
-            Type::Optional(inner) => self
-                .existing_type_id(Type::Optional(
-                    self.substitute_type_params_in_type(*inner, substitutions),
-                ))
-                .unwrap_or(ty),
-            Type::List(item) => self
-                .existing_type_id(Type::List(
-                    self.substitute_type_params_in_type(*item, substitutions),
-                ))
-                .unwrap_or(ty),
-            Type::Set(item) => self
-                .existing_type_id(Type::Set(
-                    self.substitute_type_params_in_type(*item, substitutions),
-                ))
-                .unwrap_or(ty),
-            Type::Future(item) => self
-                .existing_type_id(Type::Future(
-                    self.substitute_type_params_in_type(*item, substitutions),
-                ))
-                .unwrap_or(ty),
-            Type::Dict(key, value) => self
-                .existing_type_id(Type::Dict(
-                    self.substitute_type_params_in_type(*key, substitutions),
-                    self.substitute_type_params_in_type(*value, substitutions),
-                ))
-                .unwrap_or(ty),
-            Type::Tuple(items) => self
-                .existing_type_id(Type::Tuple(
-                    items
-                        .iter()
-                        .map(|item| self.substitute_type_params_in_type(*item, substitutions))
-                        .collect(),
-                ))
-                .unwrap_or(ty),
-            Type::Union(items) => self
-                .existing_type_id(Type::Union(
-                    items
-                        .iter()
-                        .map(|item| self.substitute_type_params_in_type(*item, substitutions))
-                        .collect(),
-                ))
-                .unwrap_or(ty),
-            Type::Class { name, args } => self
-                .existing_type_id(Type::Class {
-                    name: *name,
-                    args: args
-                        .iter()
-                        .map(|arg| self.substitute_type_params_in_type(*arg, substitutions))
-                        .collect(),
-                })
-                .unwrap_or(ty),
-            Type::Function(function) => self
-                .existing_type_id(Type::Function(FunctionType {
-                    params: function
-                        .params
-                        .iter()
-                        .map(|param| self.substitute_type_params_in_type(*param, substitutions))
-                        .collect(),
-                    rest: function.rest,
-                    required_params: function.required_params,
-                    mutable_params: function.mutable_params.clone(),
-                    return_ty: self
-                        .substitute_type_params_in_type(function.return_ty, substitutions),
-                    is_async: function.is_async,
-                    may_throw: function.may_throw,
-                }))
-                .unwrap_or(ty),
-            _ => ty,
-        }
     }
 
     /// Find the ID of an already interned type.

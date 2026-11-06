@@ -102,39 +102,11 @@ impl FunctionEmitter<'_> {
                     params.push(*name);
                 }
             }
-            Type::Optional(item) | Type::List(item) | Type::Set(item) | Type::Future(item) => {
-                self.collect_union_type_params(*item, params)?;
-            }
-            Type::Dict(key, value) | Type::JsMap(key, value) => {
-                self.collect_union_type_params(*key, params)?;
-                self.collect_union_type_params(*value, params)?;
-            }
-            Type::Tuple(items) | Type::Union(items) => {
-                for item in items {
-                    self.collect_union_type_params(*item, params)?;
+            other => {
+                for child in other.children() {
+                    self.collect_union_type_params(child, params)?;
                 }
             }
-            Type::Class { args, .. } => {
-                for arg in args {
-                    self.collect_union_type_params(*arg, params)?;
-                }
-            }
-            Type::Function(function) => {
-                for param in &function.params {
-                    self.collect_union_type_params(*param, params)?;
-                }
-                self.collect_union_type_params(function.return_ty, params)?;
-            }
-            Type::Generator { yield_ty, return_ty, next_ty, .. } => {
-                self.collect_union_type_params(*yield_ty, params)?;
-                self.collect_union_type_params(*return_ty, params)?;
-                self.collect_union_type_params(*next_ty, params)?;
-            }
-            Type::GeneratorResult { yield_ty, return_ty } => {
-                self.collect_union_type_params(*yield_ty, params)?;
-                self.collect_union_type_params(*return_ty, params)?;
-            }
-            Type::Unknown | Type::Never | Type::None | Type::Bool | Type::Int | Type::FixedInt(_) | Type::BigInt | Type::Float | Type::String => {}
         }
         Ok(())
     }
@@ -190,11 +162,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name, args }) = self.mir.types.get(member_ty) else {
             return Err(EmitError::new("union method member must be a class value"));
         };
-        let class = self
-            .mir
-            .classes
-            .iter()
-            .find(|class| class.name == *name)
+        let class = crate::classes::find_class(self.mir, *name)
             .ok_or_else(|| EmitError::new("union method class is not materialized"))?;
         let function = class
             .methods
@@ -208,7 +176,7 @@ impl FunctionEmitter<'_> {
             .zip(args.iter().copied())
             .map(|(param, arg)| (param.name, arg))
             .collect::<HashMap<_, _>>();
-        Ok(self.substitute_type_params_in_type(function.return_ty, &substitutions))
+        Ok(crate::generic_bindings::substitute_existing_type(self.mir, function.return_ty, &substitutions))
     }
 
     /// Return canonical members when a union has fully concrete Rust storage.
@@ -233,22 +201,16 @@ impl FunctionEmitter<'_> {
             // union directly in a union is flattened away by normalization.
             Some(Type::Union(_)) => self.concrete_union_members(ty).is_some(),
             Some(Type::Class { .. }) => !self.is_erased_class_type(ty),
-            Some(Type::List(item) | Type::Set(item) | Type::Future(item)) => {
-                self.union_member_is_concrete(*item)
-            }
-            Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
-                self.union_member_is_concrete(*key) && self.union_member_is_concrete(*value)
-            }
-            Some(Type::Tuple(items)) => items
-                .iter()
-                .all(|item| self.union_member_is_concrete(*item)),
-            Some(Type::Function(function)) => {
-                function
-                    .params
-                    .iter()
-                    .all(|param| self.union_member_is_concrete(*param))
-                    && self.union_member_is_concrete(function.return_ty)
-            }
+            Some(
+                container @ (Type::List(_)
+                | Type::Set(_)
+                | Type::Future(_)
+                | Type::Dict(_, _)
+                | Type::JsMap(_, _)
+                | Type::Tuple(_)
+                | Type::Function(_)
+                | Type::GeneratorResult { .. }),
+            ) => container.children().all(|child| self.union_member_is_concrete(child)),
             Some(Type::Generator {
                 yield_ty,
                 return_ty,
@@ -259,13 +221,6 @@ impl FunctionEmitter<'_> {
                 // The caller-provided `.next(value)` type is not stored in the
                 // generated wrapper, so a dynamic next-input boundary does not
                 // make the generator value itself an erased runtime object.
-            }
-            Some(Type::GeneratorResult {
-                yield_ty,
-                return_ty,
-            }) => {
-                self.union_member_is_concrete(*yield_ty)
-                    && self.union_member_is_concrete(*return_ty)
             }
             Some(Type::Bool | Type::Int | Type::FixedInt(_) | Type::BigInt | Type::Float | Type::String) => true,
             // Nullish unions remain `Option`/erased-boundary work. Keeping them
@@ -1006,11 +961,7 @@ impl FunctionEmitter<'_> {
         if let Some(interface) = self.mir.interfaces.iter().find(|interface| interface.name == *name) {
             return self.interface_member_structural_guard(interface, &siblings);
         }
-        let fields = self
-            .mir
-            .classes
-            .iter()
-            .find(|class| class.name == *name)
+        let fields = crate::classes::find_class(self.mir, *name)
             .map(|class| {
                 class
                     .fields
@@ -1681,11 +1632,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
             return None;
         };
-        let fields = self
-            .mir
-            .classes
-            .iter()
-            .find(|class| class.name == *name)
+        let fields = crate::classes::find_class(self.mir, *name)
             .map(|class| crate::classes::effective_class_fields(self.mir, class))
             .or_else(|| {
                 self.mir
@@ -1768,7 +1715,7 @@ impl FunctionEmitter<'_> {
         if depth > 64 {
             return false;
         }
-        let Some(class) = self.mir.classes.iter().find(|class| class.name == name) else {
+        let Some(class) = crate::classes::find_class(self.mir, name) else {
             return false;
         };
         let named = |symbol: Symbol| self.symbol_name(symbol) == Ok(member);

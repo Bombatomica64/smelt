@@ -267,7 +267,7 @@ fn base_chain_is_local(mir: &Mir, class: &MirClass) -> bool {
         let Some(base) = current.base else {
             return true;
         };
-        let Some(next) = mir.classes.iter().find(|candidate| candidate.name == base) else {
+        let Some(next) = crate::classes::find_class(mir, base) else {
             return false;
         };
         current = next;

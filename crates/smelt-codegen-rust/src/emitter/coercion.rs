@@ -2489,10 +2489,7 @@ impl FunctionEmitter<'_> {
     /// The effective fields of the class or interface named `name`, at their
     /// declared types (empty when `name` is neither).
     fn class_or_interface_fields(&self, name: Symbol) -> Vec<MirField> {
-        self.mir
-            .classes
-            .iter()
-            .find(|class| class.name == name)
+        crate::classes::find_class(self.mir, name)
             .map(|class| crate::classes::effective_class_fields(self.mir, class))
             .or_else(|| {
                 self.mir
@@ -2684,11 +2681,7 @@ impl FunctionEmitter<'_> {
         // erased call site substituted a fabricated default. Interfaces have no
         // method bodies to bind, so they contribute nothing here — which is why
         // this consults `mir.classes` rather than the record type.
-        let proto_entries = match self
-            .mir
-            .classes
-            .iter()
-            .find(|class| class.name == *name)
+        let proto_entries = match crate::classes::find_class(self.mir, *name)
         {
             Some(class)
                 if crate::class_proto::class_has_proto_entries(self.mir, self.context, class) =>
@@ -2703,7 +2696,7 @@ impl FunctionEmitter<'_> {
         // A reference-class view forwards property writes to the instance
         // (see `view_write_through`); the generated `into_smelt_unknown`
         // installs the same hook.
-        let write_through = match self.mir.classes.iter().find(|class| class.name == *name) {
+        let write_through = match crate::classes::find_class(self.mir, *name) {
             Some(class) if crate::field_setter_host(self.mir, self.context, class).is_some() => {
                 view_write_through::erased_view_entry_text(
                     "smelt_struct_value",
@@ -2768,7 +2761,7 @@ impl FunctionEmitter<'_> {
         let mut current = Some(class_name);
         for _ in 0u32..64 {
             let Some(name_sym) = current else { break };
-            let Some(class) = self.mir.classes.iter().find(|class| class.name == name_sym) else {
+            let Some(class) = crate::classes::find_class(self.mir, name_sym) else {
                 break;
             };
             let Some(base) = class.base else { break };
@@ -3249,7 +3242,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(target) else {
             return Ok(None);
         };
-        let fields = if let Some(class) = self.mir.classes.iter().find(|class| class.name == *name) {
+        let fields = if let Some(class) = crate::classes::find_class(self.mir, *name) {
             class.fields.clone()
         } else if let Some(interface) = self.mir.interfaces.iter().find(|interface| interface.name == *name) {
             crate::classes::effective_interface_fields(self.mir, interface)

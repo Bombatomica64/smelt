@@ -265,7 +265,7 @@ fn plan_trait(
     uses: &BoundUses,
     taken: &HashSet<String>,
 ) -> Option<BoundTrait> {
-    let decl = if let Some(class) = find_class(mir, bound) {
+    let decl = if let Some(class) = crate::classes::find_class(mir, bound) {
         class.type_params.is_empty().then_some(BoundDecl::Class(class))?
     } else {
         let interface = mir.interfaces.iter().find(|interface| interface.name == bound)?;
@@ -353,11 +353,6 @@ fn member(mir: &Mir, name: Symbol, kind: BoundMemberKind) -> Option<BoundMember>
         rust_name: crate::sanitize_ident(mir.symbols.get(name)?),
         kind,
     })
-}
-
-/// Find a class by name.
-fn find_class(mir: &Mir, name: Symbol) -> Option<&MirClass> {
-    mir.classes.iter().find(|class| class.name == name)
 }
 
 /// Whether a type can cross a trait method boundary unchanged: a primitive, a
@@ -460,7 +455,7 @@ fn bound_field_type(mir: &Mir, decl: &BoundDecl<'_>, field: Symbol) -> Option<Ty
 fn class_chain<'mir>(mir: &'mir Mir, class: &'mir MirClass) -> Vec<&'mir MirClass> {
     let mut chain = vec![class];
     let mut seen = HashSet::from([class.name]);
-    while let Some(base) = chain.last().and_then(|last| last.base).and_then(|base| find_class(mir, base)) {
+    while let Some(base) = chain.last().and_then(|last| last.base).and_then(|base| crate::classes::find_class(mir, base)) {
         if !seen.insert(base.name) {
             break;
         }
@@ -542,7 +537,7 @@ fn interface_implementors(mir: &Mir, bound: Symbol) -> Vec<(Symbol, bool)> {
 /// bound's exact types.
 fn implement_member(mir: &Mir, name: Symbol, is_class: bool, member: &BoundMember) -> Option<MemberImpl> {
     let fields = if is_class {
-        effective_class_fields(mir, find_class(mir, name)?)
+        effective_class_fields(mir, crate::classes::find_class(mir, name)?)
     } else {
         effective_interface_fields(mir, mir.interfaces.iter().find(|interface| interface.name == name)?)
     };
@@ -569,7 +564,7 @@ fn implement_member(mir: &Mir, name: Symbol, is_class: bool, member: &BoundMembe
             if !is_class {
                 return None;
             }
-            let function = resolve_class_method(mir, find_class(mir, name)?, member.name)?;
+            let function = resolve_class_method(mir, crate::classes::find_class(mir, name)?, member.name)?;
             let (own_params, own_ret) = method_function_signature(function)?;
             (own_params == *params && own_ret == *ret).then_some(MemberImpl::Method {
                 function: function.id,
@@ -587,7 +582,7 @@ pub(crate) fn constraint_bound(mir: &Mir, constraint: Option<TypeId>) -> Option<
     match mir.types.get(constraint?) {
         Some(Type::Class { name, args })
             if args.is_empty()
-                && (find_class(mir, *name).is_some()
+                && (crate::classes::find_class(mir, *name).is_some()
                     || mir.interfaces.iter().any(|interface| interface.name == *name)) =>
         {
             Some(*name)
@@ -606,7 +601,7 @@ pub(crate) fn constraint_bound(mir: &Mir, constraint: Option<TypeId>) -> Option<
 pub(crate) fn constraint_is_date(mir: &Mir, constraint: Option<TypeId>) -> bool {
     matches!(constraint.and_then(|ty| mir.types.get(ty)), Some(Type::Class { name, args })
         if args.is_empty()
-            && find_class(mir, *name).is_none()
+            && crate::classes::find_class(mir, *name).is_none()
             && mir.symbols.get(*name).and_then(smelt_stdlib::typescript_stdlib_class)
                 == Some(smelt_stdlib::StdlibClass::Date))
 }
