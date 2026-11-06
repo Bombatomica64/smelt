@@ -276,13 +276,11 @@ fn run_pipeline(ts_source: &str, py_source: &str, inputs: Inputs) -> Result<Stri
     };
 
     // ── MIR lowering, optimize, validate ────────────────────────────
-    let mut mir = smelt_mir::lower_hir(&krate)
-        .map_err(|errors| Failure::debug(Stage::MirLowering, errors))?;
-    smelt_mir::opt::optimize(&mut mir);
-    let validation_errors = smelt_mir::validate(&mir);
-    if !validation_errors.is_empty() {
-        return Err(Failure::debug(Stage::MirValidate, validation_errors));
-    }
+    let mir = smelt_mir::compile(&krate).map_err(|error| match error {
+        smelt_mir::CompileError::Lower(errors) => Failure::debug(Stage::MirLowering, errors),
+        smelt_mir::CompileError::Validation(errors) => Failure::debug(Stage::MirValidate, errors),
+        other => Failure::messages(FailurePoint::Stage(Stage::MirLowering), [format!("{other}")]),
+    })?;
 
     // ── Rust codegen ────────────────────────────────────────────────
     smelt_codegen_rust::emit_source(&mir).map_err(|error| {
