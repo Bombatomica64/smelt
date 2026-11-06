@@ -419,50 +419,76 @@ impl ModuleBuilder<'_> {
             }));
         }
         // Narrowing an OPTIONAL UNION local to one CONCRETE arm takes two
-        // steps, and only both together are a value the backend can call a
-        // method on. `string | File | undefined` narrowed to `File` — the shape
-        // a `FormData` entry read has after a null check and a
-        // `typeof === "string"` check — needs the `Option` unwrapped AND the
-        // surviving union arm projected out of the payload. Each step alone is
-        // already supported: a bare local read at the payload type is the
-        // narrowing unwrap the backend renders as `.expect(..)`, and an
-        // `UnknownCast` off the payload is the arm projection. Emitting the
-        // read at the narrowed arm type directly left the local's
-        // `Option<SmeltUnion…>` in place and the generated Rust called the
-        // arm's methods straight on the `Option`.
+        // steps, and only both together are a value the backend can operate on.
+        // `string | File | undefined` narrowed to `File`, the shape a `FormData`
+        // entry read has after a null check and a `typeof === "string"` check,
+        // needs the `Option` unwrapped AND the surviving union arm projected out
+        // of the payload. A bare local read at the payload type is the narrowing
+        // unwrap the backend renders as `.expect(..)`, and an `UnknownCast` off
+        // the payload is the arm projection.
         //
-        // Only a NOMINAL CLASS arm takes this path, and the seam is what
-        // decides that. A class member is rendered as an INHERENT Rust method
-        // call on the raw receiver text — `blob_op_text` is
-        // `format!("{receiver}.file_name()")` — so nothing downstream can fix
-        // up a receiver of the wrong type, and the value has to already BE the
-        // arm. Every other arm shape reaches its members through a
-        // type-directed coercion (`value_at_type`) that unwraps the optional
-        // payload itself, so a second HIR step there buys nothing and its extra
-        // temporary just holds an erased value: 85 of those across es-toolkit's
-        // optional erased callbacks, which the erasure ratchet counts as
-        // avoidable.
+        // Only a NOMINAL CLASS arm takes this path here. A class member is
+        // rendered as an INHERENT Rust method call on the raw receiver text
+        // (`blob_op_text` is `format!("{receiver}.file_name()")`), so the value
+        // has to already BE the arm. Other arm shapes reach their members
+        // through a type-directed coercion (`value_at_type`) that unwraps the
+        // payload itself, and their extra temporary would just hold an erased
+        // value. A list method also takes its receiver as it
+        // stands, and asks for the arm itself ([`Self::narrowed_list_receiver`]).
         if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(base_ty).cloned()
             && ty != inner
             && ty != base_ty
             && matches!(self.ctx.krate.types.get(inner), Some(Type::Union(_)))
             && matches!(self.ctx.krate.types.get(ty), Some(Type::Class { .. }))
         {
-            let payload = body.push_expr(Expr {
-                kind: ExprKind::Local(local),
-                ty: inner,
-                span: self.span(start, end),
-            });
-            return Ok(body.push_expr(Expr {
-                kind: ExprKind::UnknownCast {
-                    value: payload,
-                    target: ty,
-                },
-                ty,
-                span: self.span(start, end),
-            }));
+            return Ok(self.projected_optional_arm(local, inner, ty, self.span(start, end), body));
         }
         Ok(local_expr)
+    }
+
+    /// A read of optional `local` at the surviving arm `ty`: the unwrap at the
+    /// payload type `inner`, then the arm projection off it.
+    fn projected_optional_arm(
+        &self,
+        local: smelt_hir::LocalId,
+        inner: smelt_hir::TypeId,
+        ty: smelt_hir::TypeId,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let payload = body.push_expr(Expr { kind: ExprKind::Local(local), ty: inner, span });
+        body.push_expr(Expr { kind: ExprKind::UnknownCast { value: payload, target: ty }, ty, span })
+    }
+
+    /// The list a method reads: `receiver`, or the arm a narrowing proved when
+    /// the local itself is still an optional union or optional `unknown`.
+    ///
+    /// `chars.flatMap(..)` after `Array.isArray(chars)` on `string | string[] |
+    /// undefined` iterates its receiver directly, so a read that only carries
+    /// the narrowed type would hand it the `Option`.
+    pub(in crate::lowering) fn narrowed_list_receiver(
+        &self,
+        receiver: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let Some((local, ty, span)) = usize::try_from(receiver.0)
+            .ok()
+            .and_then(|index| body.exprs.get(index))
+            .and_then(|expr| match expr.kind {
+                ExprKind::Local(local) => Some((local, expr.ty, expr.span)),
+                _ => None,
+            })
+        else {
+            return receiver;
+        };
+        let base_ty = Self::local_ty(body, local);
+        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(base_ty).cloned()
+            && matches!(self.ctx.krate.types.get(inner), Some(Type::Union(_) | Type::Unknown))
+            && matches!(self.ctx.krate.types.get(ty), Some(Type::List(_) | Type::Tuple(_)))
+        {
+            return self.projected_optional_arm(local, inner, ty, span, body);
+        }
+        receiver
     }
 
     /// Lower JavaScript `arguments` to the array-like exotic object, carrying the

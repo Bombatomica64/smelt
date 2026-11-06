@@ -18,14 +18,28 @@ use common::{
 
 /// Build fixture `name` and check its stdout against the golden and Node.
 fn verify_node_parity(name: &str) -> TestResult {
+    verify_node_parity_with(name, &[])
+}
+
+/// [`verify_node_parity`] for a program that imports `modules`, the sibling
+/// files of `fixtures/node-parity/<name>/`.
+fn verify_node_parity_with(name: &str, modules: &[&str]) -> TestResult {
     let fixtures = workspace_root()?.join("crates/smelt-transpiler/tests/fixtures/node-parity");
     let source = fs::read_to_string(fixtures.join(format!("{name}.ts")))?;
     let expected = fs::read_to_string(fixtures.join(format!("{name}.stdout")))?;
-    ensure_node_agrees(&[("main.ts", &source)], "main.ts", &expected, name)?;
+    let module_sources = modules
+        .iter()
+        .map(|module| fs::read_to_string(fixtures.join(name).join(module)))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut files = vec![("main.ts", source.as_str())];
+    files.extend(modules.iter().copied().zip(module_sources.iter().map(String::as_str)));
+    ensure_node_agrees(&files, "main.ts", &expected, name)?;
     let project = TempProject::new()?;
     let root = project.path();
     fs::create_dir_all(root.join("src"))?;
-    fs::write(root.join("src/main.ts"), &source)?;
+    for (file, text) in &files {
+        fs::write(root.join("src").join(file), text)?;
+    }
     fs::write(
         root.join("Smelt.toml"),
         r#"[project]
@@ -78,4 +92,34 @@ fn closure_parameter_defaults() -> TestResult {
 #[test]
 fn callback_bodies() -> TestResult {
     verify_node_parity("callback_bodies")
+}
+
+/// `T` is what TypeScript infers across every candidate position of a call.
+#[test]
+fn generic_call_candidates() -> TestResult {
+    verify_node_parity("generic_call_candidates")
+}
+
+/// A declared function type is what a call through the binding sees.
+#[test]
+fn declared_function_types() -> TestResult {
+    verify_node_parity("declared_function_types")
+}
+
+/// `value` and `done` are ordinary fields except on an iterator result.
+#[test]
+fn iterator_results_and_fields() -> TestResult {
+    verify_node_parity("iterator_results_and_fields")
+}
+
+/// An operation after narrowing a union reads the real value.
+#[test]
+fn narrowed_union_receivers() -> TestResult {
+    verify_node_parity("narrowed_union_receivers")
+}
+
+/// `_.iterate(..)` answers what `iterate(..)` answers.
+#[test]
+fn namespace_generic_calls() -> TestResult {
+    verify_node_parity_with("namespace_generic_calls", &["lib.ts"])
 }

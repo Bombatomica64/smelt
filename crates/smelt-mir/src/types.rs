@@ -1891,20 +1891,10 @@ pub enum Rvalue {
         /// List value to mutate.
         list: Operand,
     },
-    /// Consume the first list item and return an erased iterator-result object.
+    /// Consume the first list item and return its typed iterator result.
     ListNext {
         /// List value to mutate.
         list: Operand,
-    },
-    /// Test whether a typed iterator result is exhausted.
-    IteratorDone {
-        /// Optional iterator item.
-        result: Operand,
-    },
-    /// Read the optional item from a typed iterator result.
-    IteratorValue {
-        /// Optional iterator item.
-        result: Operand,
     },
     /// Test whether a tuple contains an item.
     TupleContains {

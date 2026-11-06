@@ -480,7 +480,7 @@ impl ModuleBuilder<'_> {
         // arguments, else their defaults; a hint still naming an unsubstituted
         // type parameter is dropped rather than guessed.
         let (hints, _) = self.pending_constructor_hints(class_name, new_expr)?;
-        let args = new_expr
+        let mut args = new_expr
             .arguments
             .iter()
             .enumerate()
@@ -550,6 +550,34 @@ impl ModuleBuilder<'_> {
                     arg_ty,
                     &mut inferred,
                 );
+            }
+            let resolved = self.checker_call_type(new_expr.span.start, new_expr.span.end);
+            match resolved.and_then(|ty| self.ctx.krate.types.get(ty).cloned()) {
+                Some(Type::Class { name, args: resolved_args })
+                    if name == class_name && resolved_args.len() == class.type_params.len() =>
+                {
+                    for (param, resolved_arg) in class.type_params.iter().zip(resolved_args) {
+                        if let Some(bound) = inferred.get_mut(&param.name) {
+                            *bound = self.widened_call_type(Some(resolved_arg), *bound);
+                        }
+                    }
+                }
+                _ => self.widen_call_bindings(&class.type_params, &constructor_params, &args, body, &mut inferred),
+            }
+            // Rust binds the class parameter from a bare `T` argument, so one
+            // that widened to `unknown` takes the argument erased: `new Pair(0, h)`
+            // with `h` returning `unknown` is a `Pair<unknown>`.
+            for (param_ty, arg) in constructor_params.iter().zip(&mut args) {
+                let Some(Type::TypeParam { name }) = self.ctx.krate.types.get(*param_ty) else {
+                    continue;
+                };
+                let Some(&bound) = inferred.get(name) else {
+                    continue;
+                };
+                if self.ctx.krate.types.get(bound) == Some(&Type::Unknown) && Self::expr_ty(body, *arg) != bound {
+                    let span = self.span(new_expr.span.start, new_expr.span.end);
+                    *arg = body.push_expr(Expr { kind: ExprKind::TypeAssert { value: *arg }, ty: bound, span });
+                }
             }
             class
                 .type_params

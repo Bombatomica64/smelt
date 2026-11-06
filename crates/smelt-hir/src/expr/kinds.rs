@@ -1020,14 +1020,6 @@ pub enum ExprKind {
     ListNext {
         list: ExprId,
     },
-    /// Test whether a typed iterator result is exhausted.
-    IteratorDone {
-        result: ExprId,
-    },
-    /// Read the optional value from a typed iterator result.
-    IteratorValue {
-        result: ExprId,
-    },
     TupleContains {
         tuple: ExprId,
         item: ExprId,

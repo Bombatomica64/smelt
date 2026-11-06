@@ -45,6 +45,8 @@ pub(crate) enum Need {
     PanicRoute,
     /// JavaScript `bigint`.
     BigInt,
+    /// The iterator-result enum a list's `next()` answers with.
+    IteratorResult,
     /// Generator state machines.
     Generator,
     /// The timer queue and promise task queue.
@@ -218,7 +220,8 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::DepRegex, &[Need::ObjectIds]),
     (Need::Date, &[Need::ObjectIds, Need::HostOrigins]),
     // These are emitted inside the carrier's block, or carry its values.
-    (Need::Generator, &[Need::Unknown, Need::DepGenawaiter]),
+    (Need::IteratorResult, &[Need::Unknown]),
+    (Need::Generator, &[Need::Unknown, Need::IteratorResult, Need::DepGenawaiter]),
     (Need::Timers, &[Need::Unknown]),
     (Need::StructuredClone, &[Need::Unknown]),
     (Need::DefineProperties, &[Need::Unknown]),
@@ -387,6 +390,7 @@ impl RuntimeDemand {
                 // Unions render as the carrier, and a dict literal can erase its
                 // entries without interning `Unknown`.
                 Type::Unknown | Type::Never | Type::Union(_) => self.add(Need::Unknown),
+                Type::GeneratorResult { .. } => self.add(Need::IteratorResult),
                 Type::Class { name, .. } => {
                     if crate::classes::class_name_renders_erased(mir, *name) {
                         self.add(Need::Unknown);

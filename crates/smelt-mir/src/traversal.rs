@@ -645,9 +645,6 @@ macro_rules! walk_rvalue_operands {
         Self::ListNext { list } => {
             $visit(list);
         }
-        Self::IteratorDone { result } | Self::IteratorValue { result } => {
-            $visit(result);
-        }
         Self::TupleContains { tuple, item } => {
             $visit(tuple);
             $visit(item);

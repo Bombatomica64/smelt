@@ -158,7 +158,7 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("dict get receiver must be a dict"));
         };
         if !self.dict_key_operand_is_compatible(key, *key_ty)? {
-            return self.inferred_default_text(dest_ty);
+            return Err(EmitError::new("dict key does not fit the receiver"));
         }
         // Every `get` below hands the key to a `&K` parameter and keeps nothing,
         // so borrow the place where no coercion is needed.
@@ -295,7 +295,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) =
             self.mir.types.get(dict_ty)
         else {
-            return self.inferred_default_text(dest_ty);
+            return Err(EmitError::new("dict merge receiver must be a dict"));
         };
         if !self.dict_key_operand_is_compatible(key, *key_ty)? {
             return Ok(self.operand_text(dict)?);
@@ -813,7 +813,7 @@ impl FunctionEmitter<'_> {
                     "match {erased} {{ SmeltUnknown::Object(map) => SmeltRecord::with_id_from_entries(map.id, map.into_iter()), _ => Default::default() }}"
                 )));
             }
-            return self.inferred_default_text(dest_ty);
+            return Err(EmitError::new("dict copy receiver must be a dict"));
         }
         if dest_ty != dict_ty {
             return Err(EmitError::new(

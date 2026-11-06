@@ -29,10 +29,17 @@ impl FunctionEmitter<'_> {
         self.default_value(key)
     }
 
-    /// Whether `ty` is a record declaring a field `field`.
-    fn storage_field_named(&self, ty: TypeId, field: Symbol) -> bool {
-        self.structural_record_fields(ty)
-            .is_some_and(|fields| fields.iter().any(|candidate| candidate.name == field))
+    /// Whether `ty` is an optional whose payload is a union or erased value, so
+    /// that only a runtime read can reach the arm a narrowing proved.
+    pub(super) fn is_optional_of_dynamic_shape(&self, ty: TypeId) -> bool {
+        matches!(
+            self.mir.types.get(ty),
+            Some(Type::Optional(inner))
+                if matches!(
+                    self.mir.types.get(*inner),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                )
+        )
     }
 
     /// Converts a place to its Rust text representation.
@@ -229,19 +236,6 @@ impl FunctionEmitter<'_> {
                     return Ok(format!(
                         "{base_text}.as_ref().and_then(|_smelt_value| _smelt_value.get({field_name:?}))"
                     ));
-                }
-                // An iterator step is an `Optional` of the stepped value, so its
-                // `.value` is that value. A record with a `value` field of its own
-                // is not a step.
-                if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
-                    && self.symbol_source_name(*field)? == "value"
-                    && !self.storage_field_named(*inner, *field)
-                {
-                    let wrapped = self.erase_value_text("value", *inner)?;
-                    return Ok(self.carrier_format(format_args!(
-                        "{}.clone().map_or(SmeltUnknown::Undefined, |value| {wrapped})",
-                        self.local_value_text(*base)?
-                    )));
                 }
                 if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
                     && self.is_regexp_class_symbol(*name)?
@@ -577,6 +571,12 @@ impl FunctionEmitter<'_> {
                             base_ty,
                         );
                         self.unknown_index_text(&base_text, index)
+                    }
+                    // A narrowed optional union or `unknown` holds the value
+                    // the narrowing proved, whichever arm that is.
+                    Some(Type::Optional(_)) if self.is_optional_of_dynamic_shape(base_ty) => {
+                        let erased = self.erase_value_text(&self.local_value_text(*base)?, base_ty)?;
+                        self.unknown_index_text(&erased, index)
                     }
                     Some(Type::Tuple(items)) => {
                         let tuple_index = self.tuple_index(index, items.len())?;

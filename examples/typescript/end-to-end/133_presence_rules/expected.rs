@@ -4227,7 +4227,7 @@ impl IntoSmeltUnknown for SmeltUnion4 {
 impl SmeltUnion4 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
         if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltRequest>() { return Self::M0(smelt_origin); } }
-        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(map) if map.contains_key("raw")) && matches!(&value, SmeltUnknown::Object(map) if map.contains_key("count"))) { return Self::M1(Default::default()); }
+        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(map) if map.contains_key("raw")) && matches!(&value, SmeltUnknown::Object(map) if map.contains_key("count"))) { return Self::M1(<Wrapper as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown())); }
         Self::M0(<SmeltRequest as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
     }
 }

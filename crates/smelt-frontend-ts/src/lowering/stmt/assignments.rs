@@ -585,66 +585,14 @@ impl ModuleBuilder<'_> {
                 span: self.span(member.span.start, member.span.end),
             }));
         }
-        // Smelt types a JavaScript iterator result as `Optional<T>`, so a
-        // plain `.done` / `.value` on an optional receiver is that result's
-        // member. The syntactic `?.` rules it out: TypeScript types an
-        // iterator result as the non-optional `IteratorResult<T>`, so a source
-        // that writes `r?.value` is reading a genuinely possibly-absent value
-        // (a record from `Object.getOwnPropertyDescriptor`, a `T | undefined`
-        // lookup), whose `value` key the ordinary optional field read answers.
-        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(receiver_ty).cloned()
-            && matches!(member.property.name.as_str(), "done" | "value")
-            && !member.optional
-        {
-            let (kind, ty) = match member.property.name.as_str() {
-                "done" => (
-                    ExprKind::IteratorDone { result: receiver },
-                    self.ctx.krate.types.intern(Type::Bool),
-                ),
-                "value" => (
-                    ExprKind::IteratorValue { result: receiver },
-                    self.ctx.krate.types.intern(Type::Optional(inner)),
-                ),
-                _ => {
-                    return Err(SmeltError::unsupported(
-                        self.span(member.span.start, member.span.end),
-                        "iterator results only expose done and value",
-                    ));
-                }
-            };
-            return Ok(body.push_expr(Expr {
-                kind,
-                ty,
-                span: self.span(member.span.start, member.span.end),
-            }));
-        }
-        if let Some(Type::GeneratorResult {
-            yield_ty,
-            return_ty,
-        }) = self.ctx.krate.types.get(receiver_ty).cloned()
-            && matches!(member.property.name.as_str(), "done" | "value")
-        {
-            let (kind, ty) = if member.property.name == "done" {
-                (
-                    ExprKind::GeneratorDone { result: receiver },
-                    self.ctx.krate.types.intern(Type::Bool),
-                )
-            } else {
-                let value_ty = if yield_ty == return_ty {
-                    yield_ty
-                } else {
-                    self.ctx
-                        .krate
-                        .types
-                        .intern(Type::Union(vec![yield_ty, return_ty]))
-                };
-                (ExprKind::GeneratorValue { result: receiver }, value_ty)
-            };
-            return Ok(body.push_expr(Expr {
-                kind,
-                ty,
-                span: self.span(member.span.start, member.span.end),
-            }));
+        if let Some(read) = self.iterator_result_member(
+            receiver,
+            receiver_ty,
+            member.property.name.as_str(),
+            self.span(member.span.start, member.span.end),
+            body,
+        ) {
+            return Ok(read);
         }
         // A function value carries no field storage. JavaScript lets a function
         // own arbitrary static properties, but Smelt only models the ones it
@@ -753,6 +701,42 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(member.span.start, member.span.end),
         }))
+    }
+
+    /// Read `done` or `value` off an iterator result, the two members of that
+    /// protocol; `None` for any other receiver or member.
+    ///
+    /// A result whose iterator returns nothing carries `undefined` once done,
+    /// so its `value` is `T | undefined`.
+    pub(in crate::lowering) fn iterator_result_member(
+        &mut self,
+        receiver: smelt_hir::ExprId,
+        receiver_ty: smelt_hir::TypeId,
+        member: &str,
+        span: Span,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let Some(Type::GeneratorResult { yield_ty, return_ty }) = self.ctx.krate.types.get(receiver_ty).cloned() else {
+            return None;
+        };
+        let (kind, ty) = match member {
+            "done" => (
+                ExprKind::GeneratorDone { result: receiver },
+                self.ctx.krate.types.intern(Type::Bool),
+            ),
+            "value" => {
+                let value_ty = if yield_ty == return_ty {
+                    yield_ty
+                } else if self.ctx.krate.types.get(return_ty) == Some(&Type::None) {
+                    self.ctx.krate.types.intern(Type::Optional(yield_ty))
+                } else {
+                    self.ctx.krate.types.intern(Type::Union(vec![yield_ty, return_ty]))
+                };
+                (ExprKind::GeneratorValue { result: receiver }, value_ty)
+            }
+            _ => return None,
+        };
+        Some(body.push_expr(Expr { kind, ty, span }))
     }
 
     /// Lower `Array.isArray` in value position to a callable runtime probe.

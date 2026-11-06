@@ -3793,8 +3793,8 @@ impl IntoSmeltUnknown for SmeltUnion4 {
 }
 impl SmeltUnion4 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::Object(_)) { return Self::M0(Default::default()); }
-        Self::M1({ let smelt_erased_future = (value).into_smelt_unknown(); SmeltFuture::from_future(Box::pin(async move { let smelt_awaited = smelt_await_flatten(smelt_erased_future).await?; Ok::<_, Box<dyn std::error::Error>>(Default::default()) })) })
+        if matches!(value, SmeltUnknown::Object(_)) { return Self::M0(<Cell as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown())); }
+        Self::M1({ let smelt_erased_future = (value).into_smelt_unknown(); SmeltFuture::from_future(Box::pin(async move { let smelt_awaited = smelt_await_flatten(smelt_erased_future).await?; Ok::<_, Box<dyn std::error::Error>>(<Cell as SmeltFromUnknown>::smelt_from_unknown((smelt_awaited).into_smelt_unknown())) })) })
     }
 }
 impl PartialEq for SmeltUnion4 {

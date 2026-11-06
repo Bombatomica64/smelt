@@ -504,7 +504,7 @@ impl ModuleBuilder<'_> {
         if self.receiver_declares_method(receiver_ty, method_symbol) {
             return Ok(None);
         }
-        Ok(Some(receiver))
+        Ok(Some(self.narrowed_list_receiver(receiver, body)))
     }
 
     /// Lower callback-heavy TypeScript array methods.

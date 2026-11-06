@@ -2267,26 +2267,6 @@ impl LoweringCtx<'_> {
                 let list_operand = self.lower_expr(*list)?;
                 self.assign_temp(expr.ty, expr.span, Rvalue::ListNext { list: list_operand })?
             }
-            ExprKind::IteratorDone { result } => {
-                let result_operand = self.lower_expr(*result)?;
-                self.assign_temp(
-                    expr.ty,
-                    expr.span,
-                    Rvalue::IteratorDone {
-                        result: result_operand,
-                    },
-                )?
-            }
-            ExprKind::IteratorValue { result } => {
-                let result_operand = self.lower_expr(*result)?;
-                self.assign_temp(
-                    expr.ty,
-                    expr.span,
-                    Rvalue::IteratorValue {
-                        result: result_operand,
-                    },
-                )?
-            }
             ExprKind::TupleContains { tuple, item } => {
                 let tuple_operand = self.lower_expr(*tuple)?;
                 let item_operand = self.lower_expr(*item)?;

@@ -1511,8 +1511,6 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
         Rvalue::ListPop { list } => format!("list_pop {}", operand_text(list)),
         Rvalue::ListShift { list } => format!("list_shift {}", operand_text(list)),
         Rvalue::ListNext { list } => format!("list_next {}", operand_text(list)),
-        Rvalue::IteratorDone { result } => format!("iterator_done {}", operand_text(result)),
-        Rvalue::IteratorValue { result } => format!("iterator_value {}", operand_text(result)),
         Rvalue::TupleContains { tuple, item } => {
             format!(
                 "tuple_contains {}, {}",

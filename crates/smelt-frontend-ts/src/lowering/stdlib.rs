@@ -3339,6 +3339,7 @@ impl ModuleBuilder<'_> {
                 })))
             }
             "flat" => {
+                let list = self.narrowed_list_receiver(list, body);
                 if call.arguments.len() > 1 {
                     return Err(SmeltError::unsupported(
                         span,
@@ -3370,7 +3371,8 @@ impl ModuleBuilder<'_> {
                         Some(item_ty) => item_ty,
                         None => return Ok(None),
                     },
-                    _ => return Ok(None),
+                    // An item that is not an array stays as it is.
+                    _ => element_ty,
                 };
                 let ty = self.ctx.krate.types.intern(Type::List(flat_item_ty));
                 Ok(Some(body.push_expr(Expr {
@@ -3380,6 +3382,7 @@ impl ModuleBuilder<'_> {
                 })))
             }
             "flatMap" => {
+                let list = self.narrowed_list_receiver(list, body);
                 let [callback_arg] = call.arguments.as_slice() else {
                     return Err(SmeltError::unsupported(
                         span,

@@ -4,7 +4,7 @@
 // The producer future itself has an anonymous type, so the public ABI
 // stores only a typed resume closure; yielded and returned values remain
 // concrete and never cross the dynamic `SmeltUnknown` boundary.
-// @smelt:item SmeltGeneratorResult when generator
+// @smelt:item SmeltGeneratorResult when iterator_result
 #[derive(Clone, Debug)]
 pub enum SmeltGeneratorResult<Y, R> { Yielded(Y), Complete(R) }
 //~ JavaScript permits throwing any runtime value, independently of the
