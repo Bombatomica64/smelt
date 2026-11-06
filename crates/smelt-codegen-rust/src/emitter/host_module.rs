@@ -167,11 +167,11 @@ impl FunctionEmitter<'_> {
             ));
         }
         let erased = self.erase(data)?;
-        Ok(format!(
+        Ok(self.carrier_format(format_args!(
             "{{ let smelt_value = {erased}; match &smelt_value {{ SmeltUnknown::String(text) => {text_fn}(&{hash}, &text.to_string(), &{encoding}), _ => {bytes_fn}(&{hash}, &SmeltTypedArray::smelt_from_unknown(smelt_value.clone()).to_bytes()) }} }}?",
             text_fn = prelude::HASH_UPDATE_TEXT_FN,
             bytes_fn = prelude::HASH_UPDATE_BYTES_FN,
-        ))
+        )))
     }
 
     /// Whether a type is the concrete `DataView` class.

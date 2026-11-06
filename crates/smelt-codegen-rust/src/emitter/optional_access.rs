@@ -114,9 +114,9 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         }
         let mapped = self.value_at_type_text("_smelt_field", field_ty, dest_inner, &self.render_scope())?;
-        Ok(Some(format!(
+        Ok(Some(self.carrier_format(format_args!(
             "match {value_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => None, _smelt_field => Some({mapped}) }}"
-        )))
+        ))))
     }
 
     /// Emits Rust for a TypeScript optional-chain index read.
@@ -354,9 +354,9 @@ impl FunctionEmitter<'_> {
             };
             let optional_text = self.value_at_type(optional, scrutinee_ty)?;
             let fallback_text = self.value_at_type(fallback, scrutinee_ty)?;
-            let coalesced = format!(
+            let coalesced = self.carrier_format(format_args!(
                 "match {optional_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => {fallback_text}, value => value }}"
-            );
+            ));
             if matches!(
                 self.mir.types.get(dest_ty),
                 Some(Type::Optional(inner)) if self.has_dynamic_shape(*inner)
@@ -425,9 +425,9 @@ impl FunctionEmitter<'_> {
                     let optional_text = self.operand_text(optional)?;
                     let fallback_text = self.value_at_type(fallback, fallback_ty)?;
                     let mapped_value = self.value_at_type_text("value", fallback_ty, *inner, &self.render_scope())?;
-                    let fallback_option = format!(
+                    let fallback_option = self.carrier_format(format_args!(
                         "match {fallback_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => None, value => Some({mapped_value}) }}"
-                    );
+                    ));
                     if matches!(self.mir.types.get(dest_ty), Some(Type::Optional(dest_inner)) if dest_inner == inner)
                     {
                         return Ok(format!("{optional_text}.or({fallback_option})"));
@@ -575,9 +575,9 @@ impl FunctionEmitter<'_> {
                         // gives this operand (`unknown_index_text`).
                         let scrutinee = self
                             .erase_concrete_union_text(&cloned_value_text(&index_text), index_ty);
-                        format!(
+                        self.carrier_format(format_args!(
                             "match {scrutinee} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
-                        )
+                        ))
                     }
                     _ => "f64::NAN".to_owned(),
                 };
@@ -616,12 +616,12 @@ impl FunctionEmitter<'_> {
                     "value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string().into()))"
                         .to_owned()
                 } else {
-                    format!(
+                    self.carrier_format(format_args!(
                         "value.chars().nth(index).map(|ch| {{ let _smelt_element = SmeltUnknown::String(ch.to_string().into()); {element_text} }})"
-                    )
+                    ))
                 };
                 let array_some = if result_is_string {
-                    "values.get(index).cloned().map(|value| match value { SmeltUnknown::String(value) => value.to_string(), other => other.to_string() })".to_owned()
+                    self.carrier_text("values.get(index).cloned().map(|value| match value { SmeltUnknown::String(value) => value.to_string(), other => other.to_string() })")
                 } else if result_is_erased {
                     "values.get(index).cloned()".to_owned()
                 } else {
@@ -639,20 +639,20 @@ impl FunctionEmitter<'_> {
                 // back to `None`, which is what the optional-read shape means.
                 let object_field = format!("smelt_get_object_field(&values, &{key_text})");
                 let object_some = if result_is_string {
-                    format!(
+                    self.carrier_format(format_args!(
                         "match {object_field} {{ SmeltUnknown::Undefined => None, SmeltUnknown::String(value) => Some(value.to_string()), other => Some(other.to_string()) }}"
-                    )
+                    ))
                 } else if result_is_erased {
-                    format!("match {object_field} {{ SmeltUnknown::Undefined => None, value => Some(value) }}")
+                    self.carrier_format(format_args!("match {object_field} {{ SmeltUnknown::Undefined => None, value => Some(value) }}"))
                 } else {
-                    format!(
+                    self.carrier_format(format_args!(
                         "match {object_field} {{ SmeltUnknown::Undefined => None, _smelt_element => Some({element_text}) }}"
-                    )
+                    ))
                 };
-                let primitive_none = format!(
+                let primitive_none = self.carrier_format(format_args!(
                     "{}SmeltUnknown::Bool(_) | SmeltUnknown::Number(_) | SmeltUnknown::Symbol(_) | SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => None",
                     self.bigint_unknown_arm("SmeltUnknown::BigInt(_) => None,")
-                );
+                ));
                 // Likewise for the receiver: `Optional(SmeltUnion156)` unwraps
                 // to the union's own enum, and matching `SmeltUnknown` arms
                 // against it read `expected SmeltUnion156, found SmeltUnknown`

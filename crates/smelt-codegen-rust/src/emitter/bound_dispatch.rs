@@ -232,9 +232,9 @@ impl FunctionEmitter<'_> {
         } else {
             ".unwrap_or_else(|error| smelt_panic_throw(error))"
         };
-        let call = format!(
+        let call = self.carrier_format(format_args!(
             "match smelt_get_unknown_field(&{receiver_text}, {method_name:?}) {{ SmeltUnknown::Function(smelt_method) => (smelt_method)(vec![{erased_args}]){propagate}, _ => SmeltUnknown::Undefined }}"
-        );
+        ));
         // MIR interns `unknown` for every program with a bound member read
         // (`intern_bound_dispatch_carrier_type`).
         let unknown_ty = self.type_id(Type::Unknown)?;

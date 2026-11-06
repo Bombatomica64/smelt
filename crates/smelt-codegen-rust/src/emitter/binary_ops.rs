@@ -280,6 +280,7 @@ impl FunctionEmitter<'_> {
         // `null` literal or a unit value) matches `Null`. Used by the
         // erased-vs-none arms where the none side is essentially always a literal.
         let nullish_pattern = |operand: &Operand| {
+            self.context.note_carrier_use();
             if strict_nullish {
                 if matches!(operand, Operand::Const(Constant::Undefined)) {
                     "SmeltUnknown::Undefined"
@@ -354,11 +355,11 @@ impl FunctionEmitter<'_> {
             if js_strict {
                 // JavaScript `===`/`!==` on erased values: reference identity for
                 // objects/arrays/functions, value for primitives, NaN-unequal.
-                format!("{lhs_text}.js_strict_eq({rhs_reference_text})")
+                self.carrier_format(format_args!("{lhs_text}.js_strict_eq({rhs_reference_text})"))
             } else if strict {
                 // `Object.is` / `a === b || Object.is(a,b)` SameValueZero idiom:
                 // NaN-equal, reference objects.
-                format!("{lhs_text}.same_js_key({rhs_reference_text})")
+                self.carrier_format(format_args!("{lhs_text}.same_js_key({rhs_reference_text})"))
             } else {
                 // Loose/structural `==`/`!=` on erased values: SmeltUnknown's
                 // structural `Eq` (deep), which the `toEqual`/`toStrictEqual`
@@ -507,6 +508,7 @@ impl FunctionEmitter<'_> {
         {
             return Ok(format!("{option_text}.is_none()"));
         }
+        self.context.note_carrier_use();
         let pattern = if strict_nullish {
             if matches!(singleton, Operand::Const(Constant::Undefined)) {
                 "SmeltUnknown::Undefined"

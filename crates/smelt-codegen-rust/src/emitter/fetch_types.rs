@@ -479,13 +479,13 @@ impl FunctionEmitter<'_> {
             let erased = self.erase(input)?;
             let coerced =
                 self.js_string_coercion_match_text("smelt_input", self.absent_spelling());
-            format!(
+            self.carrier_format(format_args!(
                 "match {erased} {{ \
                  SmeltUnknown::Object(value) if value.contains_key(\"{SMELT_REQUEST}\") => {{ \
                  let smelt_input_request = <SmeltRequest as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(value)); \
                  {source_request} }}, \
                  smelt_input => {{ let smelt_input_url = {coerced}; {source_url} }} }}"
-            )
+            ))
         };
         // `init.signal` does not become the request's signal: the spec makes
         // the request's a DEPENDENT signal that follows the given one, which is
@@ -673,9 +673,9 @@ impl FunctionEmitter<'_> {
             ),
             // The two BYTE readers; see the `Response` pair for why they are
             // two members rather than one.
-            smelt_hir::RequestOp::ArrayBuffer => format!(
+            smelt_hir::RequestOp::ArrayBuffer => self.carrier_format(format_args!(
                 "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(SmeltArrayBuffer::from_bytes(smelt_request.body().take_bytes()?)) }})) }}"
-            ),
+            )),
             smelt_hir::RequestOp::Bytes => format!(
                 "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(SmeltTypedArray::from_bytes(smelt_request.body().take_bytes()?)) }})) }}"
             ),
@@ -818,10 +818,10 @@ impl FunctionEmitter<'_> {
                 // each is emitted only where that type is, keyed on the same
                 // gate that decides whether it exists at all.
                 let byte_arm = if self.context.demand().has(Need::ByteArray) {
-                    format!(
+                    self.carrier_format(format_args!(
                         "SmeltUnknown::Object(value) if {elements}(&SmeltUnknown::Object(value.clone())).is_some() => SmeltBody::from_bytes(SmeltTypedArray::smelt_from_unknown(SmeltUnknown::Object(value)).to_bytes()), ",
                         elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS,
-                    )
+                    ))
                 } else {
                     String::new()
                 };
@@ -844,12 +844,12 @@ impl FunctionEmitter<'_> {
                 } else {
                     ""
                 };
-                Ok(format!(
+                Ok(self.carrier_format(format_args!(
                     "match {body_text} {{ SmeltUnknown::String(value) => SmeltBody::from_text(&value.to_string()), \
                      SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltBody::empty(), \
                      {byte_arm}{blob_arm}{search_params_arm}{form_data_arm}\
                      value => panic!(\"body arm is not modeled yet: {{value:?}}\") }}"
-                ))
+                )))
             }
             _ => Err(EmitError::new(format!(
                 "body must be a string or null; this `BodyInit` arm is not modeled yet: {}",
@@ -929,9 +929,9 @@ impl FunctionEmitter<'_> {
             // The two BYTE readers, one `take_bytes` apart: storage owns the
             // bytes, a view is an element window over them. Both consume the
             // body, like every other reader.
-            smelt_hir::ResponseOp::ArrayBuffer => format!(
+            smelt_hir::ResponseOp::ArrayBuffer => self.carrier_format(format_args!(
                 "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(SmeltArrayBuffer::from_bytes(smelt_response.body().take_bytes()?)) }})) }}"
-            ),
+            )),
             smelt_hir::ResponseOp::Bytes => format!(
                 "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(SmeltTypedArray::from_bytes(smelt_response.body().take_bytes()?)) }})) }}"
             ),
@@ -999,15 +999,15 @@ impl FunctionEmitter<'_> {
         Ok(match op {
             smelt_hir::EventEmitterOp::On | smelt_hir::EventEmitterOp::Once => {
                 let once = matches!(op, smelt_hir::EventEmitterOp::Once);
-                format!(
+                self.carrier_format(format_args!(
                     "{{ let smelt_listener = match {} {{ SmeltUnknown::Function(smelt_function) => smelt_function, _ => ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Undefined)) }}; {receiver}.add(&{event_text}, smelt_listener, {once}) }}",
                     listener(1)?
-                )
+                ))
             }
-            smelt_hir::EventEmitterOp::Off => format!(
+            smelt_hir::EventEmitterOp::Off => self.carrier_format(format_args!(
                 "{{ let smelt_listener = match {} {{ SmeltUnknown::Function(smelt_function) => smelt_function, _ => ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Undefined)) }}; {receiver}.remove(&{event_text}, &smelt_listener) }}",
                 listener(1)?
-            ),
+            )),
             smelt_hir::EventEmitterOp::RemoveAll => {
                 format!("{receiver}.remove_all(&{event_text})")
             }

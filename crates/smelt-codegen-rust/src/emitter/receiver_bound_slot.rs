@@ -87,6 +87,7 @@ impl FunctionEmitter<'_> {
         // erasure calls it instead of inlining the class's whole erased view
         // into each slot (which multiplied a class with many callable fields
         // by its own erasure size, once per slot).
+        self.context.note_carrier_use();
         let erase = "::std::clone::Clone::clone(&smelt_bound_receiver).into_smelt_unknown()";
         let args = (0..slot_fn.params.len())
             .map(|index| format!("smelt_slot_arg_{index}"))
@@ -147,13 +148,13 @@ impl FunctionEmitter<'_> {
             .map(|index| format!("smelt_slot_arg_{index}"))
             .collect::<Vec<_>>()
             .join(", ");
-        Ok(Some(format!(
+        Ok(Some(self.carrier_format(format_args!(
             "{{ let smelt_slot_source: SmeltUnknown = {record_map}.clone().into_smelt_unknown(); \
              let smelt_slot: {ty} = ::std::rc::Rc::new(move |{args}| {{ \
              let smelt_slot_callee = {callee}; \
              let _smelt_this_guard = smelt_push_this(smelt_slot_source.clone()); \
              (smelt_slot_callee)({args}) }}); smelt_slot }}",
             ty = self.type_text(field.ty)?,
-        )))
+        ))))
     }
 }

@@ -197,7 +197,7 @@ impl FunctionEmitter<'_> {
             Some(argument) => format!("(({}) as f64).max(0.0) as usize", self.numeric_operand_text(argument)?),
             None => "0".to_owned(),
         };
-        Ok(format!("SmeltArrayBuffer::{constructor}({byte_length})"))
+        Ok(self.carrier_format(format_args!("SmeltArrayBuffer::{constructor}({byte_length})")))
     }
 
     /// Emit a `DataView` accessor call: `getInt16(0)`, `setFloat64(0, x, true)`.
@@ -287,7 +287,7 @@ impl FunctionEmitter<'_> {
         }
         let ty = self.operand_ty(operand)?;
         let erased = self.erase_value_text(&text, ty)?;
-        Ok(format!("SmeltArrayBuffer::smelt_from_unknown({erased})"))
+        Ok(self.carrier_format(format_args!("SmeltArrayBuffer::smelt_from_unknown({erased})")))
     }
 
     /// Render an operand as an `f64`, coercing an erased one at the boundary.

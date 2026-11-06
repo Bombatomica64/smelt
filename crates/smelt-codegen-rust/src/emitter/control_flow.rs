@@ -635,9 +635,9 @@ impl FunctionEmitter<'_> {
                     // `view_write_through`. The value is bound once so the view
                     // and the instance receive the same value.
                     if self.context.erased_view_write_through() {
-                        out.push_str(&format!(
+                        out.push_str(&self.carrier_format(format_args!(
                             "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), smelt_value.clone()); smelt_object_write_through(map, {field_name:?}, &smelt_value); }}, SmeltUnknown::Array(values) => {{ values.set_named_property({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Function(function) => {{ smelt_set_function_property(function, {field_name:?}, smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n"
-                        ));
+                        )));
                         return Ok(());
                     }
                     // A FUNCTION receiver keeps being a function: the write
@@ -647,13 +647,13 @@ impl FunctionEmitter<'_> {
                     // through to the primitive arm replaced the callable with a
                     // one-property record, so `(f as any).x = 1` lost `f`.
                     if rendered_value.contains(&base_name) {
-                        out.push_str(&format!(
+                        out.push_str(&self.carrier_format(format_args!(
                             "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Array(values) => {{ values.set_named_property({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Function(function) => {{ smelt_set_function_property(function, {field_name:?}, smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n"
-                        ));
+                        )));
                     } else {
-                        out.push_str(&format!(
+                        out.push_str(&self.carrier_format(format_args!(
                             "    match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), {rendered_value}); }}, SmeltUnknown::Array(values) => {{ values.set_named_property({field_name:?}.to_owned(), {rendered_value}); }}, SmeltUnknown::Function(function) => {{ smelt_set_function_property(function, {field_name:?}, {rendered_value}); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), {rendered_value})]))); }} }}\n"
-                        ));
+                        )));
                     }
                     return Ok(());
                 }

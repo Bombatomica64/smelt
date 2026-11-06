@@ -137,11 +137,11 @@ impl FunctionEmitter<'_> {
                         // arm an erased callable answered `null`, and es-toolkit
                         // `rest(func)` — whose default split point is
                         // `func.length - 1` — reshaped every call wrongly.
-                        return Ok(format!(
+                        return Ok(self.carrier_format(format_args!(
                             "match {scrutinee} {{ SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), value @ SmeltUnknown::Function(_) => SmeltUnknown::Number({function_length}(&value)), SmeltUnknown::Object(map) => match smelt_get_object_field(&map, \"length\") {{ SmeltUnknown::Undefined | SmeltUnknown::Null if map.contains_key(\"{SMELT_CALL}\") => SmeltUnknown::Number({function_length}(&SmeltUnknown::Object(map))), value => value }}, _ => SmeltUnknown::Null }}",
                             function_length =
                                 smelt_stdlib::runtime_symbols::function_length::READ,
-                        ));
+                        )));
                     }
                     // `AbortController`/`AbortSignal` methods are surfaced as
                     // runtime-helper-bound closures that mutate the shared abort
@@ -157,9 +157,9 @@ impl FunctionEmitter<'_> {
                             | "dispatchEvent"
                             | "throwIfAborted"
                     ) {
-                        return Ok(format!(
+                        return Ok(self.carrier_format(format_args!(
                             "match {scrutinee} {{ SmeltUnknown::Object(map) => smelt_host_method(&map, {field_name:?}).unwrap_or_else(|| smelt_get_object_field(&map, {field_name:?})), _ => SmeltUnknown::Undefined }}"
-                        ));
+                        )));
                     }
                     // `Function.prototype.apply`/`call` must resolve when the
                     // erased receiver is a `SmeltUnknown::Function` (not just an
@@ -206,13 +206,13 @@ impl FunctionEmitter<'_> {
                     if smelt_stdlib::typescript_field_rule(field_name)
                         == Some(smelt_stdlib::FieldRule::TsLength)
                     {
-                        return Ok(format!(
+                        return Ok(self.carrier_format(format_args!(
                             "match {base_text}.clone().unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"length\"), _ => SmeltUnknown::Null }}"
-                        ));
+                        )));
                     }
-                    return Ok(format!(
+                    return Ok(self.carrier_format(format_args!(
                         "smelt_get_unknown_field(&{base_text}.clone().unwrap_or(SmeltUnknown::Undefined), {field_name:?})"
-                    ));
+                    )));
                 }
                 if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
                     && let Some(Type::Dict(key_ty, _)) = self.mir.types.get(*inner)
@@ -228,10 +228,10 @@ impl FunctionEmitter<'_> {
                     && self.symbol_source_name(*field)? == "value"
                 {
                     let wrapped = self.erase_value_text("value", *inner)?;
-                    return Ok(format!(
+                    return Ok(self.carrier_format(format_args!(
                         "{}.clone().map_or(SmeltUnknown::Undefined, |value| {wrapped})",
                         self.local_value_text(*base)?
-                    ));
+                    )));
                 }
                 if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
                     && self.is_regexp_class_symbol(*name)?
@@ -610,7 +610,7 @@ impl FunctionEmitter<'_> {
                         && self.context.demand().has(Need::Unknown) =>
                     {
                         let base_text =
-                            format!("({}).clone().into_smelt_unknown()", self.local_value_text(*base)?);
+                            self.carrier_format(format_args!("({}).clone().into_smelt_unknown()", self.local_value_text(*base)?));
                         let index_ty = self.operand_ty(index)?;
                         let key_text =
                             self.property_key_to_string_text(&self.operand_text(index)?, index_ty)?;
@@ -1043,9 +1043,9 @@ impl FunctionEmitter<'_> {
             || self.dict_uses_js_key_map(key_ty))
             && value_is_unknownish
         {
-            Ok(format!(
+            Ok(self.carrier_format(format_args!(
                 "{base_text}.get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Undefined)"
-            ))
+            )))
         } else if self.dict_uses_smelt_record(key_ty)
             || self.dict_uses_js_key_map(key_ty)
         {
@@ -1053,9 +1053,9 @@ impl FunctionEmitter<'_> {
                 "{base_text}.get(&{key_text}).unwrap_or({default_value})"
             ))
         } else if value_is_unknownish {
-            Ok(format!(
+            Ok(self.carrier_format(format_args!(
                 "{base_text}.get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Undefined)"
-            ))
+            )))
         } else {
             Ok(format!(
                 "{base_text}.get(&{key_text}).cloned().unwrap_or({default_value})"
@@ -1124,7 +1124,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) && self.concrete_union_members(item_ty).is_none()
         {
-            return Ok("SmeltUnknown::Undefined".to_owned());
+            return Ok(self.carrier_text("SmeltUnknown::Undefined"));
         }
         self.default_value(item_ty)
     }
@@ -1363,17 +1363,17 @@ impl FunctionEmitter<'_> {
                     self.normalized_read_index_text(&format!("{base_text}.len()"), index, *negative)?;
                 let erased_value = self.erase_value_text("value", item_ty)?;
                 let read_text = list_read_text(&base_text);
-                Ok(Some(format!(
+                Ok(Some(self.carrier_format(format_args!(
                     "{read_text}.get({index_text}).cloned().map(|value| {erased_value}).unwrap_or(SmeltUnknown::Undefined)"
-                )))
+                ))))
             }
             Some(Type::String) => {
                 let base_text = self.local_value_text(*base)?;
                 let index_text = self
                     .normalized_read_index_text(&format!("{base_text}.chars().count()"), index, *negative)?;
-                Ok(Some(format!(
+                Ok(Some(self.carrier_format(format_args!(
                     "{base_text}.chars().nth({index_text}).map(|ch| SmeltUnknown::String(ch.to_string().into())).unwrap_or(SmeltUnknown::Undefined)"
-                )))
+                ))))
             }
             // A keyed RECORD read misses like an element read (a missing key
             // is `undefined`), and `SmeltRecord::get` already answers the miss
@@ -1389,9 +1389,9 @@ impl FunctionEmitter<'_> {
                 let base_text = self.local_value_text(*base)?;
                 let key_text = self.dict_key_reference_text(index, key_ty)?;
                 let erased_value = self.erase_value_text("value", value_ty)?;
-                Ok(Some(format!(
+                Ok(Some(self.carrier_format(format_args!(
                     "{base_text}.get({key_text}).map(|value| {erased_value}).unwrap_or(SmeltUnknown::Undefined)"
-                )))
+                ))))
             }
             _ => Ok(None),
         }
@@ -1462,9 +1462,9 @@ impl FunctionEmitter<'_> {
             {
                 let scrutinee =
                     self.erase_concrete_union_text(&cloned_value_text(&index_text), index_ty);
-                format!(
+                self.carrier_format(format_args!(
                     "match {scrutinee} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
-                )
+                ))
             }
             _ => "f64::NAN".to_owned(),
         };

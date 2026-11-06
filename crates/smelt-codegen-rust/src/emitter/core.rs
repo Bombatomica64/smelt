@@ -610,11 +610,12 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Return whether this generic free function's body keeps every type
     /// parameter opaque, so the function can emit real Rust generics.
     ///
-    /// Trial-renders the body with the type parameters in scope and checks
-    /// whether the rendered body still needs the erased carrier (see
-    /// [`body_needs_erased_carrier`]). A clean body (pure passthrough) renders no
-    /// erased tokens and keeps its generics; a body that inspects, compares, or
-    /// erases a `T`-typed value falls back to full erasure. The scratch
+    /// Trial-renders the body with the type parameters in scope and reads whether
+    /// the render touched the erased carrier ([`EmitContext::note_carrier_use`]).
+    /// A clean body (pure passthrough) touches nothing and keeps its generics; a
+    /// body that inspects, compares, or erases a `T`-typed value falls back to
+    /// full erasure. A thrown payload and a mutable-list adapter are real dynamic
+    /// boundaries and do not count ([`EmitContext::carrier_boundary`]). The scratch
     /// declared-locals state is reset afterwards so the real emit renders from a
     /// clean slate. The caller only invokes this for signature-generic-safe
     /// functions, so the type parameters are in scope during the trial.
@@ -628,25 +629,21 @@ impl<'mir> FunctionEmitter<'mir> {
         // That assumption is this emitter's role (`OwnGenerics::Trial`, see
         // `FunctionEmitter::for_generic_trial`).
         //
-        // The rendered text is only inspected, never emitted, so everything
-        // the render mints into the shared context (accessors, hoisted helpers,
+        // The rendered text is never emitted, so everything the render mints into the shared context (accessors, hoisted helpers,
         // erasure records) is rolled back when the checkpoint drops.
         {
             let _trial = self.context.checkpoint();
+            self.context.take_carrier_touched();
             self.emit_body(&mut body)?;
         }
+        let touched_carrier = self.context.take_carrier_touched();
         self.reset_body_emission_state();
         // A partial lift is governed by `classes::type_param_only_moved`, which
-        // asks MIR whether each *lifted* parameter is ever inspected. The
-        // textual check below cannot be used there: the parameters that did not
-        // lift render as `SmeltUnknown` by design, so their tokens are in the
-        // body legitimately and would demote the whole function — which is
-        // exactly the all-or-nothing behaviour per-parameter lifting exists to
-        // remove.
-        //
-        // When every parameter lifts there are no such tokens to explain away,
-        // so the historical trial still decides and today's generic functions
-        // keep the gate they were validated under.
+        // asks MIR whether each *lifted* parameter is ever inspected. The carrier
+        // record cannot be used there: the parameters that did not lift render as
+        // `SmeltUnknown` by design, so they touch the carrier legitimately and
+        // would demote the whole function, which is the all-or-nothing behaviour
+        // per-parameter lifting exists to remove.
         let liftable = crate::classes::liftable_type_params(
             self.mir,
             self.function,
@@ -656,7 +653,7 @@ impl<'mir> FunctionEmitter<'mir> {
         if liftable.len() < self.function.type_params.len() {
             return Ok(!liftable.is_empty());
         }
-        Ok(!body_needs_erased_carrier(&body))
+        Ok(!touched_carrier)
     }
 
     /// Whether a call to the free function `id` renders against its generic
@@ -3539,7 +3536,7 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             self.value_at_type_text(&call_value, source.return_ty, unknown_ty, &self.render_scope())?
         };
-        let closure = format!("move |smelt_args: Vec<SmeltUnknown>| {return_text}");
+        let closure = self.carrier_format(format_args!("move |smelt_args: Vec<SmeltUnknown>| {return_text}"));
         Ok(Some(if is_borrowed_param {
             format!("::std::rc::Rc::new({closure})")
         } else {
@@ -4030,7 +4027,7 @@ impl<'mir> FunctionEmitter<'mir> {
             // callback for its side effects, then materialize
             // `SmeltUnknown::Undefined` so downstream `!== undefined` guards
             // treat the result as "no value".
-            format!("{{ {call_value}; SmeltUnknown::Undefined }}")
+            self.carrier_format(format_args!("{{ {call_value}; SmeltUnknown::Undefined }}"))
         } else {
             self.value_at_type_text(&call_value, call_return_ty, target_function.return_ty, scope)?
         };
@@ -4063,9 +4060,9 @@ impl<'mir> FunctionEmitter<'mir> {
             let erased_return =
                 self.erase_value_text(&returned, target_function.return_ty)?;
             let length = source_function.params.len();
-            return Ok(Some(format!(
+            return Ok(Some(self.carrier_format(format_args!(
                 "{{ let smelt_callback = {value_text}.clone(); SmeltErasedFunction {{ callback: ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {{ let arg0: {rest_text} = SmeltList::from(smelt_args); {erased_return} }}), length: {length}.0, object: None }} }}"
-            )));
+            ))));
         }
         let target_text = self.type_text(target)?;
         Ok(Some(format!(
@@ -4355,6 +4352,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 .map(|param| self.mir.types.get(*param)),
             Some(Some(Type::List(_)))
         );
+        self.context.note_carrier_use();
         let (smelt_args_ty, args_prelude) = if args_is_list {
             ("SmeltList<SmeltUnknown>", "let smelt_args = smelt_args.to_vec(); ")
         } else {
@@ -4440,9 +4438,9 @@ impl<'mir> FunctionEmitter<'mir> {
         if let Some(Type::TypeParam { name }) = self.mir.types.get(param_ty)
             && !scope.spells(*name)
         {
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "SmeltFromUnknown::smelt_from_unknown(({item}).into_smelt_unknown())"
-            ));
+            )));
         }
         self.extract_value_text(item, param_ty, &scope)
     }
@@ -4485,7 +4483,7 @@ impl<'mir> FunctionEmitter<'mir> {
                         "{open}smelt_args.iter().skip({index}).cloned().map(|value| {item_text}).collect::<SmeltList<_>>(){close}"
                     ));
                 }
-                let item = format!("smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Null)");
+                let item = self.carrier_format(format_args!("smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Null)"));
                 let value = self.erased_argument_at_param_text(&item, *param_ty)?;
                 let arg = if function
                     .required_params
@@ -4981,7 +4979,7 @@ impl<'mir> FunctionEmitter<'mir> {
             // `SmeltUnknown::Undefined` so downstream `!== undefined` guards
             // (e.g. cloneDeepWith's customizer wrapper) correctly treat the
             // result as "no value" rather than a real `null` clone.
-            format!("{{ {call_value}; SmeltUnknown::Undefined }}")
+            self.carrier_format(format_args!("{{ {call_value}; SmeltUnknown::Undefined }}"))
         } else {
             self.value_at_type_text(&call_value, source.return_ty, target_return_ty, &self.render_scope())?
         };
@@ -5266,11 +5264,11 @@ impl<'mir> FunctionEmitter<'mir> {
         // Register the source arity on the cached callable: an `Rc<dyn Fn>` cannot
         // carry `Function.prototype.length`, and this accessor is the only place a
         // function *item*'s erased value is built.
-        let body = format!(
+        let body = self.carrier_format(format_args!(
             "SmeltUnknown::Function({{ let smelt_callback = {wrapper_text}; let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = {inner}; {register}(&smelt_erased_fn, {length}.0); smelt_erased_fn }})",
             register = smelt_stdlib::runtime_symbols::function_length::REGISTER,
             length = self.operand_function_length(operand)?,
-        );
+        ));
         drop(hoisted);
         Ok(Some((key, body)))
     }
@@ -5378,15 +5376,15 @@ impl<'mir> FunctionEmitter<'mir> {
             // A `void`-returning callback erased to a callable value returns
             // JavaScript `undefined`, not `null`.
             if source.may_throw {
-                format!(
+                self.carrier_format(format_args!(
                     "{{ {call}?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}"
-                )
+                ))
             } else {
-                format!("{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}")
+                self.carrier_format(format_args!("{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}"))
             }
         } else if matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_))) {
             let value = self.erase_value_text(&call, source.return_ty)?;
-            format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
+            self.carrier_format(format_args!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})"))
         } else if self.is_erased_class_type(source.return_ty) {
             // A return value skips erasure only when its Rust
             // representation already IS `SmeltUnknown`
@@ -5397,18 +5395,18 @@ impl<'mir> FunctionEmitter<'mir> {
             if source.may_throw {
                 call
             } else {
-                format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({call})")
+                self.carrier_format(format_args!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({call})"))
             }
         } else if source.may_throw {
             let value = self.erase_value_text(&format!("{call}?"), source.return_ty)?;
-            format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
+            self.carrier_format(format_args!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})"))
         } else {
             let value = self.erase_value_text(&call, source.return_ty)?;
-            format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
+            self.carrier_format(format_args!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})"))
         };
-        Ok(format!(
+        Ok(self.carrier_format(format_args!(
             "::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text})"
-        ))
+        )))
     }
 
     /// Registration text linking an erased callable to the class it constructs.
@@ -5507,15 +5505,15 @@ impl<'mir> FunctionEmitter<'mir> {
             // A `void`-returning callback erased to a callable value returns
             // JavaScript `undefined`, not `null`.
             if source.may_throw {
-                format!(
+                self.carrier_format(format_args!(
                     "{{ {call}?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}"
-                )
+                ))
             } else {
-                format!("{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}")
+                self.carrier_format(format_args!("{{ {call}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}"))
             }
         } else if matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_))) {
             let value = self.erase_value_text(&call, source.return_ty)?;
-            format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
+            self.carrier_format(format_args!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})"))
         } else if self.is_erased_class_type(source.return_ty) {
             // A return value skips erasure only when its Rust
             // representation already IS `SmeltUnknown`
@@ -5526,18 +5524,18 @@ impl<'mir> FunctionEmitter<'mir> {
             if source.may_throw {
                 call
             } else {
-                format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({call})")
+                self.carrier_format(format_args!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({call})"))
             }
         } else if source.may_throw {
             let value = self.erase_value_text(&format!("{call}?"), source.return_ty)?;
-            format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
+            self.carrier_format(format_args!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})"))
         } else {
             let value = self.erase_value_text(&call, source.return_ty)?;
-            format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
+            self.carrier_format(format_args!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})"))
         };
-        Ok(Some(format!(
+        Ok(Some(self.carrier_format(format_args!(
             "::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text})"
-        )))
+        ))))
     }
 
     /// Gets the type of an operand.
@@ -6367,159 +6365,6 @@ fn emitted_tail_returns(out: &str) -> bool {
         .rev()
         .find(|line| !line.trim().is_empty())
         .is_some_and(|line| line.trim_start().starts_with("return "))
-}
-
-/// Tokens that mark a trial-rendered generic free-function body as needing the
-/// erased runtime, so real generics would produce type errors.
-///
-/// These are the erased carrier types and the JavaScript-semantics methods /
-/// conversions that are only implemented for `SmeltUnknown` (and primitives),
-/// not for an arbitrary generic `T`. A body that mentions any of them inspects,
-/// compares, hashes, keys, or erases a `T`-typed value — operations the generic
-/// bounds (`Clone + Default + IntoSmeltUnknown + SmeltFromUnknown`) do not
-/// support on a bare `T` (e.g. `js_strict_eq`, `same_js_key`) or that force a
-/// `T`-vs-`SmeltUnknown` mismatch.
-const ERASED_CARRIER_TOKENS: &[&str] = &[
-    "SmeltUnknown",
-    "SmeltObject",
-    "SmeltArray",
-    "SmeltRecord",
-    "SmeltJsMap",
-    "js_strict_eq",
-    "same_js_key",
-    "smelt_from_unknown",
-    "into_smelt_unknown",
-];
-
-/// Return whether a trial-rendered generic free-function body still needs the
-/// erased runtime carrier.
-///
-/// A generic free function only emits real Rust generics when its body keeps
-/// every type parameter opaque. If the body — rendered with the type parameters
-/// in scope — references any erased carrier type or JavaScript-semantics helper
-/// (see [`ERASED_CARRIER_TOKENS`]), the body inspects, compares, or erases a
-/// `T`-typed value (for example a null/undefined check, a deep-equality
-/// comparison, or a map-keying operation). Emitting real generics for such a
-/// body produces `T`-vs-`SmeltUnknown` mismatches or missing-trait errors, so
-/// the caller falls back to the fully erased signature.
-///
-/// This is a deliberately conservative textual check: any listed token in the
-/// trial body disqualifies generic emission. A pure passthrough body
-/// (`return x;`, `return xs.get(..)..;`) contains none of them and keeps its
-/// generics.
-fn body_needs_erased_carrier(body: &str) -> bool {
-    let stripped = strip_throw_payloads(&strip_mut_list_adapter_blocks(body));
-    ERASED_CARRIER_TOKENS
-        .iter()
-        .any(|token| stripped.contains(token))
-}
-
-/// Removes `smelt_throw(..)` payload expressions from a trial body.
-///
-/// A thrown value is a genuine dynamic boundary, exactly like the mutable-list
-/// adapter above: `smelt_throw` takes an erased `SmeltUnknown` and returns a
-/// `Box<dyn std::error::Error>`, so the payload never touches a type parameter
-/// and cannot leak one. But it is BUILT out of `SmeltUnknown` / `SmeltObject` /
-/// `SmeltRecord`, so leaving it in the trial body means a single
-/// `throw new Error(..)` disqualifies the whole function from real generics.
-///
-/// That is not a hypothetical cost. In es-toolkit 19 emitted functions contain
-/// `smelt_throw`, and for four of them — `chunk`, `combinations`, `sampleSize`,
-/// `windowed` — the throw is the ONLY erased-carrier mention in an otherwise
-/// fully opaque body. `chunk<T>` therefore lowered to
-/// `chunk(SmeltList<SmeltUnknown>, f64)`, and every element it copies pays an
-/// out-of-line `SmeltUnknown::clone` plus drop glue that compiles to nothing at
-/// a concrete `T`. Measured on the same data and operation, the typed
-/// instantiation of `uniq` costs 10,472,619 instructions against the erased
-/// one's 14,464,861 — 1.38x, purely for carrying the tag.
-///
-/// The scan tracks string literals so a message containing a parenthesis (or a
-/// `\"` escape) cannot end the payload early; the surrounding body is left
-/// untouched, so anything the function does with `T` outside a throw still
-/// disqualifies it.
-fn strip_throw_payloads(body: &str) -> String {
-    const MARKER: &str = "smelt_throw(";
-    let mut result = body.to_owned();
-    while let Some(marker_pos) = result.find(MARKER) {
-        let open = marker_pos.saturating_add(MARKER.len()).saturating_sub(1);
-        let bytes = result.as_bytes();
-        let mut depth = 0_usize;
-        let mut close_pos = None;
-        let mut in_string = false;
-        let mut escaped = false;
-        for (offset, &byte) in bytes.iter().enumerate().skip(open) {
-            if in_string {
-                match byte {
-                    _ if escaped => escaped = false,
-                    b'\\' => escaped = true,
-                    b'"' => in_string = false,
-                    _ => {}
-                }
-                continue;
-            }
-            match byte {
-                b'"' => in_string = true,
-                b'(' => depth = depth.saturating_add(1),
-                b')' => {
-                    depth = depth.saturating_sub(1);
-                    if depth == 0 {
-                        close_pos = Some(offset);
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        let Some(payload_end) = close_pos else {
-            break;
-        };
-        result.replace_range(marker_pos..=payload_end, "");
-    }
-    result
-}
-
-/// Removes convert-in-place mutable-list adapter blocks from a trial body.
-///
-/// The adapter (see `call::static_call_mut_list_adapter_text`) deliberately
-/// erases a generic element to `SmeltUnknown` and un-erases it again at a real
-/// dynamic boundary: a generic caller forwarding a `&mut` list into an erased
-/// callee. That controlled boundary conversion is not a `T` leak, so its erased
-/// carrier tokens must not disqualify the caller from emitting real generics.
-/// Each adapter block is delimited by its leading `smelt_mut_arg_` binding; this
-/// removes the enclosing brace-balanced block so the cleanliness check sees only
-/// the surrounding (opaque) body.
-fn strip_mut_list_adapter_blocks(body: &str) -> String {
-    const MARKER: &str = "let mut smelt_mut_arg_";
-    let mut result = body.to_owned();
-    while let Some(marker_pos) = result.find(MARKER) {
-        // Find the `{` that opens the adapter block (the nearest one before the
-        // marker binding).
-        let Some(open) = result[..marker_pos].rfind('{') else {
-            break;
-        };
-        // Brace-match forward from `open` to find the block's closing `}`.
-        let bytes = result.as_bytes();
-        let mut depth = 0_usize;
-        let mut close_pos = None;
-        for (offset, &byte) in bytes.iter().enumerate().skip(open) {
-            match byte {
-                b'{' => depth = depth.saturating_add(1),
-                b'}' => {
-                    depth = depth.saturating_sub(1);
-                    if depth == 0 {
-                        close_pos = Some(offset);
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        let Some(close_pos) = close_pos else {
-            break;
-        };
-        result.replace_range(open..=close_pos, "");
-    }
-    result
 }
 
 // Constant formatting continues in `literals.rs`.

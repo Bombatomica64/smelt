@@ -45,7 +45,7 @@ impl FunctionEmitter<'_> {
                         .map(|(idx, field_ty)| {
                             let erased =
                                 self.erase_value_text(&format!("{tuple_text}.{idx}"), *field_ty)?;
-                            Ok(format!("({erased}).same_js_key(&smelt_needle)"))
+                            Ok(self.carrier_format(format_args!("({erased}).same_js_key(&smelt_needle)")))
                         })
                         .collect::<Result<Vec<_>, EmitError>>()?
                         .join(" || ")

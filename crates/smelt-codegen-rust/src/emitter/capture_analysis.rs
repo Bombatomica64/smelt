@@ -269,8 +269,8 @@ impl FunctionEmitter<'_> {
     /// When the two renderings disagree the argument is rendered through
     /// [`FunctionEmitter::demoting_erased_argument_text`], which is a
     /// *demotion signal* rather than a rendering the emitted crate keeps: it
-    /// carries an `into_smelt_unknown` token, so the body-cleanliness trial
-    /// (`crate::emitter::core::body_needs_erased_carrier`) rejects the caller's
+    /// touches the erased carrier, so the generic trial
+    /// (`FunctionEmitter::renders_real_generics`) rejects the caller's
     /// generic signature, and the re-render with both sides erased takes the
     /// pass-through branch again. Declining to emit generics is always sound;
     /// emitting an invariant `&mut` at the wrong element type is not.
@@ -442,10 +442,9 @@ impl FunctionEmitter<'_> {
     /// answer, and the same token produces it.
     ///
     /// So instead of emitting an unsound borrow, this emits the element-wise
-    /// erasure of the place — a type-correct expression that *does* carry an
-    /// `into_smelt_unknown` token. `body_needs_erased_carrier` sees the token in
-    /// the caller's trial body, the caller demotes to full erasure, and the
-    /// re-render finds both sides erased and passes the place through as before.
+    /// erasure of the place — a type-correct expression that *does* touch the
+    /// carrier. The trial records that use, the caller demotes to full erasure,
+    /// and the re-render finds both sides erased and passes the place through as before.
     /// The text below therefore never reaches the emitted crate; the guards in
     /// [`FunctionEmitter::argument_renders_alike_across_call`] are what make that
     /// true, and they must not be relaxed without replacing this mechanism.
@@ -456,11 +455,11 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let place_text = self.place_text(place)?;
         if matches!(self.mir.types.get(place_ty), Some(Type::List(_))) {
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "{place_text}.clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<SmeltList<_>>()"
-            ));
+            )));
         }
-        Ok(format!("{place_text}.clone().into_smelt_unknown()"))
+        Ok(self.carrier_format(format_args!("{place_text}.clone().into_smelt_unknown()")))
     }
 
     /// Returns whether a non-escaping capture must share outer storage.

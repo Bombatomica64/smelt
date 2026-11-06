@@ -52,6 +52,7 @@ impl FunctionEmitter<'_> {
     /// through `smelt_throw`, and a program with no erased values keeps the plain
     /// string `std::io::Error` form.
     pub(super) fn thrown_payload_text(&self, operand: &Operand) -> Result<String, EmitError> {
+        let _boundary = self.context.carrier_boundary();
         if !self.context.demand().has(Need::Unknown) {
             return Ok(format!(
                 "std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", {})).into()",

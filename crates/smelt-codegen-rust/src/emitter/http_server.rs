@@ -78,7 +78,7 @@ impl FunctionEmitter<'_> {
         let answer = if function.may_throw {
             format!("{call}.map(|smelt_answer| {erased})")
         } else {
-            format!("{{ let smelt_answer = {call}; Ok::<SmeltUnknown, Box<dyn ::std::error::Error>>({erased}) }}")
+            self.carrier_format(format_args!("{{ let smelt_answer = {call}; Ok::<SmeltUnknown, Box<dyn ::std::error::Error>>({erased}) }}"))
         };
         Ok(format!(
             "SmeltHttpServer::new({{ let smelt_fetch = {text}; ::std::rc::Rc::new(move |smelt_request: SmeltIncomingMessage, smelt_response: SmeltServerResponse| {{ let smelt_fetch_request = smelt_fetch_server_request(&smelt_request); smelt_fetch_server_respond(smelt_response, {answer}); Ok(()) }}) as SmeltHttpHandler }})"

@@ -453,6 +453,7 @@ impl FunctionEmitter<'_> {
                 // before handing it to the throw adapter.
                 let reject_by_ref = self
                     .synthesized_callback_param_is_shared_reference(self.type_id(Type::Unknown)?);
+                self.context.note_carrier_use();
                 let (reject_input_text, reject_value) = if reject_by_ref {
                     ("&SmeltUnknown", "error.clone()")
                 } else {
@@ -676,9 +677,9 @@ impl FunctionEmitter<'_> {
         // The erased callable probe matches on `SmeltUnknown`. The object arm
         // binds through `get`, which yields a reference, so it must clone to
         // match the owned handle produced by the function arm.
-        Ok(format!(
+        Ok(self.carrier_format(format_args!(
             "{{ let smelt_function_value = smelt_timer_callback.clone(); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"{SMELT_CALL}\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)({call_args}).map(|_| ()) }} else {{ Err(std::io::Error::new(std::io::ErrorKind::Other, \"timer callback is not callable\").into()) }} }}"
-        ))
+        )))
     }
 
     /// Render a direct call to a statically-typed timer callback.
@@ -704,7 +705,7 @@ impl FunctionEmitter<'_> {
         let prelude = if extra.is_some() {
             String::new()
         } else {
-            "let smelt_timer_args_empty: Vec<SmeltUnknown> = Vec::new(); ".to_owned()
+            self.carrier_text("let smelt_timer_args_empty: Vec<SmeltUnknown> = Vec::new(); ")
         };
         // The fully-erased `(...args: unknown[]) => unknown` callback lowers to a
         // `SmeltErasedFunction` struct rather than a bare `dyn Fn`, and is
@@ -724,9 +725,9 @@ impl FunctionEmitter<'_> {
                 );
                 call_args.push(self.value_at_type_text(&rest_text, unknown_list_ty, *param, &self.render_scope())?);
             } else {
-                let arg_text = format!(
+                let arg_text = self.carrier_format(format_args!(
                     "{args_source}.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
-                );
+                ));
                 call_args.push(self.value_at_type_text(&arg_text, unknown_ty, *param, &self.render_scope())?);
             }
         }
@@ -748,10 +749,10 @@ impl FunctionEmitter<'_> {
         };
         let unknown_ty = self.type_id(Type::Unknown)?;
         let args_ty = self.type_id(Type::List(unknown_ty))?;
-        Ok(format!(
+        Ok(self.carrier_format(format_args!(
             "let smelt_timer_args: Vec<SmeltUnknown> = {}.iter().cloned().collect(); ",
             list_read_text(&self.value_at_type(extra_operand, args_ty)?)
-        ))
+        )))
     }
 
     /// Whether awaiting this operand yields an erased value that may itself be a
@@ -1435,15 +1436,15 @@ impl FunctionEmitter<'_> {
         // callable-object dispatch; a non-callable value is dropped like an
         // absent handler (the resolved value still evaluates).
         if self.mir.types.get(self.operand_ty(callback)?) == Some(&Type::Unknown) {
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "{{ let smelt_callable = match ({callback_text}).clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"{SMELT_CALL}\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; match smelt_callable {{ Some(smelt_function) => (smelt_function)(vec![IntoSmeltUnknown::into_smelt_unknown({arg_expr})]).unwrap_or_else(|error| smelt_panic_throw(error)), None => {{ let _ = {arg_expr}; SmeltUnknown::Undefined }} }} }}"
-            ));
+            )));
         }
         if let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callback)?) {
             if self.is_erased_unknown_rest_function(function) && !function.may_throw {
-                return Ok(format!(
+                return Ok(self.carrier_format(format_args!(
                     "({callback_text}).call(vec![IntoSmeltUnknown::into_smelt_unknown({arg_expr})])"
-                ));
+                )));
             }
             // JavaScript `.then(cb)`/`.catch(cb)` always invoke the continuation
             // with the resolved value (or rejection reason), but a 0-arity source
@@ -2305,6 +2306,7 @@ impl FunctionEmitter<'_> {
         if !needs_adapter {
             return Ok(None);
         }
+        let _boundary = self.context.carrier_boundary();
         let mut prelude = String::new();
         let mut rendered_args = Vec::with_capacity(args.len());
         let mut writebacks = String::new();
@@ -2364,19 +2366,19 @@ impl FunctionEmitter<'_> {
                         // caller's; naming it keeps that deliberate.
                         let temp_ty =
                             self.rust_type(target_ty, false, &TypeSubstitution::erased())?;
-                        prelude.push_str(&format!(
+                        prelude.push_str(&self.carrier_format(format_args!(
                             "let mut {temp}: {temp_ty} = {}.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<{temp_ty}>(); ",
                             access.read
-                        ));
+                        )));
                         rendered_args.push(format!("&mut {temp}"));
                         // The temporary is a converted copy, so the callee's
                         // writes come back through the caller's own buffer:
                         // every alias of this JS array must observe them, which
                         // rebinding the place to a new list would not do.
-                        writebacks.push_str(&format!(
+                        writebacks.push_str(&self.carrier_format(format_args!(
                             "{}.replace_all({temp}.into_iter().map(|smelt_element| <{caller_elem} as SmeltFromUnknown>::smelt_from_unknown(smelt_element)).collect::<Vec<_>>()); ",
                             access.read
-                        ));
+                        )));
                     }
                     MutListArgKind::UnionInjected => {
                         let arg_item = self.list_element_ty(place_ty)?;
@@ -2500,9 +2502,9 @@ impl FunctionEmitter<'_> {
         }
         let dest_elem =
             self.rust_type(*dest_item, false, &TypeSubstitution::lexical(caller_scope))?;
-        Ok(format!(
+        Ok(self.carrier_format(format_args!(
             "{value_text}.into_iter().map(|smelt_element| <{dest_elem} as SmeltFromUnknown>::smelt_from_unknown(smelt_element)).collect::<SmeltList<_>>()"
-        ))
+        )))
     }
 
     /// Returns the place of the `index`-th argument, and how its elements must be
@@ -3550,18 +3552,18 @@ impl FunctionEmitter<'_> {
             let marker_probe = if class_name == "Error" {
                 "value.contains_key(\"__smelt_error\")".to_owned()
             } else {
-                format!(
+                self.carrier_format(format_args!(
                     "matches!(value.get(\"{SMELT_ERROR}\"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == {class_name:?})"
-                )
+                ))
             };
             if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-                return Ok(format!(
+                return Ok(self.carrier_format(format_args!(
                     "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if {marker_probe})"
-                ));
+                )));
             }
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "matches!({value_text}.clone(), SmeltUnknown::Object(value) if {marker_probe})"
-            ));
+            )));
         }
         // A concrete source `Map`/`Set` is unconditionally an instance of its own
         // class, and any OTHER concrete operand carries no such identity. Those
@@ -3598,13 +3600,13 @@ impl FunctionEmitter<'_> {
         {
             let value_text = self.operand_text(value)?;
             if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-                return Ok(format!(
+                return Ok(self.carrier_format(format_args!(
                     "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"{SMELT_ARRAYBUFFER}\"))"
-                ));
+                )));
             }
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"{SMELT_ARRAYBUFFER}\"))"
-            ));
+            )));
         }
         // A CONCRETE blob answers both spellings statically: it always is a
         // `Blob`, and it is a `File` exactly when its optional name is present
@@ -3628,13 +3630,13 @@ impl FunctionEmitter<'_> {
         {
             let value_text = self.operand_text(value)?;
             if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-                return Ok(format!(
+                return Ok(self.carrier_format(format_args!(
                     "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"{SMELT_BLOB}\"))"
-                ));
+                )));
             }
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"{SMELT_BLOB}\"))"
-            ));
+            )));
         }
         if class_name == "Number"
             && matches!(
@@ -3644,13 +3646,13 @@ impl FunctionEmitter<'_> {
         {
             let value_text = self.operand_text(value)?;
             if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-                return Ok(format!(
+                return Ok(self.carrier_format(format_args!(
                     "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"{SMELT_NUMBER}\"))"
-                ));
+                )));
             }
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"{SMELT_NUMBER}\"))"
-            ));
+            )));
         }
         if class_name == "Promise"
             && matches!(
@@ -3660,13 +3662,13 @@ impl FunctionEmitter<'_> {
         {
             let value_text = self.operand_text(value)?;
             if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-                return Ok(format!(
+                return Ok(self.carrier_format(format_args!(
                     "matches!({value_text}.clone(), Some(SmeltUnknown::Promise(_)))"
-                ));
+                )));
             }
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "matches!({value_text}.clone(), SmeltUnknown::Promise(_))"
-            ));
+            )));
         }
         // `AbortController`/`AbortSignal` erase to marker-bearing records (see
         // `abort_controller_constructor_expression`). They are recognized by
@@ -3704,13 +3706,13 @@ impl FunctionEmitter<'_> {
                     .collect::<Vec<_>>()
                     .join(" || ");
                 if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-                    return Ok(format!(
+                    return Ok(self.carrier_format(format_args!(
                         "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if {probe})"
-                    ));
+                    )));
                 }
-                return Ok(format!(
+                return Ok(self.carrier_format(format_args!(
                     "matches!({value_text}.clone(), SmeltUnknown::Object(value) if {probe})"
-                ));
+                )));
             }
         }
         // Nothing above recognized the pair. For a CONCRETE operand that is a
@@ -3734,12 +3736,12 @@ impl FunctionEmitter<'_> {
         if self.instanceof_operand_is_dynamic(value_ty)
             && smelt_stdlib::typescript_stdlib_class(class_name).is_some()
         {
-            return Err(EmitError::new(format!(
+            return Err(EmitError::new(self.carrier_format(format_args!(
                 "`instanceof {class_name}` on a dynamically-typed value is not modeled: \
                  `{class_name}` values carry no identity marker on an erased value, so the \
                  check cannot be answered at runtime. A modeled class needs a host-object \
                  registry marker and an `IntoSmeltUnknown` that stamps it."
-            )));
+            ))));
         }
         if let Some(check) = self.erased_user_class_instance_of_text(value, value_ty, class)? {
             return Ok(check);
@@ -3788,15 +3790,15 @@ impl FunctionEmitter<'_> {
                 }
             }
         }
-        let probe = format!(
+        let probe = self.carrier_format(format_args!(
             "matches!(value.get(\"{SMELT_CLASS}\"), Some(SmeltUnknown::String(smelt_class_name)) if matches!(&*smelt_class_name, {}))",
             names.join(" | ")
-        );
+        ));
         let value_text = self.operand_text(value)?;
         Ok(Some(if optional {
-            format!("matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if {probe})")
+            self.carrier_format(format_args!("matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if {probe})"))
         } else {
-            format!("matches!({value_text}.clone(), SmeltUnknown::Object(value) if {probe})")
+            self.carrier_format(format_args!("matches!({value_text}.clone(), SmeltUnknown::Object(value) if {probe})"))
         }))
     }
 
@@ -3900,7 +3902,7 @@ impl FunctionEmitter<'_> {
         }
         let value_text = self.operand_text(value)?;
         let probed = if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-            format!("{value_text}.clone().unwrap_or(SmeltUnknown::Undefined)")
+            self.carrier_format(format_args!("{value_text}.clone().unwrap_or(SmeltUnknown::Undefined)"))
         } else {
             format!("{value_text}.clone()")
         };

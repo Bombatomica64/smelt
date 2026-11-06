@@ -60,9 +60,9 @@ impl FunctionEmitter<'_> {
                         "{{ let smelt_needle = {item_text}; {borrowed_list_text}.iter().{method_name}(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).map_or(-1.0, |idx| idx as f64) }}"
                     ));
                 }
-                return Ok(format!(
+                return Ok(self.carrier_format(format_args!(
                     "{{ let smelt_needle = {item_text}; {borrowed_list_text}.iter().{method_name}(|item| item.same_js_key(&smelt_needle)).map_or(-1.0, |idx| idx as f64) }}"
-                ));
+                )));
             }
             return Ok(format!(
                 "{borrowed_list_text}.iter().{method_name}(|item| item == &{item_text}).map_or(-1.0, |idx| idx as f64)"
@@ -83,7 +83,7 @@ impl FunctionEmitter<'_> {
             if self.mir.types.get(element_ty) == Some(&Type::Float) {
                 "|item: &f64| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())".to_owned()
             } else {
-                format!("|item: &{element_type_text}| item.same_js_key(&smelt_needle)")
+                self.carrier_format(format_args!("|item: &{element_type_text}| item.same_js_key(&smelt_needle)"))
             }
         } else {
             format!("|item: &{element_type_text}| *item == smelt_needle")
@@ -354,9 +354,9 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
                 let unknown_ty = self.type_id(Type::Unknown)?;
                 let value_text = self.value_at_type_text("value", unknown_ty, *dest_item_ty, &self.render_scope())?;
-                format!(
+                self.carrier_format(format_args!(
                     "match smelt_result {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| {value_text}).collect::<Vec<_>>(), value => vec![{value_text}] }}"
-                )
+                ))
             }
             _ => {
                 let value_text =
@@ -446,9 +446,9 @@ impl FunctionEmitter<'_> {
             return Ok(ListCallbackIterationParts {
                 prefix: format!("let smelt_array = {owned_list_text}; "),
                 iter_text: list_read_text("smelt_array"),
-                call_args: vec![format!(
+                call_args: vec![self.carrier_format(format_args!(
                     "SmeltList::from(vec![{item}, SmeltUnknown::Number(index as f64), {array}])"
-                )],
+                ))],
             });
         }
         // A zero-parameter callback (`values.map(stubTrue)`) ignores every
@@ -571,7 +571,7 @@ impl FunctionEmitter<'_> {
                 function_ty,
                 0,
                 item_param_ty,
-                self.value_at_type_text("SmeltUnknown::Null", unknown_ty, item_param_ty, &self.render_scope())?,
+                self.value_at_type_text(&self.carrier_text("SmeltUnknown::Null"), unknown_ty, item_param_ty, &self.render_scope())?,
             ));
         }
         if let Some(index_param_ty) = function_ty.params.get(1).copied() {
@@ -825,9 +825,9 @@ impl FunctionEmitter<'_> {
                     "{{ let smelt_needle = {item_text}; {list_text}.iter().filter(|item| **item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).count() as i64 }}"
                 ));
             }
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "{{ let smelt_needle = {item_text}; {list_text}.iter().filter(|item| item.same_js_key(&smelt_needle)).count() as i64 }}"
-            ));
+            )));
         }
         Ok(format!(
             "{list_text}.iter().filter(|item| *item == &{item_text}).count() as i64"

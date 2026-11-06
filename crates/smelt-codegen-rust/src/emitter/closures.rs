@@ -262,16 +262,16 @@ impl FunctionEmitter<'_> {
                         // returns JavaScript `undefined`, not `null`. Yield
                         // `SmeltUnknown::Undefined` so `!== undefined` guards on
                         // the callback result behave as in JS.
-                        format!("{{ {call}; SmeltUnknown::Undefined }}")
+                        self.carrier_format(format_args!("{{ {call}; SmeltUnknown::Undefined }}"))
                     } else {
                         self.value_at_type_text(&call, source_closure.return_ty, unknown_ty, &self.render_scope())?
                     };
                 let length = source_closure
                     .required_params
                     .unwrap_or_else(|| source_closure.rest.unwrap_or(source_closure.params.len()));
-                let erased_function = format!(
+                let erased_function = self.carrier_format(format_args!(
                     "SmeltErasedFunction {{ callback: {{ let smelt_callback = ::std::rc::Rc::new({adjusted_closure}); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}) }}, length: {length}.0, object: None }}"
-                );
+                ));
                 // A bare function-item-as-value wrapper carries a stable item
                 // key. Building this `SmeltErasedFunction` inline would mint a
                 // fresh callback `Rc` on every call, so two calls of the same
@@ -816,7 +816,7 @@ impl FunctionEmitter<'_> {
                         Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                     ) || emitter.is_erased_class_type(output_ty)
                     {
-                        "let smelt_async_output = smelt_async_value?.await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_async_output.into_smelt_unknown())".to_owned()
+                        self.carrier_text("let smelt_async_output = smelt_async_value?.await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_async_output.into_smelt_unknown())")
                     } else {
                         format!(
                             "let smelt_async_output = smelt_async_value?.await?; Ok::<{output_text}, Box<dyn std::error::Error>>(smelt_async_output)"
@@ -828,7 +828,7 @@ impl FunctionEmitter<'_> {
                         Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                     ) || emitter.is_erased_class_type(output_ty)
                     {
-                        "Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_async_value?.into_smelt_unknown())".to_owned()
+                        self.carrier_text("Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_async_value?.into_smelt_unknown())")
                     } else {
                         format!(
                             "Ok::<{output_text}, Box<dyn std::error::Error>>(smelt_async_value?)"
@@ -840,9 +840,9 @@ impl FunctionEmitter<'_> {
                 ) || emitter.is_erased_class_type(output_ty)
                 {
                     if async_value_needs_await {
-                        "let smelt_async_output = smelt_async_value.await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_async_output.into_smelt_unknown())".to_owned()
+                        self.carrier_text("let smelt_async_output = smelt_async_value.await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_async_output.into_smelt_unknown())")
                     } else {
-                        "Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_async_value.into_smelt_unknown())".to_owned()
+                        self.carrier_text("Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_async_value.into_smelt_unknown())")
                     }
                 } else if async_value_needs_await {
                     format!(

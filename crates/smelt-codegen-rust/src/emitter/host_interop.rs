@@ -360,8 +360,8 @@ impl FunctionEmitter<'_> {
         } else {
             format!("({args_text},)")
         };
-        Ok(format!(
+        Ok(self.carrier_format(format_args!(
             "{{ let _smelt_external_args = {args_tuple_text}; let _smelt_external = Vec::from([(\"__class\".to_owned(), SmeltUnknown::String({class_name:?}.into()))]); SmeltUnknown::Object(SmeltObject::new(_smelt_external)) }}"
-        ))
+        )))
     }
 }

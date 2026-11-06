@@ -218,6 +218,12 @@ pub(crate) struct EmitContext {
     pub(crate) none_ty: TypeId,
     /// What this program demands of the runtime, computed once.
     demand: RuntimeDemand,
+    /// Whether the render under trial touched the erased carrier; see
+    /// [`Self::note_carrier_use`].
+    carrier_touched: std::cell::Cell<bool>,
+    /// Nesting of real dynamic boundaries, inside which a carrier use does not
+    /// count; see [`Self::at_carrier_boundary`].
+    carrier_boundaries: std::cell::Cell<usize>,
     /// The generated traits of class- and interface-bounded type parameters
     /// (see [`crate::bound_traits`]).
     pub(crate) bound_traits: crate::bound_traits::BoundTraitPlan,
@@ -318,6 +324,8 @@ pub(crate) struct EmitContext {
     /// [`EmitContext::populate_generic_functions`] and read through
     /// [`EmitContext::is_generic_function`].
     generic_functions: RefCell<HashSet<FuncId>>,
+    /// The functions whose generic status the running trial asked about.
+    generic_reads: RefCell<HashSet<FuncId>>,
     /// Class symbols emitted as reference classes (handle newtype over
     /// `Rc<RefCell<Inner>>`), computed once by [`crate::classify`]. Every class
     /// not in this set stays a by-value value class with its current emission.
@@ -521,6 +529,7 @@ impl EmitContext {
             record_conversion_helpers: ::std::cell::RefCell::new(::std::collections::BTreeMap::new()),
             record_adapter_helpers: ::std::cell::RefCell::new(::std::collections::BTreeMap::new()),
             generic_functions: RefCell::new(HashSet::new()),
+            generic_reads: RefCell::new(HashSet::new()),
             weak_receivers: weak_receiver::WeakReceiverPlan::of(mir, &crate::classify::reference_classes(mir)),
             reference_classes: crate::classify::reference_classes(mir),
             type_param_elision: crate::generic_elision::compute(mir),
@@ -528,6 +537,8 @@ impl EmitContext {
             program_reads_this: demand.has(Need::ThisRead),
             needs_bigint: demand.has(Need::BigInt),
             demand,
+            carrier_touched: std::cell::Cell::new(false),
+            carrier_boundaries: std::cell::Cell::new(0),
             console_inspect_used: ::std::cell::Cell::new(false),
             backend_erasures: RefCell::new(Vec::new()),
         })
@@ -554,6 +565,29 @@ impl EmitContext {
             console_inspect_used: self.console_inspect_used.get(),
             backend_erasures_len: self.backend_erasures.borrow().len(),
         }
+    }
+
+    /// Records that the output touched the erased runtime carrier.
+    ///
+    /// The generic trial reads this: a body that erases or inspects a value
+    /// cannot keep its type parameters opaque.
+    pub(crate) fn note_carrier_use(&self) {
+        if self.carrier_boundaries.get() == 0 {
+            self.carrier_touched.set(true);
+        }
+    }
+
+    /// Opens a real dynamic boundary, whose carrier uses say nothing about the
+    /// surrounding body: a thrown payload, or a mutable-list adapter that erases
+    /// and un-erases at the call it wraps. It closes when the guard drops.
+    pub(crate) fn carrier_boundary(&self) -> CarrierBoundary<'_> {
+        self.carrier_boundaries.set(self.carrier_boundaries.get().saturating_add(1));
+        CarrierBoundary { context: self }
+    }
+
+    /// Answers whether the carrier was touched since the last call, and clears it.
+    pub(crate) fn take_carrier_touched(&self) -> bool {
+        self.carrier_touched.replace(false)
     }
 
     /// Record that a `console.log` argument renders through `SmeltInspect`.
@@ -637,8 +671,8 @@ impl EmitContext {
     /// The result is self-consistent: every trial that produced it saw the same
     /// answer the emission will use.
     ///
-    /// Convergence is not guaranteed in theory (the trial is a textual
-    /// predicate, not a monotone one), so the loop is capped and falls back to
+    /// Convergence is not guaranteed in theory (the trial is not a monotone
+    /// predicate: a callee's answer changes how its callers render), so the loop is capped and falls back to
     /// the first round's answer — the historical one — if it oscillates. In
     /// practice both compat corpora settle in two rounds.
     pub(crate) fn populate_generic_functions(&self, mir: &Mir) -> Result<(), EmitError> {
@@ -702,21 +736,39 @@ impl EmitContext {
 
         self.generic_functions.borrow_mut().clear();
         let mut first_round: Option<HashSet<FuncId>> = None;
+        // A trial's answer depends on the crate only through the callees whose
+        // status it read, so a round re-runs just the trials that read a status
+        // the previous round changed.
+        let mut trials: HashMap<FuncId, TrialOutcome> = HashMap::new();
+        let mut changed: HashSet<FuncId> = HashSet::new();
         for _ in 0..MAX_ROUNDS {
             let mut next = HashSet::new();
             for function in signature_safe {
                 if forced_out.contains(&function.id) {
                     continue;
                 }
-                let emitter = FunctionEmitter::for_generic_trial(mir, self, function)?;
-                if emitter.renders_real_generics()? {
+                let outcome = match trials.get(&function.id) {
+                    Some(outcome) if outcome.reads.is_disjoint(&changed) => outcome,
+                    _ => {
+                        self.generic_reads.borrow_mut().clear();
+                        let emitter = FunctionEmitter::for_generic_trial(mir, self, function)?;
+                        let generic = emitter.renders_real_generics()?;
+                        let reads = self.generic_reads.take();
+                        trials.insert(function.id, TrialOutcome { generic, reads });
+                        trials
+                            .get(&function.id)
+                            .ok_or_else(|| EmitError::new("trial outcome was not recorded"))?
+                    }
+                };
+                if outcome.generic {
                     next.insert(function.id);
                 }
             }
             if first_round.is_none() {
                 first_round = Some(next.clone());
             }
-            if *self.generic_functions.borrow() == next {
+            changed = self.generic_functions.borrow().symmetric_difference(&next).copied().collect();
+            if changed.is_empty() {
                 return Ok(next);
             }
             *self.generic_functions.borrow_mut() = next;
@@ -774,6 +826,7 @@ impl EmitContext {
 
     /// Return whether the free function with `id` emits real Rust generics.
     pub(crate) fn is_generic_function(&self, id: FuncId) -> bool {
+        self.generic_reads.borrow_mut().insert(id);
         self.generic_functions.borrow().contains(&id)
     }
 }
@@ -1415,6 +1468,27 @@ fn closure_definitions(
         }
     }
     Ok(definitions)
+}
+
+/// What one body-cleanliness trial answered and what its answer rests on.
+struct TrialOutcome {
+    /// Whether the function keeps its generics.
+    generic: bool,
+    /// The functions whose generic status the trial read.
+    reads: HashSet<FuncId>,
+}
+
+/// An open [`EmitContext::carrier_boundary`].
+pub(crate) struct CarrierBoundary<'a> {
+    /// The context whose boundary this holds open.
+    context: &'a EmitContext,
+}
+
+impl Drop for CarrierBoundary<'_> {
+    fn drop(&mut self) {
+        let open = self.context.carrier_boundaries.get();
+        self.context.carrier_boundaries.set(open.saturating_sub(1));
+    }
 }
 
 /// Emits Rust source for one MIR function.

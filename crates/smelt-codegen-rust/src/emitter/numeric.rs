@@ -84,7 +84,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Optional(inner))
                 if matches!(self.mir.types.get(*inner), Some(Type::Unknown)) =>
             {
-                format!("{receiver_text}.as_ref().map_or(0, SmeltUnknown::len)")
+                self.carrier_format(format_args!("{receiver_text}.as_ref().map_or(0, SmeltUnknown::len)"))
             }
             Some(Type::Optional(inner))
                 if matches!(
@@ -100,10 +100,10 @@ impl FunctionEmitter<'_> {
                 // variant (string char count vs array length vs a length-bearing
                 // object), so erase the borrowed value at this genuinely dynamic
                 // boundary and inspect it, mirroring the non-optional case below.
-                format!(
+                self.carrier_format(format_args!(
                     "{receiver_text}.as_ref().map_or(0, |value| match value.clone().into_smelt_unknown() {{ SmeltUnknown::String(value) => value.chars().count(), SmeltUnknown::Array(value) => value.len(), SmeltUnknown::Object(value) => match smelt_get_object_field(&value, \"length\") {{ SmeltUnknown::Number(value) => value as usize, _ => {function_length}(&SmeltUnknown::Object(value)) as usize }}, value @ SmeltUnknown::Function(_) => {function_length}(&value) as usize, _ => 0 }})",
                     function_length = smelt_stdlib::runtime_symbols::function_length::READ,
-                )
+                ))
             }
             // A callable's `.length` is its declared arity, which the erasure
             // boundary parks in the function-length registry (an `Rc<dyn Fn>` has
@@ -117,10 +117,10 @@ impl FunctionEmitter<'_> {
                 // `value`, which is the commonest name in a generic helper) had
                 // its arm binding shadow it and the `Function` fallbacks passed
                 // `&&SmeltObject` where a `&SmeltUnknown` was expected (E0308).
-                format!(
+                self.carrier_format(format_args!(
                     "{{ let smelt_length_receiver = &{receiver_text}; match smelt_length_receiver {{ SmeltUnknown::String(value) => value.chars().count(), SmeltUnknown::Array(value) => value.len(), SmeltUnknown::Object(value) => match smelt_get_object_field(value, \"length\") {{ SmeltUnknown::Number(value) => value as usize, _ => {function_length}(smelt_length_receiver) as usize }}, SmeltUnknown::Function(_) => {function_length}(smelt_length_receiver) as usize, _ => 0 }} }}",
                     function_length = smelt_stdlib::runtime_symbols::function_length::READ,
-                )
+                ))
             }
             // A fixed-arity tuple (e.g. a `[key, value]` narrowing) has no Rust
             // `.len()` method; its JavaScript `.length` is the compile-time
@@ -323,9 +323,9 @@ impl FunctionEmitter<'_> {
                 return Ok("false".to_owned());
             }
             let value_text = self.value_at_type(operand, self.type_id(Type::Unknown)?)?;
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "(match {value_text} {{ SmeltUnknown::Number(smelt_value) => smelt_value.fract() == 0.0 && smelt_value.abs() <= 9007199254740991.0, _ => false }})"
-            ));
+            )));
         }
         let operand_text = if is_numeric_operand {
             self.float_operand_text(operand)?
@@ -492,13 +492,13 @@ impl FunctionEmitter<'_> {
             )?;
             let radix_text = self.operand_text(radix)?;
             let number_text = self.radix_digits_text("smelt_radix_value", &radix_text);
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "match {}.clone() {{ SmeltUnknown::Number(smelt_radix_value) => {number_text}, {}_ => {fallback} }}",
                 self.operand_text(operand)?,
-                self.bigint_unknown_arm(&format!(
+                self.bigint_unknown_arm(&self.carrier_format(format_args!(
                     "SmeltUnknown::BigInt(smelt_radix_value) => smelt_bigint_to_string_radix(&smelt_radix_value, {radix_text} as f64).unwrap_or_else(|error| smelt_panic_throw(error)),"
-                ))
-            ));
+                )))
+            )));
         }
         if !matches!(
             self.mir.types.get(self.operand_ty(operand)?),

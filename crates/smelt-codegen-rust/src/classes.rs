@@ -282,11 +282,11 @@ pub(crate) fn function_emits_rust_generics(
 ///
 /// This asks MIR the question the body-cleanliness trial
 /// ([`FunctionEmitter::renders_real_generics`]) can only approximate. That trial
-/// renders the body and searches the *text* for tokens like `SmeltUnknown` or
-/// `js_strict_eq`. Text works while the decision is per-function, but it cannot
-/// say which type parameter a token came from, so under per-parameter lifting it
-/// cannot tell "erased because `K` did not lift" (correct) from "the lifted `T`
-/// leaked into an erased carrier" (broken). MIR gives that attribution for free:
+/// records whether the render touched the erased carrier. That works while the
+/// decision is per-function, but it cannot say which type parameter a use came
+/// from, so under per-parameter lifting it cannot tell "erased because `K` did
+/// not lift" (correct) from "the lifted `T` leaked into an erased carrier"
+/// (broken). MIR gives that attribution for free:
 /// every operand names the local it reads, and that local carries a type.
 ///
 /// The rule is inverted rather than enumerated. `Rvalue` has ~180 variants, and
@@ -600,7 +600,7 @@ pub(crate) fn liftable_type_params(
     //
     // When every declared parameter clears the checks above, the function is one
     // the pre-Increment-5 rule already lifted, and `renders_real_generics`'
-    // textual trial decides it exactly as before — applying a second, stricter
+    // carrier trial decides it exactly as before — applying a second, stricter
     // filter here could demote functions that are generic today, which is a
     // regression this change has no business making.
     //
@@ -622,9 +622,8 @@ pub(crate) fn liftable_type_params(
 ///
 /// A `SmeltJsMap`/`SmeltRecord` key is compared through the erased JavaScript
 /// key-equality projection, which needs `SmeltJsKeyEq` — a trait a bare `T` does
-/// not carry, and which generated unions do not implement. `ERASED_CARRIER_TOKENS`
-/// already names `same_js_key` as an operation the generic bounds cannot support,
-/// and [`class_type_param_used_as_map_key`] applies the same rule to a class's
+/// not carry, and which generated unions do not implement. The generic bounds
+/// cannot support it, and [`class_type_param_used_as_map_key`] applies the same rule to a class's
 /// fields; free functions had no equivalent, which is how es-toolkit's `keyBy`
 /// lifted a key-position parameter and failed at its call sites with
 /// "the trait bound `SmeltUnion480: SmeltJsKeyEq` is not satisfied".

@@ -381,6 +381,8 @@ pub struct RustType {
     shape: RustShape,
     /// Whether a typed `dyn Fn` callable appears anywhere inside this type.
     holds_callable: bool,
+    /// Whether the erased runtime carrier appears anywhere inside this type.
+    holds_carrier: bool,
 }
 
 /// What a rendered Rust type is, for a decision that depends on the output type
@@ -418,6 +420,7 @@ impl RustType {
             text: text.into(),
             shape,
             holds_callable: shape == RustShape::Callable,
+            holds_carrier: shape == RustShape::Erased,
         }
     }
 
@@ -430,16 +433,23 @@ impl RustType {
     /// A concrete type built around `parts`, which it holds.
     #[must_use]
     pub fn composed<'a>(text: impl Into<String>, parts: impl IntoIterator<Item = &'a Self>) -> Self {
-        Self {
-            holds_callable: parts.into_iter().any(|part| part.holds_callable),
-            ..Self::raw(text)
-        }
+        Self::raw(text).holding(parts)
     }
 
-    /// This type, recorded as holding a callable when `holds_callable`.
+    /// This type, recorded as holding what `parts` hold.
     #[must_use]
-    pub fn holding_callable(mut self, holds_callable: bool) -> Self {
-        self.holds_callable |= holds_callable;
+    pub fn holding<'a>(mut self, parts: impl IntoIterator<Item = &'a Self>) -> Self {
+        for part in parts {
+            self.holds_callable |= part.holds_callable;
+            self.holds_carrier |= part.holds_carrier;
+        }
+        self
+    }
+
+    /// This type, recorded as being built on the erased runtime carrier.
+    #[must_use]
+    pub fn on_carrier(mut self) -> Self {
+        self.holds_carrier = true;
         self
     }
 
@@ -453,6 +463,12 @@ impl RustType {
     #[must_use]
     pub fn holds_callable(&self) -> bool {
         self.holds_callable
+    }
+
+    /// Whether the erased runtime carrier appears anywhere inside this type.
+    #[must_use]
+    pub fn holds_carrier(&self) -> bool {
+        self.holds_carrier
     }
 
     /// Returns the rendered source text for this type.

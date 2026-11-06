@@ -40,9 +40,19 @@ impl FunctionEmitter<'_> {
         ty: TypeId,
         substitution: &TypeSubstitution<'_>,
     ) -> Result<String, EmitError> {
+        self.union_rust_type_in(ty, substitution).map(RustType::into_string)
+    }
+
+    /// The generated enum of a concrete union, with its arguments resolved
+    /// through `substitution`.
+    pub(super) fn union_rust_type_in(
+        &self,
+        ty: TypeId,
+        substitution: &TypeSubstitution<'_>,
+    ) -> Result<RustType, EmitError> {
         let params = self.union_type_params(ty)?;
         if params.is_empty() {
-            return Ok(union_name(ty));
+            return Ok(RustType::raw(union_name(ty)));
         }
         let args = params
             .iter()
@@ -52,11 +62,11 @@ impl FunctionEmitter<'_> {
                     .types
                     .lookup(&Type::TypeParam { name: *param })
                     .ok_or_else(|| EmitError::new("union type parameter is not interned"))?;
-                Ok(self.rust_type(param_ty, false, substitution)?.into_string())
+                self.rust_type(param_ty, false, substitution)
             })
-            .collect::<Result<Vec<_>, EmitError>>()?
-            .join(", ");
-        Ok(format!("{}<{args}>", union_name(ty)))
+            .collect::<Result<Vec<_>, EmitError>>()?;
+        let text = args.iter().map(RustType::as_str).collect::<Vec<_>>().join(", ");
+        Ok(RustType::composed(format!("{}<{text}>", union_name(ty)), &args))
     }
 
     /// Spell a concrete union with the generated enum's OWN declared
@@ -254,9 +264,9 @@ impl FunctionEmitter<'_> {
         // A caller that already owns a clone needs no second one; `.clone().clone()`
         // is not what a hand-writing Rust team would produce.
         if value_text.ends_with(".clone()") {
-            return format!("{value_text}.into_smelt_unknown()");
+            return self.carrier_format(format_args!("{value_text}.into_smelt_unknown()"));
         }
-        format!("{value_text}.clone().into_smelt_unknown()")
+        self.carrier_format(format_args!("{value_text}.clone().into_smelt_unknown()"))
     }
 
     /// Wrap a concrete value in the matching variant of a target union.
@@ -817,9 +827,9 @@ impl FunctionEmitter<'_> {
                 continue;
             }
             let member_text = self.rust_type(member, false, substitution)?.into_string();
-            body.push_str(&format!(
+            body.push_str(&self.carrier_format(format_args!(
                 "        if let SmeltUnknown::Object(smelt_host) = &value {{ if let Some(smelt_origin) = smelt_host.smelt_origin::<{member_text}>() {{ return Self::M{index}(smelt_origin); }} }}\n"
-            ));
+            )));
         }
         for (position, &index) in order.iter().enumerate() {
             let Some(&member) = members.get(index) else {
@@ -840,7 +850,7 @@ impl FunctionEmitter<'_> {
                 .any(|param| substitution.spells(*param))
             {
                 let member_text = self.rust_type(member, false, substitution)?.into_string();
-                format!("<{member_text} as SmeltFromUnknown>::smelt_from_unknown(value)")
+                self.carrier_format(format_args!("<{member_text} as SmeltFromUnknown>::smelt_from_unknown(value)"))
             } else {
                 self.extract_value_text("value", member, &self.render_scope())?
             };
@@ -950,9 +960,9 @@ impl FunctionEmitter<'_> {
             return if ambiguous {
                 None
             } else {
-                Some(format!(
+                Some(self.carrier_format(format_args!(
                     "(matches!(&value, SmeltUnknown::Array(smelt_arms) if smelt_arms.len() == {arity}))"
-                ))
+                )))
             };
         }
         let Some(Type::Class { name, .. }) = self.mir.types.get(member) else {
@@ -978,9 +988,9 @@ impl FunctionEmitter<'_> {
                     .any(|sibling| !self.union_member_has_field(*sibling, field))
             })
             .map(|field| {
-                format!(
+                self.carrier_format(format_args!(
                     "matches!(&value, SmeltUnknown::Object(map) if map.contains_key({field:?}))"
-                )
+                ))
             })
             .collect::<Vec<_>>();
         if distinguishing.is_empty() {
@@ -1036,9 +1046,9 @@ impl FunctionEmitter<'_> {
                         .is_some_and(|other| other.iter().all(|value| !literals.contains(value)))
                 });
             if absent_somewhere {
-                tests.push(format!(
+                tests.push(self.carrier_format(format_args!(
                     "matches!(&value, SmeltUnknown::Object(map) if map.contains_key({key:?}))"
-                ));
+                )));
             }
             if literal_disjoint
                 && let Some(test) = Self::literal_field_test(key, literals)

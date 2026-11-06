@@ -149,9 +149,9 @@ impl FunctionEmitter<'_> {
             // non-object base), and the `other =>` arm has to create the object.
             // Storing an already-stored handle back over itself is a pointer
             // write, so there is nothing to gain from making it conditional.
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "{{ let smelt_array = match {base_text}.clone() {{ SmeltUnknown::Object(map) => match smelt_get_object_field(&map, \"{field_name}\") {{ SmeltUnknown::Array(values) => values, _ => SmeltArray::new(Vec::new()) }}, _ => SmeltArray::new(Vec::new()) }}; let smelt_push_item = ({item_text}).into_smelt_unknown(); smelt_array.push(smelt_push_item); let smelt_result = {result}; let smelt_value = SmeltUnknown::Array(smelt_array); match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert(\"{field_name}\".to_owned(), smelt_value); }}, other => {{ let map = SmeltObject::new(Vec::from([(\"{field_name}\".to_owned(), smelt_value)])); *other = SmeltUnknown::Object(map); }} }} smelt_result }}"
-            ));
+            )));
         }
         if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = list
             && let Some(ListAliasOrigin::Field { base, field }) = self.list_alias_origin(*local)
@@ -178,9 +178,9 @@ impl FunctionEmitter<'_> {
             let push_expr =
                 format!("let smelt_push_item = {item_text}; {list_mut}.push(smelt_push_item);");
             let smelt_value_text = self.erased_array_writeback_value_text(&list_text, list_ty);
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "{{ {push_expr} let smelt_result = {result}; let smelt_value = {smelt_value_text}; match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert(\"{field_name}\".to_owned(), smelt_value); }}, other => {{ let map = SmeltObject::new(Vec::from([(\"{field_name}\".to_owned(), smelt_value)])); *other = SmeltUnknown::Object(map); }} }} smelt_result }}"
-            ));
+            )));
         }
         if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = list
             && let Some(ListAliasOrigin::Index { base, index }) = self.list_alias_origin(*local)
@@ -288,11 +288,11 @@ impl FunctionEmitter<'_> {
     /// one is erased to `SmeltUnknown` and aliases.
     fn erased_array_writeback_value_text(&self, list_text: &str, list_ty: TypeId) -> String {
         if self.list_items_render_as_unknown(list_ty, &self.render_scope()) {
-            format!("SmeltUnknown::Array({list_text}.clone().into())")
+            self.carrier_format(format_args!("SmeltUnknown::Array({list_text}.clone().into())"))
         } else {
-            format!(
+            self.carrier_format(format_args!(
                 "SmeltUnknown::Array({list_text}.clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect())"
-            )
+            ))
         }
     }
 
@@ -698,9 +698,9 @@ impl FunctionEmitter<'_> {
                     "{{ let smelt_needle = {item_text}; let remove_index = {list_read}.iter().position(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).expect(\"list remove missing item\"); {list_mut}.remove(remove_index); () }}"
                 ));
             }
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "{{ let smelt_needle = {item_text}; let remove_index = {list_read}.iter().position(|item| item.same_js_key(&smelt_needle)).expect(\"list remove missing item\"); {list_mut}.remove(remove_index); () }}"
-            ));
+            )));
         }
         Ok(format!(
             "{{ let smelt_needle = {item_text}; let remove_index = {list_read}.iter().position(|item| item == &smelt_needle).expect(\"list remove missing item\"); {list_mut}.remove(remove_index); () }}"
