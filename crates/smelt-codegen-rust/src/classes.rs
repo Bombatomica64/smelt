@@ -176,6 +176,11 @@ fn class_type_param_used_as_map_key(mir: &Mir, class: &MirClass, name: Symbol) -
         .any(|field| type_param_in_dict_key(mir, field.ty, name))
 }
 
+/// The class declared under `name`.
+pub(crate) fn find_class(mir: &Mir, name: Symbol) -> Option<&MirClass> {
+    mir.classes.iter().find(|class| class.name == name)
+}
+
 /// Return whether `name` occurs in a `Dict` key position anywhere within `ty`.
 ///
 /// Descends through value wrappers and nested shapes so a `T` used as the key
@@ -188,52 +193,8 @@ fn type_param_in_dict_key(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
             generic_bindings::type_param_occurs(mir, *key, name)
                 || type_param_in_dict_key(mir, *value, name)
         }
-        Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
-            type_param_in_dict_key(mir, *item, name)
-        }
-        Some(Type::Tuple(items) | Type::Union(items)) => items
-            .iter()
-            .any(|item| type_param_in_dict_key(mir, *item, name)),
-        Some(Type::Class { args, .. }) => args
-            .iter()
-            .any(|arg| type_param_in_dict_key(mir, *arg, name)),
-        Some(Type::Function(function)) => {
-            function
-                .params
-                .iter()
-                .any(|param| type_param_in_dict_key(mir, *param, name))
-                || type_param_in_dict_key(mir, function.return_ty, name)
-        }
-        Some(Type::Generator {
-            yield_ty,
-            return_ty,
-            next_ty,
-            ..
-        }) => {
-            type_param_in_dict_key(mir, *yield_ty, name)
-                || type_param_in_dict_key(mir, *return_ty, name)
-                || type_param_in_dict_key(mir, *next_ty, name)
-        }
-        Some(Type::GeneratorResult {
-            yield_ty,
-            return_ty,
-        }) => {
-            type_param_in_dict_key(mir, *yield_ty, name)
-                || type_param_in_dict_key(mir, *return_ty, name)
-        }
-        Some(
-            Type::TypeParam { .. }
-            | Type::Bool
-            | Type::Int
-            | Type::FixedInt(_)
-            | Type::BigInt
-            | Type::Float
-            | Type::String
-            | Type::Unknown
-            | Type::Never
-            | Type::None,
-        )
-        | None => false,
+        Some(other) => other.children().any(|child| type_param_in_dict_key(mir, child, name)),
+        None => false,
     }
 }
 
@@ -321,11 +282,11 @@ pub(crate) fn function_emits_rust_generics(
 ///
 /// This asks MIR the question the body-cleanliness trial
 /// ([`FunctionEmitter::renders_real_generics`]) can only approximate. That trial
-/// renders the body and searches the *text* for tokens like `SmeltUnknown` or
-/// `js_strict_eq`. Text works while the decision is per-function, but it cannot
-/// say which type parameter a token came from, so under per-parameter lifting it
-/// cannot tell "erased because `K` did not lift" (correct) from "the lifted `T`
-/// leaked into an erased carrier" (broken). MIR gives that attribution for free:
+/// records whether the render touched the erased carrier. That works while the
+/// decision is per-function, but it cannot say which type parameter a use came
+/// from, so under per-parameter lifting it cannot tell "erased because `K` did
+/// not lift" (correct) from "the lifted `T` leaked into an erased carrier"
+/// (broken). MIR gives that attribution for free:
 /// every operand names the local it reads, and that local carries a type.
 ///
 /// The rule is inverted rather than enumerated. `Rvalue` has ~180 variants, and
@@ -639,7 +600,7 @@ pub(crate) fn liftable_type_params(
     //
     // When every declared parameter clears the checks above, the function is one
     // the pre-Increment-5 rule already lifted, and `renders_real_generics`'
-    // textual trial decides it exactly as before — applying a second, stricter
+    // carrier trial decides it exactly as before — applying a second, stricter
     // filter here could demote functions that are generic today, which is a
     // regression this change has no business making.
     //
@@ -661,9 +622,8 @@ pub(crate) fn liftable_type_params(
 ///
 /// A `SmeltJsMap`/`SmeltRecord` key is compared through the erased JavaScript
 /// key-equality projection, which needs `SmeltJsKeyEq` — a trait a bare `T` does
-/// not carry, and which generated unions do not implement. `ERASED_CARRIER_TOKENS`
-/// already names `same_js_key` as an operation the generic bounds cannot support,
-/// and [`class_type_param_used_as_map_key`] applies the same rule to a class's
+/// not carry, and which generated unions do not implement. The generic bounds
+/// cannot support it, and [`class_type_param_used_as_map_key`] applies the same rule to a class's
 /// fields; free functions had no equivalent, which is how es-toolkit's `keyBy`
 /// lifted a key-position parameter and failed at its call sites with
 /// "the trait bound `SmeltUnion480: SmeltJsKeyEq` is not satisfied".
@@ -1303,53 +1263,13 @@ fn operand_type_is_erased(mir: &Mir, caller: &MirFunction, operand: &Operand) ->
 fn type_param_preserved_in_emitted_type(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
     match mir.types.get(ty) {
         Some(Type::TypeParam { name: param_name }) => *param_name == name,
-        Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
-            type_param_preserved_in_emitted_type(mir, *item, name)
-        }
-        Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
-            type_param_preserved_in_emitted_type(mir, *key, name)
-                || type_param_preserved_in_emitted_type(mir, *value, name)
-        }
-        Some(Type::Tuple(items)) => items
-            .iter()
-            .any(|item| type_param_preserved_in_emitted_type(mir, *item, name)),
-        Some(Type::Class { args, .. }) => args
-            .iter()
-            .any(|arg| type_param_preserved_in_emitted_type(mir, *arg, name)),
-        Some(Type::Generator {
-            yield_ty,
-            return_ty,
-            next_ty,
-            ..
-        }) => {
-            type_param_preserved_in_emitted_type(mir, *yield_ty, name)
-                || type_param_preserved_in_emitted_type(mir, *return_ty, name)
-                || type_param_preserved_in_emitted_type(mir, *next_ty, name)
-        }
-        Some(Type::GeneratorResult {
-            yield_ty,
-            return_ty,
-        }) => {
-            type_param_preserved_in_emitted_type(mir, *yield_ty, name)
-                || type_param_preserved_in_emitted_type(mir, *return_ty, name)
-        }
         // Unions erase to `SmeltUnknown` and functions are a callback boundary,
         // so neither preserves the type parameter in a directly-inferable value
         // position.
-        Some(
-            Type::Union(_)
-            | Type::Function(_)
-            | Type::Bool
-            | Type::Int
-            | Type::FixedInt(_)
-            | Type::BigInt
-            | Type::Float
-            | Type::String
-            | Type::Unknown
-            | Type::Never
-            | Type::None,
-        )
-        | None => false,
+        Some(Type::Union(_) | Type::Function(_)) | None => false,
+        Some(other) => other
+            .children()
+            .any(|child| type_param_preserved_in_emitted_type(mir, child, name)),
     }
 }
 
@@ -1378,56 +1298,11 @@ fn type_param_preserved_in_emitted_type(mir: &Mir, ty: TypeId, name: Symbol) -> 
 /// class arguments and generator shapes) is the conservative direction.
 pub(crate) fn type_param_in_callback(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
     match mir.types.get(ty) {
-        Some(Type::Function(function)) => {
-            function
-                .params
-                .iter()
-                .any(|param| generic_bindings::type_param_occurs(mir, *param, name))
-                || generic_bindings::type_param_occurs(mir, function.return_ty, name)
-        }
-        Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
-            type_param_in_callback(mir, *item, name)
-        }
-        Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
-            type_param_in_callback(mir, *key, name)
-                || type_param_in_callback(mir, *value, name)
-        }
-        Some(Type::Tuple(items) | Type::Union(items)) => items
-            .iter()
-            .any(|item| type_param_in_callback(mir, *item, name)),
-        Some(Type::Class { args, .. }) => args
-            .iter()
-            .any(|arg| type_param_in_callback(mir, *arg, name)),
-        Some(Type::Generator {
-            yield_ty,
-            return_ty,
-            next_ty,
-            ..
-        }) => {
-            type_param_in_callback(mir, *yield_ty, name)
-                || type_param_in_callback(mir, *return_ty, name)
-                || type_param_in_callback(mir, *next_ty, name)
-        }
-        Some(Type::GeneratorResult {
-            yield_ty,
-            return_ty,
-        }) => {
-            type_param_in_callback(mir, *yield_ty, name)
-                || type_param_in_callback(mir, *return_ty, name)
-        }
-        Some(
-            Type::TypeParam { .. }
-            | Type::Bool
-            | Type::Int
-            | Type::FixedInt(_)
-            | Type::BigInt
-            | Type::Float
-            | Type::String
-            | Type::Unknown
-            | Type::Never
-            | Type::None,
-        )
-        | None => false,
+        Some(function @ Type::Function(_)) => function
+            .children()
+            .any(|child| generic_bindings::type_param_occurs(mir, child, name)),
+        Some(other) => other.children().any(|child| type_param_in_callback(mir, child, name)),
+        None => false,
     }
 }
 
@@ -1831,21 +1706,13 @@ fn type_holds_function_seen(
     let mut holds = |inner: TypeId| type_holds_function_seen(mir, inner, nominal, seen);
     match mir.types.get(ty) {
         Some(Type::Function(_)) => true,
-        Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
-            holds(*item)
-        }
-        Some(Type::Dict(key, value) | Type::JsMap(key, value)) => holds(*key) || holds(*value),
-        Some(Type::Tuple(items) | Type::Union(items)) => items.iter().any(|item| holds(*item)),
         // `Type::Class` names either a class or an interface: both emit a Rust
         // struct that owns its fields.
         Some(Type::Class { name, args }) if nominal == NominalStorage::Followed => {
             if args.iter().any(|arg| holds(*arg)) {
                 return true;
             }
-            let fields = mir
-                .classes
-                .iter()
-                .find(|class| class.name == *name)
+            let fields = find_class(mir, *name)
                 .map(|class| effective_class_fields(mir, class))
                 .or_else(|| {
                     mir.interfaces
@@ -1856,22 +1723,11 @@ fn type_holds_function_seen(
                 .unwrap_or_default();
             fields.iter().any(|field| holds(field.ty))
         }
-        Some(
-            Type::Class { .. }
-            | Type::Generator { .. }
-            | Type::GeneratorResult { .. }
-            | Type::Bool
-            | Type::Int
-            | Type::FixedInt(_)
-            | Type::BigInt
-            | Type::Float
-            | Type::String
-            | Type::None
-            | Type::Unknown
-            | Type::Never
-            | Type::TypeParam { .. },
-        )
-        | None => false,
+        // A generator owns its state behind the runtime type, not as a field.
+        Some(Type::Class { .. } | Type::Generator { .. } | Type::GeneratorResult { .. }) | None => {
+            false
+        }
+        Some(other) => other.children().any(holds),
     }
 }
 
@@ -1909,7 +1765,7 @@ pub(crate) fn effective_class_fields(mir: &Mir, class: &MirClass) -> Vec<MirFiel
     for (owner, substitutions) in chain.iter().zip(&level_substitutions).rev() {
         for declared in &owner.fields {
             let mut field = declared.clone();
-            field.ty = substitute_existing_type(mir, declared.ty, substitutions);
+            field.ty = generic_bindings::substitute_existing_type(mir, declared.ty, substitutions);
             if let Some(existing) = slots.get(&field.name).and_then(|slot| fields.get_mut(*slot)) {
                 *existing = field;
             } else {
@@ -1938,7 +1794,7 @@ fn chain_type_substitutions(mir: &Mir, chain: &[&MirClass]) -> Vec<HashMap<Symbo
             .type_params
             .iter()
             .zip(&derived.base_args)
-            .map(|(param, arg)| (param.name, substitute_existing_type(mir, *arg, &outer)))
+            .map(|(param, arg)| (param.name, generic_bindings::substitute_existing_type(mir, *arg, &outer)))
             .collect();
         levels.push(map);
     }
@@ -1957,7 +1813,7 @@ pub(crate) fn inherited_type_substitution(
     owner: Symbol,
     declaring: Symbol,
 ) -> HashMap<Symbol, TypeId> {
-    let Some(owner_class) = mir.classes.iter().find(|class| class.name == owner) else {
+    let Some(owner_class) = find_class(mir, owner) else {
         return HashMap::new();
     };
     let mut chain = vec![owner_class];
@@ -2034,7 +1890,7 @@ pub(crate) fn substituted_inherited_member(
         .collect();
     smelt_mir::opt::inline_absent_constant_temps(&mut copy, &spilled);
     smelt_mir::map_function_types(&mut copy, |ty| {
-        substitute_existing_type(mir, ty, &substitutions)
+        generic_bindings::substitute_existing_type(mir, ty, &substitutions)
     });
     // A method copy's receiver is the RECEIVING class: its fields are read at
     // the flattened layout `owner` stores (whose slots are rendered at the
@@ -2093,56 +1949,13 @@ pub(crate) fn returns_the_receiver_at_its_own_class(mir: &Mir, function: &MirFun
 /// The already-interned type of a class instantiated at its own parameters
 /// (`Middle<T>` inside `Middle`'s `impl`), if the program spells it.
 fn class_self_type(mir: &Mir, class: Symbol) -> Option<TypeId> {
-    let declared = mir.classes.iter().find(|candidate| candidate.name == class)?;
+    let declared = find_class(mir, class)?;
     let args = declared
         .type_params
         .iter()
         .map(|param| mir.types.lookup(&Type::TypeParam { name: param.name }))
         .collect::<Option<Vec<_>>>()?;
     mir.types.lookup(&Type::Class { name: class, args })
-}
-
-/// Substitute type parameters through `ty` using only already-interned types.
-///
-/// Codegen holds `&Mir` and cannot intern; a rewritten layer that is absent
-/// from the table answers the layer's declared type, as the emitter's
-/// `substitute_type_params_in_type` does.
-pub(crate) fn substitute_existing_type(
-    mir: &Mir,
-    ty: TypeId,
-    substitutions: &HashMap<Symbol, TypeId>,
-) -> TypeId {
-    if substitutions.is_empty() {
-        return ty;
-    }
-    let Some(kind) = mir.types.get(ty) else {
-        return ty;
-    };
-    let sub = |inner: TypeId| substitute_existing_type(mir, inner, substitutions);
-    let rewritten = match kind {
-        Type::TypeParam { name } => return substitutions.get(name).copied().unwrap_or(ty),
-        Type::Optional(inner) => Type::Optional(sub(*inner)),
-        Type::List(item) => Type::List(sub(*item)),
-        Type::Set(item) => Type::Set(sub(*item)),
-        Type::Future(item) => Type::Future(sub(*item)),
-        Type::Dict(key, value) => Type::Dict(sub(*key), sub(*value)),
-        Type::Tuple(items) => Type::Tuple(items.iter().map(|item| sub(*item)).collect()),
-        Type::Union(items) => Type::Union(items.iter().map(|item| sub(*item)).collect()),
-        Type::Class { name, args } => Type::Class {
-            name: *name,
-            args: args.iter().map(|arg| sub(*arg)).collect(),
-        },
-        Type::Function(function) => Type::Function(smelt_hir::FunctionType {
-            params: function.params.iter().map(|param| sub(*param)).collect(),
-            return_ty: sub(function.return_ty),
-            ..function.clone()
-        }),
-        _ => return ty,
-    };
-    if &rewritten == kind {
-        return ty;
-    }
-    mir.types.lookup(&rewritten).unwrap_or(ty)
 }
 
 /// The virtual method slots of `class`'s flattened layout: function-typed
@@ -2238,7 +2051,7 @@ pub(crate) fn effective_class_methods(mir: &Mir, class: &MirClass) -> Vec<FuncId
 /// The class `class` directly extends, when it extends one this crate declares.
 fn base_class<'mir>(mir: &'mir Mir, class: &MirClass) -> Option<&'mir MirClass> {
     let base = class.base?;
-    mir.classes.iter().find(|candidate| candidate.name == base)
+    find_class(mir, base)
 }
 
 /// Whether two method functions declare the same method name, i.e. one

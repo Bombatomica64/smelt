@@ -17,12 +17,41 @@
 //! See CONTEXT.md (## Coercion).
 
 use super::*;
-use crate::emitter::rendered_text_rewrite::{borrowed_value_text, cloned_value_text};
+use crate::emitter::rendered_value::{borrowed_value_text, cloned_value_text};
 use crate::erased_list_alias;
-use crate::rust::RustIdent;
+use crate::rust::{RustIdent, RustShape};
 use smelt_hir::FunctionType;
 
 impl FunctionEmitter<'_> {
+    /// A list value at a tuple type: each position read out of the list, or the
+    /// source item's default past its end.
+    fn tuple_from_list_text(
+        &self,
+        value_text: &str,
+        source_item: TypeId,
+        target_items: &[TypeId],
+        scope: &RenderScope,
+    ) -> Result<String, EmitError> {
+        let items_text = target_items
+            .iter()
+            .enumerate()
+            .map(|(index, target_item)| {
+                let item = format!(
+                    "smelt_tuple_values.get({index}).cloned().unwrap_or({})",
+                    self.default_value(source_item)?
+                );
+                self.value_at_type_text(&item, source_item, *target_item, scope)
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .join(", ");
+        let tuple_text = if target_items.len() == 1 {
+            format!("({items_text},)")
+        } else {
+            format!("({items_text})")
+        };
+        Ok(format!("{{ let smelt_tuple_values = {value_text}.to_vec(); {tuple_text} }}"))
+    }
+
     /// Whether two MIR types render to the SAME Rust type.
     ///
     /// Type identity in MIR is finer-grained than Rust representation: several
@@ -38,7 +67,7 @@ impl FunctionEmitter<'_> {
         if left == right {
             return Ok(true);
         }
-        Ok(self.type_text(left)? == self.type_text(right)?)
+        Ok(self.signature_type_text(left)? == self.signature_type_text(right)?)
     }
 
     /// Render a collected container's target type so it names what the element
@@ -242,7 +271,7 @@ impl FunctionEmitter<'_> {
         {
             return Ok(format!(
                 "Some({})",
-                self.value_at_type_text("SmeltUnknown::Null", self.type_id(Type::Unknown)?, *inner, scope)?
+                self.value_at_type_text(&self.carrier_text("SmeltUnknown::Null"), self.type_id(Type::Unknown)?, *inner, scope)?
             ));
         }
         if matches!(
@@ -369,15 +398,6 @@ impl FunctionEmitter<'_> {
             && self.is_regexp_class_symbol(*name)?
         {
             return Ok(Self::regexp_literal_text(&self.operand_text(operand)?));
-        }
-        if self.is_match_fn_result_type(self.operand_ty(operand)?)?
-            && !self.is_match_fn_result_type(target)?
-        {
-            return self.extract_value_text(
-                &format!("{}.value.clone()", self.operand_text(operand)?),
-                target,
-                            scope,
-            );
         }
         if matches!(
             self.mir.types.get(target),
@@ -540,10 +560,10 @@ impl FunctionEmitter<'_> {
                 && target_item_is_erased
                 && self.container_local_all_undefined_constants(operand)?
             {
-                return Ok(format!(
+                return Ok(self.carrier_format(format_args!(
                     "{{ let smelt_l: SmeltList<_> = {op}.into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| SmeltUnknown::Undefined).collect::<Vec<_>>()) }}",
                     op = cloned_value_text(&self.operand_text(operand)?)
-                ));
+                )));
             }
             // A target element that is a GENERATED union (`number | number[]`
             // stored as `SmeltUnionN`) is concrete storage, not the erased
@@ -554,7 +574,7 @@ impl FunctionEmitter<'_> {
                 && self.has_dynamic_shape(*target_item)
                 && self.concrete_union_members(*target_item).is_none()
             {
-                "value.into_smelt_unknown()".to_owned()
+                self.carrier_text("value.into_smelt_unknown()")
             } else {
                 self.value_at_type_text("value", *source_item, *target_item, scope)?
             };
@@ -617,26 +637,7 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(target),
         ) {
             let value_text = self.operand_text(operand)?;
-            let items_text = target_items
-                .iter()
-                .enumerate()
-                .map(|(index, target_item)| {
-                    let item = format!(
-                        "smelt_tuple_values.get({index}).cloned().unwrap_or({})",
-                        self.default_value(*source_item)?
-                    );
-                    self.value_at_type_text(&item, *source_item, *target_item, scope)
-                })
-                .collect::<Result<Vec<_>, _>>()?
-                .join(", ");
-            let tuple_text = if target_items.len() == 1 {
-                format!("({items_text},)")
-            } else {
-                format!("({items_text})")
-            };
-            return Ok(format!(
-                "{{ let smelt_tuple_values = {value_text}.to_vec(); {tuple_text} }}"
-            ));
+            return self.tuple_from_list_text(&value_text, *source_item, target_items, scope);
         }
         if let (
             Some(
@@ -1012,27 +1013,9 @@ impl FunctionEmitter<'_> {
         {
             return Ok(wrapped);
         }
-        // A bare `Default::default()` is an ambiguous inference source for the
-        // collection adapters below, which drive `.clone().into_iter().map(…)`
-        // off the receiver and cannot infer its element type (E0282). When the
-        // source is a collection, substitute its concrete typed default (e.g.
-        // `SmeltList::new(Vec::new())`): the same value, but element-typed so the
-        // adapter's iterator resolves.
-        let normalized_default;
-        let value_text = if value_text == "Default::default()"
-            && matches!(
-                self.mir.types.get(source),
-                Some(Type::List(_) | Type::Set(_) | Type::Dict(_, _))
-            ) {
-            normalized_default = self.default_value(source)?;
-            normalized_default.as_str()
-        } else {
-            value_text
-        };
         // `value_text` is usually already an owned temporary (an operand render clones
         // the local it reads), so take an owned copy rather than deep-copying it a
-        // second time. Bound AFTER the `Default::default()` normalization above, which
-        // rebinds `value_text`.
+        // second time.
         let smelt_owned_value = cloned_value_text(value_text);
         if source == target && !matches!(self.mir.types.get(target), Some(Type::Function(_))) {
             return Ok(value_text.to_owned());
@@ -1084,7 +1067,7 @@ impl FunctionEmitter<'_> {
                 .stdlib_class_of_symbol(*name)?
                 .is_some_and(smelt_stdlib::StdlibClass::erases_through_adapter)
         {
-            let erased = format!("({smelt_owned_value}).into_smelt_unknown()");
+            let erased = self.carrier_format(format_args!("({smelt_owned_value}).into_smelt_unknown()"));
             return self.value_at_type_text(&erased, self.type_id(Type::Unknown)?, target, scope);
         }
         if source == target && matches!(self.mir.types.get(target), Some(Type::Function(_))) {
@@ -1104,7 +1087,7 @@ impl FunctionEmitter<'_> {
             // every named binding it references into the returned task (E0382).
             // Binding the source future outside moves just that handle in.
             return Ok(format!(
-                "{{ let smelt_source_future = {value_text}; SmeltFuture::from_future(Box::pin(async move {{ let smelt_future_value = smelt_source_future.await?; Ok::<_, Box<dyn std::error::Error>>({awaited}) }})) }}"
+                "{{ let smelt_source_future = {value_text}; SmeltFuture::from_future(Box::pin(async move {{ let smelt_future_value = smelt_source_future.await?; Ok::<_, {ERROR_BOX}>({awaited}) }})) }}"
             ));
         }
         // Element-wise `List<A>` -> `List<B>` re-mapping. The operand-based
@@ -1136,7 +1119,7 @@ impl FunctionEmitter<'_> {
             let element_text = if matches!(self.mir.types.get(source_item), Some(Type::List(_)))
                 && (self.has_dynamic_shape(target_item))
             {
-                "value.into_smelt_unknown()".to_owned()
+                self.carrier_text("value.into_smelt_unknown()")
             } else {
                 self.value_at_type_text("value", source_item, target_item, scope)?
             };
@@ -1189,11 +1172,6 @@ impl FunctionEmitter<'_> {
             } else {
                 Ok(format!("{{ {prefix}{value_text}; {tuple_text} }}"))
             };
-        }
-        if matches!(self.mir.types.get(target), Some(Type::Function(_)))
-            && value_text == "Default::default()"
-        {
-            return self.default_value(target);
         }
         if let Some(slot) = self.callable_object_call_slot_text(value_text, source, target, scope)? {
             return Ok(slot);
@@ -1271,18 +1249,6 @@ impl FunctionEmitter<'_> {
                 return self.extract_value_text(&erased, target, scope);
             }
             return self.extract_value_text(value_text, target, scope);
-        }
-        if self.is_match_fn_result_type(source)? && !self.is_match_fn_result_type(target)? {
-            let value_ty = match self.match_fn_result_value_type(source)? {
-                Some(value_ty) => value_ty,
-                None => self.type_id(Type::Unknown)?,
-            };
-            return self.value_at_type_text(
-                &format!("{value_text}.value.clone()"),
-                value_ty,
-                target,
-                            scope,
-            );
         }
         if self.mir.types.get(source) == Some(&Type::None) {
             return self.default_value(target);
@@ -1377,9 +1343,9 @@ impl FunctionEmitter<'_> {
             if self.optional_inner_preserves_erased_singletons(*inner) {
                 return Ok(format!("Some({mapped_value})"));
             }
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "match {smelt_owned_value} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => None, value => Some({mapped_value}) }}"
-            ));
+            )));
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(target)
             && source == *inner
@@ -1457,26 +1423,7 @@ impl FunctionEmitter<'_> {
         if let (Some(Type::List(source_item)), Some(Type::Tuple(target_items))) =
             (self.mir.types.get(source), self.mir.types.get(target))
         {
-            let items_text = target_items
-                .iter()
-                .enumerate()
-                .map(|(index, target_item)| {
-                    let item = format!(
-                        "smelt_tuple_values.get({index}).cloned().unwrap_or({})",
-                        self.default_value(*source_item)?
-                    );
-                    self.value_at_type_text(&item, *source_item, *target_item, scope)
-                })
-                .collect::<Result<Vec<_>, _>>()?
-                .join(", ");
-            let tuple_text = if target_items.len() == 1 {
-                format!("({items_text},)")
-            } else {
-                format!("({items_text})")
-            };
-            return Ok(format!(
-                "{{ let smelt_tuple_values = {value_text}.to_vec(); {tuple_text} }}"
-            ));
+            return self.tuple_from_list_text(value_text, *source_item, target_items, scope);
         }
         if let (Some(Type::Dict(_, source_value)), Some(Type::List(target_item))) =
             (self.mir.types.get(source), self.mir.types.get(target))
@@ -1588,7 +1535,7 @@ impl FunctionEmitter<'_> {
     /// depending only on whether the caller already had it rendered.
     pub(super) fn erase(&self, operand: &Operand) -> Result<String, EmitError> {
         if matches!(operand, Operand::Const(Constant::Undefined)) {
-            return Ok("SmeltUnknown::Undefined".to_owned());
+            return Ok(self.carrier_text("SmeltUnknown::Undefined"));
         }
         let text = self.operand_text(operand)?;
         // `text` is usually already an owned temporary (an operand render clones the local
@@ -1596,83 +1543,16 @@ impl FunctionEmitter<'_> {
         let smelt_owned_text = cloned_value_text(&text);
         let ty = self.operand_ty(operand)?;
         match self.mir.types.get(ty) {
-            Some(Type::Unknown) => Ok(text),
-            // Whether a `Type::TypeParam` is a REAL Rust type parameter or is
-            // itself spelled `SmeltUnknown` is one decision, taken for the whole
-            // signature by `current_function_type_params`. Every seam that
-            // renders such a value must ask the same question, or the emitter
-            // disagrees with itself about one value: an erased `T` is already a
-            // `SmeltUnknown` and erases to itself, but a MONOMORPHIZED `T` is a
-            // distinct Rust type that reaches `SmeltUnknown` only through the
-            // `IntoSmeltUnknown` bound its own signature declares.
-            //
-            // Passing the text through unconditionally is what made a callee
-            // whose parameters monomorphized but whose return erased (a union
-            // return mentioning `T` has no concrete Rust spelling, so
-            // `rust_type` renders `SmeltUnknown`) emit `return out;` for an
-            // `out: T` against a `-> SmeltUnknown` signature (E0308). The
-            // rendered-value twin below has always converted here; this is the
-            // same conversion, gated on the same scope the signature used.
-            //
-            // Telling the truth here is also what makes the PARAMETERS and the
-            // RETURN one decision again rather than two. The crate-wide gate
-            // already demotes any generic free function whose trial-rendered
-            // body needs the erased carrier (`body_needs_erased_carrier`, whose
-            // token list includes `into_smelt_unknown`); a body that erases a
-            // `T` is precisely the case that rule exists for, and it never saw
-            // this one because the conversion was silently dropped. With the
-            // conversion emitted, such a signature demotes whole — parameters,
-            // return and body land on the erased ABI together, which is also
-            // what the call site independently concluded (a substituted union
-            // return is not an interned MIR type, so
-            // `static_call_monomorphization` demotes the site).
-            //
-            // This is an explicit `IntoSmeltUnknown` boundary adapter at a
-            // genuine dynamic boundary — a union with a type-parameter member
-            // has no concrete Rust spelling (`emitter::union`) — not a way to
-            // make generated Rust type-check: it erases nothing that was not
-            // already erased by the return type it is converting into, and the
-            // three compat corpora emit byte-identical Rust across the change.
-            Some(Type::TypeParam { name }) if self.current_function_has_type_param(*name) => {
-                Ok(format!("({text}).into_smelt_unknown()"))
+            Some(Type::TypeParam { name }) if !self.current_function_has_type_param(*name) => {
+                Ok(text)
             }
-            Some(Type::TypeParam { .. }) => Ok(text),
             // A `void` value erases to the absent tag, but the expression that
             // produced it still has to RUN: `text` is routinely a call (`let r:
             // unknown = setter(k, v)`), and answering the bare constant deleted
             // the call and its side effects from the program.
-            Some(Type::None) if text.trim() == "()" => Ok("SmeltUnknown::Null".to_owned()),
-            Some(Type::None) => Ok(format!("{{ let _ = {text}; SmeltUnknown::Null }}")),
-            Some(Type::Bool) => Ok(format!("SmeltUnknown::Bool({text})")),
-            Some(Type::Int | Type::FixedInt(_) | Type::Float) => Ok(format!("SmeltUnknown::Number({text} as f64)")),
-            // A bigint keeps its own tag across the boundary: erasing it to a
-            // `Number` would round it to `f64` and make `typeof` answer
-            // `"number"`.
-            Some(Type::BigInt) => Ok(format!("SmeltUnknown::BigInt({smelt_owned_text})")),
-            Some(Type::String) => Ok(crate::rust::erased_string(&text)),
-            Some(Type::List(item)) if self.list_items_render_as_unknown(ty, &self.render_scope()) => {
-                // An out-of-scope generic element also renders as SmeltUnknown.
-                // Use its existing representation; this creates no new erasure.
-                // In-scope Rust generics still need the per-element path below.
-                // `From<SmeltList<SmeltUnknown>> for SmeltArray` carries the list's
-                // own JS reference id AND aliases its buffer, so erasing the same
-                // binding twice reuses one id (arrays compare `===` by id), an
-                // erase/extract round-trip stays identity-stable, and a write made
-                // through either handle is observed by the other — which is what
-                // passing an array into an `unknown` slot means in JavaScript.
-                //
-                // A source `unknown[]` is wrapped directly, as it was before the
-                // erased-generic case joined this arm. Boundary: an erased
-                // generic `T[]` goes through the named alias helper, because the
-                // erased-generic ABI already erased `T`, so the wrap adds no
-                // erasure. See `crate::erased_list_alias`.
-                if erased_list_alias::leaves_erased_generic(self.mir.types.get(*item)) {
-                    Ok(erased_list_alias::array_alias_text(&text))
-                } else {
-                    Ok(format!("SmeltUnknown::Array({text}.into())"))
-                }
-            }
-            Some(Type::List(item)) => {
+            Some(Type::None) if text.trim() == "()" => Ok(self.carrier_text("SmeltUnknown::Null")),
+            Some(Type::None) => Ok(self.carrier_format(format_args!("{{ let _ = {text}; SmeltUnknown::Null }}"))),
+            Some(Type::List(item)) if !self.list_items_render_as_unknown(ty, &self.render_scope()) => {
                 // A `List<None>` erases its elements to `Null`, but an
                 // `[undefined, …]` literal must erase to `Undefined` (the type
                 // lost the distinction; only the defining constants carry it).
@@ -1682,7 +1562,7 @@ impl FunctionEmitter<'_> {
                 let value_wrap = if matches!(self.mir.types.get(*item), Some(Type::None))
                     && self.container_local_all_undefined_constants(operand)?
                 {
-                    "SmeltUnknown::Undefined".to_owned()
+                    self.carrier_text("SmeltUnknown::Undefined")
                 } else {
                     self.erase_value_text("value", *item)?
                 };
@@ -1702,70 +1582,25 @@ impl FunctionEmitter<'_> {
                 // impl selection does the narrowing: the owned path stays copy-free and
                 // only the borrowed path pays a clone — which erasing to an owned
                 // `SmeltArray` requires anyway.
-                Ok(format!(
+                Ok(self.carrier_format(format_args!(
                     "{{ let smelt_l = {text}; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| {value_wrap}).collect::<Vec<_>>())) }}"
-                ))
+                )))
             }
-            // A source-spelled `Map` erases through its own `SmeltJsMap`
-            // `IntoSmeltUnknown` adapter, which stamps the `__smelt_map` marker
-            // object (entries as `[k, v]` pair arrays + stable id). This is the
-            // one place `Map` spelling diverges from `Record`: a `Record` erases
-            // to a plain object, a `Map` to a marker so `isMap`/`isEqual`/
-            // `[object Map]` observe it as a Map.
-            Some(Type::JsMap(_, _)) => Ok(format!("{smelt_owned_text}.into_smelt_unknown()")),
             Some(Type::Dict(key, item))
                 if self.mir.types.get(*key) == Some(&Type::String)
-                    && self.mir.types.get(*item) == Some(&Type::Unknown) =>
+                    && self.mir.types.get(*item) != Some(&Type::Unknown) =>
             {
-                // The object arm ALIASES the erased object's field store
-                // (`smelt_shared_record`) rather than rebuilding its entries: a
-                // JavaScript object is a reference value, so a write through the
-                // recovered record must reach the object it came from.
-                Ok(format!(
-                    "SmeltUnknown::Object(SmeltObject::from_unknown_record({smelt_owned_text}))"
-                ))
-            }
-            Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) => {
                 let value_wrap = self.dict_erased_value_wrap(operand, *item)?;
-                Ok(format!(
+                Ok(self.carrier_format(format_args!(
                     "{{ let smelt_record = {smelt_owned_text}; SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"
-                ))
+                )))
             }
-            Some(Type::Dict(key, item)) => {
+            Some(Type::Dict(key, item)) if self.mir.types.get(*key) != Some(&Type::String) => {
                 let key_wrap = self.property_key_to_string_text("key", *key)?;
                 let value_wrap = self.dict_erased_value_wrap(operand, *item)?;
-                Ok(format!(
+                Ok(self.carrier_format(format_args!(
                     "SmeltUnknown::Object(SmeltObject::new({text}.into_iter().map(|(key, value)| ({key_wrap}, {value_wrap})).collect()))"
-                ))
-            }
-            Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => {
-                Ok(format!("{smelt_owned_text}.into_smelt_unknown()"))
-            }
-            // A concrete match value crossing into `unknown` is erased through the
-            // single explicit `IntoSmeltUnknown` adapter.
-            Some(Type::Class { name, .. }) if self.is_match_class_symbol(*name)? => {
-                Ok(format!("{smelt_owned_text}.into_smelt_unknown()"))
-            }
-            // The concrete fetch types keep their state behind a shared cell, not
-            // in declared fields, so the generic struct adapter would erase them
-            // to a record of nothing. Their prelude `IntoSmeltUnknown` is the one
-            // honest boundary form (identity marker, `size`, and the pairs).
-            Some(Type::Class { .. })
-                if self.is_fetch_runtime_class_type(self.operand_ty(operand)?)? =>
-            {
-                Ok(format!("{smelt_owned_text}.into_smelt_unknown()"))
-            }
-            Some(Type::Class { name, .. })
-                if self.is_erased_class_type(self.operand_ty(operand)?)
-                    && self.symbol_name(*name)? == "Date" =>
-            {
-                Ok(self.date_unknown_identity_text(&text))
-            }
-            Some(Type::Class { .. }) if self.is_erased_class_type(self.operand_ty(operand)?) => {
-                Ok(text)
-            }
-            Some(Type::Class { .. }) => {
-                self.class_unknown_object_text(&text, self.operand_ty(operand)?)
+                )))
             }
             Some(Type::Set(item)) => {
                 // A `SmeltJsSet`-backed Set carries JS identity: erase through the
@@ -1777,7 +1612,7 @@ impl FunctionEmitter<'_> {
                 // primitives) has no such adapter, so it keeps the bare-array
                 // projection below.
                 if !self.type_is_hash_set_key_safe(*item) {
-                    return Ok(format!("{smelt_owned_text}.into_smelt_unknown()"));
+                    return Ok(self.carrier_format(format_args!("{smelt_owned_text}.into_smelt_unknown()")));
                 }
                 let value_wrap = self.erase_value_text("value", *item)?;
                 // A Set erases to an array; like list bindings, the SAME source
@@ -1791,30 +1626,19 @@ impl FunctionEmitter<'_> {
                 // answer at all; `SmeltPrimSet` keeps the entries, so the
                 // erased array reads like the source set (H52).
                 if let Some(bare_local) = self.list_local_identity_key(operand)? {
-                    return Ok(format!(
+                    return Ok(self.carrier_format(format_args!(
                         "{{ let smelt_list_id = smelt_list_identity(&({bare_local}) as *const _ as *const () as usize); let values = {smelt_owned_text}.into_iter().map(|value| {value_wrap}).collect::<Vec<_>>(); SmeltUnknown::Array(SmeltArray::with_id(smelt_list_id, values)) }}"
-                    ));
+                    )));
                 }
-                Ok(format!(
+                Ok(self.carrier_format(format_args!(
                     "{{ let values = {smelt_owned_text}.into_iter().map(|value| {value_wrap}).collect::<Vec<_>>(); SmeltUnknown::Array(values.into()) }}"
-                ))
-            }
-            Some(Type::Tuple(items)) => {
-                let values = items
-                    .iter()
-                    .enumerate()
-                    .map(|(index, item)| {
-                        self.erase_value_text(&format!("{text}.{index}.clone()"), *item)
-                    })
-                    .collect::<Result<Vec<_>, _>>()?
-                    .join(", ");
-                Ok(format!("SmeltUnknown::Array(vec![{values}].into())"))
+                )))
             }
             Some(Type::Optional(inner)) => {
                 let value_wrap = self.erase_value_text("value", *inner)?;
-                Ok(format!(
+                Ok(self.carrier_format(format_args!(
                     "{smelt_owned_text}.map_or(SmeltUnknown::Undefined, |value| {value_wrap})"
-                ))
+                )))
             }
             Some(Type::Function(_)) => {
                 // A bare function-item-as-value wrapper has a stable item key.
@@ -1842,12 +1666,12 @@ impl FunctionEmitter<'_> {
                     && !function.may_throw
                 {
                     let function_text = self.operand_text(operand)?;
-                    return Ok(format!("{function_text}.clone().into_smelt_unknown()"));
+                    return Ok(self.carrier_format(format_args!("{function_text}.clone().into_smelt_unknown()")));
                 }
                 let adapter = self
                     .rest_vector_unknown_adapter_text(operand)?
-                    .unwrap_or_else(|| "::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Null))".to_owned());
-                Ok(format!("SmeltUnknown::Function({adapter})"))
+                    .unwrap_or_else(|| self.carrier_format(format_args!("::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, {ERROR_BOX}>(SmeltUnknown::Null))")));
+                Ok(self.carrier_format(format_args!("SmeltUnknown::Function({adapter})")))
             }
             // A generated union erases through `into_smelt_unknown()`, which
             // takes `self` BY VALUE. Every other consuming arm of this match
@@ -1858,14 +1682,13 @@ impl FunctionEmitter<'_> {
             // its source for exactly this reason — erasing a value is an
             // INSPECTION and must not consume it.
             Some(Type::Union(_)) if self.concrete_union_members(self.operand_ty(operand)?).is_some() => {
-                Ok(format!("{smelt_owned_text}.into_smelt_unknown()"))
+                Ok(self.carrier_format(format_args!("{smelt_owned_text}.into_smelt_unknown()")))
             }
-            Some(Type::Union(_)) => Ok(text),
             Some(Type::Future(item)) => {
                 if let Some(bare_local) = self.future_local_identity_key(operand)? {
-                    return Ok(format!(
+                    return Ok(self.carrier_format(format_args!(
                         "{{ let smelt_promise_id = smelt_promise_identity(&({bare_local}) as *const _ as *const () as usize); SmeltUnknown::Promise(SmeltPromise::pending_with_id(smelt_promise_id)) }}"
-                    ));
+                    )));
                 }
                 self.promise_future_unknown_text(&text, *item)
             }
@@ -1875,11 +1698,10 @@ impl FunctionEmitter<'_> {
             // erased side. The runtime prelude's `IntoSmeltUnknown` adapter
             // reproduces the JavaScript iterator protocol (`next` →
             // `{ value, done }` steps) over the same shared state machine.
-            Some(Type::Generator { .. }) => Ok(format!("{smelt_owned_text}.into_smelt_unknown()")),
-            Some(Type::GeneratorResult { .. }) => Err(EmitError::new(
-                "generator results require typed done/value projection before erasure",
-            )),
-            Some(Type::Never) | None => Ok("SmeltUnknown::Null".to_owned()),
+            Some(Type::Generator { .. }) => Ok(self.carrier_format(format_args!("{smelt_owned_text}.into_smelt_unknown()"))),
+            Some(Type::Never) | None => Ok(self.carrier_text("SmeltUnknown::Null")),
+            // The rest has nothing to read from the operand itself.
+            Some(_) => self.erase_value(&RenderedValue::atom(text, ty)),
         }
     }
 
@@ -1907,15 +1729,12 @@ impl FunctionEmitter<'_> {
         if matches!(self.local_decl(*local)?.kind, LocalKind::Temp) {
             return Ok(None);
         }
-        // Use the SAME in-scope reference `operand_text` emits, minus the trailing
-        // `.clone()` it appends — the local's *source* name (`local_name`) is not
-        // always the emitted Rust variable (temps/renames), which produced
-        // "cannot find value" errors. The identity key reads the live binding
+        // The in-scope place, not the local's source name: a renamed binding or a
+        // shared capture is not spelled like its source. The identity key reads the
+        // live binding
         // (via `.as_ptr()`, which auto-(de)refs both `Vec` and `&Vec` locals);
         // the erased values still come from the cloned text.
-        let text = self.operand_text(operand)?;
-        let bare = text.strip_suffix(".clone()").unwrap_or(text.as_str());
-        Ok(Some(bare.to_owned()))
+        Ok(Some(self.place_text(&Place::Local(*local))?))
     }
 
     /// Return the BARE name of a source future local being erased, if any.
@@ -1938,9 +1757,7 @@ impl FunctionEmitter<'_> {
         {
             return Ok(None);
         }
-        let text = self.operand_text(operand)?;
-        let bare = text.strip_suffix(".clone()").unwrap_or(text.as_str());
-        Ok(Some(bare.to_owned()))
+        Ok(Some(self.place_text(&Place::Local(*local))?))
     }
 
     /// The per-entry value erasure for a dict operand crossing into `unknown`.
@@ -1960,7 +1777,7 @@ impl FunctionEmitter<'_> {
         if matches!(self.mir.types.get(item), Some(Type::None))
             && self.container_local_all_undefined_constants(operand)?
         {
-            return Ok("SmeltUnknown::Undefined".to_owned());
+            return Ok(self.carrier_text("SmeltUnknown::Undefined"));
         }
         self.erase_value_text("value", item)
     }
@@ -2115,36 +1932,28 @@ impl FunctionEmitter<'_> {
         let smelt_owned_value = cloned_value_text(value_text);
         match self.mir.types.get(ty) {
             Some(Type::Unknown) => Ok(value_text.to_owned()),
-            Some(Type::TypeParam { .. }) if value_text == "Default::default()" => {
-                Ok("SmeltUnknown::Null".to_owned())
-            }
             // Unconditional, and correct for both spellings of a type
             // parameter: a monomorphized `T` converts through the
             // `IntoSmeltUnknown` bound its signature declares, and an erased one
             // is a `SmeltUnknown` whose `IntoSmeltUnknown` impl is the identity.
             // The operand twin (`erase`) has to gate the same conversion on
             // scope because it must not perturb the erased spelling's bytes.
-            Some(Type::TypeParam { .. }) => Ok(format!("({value_text}).into_smelt_unknown()")),
+            Some(Type::TypeParam { .. }) => Ok(self.carrier_format(format_args!("({value_text}).into_smelt_unknown()"))),
             // As in `value_at_type_text`: erase the `void` value, but run the
             // expression that produced it.
             Some(Type::None | Type::Never) | None if value_text.trim() != "()" => {
-                Ok(format!("{{ let _ = {value_text}; SmeltUnknown::Null }}"))
+                Ok(self.carrier_format(format_args!("{{ let _ = {value_text}; SmeltUnknown::Null }}")))
             }
-            Some(Type::None | Type::Never) | None => Ok("SmeltUnknown::Null".to_owned()),
-            Some(Type::Bool) => Ok(format!("SmeltUnknown::Bool({value_text})")),
-            Some(Type::BigInt) => Ok(format!("SmeltUnknown::BigInt({smelt_owned_value})")),
-            Some(Type::Int | Type::FixedInt(_) | Type::Float)
-                if value_text == "Default::default()" || value_text == "(Default::default())" =>
-            {
-                Ok("SmeltUnknown::Number(0.0)".to_owned())
-            }
+            Some(Type::None | Type::Never) | None => Ok(self.carrier_text("SmeltUnknown::Null")),
+            Some(Type::Bool) => Ok(self.carrier_format(format_args!("SmeltUnknown::Bool({value_text})"))),
+            Some(Type::BigInt) => Ok(self.carrier_format(format_args!("SmeltUnknown::BigInt({smelt_owned_value})"))),
             Some(Type::Int | Type::FixedInt(_) | Type::Float) => {
                 // Cast operand: a loose top-level operator must be parenthesized
                 // so `as f64` does not reassociate across it.
-                Ok(format!(
+                Ok(self.carrier_format(format_args!(
                     "SmeltUnknown::Number({} as f64)",
                     value.parenthesized_if_needed()
-                ))
+                )))
             }
             Some(Type::String) => Ok(crate::rust::erased_string(value_text)),
             Some(Type::List(item)) if self.list_items_render_as_unknown(ty, &self.render_scope()) => {
@@ -2156,10 +1965,10 @@ impl FunctionEmitter<'_> {
                 if erased_list_alias::leaves_erased_generic(self.mir.types.get(*item)) {
                     Ok(erased_list_alias::array_alias_text(value_text))
                 } else {
-                    Ok(format!(
+                    Ok(self.carrier_format(format_args!(
                         "SmeltUnknown::Array({}.into())",
                         value.parenthesized_if_needed()
-                    ))
+                    )))
                 }
             }
             Some(Type::List(item)) => {
@@ -2171,56 +1980,56 @@ impl FunctionEmitter<'_> {
                 // `Into<Vec<_>>` rather than `into_iter()`, for the same reason as the
                 // operand-based erasure above: the value can be a `&SmeltList<_>` (a
                 // by-reference callback parameter), whose `into_iter()` yields `&T`.
-                Ok(format!(
+                Ok(self.carrier_format(format_args!(
                     "{{ let smelt_l = {}; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| {value_wrap}).collect::<Vec<_>>())) }}",
                     value.parenthesized_if_needed()
-                ))
+                )))
             }
             // A source-spelled `Map` erases through its `SmeltJsMap`
             // `IntoSmeltUnknown` adapter, stamping the `__smelt_map` marker so
             // the erased value stays observable as a Map (see the operand-based
             // erasure above).
             Some(Type::JsMap(_, _)) => {
-                Ok(format!("{smelt_owned_value}.into_smelt_unknown()"))
+                Ok(self.carrier_format(format_args!("{smelt_owned_value}.into_smelt_unknown()")))
             }
             Some(Type::Dict(key, item))
                 if self.mir.types.get(*key) == Some(&Type::String)
                     && self.mir.types.get(*item) == Some(&Type::Unknown) =>
             {
-                Ok(format!(
+                Ok(self.carrier_format(format_args!(
                     "SmeltUnknown::Object(SmeltObject::from_unknown_record({smelt_owned_value}))"
-                ))
+                )))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) => {
                 let value_wrap = self.erase_value_text("value", *item)?;
-                Ok(format!(
+                Ok(self.carrier_format(format_args!(
                     "{{ let smelt_record = {smelt_owned_value}; SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"
-                ))
+                )))
             }
             Some(Type::Dict(key, item)) => {
                 let key_wrap = self.property_key_to_string_text("key", *key)?;
                 let value_wrap = self.erase_value_text("value", *item)?;
-                Ok(format!(
+                Ok(self.carrier_format(format_args!(
                     "SmeltUnknown::Object(SmeltObject::new({}.into_iter().map(|(key, value)| ({key_wrap}, {value_wrap})).collect()))",
                     value.parenthesized_if_needed()
-                ))
+                )))
             }
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => {
-                Ok(format!("{smelt_owned_value}.into_smelt_unknown()"))
+                Ok(self.carrier_format(format_args!("{smelt_owned_value}.into_smelt_unknown()")))
             }
             // A concrete match value crossing into a dynamic `unknown` boundary
             // is erased through the single explicit `IntoSmeltUnknown` adapter,
             // reproducing the JavaScript match-array-with-properties shape.
             Some(Type::Class { name, .. }) if self.is_match_class_symbol(*name)? => {
-                Ok(format!("{smelt_owned_value}.into_smelt_unknown()"))
+                Ok(self.carrier_format(format_args!("{smelt_owned_value}.into_smelt_unknown()")))
             }
             // See the operand-form arm: the fetch types erase through their own
             // adapter rather than through the declared-field record builder.
             Some(Type::Class { .. }) if self.is_fetch_runtime_class_type(ty)? => {
-                Ok(format!("{smelt_owned_value}.into_smelt_unknown()"))
+                Ok(self.carrier_format(format_args!("{smelt_owned_value}.into_smelt_unknown()")))
             }
             Some(Type::Class { name, .. })
-                if self.is_erased_class_type(ty) && self.symbol_name(*name)? == "Date" =>
+                if self.is_erased_class_type(ty) && self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::Date) =>
             {
                 Ok(self.date_unknown_identity_text(value_text))
             }
@@ -2231,17 +2040,17 @@ impl FunctionEmitter<'_> {
                 // erases through the `__smelt_set` marker adapter; only a
                 // `HashSet`-backed primitive Set falls through to a bare array.
                 if !self.type_is_hash_set_key_safe(*item) {
-                    return Ok(format!(
+                    return Ok(self.carrier_format(format_args!(
                         "({}).clone().into_smelt_unknown()",
                         value.parenthesized_if_needed()
-                    ));
+                    )));
                 }
                 let value_wrap = self.erase_value_text("value", *item)?;
                 // Insertion order, not hash order: see the sibling arm.
-                Ok(format!(
+                Ok(self.carrier_format(format_args!(
                     "{{ let values = {}.clone().into_iter().map(|value| {value_wrap}).collect::<Vec<_>>(); SmeltUnknown::Array(values.into()) }}",
                     value.parenthesized_if_needed()
-                ))
+                )))
             }
             Some(Type::Tuple(items)) => {
                 let values = items
@@ -2255,21 +2064,21 @@ impl FunctionEmitter<'_> {
                     })
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
-                Ok(format!("SmeltUnknown::Array(vec![{values}].into())"))
+                Ok(self.carrier_format(format_args!("SmeltUnknown::Array(vec![{values}].into())")))
             }
             Some(Type::Optional(inner)) => {
                 let value_wrap = self.erase_value_text("value", *inner)?;
-                Ok(format!(
+                Ok(self.carrier_format(format_args!(
                     "{}.clone().map_or(SmeltUnknown::Undefined, |value| {value_wrap})",
                     value.parenthesized_if_needed()
-                ))
+                )))
             }
             Some(Type::Function(function)) => {
                 if self.is_erased_unknown_rest_function(function) && !function.may_throw {
-                    return Ok(format!(
+                    return Ok(self.carrier_format(format_args!(
                         "{}.clone().into_smelt_unknown()",
                         value.parenthesized_if_needed()
-                    ));
+                    )));
                 }
                 let args = self.function_args_from_smelt_args_text(function, ErasedCallTargetAbi::Declared)?;
                 let call_text = format!("(smelt_function_value)({args})");
@@ -2278,13 +2087,13 @@ impl FunctionEmitter<'_> {
                     // returns JavaScript `undefined`, not `null`, so `!== undefined`
                     // guards on the result behave as in JS.
                     if function.may_throw {
-                        format!(
-                            "{{ {call_text}?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}"
-                        )
+                        self.carrier_format(format_args!(
+                            "{{ {call_text}?; Ok::<SmeltUnknown, {ERROR_BOX}>(SmeltUnknown::Undefined) }}"
+                        ))
                     } else {
-                        format!(
-                            "{{ {call_text}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }}"
-                        )
+                        self.carrier_format(format_args!(
+                            "{{ {call_text}; Ok::<SmeltUnknown, {ERROR_BOX}>(SmeltUnknown::Undefined) }}"
+                        ))
                     }
                 } else if matches!(self.mir.types.get(function.return_ty), Some(Type::Future(_))) {
                     // A SYNC function that returns a promise and can throw
@@ -2308,7 +2117,7 @@ impl FunctionEmitter<'_> {
                         call_text
                     };
                     let erased_return = self.erase_value_text(&future_call, function.return_ty)?;
-                    format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({erased_return})")
+                    self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({erased_return})"))
                 // A returned value skips the erasure step only when its Rust
                 // representation ALREADY IS `SmeltUnknown`. That is what
                 // `is_erased_class_type` answers. This used to ask
@@ -2328,15 +2137,15 @@ impl FunctionEmitter<'_> {
                     if function.may_throw {
                         call_text
                     } else {
-                        format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({call_text})")
+                        self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({call_text})"))
                     }
                 } else if function.may_throw {
                     let erased_return =
                         self.erase_value_text(&format!("{call_text}?"), function.return_ty)?;
-                    format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({erased_return})")
+                    self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({erased_return})"))
                 } else {
                     let erased_return = self.erase_value_text(&call_text, function.return_ty)?;
-                    format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({erased_return})")
+                    self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({erased_return})"))
                 };
                 // Erasing a function value builds a fresh forwarding closure, so
                 // the allocation address JavaScript `===` would compare is a new
@@ -2350,22 +2159,22 @@ impl FunctionEmitter<'_> {
                 // object whichever spelling reads it. The rest-vector adapter in
                 // `core.rs` links itself the same way. The identity is taken
                 // before the callable is moved into the adapter.
-                Ok(format!(
-                    "{{ let smelt_function_value = {value_text}; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) {{ smelt_callable_object }} else {{ let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) }} }}"
-                ))
+                Ok(self.carrier_format(format_args!(
+                    "{{ let smelt_function_value = {value_text}; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) {{ smelt_callable_object }} else {{ let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, {ERROR_BOX}>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) }} }}"
+                )))
             }
             Some(Type::Union(_)) if self.concrete_union_members(ty).is_some() => {
-                Ok(format!("{value_text}.into_smelt_unknown()"))
+                Ok(self.carrier_format(format_args!("{value_text}.into_smelt_unknown()")))
             }
             Some(Type::Union(_)) => Ok(value_text.to_owned()),
             Some(Type::Future(item)) => self.promise_future_unknown_text(value_text, *item),
             // Same dynamic boundary as the operand-based erase above: route the
             // generator through the prelude's `IntoSmeltUnknown` iterator
             // adapter rather than failing emission.
-            Some(Type::Generator { .. }) => Ok(format!(
+            Some(Type::Generator { .. }) => Ok(self.carrier_format(format_args!(
                 "{}.clone().into_smelt_unknown()",
                 value.parenthesized_if_needed()
-            )),
+            ))),
             Some(Type::GeneratorResult { .. }) => Err(EmitError::new(
                 "generator results require typed done/value projection before erasure",
             )),
@@ -2382,7 +2191,7 @@ impl FunctionEmitter<'_> {
     /// the variant text here means callers outside the seam never spell
     /// `SmeltUnknown::Null` by hand; they ask for the null tag by intent.
     pub(super) fn null_value_text(&self) -> String {
-        "SmeltUnknown::Null".to_owned()
+        self.carrier_text("SmeltUnknown::Null")
     }
 
     /// The erased tag for a property that is ABSENT.
@@ -2394,7 +2203,7 @@ impl FunctionEmitter<'_> {
     /// backwards. Absence and the `null` value are different values, so they
     /// get different helpers and callers state which one they mean.
     pub(super) fn absent_value_text(&self) -> String {
-        "SmeltUnknown::Undefined".to_owned()
+        self.carrier_text("SmeltUnknown::Undefined")
     }
 
     /// Wrap a live concrete future in an erased, cloneable promise handle.
@@ -2410,9 +2219,9 @@ impl FunctionEmitter<'_> {
         item_ty: TypeId,
     ) -> Result<String, EmitError> {
         let value_text = self.erase_value_text("smelt_value", item_ty)?;
-        Ok(format!(
-            "{{ let smelt_future = {future_text}; SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move {{ let smelt_value = smelt_future.await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value_text}) }}))) }}"
-        ))
+        Ok(self.carrier_format(format_args!(
+            "{{ let smelt_future = {future_text}; SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move {{ let smelt_value = smelt_future.await?; Ok::<SmeltUnknown, {ERROR_BOX}>({value_text}) }}))) }}"
+        )))
     }
 
     /// Box an iterator of already-rendered `String` values into a `SmeltUnknown`
@@ -2424,9 +2233,9 @@ impl FunctionEmitter<'_> {
     /// here instead of writing the `SmeltUnknown::Array(..)` / `SmeltUnknown::String`
     /// variants themselves.
     pub(super) fn erase_string_array_text(&self, value_iter_text: &str) -> String {
-        format!(
+        self.carrier_format(format_args!(
             "SmeltUnknown::Array({value_iter_text}.into_iter().map(|value| SmeltUnknown::String(value.into())).collect())"
-        )
+        ))
     }
 
     /// Box an already-`f64` numeric expression into a `SmeltUnknown` number,
@@ -2437,7 +2246,7 @@ impl FunctionEmitter<'_> {
     /// `as f64` cast. Use it where the numeric value was already coerced to
     /// `f64` before crossing the seam.
     pub(super) fn erase_f64_text(&self, value_text: &str) -> String {
-        format!("SmeltUnknown::Number({value_text})")
+        self.carrier_format(format_args!("SmeltUnknown::Number({value_text})"))
     }
 
     /// Box a fixed list of already-erased element expressions into a
@@ -2448,7 +2257,7 @@ impl FunctionEmitter<'_> {
     /// outer `SmeltUnknown::Array(vec![..].into())` construction so literal-array
     /// erase paths need not spell the variant.
     pub(super) fn erase_array_text(&self, elements_text: &str) -> String {
-        format!("SmeltUnknown::Array(vec![{elements_text}].into())")
+        self.carrier_format(format_args!("SmeltUnknown::Array(vec![{elements_text}].into())"))
     }
 
     /// Box a fixed set of already-erased `(key, value)` entry expressions into a
@@ -2459,9 +2268,9 @@ impl FunctionEmitter<'_> {
     /// `SmeltUnknown::Object(SmeltObject::new(..))` construction so literal-object
     /// erase paths need not spell the variant.
     pub(super) fn erase_object_text(&self, entries_text: &str) -> String {
-        format!(
+        self.carrier_format(format_args!(
             "SmeltUnknown::Object(SmeltObject::new(Vec::from([{entries_text}])))"
-        )
+        ))
     }
 
     /// Mark a timestamp-backed `Date` only when it crosses an erased value boundary.
@@ -2473,9 +2282,9 @@ impl FunctionEmitter<'_> {
         // `value_text` is usually already an owned temporary (an operand render clones the local
         // it reads), so take an owned copy rather than deep-copying it a second time.
         let smelt_owned_value = cloned_value_text(value_text);
-        format!(
+        self.carrier_format(format_args!(
             "match {smelt_owned_value} {{ SmeltUnknown::Object(value) if value.contains_key(\"{SMELT_DATE}\") => SmeltUnknown::Object(value), SmeltUnknown::Number(value) => SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"{SMELT_DATE}\".to_owned(), SmeltUnknown::Number(value))]))), value => value }}"
-        )
+        ))
     }
 
     /// Whether an interface field is declared `p: T | null`: it admits `null`
@@ -2498,10 +2307,7 @@ impl FunctionEmitter<'_> {
     /// The effective fields of the class or interface named `name`, at their
     /// declared types (empty when `name` is neither).
     fn class_or_interface_fields(&self, name: Symbol) -> Vec<MirField> {
-        self.mir
-            .classes
-            .iter()
-            .find(|class| class.name == name)
+        crate::classes::find_class(self.mir, name)
             .map(|class| crate::classes::effective_class_fields(self.mir, class))
             .or_else(|| {
                 self.mir
@@ -2525,10 +2331,10 @@ impl FunctionEmitter<'_> {
         target: TypeId,
     ) -> Result<String, EmitError> {
         if self.record_conversion_stack.borrow().contains(&target) {
-            return Ok("SmeltUnknown::Null".to_owned());
+            return Ok(self.carrier_text("SmeltUnknown::Null"));
         }
         let Some(Type::Class { name, .. }) = self.mir.types.get(target) else {
-            return Ok("SmeltUnknown::Null".to_owned());
+            return Ok(self.carrier_text("SmeltUnknown::Null"));
         };
         let conversion_entry = helper_reservation::push_entry(&self.record_conversion_stack, target);
         // Field types at the value's own type arguments: `LazyMany<R>` stores
@@ -2584,9 +2390,9 @@ impl FunctionEmitter<'_> {
                     // empty, so its key is present with a `null` value; an
                     // absent `undefined` is omitted, as JavaScript omits it.
                     if self.field_absent_is_null(*name, field.name) {
-                        return Ok(format!(
+                        return Ok(self.carrier_format(format_args!(
                             "smelt_object_entries.push(({source_name:?}.to_owned(), match {optional_read} {{ Some(value) => {field_value}, None => SmeltUnknown::Null }}));"
-                        ));
+                        )));
                     }
                     return Ok(format!(
                         "if let Some(value) = {optional_read} {{ smelt_object_entries.push(({source_name:?}.to_owned(), {field_value})); }}"
@@ -2667,9 +2473,9 @@ impl FunctionEmitter<'_> {
             String::new()
         } else {
             let class_name = self.symbol_source_name(*name)?;
-            format!(
+            self.carrier_format(format_args!(
                 "smelt_object_entries.push((\"{SMELT_CLASS}\".to_owned(), SmeltUnknown::String({class_name:?}.into()))); "
-            )
+            ))
         };
         // A reference record's JS identity is its shared cell, so every erasure
         // of any handle on that cell must produce the same object id — otherwise
@@ -2685,7 +2491,7 @@ impl FunctionEmitter<'_> {
                 "smelt_struct_value",
             )
         } else {
-            "SmeltObject::new(smelt_object_entries)".to_owned()
+            self.carrier_text("SmeltObject::new(smelt_object_entries)")
         };
         // A class instance keeps its methods across the erasure seam, as
         // prototype-carried members (`__smelt_proto:<name>`). Without them an
@@ -2693,11 +2499,7 @@ impl FunctionEmitter<'_> {
         // erased call site substituted a fabricated default. Interfaces have no
         // method bodies to bind, so they contribute nothing here — which is why
         // this consults `mir.classes` rather than the record type.
-        let proto_entries = match self
-            .mir
-            .classes
-            .iter()
-            .find(|class| class.name == *name)
+        let proto_entries = match crate::classes::find_class(self.mir, *name)
         {
             Some(class)
                 if crate::class_proto::class_has_proto_entries(self.mir, self.context, class) =>
@@ -2712,7 +2514,7 @@ impl FunctionEmitter<'_> {
         // A reference-class view forwards property writes to the instance
         // (see `view_write_through`); the generated `into_smelt_unknown`
         // installs the same hook.
-        let write_through = match self.mir.classes.iter().find(|class| class.name == *name) {
+        let write_through = match crate::classes::find_class(self.mir, *name) {
             Some(class) if crate::field_setter_host(self.mir, self.context, class).is_some() => {
                 view_write_through::erased_view_entry_text(
                     "smelt_struct_value",
@@ -2732,20 +2534,20 @@ impl FunctionEmitter<'_> {
         // all (`lazy_view`). A generic one stays eager, because the `'static`
         // boxed builder could not name its type parameters.
         if self.is_reference_class_type(target)
-            && !self.type_text_with_impl_trait(target, false)?.contains('<')
+            && self.rust_shape(target)? != RustShape::GenericClass
         {
             let lazy = crate::lazy_view::lazy_reference_object_text(
                 "smelt_reference_object_identity(&smelt_struct_value.0)",
                 &format!("{entries} {host_markers}{class_marker}{proto_entries}{write_through}"),
                 "smelt_struct_value",
             );
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object({lazy}) }}"
-            ));
+            )));
         }
-        Ok(format!(
+        Ok(self.carrier_format(format_args!(
             "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); {entries} {host_markers}{class_marker}{proto_entries}{write_through}SmeltUnknown::Object({object_ctor}) }}"
-        ))
+        )))
     }
 
     /// Identity markers a class carries because its base chain reaches a modeled
@@ -2777,7 +2579,7 @@ impl FunctionEmitter<'_> {
         let mut current = Some(class_name);
         for _ in 0u32..64 {
             let Some(name_sym) = current else { break };
-            let Some(class) = self.mir.classes.iter().find(|class| class.name == name_sym) else {
+            let Some(class) = crate::classes::find_class(self.mir, name_sym) else {
                 break;
             };
             let Some(base) = class.base else { break };
@@ -2785,7 +2587,7 @@ impl FunctionEmitter<'_> {
             if smelt_stdlib::host_object_by_class(base_name).is_some() {
                 let mut host = Some(base_name);
                 while let Some(entry) = host.and_then(smelt_stdlib::host_object_by_class) {
-                    markers.push((entry.marker, "SmeltUnknown::Bool(true)".to_owned()));
+                    markers.push((entry.marker, self.carrier_text("SmeltUnknown::Bool(true)")));
                     host = entry.base;
                 }
                 break;
@@ -2793,7 +2595,7 @@ impl FunctionEmitter<'_> {
             if smelt_stdlib::is_error_class_name(base_name) {
                 markers.push((
                     SMELT_ERROR,
-                    format!("SmeltUnknown::String({base_name:?}.into())"),
+                    self.carrier_format(format_args!("SmeltUnknown::String({base_name:?}.into())")),
                 ));
                 break;
             }
@@ -3074,6 +2876,7 @@ impl FunctionEmitter<'_> {
         text: &str,
         kind: smelt_hir::UnknownKind,
     ) -> Result<String, EmitError> {
+        self.context.note_carrier_use();
         let pattern = match kind {
             smelt_hir::UnknownKind::Null => "SmeltUnknown::Null",
             smelt_hir::UnknownKind::Undefined => "SmeltUnknown::Undefined",
@@ -3088,19 +2891,19 @@ impl FunctionEmitter<'_> {
             smelt_hir::UnknownKind::String => "SmeltUnknown::String(_)",
             smelt_hir::UnknownKind::Symbol => "SmeltUnknown::Symbol(_)",
             smelt_hir::UnknownKind::Function => {
-                return Ok(format!("matches!({text}, SmeltUnknown::Function(_))"));
+                return Ok(self.carrier_format(format_args!("matches!({text}, SmeltUnknown::Function(_))")));
             }
             smelt_hir::UnknownKind::Array => "SmeltUnknown::Array(_)",
             smelt_hir::UnknownKind::Object => {
                 // `typeof x === "object"` is true for plain objects, arrays,
                 // `null`, and built-in object wrappers such as promises (whose
                 // own representation is the dedicated `Promise` variant).
-                return Ok(format!(
+                return Ok(self.carrier_format(format_args!(
                     "matches!({text}, SmeltUnknown::Object(_) | SmeltUnknown::Array(_) | SmeltUnknown::Null | SmeltUnknown::Promise(_))"
-                ));
+                )));
             }
             smelt_hir::UnknownKind::Promise => {
-                return Ok(format!("matches!({text}, SmeltUnknown::Promise(_))"));
+                return Ok(self.carrier_format(format_args!("matches!({text}, SmeltUnknown::Promise(_))")));
             }
         };
         Ok(format!("matches!({text}, {pattern})"))
@@ -3185,7 +2988,12 @@ impl FunctionEmitter<'_> {
     /// field with its own nested conversion. `extract_value_text` either
     /// inlines this or, for an outermost conversion, hoists it into one
     /// generated helper per type (`hoisted_record_conversion`).
-    fn inline_record_conversion(&self, text: &str, target: TypeId, scope: &RenderScope) -> Result<String, EmitError> {
+    fn inline_record_conversion(
+        &self,
+        text: &str,
+        target: TypeId,
+        scope: &RenderScope,
+    ) -> Result<Option<String>, EmitError> {
         // The string-dict record adapter needs the prelude `String` and
         // `SmeltUnknown` types interned in this program's type table. A
         // program that never uses them (e.g. a concrete class union whose
@@ -3196,7 +3004,7 @@ impl FunctionEmitter<'_> {
             self.find_type_id(&Type::String),
             self.find_type_id(&Type::Unknown),
         ) else {
-            return Ok("Default::default()".to_owned());
+            return Ok(None);
         };
         let conversion_entry = helper_reservation::push_entry(&self.record_conversion_stack, target);
         let adapter_result = self.string_dict_record_adapter_text(
@@ -3237,17 +3045,17 @@ impl FunctionEmitter<'_> {
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!(
+                self.carrier_format(format_args!(
                     " smelt_function_value @ SmeltUnknown::Function(_) => {{ let smelt_record_map = SmeltRecord::from_iter([(\"{SMELT_CALL}\".to_owned(), smelt_function_value.clone()), {entries}].into_iter().filter(|(_, value)| !matches!(value, SmeltUnknown::Undefined))); {adapter} }},"
-                )
+                ))
             } else {
                 String::new()
             };
-            return Ok(format!(
+            return Ok(Some(self.carrier_format(format_args!(
                 "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(values) => {{ let smelt_record_map = {record_view}; {adapter} }},{function_arm} _ => Default::default() }}"
-            ));
+            ))));
         }
-        Ok("Default::default()".to_owned())
+        Ok(None)
     }
 
     /// The source keys of a callable-object struct's data fields (every
@@ -3257,7 +3065,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(target) else {
             return Ok(None);
         };
-        let fields = if let Some(class) = self.mir.classes.iter().find(|class| class.name == *name) {
+        let fields = if let Some(class) = crate::classes::find_class(self.mir, *name) {
             class.fields.clone()
         } else if let Some(interface) = self.mir.interfaces.iter().find(|interface| interface.name == *name) {
             crate::classes::effective_interface_fields(self.mir, interface)
@@ -3288,9 +3096,9 @@ impl FunctionEmitter<'_> {
     /// conversion is rendered in, so hoisting changes where the text lives
     /// and not what it does.
     fn hoisted_record_conversion(&self, text: &str, target: TypeId) -> Result<Option<String>, EmitError> {
-        let scoped_text = self.type_text_with_impl_trait(target, false)?;
+        let scoped_text = self.type_text(target)?;
         let hoisted = HoistedModuleItemScope::enter(self);
-        let module_text = self.type_text_with_impl_trait(target, false)?;
+        let module_text = self.type_text(target)?;
         if module_text != scoped_text {
             return Ok(None);
         }
@@ -3310,20 +3118,21 @@ impl FunctionEmitter<'_> {
                 module_text,
             );
             let module_scope = self.render_scope();
-            let body = self.inline_record_conversion("smelt_value", target, &module_scope)?;
-            if body == "Default::default()" {
+            let Some(body) =
+                self.inline_record_conversion("smelt_value", target, &module_scope)?
+            else {
                 // Nothing to hoist, and a body that is only a default cannot
                 // have called its own reservation.
                 drop(reservation);
-                return Ok(Some(body));
-            }
+                return Ok(Some("Default::default()".to_owned()));
+            };
             reservation.commit(body)
         };
         drop(hoisted);
-        Ok(Some(format!(
+        Ok(Some(self.carrier_format(format_args!(
             "{}{ordinal}(({text}).into_smelt_unknown())",
             crate::RECORD_CONVERSION_HELPER_PREFIX
-        )))
+        ))))
     }
 
     /// Emits checked extraction from an already-rendered `SmeltUnknown` value.
@@ -3344,35 +3153,15 @@ impl FunctionEmitter<'_> {
         // `text` is usually already an owned temporary (an operand render clones the local
         // it reads), so take an owned copy rather than deep-copying it a second time.
         let smelt_owned_text = cloned_value_text(text);
-        if text == "Default::default()" {
-            return match self.mir.types.get(target) {
-                Some(Type::None) => Ok("()".to_owned()),
-                Some(Type::Bool) => Ok("false".to_owned()),
-                Some(Type::Float) => Ok("0.0".to_owned()),
-                Some(Type::Int) => Ok("0_i64".to_owned()),
-                Some(Type::String) => Ok("String::new()".to_owned()),
-                Some(Type::List(_)) => Ok("Vec::new()".to_owned()),
-                Some(Type::Dict(key, _)) if self.dict_uses_smelt_record(*key) => {
-                    Ok("SmeltRecord::new()".to_owned())
-                }
-                Some(Type::Dict(key, _)) if self.dict_uses_js_key_map(*key) => {
-                    Ok("SmeltJsMap::new()".to_owned())
-                }
-                Some(Type::Dict(_, _)) => Ok("::std::collections::HashMap::new()".to_owned()),
-                Some(Type::Optional(_)) => Ok("None".to_owned()),
-                _ => self.default_value(target),
-            };
-        }
         match self.mir.types.get(target) {
             Some(Type::Unknown) => Ok(text.to_owned()),
             // An erased `Date` keeps the marker record; the concrete `SmeltDate`
             // recovers through its own adapter (the runtime-class arm below).
             Some(Type::Class { name, .. })
-                if self.symbol_name(*name)? == "Date" && self.is_erased_class_type(target) =>
+                if self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::Date) && self.is_erased_class_type(target) =>
             {
                 Ok(text.to_owned())
             }
-            Some(Type::List(_)) if text.contains(".concat(") => Ok(text.to_owned()),
             // Extracting an erased value into the unit type means the source
             // language discards it (a `=> void` callback ignores whatever it
             // returns; JS does not assert the value is null). Drop it instead of
@@ -3383,19 +3172,19 @@ impl FunctionEmitter<'_> {
             // exhaustive match over the tags, keeping the `BigInt` tag's exact
             // value and coercing the primitives a dynamic value can hold
             // exactly as `SmeltFromUnknown for BigInt` does.
-            Some(Type::BigInt) => Ok(format!(
+            Some(Type::BigInt) => Ok(self.carrier_format(format_args!(
                 "match {smelt_owned_text} {{ SmeltUnknown::BigInt(value) => value, SmeltUnknown::Number(value) => smelt_bigint_from_number(value).unwrap_or_default(), SmeltUnknown::String(value) => smelt_bigint_from_string(&value).unwrap_or_default(), SmeltUnknown::Bool(value) => {big}::from(i64::from(value)), SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => {big}::default() }}",
                 big = crate::bigint_prelude::BIGINT_TYPE
-            )),
-            Some(Type::Bool) => Ok(format!(
+            ))),
+            Some(Type::Bool) => Ok(self.carrier_format(format_args!(
                 "match {smelt_owned_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), {smelt_bigint_arm}SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => !::num_traits::Zero::is_zero(&value),")
-            )),
-            Some(Type::Float) => Ok(format!(
+            ))),
+            Some(Type::Float) => Ok(self.carrier_format(format_args!(
                 "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
-            )),
-            Some(Type::Int) => Ok(format!(
+            ))),
+            Some(Type::Int) => Ok(self.carrier_format(format_args!(
                 "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }}, SmeltUnknown::String(value) => smelt_string_to_number(&value) as i64, SmeltUnknown::Bool(value) => if value {{ 1_i64 }} else {{ 0_i64 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value) as i64,")
-            )),
+            ))),
             // Reading an erased value out into a `String` slot is not the JS
             // `String(x)` CONVERSION -- nothing in the source asked for one; the
             // slot's declared type simply says `string`. So absence must not
@@ -3417,9 +3206,9 @@ impl FunctionEmitter<'_> {
             // pads with `undefined`) the type's default is the closest the slot
             // can come -- and it is at least the SAME answer on both sides of a
             // comparison.
-            Some(Type::String) => Ok(format!(
+            Some(Type::String) => Ok(self.carrier_format(format_args!(
                 "match {smelt_owned_text} {{ {smelt_bigint_arm}SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),")
-            )),
+            ))),
             // Iterable-to-list extraction inspects the source through the
             // `SmeltUnknown` variant space (array/string/`Symbol.iterator`). The
             // source expression is usually erased already, but a statically typed
@@ -3431,7 +3220,7 @@ impl FunctionEmitter<'_> {
             // preserves the backing array id, so already-erased callers are
             // unaffected.
             Some(Type::List(_)) if self.list_items_render_as_unknown(target, scope) => {
-                Ok(erased_to_list_text(text, None, "SmeltUnknown::String(ch.to_string().into())"))
+                Ok(erased_to_list_text(text, None, &self.carrier_text("SmeltUnknown::String(ch.to_string().into())")))
             }
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::String) => {
                 Ok(erased_to_list_text(
@@ -3445,34 +3234,34 @@ impl FunctionEmitter<'_> {
             Some(Type::List(item)) => {
                 let item_text = self.extract_value_text("value", *item, scope)?;
                 let char_text =
-                    self.extract_value_text("SmeltUnknown::String(ch.to_string().into())", *item, scope)?;
+                    self.extract_value_text(&self.carrier_text("SmeltUnknown::String(ch.to_string().into())"), *item, scope)?;
                 Ok(erased_to_list_text(text, Some(&item_text), &char_text))
             }
             Some(Type::Dict(key, item))
                 if self.mir.types.get(*key) == Some(&Type::String)
                     && self.mir.types.get(*item) == Some(&Type::Unknown) =>
             {
-                Ok(format!(
+                Ok(self.carrier_format(format_args!(
                     "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(value) => value.smelt_shared_record(), SmeltUnknown::Array(values) => values.own_entries().into_iter().collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| (index.to_string(), SmeltUnknown::String(ch.to_string().into()))).collect(), SmeltUnknown::Function(value) => SmeltRecord::from([(\"{SMELT_CALL}\".to_owned(), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() }}"
-                ))
+                )))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) => {
                 let item_text = self.extract_value_text("value", *item, scope)?;
-                Ok(format!(
+                Ok(self.carrier_format(format_args!(
                     "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(values) => SmeltRecord::with_id_from_entries(values.id, values.into_iter().map(|(key, value)| (key, {item_text}))), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), {item_text})).collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| {{ let value = SmeltUnknown::String(ch.to_string().into()); (index.to_string(), {item_text}) }}).collect(), _ => SmeltRecord::new() }}"
-                ))
+                )))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) != Some(&Type::String) => {
                 let key_text = self.value_at_type_text("key", self.type_id(Type::String)?, *key, scope)?;
                 let item_text = self.extract_value_text("value", *item, scope)?;
                 if self.dict_uses_js_key_map(*key) {
-                    return Ok(format!(
+                    return Ok(self.carrier_format(format_args!(
                         "if let SmeltUnknown::Object(values) = {smelt_owned_text} {{ SmeltJsMap::from_iter(values.into_iter().map(|(key, value)| ({key_text}, {item_text}))) }} else {{ SmeltJsMap::new() }}"
-                    ));
+                    )));
                 }
-                Ok(format!(
+                Ok(self.carrier_format(format_args!(
                     "if let SmeltUnknown::Object(values) = {smelt_owned_text} {{ values.into_iter().map(|(key, value)| ({key_text}, {item_text})).collect::<::std::collections::HashMap<_, _>>() }} else {{ ::std::collections::HashMap::new() }}"
-                ))
+                )))
             }
             // A source `Map` recovers through `SmeltJsMap`'s `SmeltFromUnknown`
             // impl, which round-trips the `__smelt_map` marker: an erased Map
@@ -3481,28 +3270,28 @@ impl FunctionEmitter<'_> {
             // inverse of the `SmeltJsMap` erasure adapter, so `unknown -> Map`
             // extraction stays lossless.
             Some(Type::JsMap(_, _)) => {
-                let target_text = self.type_text_with_impl_trait(target, false)?;
-                Ok(format!(
+                let target_text = self.type_text(target)?;
+                Ok(self.carrier_format(format_args!(
                     "<{target_text} as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())"
-                ))
+                )))
             }
             Some(Type::TypeParam { name }) if scope.spells(*name) => {
                 let param_name = RustIdent::new(self.symbol_name(*name)?).into_string();
-                Ok(format!(
+                Ok(self.carrier_format(format_args!(
                     "<{param_name} as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())"
-                ))
+                )))
             }
-            Some(Type::TypeParam { .. }) => Ok(format!("({text}).into_smelt_unknown()")),
+            Some(Type::TypeParam { .. }) => Ok(self.carrier_format(format_args!("({text}).into_smelt_unknown()"))),
             // A concrete union stores a tagged `SmeltUnion…` enum, so an erased
             // `SmeltUnknown` value extracted into that destination must be
             // reconstructed into the matching variant rather than passed through
             // as `SmeltUnknown`. This mirrors the `from_smelt_unknown` boundary
             // `inject_union_value_text` applies for `Unknown`/`TypeParam` sources;
             // here the source is a wider (non-concrete) union still stored erased.
-            Some(Type::Union(_)) if self.concrete_union_members(target).is_some() => Ok(format!(
+            Some(Type::Union(_)) if self.concrete_union_members(target).is_some() => Ok(self.carrier_format(format_args!(
                 "{}::from_smelt_unknown(({text}).into_smelt_unknown())",
                 union::union_name(target)
-            )),
+            ))),
             Some(Type::Never | Type::Union(_)) => Ok(text.to_owned()),
             Some(Type::Optional(inner)) => {
                 if self.optional_inner_preserves_erased_singletons(*inner) {
@@ -3546,9 +3335,9 @@ impl FunctionEmitter<'_> {
                     .iter()
                     .enumerate()
                     .map(|(index, item)| {
-                        let value = format!(
+                        let value = self.carrier_format(format_args!(
                             "smelt_tuple_values.get({index}).cloned().unwrap_or(SmeltUnknown::Null)"
-                        );
+                        ));
                         self.extract_value_text(&value, *item, scope)
                     })
                     .collect::<Result<Vec<_>, _>>()?
@@ -3558,9 +3347,9 @@ impl FunctionEmitter<'_> {
                 } else {
                     format!("({items_text})")
                 };
-                Ok(format!(
+                Ok(self.carrier_format(format_args!(
                     "if let SmeltUnknown::Array(smelt_tuple_values) = {smelt_owned_text} {{ {tuple_text} }} else {{ panic!(\"unknown is not tuple\") }}"
-                ))
+                )))
             }
             Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "PropertyKey" => {
                 Ok(text.to_owned())
@@ -3569,29 +3358,29 @@ impl FunctionEmitter<'_> {
             // `SmeltRegExp` erasure adapter, so `source`, `flags` AND the
             // writable `lastIndex` all survive a round trip through erased
             // dataflow (`clone(re)`, `structuredClone`, an `unknown` bag).
-            Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => Ok(format!(
+            Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => Ok(self.carrier_format(format_args!(
                 "<SmeltRegExp as SmeltFromUnknown>::smelt_from_unknown({smelt_owned_text})"
-            )),
+            ))),
             // Both synthetic match-result classes are backed by the concrete
             // `SmeltMatch` Rust type, whose prelude `SmeltFromUnknown` impl is
             // the inverse of its erasure adapter. Without this arm the generic
             // class fallback below answers `Default::default()`, silently
             // turning a round-tripped match into an EMPTY match.
-            Some(Type::Class { name, .. }) if self.is_match_class_symbol(*name)? => Ok(format!(
+            Some(Type::Class { name, .. }) if self.is_match_class_symbol(*name)? => Ok(self.carrier_format(format_args!(
                 "<SmeltMatch as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())"
-            )),
+            ))),
             // The inverse of the fetch-type erasure. Without this arm the generic
             // class fallback answers `Default::default()`, so a header list or a
             // parameter list that round-tripped through erased dataflow came back
             // EMPTY with no diagnostic.
             Some(Type::Class { .. }) if self.is_fetch_runtime_class_type(target)? => {
-                let rust_type = self.type_text_with_impl_trait(target, false)?;
-                Ok(format!(
+                let rust_type = self.type_text(target)?;
+                Ok(self.carrier_format(format_args!(
                     "<{rust_type} as SmeltFromUnknown>::smelt_from_unknown({smelt_owned_text})"
-                ))
+                )))
             }
             Some(Type::Class { .. })
-                if self.type_text_with_impl_trait(target, false)? == "SmeltUnknown" =>
+                if self.renders_erased(target)? =>
             {
                 Ok(text.to_owned())
             }
@@ -3613,7 +3402,9 @@ impl FunctionEmitter<'_> {
                 {
                     return Ok(call);
                 }
-                self.inline_record_conversion(text, target, scope)
+                Ok(self
+                    .inline_record_conversion(text, target, scope)?
+                    .unwrap_or_else(|| "Default::default()".to_owned()))
             }
             // A source `Set` recovers through `SmeltJsSet`'s `SmeltFromUnknown`
             // impl, which round-trips the `__smelt_set` marker (rebuilding members
@@ -3624,10 +3415,10 @@ impl FunctionEmitter<'_> {
             // sets have this impl; a `HashSet`-backed primitive set keeps the
             // `Default::default()` fallback below.
             Some(Type::Set(item)) if !self.type_is_hash_set_key_safe(*item) => {
-                let target_text = self.type_text_with_impl_trait(target, false)?;
-                Ok(format!(
+                let target_text = self.type_text(target)?;
+                Ok(self.carrier_format(format_args!(
                     "<{target_text} as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())"
-                ))
+                )))
             }
             Some(Type::Set(_) | Type::Class { .. }) => {
                 Ok("Default::default()".to_owned())
@@ -3638,16 +3429,17 @@ impl FunctionEmitter<'_> {
                         .required_params
                         .unwrap_or_else(|| function.rest.unwrap_or(function.params.len()));
                     let default_callback = self.default_value(target)?;
-                    return Ok(format!(
+                    return Ok(self.carrier_format(format_args!(
                         "{{ let smelt_value = {smelt_owned_text}; let smelt_function = match smelt_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"{SMELT_CALL}\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ SmeltErasedFunction {{ callback: ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| (smelt_function)(smelt_args).unwrap_or_else(|error| smelt_panic_throw(error))), length: {length}.0, object: match smelt_value {{ SmeltUnknown::Object(object) => Some(object), _ => None }} }} }} else {{ {default_callback} }} }}"
-                    ));
+                    )));
                 }
                 // The callback slot and its return type render in `scope`, the
                 // same environment the return value is extracted in below, so a
                 // type parameter the scope spells (a generic union enum's own
                 // parameter inside its `from_smelt_unknown`) stays spelled.
                 let target_text = self.rust_type(target, false, &scope.substitution())?.into_string();
-                let return_ty = self.rust_type(function.return_ty, false, &scope.substitution())?.into_string();
+                let rendered_return = self.rust_type(function.return_ty, false, &scope.substitution())?;
+                let return_ty = rendered_return.as_str();
                 // The adapter closure is cast to `target_text`, so its
                 // PARAMETER types render in the same `scope`: a parameter the
                 // scope spells (`&T`) must be bound as `&T`, or the closure
@@ -3668,7 +3460,7 @@ impl FunctionEmitter<'_> {
                 let converted_return_text = if let Some(Type::Future(item)) =
                     self.mir.types.get(function.return_ty)
                 {
-                    drop(self.type_text_with_impl_trait(*item, false)?);
+                    drop(self.type_text(*item)?);
                     // JavaScript `await` flattens promise chains: an erased
                     // callable adapted to a promise-returning signature may
                     // itself return an erased promise (e.g. a Vitest
@@ -3681,16 +3473,16 @@ impl FunctionEmitter<'_> {
                     // unchanged; the flattened value is then extracted to the
                     // declared promise item type as before.
                     let converted_item = self.extract_value_text("smelt_flattened", *item, scope)?;
-                    format!(
-                        "SmeltFuture::from_future(Box::pin(async move {{ let smelt_flattened = smelt_await_flatten((smelt_result).into_smelt_unknown()).await?; Ok::<_, Box<dyn std::error::Error>>({converted_item}) }}))"
-                    )
-                } else if return_ty == "SmeltUnknown" {
+                    self.carrier_format(format_args!(
+                        "SmeltFuture::from_future(Box::pin(async move {{ let smelt_flattened = smelt_await_flatten((smelt_result).into_smelt_unknown()).await?; Ok::<_, {ERROR_BOX}>({converted_item}) }}))"
+                    ))
+                } else if rendered_return.shape() == RustShape::Erased {
                     "smelt_result".to_owned()
                 } else {
                     self.extract_value_text("smelt_result", function.return_ty, scope)?
                 };
                 let return_text = if function.may_throw {
-                    format!("Ok::<_, Box<dyn std::error::Error>>({converted_return_text})")
+                    format!("Ok::<_, {ERROR_BOX}>({converted_return_text})")
                 } else {
                     converted_return_text
                 };
@@ -3709,9 +3501,9 @@ impl FunctionEmitter<'_> {
                     .map(|index| format!("arg{index}"))
                     .collect::<Vec<_>>()
                     .join(", ");
-                Ok(format!(
+                Ok(self.carrier_format(format_args!(
                     "{{ let smelt_source_value = {smelt_owned_text}; let smelt_function = match smelt_source_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"{SMELT_CALL}\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function); let smelt_callback: {target_text} = if let Some(smelt_original) = smelt_restore_function_origin::<{target_text}>(&smelt_function) {{ if matches!(smelt_source_value, SmeltUnknown::Object(_)) {{ ::std::rc::Rc::new(move |{params}| (smelt_original)({forwarded_args})) }} else {{ smelt_original }} }} else {{ ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let smelt_result = {call_text}; {return_text} }}) }}; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback }} else {{ {default_callback} }} }}"
-                ))
+                )))
             }
             // An already-erased `SmeltUnknown` at a `Type::Future` position is a
             // `SmeltUnknown::Promise` (e.g. `await`ing the result of an erased
@@ -3731,9 +3523,9 @@ impl FunctionEmitter<'_> {
                 // here — cannot be named inside it (E0521). Reading it eagerly is
                 // also what the source does: the promise value already exists at
                 // this point; only the `await` is deferred.
-                Ok(format!(
-                    "{{ let smelt_erased_future = ({text}).into_smelt_unknown(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_awaited = smelt_await_flatten(smelt_erased_future).await?; Ok::<_, Box<dyn std::error::Error>>({extracted}) }})) }}"
-                ))
+                Ok(self.carrier_format(format_args!(
+                    "{{ let smelt_erased_future = ({text}).into_smelt_unknown(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_awaited = smelt_await_flatten(smelt_erased_future).await?; Ok::<_, {ERROR_BOX}>({extracted}) }})) }}"
+                )))
             }
             other => Err(EmitError::new(format!(
                 "checked extraction from unknown expression `{text}` to {other:?} is not implemented yet"
@@ -3799,7 +3591,7 @@ impl FunctionEmitter<'_> {
                 // caller), which renders every type parameter as
                 // `SmeltUnknown`.
                 let item_text = if self.erased_param_is_unknown_list(*param_ty) {
-                    format!("SmeltUnknown::Array(({arg_text}).into())")
+                    self.carrier_format(format_args!("SmeltUnknown::Array(({arg_text}).into())"))
                 } else {
                     self.erase_value_text(&arg_text, *param_ty)?
                 };
@@ -3898,9 +3690,9 @@ impl FunctionEmitter<'_> {
         if self.inner_holds_erased_nullish(source_inner)
             && !self.optional_inner_preserves_erased_singletons(target_inner)
         {
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "{value_text}.and_then(|value| match value {{ SmeltUnknown::Null | SmeltUnknown::Undefined => None, value => Some({mapped_value}) }})"
-            ));
+            )));
         }
         Ok(format!("{value_text}.map(|value| {mapped_value})"))
     }

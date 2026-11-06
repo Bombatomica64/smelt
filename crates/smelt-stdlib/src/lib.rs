@@ -28,6 +28,8 @@ pub use builtin_members::{
 pub use category::DiagnosticCategory;
 pub use math::{MATH_FUNCTIONS, MathFunction, math_constant, math_function, number_constant};
 pub use classes::{
+    InstanceOfRule, RegExpMember, host_class_parent, instance_of_rule, is_data_view_class,
+    regexp_member, subsystem_instance_marker,
     ARRAY_NON_MUTATING_METHODS, HostDataProperty, HostPrimitive, MATCH_CLASS_NAME,
     MATCH_GROUPS_CLASS_NAME, OBJECT_PROTOTYPE_MEMBERS, StdlibClass, host_data_property, TYPED_ARRAY_CLASS_NAMES, is_array_non_mutating_method, is_object_prototype_member,
     is_typed_array_class_name, stdlib_class_instance_has_property, typescript_stdlib_class,

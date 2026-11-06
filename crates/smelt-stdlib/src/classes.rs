@@ -799,3 +799,94 @@ mod tests {
         }
     }
 }
+
+/// What a member of a `RegExp` value holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegExpMember {
+    /// `source` and `flags`, strings.
+    Text,
+    /// A flag, read as a boolean.
+    Flag,
+    /// `lastIndex`, a number.
+    LastIndex,
+}
+
+/// The `RegExp` member `name` names, in its source or its Rust spelling.
+#[must_use]
+pub fn regexp_member(name: &str) -> Option<RegExpMember> {
+    match name {
+        "source" | "flags" => Some(RegExpMember::Text),
+        "global" | "ignoreCase" | "ignore_case" | "multiline" | "sticky" | "unicode" | "dotAll"
+        | "dot_all" => Some(RegExpMember::Flag),
+        "lastIndex" | "last_index" => Some(RegExpMember::LastIndex),
+        _ => None,
+    }
+}
+
+/// A built-in `instanceof` answers by a rule of its own, not by the marker probe
+/// every other host object shares.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstanceOfRule {
+    /// `Array`: a list or tuple.
+    Array,
+    /// `ArrayBuffer`.
+    ArrayBuffer,
+    /// `Blob`, which a `File` also is.
+    Blob,
+    /// `Error`, whose subclasses carry their name in the same marker.
+    Error,
+    /// `File`, a blob that has a name.
+    File,
+    /// `Map`.
+    Map,
+    /// `Number`, the boxed primitive.
+    Number,
+    /// `Promise`.
+    Promise,
+    /// `Set`.
+    Set,
+}
+
+/// The rule `value instanceof <class_name>` answers by, if it has its own.
+#[must_use]
+pub fn instance_of_rule(class_name: &str) -> Option<InstanceOfRule> {
+    match class_name {
+        "Array" => Some(InstanceOfRule::Array),
+        "ArrayBuffer" => Some(InstanceOfRule::ArrayBuffer),
+        "Blob" => Some(InstanceOfRule::Blob),
+        "Error" => Some(InstanceOfRule::Error),
+        "File" => Some(InstanceOfRule::File),
+        "Map" => Some(InstanceOfRule::Map),
+        "Number" => Some(InstanceOfRule::Number),
+        "Promise" => Some(InstanceOfRule::Promise),
+        "Set" => Some(InstanceOfRule::Set),
+        _ => None,
+    }
+}
+
+/// The class a host class is also an instance of: a `File` is a `Blob`.
+#[must_use]
+pub fn host_class_parent(class_name: &str) -> Option<&'static str> {
+    (class_name == "File").then_some("Blob")
+}
+
+/// Whether `class_name` is `DataView`, the typed-array family's one class with no
+/// element kind.
+#[must_use]
+pub fn is_data_view_class(class_name: &str) -> bool {
+    class_name == "DataView"
+}
+
+/// The identity marker of a class its own runtime subsystem stamps, rather than
+/// the host-object registry.
+#[must_use]
+pub fn subsystem_instance_marker(class_name: &str) -> Option<&'static str> {
+    use crate::runtime_symbols::markers::{SMELT_DATE, SMELT_MAP, SMELT_REGEXP, SMELT_SET};
+    match class_name {
+        "Date" => Some(SMELT_DATE),
+        "RegExp" => Some(SMELT_REGEXP),
+        "Map" => Some(SMELT_MAP),
+        "Set" => Some(SMELT_SET),
+        _ => None,
+    }
+}

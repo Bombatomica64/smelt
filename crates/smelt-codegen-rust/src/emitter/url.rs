@@ -8,6 +8,7 @@
 //! * the fallible calls `BuiltinFn::UrlNew` and `BuiltinFn::UrlSetHref`, whose
 //!   trailing `?` is what marks them throwing to the call-terminator emitter.
 
+use crate::emitter::call::CallText;
 use smelt_hir::{Type, TypeId, UrlField, UrlOp};
 use smelt_mir::Operand;
 
@@ -88,7 +89,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Render the fallible `new URL(input, base?)` call.
-    pub(super) fn url_new_call_text(&self, args: &[Operand]) -> Result<String, EmitError> {
+    pub(super) fn url_new_call_text(&self, args: &[Operand]) -> Result<CallText, EmitError> {
         let input = args
             .first()
             .ok_or_else(|| EmitError::new("`new URL` takes an input"))?;
@@ -100,17 +101,17 @@ impl FunctionEmitter<'_> {
             ),
             None => "None".to_owned(),
         };
-        Ok(format!("{URL_NEW_FN}({input_text}.as_str(), {base_text})?"))
+        Ok(CallText::propagating(format!("{URL_NEW_FN}({input_text}.as_str(), {base_text})")))
     }
 
     /// Render the fallible `url.href = text` call.
-    pub(super) fn url_set_href_call_text(&self, args: &[Operand]) -> Result<String, EmitError> {
+    pub(super) fn url_set_href_call_text(&self, args: &[Operand]) -> Result<CallText, EmitError> {
         let [url, value] = args else {
             return Err(EmitError::new("`URL.href` assignment takes a URL and a value"));
         };
         let url_text = self.operand_borrow_text(url)?;
         let value_text = self.string_like_operand_text(value, "URL href")?;
-        Ok(format!("{URL_SET_HREF_FN}(&{url_text}, {value_text})?"))
+        Ok(CallText::propagating(format!("{URL_SET_HREF_FN}(&{url_text}, {value_text})")))
     }
 
     /// The type a fallible `URL` call answers: the `URL` class for the

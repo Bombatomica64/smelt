@@ -199,9 +199,7 @@ fn class_has_index_store(mir: &Mir, name: Symbol) -> bool {
             .iter()
             .any(|field| mir.symbols.get(field.name) == Some(smelt_hir::CLASS_INDEX_STORE_FIELD))
     };
-    mir.classes
-        .iter()
-        .find(|class| class.name == name)
+    crate::classes::find_class(mir, name)
         .is_some_and(|class| has_index_store(&class.fields))
         || mir
             .interfaces

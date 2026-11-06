@@ -25,6 +25,7 @@
 //! `f64`, `i64` or `SmeltUnknown`; it stays `num_bigint::BigInt` end to end.
 
 use super::*;
+use crate::emitter::call::CallText;
 use crate::bigint_prelude::BIGINT_TYPE;
 
 impl FunctionEmitter<'_> {
@@ -332,7 +333,7 @@ impl FunctionEmitter<'_> {
         &self,
         op: smelt_hir::BigIntOp,
         args: &[Operand],
-    ) -> Result<String, EmitError> {
+    ) -> Result<CallText, EmitError> {
         use smelt_hir::BigIntOp;
         let arg = |index: usize| {
             args.get(index).ok_or_else(|| {
@@ -350,7 +351,7 @@ impl FunctionEmitter<'_> {
                 let bits = arg(0)?;
                 let value = arg(1)?;
                 let bits_text = self.bigint_width_text(bits)?;
-                Ok(format!("{helper}({bits_text}, {})?", self.bigint_operand_ref_text(value)?))
+                Ok(CallText::propagating(format!("{helper}({bits_text}, {})", self.bigint_operand_ref_text(value)?)))
             }
             BigIntOp::JsonStringify => {
                 // Serialized through the erased carrier like every
@@ -360,9 +361,9 @@ impl FunctionEmitter<'_> {
                 let value = arg(0)?;
                 let erased =
                     self.erase_value_text(&self.operand_text(value)?, self.operand_ty(value)?)?;
-                Ok(format!(
-                    "serde_json::to_string(&{erased}).map_err(|_| smelt_bigint_type_error_value(\"Do not know how to serialize a BigInt\".to_owned()))?"
-                ))
+                Ok(CallText::propagating(format!(
+                    "serde_json::to_string(&{erased}).map_err(|_| smelt_bigint_type_error_value(\"Do not know how to serialize a BigInt\".to_owned()))"
+                )))
             }
             BigIntOp::ToStringRadix => {
                 let radix = arg(1)?;
@@ -373,10 +374,10 @@ impl FunctionEmitter<'_> {
                     } else {
                         format!("{radix_operand} as f64")
                     };
-                Ok(format!(
-                    "smelt_bigint_to_string_radix({}, {radix_text})?",
+                Ok(CallText::propagating(format!(
+                    "smelt_bigint_to_string_radix({}, {radix_text})",
                     self.bigint_operand_ref_text(arg(0)?)?
-                ))
+                )))
             }
             BigIntOp::Div | BigIntOp::Rem | BigIntOp::Pow | BigIntOp::Shl | BigIntOp::Shr => {
                 let helper = match op {
@@ -386,11 +387,11 @@ impl FunctionEmitter<'_> {
                     BigIntOp::Shr => "smelt_bigint_shr",
                     _ => "smelt_bigint_pow",
                 };
-                Ok(format!(
-                    "{helper}({}, {})?",
+                Ok(CallText::propagating(format!(
+                    "{helper}({}, {})",
                     self.bigint_operand_ref_text(arg(0)?)?,
                     self.bigint_operand_ref_text(arg(1)?)?
-                ))
+                )))
             }
         }
     }
@@ -407,18 +408,18 @@ impl FunctionEmitter<'_> {
         Ok(format!("&{}", self.bigint_from_value_text(operand, ty, true)?))
     }
 
-    /// `BigInt(value)`, ending in `?`.
-    fn bigint_from_text(&self, operand: &Operand) -> Result<String, EmitError> {
+    /// `BigInt(value)`, a call that propagates its `RangeError` or `SyntaxError`.
+    fn bigint_from_text(&self, operand: &Operand) -> Result<CallText, EmitError> {
         let ty = self.operand_ty(operand)?;
         if self.is_bigint_type(ty) {
-            // `BigInt(1n)` is the value itself; the `Ok(..)?` keeps the call
+            // `BigInt(1n)` is the value itself; the `Ok(..)` keeps the call
             // shape the throwing-terminator emitter expects.
-            return Ok(format!(
-                "Ok::<{BIGINT_TYPE}, Box<dyn ::std::error::Error>>({})?",
+            return Ok(CallText::propagating(format!(
+                "Ok::<{BIGINT_TYPE}, Box<dyn ::std::error::Error>>({})",
                 self.bigint_owned_text(operand)?
-            ));
+            )));
         }
-        Ok(format!("{}?", self.bigint_from_value_text(operand, ty, false)?))
+        Ok(CallText::propagating(self.bigint_from_value_text(operand, ty, false)?))
     }
 
     /// The `Result`-returning conversion of a non-bigint value to a bigint.

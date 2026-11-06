@@ -158,7 +158,7 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("dict get receiver must be a dict"));
         };
         if !self.dict_key_operand_is_compatible(key, *key_ty)? {
-            return Ok("Default::default()".to_owned());
+            return self.inferred_default_text(dest_ty);
         }
         // Every `get` below hands the key to a `&K` parameter and keeps nothing,
         // so borrow the place where no coercion is needed.
@@ -188,16 +188,16 @@ impl FunctionEmitter<'_> {
         }
         if dest_ty == *value_ty
             && self.mir.types.get(*key_ty) == Some(&Type::String)
-            && self.type_text_with_impl_trait(*value_ty, false)? == "SmeltUnknown"
+            && self.renders_erased(*value_ty)?
         {
             // An absent key reads as `undefined`, matching JavaScript's
             // dynamic property semantics; `null` is a value only a store puts
             // there, and the two differ under `===`.
-            return Ok(format!(
+            return Ok(self.carrier_format(format_args!(
                 "{}.get({}).unwrap_or(SmeltUnknown::Undefined)",
                 self.operand_text(dict)?,
                 key_text
-            ));
+            )));
         }
         match (self.mir.types.get(*value_ty), self.mir.types.get(dest_ty)) {
             (Some(Type::Optional(value_inner)), Some(Type::Optional(dest_inner)))
@@ -295,7 +295,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) =
             self.mir.types.get(dict_ty)
         else {
-            return Ok("Default::default()".to_owned());
+            return self.inferred_default_text(dest_ty);
         };
         if !self.dict_key_operand_is_compatible(key, *key_ty)? {
             return Ok(self.operand_text(dict)?);
@@ -463,10 +463,10 @@ impl FunctionEmitter<'_> {
                 if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) =
                     dict
                 {
-                    return Ok(format!(
+                    return Ok(self.carrier_format(format_args!(
                         "match &mut {} {{ SmeltUnknown::Object(map) => map.remove(&{key_text}).is_some(), _ => true }}",
                         self.local_mut_value_text(*local)?
-                    ));
+                    )));
                 }
                 return Ok("true".to_owned());
             }
@@ -754,11 +754,11 @@ impl FunctionEmitter<'_> {
         let scrutinee_text = if matches!(self.mir.types.get(source_ty), Some(Type::Unknown)) {
             format!("{source_text}.clone()")
         } else {
-            format!("IntoSmeltUnknown::into_smelt_unknown({source_text}.clone())")
+            self.carrier_format(format_args!("IntoSmeltUnknown::into_smelt_unknown({source_text}.clone())"))
         };
-        Ok(format!(
+        Ok(self.carrier_format(format_args!(
             "match {scrutinee_text} {{ SmeltUnknown::Object(map) => SmeltRecord::with_id_from_entries(map.id, map.into_iter().map(|(key, value)| (key, {value_text}))), _ => SmeltRecord::new() }}"
-        ))
+        )))
     }
 
     /// Converts a dictionary copy operation to Rust text.
@@ -785,7 +785,7 @@ impl FunctionEmitter<'_> {
             // rest of `const { strict, ...rest } = options` was empty once
             // `type Options = { .. }` became a struct.
             let source_is_unknown_like =
-                self.type_text_with_impl_trait(dict_ty, false)? == "SmeltUnknown";
+                self.renders_erased(dict_ty)?;
             let source_is_record = matches!(self.mir.types.get(dict_ty), Some(Type::Class { .. }));
             if (source_is_unknown_like || source_is_record)
                 && matches!(
@@ -807,13 +807,13 @@ impl FunctionEmitter<'_> {
                 let erased = if source_is_record {
                     self.erase_value_text(&format!("{dict_text}.clone()"), dict_ty)?
                 } else {
-                    format!("({dict_text}.clone()).into_smelt_unknown()")
+                    self.carrier_format(format_args!("({dict_text}.clone()).into_smelt_unknown()"))
                 };
-                return Ok(format!(
+                return Ok(self.carrier_format(format_args!(
                     "match {erased} {{ SmeltUnknown::Object(map) => SmeltRecord::with_id_from_entries(map.id, map.into_iter()), _ => Default::default() }}"
-                ));
+                )));
             }
-            return Ok("Default::default()".to_owned());
+            return self.inferred_default_text(dest_ty);
         }
         if dest_ty != dict_ty {
             return Err(EmitError::new(
@@ -836,9 +836,9 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
         ) {
             return match op {
-                smelt_hir::DictProjectionOp::FromEntries => Ok(format!(
+                smelt_hir::DictProjectionOp::FromEntries => Ok(self.carrier_format(format_args!(
                     "match {dict_text} {{ SmeltUnknown::Array(entries) => entries.into_iter().filter_map(|entry| match entry {{ SmeltUnknown::Array(values) if values.len() >= 2 => {{ let mut values = values.into_iter(); let key = match values.next()? {{ SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), _ => return None }}; Some((key, values.next()?)) }}, _ => None }}).collect::<SmeltRecord<String, SmeltUnknown>>(), _ => SmeltRecord::new() }}"
-                )),
+                ))),
                 // A byte-backed host record's own enumerable properties are its
                 // *element indices*: `Object.keys(new Uint8Array(1))` is `['0']`,
                 // and `bytes`/`byteLength`/`length`/`byteOffset`/`buffer` are
@@ -850,23 +850,23 @@ impl FunctionEmitter<'_> {
                 // followed by the named properties in its side table, which is
                 // the order `Object.keys(['a'])` -> `["0"]` and
                 // `Object.keys(withNamedProp)` -> `["0", "x"]` report.
-                smelt_hir::DictProjectionOp::Keys => Ok(format!(
+                smelt_hir::DictProjectionOp::Keys => Ok(self.carrier_format(format_args!(
                     "match {dict_text} {{ SmeltUnknown::Object(map) => {index_keys}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| map.keys().into_iter().filter(|key| !key.starts_with(\"{SMELT_SYMBOL}\") && !key.starts_with(\"{SMELT_PROTO}:\") && !key.starts_with(\"{SMELT_METHOD}:\") && key != \"{SMELT_CLASS}\").collect()), SmeltUnknown::Array(values) => values.own_keys(), _ => Vec::new() }}",
                     index_keys = smelt_stdlib::runtime_symbols::byte_buffer::INDEX_KEYS,
-                )),
-                smelt_hir::DictProjectionOp::ForInKeys => Ok(format!(
+                ))),
+                smelt_hir::DictProjectionOp::ForInKeys => Ok(self.carrier_format(format_args!(
                     "match {dict_text} {{ SmeltUnknown::Object(map) => {index_keys}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| smelt_for_in_object_keys(&map)), SmeltUnknown::Array(values) => values.own_keys(), _ => Vec::new() }}",
                     index_keys = smelt_stdlib::runtime_symbols::byte_buffer::INDEX_KEYS,
-                )),
+                ))),
                 // `Reflect.ownKeys` reports the string keys AND the symbol keys,
                 // so unlike `Keys` above it cannot filter `__smelt_symbol:` out;
                 // the projection maps those storage keys back to symbol values.
                 // An array's own keys are its indices and named properties, all
                 // strings.
-                smelt_hir::DictProjectionOp::OwnKeys => Ok(format!(
+                smelt_hir::DictProjectionOp::OwnKeys => Ok(self.carrier_format(format_args!(
                     "match {dict_text} {{ SmeltUnknown::Object(map) => {index_keys}(&SmeltUnknown::Object(map.clone())).map_or_else(|| smelt_own_object_keys(&map), |keys| keys.into_iter().map(|key| SmeltUnknown::String(key.as_str().into())).collect()), SmeltUnknown::Array(values) => values.own_keys().into_iter().map(|key| SmeltUnknown::String(key.as_str().into())).collect(), _ => Vec::new() }}",
                     index_keys = smelt_stdlib::runtime_symbols::byte_buffer::INDEX_KEYS,
-                )),
+                ))),
                 // `Object.getOwnPropertySymbols` yields symbol VALUES. The stored
                 // key is `__smelt_symbol:<description>`; handing back the bare
                 // description (a `String`) made the caller lose the symbol tag, so
@@ -874,20 +874,20 @@ impl FunctionEmitter<'_> {
                 // `target[symbols[i]] = v` wrote a plain string key. Re-tagging the
                 // description as `SmeltUnknown::Symbol` keeps the round trip: the
                 // property-key mapping turns that tag back into the prefixed key.
-                smelt_hir::DictProjectionOp::Symbols => Ok(format!(
+                smelt_hir::DictProjectionOp::Symbols => Ok(self.carrier_format(format_args!(
                     "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys().into_iter().filter_map(|key| smelt_own_symbol_key_value(&key)).collect(), _ => Vec::new() }}"
-                )),
+                ))),
                 // `Object.values`/`Object.entries` of a byte-backed view are its
                 // decoded elements, paired with their index keys — the same own-key
                 // set `Object.keys` reports above.
-                smelt_hir::DictProjectionOp::Values => Ok(format!(
+                smelt_hir::DictProjectionOp::Values => Ok(self.carrier_format(format_args!(
                     "match {dict_text} {{ SmeltUnknown::Object(map) => {elements}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| map.iter().filter(|(key, _)| !key.starts_with(\"{SMELT_SYMBOL}\") && !key.starts_with(\"{SMELT_PROTO}:\") && !key.starts_with(\"{SMELT_METHOD}:\") && key != \"{SMELT_CLASS}\").map(|(_, value)| value).collect()), SmeltUnknown::Array(values) => values.own_entries().into_iter().map(|(_, value)| value).collect(), _ => Vec::new() }}",
                     elements = smelt_stdlib::runtime_symbols::byte_buffer::OWN_ELEMENTS,
-                )),
-                smelt_hir::DictProjectionOp::Entries => Ok(format!(
+                ))),
+                smelt_hir::DictProjectionOp::Entries => Ok(self.carrier_format(format_args!(
                     "match {dict_text} {{ SmeltUnknown::Object(map) => {elements}(&SmeltUnknown::Object(map.clone())).map_or_else(|| map.clone().into_iter().filter(|(key, _)| !key.starts_with(\"{SMELT_SYMBOL}\") && !key.starts_with(\"{SMELT_PROTO}:\") && !key.starts_with(\"{SMELT_METHOD}:\") && key != \"{SMELT_CLASS}\").collect::<Vec<_>>(), |values| values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect::<Vec<_>>()), SmeltUnknown::Array(values) => values.own_entries(), _ => Vec::new() }}",
                     elements = smelt_stdlib::runtime_symbols::byte_buffer::OWN_ELEMENTS,
-                )),
+                ))),
             };
         }
         if !matches!(
@@ -945,9 +945,9 @@ impl FunctionEmitter<'_> {
                     // representation markers and restores symbol tags, then the
                     // symbol filter drops the symbol-keyed properties
                     // `Object.keys` never reports.
-                    Ok(format!(
+                    Ok(self.carrier_format(format_args!(
                         "smelt_own_js_map_entries(&{dict_text}).into_iter().filter(|(key, _)| !matches!(key, SmeltUnknown::Symbol(_))).map(|(key, _)| key).collect::<Vec<_>>()"
-                    ))
+                    )))
                 } else {
                     Ok(format!("{dict_text}.keys().cloned().collect::<Vec<_>>()"))
                 }
@@ -1014,11 +1014,11 @@ impl FunctionEmitter<'_> {
                     // The mirror image of the `Keys` arm: the same own-entry
                     // helper restores a `__smelt_symbol:` storage key to its tag,
                     // and this arm keeps exactly the keys that filter drops.
-                    Ok(format!(
+                    Ok(self.carrier_format(format_args!(
                         "smelt_own_js_map_entries(&{dict_text}).into_iter().map(|(key, _)| key).filter(|key| matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
-                    ))
+                    )))
                 } else {
-                    Ok("Vec::<SmeltUnknown>::new()".to_owned())
+                    Ok(self.carrier_text("Vec::<SmeltUnknown>::new()"))
                 }
             }
             smelt_hir::DictProjectionOp::Values => {
@@ -1048,9 +1048,9 @@ impl FunctionEmitter<'_> {
                     }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     // Own, non-symbol entries only -- same rule as the `Keys` arm.
-                    Ok(format!(
+                    Ok(self.carrier_format(format_args!(
                         "smelt_own_js_map_entries(&{dict_text}).into_iter().filter(|(key, _)| !matches!(key, SmeltUnknown::Symbol(_))).map(|(_, value)| value).collect::<Vec<_>>()"
-                    ))
+                    )))
                 } else {
                     Ok(format!("{dict_text}.values().cloned().collect::<Vec<_>>()"))
                 }
@@ -1082,9 +1082,9 @@ impl FunctionEmitter<'_> {
                     }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     // Own, non-symbol entries only -- same rule as the `Keys` arm.
-                    Ok(format!(
+                    Ok(self.carrier_format(format_args!(
                         "smelt_own_js_map_entries(&{dict_text}).into_iter().filter(|(key, _)| !matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
-                    ))
+                    )))
                 } else {
                     Ok(format!(
                         "{dict_text}.iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
@@ -1115,7 +1115,7 @@ impl FunctionEmitter<'_> {
             // printed it twice and without the span.
             return Err(EmitError::new(format!(
                 "JSON stringify value must be JSON-serializable, got {}",
-                self.type_text_with_impl_trait(self.operand_ty(value)?, false)?,
+                self.type_text(self.operand_ty(value)?)?,
             )));
         }
         // Serialize through the erased carrier, ALWAYS. `JSON.stringify` is

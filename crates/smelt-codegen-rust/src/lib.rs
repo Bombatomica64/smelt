@@ -78,6 +78,7 @@ use std::{
 };
 
 use crate::classes::{NominalStorage, type_holds_function};
+use crate::thrown::ERROR_BOX;
 use crate::{rust::erased_string, type_substitution::TypeSubstitution};
 use smelt_hir::{BodyId, Type, TypeId};
 use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction, MirGlobalInit};
@@ -2507,7 +2508,7 @@ fn type_supports_partial_eq(
             if context.is_reference_class(name) {
                 return true;
             }
-            let Some(class) = mir.classes.iter().find(|candidate| candidate.name == name) else {
+            let Some(class) = crate::classes::find_class(mir, name) else {
                 // A shape (interface / synthetic object-literal shape) is a
                 // by-value struct that derives `PartialEq` under this same rule,
                 // so a field holding one is comparable exactly when the shape's
@@ -2865,7 +2866,7 @@ fn emit_function_field_origin_restore(
     key: &str,
     field_ty: TypeId,
 ) {
-    let Ok(field_ty_text) = FunctionEmitter::type_text_for_with_scoped_type_params(
+    let Ok(field_ty_rendered) = FunctionEmitter::rust_type_with_scoped_type_params(
         mir,
         context,
         field_ty,
@@ -2876,7 +2877,7 @@ fn emit_function_field_origin_restore(
     // Origins are recorded only for typed `Rc` callables (the erasure in
     // `emitter/coercion.rs`), so a field spelled any other way (an erased
     // `SmeltErasedFunction`) has no origin to find and keeps its `Default`.
-    if !field_ty_text.starts_with("::std::rc::Rc<") {
+    if field_ty_rendered.shape() != rust::RustShape::Callable {
         return;
     }
     body.block(format!("if let Some(field) = object.get({key:?})"), |assign| {
@@ -2884,7 +2885,7 @@ fn emit_function_field_origin_restore(
             "let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };",
         );
         assign.line(format!(
-            "if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<{field_ty_text}>(&smelt_function)) {{ result.{field_name} = smelt_origin; }}"
+            "if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<{field_ty_rendered}>(&smelt_function)) {{ result.{field_name} = smelt_origin; }}"
         ));
     });
 }
@@ -3009,7 +3010,7 @@ fn erased_function_field_text(
     };
     let adapter = |callable: &str| {
         format!(
-            "{{ let smelt_function_value: {rendered} = {callable}; let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(({call}).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }}"
+            "{{ let smelt_function_value: {rendered} = {callable}; let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, {ERROR_BOX}>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, {ERROR_BOX}>(({call}).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }}"
         )
     };
     Some(if optional {
@@ -3141,7 +3142,7 @@ fn type_is_json_serializable(mir: &Mir, ty: TypeId, seen: &mut Vec<smelt_hir::Sy
             }
             seen.push(*name);
             let serializable =
-                if let Some(class) = mir.classes.iter().find(|class| class.name == *name) {
+                if let Some(class) = crate::classes::find_class(mir, *name) {
                     effective_class_fields(mir, class)
                         .iter()
                         .all(|field| type_is_json_serializable(mir, field.ty, seen))
@@ -3321,7 +3322,7 @@ fn emit_mutable_globals(mir: &Mir, context: &EmitContext) -> Result<String, Emit
 fn emit_module_init_failed(writer: &mut CodeWriter) {
     writer.line("/// A module global's initializer threw during module evaluation: report it as `main` does and exit 1.");
     writer.block(
-        "fn smelt_module_init_failed(error: Box<dyn std::error::Error>) -> !",
+        format!("fn smelt_module_init_failed(error: {ERROR_BOX}) -> !"),
         |fn_writer| {
             fn_writer.line("let _ = ::std::io::Write::flush(&mut ::std::io::stdout());");
             fn_writer.line("eprintln!(\"Error: {error:?}\");");
