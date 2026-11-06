@@ -191,10 +191,14 @@ impl ModuleBuilder<'_> {
             // lowering the operand as a single argument is what silently bound a
             // whole tuple to parameter 0 and let the emitter default the rest.
             Argument::SpreadElement(spread) => self.expression(&spread.argument, body),
-            _ => Err(SmeltError::unsupported(
-                self.span(argument.span().start, argument.span().end),
-                format!("call argument kind is not lowered yet: {argument:?}"),
-            )),
+            // Every other argument is an expression, and means what it means anywhere.
+            _ => match argument.as_expression() {
+                Some(expression) => self.expression(expression, body),
+                None => Err(SmeltError::unsupported(
+                    self.span(argument.span().start, argument.span().end),
+                    format!("call argument kind is not lowered yet: {argument:?}"),
+                )),
+            },
         }
     }
 

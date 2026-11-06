@@ -2433,9 +2433,9 @@ export function replaceAll(str: string, table: unknown): string {
     );
 
     assert!(source.contains("replace_all"), "{source}");
-    // The replacement is wrapped in the SmeltUnknown -> String match.
+    // The replacement is JavaScript ToString of the erased answer.
     assert!(
-        source.contains("|caps: &fancy_regex::Captures<'_>| match ("),
+        source.contains("|caps: &fancy_regex::Captures<'_>| smelt_erased_to_js_string(&"),
         "{source}"
     );
     assert!(

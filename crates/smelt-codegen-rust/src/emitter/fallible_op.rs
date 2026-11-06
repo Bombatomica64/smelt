@@ -7,7 +7,7 @@
 //! Ok(Err(e))` shape that binds the caught error, and the typed value the
 //! adapter answers. Only the throw crosses the erased channel.
 
-use smelt_hir::{Base64Op, Type, TypeId, UriTranscodeOp};
+use smelt_hir::{Base64Op, PythonDivisionOp, Type, TypeId, UriTranscodeOp};
 use smelt_mir::{Operand, Rvalue};
 
 use super::call::CallText;
@@ -22,12 +22,73 @@ pub(super) struct FallibleOpCall {
 }
 
 impl FunctionEmitter<'_> {
+    /// The runtime function of a Python division over operands of `ty`.
+    fn python_division_fn(
+        &self,
+        op: PythonDivisionOp,
+        ty: TypeId,
+    ) -> Result<&'static str, EmitError> {
+        match (op, self.mir.types.get(ty)) {
+            (PythonDivisionOp::FloorDiv, Some(Type::Int)) => Ok("smelt_py_floor_div_int"),
+            (PythonDivisionOp::Mod, Some(Type::Int)) => Ok("smelt_py_mod_int"),
+            (PythonDivisionOp::FloorDiv, Some(Type::Float)) => Ok("smelt_py_floor_div_float"),
+            (PythonDivisionOp::Mod, Some(Type::Float)) => Ok("smelt_py_mod_float"),
+            (PythonDivisionOp::TrueDiv, Some(Type::Float)) => Ok("smelt_py_true_div"),
+            _ => Err(EmitError::new("a Python division needs two ints or two floats")),
+        }
+    }
+
+    /// Renders Python's `d[k]`: the value, or a raised `KeyError`.
+    fn python_dict_read_call(
+        &self,
+        dict: &Operand,
+        key: &Operand,
+    ) -> Result<(CallText, TypeId), EmitError> {
+        let dict_ty = self.operand_ty(dict)?;
+        let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
+            return Err(EmitError::new("a Python dict read needs a dict"));
+        };
+        let key_text = self.dict_key_reference_text(key, *key_ty)?;
+        let dict_text = self.operand_borrow_text(dict)?;
+        let cloned = if self.map_op_uses_smelt_record(dict_ty, *key_ty) { "" } else { ".cloned()" };
+        Ok((
+            CallText::propagating(format!(
+                "{dict_text}.get({key_text}){cloned}.ok_or_else(|| smelt_py_key_error({key_text}))"
+            )),
+            *value_ty,
+        ))
+    }
+
+    /// Renders a Python division whose divisor is a nonzero constant.
+    pub(super) fn python_division_text(
+        &self,
+        op: PythonDivisionOp,
+        lhs: &Operand,
+        rhs: &Operand,
+    ) -> Result<String, EmitError> {
+        let divide = self.python_division_fn(op, self.operand_ty(lhs)?)?;
+        Ok(format!("{divide}({}, {})", self.operand_text(lhs)?, self.operand_text(rhs)?))
+    }
+
     /// Renders the call of a fallible operation and states what it answers.
     pub(super) fn fallible_op_call(&self, op: &Rvalue) -> Result<FallibleOpCall, EmitError> {
         let mut args = Vec::new();
         op.reads(|operand| args.push(operand.clone()));
         let (text, source_ty) = match op {
             Rvalue::JsonParse { target, .. } => self.json_parse_call(*target, &args)?,
+            Rvalue::PythonDivision { op, lhs, rhs, .. } => {
+                let source_ty = self.operand_ty(lhs)?;
+                let divide = self.python_division_fn(*op, source_ty)?;
+                let lhs = self.operand_text(lhs)?;
+                let rhs = self.operand_text(rhs)?;
+                (
+                    CallText::propagating(format!(
+                        "smelt_py_checked_division({lhs}, {rhs}, {divide})"
+                    )),
+                    source_ty,
+                )
+            }
+            Rvalue::PythonDictRead { dict, key } => self.python_dict_read_call(dict, key)?,
             Rvalue::Base64Transcode { op, .. } => {
                 let value = args.first().ok_or_else(|| {
                     EmitError::new("a base64 transcoder takes one string argument")

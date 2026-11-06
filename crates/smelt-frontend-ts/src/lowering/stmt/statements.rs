@@ -34,6 +34,33 @@ impl ModuleBuilder<'_> {
         Some(return_ty)
     }
 
+    /// Give a block-local class its own identity when its name is already taken.
+    ///
+    /// Two functions may each declare `class Data`: they are different classes,
+    /// and the name means this one until the enclosing lexical scope ends.
+    fn shadow_outer_class(&mut self, class: &oxc::ast::ast::Class<'_>) {
+        let Some(id) = &class.id else {
+            return;
+        };
+        let name = id.name.as_str();
+        let plain = self.intern_type_name(name);
+        let taken = self.classes.item(name).is_some()
+            || (self.classes.in_body() && self.classes.declared_in_module(name))
+            || self.ctx.krate.items.iter().any(
+                |item| matches!(item, smelt_hir::Item::Class(lowered) if lowered.name == plain),
+            );
+        if !taken {
+            return;
+        }
+        let internal_name = format!("{}SmeltSuiteF{}S{}", name, self.file_id.0, class.span.start);
+        let symbol = self.intern_type_name(&internal_name);
+        if self.classes.scoped_type_name(name) == Some(symbol) {
+            return;
+        }
+        self.classes.open_shadow(name);
+        self.classes.bind_scoped_type_name(name.to_owned(), symbol);
+    }
+
     /// Lower a statement within a specific block.
     pub(in crate::lowering) fn statement_in_block(
         &mut self,
@@ -63,6 +90,7 @@ impl ModuleBuilder<'_> {
                 self.local_function_declaration(function, body, block)
             }
             Statement::ClassDeclaration(class) => {
+                self.shadow_outer_class(class);
                 self.class_declaration(class)?;
                 Ok(())
             }

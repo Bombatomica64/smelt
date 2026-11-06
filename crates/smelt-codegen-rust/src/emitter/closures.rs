@@ -701,6 +701,16 @@ impl FunctionEmitter<'_> {
                     Ok(format!("{mutability}{name}: {by_ref}{local_ty_text}"))
                 })
                 .collect::<Result<Vec<_>, EmitError>>()?;
+            // A parameter a nested closure writes lives in a cell from entry on,
+            // the same prelude a function parameter gets.
+            for param in &closure.params {
+                if emitter.local_uses_shared_capture_storage(*param) {
+                    let name = emitter.local_name(*param)?.into_owned();
+                    owned_param_prelude.push_str(&format!(
+                        "let smelt_capture_{name} = ::std::rc::Rc::new(::std::cell::RefCell::new({name}.clone())); "
+                    ));
+                }
+            }
             emitter
                 .by_reference_param_locals
                 .extend(by_reference_param_locals);

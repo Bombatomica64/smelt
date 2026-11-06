@@ -82,6 +82,90 @@ fn rest_arguments() -> TestResult {
     verify_node_parity("rest_arguments")
 }
 
+/// Rest arguments are packed by the frontend on every route through a function value.
+#[test]
+fn rest_value_calls() -> TestResult {
+    verify_node_parity("rest_value_calls")
+}
+
+/// A parameter does not hide a module constant from other functions.
+#[test]
+fn parameter_shadows_module_const() -> TestResult {
+    verify_node_parity("parameter_shadows_module_const")
+}
+
+/// `replace` substitutes ToString of the replacer's answer.
+#[test]
+fn replace_callback_tostring() -> TestResult {
+    verify_node_parity("replace_callback_tostring")
+}
+
+/// A class satisfies `implements` through its base chain.
+#[test]
+fn implements_inherited_members() -> TestResult {
+    verify_node_parity("implements_inherited_members")
+}
+
+/// A container of a type parameter prints through `util.inspect`, never Rust `Debug`.
+#[test]
+fn console_erased_generic() -> TestResult {
+    verify_node_parity("console_erased_generic")
+}
+
+/// A class stored in a value keeps its identity for `instanceof` and `new`.
+#[test]
+fn class_values() -> TestResult {
+    verify_node_parity("class_values")
+}
+
+/// `f(a, (a = 2))`: an assignment as an argument evaluates in place.
+#[test]
+fn assignment_argument() -> TestResult {
+    verify_node_parity("assignment_argument")
+}
+
+/// A nested closure writes the enclosing closure's parameter.
+#[test]
+fn closure_param_written_by_closure() -> TestResult {
+    verify_node_parity("closure_param_written_by_closure")
+}
+
+/// A `Set` that crosses `unknown` keeps its members and insertion order.
+#[test]
+fn erased_set_order() -> TestResult {
+    verify_node_parity("erased_set_order")
+}
+
+/// Same-named classes in different scopes stay different classes.
+#[test]
+fn block_local_classes() -> TestResult {
+    verify_node_parity("block_local_classes")
+}
+
+/// A string key is a property name on whatever the erased receiver holds.
+#[test]
+fn string_key_on_erased_receiver() -> TestResult {
+    verify_node_parity("string_key_on_erased_receiver")
+}
+
+/// An interface with a numeric index signature admits a list.
+#[test]
+fn array_like_interface() -> TestResult {
+    verify_node_parity("array_like_interface")
+}
+
+/// A method called on an erased value is what the value holds.
+#[test]
+fn erased_member_calls() -> TestResult {
+    verify_node_parity("erased_member_calls")
+}
+
+/// A generator's `T` reachable only through a union stays what the definition yields.
+#[test]
+fn generator_type_through_union() -> TestResult {
+    verify_node_parity("generator_type_through_union")
+}
+
 /// Array-valued ternary arms join instead of one adopting the other's type.
 #[test]
 fn conditional_list_arms() -> TestResult {

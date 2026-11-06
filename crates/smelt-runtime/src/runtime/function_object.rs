@@ -118,6 +118,11 @@ fn smelt_callable_of(value: &SmeltUnknown) -> Option<::std::rc::Rc<dyn Fn(Vec<Sm
 /// The walk stops when `smelt_proto_accessor` stops advancing, so it
 /// terminates on the opaque `__smelt_proto:*` sentinels too.
 fn smelt_instance_of_value(value: &SmeltUnknown, target: &SmeltUnknown) -> bool {
+    if let SmeltUnknown::Object(class) = target && let Some(SmeltUnknown::String(covered)) = class.get("__smelt_class_value") {
+        let SmeltUnknown::Object(instance) = value else { return false; };
+        let Some(SmeltUnknown::String(name)) = instance.get("__smelt_class") else { return false; };
+        return covered.split(',').any(|class_name| class_name == &*name);
+    }
     let Some(function) = smelt_callable_of(target) else { return false; };
     let prototype = smelt_function_value_property(&function, "prototype");
     let SmeltUnknown::Object(prototype) = prototype else { return false; };
@@ -137,5 +142,13 @@ fn smelt_instance_of_value(value: &SmeltUnknown, target: &SmeltUnknown) -> bool 
 /// Whether two prototype-chain links are the same link, so a walk that reached
 /// one has made no progress and must stop.
 fn smelt_same_prototype_link(left: &SmeltUnknown, right: &SmeltUnknown) -> bool { match (left, right) { (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::String(left), SmeltUnknown::String(right)) => left == right, _ => false } }
+
+// @smelt:item-end
+
+// @smelt:item smelt_class_value when class_value & unknown
+/// A class as a runtime value: callable through `__smelt_call` when its
+/// constructor is known, named, and carrying the classes `instanceof` accepts
+/// (itself and its subclasses, comma separated).
+fn smelt_class_value(name: &str, covered: &str, constructor: SmeltUnknown) -> SmeltUnknown { SmeltUnknown::Object(SmeltObject::new(Vec::from([("name".to_owned(), SmeltUnknown::String(name.into())), ("__smelt_class_value".to_owned(), SmeltUnknown::String(covered.into())), ("__smelt_call".to_owned(), constructor)]))) }
 
 // @smelt:item-end

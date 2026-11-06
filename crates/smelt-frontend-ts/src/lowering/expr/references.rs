@@ -120,21 +120,7 @@ impl ModuleBuilder<'_> {
             }));
         }
         if self.classes.contains(name) {
-            let symbol = self.classes.item(name)
-                .and_then(|item| match self.item_ref(item) {
-                    Item::Class(class) => Some(class.name),
-                    _ => None,
-                })
-                .unwrap_or_else(|| self.intern_type_name(name));
-            let ty = self.ctx.krate.types.intern(Type::Class {
-                name: symbol,
-                args: Vec::new(),
-            });
-            return Ok(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::None),
-                ty,
-                span: self.span(start, end),
-            }));
+            return self.class_value_expression(name, start, end, body);
         }
         // A typed-array constructor used as a bare *value* rather than through
         // `new` — e.g. an `instanceof Uint8Array` / `toBeInstanceOf(Uint8Array)`

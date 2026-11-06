@@ -68,6 +68,7 @@ impl ModuleBuilder<'_> {
                     return Ok(());
                 }
                 let target = self.expression(target_expr, body)?;
+                let target = Self::subscript_store_target(target, body);
                 let value = self.expression(&s.value, body)?;
                 body.push_stmt_to_block(block, HirStmt::Assign { target, value });
                 Ok(())
@@ -191,7 +192,7 @@ impl ModuleBuilder<'_> {
 
             // Nested functions become local closure values when their
             // signature and body can be represented by the closure IR.
-            Stmt::FunctionDef(f) => self.nested_function_closure(f, body),
+            Stmt::FunctionDef(f) => self.nested_function_closure(f, body, block),
             Stmt::ClassDef(c) => Err(SmeltError::unsupported(
                 self.span(c.range),
                 "nested class definitions are not yet supported",
@@ -411,7 +412,11 @@ impl ModuleBuilder<'_> {
         if let Some(value) = ann.value.as_deref()
             && let Expr::Lambda(lambda) = value
         {
-            return self.ann_lambda_assign((target_name.id.as_str(), lambda, ty, self.span(ann.range)), body);
+            return self.ann_lambda_assign(
+                (target_name.id.as_str(), lambda, ty, self.span(ann.range)),
+                body,
+                block,
+            );
         }
         let value = ann
             .value
@@ -434,11 +439,12 @@ impl ModuleBuilder<'_> {
         Ok(())
     }
 
-    /// Lower `name: Callable[[...], R] = lambda ...` as a local callback value.
+    /// Lower `name: Callable[[...], R] = lambda ...` as a closure local.
     fn ann_lambda_assign(
         &mut self,
         assignment: (&str, &ruff_python_ast::ExprLambda, TypeId, Span),
         body: &mut Body,
+        block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
         let (name, lambda, ty, span) = assignment;
         let Some(Type::Function(function)) = self.ctx.krate.types.get(ty).cloned() else {
@@ -447,14 +453,34 @@ impl ModuleBuilder<'_> {
                 "local lambda assignments require a Callable annotation",
             ));
         };
-        let callback = self.lambda_callback(lambda, &function.params, body)?;
-        let defaults = self.lambda_defaults(lambda, body)?;
-        if callback.ty != function.return_ty {
+        let closure =
+            self.lambda_closure(lambda, &function.params, Some(function.return_ty), body)?;
+        if closure.return_ty != function.return_ty {
             return Err(SmeltError::unsupported(
                 self.span(lambda.range),
                 "local lambda return type does not match Callable annotation",
             ));
         }
+        let mut defaults = self.lambda_defaults(lambda, body)?;
+        defaults.resize(function.params.len(), None);
+        let callback = LocalCallback {
+            defaults,
+            vararg: Self::lambda_vararg_metadata(lambda, &function.params, &self.ctx.krate.types),
+            kwarg: Self::lambda_kwarg_metadata(lambda, &function.params, &self.ctx.krate.types),
+        };
+        self.bind_callable_local(name, closure.expr, ty, callback, (span, body, block));
+        Ok(())
+    }
+
+    /// Bind a callable local to its closure value and record how calls pack.
+    fn bind_callable_local(
+        &mut self,
+        name: &str,
+        value: smelt_hir::ExprId,
+        ty: TypeId,
+        callback: LocalCallback,
+        (span, body, block): (Span, &mut Body, smelt_hir::BlockId),
+    ) {
         let name_sym = self.intern_name(name);
         let local = body.push_local(LocalDecl {
             name: Some(name_sym),
@@ -463,30 +489,9 @@ impl ModuleBuilder<'_> {
             span,
         });
         self.scope.locals.insert(name.to_owned(), local);
-        self.scope.local_callbacks.insert(
-            name.to_owned(),
-            LocalCallback {
-                callback,
-                params: function.params.clone(),
-                defaults: {
-                    let mut resized_defaults = defaults;
-                    resized_defaults.resize(function.params.len(), None);
-                    resized_defaults
-                },
-                vararg: Self::lambda_vararg_metadata(
-                    lambda,
-                    &function.params,
-                    &self.ctx.krate.types,
-                ),
-                kwarg: Self::lambda_kwarg_metadata(
-                    lambda,
-                    &function.params,
-                    &self.ctx.krate.types,
-                ),
-                return_ty: function.return_ty,
-            },
-        );
-        Ok(())
+        self.scope.local_callbacks.insert(name.to_owned(), callback);
+        let pat = body.push_pattern(HirPattern::Binding(local));
+        body.push_stmt_to_block(block, HirStmt::Let { pat, ty, value: Some(value) });
     }
 
     /// Lower `super().__init__(args)` inside a derived class's `__init__`.
@@ -713,27 +718,23 @@ impl ModuleBuilder<'_> {
     ///
     /// # Return type
     ///
-    /// The closure's return type is *not* required to be annotated. A nested
-    /// closure body is a single `return <expr>`, so the accurate return type is
-    /// the HIR type the frontend already computes for that expression while
-    /// lowering it into a [`CallbackExpr`]. The body is therefore lowered first
-    /// and its type used directly when the source omits `-> T` (issue #93:
-    /// idiomatic Python omits annotations, and the actual returned type is the
-    /// one lowering must follow). A declared `-> T` still wins when present and
-    /// is checked against the lowered body, so an explicit source contract is
-    /// never silently widened.
+    /// The closure's return type is *not* required to be annotated: the body is a
+    /// single `return <expr>` and that expression's lowered type is the closure's
+    /// return (issue #93: idiomatic Python omits annotations). A declared `-> T`
+    /// still wins when present and is checked against the lowered body, so an
+    /// explicit source contract is never silently widened.
     ///
     /// # Parameter types
     ///
-    /// Parameter types must be known *before* the body is lowered (they seed the
-    /// callback parameter environment), so they come from the annotation when
-    /// present and otherwise from `ty`'s resolved type for that parameter node.
-    /// A parameter `ty` cannot resolve stays an explicit error rather than being
-    /// routed through an erased ABI.
+    /// Parameter types must be known *before* the body is lowered, so they come
+    /// from the annotation when present and otherwise from `ty`'s resolved type
+    /// for that parameter node. A parameter `ty` cannot resolve stays an explicit
+    /// error rather than being routed through an erased ABI.
     fn nested_function_closure(
         &mut self,
         func: &StmtFunctionDef,
         body: &mut Body,
+        block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
         if func.is_async {
             return Err(SmeltError::unsupported(
@@ -747,9 +748,9 @@ impl ModuleBuilder<'_> {
             .map(|annotation| self.annotation_to_hir(annotation))
             .transpose()?;
         let mut params = Vec::new();
-        let mut callback_params = HashMap::new();
+        let mut names = Vec::new();
         let mut defaults = Vec::new();
-        for (index, param_with_default) in func.parameters.iter_non_variadic_params().enumerate() {
+        for param_with_default in func.parameters.iter_non_variadic_params() {
             let param = &param_with_default.parameter;
             let param_ty = match param.annotation.as_deref() {
                 Some(annotation) => self.annotation_to_hir(annotation)?,
@@ -762,13 +763,7 @@ impl ModuleBuilder<'_> {
                 })?,
             };
             params.push(param_ty);
-            callback_params.insert(
-                param.name.as_str(),
-                CallbackExpr {
-                    kind: CallbackExprKind::Param(index),
-                    ty: param_ty,
-                },
-            );
+            names.push(Some(param.name.as_str()));
             defaults.push(
                 param_with_default
                     .default
@@ -791,14 +786,8 @@ impl ModuleBuilder<'_> {
             let list_ty = self.intern_type(Type::List(item_ty));
             let index = params.len();
             params.push(list_ty);
+            names.push(Some(vararg.name.as_str()));
             defaults.push(None);
-            callback_params.insert(
-                vararg.name.as_str(),
-                CallbackExpr {
-                    kind: CallbackExprKind::Param(index),
-                    ty: list_ty,
-                },
-            );
             Some(VarArgParam { index, item_ty })
         } else {
             None
@@ -818,14 +807,8 @@ impl ModuleBuilder<'_> {
             let dict_ty = self.intern_type(Type::Dict(string_ty, value_ty));
             let index = params.len();
             params.push(dict_ty);
+            names.push(Some(kwarg.name.as_str()));
             defaults.push(None);
-            callback_params.insert(
-                kwarg.name.as_str(),
-                CallbackExpr {
-                    kind: CallbackExprKind::Param(index),
-                    ty: dict_ty,
-                },
-            );
             Some(KwArgParam { index, value_ty })
         } else {
             None
@@ -842,51 +825,31 @@ impl ModuleBuilder<'_> {
                 "nested closure return statements must return a value",
             )
         })?;
-        let callback = self.python_callback_expr(return_expr, &callback_params, body)?;
-        // With no declared `-> T`, the lowered body's own type *is* the closure's
-        // return type; with one, the declaration is the contract and the body
-        // must satisfy it exactly.
-        let return_ty = match declared_return_ty {
-            None => callback.ty,
-            Some(declared) => {
-                if callback.ty != declared {
-                    return Err(SmeltError::unsupported(
-                        self.span(return_stmt.range),
-                        "nested closure return type does not match its annotation",
-                    ));
-                }
-                declared
-            }
-        };
-        let name_text = func.name.as_str();
-        let name = self.intern_name(name_text);
-        let ty = self.intern_type(Type::Function(FunctionType {
-            params: params.clone(),
-            rest: None,
-            required_params: None,
-                    mutable_params: Vec::new(),
-            return_ty,
-            is_async: false,
-            may_throw: false,
-        }));
-        let local = body.push_local(LocalDecl {
-            name: Some(name),
-            ty,
-            mutable: true,
-            span: self.span(func.range),
-        });
-        self.scope.locals.insert(name_text.to_owned(), local);
-        self.scope.local_callbacks.insert(
-            name_text.to_owned(),
-            LocalCallback {
-                callback,
-                params,
-                defaults,
-                vararg,
-                kwarg,
-                return_ty,
+        let span = self.span(func.range);
+        let closure = self.python_closure(
+            &PythonClosure {
+                params: &params,
+                names,
+                packed_rest: None,
+                body: return_expr,
+                expected_return: declared_return_ty,
+                span,
             },
-        );
+            body,
+        )?;
+        if declared_return_ty.is_some_and(|declared| declared != closure.return_ty) {
+            return Err(SmeltError::unsupported(
+                self.span(return_stmt.range),
+                "nested closure return type does not match its annotation",
+            ));
+        }
+        let ty = Self::expr_ty(body, closure.expr);
+        let callback = LocalCallback {
+            defaults,
+            vararg,
+            kwarg,
+        };
+        self.bind_callable_local(func.name.as_str(), closure.expr, ty, callback, (span, body, block));
         Ok(())
     }
 

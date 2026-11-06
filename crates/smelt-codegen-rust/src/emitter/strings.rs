@@ -437,8 +437,8 @@ impl FunctionEmitter<'_> {
         // `regex` `Replacer` closure must therefore yield a `String`
         // (`AsRef<str>`); a callback typed to return `unknown`/a union/etc.
         // yields `SmeltUnknown`, which is not `AsRef<str>`. When the callback
-        // does not already return `String`, route its result through the erase +
-        // String-extract boundary so the closure hands `replace` a real string.
+        // does not already return `String`, erase its result and take ToString of
+        // that, so the closure hands `replace` a real string.
         let call_expr = format!("({callback_text})({})", arg_texts.join(", "));
         let replacement_expr = self.regex_replacement_as_string(call_expr, callback)?;
         let replacement = format!("|caps: &fancy_regex::Captures<'_>| {replacement_expr}");
@@ -539,11 +539,10 @@ impl FunctionEmitter<'_> {
         if matches!(self.mir.types.get(return_ty), Some(Type::String)) {
             return Ok(call_expr);
         }
-        let Some(string_ty) = self.existing_type_id(Type::String) else {
-            return Ok(call_expr);
-        };
+        // The substitution is ToString of the answer: `undefined` is the text
+        // `undefined`, which a string extraction would read as empty.
         let erased = self.erase_value_text(&call_expr, return_ty)?;
-        self.extract_value_text(&erased, string_ty, &self.render_scope())
+        Ok(format!("smelt_erased_to_js_string(&{erased})"))
     }
 
     /// Converts a regex split operation to Rust text using the `fancy-regex` crate.

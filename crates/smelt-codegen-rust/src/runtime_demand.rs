@@ -125,6 +125,12 @@ pub(crate) enum Need {
     Sqlite,
     /// `atob`/`btoa`.
     Base64,
+    /// Python's `/`, `//` and `%` helpers.
+    PythonDivision,
+    /// Python's raising `d[k]` read.
+    PythonDictRead,
+    /// A class read as a value.
+    ClassValue,
     /// `globalThis` as a value.
     GlobalObject,
     /// A record write through an erased target.
@@ -233,6 +239,7 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::ThisRead, &[Need::ThisChannel]),
     (Need::Construct, &[Need::Unknown, Need::ThisChannel]),
     (Need::InstanceOfValue, &[Need::Unknown]),
+    (Need::ClassValue, &[Need::Unknown]),
     (Need::VitestMock, &[Need::Unknown]),
     (Need::HostOverride, &[Need::Unknown]),
     (Need::ErasedFunction, &[Need::Unknown]),

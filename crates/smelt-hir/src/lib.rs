@@ -95,6 +95,7 @@ pub use expr::{
     TextEncoderOp,
     TextDecoderOp,
     Base64Op,
+    PythonDivisionOp,
     HashOp,
     HostModuleOp,
     PathOp,
