@@ -12617,10 +12617,10 @@ export function plainErased(cb: (...args: unknown[]) => unknown): unknown {
 /// A borrowed callback parameter renders its return through the canonical
 /// function-value logic.
 ///
-/// `param_type_text` re-derived the return type instead of sharing the
+/// `param_type` re-derived the return type instead of sharing the
 /// `Type::Function` arm's refinements, so the Rust type of a borrowed callback
 /// could disagree with the Rust type of the very value bound to it. Both now
-/// call `function_value_return_type_text`: a `Future` return is the promise
+/// call `function_value_return_type`: a `Future` return is the promise
 /// value `SmeltFuture<T>` (an async throw is a rejected future, so no outer
 /// `Result` is added), and `may_throw` otherwise wraps the return in
 /// `Result<T, Box<dyn std::error::Error>>`.
@@ -15372,7 +15372,7 @@ export function pick(options?: Options): boolean {
 ///
 /// An async function reports even a synchronous throw as a REJECTED future, so
 /// its emitted Rust return type is `SmeltFuture<T>` with no `Result` wrapper
-/// (see `function_value_return_type_text`). A call site that read `may_throw`
+/// (see `function_value_return_type`). A call site that read `may_throw`
 /// directly emitted `(boom)()?` on a `SmeltFuture<f64>`, which needs `Try`
 /// (E0277).
 #[test]

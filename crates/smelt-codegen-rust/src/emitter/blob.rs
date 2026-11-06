@@ -27,7 +27,7 @@ impl FunctionEmitter<'_> {
         last_modified: Option<&Operand>,
     ) -> Result<RustExpr, EmitError> {
         let parts_text = self.operand_expr(parts)?;
-        let type_text = self.operand_expr(blob_type)?;
+        let rendered_type = self.operand_expr(blob_type)?;
         let parts_ty = self.operand_ty(parts)?;
         let concrete_constructor = match self.mir.types.get(parts_ty) {
             Some(&Type::List(item)) => {
@@ -51,11 +51,11 @@ impl FunctionEmitter<'_> {
         };
         if let Some(constructor) = concrete_constructor {
             return Ok(RustExpr::opaque(format!(
-                "SmeltBlob::{constructor}(({parts_text}).clone().into(), ({type_text}).clone(), {name_text}, {last_modified_text})"
+                "SmeltBlob::{constructor}(({parts_text}).clone().into(), ({rendered_type}).clone(), {name_text}, {last_modified_text})"
             )));
         }
         Ok(RustExpr::atom(format!(
-            "SmeltBlob::from_parts_unknown(({parts_text}).clone(), ({type_text}).clone(), {name_text}, {last_modified_text})"
+            "SmeltBlob::from_parts_unknown(({parts_text}).clone(), ({rendered_type}).clone(), {name_text}, {last_modified_text})"
         )))
     }
 

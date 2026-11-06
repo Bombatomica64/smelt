@@ -45,7 +45,7 @@ impl FunctionEmitter<'_> {
                         .enumerate()
                         .map(|(idx, field_ty)| {
                             let erased =
-                                self.erase_rendered(&RustExpr::field_on(&tuple_text, format!("{tuple_text}.{idx}")), *field_ty)?;
+                                self.erase_rendered(&RustExpr::tuple_field(&tuple_text, idx), *field_ty)?;
                             Ok(self.carrier_format(format_args!("({erased}).same_js_key(&smelt_needle)")))
                         })
                         .collect::<Result<Vec<_>, EmitError>>()?

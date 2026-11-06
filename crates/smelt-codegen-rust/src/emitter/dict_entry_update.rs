@@ -100,7 +100,7 @@ impl FunctionEmitter<'_> {
             "let smelt_slot"
         };
         let current_name = self.local_name(current)?.into_owned();
-        let current_ty = self.type_text(self.local_decl(current)?.ty)?;
+        let current_ty = self.rendered_type(self.local_decl(current)?.ty)?;
         let stored = self.rvalue_expr_for_dest(value, entry_ty)?;
         out.push_str(&format!(
             "    {{ {slot} = {accessor}; let {current_name}: {current_ty} = (*smelt_slot).clone(); *smelt_slot = {stored}; }}\n"

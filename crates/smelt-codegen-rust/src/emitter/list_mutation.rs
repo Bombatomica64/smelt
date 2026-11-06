@@ -770,7 +770,7 @@ impl FunctionEmitter<'_> {
         let result_text = if returns_list {
             RustExpr::postfix_on(&list_text, format!("{list_text}.clone()")).ending_in_clone()
         } else {
-            RustExpr::atom("()")
+            RustExpr::unit()
         };
         if let Some(comparator_operand) = comparator {
             return self.list_sort_comparator_expr(
@@ -782,7 +782,7 @@ impl FunctionEmitter<'_> {
             );
         }
         if key.is_some() || reverse {
-            let (prefix, closure) = self.list_sort_by_text(key, reverse, element_ty)?;
+            let (prefix, closure) = self.list_sort_by(key, reverse, element_ty)?;
             return Ok(RustExpr::atom(format!(
                 "{{ {prefix}{list_mut}.sort_by({closure}); {result_text} }}"
             )));

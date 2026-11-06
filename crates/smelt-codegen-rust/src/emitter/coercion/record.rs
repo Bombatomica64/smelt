@@ -407,28 +407,30 @@ fn erased_function_field_expr(
     if function.rest.is_some() || function.is_async || !function.mutable_params.is_empty() {
         return None;
     }
-    let rendered = FunctionEmitter::type_text_for_with_scoped_type_params(
+    let rendered = FunctionEmitter::rust_type_with_scoped_type_params(
         mir,
         context,
         function_ty,
         &TypeSubstitution::lexical(scoped_type_params),
     )
     .ok()?;
-    if rendered.contains("impl ") || rendered.contains("&mut") {
+    if rendered.shape() != rust::RustShape::Callable {
         return None;
     }
-    let borrowed = rendered_fn_params(&rendered)?
+    if !function
+        .params
         .iter()
-        .map(|param| param.starts_with('&'))
-        .collect::<Vec<_>>();
-    if borrowed.len() != function.params.len()
-        || !function
-            .params
-            .iter()
-            .all(|param| type_supports_from_unknown(mir, context, *param))
+        .all(|param| type_supports_from_unknown(mir, context, *param))
     {
         return None;
     }
+    let renderer = FunctionEmitter::type_renderer(mir, context, function_ty).ok()?;
+    let borrowed = function
+        .params
+        .iter()
+        .enumerate()
+        .map(|(index, param)| renderer.callback_param_is_shared_reference(function, index, *param))
+        .collect::<Vec<_>>();
     let args = borrowed
         .iter()
         .enumerate()
@@ -458,39 +460,6 @@ fn erased_function_field_expr(
     } else {
         RustExpr::from(adapter(&format!("{value_text}.clone()")))
     })
-}
-
-/// The top-level parameter types of a rendered `Rc<dyn Fn(..) -> R>`, or
-/// `None` when the text is not that shape.
-fn rendered_fn_params(rendered: &str) -> Option<Vec<String>> {
-    let start = rendered.find("Fn(")? + 3;
-    let mut depth = 0usize;
-    let mut params = Vec::new();
-    let mut current = String::new();
-    for ch in rendered[start..].chars() {
-        match ch {
-            '(' | '<' | '[' => {
-                depth += 1;
-                current.push(ch);
-            }
-            ')' if depth == 0 => {
-                if !current.trim().is_empty() {
-                    params.push(current.trim().to_owned());
-                }
-                return Some(params);
-            }
-            ')' | '>' | ']' => {
-                depth = depth.checked_sub(1)?;
-                current.push(ch);
-            }
-            ',' if depth == 0 => {
-                params.push(current.trim().to_owned());
-                current.clear();
-            }
-            _ => current.push(ch),
-        }
-    }
-    None
 }
 
 /// Renders a generated record field as a `SmeltUnknown` expression.
@@ -544,7 +513,7 @@ pub(crate) fn record_field_unknown_expr(mir: &Mir, value_text: &RustExpr, ty: Ty
                 .iter()
                 .enumerate()
                 .map(|(index, item)| {
-                    record_field_unknown_expr(mir, &RustExpr::path(format!("smelt_tuple.{index}")), *item)
+                    record_field_unknown_expr(mir, &RustExpr::chain(format!("smelt_tuple.{index}")).indexed_place(), *item)
                 })
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ");

@@ -1101,7 +1101,7 @@ impl FunctionEmitter<'_> {
             // printed it twice and without the span.
             return Err(EmitError::new(format!(
                 "JSON stringify value must be JSON-serializable, got {}",
-                self.type_text(self.operand_ty(value)?)?,
+                self.rendered_type(self.operand_ty(value)?)?,
             )));
         }
         // Serialize through the erased carrier, ALWAYS. `JSON.stringify` is

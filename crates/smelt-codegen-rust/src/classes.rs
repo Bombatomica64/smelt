@@ -655,7 +655,7 @@ pub(crate) fn materialized_static_value(literal: Option<&smelt_hir::Literal>) ->
             RustExpr::atom("f64::NEG_INFINITY")
         }
         Some(smelt_hir::Literal::Float(value)) => RustExpr::chain(format!("{value:?}")),
-        Some(smelt_hir::Literal::String(value)) => RustExpr::chain(format!("{value:?}.to_owned()")),
+        Some(smelt_hir::Literal::String(value)) => RustExpr::chain(format!("{value:?}.to_owned()")).owned_literal(),
         Some(smelt_hir::Literal::BigInt(digits)) => crate::bigint_prelude::literal_expr(digits),
         Some(
             smelt_hir::Literal::Symbol(_)

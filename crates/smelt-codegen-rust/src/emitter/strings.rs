@@ -888,7 +888,7 @@ impl FunctionEmitter<'_> {
             // the empty string: `String(null)` is `"null"` in JavaScript and
             // `str(None)` is `"None"` in Python. `Never` is unreachable code and
             // keeps the empty placeholder.
-            Some(Type::None) => Ok(RustExpr::chain(format!("{:?}.to_owned()", self.absent_spelling().null_text()))),
+            Some(Type::None) => Ok(RustExpr::chain(format!("{:?}.to_owned()", self.absent_spelling().null_text())).owned_literal()),
             Some(Type::Never) => Ok(RustExpr::atom("String::new()")),
             // A typed-array VIEW stringifies as its joined elements, because
             // `TypedArray.prototype.toString` is `Array.prototype.toString`;

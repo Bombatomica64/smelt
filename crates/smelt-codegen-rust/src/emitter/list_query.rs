@@ -93,7 +93,7 @@ impl FunctionEmitter<'_> {
         // is no longer inline in the iterator chain, so Rust cannot infer the
         // element type from `&_`; spelling it out keeps the standalone binding
         // well-typed (E0282).
-        let element_type_text = self.signature_type_text(element_ty)?;
+        let element_type_text = self.signature_type(element_ty)?;
         let predicate = if self.list_item_uses_same_value_zero(element_ty) {
             if self.mir.types.get(element_ty) == Some(&Type::Float) {
                 "|item: &f64| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())".to_owned()

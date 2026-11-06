@@ -51,7 +51,7 @@ impl FunctionEmitter<'_> {
         let slot = self.host_override_slot_ident(class)?;
         let name = self.symbol_name(class)?.to_owned();
         let unknown_ty = self.type_id(Type::Unknown)?;
-        let call = RustExpr::postfix_on(&slot, format!(
+        let call = RustExpr::chain(format!(
             "{slot}.with(|slot| {read}(slot, {name:?}))",
             read = smelt_stdlib::runtime_symbols::host_override::READ,
         ));
@@ -71,7 +71,7 @@ impl FunctionEmitter<'_> {
         let slot = self.host_override_slot_ident(class)?;
         let erased = self.erase(value)?;
         let unknown_ty = self.type_id(Type::Unknown)?;
-        let call = RustExpr::postfix_on(&slot, format!(
+        let call = RustExpr::chain(format!(
             "{slot}.with(|slot| {write}(slot, {erased}))",
             write = smelt_stdlib::runtime_symbols::host_override::WRITE,
         ));
@@ -82,7 +82,7 @@ impl FunctionEmitter<'_> {
     /// (`typeof <class> !== 'undefined'` for a reassigned host name).
     pub(super) fn host_global_present_expr(&self, class: Symbol) -> Result<RustExpr, EmitError> {
         let slot = self.host_override_slot_ident(class)?;
-        Ok(RustExpr::postfix_on(&slot, format!(
+        Ok(RustExpr::chain(format!(
             "{slot}.with({present})",
             present = smelt_stdlib::runtime_symbols::host_override::PRESENT,
         )))

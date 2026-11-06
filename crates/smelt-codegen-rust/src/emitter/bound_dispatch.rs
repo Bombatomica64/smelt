@@ -18,6 +18,7 @@
 //!   produced before bounds were typed, now converted to the bound's declared
 //!   result type.
 
+use crate::rust::RustType;
 use crate::rust::RustExpr;
 use smelt_hir::{Symbol, Type, TypeId};
 use smelt_mir::{Mir, Operand};
@@ -43,8 +44,8 @@ pub(crate) fn emit_bound_traits(mir: &Mir, context: &EmitContext) -> Result<Stri
 }
 
 /// Render a type at crate level, outside any generic scope.
-fn crate_type_text(mir: &Mir, context: &EmitContext, ty: TypeId) -> Result<String, EmitError> {
-    FunctionEmitter::type_text_for_with_scoped_type_params(
+fn crate_type(mir: &Mir, context: &EmitContext, ty: TypeId) -> Result<RustType, EmitError> {
+    FunctionEmitter::rust_type_with_scoped_type_params(
         mir,
         context,
         ty,
@@ -62,20 +63,20 @@ fn member_signature(
         BoundMemberKind::Method { params, ret, throws } => {
             let mut parts = vec!["&self".to_owned()];
             for (index, param) in params.iter().enumerate() {
-                parts.push(format!("smelt_arg_{index}: {}", crate_type_text(mir, context, *param)?));
+                parts.push(format!("smelt_arg_{index}: {}", crate_type(mir, context, *param)?));
             }
-            let value_text = crate_type_text(mir, context, *ret)?;
+            let value_text = crate_type(mir, context, *ret)?;
             let ret_text = if *throws {
                 format!("Result<{value_text}, {ERROR_TYPE}>")
             } else {
-                value_text
+                value_text.into_string()
             };
             Ok(format!("fn {}({}) -> {ret_text}", member.rust_name, parts.join(", ")))
         }
         BoundMemberKind::Field { ty } => Ok(format!(
             "fn {}(&self) -> {}",
             member.rust_name,
-            crate_type_text(mir, context, *ty)?
+            crate_type(mir, context, *ty)?
         )),
     }
 }

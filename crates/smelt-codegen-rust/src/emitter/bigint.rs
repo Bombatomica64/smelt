@@ -14,7 +14,7 @@
 //! * `/` truncates toward zero and `%` takes the dividend's sign; both throw a
 //!   catchable `RangeError` on a zero divisor, as `**` does on a negative
 //!   exponent (those three are fallible builtin calls, see
-//!   [`FunctionEmitter::bigint_builtin_call_text`]);
+//!   [`FunctionEmitter::bigint_builtin_call`]);
 //! * `>>` floors (`-5n >> 1n` is `-3n`), and a negative count reverses `<<`;
 //! * a bigint compares with a `number` by mathematical value (`1n < 1.5`,
 //!   `2n == 2`), `===` between the two is always `false`, and nothing is
@@ -26,7 +26,7 @@
 
 use crate::rust::RustExpr;
 use super::*;
-use crate::emitter::call::CallText;
+use crate::emitter::call::RenderedCall;
 use crate::bigint_prelude::BIGINT_TYPE;
 
 impl FunctionEmitter<'_> {
@@ -179,9 +179,9 @@ impl FunctionEmitter<'_> {
             )
         };
         let text = if lhs_big && rhs_big {
-            self.bigint_pair_text(op, lhs, rhs)?
+            self.bigint_pair(op, lhs, rhs)?
         } else if (lhs_big && numeric(rhs_ty)) || (rhs_big && numeric(lhs_ty)) {
-            self.bigint_mixed_text(op, lhs, rhs, lhs_big)?
+            self.bigint_mixed(op, lhs, rhs, lhs_big)?
         } else {
             return Ok(None);
         };
@@ -198,7 +198,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Renders an operation between two bigints and its result type.
-    fn bigint_pair_text(
+    fn bigint_pair(
         &self,
         op: smelt_hir::BinOp,
         lhs: &Operand,
@@ -258,7 +258,7 @@ impl FunctionEmitter<'_> {
     ///
     /// Comparisons are by mathematical value; `===` is `false` because the two
     /// are different types; arithmetic throws JavaScript's `TypeError`.
-    fn bigint_mixed_text(
+    fn bigint_mixed(
         &self,
         op: smelt_hir::BinOp,
         lhs: &Operand,
@@ -330,11 +330,11 @@ impl FunctionEmitter<'_> {
     /// The trailing `?` is what marks the call fallible to
     /// `emit_throwing_call_terminator`, which binds the caught `RangeError`
     /// and jumps to the handler's catch block.
-    pub(super) fn bigint_builtin_call_text(
+    pub(super) fn bigint_builtin_call(
         &self,
         op: smelt_hir::BigIntOp,
         args: &[Operand],
-    ) -> Result<CallText, EmitError> {
+    ) -> Result<RenderedCall, EmitError> {
         use smelt_hir::BigIntOp;
         let arg = |index: usize| {
             args.get(index).ok_or_else(|| {
@@ -342,7 +342,7 @@ impl FunctionEmitter<'_> {
             })
         };
         match op {
-            BigIntOp::From => self.bigint_from_text(arg(0)?),
+            BigIntOp::From => self.bigint_from_call(arg(0)?),
             BigIntOp::AsIntN | BigIntOp::AsUintN => {
                 let helper = if op == BigIntOp::AsIntN {
                     "smelt_bigint_as_int_n"
@@ -352,7 +352,7 @@ impl FunctionEmitter<'_> {
                 let bits = arg(0)?;
                 let value = arg(1)?;
                 let bits_text = self.bigint_width_expr(bits)?;
-                Ok(CallText::propagating(RustExpr::chain(format!("{helper}({bits_text}, {})", self.bigint_operand_ref_expr(value)?))))
+                Ok(RenderedCall::propagating(RustExpr::chain(format!("{helper}({bits_text}, {})", self.bigint_operand_ref_expr(value)?))))
             }
             BigIntOp::JsonStringify => {
                 // Serialized through the erased carrier like every
@@ -362,7 +362,7 @@ impl FunctionEmitter<'_> {
                 let value = arg(0)?;
                 let erased =
                     self.erase_rendered(&self.operand_expr(value)?, self.operand_ty(value)?)?;
-                Ok(CallText::propagating(RustExpr::atom(format!(
+                Ok(RenderedCall::propagating(RustExpr::atom(format!(
                     "serde_json::to_string(&{erased}).map_err(|_| smelt_bigint_type_error_value(\"Do not know how to serialize a BigInt\".to_owned()))"
                 ))))
             }
@@ -375,7 +375,7 @@ impl FunctionEmitter<'_> {
                     } else {
                         RustExpr::cast(format!("{radix_operand} as f64"))
                     };
-                Ok(CallText::propagating(RustExpr::chain(format!(
+                Ok(RenderedCall::propagating(RustExpr::chain(format!(
                     "smelt_bigint_to_string_radix({}, {radix_text})",
                     self.bigint_operand_ref_expr(arg(0)?)?
                 ))))
@@ -388,7 +388,7 @@ impl FunctionEmitter<'_> {
                     BigIntOp::Shr => "smelt_bigint_shr",
                     _ => "smelt_bigint_pow",
                 };
-                Ok(CallText::propagating(RustExpr::chain(format!(
+                Ok(RenderedCall::propagating(RustExpr::chain(format!(
                     "{helper}({}, {})",
                     self.bigint_operand_ref_expr(arg(0)?)?,
                     self.bigint_operand_ref_expr(arg(1)?)?
@@ -410,17 +410,17 @@ impl FunctionEmitter<'_> {
     }
 
     /// `BigInt(value)`, a call that propagates its `RangeError` or `SyntaxError`.
-    fn bigint_from_text(&self, operand: &Operand) -> Result<CallText, EmitError> {
+    fn bigint_from_call(&self, operand: &Operand) -> Result<RenderedCall, EmitError> {
         let ty = self.operand_ty(operand)?;
         if self.is_bigint_type(ty) {
             // `BigInt(1n)` is the value itself; the `Ok(..)` keeps the call
             // shape the throwing-terminator emitter expects.
-            return Ok(CallText::propagating(RustExpr::loose(format!(
+            return Ok(RenderedCall::propagating(RustExpr::loose(format!(
                 "Ok::<{BIGINT_TYPE}, Box<dyn ::std::error::Error>>({})",
                 self.bigint_owned_expr(operand)?
             ))));
         }
-        Ok(CallText::propagating(self.bigint_from_value(operand, ty, false)?))
+        Ok(RenderedCall::propagating(self.bigint_from_value(operand, ty, false)?))
     }
 
     /// The `Result`-returning conversion of a non-bigint value to a bigint.

@@ -33,8 +33,8 @@ pub(crate) fn constant_expr(constant: &Constant) -> RustExpr {
                 RustExpr::string_literal(value).into_string()
             ))
         }
-        Constant::Undefined => RustExpr::atom("()"),
-        Constant::None => RustExpr::atom("()"),
+        Constant::Undefined => RustExpr::unit(),
+        Constant::None => RustExpr::unit(),
     }
 }
 

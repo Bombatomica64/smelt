@@ -120,9 +120,8 @@ impl LocalBinding {
         match self {
             Self::SharedCapture(cell) => cell.write_expr(),
             Self::WeakEmitter { name } => super::weak_receiver::emitter_access_expr(name),
-            Self::Plain(_) | Self::Receiver | Self::ClosureArg(_) | Self::SelfOwned => {
-                RustExpr::path(self.text())
-            }
+            Self::Receiver => RustExpr::receiver(),
+            Self::Plain(_) | Self::ClosureArg(_) | Self::SelfOwned => RustExpr::path(self.text()),
         }
     }
 

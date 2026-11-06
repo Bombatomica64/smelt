@@ -11,7 +11,7 @@ use crate::classes::{
     NominalStorage, effective_class_fields, effective_interface_fields, type_holds_function,
 };
 use crate::emitter::{EmitContext, FunctionEmitter};
-use crate::rust::{CodeWriter, RustIdent};
+use crate::rust::{CodeWriter, RustIdent, RustType};
 use crate::type_substitution::TypeSubstitution;
 use crate::{EmitError, accessor_prelude};
 
@@ -33,7 +33,6 @@ pub(crate) fn emit_default_impl_for_storage_type(
     fields: &[smelt_mir::MirField],
     phantom_args: &str,
     scoped_type_params: &HashSet<smelt_hir::Symbol>,
-    type_param_idents: &[String],
 ) -> Result<(), EmitError> {
     // Each field's default expression is computed ONCE and used twice: for the
     // body, and to decide the impl's `where` clause.
@@ -57,8 +56,8 @@ pub(crate) fn emit_default_impl_for_storage_type(
             field.ty,
             &TypeSubstitution::lexical(scoped_type_params),
         )
-        .unwrap_or_else(|_| RustExpr::atom("Default::default()"));
-        let field_type_text = FunctionEmitter::type_text_for_with_scoped_type_params(
+        .unwrap_or_else(|_| RustExpr::atom("Default::default()").delegating_default());
+        let field_type = FunctionEmitter::rust_type_with_scoped_type_params(
             mir,
             context,
             field.ty,
@@ -84,25 +83,25 @@ pub(crate) fn emit_default_impl_for_storage_type(
         if accessor_owner.is_some_and(|owner| accessor_prelude::is_accessor_field(mir, owner, field.name)) {
             field_defaults.push((
                 field_name,
-                accessor_prelude::storage_type_text(&field_type_text),
+                RustType::raw(accessor_prelude::storage_type_text(field_type.as_str())),
                 accessor_prelude::constant_expr(&default_value),
                 true,
             ));
             continue;
         }
-        field_defaults.push((field_name, field_type_text, default_value, is_callable_slot));
+        field_defaults.push((field_name, field_type, default_value, is_callable_slot));
     }
     let delegating_field_types = field_defaults
         .iter()
         .filter(|(_, _, default_value, is_callable_slot)| {
-            !is_callable_slot && default_expression_delegates(default_value)
+            !is_callable_slot && default_value.delegates_default()
         })
-        .map(|(_, field_type_text, _, _)| field_type_text.clone())
+        .map(|(_, field_type, _, _)| field_type.clone())
         .collect::<Vec<_>>();
     let where_clause = if impl_generics.is_empty() {
         String::new()
     } else {
-        trait_where_clause_for_field_types(&delegating_field_types, "Default", type_param_idents)
+        trait_where_clause_for_field_types(&delegating_field_types, "Default")
     };
     writer.block(
         format!("impl{impl_generics} Default for {name}{type_args}{where_clause}"),
@@ -120,21 +119,6 @@ pub(crate) fn emit_default_impl_for_storage_type(
         },
     );
     Ok(())
-}
-
-/// Whether a rendered field default resolves through the field type's `Default`.
-///
-/// `Default::default()` (a bare type parameter) and `Type::default()` (a
-/// generated class) both do; a spelled-out constructor such as
-/// `SmeltList::new(Vec::<T>::new())` or a no-op closure does not. Only the
-/// former need the field type bounded on the impl.
-///
-/// The call can be NESTED — a promise field defaults to
-/// `SmeltFuture::resolved(SmeltUnion9::M0(Default::default()))`, whose `T:
-/// Default` requirement reaches the impl through the field type all the same —
-/// so the whole expression is searched rather than only its tail.
-fn default_expression_delegates(default_value: &str) -> bool {
-    default_value.contains("default()")
 }
 
 /// Emits a conservative `Debug` impl for storage structs that contain callbacks.
@@ -171,22 +155,19 @@ pub(crate) fn emit_debug_impl_for_storage_type(
 /// bounding `T` says either too little (a `T`-typed field) or too much (a field
 /// whose type is another generated class, which needs the whole generated bound
 /// set). Duplicate field types are emitted once; an empty list yields no clause.
-fn trait_where_clause_for_field_types(
-    field_type_texts: &[String],
-    bound: &str,
-    type_param_idents: &[String],
-) -> String {
+fn trait_where_clause_for_field_types(field_types: &[RustType], bound: &str) -> String {
     let mut seen = Vec::new();
-    for field_type_text in field_type_texts {
+    for field_type in field_types {
         // A field type that mentions no type parameter is decided already:
         // `where String: Clone` is noise, and if such a bound were unsatisfied
         // the impl body would report it directly. Only a type whose
         // satisfiability depends on `T` needs saying.
-        if !mentions_type_param(field_type_text, type_param_idents) {
+        if !field_type.spells_type_param() {
             continue;
         }
-        if !seen.contains(field_type_text) {
-            seen.push(field_type_text.clone());
+        let field_type_text = field_type.as_str().to_owned();
+        if !seen.contains(&field_type_text) {
+            seen.push(field_type_text);
         }
     }
     if seen.is_empty() {
@@ -221,23 +202,6 @@ pub(crate) fn derive_generics_text(type_param_idents: &[String], bound: &str) ->
     format!("<{params}>")
 }
 
-/// Whether a rendered type mentions one of these type parameters as a whole
-/// identifier, so `T` matches in `Node<T>` but not inside `Trie` or `TABLE`.
-fn mentions_type_param(type_text: &str, type_param_idents: &[String]) -> bool {
-    type_param_idents.iter().any(|ident| {
-        type_text
-            .match_indices(ident.as_str())
-            .any(|(at, matched)| {
-                let before = type_text[..at].chars().next_back();
-                let after = type_text[at + matched.len()..].chars().next();
-                let boundary = |ch: Option<char>| {
-                    ch.is_none_or(|ch| !ch.is_alphanumeric() && ch != '_')
-                };
-                boundary(before) && boundary(after)
-            })
-    })
-}
-
 /// Emit a field-by-field `Clone` for a generic value class.
 ///
 /// `#[derive(Clone)]` would generate `impl<T: Clone> Clone`, whose single bound
@@ -250,11 +214,10 @@ pub(crate) fn emit_clone_impl_for_value_class(
     impl_generics: &str,
     type_args: &str,
     field_names: &[String],
-    field_type_texts: &[String],
-    type_param_idents: &[String],
+    field_types: &[RustType],
     has_phantom: bool,
 ) {
-    let where_clause = trait_where_clause_for_field_types(field_type_texts, "Clone", type_param_idents);
+    let where_clause = trait_where_clause_for_field_types(field_types, "Clone");
     writer.block(
         format!("impl{impl_generics} Clone for {name}{type_args}{where_clause}"),
         |impl_writer| {
@@ -284,10 +247,9 @@ pub(crate) fn emit_partial_eq_impl_for_value_class(
     impl_generics: &str,
     type_args: &str,
     field_names: &[String],
-    field_type_texts: &[String],
-    type_param_idents: &[String],
+    field_types: &[RustType],
 ) {
-    let where_clause = trait_where_clause_for_field_types(field_type_texts, "PartialEq", type_param_idents);
+    let where_clause = trait_where_clause_for_field_types(field_types, "PartialEq");
     writer.block(
         format!("impl{impl_generics} PartialEq for {name}{type_args}{where_clause}"),
         |impl_writer| {

@@ -122,8 +122,8 @@ impl FunctionEmitter<'_> {
     /// A collection's `len()` is already a `usize`, so a `usize` destination
     /// needs no cast at all; `len_expr` is returned unchanged in that case
     /// unless it is a float literal (a function's declared arity).
-    pub(super) fn fixed_int_len_expr(len_expr: String, width: smelt_hir::IntWidth) -> RustExpr {
-        if width == smelt_hir::IntWidth::Usize && !len_expr.ends_with(".0") {
+    pub(super) fn fixed_int_len_expr(len_expr: String, is_float_literal: bool, width: smelt_hir::IntWidth) -> RustExpr {
+        if width == smelt_hir::IntWidth::Usize && !is_float_literal {
             return RustExpr::from(len_expr);
         }
         RustExpr::cast(format!("{len_expr} as {}", width.rust_name()))

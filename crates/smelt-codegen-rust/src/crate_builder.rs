@@ -444,18 +444,18 @@ impl<'a> CrateBuilder<'a, BodiesWritten> {
         // the unsizing coercion to `Rc<dyn Fn..>` happens at a `let`; the type is
         // spelled once, as an alias, rather than restated in each of the three
         // positions that name it.
-        for ((key, type_text), (ordinal, body)) in context.function_item_typed_accessors.borrow().iter() {
+        for ((key, rendered_type), (ordinal, body)) in context.function_item_typed_accessors.borrow().iter() {
             out.push_str(&format!(
-                "\ntype SmeltFnTyped{key}_{ordinal} = {type_text};\nfn __smelt_fn_typed_{key}_{ordinal}() -> SmeltFnTyped{key}_{ordinal} {{\n    thread_local! {{ static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped{key}_{ordinal}> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| {{ let smelt_function: SmeltFnTyped{key}_{ordinal} = {body}; smelt_function }}).clone())\n}}\n"
+                "\ntype SmeltFnTyped{key}_{ordinal} = {rendered_type};\nfn __smelt_fn_typed_{key}_{ordinal}() -> SmeltFnTyped{key}_{ordinal} {{\n    thread_local! {{ static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped{key}_{ordinal}> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| {{ let smelt_function: SmeltFnTyped{key}_{ordinal} = {body}; smelt_function }}).clone())\n}}\n"
             ));
         }
 
         // Flush the hoisted erased-record-to-class conversions (see
         // `EmitContext::record_conversion_helpers`): each recovered class type's
         // conversion is spelled once here and called from every site.
-        for (type_text, (ordinal, body)) in context.record_conversion_helpers.borrow().iter() {
+        for (rendered_type, (ordinal, body)) in context.record_conversion_helpers.borrow().iter() {
             out.push_str(&format!(
-                "\nfn {RECORD_CONVERSION_HELPER_PREFIX}{ordinal}(smelt_value: SmeltUnknown) -> {type_text} {{\n    {body}\n}}\n"
+                "\nfn {RECORD_CONVERSION_HELPER_PREFIX}{ordinal}(smelt_value: SmeltUnknown) -> {rendered_type} {{\n    {body}\n}}\n"
             ));
         }
         // The self-reaching record-to-record adapters, likewise spelled once.

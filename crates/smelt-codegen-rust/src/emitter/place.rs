@@ -17,12 +17,12 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         let field_name = self.symbol_source_name(field)?;
         if self.mir.types.get(key) == Some(&Type::String) {
-            return Ok(RustExpr::chain(format!("{field_name:?}.to_owned()")));
+            return Ok(RustExpr::chain(format!("{field_name:?}.to_owned()")).owned_literal());
         }
         if self.has_dynamic_shape(key)
         {
             return self.erase_rendered(
-                &RustExpr::chain(format!("{field_name:?}.to_owned()")),
+                &RustExpr::chain(format!("{field_name:?}.to_owned()")).owned_literal(),
                 self.type_id(Type::String)?,
             );
         }
@@ -564,7 +564,7 @@ impl FunctionEmitter<'_> {
                     }
                     Some(Type::Tuple(items)) => {
                         let tuple_index = self.tuple_index(index, items.len())?;
-                        Ok({ let receiver = self.local_value(*base)?; RustExpr::field_on(&receiver, format!("{receiver}.{tuple_index}")) })
+                        Ok(RustExpr::tuple_field(&self.local_value(*base)?, tuple_index))
                     }
                     // A class with an index signature backs keyed reads with a
                     // real store field (issue #84). A non-optional keyed read
@@ -1118,7 +1118,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) && self.concrete_union_members(item_ty).is_none()
         {
-            return Ok(self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined")));
+            return Ok(self.carrier_expr(&RustExpr::undefined()));
         }
         self.default_value(item_ty)
     }
@@ -1346,7 +1346,7 @@ impl FunctionEmitter<'_> {
                 // its missing value yields `Undefined` (element types that are
                 // themselves erased). Skipping those keeps their output stable.
                 let missing = self.element_missing_value(item_ty)?;
-                if self.erase_rendered(&missing, item_ty)?.as_str() == "SmeltUnknown::Undefined" {
+                if self.erase_rendered(&missing, item_ty)?.is_undefined() {
                     return Ok(None);
                 }
                 let base_text = self.local_value(*base)?;
@@ -1374,7 +1374,7 @@ impl FunctionEmitter<'_> {
             // `Undefined`.
             Some(Type::Dict(key_ty, value_ty)) if self.dict_uses_smelt_record(key_ty) => {
                 let missing = self.element_missing_value(value_ty)?;
-                if self.erase_rendered(&missing, value_ty)?.as_str() == "SmeltUnknown::Undefined" {
+                if self.erase_rendered(&missing, value_ty)?.is_undefined() {
                     return Ok(None);
                 }
                 let base_text = self.local_value(*base)?;
@@ -1499,7 +1499,7 @@ fn descriptor_literal_expr(literal: &smelt_hir::Literal) -> RustExpr {
                 RustExpr::chain(format!("{number:?}"))
             }
         }
-        smelt_hir::Literal::String(text) => RustExpr::chain(format!("{text:?}.to_owned()")),
+        smelt_hir::Literal::String(text) => RustExpr::chain(format!("{text:?}.to_owned()")).owned_literal(),
         smelt_hir::Literal::Symbol(_)
         | smelt_hir::Literal::Undefined
         | smelt_hir::Literal::None => RustExpr::atom("Default::default()"),

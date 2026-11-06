@@ -705,7 +705,7 @@ export function both<T>(xs: T[], a: (item: T) => boolean, b: (item: T) => boolea
 #[test]
 fn callback_bound_renders_its_return_through_the_canonical_helper() {
     // The `F0` bound must be produced by `callback_fn_trait_text`, which routes
-    // the return through `function_value_return_type_text` — the single
+    // the return through `function_value_return_type` — the single
     // canonical renderer for the two return-position refinements a
     // `Type::Function` carries. Re-formatting the return inside the bound is how
     // the bound and the `&F0` parameter would drift apart, and how a throwing

@@ -1,5 +1,6 @@
 //! Types emission helpers.
 
+use crate::rust::RustType;
 use crate::rust::RustExpr;
 use crate::runtime_demand::Need;
 use super::*;
@@ -23,9 +24,9 @@ pub(super) const ERASED_FUNCTION_DEFAULT: &str = "SmeltErasedFunction::default()
 /// Whether a callback parameter declared mutable gets a `&mut ` prefix.
 ///
 /// The callback-argument renderers historically differ here, and the difference
-/// is emitted bytes: `param_type_text`, the default-callback renderer, the
+/// is emitted bytes: `param_type`, the default-callback renderer, the
 /// virtual-method storage field and the rendered shape adapter apply it; the
-/// three caller-scope adapters bypass `function_type_param_text` and do not.
+/// three caller-scope adapters bypass `function_type_param` and do not.
 /// Preserved as an explicit axis rather than normalized, because normalizing it
 /// either way changes generated output. Whether the omission is a latent bug is
 /// a separate question from this consolidation.
@@ -43,20 +44,20 @@ impl FunctionEmitter<'_> {
     /// `FunctionType::mutable_params` is a Rust ABI marker used for structural
     /// method fields that must preserve JavaScript object mutation through a
     /// callback boundary.
-    pub(super) fn function_type_param_text(
+    pub(super) fn function_type_param(
         &self,
         function: &FunctionType,
         index: usize,
         param: TypeId,
         substitution: &TypeSubstitution<'_>,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustType, EmitError> {
         let param_text = self.rust_type(param, false, substitution)?;
         if function.mutable_params.contains(&index) {
-            Ok(format!("&mut {param_text}"))
+            Ok(RustType::raw(format!("&mut {param_text}")))
         } else if self.callback_param_is_shared_reference(function, index, param) {
-            Ok(format!("&{param_text}"))
+            Ok(RustType::raw(format!("&{param_text}")))
         } else {
-            Ok(param_text.into_string())
+            Ok(param_text)
         }
     }
 
@@ -98,7 +99,7 @@ impl FunctionEmitter<'_> {
     ///
     /// Emitter-synthesized callables -- the promise executor's `resolve`/`reject` are
     /// the case that needs this -- have no `FunctionType` to consult, but the closure
-    /// they build still has to match the spelling `function_type_param_text` gave the
+    /// they build still has to match the spelling `function_type_param` gave the
     /// `dyn Fn` it is assigned to. This answers the type-shape half of
     /// [`Self::callback_param_is_shared_reference`]; the two marker halves cannot apply
     /// to a synthesized parameter, which is never `&mut` and never a rest.
@@ -268,12 +269,12 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         match mutability {
             MutablePrefix::Apply => {
-                self.function_type_param_text(function, index, param, substitution)
+                self.function_type_param(function, index, param, substitution).map(|text| text.into_string())
             }
             // `Ignore` drops only the `&mut ` axis. The shared-reference axis is
             // independent of it and must NOT be dropped: an arity-widening adapter
             // rendered here is cast to the very `dyn Fn(..)` that
-            // `function_type_param_text` spelled, so a parameter the type says is
+            // `function_type_param` spelled, so a parameter the type says is
             // `&T` has to be bound as `&T` here too or the cast does not compile.
             MutablePrefix::Ignore => {
                 let param_text = self.rust_type(param, false, substitution)?;
@@ -1041,8 +1042,8 @@ impl FunctionEmitter<'_> {
                                 EmitError::new(format!(
                                     "optional record field `{}` is unknown on {}",
                                     self.symbol_name(*field).unwrap_or("<unnamed>"),
-                                    self.type_text(*inner)
-                                        .unwrap_or_else(|_| format!("{:?}", self.mir.types.get(*inner))),
+                                    self.rendered_type(*inner)
+                                        .unwrap_or_else(|_| RustType::from(format!("{:?}", self.mir.types.get(*inner)))),
                                 ))
                             })
                     }
@@ -1281,8 +1282,8 @@ impl FunctionEmitter<'_> {
     /// that cannot be rendered falls back to its debug shape rather than
     /// replacing the blocker being reported with a second one.
     fn blocker_type_text(&self, ty: TypeId) -> String {
-        self.type_text(ty)
-            .unwrap_or_else(|_err| format!("{:?}", self.mir.types.get(ty)))
+        self.rendered_type(ty)
+            .unwrap_or_else(|_err| RustType::from(format!("{:?}", self.mir.types.get(ty)))).into_string()
     }
 
     /// Resolve the result type of a field read on a synthetic match-result class.
@@ -1340,7 +1341,7 @@ impl FunctionEmitter<'_> {
     /// refinements a `Type::Function` carries, so every site that renders a
     /// function value (the canonical `Type::Function` arm of
     /// `rust_type`, and the borrowed callback parameter rendering in
-    /// `param_type_text`) agrees on the emitted Rust type:
+    /// `param_type`) agrees on the emitted Rust type:
     ///
     /// * a `Future` return renders as the promise value `SmeltFuture<T>`. A
     ///   synchronous throw from an async function surfaces as a *rejected
@@ -1351,31 +1352,31 @@ impl FunctionEmitter<'_> {
     /// Disagreement between two renderings of the same MIR function type is
     /// what silently turned a recoverable callback throw into a `panic!` at the
     /// parameter boundary, so the logic lives here rather than being repeated.
-    pub(super) fn function_value_return_type_text(
+    pub(super) fn function_value_return_type(
         &self,
         function: &FunctionType,
         substitution: &TypeSubstitution<'_>,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustType, EmitError> {
         if let Some(Type::Future(item)) = self.mir.types.get(function.return_ty) {
-            return Ok(format!(
+            return Ok(RustType::raw(format!(
                 "SmeltFuture<{}>",
                 self.rust_type(*item, false, substitution)?
-            ));
+            )));
         }
         let inner_return_ty = self
             .rust_type(function.return_ty, false, substitution)?
             .into_string();
         if function.may_throw {
-            return Ok(format!(
+            return Ok(RustType::raw(format!(
                 "Result<{inner_return_ty}, {ERROR_BOX}>"
-            ));
+            )));
         }
-        Ok(inner_return_ty)
+        Ok(RustType::from(inner_return_ty))
     }
 
     /// Whether a call to a function VALUE of this type answers a `Result`.
     ///
-    /// The mirror of [`Self::function_value_return_type_text`], and the reason
+    /// The mirror of [`Self::function_value_return_type`], and the reason
     /// it exists: a future-returning function reports even a SYNCHRONOUS throw
     /// as a rejected future, so no `Result` wraps its emitted return type and
     /// its call site must not render `?`. Reading `may_throw` directly at a call
@@ -1396,7 +1397,7 @@ impl FunctionEmitter<'_> {
     /// forward the same callback through multiple helper calls without
     /// consuming it. Generated closure state is stored in shared cells rather
     /// than requiring `FnMut` receiver access.
-    pub(super) fn param_type_text(&self, ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn param_type(&self, ty: TypeId) -> Result<RustType, EmitError> {
         if let Some(Type::Function(function)) = self.mir.types.get(ty) {
             // BOTH halves of the callback type render in the lexical scope of
             // the item being defined. They used to disagree — the parameters in
@@ -1405,8 +1406,8 @@ impl FunctionEmitter<'_> {
             // whose `T` was in scope emitted `Fn(SmeltUnknown) -> T`, so the
             // gate had to refuse every callback-borne type parameter outright.
             //
-            // `param_type_text` is only ever reached from
-            // `parameter_decl_type_text`, and that only from the four signature
+            // `param_type` is only ever reached from
+            // `parameter_decl_type`, and that only from the four signature
             // emitters, where `self` is always the emitter for the item being
             // DEFINED. The scope is therefore the callee's own, which is the
             // correct owner of a `T` inside its declared callback. Call-site
@@ -1419,27 +1420,27 @@ impl FunctionEmitter<'_> {
             // bound to it, or a throwing callback's `Result` is dropped at the
             // parameter boundary and its error is forced into a `panic!` by the
             // argument adapter.
-            return Ok(format!(
+            return Ok(RustType::raw(format!(
                 "&dyn {}",
                 self.callback_fn_trait_text(function, &substitution)?
-            ));
+            )));
         }
-        self.signature_type_text(ty)
+        self.signature_type(ty)
     }
 
     /// Render the `Fn({params}) -> {return}` trait text for one callback shape.
     ///
     /// The single producer of that inner text, shared by the borrowed
-    /// `&dyn Fn(..)` parameter rendering in [`Self::param_type_text`] and by the
+    /// `&dyn Fn(..)` parameter rendering in [`Self::param_type`] and by the
     /// `F{n}: Fn(..) + ?Sized` bound Increment 2 declares for a monomorphized
     /// callback parameter. Sharing it is what guarantees the parameter spelling
     /// and the bound spelling cannot drift — a signature whose `&F0` and whose
     /// `F0: Fn(..)` disagreed would either fail to compile or silently re-erase.
     ///
     /// Both halves go through the canonical helpers:
-    /// [`Self::function_type_param_text`] (so `FunctionType::mutable_params`
+    /// [`Self::function_type_param`] (so `FunctionType::mutable_params`
     /// still contributes its `&mut ` prefix) and
-    /// [`Self::function_value_return_type_text`] (so `may_throw` composes into
+    /// [`Self::function_value_return_type`] (so `may_throw` composes into
     /// `Result<T, Box<dyn std::error::Error>>` and a `Future` return into
     /// `SmeltFuture<T>`, with a generic return type substituted the same way in
     /// both positions).
@@ -1453,11 +1454,11 @@ impl FunctionEmitter<'_> {
             .iter()
             .enumerate()
             .map(|(index, param)| {
-                self.function_type_param_text(function, index, *param, substitution)
+                self.function_type_param(function, index, *param, substitution)
             })
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
-        let return_ty = self.function_value_return_type_text(function, substitution)?;
+        let return_ty = self.function_value_return_type(function, substitution)?;
         Ok(format!("Fn({params}) -> {return_ty}"))
     }
 
@@ -1465,7 +1466,7 @@ impl FunctionEmitter<'_> {
     /// with the callback parameter each one types.
     ///
     /// The one place both Increment-2 consumers ask — the `&F{n}` parameter
-    /// rendering in [`Self::parameter_decl_type_text`] and the bound rendering
+    /// rendering in [`Self::parameter_decl_type`] and the bound rendering
     /// in [`Self::callback_generic_bounds_text`]. Building both from one list is
     /// what keeps a declared bound and a used name in lockstep.
     ///
@@ -1531,13 +1532,13 @@ impl FunctionEmitter<'_> {
     }
 
     /// Convert a concrete function parameter declaration to Rust.
-    pub(super) fn parameter_decl_type_text(&self, local: LocalId) -> Result<String, EmitError> {
+    pub(super) fn parameter_decl_type(&self, local: LocalId) -> Result<RustType, EmitError> {
         let ty = self.local_decl(local)?.ty;
         if self.parameter_needs_mutable_reference(local) {
-            return Ok(format!(
+            return Ok(RustType::raw(format!(
                 "&mut {}",
-                self.type_text(ty)?
-            ));
+                self.rendered_type(ty)?
+            )));
         }
         if matches!(self.mir.types.get(ty), Some(Type::Function(_))) {
             if !self.function_parameter_requires_owned(local)? {
@@ -1547,13 +1548,13 @@ impl FunctionEmitter<'_> {
                 // `&dyn Fn(..)`. `callback_generic_bounds_text` declares the
                 // matching bound from the same list.
                 if let Some(name) = self.callback_generic_name(local)? {
-                    return Ok(format!("&{name}"));
+                    return Ok(RustType::raw(format!("&{name}")));
                 }
-                return self.param_type_text(ty);
+                return self.param_type(ty);
             }
-            return self.type_text(ty);
+            return self.rendered_type(ty);
         }
-        self.param_type_text(ty)
+        self.param_type(ty)
     }
 
     /// Renders a type in the scope of the current function.
@@ -1563,18 +1564,18 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a type ID to its Rust text in a nested or value position.
-    pub(super) fn type_text(&self, ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn rendered_type(&self, ty: TypeId) -> Result<RustType, EmitError> {
         let rendered = self.lexical_rust_type(ty, false)?;
         if rendered.holds_carrier() {
             self.context.note_carrier_use();
         }
-        Ok(rendered.into_string())
+        Ok(rendered)
     }
 
     /// Converts a type ID to its Rust text at a signature root, where a callable
     /// parameter can be spelled `impl Fn(..)`.
-    pub(super) fn signature_type_text(&self, ty: TypeId) -> Result<String, EmitError> {
-        self.lexical_rust_type(ty, true).map(RustType::into_string)
+    pub(super) fn signature_type(&self, ty: TypeId) -> Result<RustType, EmitError> {
+        self.lexical_rust_type(ty, true)
     }
 
     /// Renders a template that spells the erased carrier, recording that it did.
@@ -2039,12 +2040,12 @@ impl FunctionEmitter<'_> {
                     .iter()
                     .enumerate()
                     .map(|(index, param)| {
-                        self.function_type_param_text(function, index, *param, substitution)
+                        self.function_type_param(function, index, *param, substitution)
                     })
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
                 let return_ty =
-                    self.function_value_return_type_text(function, substitution)?;
+                    self.function_value_return_type(function, substitution)?;
                 let text = if allow_impl_trait {
                     format!("impl Fn({params}) -> {return_ty}")
                 } else {
@@ -2095,14 +2096,14 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a function return type to Rust, including uncaught exception wrapping.
-    pub(super) fn return_type_text(&self, ty: TypeId) -> Result<String, EmitError> {
-        let inner = self.type_text(ty)?;
+    pub(super) fn return_type(&self, ty: TypeId) -> Result<RustType, EmitError> {
+        let inner = self.rendered_type(ty)?;
         if (self.function.is_async || self.function.can_throw)
             && !self.function.is_generator
         {
-            Ok(format!("Result<{inner}, {ERROR_BOX}>"))
+            Ok(RustType::raw(format!("Result<{inner}, {ERROR_BOX}>")))
         } else {
-            Ok(inner)
+            Ok(RustType::from(inner))
         }
     }
 
@@ -2116,7 +2117,7 @@ impl FunctionEmitter<'_> {
     /// cannot represent a hole at all, so they keep their ordinary default.
     pub(super) fn array_hole_value(&self, item_ty: TypeId) -> Result<RustExpr, EmitError> {
         if matches!(self.mir.types.get(item_ty), Some(Type::Unknown)) {
-            return Ok(self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined")));
+            return Ok(self.carrier_expr(&RustExpr::undefined()));
         }
         self.default_value(item_ty)
     }
@@ -2143,18 +2144,18 @@ impl FunctionEmitter<'_> {
         {
             Type::Bool => Ok(RustExpr::path("false")),
             Type::Int | Type::FixedInt(_) => Ok(RustExpr::path("0")),
-            Type::BigInt => Ok(RustExpr::atom_on(&crate::bigint_prelude::BIGINT_TYPE, format!("{}::default()", crate::bigint_prelude::BIGINT_TYPE))),
+            Type::BigInt => Ok(RustExpr::atom(format!("{}::default()", crate::bigint_prelude::BIGINT_TYPE)).delegating_default()),
             Type::Float => Ok(RustExpr::path("0.0")),
             Type::String => Ok(RustExpr::atom("String::new()")),
             Type::Unknown => Ok(self.null_value()),
             Type::Never => Ok(self.null_value()),
-            Type::None => Ok(RustExpr::atom("()")),
+            Type::None => Ok(RustExpr::unit()),
             // Annotate the element type: a bare `Vec::new()` is uninferable when
             // the default is used as a `.into_iter()`/`.map()` receiver whose
             // element type is not otherwise constrained (E0282).
             Type::List(item) => Ok(RustExpr::atom(format!(
                 "SmeltList::new(Vec::<{}>::new())",
-                self.type_text(*item)?
+                self.rendered_type(*item)?
             ))),
             Type::Set(item) => Ok({ let receiver = self.set_container_name(*item); RustExpr::atom_on(&receiver, format!("{receiver}::new()")) }),
             Type::Dict(key, _) if self.dict_uses_smelt_record(*key) => {
@@ -2167,28 +2168,30 @@ impl FunctionEmitter<'_> {
             Type::JsMap(_, _) => Ok(self.carrier_expr(&RustExpr::atom("SmeltJsMap::new()"))),
             Type::Optional(inner) => Ok(RustExpr::opaque(format!(
                 "None::<{}>",
-                self.type_text(self.flatten_optional_inner(*inner))?
+                self.rendered_type(self.flatten_optional_inner(*inner))?
             ))),
             Type::Tuple(items) => {
-                let items_text = items
+                let item_values = items
                     .iter()
                     .map(|item| self.default_value(*item))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .join(", ");
-                if items.len() == 1 {
-                    Ok(RustExpr::atom(format!("({items_text},)")))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let items_text = item_values.join(", ");
+                let tuple = if items.len() == 1 {
+                    RustExpr::atom(format!("({items_text},)"))
                 } else {
-                    Ok(RustExpr::atom(format!("({items_text})")))
-                }
+                    RustExpr::atom(format!("({items_text})"))
+                };
+                Ok(tuple.delegating_with(&item_values))
             }
             Type::TypeParam { name } if self.current_function_has_type_param(*name) => {
-                Ok(RustExpr::atom("Default::default()"))
+                Ok(RustExpr::atom("Default::default()").delegating_default())
             }
             Type::Union(items) if self.concrete_union_members(ty).is_some() => {
                 let first = *items
                     .first()
                     .ok_or_else(|| EmitError::new("concrete union has no members"))?;
-                Ok({ let receiver = union::union_name(ty); RustExpr::atom_on(&receiver, format!("{receiver}::M0({})", self.default_value(first)?)) })
+                let arm = self.default_value(first)?;
+                Ok(RustExpr::atom(format!("{}::M0({arm})", union::union_name(ty))).delegating_with([&arm]))
             }
             Type::TypeParam { .. } | Type::Union(_) => Ok(self.null_value()),
             Type::Class { name, .. } if self.is_regexp_class_symbol(*name)? => {
@@ -2245,7 +2248,7 @@ impl FunctionEmitter<'_> {
                 if self.stdlib_class_of_symbol(*name)?
                     == Some(smelt_stdlib::StdlibClass::NodeHash) =>
             {
-                Ok(RustExpr::atom("SmeltHash::default()"))
+                Ok(RustExpr::atom("SmeltHash::default()").delegating_default())
             }
             // An empty byte view, which is what `new Uint8Array(0)` is: a view
             // with no bytes is a value the type can hold, unlike a server
@@ -2274,7 +2277,7 @@ impl FunctionEmitter<'_> {
                 if self.stdlib_class_of_symbol(*name)?
                     == Some(smelt_stdlib::StdlibClass::CryptoKey) =>
             {
-                Ok(RustExpr::atom("SmeltCryptoKey::default()"))
+                Ok(RustExpr::atom("SmeltCryptoKey::default()").delegating_default())
             }
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?
@@ -2307,7 +2310,7 @@ impl FunctionEmitter<'_> {
                     )
                 ) =>
             {
-                Ok(RustExpr::atom("Default::default()"))
+                Ok(RustExpr::atom("Default::default()").delegating_default())
             }
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?
@@ -2320,7 +2323,7 @@ impl FunctionEmitter<'_> {
                 Ok(RustExpr::atom("SmeltRequest::from_parts(\"about:blank\", \"GET\".to_owned(), SmeltHeaders::new(), SmeltBody::empty())"))
             }
             Type::Class { name, .. } if self.is_match_class_symbol(*name)? => {
-                Ok(RustExpr::atom("SmeltMatch::default()"))
+                Ok(RustExpr::atom("SmeltMatch::default()").delegating_default())
             }
             // A generic class's default has to NAME the class when its type
             // arguments are unresolved: a bare `Default::default()` leaves them
@@ -2333,12 +2336,13 @@ impl FunctionEmitter<'_> {
             // instance, and every read of it goes through erasure.
             Type::Class { name, args } if args.is_empty() && self.class_type_param_count(*name) > 0 => {
                 let placeholders = vec!["SmeltUnknown"; self.class_type_param_count(*name)].join(", ");
-                Ok(RustExpr::opaque(format!(
+                Ok(RustExpr::atom(format!(
                     "{}::<{placeholders}>::default()",
                     sanitize_ident(self.symbol_name(*name)?)
-                )))
+                ))
+                .delegating_default())
             }
-            Type::Class { .. } => Ok(RustExpr::atom("Default::default()")),
+            Type::Class { .. } => Ok(RustExpr::atom("Default::default()").delegating_default()),
             Type::Function(function) => {
                 if self.is_erased_unknown_rest_function(function) && !function.may_throw {
                     return Ok(RustExpr::from(ERASED_FUNCTION_DEFAULT.to_owned()));
@@ -2350,7 +2354,7 @@ impl FunctionEmitter<'_> {
                 // scope, or a generic function containing a defaulted callback
                 // emits `Rc<dyn Fn(T, ..)> = Rc::new(move |arg0: SmeltUnknown|
                 // ..)` and fails to type-check (E0631/E0308) inside its own
-                // body. This is the same split `param_type_text` had, in a fifth
+                // body. This is the same split `param_type` had, in a fifth
                 // renderer; both halves now agree.
                 let scope = self.current_function_type_params();
                 let substitution = TypeSubstitution::lexical(&scope);
@@ -2361,7 +2365,7 @@ impl FunctionEmitter<'_> {
                     .map(|(index, param)| {
                         Ok(format!(
                             "arg{index}: {}",
-                            self.function_type_param_text(function, index, *param, &substitution)?
+                            self.function_type_param(function, index, *param, &substitution)?
                         ))
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
@@ -2369,14 +2373,14 @@ impl FunctionEmitter<'_> {
                 let return_ty = if let Some(Type::Future(item)) =
                     self.mir.types.get(function.return_ty)
                 {
-                    format!("SmeltFuture<{}>", self.type_text(*item)?)
+                    format!("SmeltFuture<{}>", self.rendered_type(*item)?)
                 } else if function.may_throw {
                     format!(
                         "Result<{}, {ERROR_BOX}>",
-                        self.type_text(function.return_ty)?
+                        self.rendered_type(function.return_ty)?
                     )
                 } else {
-                    self.type_text(function.return_ty)?
+                    self.rendered_type(function.return_ty)?.into_string()
                 };
                 let return_value = self.default_value(function.return_ty)?;
                 let return_text = if let Some(Type::Future(item)) =
@@ -2389,15 +2393,15 @@ impl FunctionEmitter<'_> {
                 } else {
                     return_value.into_string()
                 };
-                let function_type = self.type_text(ty)?;
+                let function_type = self.rendered_type(ty)?;
                 Ok(RustExpr::atom(format!(
                     "{{ let smelt_default_callback: {function_type} = ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ {return_text} }}); smelt_default_callback }}"
                 )))
             }
-            Type::Future(item) => Ok(RustExpr::atom(format!(
-                "SmeltFuture::resolved({})",
-                self.default_value(*item)?
-            ))),
+            Type::Future(item) => {
+                let item_value = self.default_value(*item)?;
+                Ok(RustExpr::atom(format!("SmeltFuture::resolved({item_value})")).delegating_with([&item_value]))
+            }
             Type::Generator { .. } => Err(EmitError::new(
                 "a generator value has no eager default",
             )),
@@ -2429,7 +2433,7 @@ impl FunctionEmitter<'_> {
             .ok_or_else(|| EmitError::new("MIR references an unknown type"))?
         {
             Type::TypeParam { name } if substitution.spells(*name) => {
-                Ok(RustExpr::atom("Default::default()"))
+                Ok(RustExpr::atom("Default::default()").delegating_default())
             }
             Type::Optional(inner) => Ok(RustExpr::opaque(format!(
                 "None::<{}>",
@@ -2470,7 +2474,7 @@ impl FunctionEmitter<'_> {
                     .map(|(index, param)| {
                         Ok(format!(
                             "arg{index}: {}",
-                            self.function_type_param_text(function, index, *param, substitution)?
+                            self.function_type_param(function, index, *param, substitution)?
                         ))
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
@@ -2498,7 +2502,7 @@ impl FunctionEmitter<'_> {
                         .iter()
                         .enumerate()
                         .map(|(index, param)| {
-                            self.function_type_param_text(function, index, *param, substitution)
+                            self.function_type_param(function, index, *param, substitution)
                         })
                         .collect::<Result<Vec<_>, EmitError>>()?
                         .join(", "),

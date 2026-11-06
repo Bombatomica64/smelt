@@ -9,7 +9,7 @@
 //!   `?` is what marks them throwing to the call-terminator emitter.
 
 use crate::rust::RustExpr;
-use crate::emitter::call::CallText;
+use crate::emitter::call::RenderedCall;
 use smelt_hir::{Type, TypeId, UrlField, UrlOp};
 use smelt_mir::Operand;
 
@@ -90,7 +90,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Render the fallible `new URL(input, base?)` call.
-    pub(super) fn url_new_call_text(&self, args: &[Operand]) -> Result<CallText, EmitError> {
+    pub(super) fn url_new_call(&self, args: &[Operand]) -> Result<RenderedCall, EmitError> {
         let input = args
             .first()
             .ok_or_else(|| EmitError::new("`new URL` takes an input"))?;
@@ -102,17 +102,17 @@ impl FunctionEmitter<'_> {
             ),
             None => "None".to_owned(),
         };
-        Ok(CallText::propagating(RustExpr::postfix_on(&URL_NEW_FN, format!("{URL_NEW_FN}({input_text}.as_str(), {base_text})"))))
+        Ok(RenderedCall::propagating(RustExpr::postfix_on(&URL_NEW_FN, format!("{URL_NEW_FN}({input_text}.as_str(), {base_text})"))))
     }
 
     /// Render the fallible `url.href = text` call.
-    pub(super) fn url_set_href_call_text(&self, args: &[Operand]) -> Result<CallText, EmitError> {
+    pub(super) fn url_set_href_call(&self, args: &[Operand]) -> Result<RenderedCall, EmitError> {
         let [url, value] = args else {
             return Err(EmitError::new("`URL.href` assignment takes a URL and a value"));
         };
         let url_text = self.operand_borrow_expr(url)?;
         let value_text = self.string_like_operand_expr(value, "URL href")?;
-        Ok(CallText::propagating(RustExpr::postfix_on(&URL_SET_HREF_FN, format!("{URL_SET_HREF_FN}(&{url_text}, {value_text})"))))
+        Ok(RenderedCall::propagating(RustExpr::postfix_on(&URL_SET_HREF_FN, format!("{URL_SET_HREF_FN}(&{url_text}, {value_text})"))))
     }
 
     /// The type a fallible `URL` call answers: the `URL` class for the

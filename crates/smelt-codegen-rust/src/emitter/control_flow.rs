@@ -1,5 +1,6 @@
 //! Control Flow emission helpers.
 
+use crate::rust::RustType;
 use crate::rust::RustExpr;
 use super::*;
 use super::flow_state::Flow;
@@ -391,7 +392,7 @@ impl FunctionEmitter<'_> {
                         || self.predeclared_locals.contains(dest)
                         || self.mutable_locals.contains(dest))
                 {
-                    format!(": {}", self.type_text(local.ty)?)
+                    format!(": {}", self.rendered_type(local.ty)?)
                 } else if matches!(self.mir.types.get(local.ty), Some(Type::Function(_))) {
                     String::new()
                 } else if matches!(self.function.origin, HirOrigin::ClassConstructor { .. })
@@ -399,7 +400,7 @@ impl FunctionEmitter<'_> {
                 {
                     ": Self".to_owned()
                 } else {
-                    format!(": {}", self.local_declaration_type_text(*dest, local.ty)?)
+                    format!(": {}", self.local_declaration_type(*dest, local.ty)?)
                 };
                 if self.local_uses_shared_capture_storage(*dest) {
                     // Annotate the cell with the local's declared type, exactly as
@@ -412,7 +413,7 @@ impl FunctionEmitter<'_> {
                     // it unsolved — E0282 in the generated crate.
                     out.push_str(&format!(
                         "    let smelt_capture_{name}: ::std::rc::Rc<::std::cell::RefCell<{}>> = ::std::rc::Rc::new(::std::cell::RefCell::new({rendered_value}));\n",
-                        self.capture_cell_type_text(*dest, local.ty)?
+                        self.capture_cell_type(*dest, local.ty)?
                     ));
                 } else {
                     out.push_str(&format!(
@@ -546,7 +547,7 @@ impl FunctionEmitter<'_> {
                     let unknown_ty = self.type_id(Type::Unknown)?;
                     let rendered_value = self.rvalue_expr_for_dest(value, unknown_ty)?;
                     let field_name = self.symbol_source_name(*field)?;
-                    let union_text = self.union_type_text(base_ty)?;
+                    let union_text = self.union_rust_type(base_ty)?;
                     let erased =
                         self.erase_concrete_union_expr(&self.local_value(*base)?, base_ty);
                     out.push_str(&format!(
@@ -586,7 +587,6 @@ impl FunctionEmitter<'_> {
                     // immutably while it is mutably borrowed (E0502). This mirrors the
                     // `Index` erased-object path below. Non-self-referential values
                     // keep the simpler inline form to avoid churn.
-                    let base_name = self.local_name(*base)?.into_owned();
                     // A write through an erased reference-class VIEW also lands
                     // on the instance the view stands for; see
                     // `view_write_through`. The value is bound once so the view
@@ -603,7 +603,7 @@ impl FunctionEmitter<'_> {
                     // representation of that function reads through. Falling
                     // through to the primitive arm replaced the callable with a
                     // one-property record, so `(f as any).x = 1` lost `f`.
-                    if rendered_value.contains(&base_name) {
+                    if value.reads_local(*base) {
                         out.push_str(&self.carrier_format(format_args!(
                             "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Array(values) => {{ values.set_named_property({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Function(function) => {{ smelt_set_function_property(function, {field_name:?}, smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n"
                         )));
@@ -741,7 +741,7 @@ impl FunctionEmitter<'_> {
                         // A union with no generated enum still renders as
                         // `SmeltUnknown` and keeps the direct call below.
                         if self.concrete_union_members(base_ty).is_some() {
-                            let union_text = self.union_type_text(base_ty)?;
+                            let union_text = self.union_rust_type(base_ty)?;
                             let erased = self
                                 .erase_concrete_union_expr(&self.local_value(*base)?, base_ty);
                             out.push_str(&format!(
@@ -826,12 +826,12 @@ impl FunctionEmitter<'_> {
             if self.local_uses_shared_capture_storage(*local) {
                 out.push_str(&format!(
                     "    let smelt_capture_{name}: ::std::rc::Rc<::std::cell::RefCell<{}>> = ::std::rc::Rc::new(::std::cell::RefCell::new({rendered_value}));\n",
-                    self.capture_cell_type_text(*local, decl.ty)?
+                    self.capture_cell_type(*local, decl.ty)?
                 ));
             } else {
                 out.push_str(&format!(
                     "    let {mutability}{name}: {} = {rendered_value};\n",
-                    self.type_text(decl.ty)?
+                    self.rendered_type(decl.ty)?
                 ));
             }
             self.mark_local_declared(*local);
@@ -1038,7 +1038,7 @@ impl FunctionEmitter<'_> {
                         let value = self.default_value(body_return_ty)?;
                         if self.function.is_generator {
                             let return_ty_text =
-                                self.type_text(body_return_ty)?;
+                                self.rendered_type(body_return_ty)?;
                             self.binding_uses.record_early_return();
                             out.push_str(&format!(
                                 "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n"
@@ -1051,7 +1051,7 @@ impl FunctionEmitter<'_> {
                         let value = self.value_at_type(operand, body_return_ty)?;
                         if self.function.is_generator {
                             let return_ty_text =
-                                self.type_text(body_return_ty)?;
+                                self.rendered_type(body_return_ty)?;
                             self.binding_uses.record_early_return();
                             out.push_str(&format!(
                                 "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n"
@@ -1124,7 +1124,7 @@ impl FunctionEmitter<'_> {
                 self.mark_local_declared(dest);
                 return Ok(());
             }
-            let call_text = self.call_text(callee, args)?.into_expression();
+            let call_text = self.rendered_call(callee, args)?.into_expression();
             out.push_str(&format!("    let _ = {call_text};\n"));
             self.mark_local_declared(dest);
             return Ok(());
@@ -1143,7 +1143,7 @@ impl FunctionEmitter<'_> {
         } else {
             out.push_str(&format!(
                 "    let {mutability}{name}: {} = {call_text};\n",
-                self.call_dest_type_text(callee, local.ty)?
+                self.call_dest_type(callee, local.ty)?
             ));
         }
         self.mark_local_declared(dest);
@@ -1157,11 +1157,11 @@ impl FunctionEmitter<'_> {
     /// whose constructor issued the `super(..)`, and inside an initializer copy
     /// re-emitted further down the chain (`Point3`'s constructor inside `impl
     /// Point4`) that class is NOT the impl's type.
-    fn call_dest_type_text(&self, callee: &Callee, ty: TypeId) -> Result<String, EmitError> {
+    fn call_dest_type(&self, callee: &Callee, ty: TypeId) -> Result<RustType, EmitError> {
         if matches!(callee, Callee::BaseInit(_)) {
-            return Ok("Self".to_owned());
+            return Ok(RustType::raw("Self"));
         }
-        self.type_text(ty)
+        self.rendered_type(ty)
     }
 
     /// Emits the region reached after a terminator, honoring loop context.
@@ -1276,7 +1276,7 @@ impl FunctionEmitter<'_> {
         } else {
             out.push_str(&format!(
                 "    let {mutability}{name}: {} = {value};\n",
-                self.type_text(local.ty)?
+                self.rendered_type(local.ty)?
             ));
         }
         self.mark_local_declared(dest);
@@ -1317,7 +1317,7 @@ impl FunctionEmitter<'_> {
             Continuation::InLoop { .. } => None,
         });
         let arm_continuation = joined_continuation.as_ref().unwrap_or(continuation);
-        let rendered = self.call_text(callee, args)?;
+        let rendered = self.rendered_call(callee, args)?;
         if !rendered.propagates() {
             let call_text = rendered.into_call();
             out.push_str(&format!(
@@ -1353,7 +1353,7 @@ impl FunctionEmitter<'_> {
                 } else {
                     out.push_str(&format!(
                         "            let {mutability}{name}: {} = {value_text};\n",
-                        self.call_dest_type_text(callee, local.ty)?
+                        self.call_dest_type(callee, local.ty)?
                     ));
                 }
             }
@@ -1440,7 +1440,7 @@ impl FunctionEmitter<'_> {
         } else {
             out.push_str(&format!(
                 "            let {mutability}{name}: {} = {value_text};\n",
-                self.call_dest_type_text(callee, local.ty)?
+                self.call_dest_type(callee, local.ty)?
             ));
         }
         self.mark_local_declared(dest);
@@ -1568,7 +1568,7 @@ impl FunctionEmitter<'_> {
             let value_text = self.rendered_at_type(&RustExpr::path("__smelt_value"), source_ty, local.ty, &self.render_scope())?;
             out.push_str(&format!(
                 "            let {mutability}{name}: {} = {value_text};\n",
-                self.type_text(local.ty)?
+                self.rendered_type(local.ty)?
             ));
         }
         self.mark_local_declared(dest);
@@ -1698,7 +1698,7 @@ impl FunctionEmitter<'_> {
                 let else_text = self.rvalue_expr_for_dest(else_value, local.ty)?;
                 out.push_str(&format!(
                     "    let {name}: {} = if {} {{ {then_text} }} else {{ {else_text} }};\n",
-                    self.type_text(local.ty)?,
+                    self.rendered_type(local.ty)?,
                     self.truthy_operand_expr(cond)?
                 ));
                 self.mark_local_declared(*then_dest);
@@ -1717,7 +1717,7 @@ impl FunctionEmitter<'_> {
                 let default_text = self.default_value(local.ty)?;
                 out.push_str(&format!(
                     "    let mut {name}: {} = {default_text};\n",
-                    self.type_text(local.ty)?
+                    self.rendered_type(local.ty)?
                 ));
                 self.mark_local_declared(then_dest);
                 let branch_declared = self.declared_scope();

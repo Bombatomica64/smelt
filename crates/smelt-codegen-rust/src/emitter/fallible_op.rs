@@ -11,13 +11,13 @@ use crate::rust::RustExpr;
 use smelt_hir::{Base64Op, Type, TypeId, UriTranscodeOp};
 use smelt_mir::{Operand, Rvalue};
 
-use super::call::CallText;
+use super::call::RenderedCall;
 use super::{EmitError, FunctionEmitter};
 
 /// How one fallible operation is called.
 pub(super) struct FallibleOpCall {
     /// The rendered call.
-    pub(super) text: CallText,
+    pub(super) text: RenderedCall,
     /// The type the call answers, before coercion to the destination.
     pub(super) source_ty: TypeId,
 }
@@ -39,7 +39,7 @@ impl FunctionEmitter<'_> {
                 };
                 let value_text = self.string_like_operand_expr(value, "base64 input")?;
                 (
-                    CallText::propagating(RustExpr::postfix_on(&adapter, format!("{adapter}({value_text}.as_str())"))),
+                    RenderedCall::propagating(RustExpr::postfix_on(&adapter, format!("{adapter}({value_text}.as_str())"))),
                     self.type_id(Type::String)?,
                 )
             }
@@ -51,10 +51,10 @@ impl FunctionEmitter<'_> {
                 } else {
                     self.type_id(Type::Float)?
                 };
-                (self.data_view_access_text(*write, *element, &args)?, source_ty)
+                (self.data_view_access(*write, *element, &args)?, source_ty)
             }
             Rvalue::BigIntCall { op, .. } => (
-                self.bigint_builtin_call_text(*op, &args)?,
+                self.bigint_builtin_call(*op, &args)?,
                 self.type_id(if op.returns_string() {
                     Type::String
                 } else {
@@ -62,14 +62,14 @@ impl FunctionEmitter<'_> {
                 })?,
             ),
             Rvalue::HostModuleCall { op, .. } => (
-                self.host_module_call_text(*op, &args)?,
+                self.host_module_call(*op, &args)?,
                 self.host_module_call_source_ty(*op)?,
             ),
             Rvalue::UrlNew { .. } => {
-                (self.url_new_call_text(&args)?, self.url_call_source_ty(true)?)
+                (self.url_new_call(&args)?, self.url_call_source_ty(true)?)
             }
             Rvalue::UrlOp { .. } => {
-                (self.url_set_href_call_text(&args)?, self.url_call_source_ty(false)?)
+                (self.url_set_href_call(&args)?, self.url_call_source_ty(false)?)
             }
             Rvalue::RegExpCompile { .. } => {
                 let pattern = args.first().map_or_else(
@@ -84,7 +84,7 @@ impl FunctionEmitter<'_> {
                     EmitError::new("a RegExp compile call needs the RegExp class type interned")
                 })?;
                 (
-                    CallText::propagating(RustExpr::postfix_on(&crate::thrown::REGEXP_COMPILE_FN, format!(
+                    RenderedCall::propagating(RustExpr::postfix_on(&crate::thrown::REGEXP_COMPILE_FN, format!(
                         "{}({pattern}, {flags})",
                         crate::thrown::REGEXP_COMPILE_FN
                     ))),
@@ -106,7 +106,7 @@ impl FunctionEmitter<'_> {
                 };
                 let value_text = self.string_like_operand_expr(value, "URI decoder input")?;
                 (
-                    CallText::propagating(RustExpr::postfix_on(&adapter, format!("{adapter}({value_text}.as_str())"))),
+                    RenderedCall::propagating(RustExpr::postfix_on(&adapter, format!("{adapter}({value_text}.as_str())"))),
                     self.type_id(Type::String)?,
                 )
             }
@@ -128,7 +128,7 @@ impl FunctionEmitter<'_> {
         &self,
         target: Option<TypeId>,
         args: &[Operand],
-    ) -> Result<(CallText, TypeId), EmitError> {
+    ) -> Result<(RenderedCall, TypeId), EmitError> {
         let text = args
             .first()
             .ok_or_else(|| EmitError::new("JSON parse takes one string argument"))?;
@@ -141,9 +141,9 @@ impl FunctionEmitter<'_> {
                 super::json_decode::json_decode_entry_name(decoded),
                 self.operand_expr(text)?
             );
-            return Ok((CallText::propagating(call), decoded));
+            return Ok((RenderedCall::propagating(call), decoded));
         }
         let call = format!("{}(&{})", crate::thrown::JSON_PARSE_FN, self.operand_expr(text)?);
-        Ok((CallText::propagating(call), self.type_id(Type::Unknown)?))
+        Ok((RenderedCall::propagating(call), self.type_id(Type::Unknown)?))
     }
 }

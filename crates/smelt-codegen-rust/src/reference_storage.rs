@@ -237,7 +237,6 @@ pub(crate) fn emit_reference_record_storage(
             fields,
             &phantom_args,
             &scoped_type_params,
-            &record_param_idents,
         )?;
         emit_debug_impl_for_storage_type(writer, &inner_name, &debug_generics, type_args);
     } else {

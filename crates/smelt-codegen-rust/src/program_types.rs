@@ -216,7 +216,6 @@ fn emit_interface_type(
             &fields,
             &phantom_args,
             &scoped_type_params,
-            &interface_param_idents,
         )?;
         emit_debug_impl_for_storage_type(writer, &name, &impl_generics, &type_params);
     }
@@ -341,23 +340,23 @@ fn emit_class_type(
     // The field types are kept as text as well: a hand-written `Clone` or
     // `PartialEq` bounds them in a `where` clause, which is the exact
     // requirement its body has (see the derive-gating comment above).
-    let mut field_type_texts = Vec::with_capacity(fields.len());
+    let mut field_types = Vec::with_capacity(fields.len());
     for field in &fields {
-        let field_type_text = FunctionEmitter::type_text_for_with_scoped_type_params(
+        let field_type = FunctionEmitter::rust_type_with_scoped_type_params(
             mir,
             context,
             field.ty,
             &TypeSubstitution::lexical(&scoped_type_params),
         )?;
         field_lines.push(format!(
-            "{}: {field_type_text},",
+            "{}: {field_type},",
             RustIdent::new(
                 mir.symbols
                     .get(field.name)
                     .ok_or_else(|| EmitError::new("field has unknown symbol"))?
             ),
         ));
-        field_type_texts.push(field_type_text);
+        field_types.push(field_type);
     }
     if !class_param_idents.is_empty() {
         let phantom_args = class_param_idents.join(", ");
@@ -395,7 +394,6 @@ fn emit_class_type(
             &fields,
             &phantom_args,
             &scoped_type_params,
-            &class_param_idents,
         )?;
         // `Debug` names the struct and stops, so it needs no bound at all.
         let debug_generics = if is_generic {
@@ -434,8 +432,7 @@ fn emit_class_type(
             &type_params,
             &type_params,
             &field_names,
-            &field_type_texts,
-            &class_param_idents,
+            &field_types,
             true,
         );
         if supports_partial_eq {
@@ -445,8 +442,7 @@ fn emit_class_type(
                 &type_params,
                 &type_params,
                 &field_names,
-                &field_type_texts,
-                &class_param_idents,
+                &field_types,
             );
         }
     }

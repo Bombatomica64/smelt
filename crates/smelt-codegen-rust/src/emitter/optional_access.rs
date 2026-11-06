@@ -47,7 +47,7 @@ impl FunctionEmitter<'_> {
                 self.default_value(dest_ty)?
             )))
         } else {
-            let value = self.field_access_expr(&RustExpr::opaque(&receiver_text), inner_ty, field)?;
+            let value = self.field_access_expr(&receiver_text, inner_ty, field)?;
             if let Some(Type::Optional(dest_inner)) = self.mir.types.get(dest_ty) {
                 if let Some(Type::Optional(field_inner)) = self.mir.types.get(field_ty) {
                     return self.optional_inner_map_expr(&value, *field_inner, *dest_inner);
@@ -128,7 +128,7 @@ impl FunctionEmitter<'_> {
         if !is_optional
             && matches!(self.mir.types.get(dest_ty), Some(Type::Optional(_)))
             && let Some(text) = self.concrete_union_optional_index_expr(
-                &RustExpr::opaque(&receiver_text),
+                &receiver_text,
                 inner_ty,
                 index,
                 result_ty,
@@ -143,7 +143,7 @@ impl FunctionEmitter<'_> {
                 "{receiver_text}.as_ref().and_then(|_smelt_value| {value})"
             )))
         } else {
-            self.optional_index_access_expr(&RustExpr::opaque(&receiver_text), inner_ty, index, result_ty)
+            self.optional_index_access_expr(&receiver_text, inner_ty, index, result_ty)
         }
     }
 
@@ -316,13 +316,13 @@ impl FunctionEmitter<'_> {
     fn optional_receiver_parts(
         &self,
         receiver: &Operand,
-    ) -> Result<(String, TypeId, bool), EmitError> {
+    ) -> Result<(RustExpr, TypeId, bool), EmitError> {
         let receiver_ty = self.operand_ty(receiver)?;
         let receiver_text = self.operand_expr(receiver)?;
         if let Some(Type::Optional(inner)) = self.mir.types.get(receiver_ty) {
-            Ok((receiver_text.into_string(), *inner, true))
+            Ok((receiver_text, *inner, true))
         } else {
-            Ok((receiver_text.into_string(), receiver_ty, false))
+            Ok((receiver_text, receiver_ty, false))
         }
     }
 

@@ -318,7 +318,7 @@ impl FunctionEmitter<'_> {
 
     /// Render the decoder function for one composite type.
     fn json_decoder_fn_text(&self, ty: TypeId, deps: &mut Vec<TypeId>) -> Result<String, EmitError> {
-        let rust_ty = self.type_text(ty)?;
+        let rust_ty = self.rendered_type(ty)?;
         let expected = self.json_decode_expected(ty);
         let body = match self.mir.types.get(ty).cloned() {
             Some(Type::List(item)) => {
@@ -442,7 +442,7 @@ impl FunctionEmitter<'_> {
         let interface = self
             .json_decode_interface(ty)
             .ok_or_else(|| EmitError::new("JSON decoder interface is missing"))?;
-        let struct_name = self.type_text(ty)?;
+        let struct_name = self.rendered_type(ty)?;
         let mut text = self.carrier_format(format_args!(
             "let SmeltUnknown::Object(object) = value else {{ return smelt_decode_fail(path, {expected:?}, value); }};\n"
         ));
@@ -534,7 +534,7 @@ impl FunctionEmitter<'_> {
 
     /// Render the text entry adapter `smelt_json_decode_<ty>` for one target.
     fn json_decode_entry_fn_text(&self, ty: TypeId, deps: &mut Vec<TypeId>) -> Result<String, EmitError> {
-        let rust_ty = self.type_text(ty)?;
+        let rust_ty = self.rendered_type(ty)?;
         let expected = self.json_decode_expected(ty);
         let decode = self.json_decode_call(ty, &RustExpr::loose("&value"), deps);
         Ok(format!(

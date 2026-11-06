@@ -16,6 +16,7 @@
 
 pub(crate) mod record;
 
+use crate::rust::RustType;
 use crate::rust::RustExpr;
 use super::*;
 
@@ -68,7 +69,7 @@ impl FunctionEmitter<'_> {
         if left == right {
             return Ok(true);
         }
-        Ok(self.signature_type_text(left)? == self.signature_type_text(right)?)
+        Ok(self.signature_type(left)? == self.signature_type(right)?)
     }
 
     /// Render a collected container's target type so it names what the element
@@ -101,13 +102,12 @@ impl FunctionEmitter<'_> {
     /// upstream of this function, and the annotation is only naming what the
     /// iterator really holds. It is no longer imprecision: where the parameter
     /// IS spellable the entries keep it and so does this.
-    fn collected_container_type_text(
+    fn collected_container_type(
         &self,
         target: TypeId,
         scope: &RenderScope,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustType, EmitError> {
         self.rust_type(target, false, &scope.substitution())
-            .map(RustType::into_string)
     }
 
     /// Converts an operand to Rust text, wrapping into `SmeltUnknown` when needed.
@@ -612,7 +612,7 @@ impl FunctionEmitter<'_> {
                 self.rendered_at_type(&RustExpr::cast("index as i64"), int_ty, *target_key, scope)?.into_string()
             };
             let value_text = self.rendered_at_type(&RustExpr::path("value"), *source_item, *target_value, scope)?;
-            let target_text = self.collected_container_type_text(target, scope)?;
+            let target_text = self.collected_container_type(target, scope)?;
             return Ok(RustExpr::opaque(format!(
                 "{}.into_iter().enumerate().map(|(index, value)| ({key_text}, {value_text})).collect::<{target_text}>()",
                 self.operand_expr(operand)?
@@ -648,7 +648,7 @@ impl FunctionEmitter<'_> {
             };
             let mapped_value_text =
                 self.rendered_at_type(&RustExpr::path("value"), *source_value, *target_value, scope)?;
-            let target_text = self.collected_container_type_text(target, scope)?;
+            let target_text = self.collected_container_type(target, scope)?;
             return Ok(RustExpr::opaque(format!(
                 "{}.into_iter().map(|(key, value)| ({key_text}, {mapped_value_text})).collect::<{target_text}>()",
                 self.operand_expr(operand)?
@@ -793,24 +793,6 @@ impl FunctionEmitter<'_> {
             &self.type_expansion_stack,
             (source, target),
         ))
-    }
-
-    /// Returns whether rendered value text is a trivial place that can be
-    /// duplicated for free.
-    ///
-    /// A trivial place is a bare local name or a dotted field/tuple path such as
-    /// `foo` or `foo.bar.0`. Duplicating one re-reads the same binding with no
-    /// re-evaluation and no repeated move of by-value operands. Anything
-    /// containing call/operator/whitespace syntax is treated as a non-trivial
-    /// expression that must be materialized into a temporary before it is used
-    /// more than once (see the tuple-to-tuple coercion in
-    /// [`Self::rendered_at_type`]).
-    fn expression_text_is_trivial_place(value_text: &RustExpr) -> bool {
-        !value_text.is_empty()
-            && value_text.chars().all(|ch| {
-                ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' || ch == ':'
-            })
-            && !value_text.starts_with(|ch: char| ch.is_ascii_digit())
     }
 
     /// Wrap a function value into a callable-interface record.
@@ -977,7 +959,7 @@ impl FunctionEmitter<'_> {
     /// identifier or erases to `SmeltUnknown`, and every side of the position —
     /// the coerced entries, the recovered entries
     /// ([`Self::extract_rendered`]), and the container annotation
-    /// ([`Self::collected_container_type_text`]) — asks that same scope. An
+    /// ([`Self::collected_container_type`]) — asks that same scope. An
     /// ordinary emit site passes `&self.render_scope()`, the lexical scope of
     /// the Rust item being emitted; a site inside the recursion forwards the
     /// scope it was given rather than re-deriving one at its own depth. See
@@ -1130,7 +1112,7 @@ impl FunctionEmitter<'_> {
             // temporary and project the binding instead. A trivial place (a bare
             // name or field path) is safe to duplicate and kept inline to avoid
             // churn.
-            let (prefix, base) = if Self::expression_text_is_trivial_place(value_text) {
+            let (prefix, base) = if value_text.is_trivial_place() {
                 (String::new(), value_text.clone())
             } else {
                 ("let smelt_tuple_src = ".to_owned(), RustExpr::path("smelt_tuple_src"))
@@ -1141,7 +1123,7 @@ impl FunctionEmitter<'_> {
                 .enumerate()
                 .map(|(index, (source_item, target_item))| {
                     self.rendered_at_type(
-                        &RustExpr::field_on(&base, format!("{base}.{index}")),
+                        &RustExpr::tuple_field(&base, index),
                         *source_item,
                         *target_item,
                                             scope,
@@ -1373,7 +1355,7 @@ impl FunctionEmitter<'_> {
         {
             let source_items = source_items.clone();
             let target_item = *target_item;
-            let (prefix, base) = if Self::expression_text_is_trivial_place(value_text) {
+            let (prefix, base) = if value_text.is_trivial_place() {
                 (String::new(), value_text.clone())
             } else {
                 ("let smelt_tuple_src = ".to_owned(), RustExpr::path("smelt_tuple_src"))
@@ -1382,7 +1364,7 @@ impl FunctionEmitter<'_> {
                 .iter()
                 .enumerate()
                 .map(|(index, source_item)| {
-                    self.rendered_at_type(&RustExpr::field_on(&base, format!("{base}.{index}")), *source_item, target_item, scope)
+                    self.rendered_at_type(&RustExpr::tuple_field(&base, index), *source_item, target_item, scope)
                 })
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ");
@@ -1430,7 +1412,7 @@ impl FunctionEmitter<'_> {
                 self.rendered_at_type(&RustExpr::cast("index as i64"), int_ty, *target_key, scope)?.into_string()
             };
             let item_text = self.rendered_at_type(&RustExpr::path("value"), *source_item, *target_value, scope)?;
-            let target_text = self.collected_container_type_text(target, scope)?;
+            let target_text = self.collected_container_type(target, scope)?;
             return Ok(RustExpr::opaque(format!(
                 "{value_text}.into_iter().enumerate().map(|(index, value)| ({key_text}, {item_text})).collect::<{target_text}>()"
             )));
@@ -1456,7 +1438,7 @@ impl FunctionEmitter<'_> {
             };
             let mapped_value_text =
                 self.rendered_at_type(&RustExpr::path("value"), *source_value, *target_value, scope)?;
-            let target_text = self.collected_container_type_text(target, scope)?;
+            let target_text = self.collected_container_type(target, scope)?;
             return Ok(RustExpr::opaque(format!(
                 "{value_text}.into_iter().map(|(key, value)| ({key_text}, {mapped_value_text})).collect::<{target_text}>()"
             )));
@@ -1522,7 +1504,7 @@ impl FunctionEmitter<'_> {
     /// depending only on whether the caller already had it rendered.
     pub(super) fn erase(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
         if matches!(operand, Operand::Const(Constant::Undefined)) {
-            return Ok(self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined")));
+            return Ok(self.carrier_expr(&RustExpr::undefined()));
         }
         let text = self.operand_expr(operand)?;
         // `text` is usually already an owned temporary (an operand render clones the local
@@ -1537,7 +1519,7 @@ impl FunctionEmitter<'_> {
             // produced it still has to RUN: `text` is routinely a call (`let r:
             // unknown = setter(k, v)`), and answering the bare constant deleted
             // the call and its side effects from the program.
-            Some(Type::None) if text.trim() == "()" => Ok(self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null"))),
+            Some(Type::None) if text.is_unit() => Ok(self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null"))),
             Some(Type::None) => Ok(RustExpr::atom(self.carrier_format(format_args!("{{ let _ = {text}; SmeltUnknown::Null }}")))),
             Some(Type::List(item)) if !self.list_items_render_as_unknown(ty, &self.render_scope()) => {
                 // A `List<None>` erases its elements to `Null`, but an
@@ -1549,7 +1531,7 @@ impl FunctionEmitter<'_> {
                 let value_wrap = if matches!(self.mir.types.get(*item), Some(Type::None))
                     && self.container_local_all_undefined_constants(operand)?
                 {
-                    self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined"))
+                    self.carrier_expr(&RustExpr::undefined())
                 } else {
                     self.erase_rendered(&RustExpr::path("value"), *item)?
                 };
@@ -1764,7 +1746,7 @@ impl FunctionEmitter<'_> {
         if matches!(self.mir.types.get(item), Some(Type::None))
             && self.container_local_all_undefined_constants(operand)?
         {
-            return Ok(self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined")));
+            return Ok(self.carrier_expr(&RustExpr::undefined()));
         }
         self.erase_rendered(&RustExpr::path("value"), item)
     }
@@ -1928,7 +1910,7 @@ impl FunctionEmitter<'_> {
             Some(Type::TypeParam { .. }) => Ok(RustExpr::atom(self.carrier_format(format_args!("({value_text}).into_smelt_unknown()")))),
             // As in `rendered_at_type`: erase the `void` value, but run the
             // expression that produced it.
-            Some(Type::None | Type::Never) | None if value_text.trim() != "()" => {
+            Some(Type::None | Type::Never) | None if !value_text.is_unit() => {
                 Ok(RustExpr::atom(self.carrier_format(format_args!("{{ let _ = {value_text}; SmeltUnknown::Null }}"))))
             }
             Some(Type::None | Type::Never) | None => Ok(self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null"))),
@@ -2055,14 +2037,14 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Optional(inner)) => {
                 let value_wrap = self.erase_rendered(&RustExpr::path("value"), *inner)?;
-                Ok(RustExpr::postfix_on(&value.parenthesized_if_needed(), self.carrier_format(format_args!(
+                Ok(RustExpr::postfix_on(value.expr(), self.carrier_format(format_args!(
                     "{}.clone().map_or(SmeltUnknown::Undefined, |value| {value_wrap})",
                     value.parenthesized_if_needed()
                 ))))
             }
             Some(Type::Function(function)) => {
                 if self.is_erased_unknown_rest_function(function) && !function.may_throw {
-                    return Ok(RustExpr::postfix_on(&value.parenthesized_if_needed(), self.carrier_format(format_args!(
+                    return Ok(RustExpr::postfix_on(value.expr(), self.carrier_format(format_args!(
                         "{}.clone().into_smelt_unknown()",
                         value.parenthesized_if_needed()
                     ))));
@@ -2099,7 +2081,7 @@ impl FunctionEmitter<'_> {
                     // came from its own returns). This is the same rule
                     // `throwing_call_suffix` applies to a direct call.
                     let future_call = if function.may_throw && !function.is_async {
-                        RustExpr::loose(format!("{call_text}?"))
+                        RustExpr::atom(format!("{call_text}?"))
                     } else {
                         call_text
                     };
@@ -2128,7 +2110,7 @@ impl FunctionEmitter<'_> {
                     }
                 } else if function.may_throw {
                     let erased_return =
-                        self.erase_rendered(&RustExpr::loose(format!("{call_text}?")), function.return_ty)?;
+                        self.erase_rendered(&RustExpr::atom(format!("{call_text}?")), function.return_ty)?;
                     self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({erased_return})"))
                 } else {
                     let erased_return = self.erase_rendered(&call_text, function.return_ty)?;
@@ -2158,7 +2140,7 @@ impl FunctionEmitter<'_> {
             // Same dynamic boundary as the operand-based erase above: route the
             // generator through the prelude's `IntoSmeltUnknown` iterator
             // adapter rather than failing emission.
-            Some(Type::Generator { .. }) => Ok(RustExpr::postfix_on(&value.parenthesized_if_needed(), self.carrier_format(format_args!(
+            Some(Type::Generator { .. }) => Ok(RustExpr::postfix_on(value.expr(), self.carrier_format(format_args!(
                 "{}.clone().into_smelt_unknown()",
                 value.parenthesized_if_needed()
             )))),
@@ -2177,7 +2159,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         let yielded = self.erase_rendered(&RustExpr::path("value"), yield_ty)?;
         let returned = if return_ty == self.none_ty {
-            self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined"))
+            self.carrier_expr(&RustExpr::undefined())
         } else {
             self.erase_rendered(&RustExpr::path("value"), return_ty)?
         };
@@ -2214,7 +2196,7 @@ impl FunctionEmitter<'_> {
     /// backwards. Absence and the `null` value are different values, so they
     /// get different helpers and callers state which one they mean.
     pub(super) fn absent_value(&self) -> RustExpr {
-        self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined"))
+        self.carrier_expr(&RustExpr::undefined())
     }
 
     /// Wrap a live concrete future in an erased, cloneable promise handle.
@@ -3105,7 +3087,7 @@ impl FunctionEmitter<'_> {
     /// table lacks what the string-dict adapter needs; a record default in its
     /// place would drop every field the value holds.
     fn generated_record_from_unknown_expr(&self, text: &RustExpr, target: TypeId) -> Result<RustExpr, EmitError> {
-        let target_text = self.type_text(target)?;
+        let target_text = self.rendered_type(target)?;
         Ok(RustExpr::loose(self.carrier_format(format_args!(
             "<{target_text} as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())"
         ))))
@@ -3122,9 +3104,9 @@ impl FunctionEmitter<'_> {
     /// conversion is rendered in, so hoisting changes where the text lives
     /// and not what it does.
     fn hoisted_record_conversion(&self, text: &RustExpr, target: TypeId) -> Result<Option<String>, EmitError> {
-        let scoped_text = self.type_text(target)?;
+        let scoped_text = self.rendered_type(target)?.into_string();
         let hoisted = HoistedModuleItemScope::enter(self);
-        let module_text = self.type_text(target)?;
+        let module_text = self.rendered_type(target)?.into_string();
         if module_text != scoped_text {
             return Ok(None);
         }
@@ -3296,7 +3278,7 @@ impl FunctionEmitter<'_> {
             // inverse of the `SmeltJsMap` erasure adapter, so `unknown -> Map`
             // extraction stays lossless.
             Some(Type::JsMap(_, _)) => {
-                let target_text = self.type_text(target)?;
+                let target_text = self.rendered_type(target)?;
                 Ok(RustExpr::loose(self.carrier_format(format_args!(
                     "<{target_text} as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())"
                 ))))
@@ -3314,7 +3296,7 @@ impl FunctionEmitter<'_> {
             // as `SmeltUnknown`. This mirrors the `from_smelt_unknown` boundary
             // `inject_union_value` applies for `Unknown`/`TypeParam` sources;
             // here the source is a wider (non-concrete) union still stored erased.
-            Some(Type::Union(_)) if self.concrete_union_members(target).is_some() => Ok(RustExpr::atom_on(&union::union_name(target), self.carrier_format(format_args!(
+            Some(Type::Union(_)) if self.concrete_union_members(target).is_some() => Ok(RustExpr::atom(self.carrier_format(format_args!(
                 "{}::from_smelt_unknown(({text}).into_smelt_unknown())",
                 union::union_name(target)
             )))),
@@ -3400,7 +3382,7 @@ impl FunctionEmitter<'_> {
             // parameter list that round-tripped through erased dataflow came back
             // EMPTY with no diagnostic.
             Some(Type::Class { .. }) if self.is_fetch_runtime_class_type(target)? => {
-                let rust_type = self.type_text(target)?;
+                let rust_type = self.rendered_type(target)?;
                 Ok(RustExpr::loose(self.carrier_format(format_args!(
                     "<{rust_type} as SmeltFromUnknown>::smelt_from_unknown({smelt_owned_text})"
                 ))))
@@ -3443,7 +3425,7 @@ impl FunctionEmitter<'_> {
             // sets have this impl; a `HashSet`-backed primitive set keeps the
             // `Default::default()` fallback below.
             Some(Type::Set(item)) if !self.type_is_hash_set_key_safe(*item) => {
-                let target_text = self.type_text(target)?;
+                let target_text = self.rendered_type(target)?;
                 Ok(RustExpr::loose(self.carrier_format(format_args!(
                     "<{target_text} as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())"
                 ))))
@@ -3488,7 +3470,7 @@ impl FunctionEmitter<'_> {
                 let converted_return_text = if let Some(Type::Future(item)) =
                     self.mir.types.get(function.return_ty)
                 {
-                    drop(self.type_text(*item)?);
+                    drop(self.rendered_type(*item)?);
                     // JavaScript `await` flattens promise chains: an erased
                     // callable adapted to a promise-returning signature may
                     // itself return an erased promise (e.g. a Vitest

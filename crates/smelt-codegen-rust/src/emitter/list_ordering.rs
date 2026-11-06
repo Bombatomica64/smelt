@@ -36,7 +36,7 @@ impl FunctionEmitter<'_> {
         // read made it `x.clone().clone()`.
         let list_text = self.operand_borrow_expr(list)?;
         if key.is_some() || reverse {
-            let (prefix, closure) = self.list_sort_by_text(key, reverse, element_ty)?;
+            let (prefix, closure) = self.list_sort_by(key, reverse, element_ty)?;
             return Ok(RustExpr::atom(format!(
                 "{{ {prefix}let mut sorted = {list_text}.clone(); sorted.sort_by({closure}); sorted }}"
             )));
@@ -63,7 +63,7 @@ impl FunctionEmitter<'_> {
     /// operands rather than reversing the result, so equal items keep their
     /// original order to match Python's stable descending sort. Floating keys use
     /// `partial_cmp` and panic on unordered values such as `NaN`.
-    pub(super) fn list_sort_by_text(
+    pub(super) fn list_sort_by(
         &self,
         key: Option<&Operand>,
         reverse: bool,

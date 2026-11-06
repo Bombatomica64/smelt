@@ -45,7 +45,7 @@ use crate::{
 /// A type parameter that appears inside a callback parameter is *no longer*
 /// rejected outright. That gate (Increment 1 of
 /// `blocker-logs/estk-callback-generics-plan.md`) existed because
-/// `param_type_text` rendered a callback's parameter halves in an empty
+/// `param_type` rendered a callback's parameter halves in an empty
 /// type-parameter scope, so a callee whose signature said `Fn(T)` was handed
 /// closures declared `|arg: SmeltUnknown|`. The scope, not Rust inference, was
 /// the defect; both halves of a callback type now render in the callee's own
@@ -1160,7 +1160,7 @@ fn type_param_inferable_through_callback(
         // An erased-unknown-rest callback (`(...args: T[]) => unknown`) is the
         // shape `rust_type` renders as the concrete struct
         // `SmeltErasedFunction`. The *parameter* declaration of a borrowed one
-        // still goes through `param_type_text`, so the callee would advertise
+        // still goes through `param_type`, so the callee would advertise
         // a real `Fn` bound — but every call site hands it a
         // `SmeltErasedFunction` VALUE (`function_shape_adapter` bails out
         // early when both sides are that shape), and that struct implements no

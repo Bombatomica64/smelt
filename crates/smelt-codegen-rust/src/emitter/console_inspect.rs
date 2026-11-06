@@ -65,7 +65,7 @@ impl FunctionEmitter<'_> {
     /// already matches Node and keeps the generated text free of a trait call
     /// for the common case; a `SmeltUnknown` keeps `Display`, because an
     /// operand typed `unknown` does not always emit the erased carrier (see
-    /// `console_arg_text`).
+    /// `console_arg`).
     pub(super) fn console_inspects(&self, ty: TypeId, absent: AbsentSpelling) -> bool {
         if absent != AbsentSpelling::Undefined {
             return false;

@@ -951,7 +951,7 @@ impl FunctionEmitter<'_> {
         right: &str,
         ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
-        let fn_ty = self.type_text(ty)?;
+        let fn_ty = self.rendered_type(ty)?;
         // `smelt_same_function_identity` (which also answers through identity
         // links a callable gains crossing the erased ABI) lives in the
         // `SmeltUnknown` runtime. A program without that runtime has no erased

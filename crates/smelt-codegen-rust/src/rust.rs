@@ -52,8 +52,6 @@ impl Precedence {
 pub trait Formed {
     /// How tightly this expression binds.
     fn precedence(&self) -> Precedence;
-    /// TEMPORARY migration audit.
-    fn origin(&self) -> String { "bare".to_owned() }
 }
 
 impl Formed for str {
@@ -72,7 +70,23 @@ impl<T: Formed + ?Sized> Formed for &T {
     fn precedence(&self) -> Precedence {
         (**self).precedence()
     }
-    fn origin(&self) -> String { (**self).origin() }
+}
+
+/// A fact a producer states about an expression, beyond how it binds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ExprFact {
+    /// Nothing more than its precedence.
+    Plain,
+    /// `"literal".to_owned()`, the emitter's own spelling of a string constant.
+    OwnedLiteral,
+    /// The unit value `()`.
+    Unit,
+    /// The `self` receiver.
+    Receiver,
+    /// The erased `undefined` constant.
+    Undefined,
+    /// A tuple-indexed place, see [`RustExpr::indexed_place`].
+    IndexedPlace,
 }
 
 /// The spelling of a method-call clone, as [`RustExpr::ending_in_clone`] records it.
@@ -88,65 +102,57 @@ pub struct RustExpr {
     precedence: Precedence,
     /// Whether the text ends in a `.clone()` call, so it is already owned.
     clone_tail: bool,
-    /// Whether the text is `"literal".to_owned()`, the emitter's own spelling of
-    /// a string constant.
-    owned_literal: bool,
-    /// TEMPORARY migration audit: who built this expression.
-    pub origin: &'static std::panic::Location<'static>,
+    /// What the producer knows this expression to be, beyond how it binds.
+    fact: ExprFact,
+    /// Whether this default value resolves through a type's `Default` impl, at
+    /// any depth, so a generated impl must bound that type.
+    delegates_default: bool,
 }
 
 impl RustExpr {
     /// `text`, at `precedence`.
-    #[track_caller]
     fn with_precedence(text: impl Into<String>, precedence: Precedence) -> Self {
-        Self { text: text.into(), precedence, clone_tail: false, owned_literal: false, origin: std::panic::Location::caller() }
+        Self { text: text.into(), precedence, clone_tail: false, fact: ExprFact::Plain, delegates_default: false }
     }
 
     /// An identifier or field path.
     #[must_use]
-    #[track_caller]
     pub fn path(text: impl Into<String>) -> Self {
         Self::with_precedence(text, Precedence::Path)
     }
 
     /// A postfix chain; see [`Precedence::Chain`].
     #[must_use]
-    #[track_caller]
     pub fn chain(text: impl Into<String>) -> Self {
         Self::with_precedence(text, Precedence::Chain)
     }
 
     /// A tightly binding non-chain; see [`Precedence::Atom`].
     #[must_use]
-    #[track_caller]
     pub fn atom(text: impl Into<String>) -> Self {
         Self::with_precedence(text, Precedence::Atom)
     }
 
     /// An `as` cast.
     #[must_use]
-    #[track_caller]
     pub fn cast(text: impl Into<String>) -> Self {
         Self::with_precedence(text, Precedence::Cast)
     }
 
     /// An expression with a loose top-level operator.
     #[must_use]
-    #[track_caller]
     pub fn loose(text: impl Into<String>) -> Self {
         Self::with_precedence(text, Precedence::Loose)
     }
 
     /// An expression whose producer does not state its form.
     #[must_use]
-    #[track_caller]
     pub fn opaque(text: impl AsRef<str>) -> Self {
         Self::with_precedence(text.as_ref(), Precedence::Unstated)
     }
 
     /// `text`, a postfix applied to `receiver`: it binds as `receiver` does.
     #[must_use]
-    #[track_caller]
     pub fn postfix_on(receiver: &(impl Formed + ?Sized), text: impl Into<String>) -> Self {
         let precedence = match receiver.precedence() {
             Precedence::Path => Precedence::Chain,
@@ -158,15 +164,21 @@ impl RustExpr {
     /// `text`, a field of `base`: a path stays a path, so `self.items` is
     /// spelled without the parentheses a method chain may need.
     #[must_use]
-    #[track_caller]
     pub fn field_on(base: &(impl Formed + ?Sized), text: impl Into<String>) -> Self {
         Self::with_precedence(text, base.precedence())
+    }
+
+    /// Element `index` of the tuple `base`. It re-reads a place only when `base`
+    /// is one.
+    #[must_use]
+    pub fn tuple_field(base: &Self, index: usize) -> Self {
+        let element = Self::postfix_on(base, format!("{base}.{index}"));
+        if base.is_trivial_place() { element.indexed_place() } else { element }
     }
 
     /// `text`, a postfix on `receiver` whose spine holds a path separator or a
     /// turbofish: an [`Precedence::Atom`] at best.
     #[must_use]
-    #[track_caller]
     pub fn atom_on(receiver: &(impl Formed + ?Sized), text: impl Into<String>) -> Self {
         Self::with_precedence(text, receiver.precedence().max(Precedence::Atom))
     }
@@ -190,33 +202,91 @@ impl RustExpr {
     /// This expression, recorded as spelling `"literal".to_owned()`.
     #[must_use]
     pub fn owned_literal(mut self) -> Self {
-        self.owned_literal = true;
+        self.fact = ExprFact::OwnedLiteral;
         self
     }
 
-    /// TEMPORARY migration audit.
-    #[track_caller]
-    fn audit(&self, kind: &str) {
-        use std::io::Write;
-        if self.precedence != Precedence::Unstated { return; }
-        let Ok(path) = std::env::var("SMELT_SHADOW") else { return };
-        let at = std::panic::Location::caller();
-        let short: String = self.text.chars().take(90).collect::<String>().replace('\n', " ");
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-            let _ = writeln!(f, "U {kind} {}:{} {}:{} Unstated {short}", at.file(), at.line(), self.origin.file(), self.origin.line());
-        }
+    /// The unit value, which is also how an absent constant renders.
+    #[must_use]
+    pub fn unit() -> Self {
+        Self { fact: ExprFact::Unit, ..Self::atom("()") }
+    }
+
+    /// The `self` receiver of a method body.
+    #[must_use]
+    pub fn receiver() -> Self {
+        Self { fact: ExprFact::Receiver, ..Self::path("self") }
+    }
+
+    /// The erased `undefined` constant.
+    #[must_use]
+    pub fn undefined() -> Self {
+        Self { fact: ExprFact::Undefined, ..Self::atom("SmeltUnknown::Undefined") }
+    }
+
+    /// This expression, recorded as a tuple-indexed place such as `a.0`: it binds
+    /// as a chain but re-reads a binding with no evaluation, as a path does.
+    #[must_use]
+    pub fn indexed_place(mut self) -> Self {
+        self.fact = ExprFact::IndexedPlace;
+        self
+    }
+
+    /// This default value, recorded as resolving through `Default`.
+    #[must_use]
+    pub fn delegating_default(mut self) -> Self {
+        self.delegates_default = true;
+        self
+    }
+
+    /// This default value, delegating exactly when one of `parts` does.
+    #[must_use]
+    pub fn delegating_with<'a>(mut self, parts: impl IntoIterator<Item = &'a Self>) -> Self {
+        self.delegates_default |= parts.into_iter().any(Self::delegates_default);
+        self
+    }
+
+    /// Whether this default value resolves through a type's `Default` impl.
+    #[must_use]
+    pub fn delegates_default(&self) -> bool {
+        self.delegates_default
+    }
+
+    /// Whether this expression is the unit value.
+    #[must_use]
+    pub fn is_unit(&self) -> bool {
+        self.fact == ExprFact::Unit
+    }
+
+    /// Whether this expression is the `self` receiver.
+    #[must_use]
+    pub fn is_receiver(&self) -> bool {
+        self.fact == ExprFact::Receiver
+    }
+
+    /// Whether this expression is the erased `undefined` constant.
+    #[must_use]
+    pub fn is_undefined(&self) -> bool {
+        self.fact == ExprFact::Undefined
+    }
+
+    /// Whether this expression already ends in a `.clone()` call.
+    #[must_use]
+    pub fn has_clone_tail(&self) -> bool {
+        self.clone_tail
+    }
+
+    /// Whether duplicating this expression re-reads a binding without
+    /// re-evaluating anything or moving it twice.
+    #[must_use]
+    pub fn is_trivial_place(&self) -> bool {
+        self.precedence == Precedence::Path || self.fact == ExprFact::IndexedPlace
     }
 
     /// How tightly this expression binds.
     #[must_use]
     pub fn binding(&self) -> Precedence {
         self.precedence
-    }
-
-    /// Whether this expression spells `"literal".to_owned()`.
-    #[must_use]
-    pub fn is_owned_literal(&self) -> bool {
-        self.owned_literal
     }
 
     /// An owned copy of this value, without cloning what is already owned.
@@ -226,9 +296,7 @@ impl RustExpr {
     /// nothing else observes. A chain keeps the plain `value.clone()` spelling; any
     /// other form is parenthesised so the result splices into a larger expression.
     #[must_use]
-    #[track_caller]
     pub fn cloned_value(&self) -> Self {
-        self.audit("clone");
         match (self.precedence.is_chain(), self.clone_tail) {
             (true, true) => self.clone(),
             (true, false) => Self::chain(format!("{}{CLONE_SUFFIX}", self.text)).ending_in_clone(),
@@ -244,9 +312,7 @@ impl RustExpr {
     /// a `&`. Any looser expression is parenthesised so the `&` cannot bind more
     /// tightly than the caller meant.
     #[must_use]
-    #[track_caller]
     pub fn borrowed_value(&self) -> Self {
-        self.audit("borrow");
         if !self.precedence.is_chain() {
             return Self::loose(format!("&({})", self.text));
         }
@@ -260,9 +326,7 @@ impl RustExpr {
 
     /// The text, parenthesized only when it cannot take a postfix.
     #[must_use]
-    #[track_caller]
     pub fn parenthesized_if_needed(&self) -> String {
-        self.audit("paren");
         if self.precedence.binds_tightly() {
             self.text.clone()
         } else {
@@ -273,9 +337,7 @@ impl RustExpr {
     /// The text as the operand of an `as` cast: a cast or a unary operator binds
     /// at least as tightly, anything looser is parenthesized.
     #[must_use]
-    #[track_caller]
     pub fn as_cast_operand(&self) -> String {
-        self.audit("cast");
         if self.precedence <= Precedence::Cast {
             self.text.clone()
         } else {
@@ -300,12 +362,10 @@ impl Formed for RustExpr {
     fn precedence(&self) -> Precedence {
         self.precedence
     }
-    fn origin(&self) -> String { format!("{}:{}", self.origin.file(), self.origin.line()) }
 }
 
 impl From<String> for RustExpr {
     /// Text whose producer states nothing about it.
-    #[track_caller]
     fn from(text: String) -> Self {
         Self::opaque(text)
     }
@@ -313,7 +373,6 @@ impl From<String> for RustExpr {
 
 impl From<&str> for RustExpr {
     /// Text whose producer states nothing about it.
-    #[track_caller]
     fn from(text: &str) -> Self {
         Self::opaque(text)
     }
@@ -361,7 +420,7 @@ const TO_OWNED_SUFFIX: &str = ".to_owned()";
 /// buffer move-and-copy for a `String`.
 #[must_use]
 pub fn erased_string(value: &RustExpr) -> RustExpr {
-    if value.owned_literal {
+    if value.fact == ExprFact::OwnedLiteral {
         let literal = &value.text[..value.text.len() - TO_OWNED_SUFFIX.len()];
         return RustExpr::atom(format!("SmeltUnknown::String({literal}.into())"));
     }
@@ -581,7 +640,7 @@ mod tests {
     #[test]
     fn erases_a_string_literal_without_an_intermediate_string() {
         assert_eq!(
-            erased_string(&RustExpr::string_literal("hi").into_string()),
+            erased_string(&RustExpr::string_literal("hi")).as_str(),
             r#"SmeltUnknown::String("hi".into())"#
         );
     }
@@ -592,19 +651,52 @@ mod tests {
     #[test]
     fn parenthesizes_every_erased_expression_that_is_not_a_path() {
         assert_eq!(
-            erased_string("self.message"),
+            erased_string(&RustExpr::path("self.message")).as_str(),
             "SmeltUnknown::String(self.message.into())"
         );
         assert_eq!(
-            erased_string("left + right"),
+            erased_string(&RustExpr::loose("left + right")).as_str(),
             "SmeltUnknown::String((left + right).into())"
         );
         // Two literals concatenated are not one literal: the `.to_owned()` suffix
         // belongs to the second operand, not to the whole expression.
         assert_eq!(
-            erased_string(r#""a".to_owned() + &"b".to_owned()"#),
+            erased_string(&RustExpr::loose(r#""a".to_owned() + &"b".to_owned()"#)).as_str(),
             r#"SmeltUnknown::String(("a".to_owned() + &"b".to_owned()).into())"#
         );
+    }
+
+    /// An owned copy is taken once: a chain that already ends in `.clone()` is not
+    /// cloned again, and a form that cannot take a postfix is parenthesised.
+    #[test]
+    fn an_owned_copy_clones_only_what_is_not_owned() {
+        assert_eq!(RustExpr::path("items").cloned_value().as_str(), "items.clone()");
+        let owned = RustExpr::chain("items.clone()").ending_in_clone();
+        assert_eq!(owned.cloned_value().as_str(), "items.clone()");
+        assert_eq!(RustExpr::atom("Foo::new()").cloned_value().as_str(), "(Foo::new()).clone()");
+        assert_eq!(RustExpr::loose("a + b").cloned_value().as_str(), "(a + b).clone()");
+        let owned_atom = RustExpr::atom("Foo::new().clone()").ending_in_clone();
+        assert_eq!(owned_atom.cloned_value().as_str(), "(Foo::new().clone())");
+        assert_eq!(RustExpr::opaque("a").cloned_value().as_str(), "(a).clone()");
+    }
+
+    /// A borrow drops a chain's trailing clone, and keeps `&` off a looser operator.
+    #[test]
+    fn a_borrow_reads_through_a_trailing_clone() {
+        assert_eq!(RustExpr::path("items").borrowed_value().as_str(), "&items");
+        let owned = RustExpr::chain("items.clone()").ending_in_clone();
+        assert_eq!(owned.borrowed_value().as_str(), "&items");
+        assert_eq!(RustExpr::loose("a + b").borrowed_value().as_str(), "&(a + b)");
+    }
+
+    /// Each binding level answers the two inlining questions on its own terms.
+    #[test]
+    fn precedence_decides_parentheses() {
+        assert_eq!(RustExpr::chain("a.b()").parenthesized_if_needed(), "a.b()");
+        assert_eq!(RustExpr::cast("a as i64").parenthesized_if_needed(), "(a as i64)");
+        assert_eq!(RustExpr::cast("a as i64").as_cast_operand(), "a as i64");
+        assert_eq!(RustExpr::loose("a + b").as_cast_operand(), "(a + b)");
+        assert_eq!(RustExpr::opaque("a").parenthesized_if_needed(), "(a)");
     }
 
     #[test]
@@ -664,6 +756,10 @@ pub struct RustType {
     holds_callable: bool,
     /// Whether the erased runtime carrier appears anywhere inside this type.
     holds_carrier: bool,
+    /// Whether the rendered type spells an erased value anywhere inside it.
+    spells_erased: bool,
+    /// Whether the rendered type spells a type parameter anywhere inside it.
+    spells_type_param: bool,
 }
 
 /// What a rendered Rust type is, for a decision that depends on the output type
@@ -702,6 +798,8 @@ impl RustType {
             shape,
             holds_callable: shape == RustShape::Callable,
             holds_carrier: shape == RustShape::Erased,
+            spells_erased: matches!(shape, RustShape::Erased | RustShape::ErasedFunction),
+            spells_type_param: shape == RustShape::Generic,
         }
     }
 
@@ -723,6 +821,8 @@ impl RustType {
         for part in parts {
             self.holds_callable |= part.holds_callable;
             self.holds_carrier |= part.holds_carrier;
+            self.spells_erased |= part.spells_erased;
+            self.spells_type_param |= part.spells_type_param;
         }
         self
     }
@@ -752,6 +852,20 @@ impl RustType {
         self.holds_carrier
     }
 
+    /// Whether the type spells an erased value anywhere inside it: the carrier
+    /// or the erased callable. A type built on the carrier, such as a runtime
+    /// container that uses it internally, does not.
+    #[must_use]
+    pub fn spells_erased(&self) -> bool {
+        self.spells_erased
+    }
+
+    /// Whether the type spells a type parameter anywhere inside it.
+    #[must_use]
+    pub fn spells_type_param(&self) -> bool {
+        self.spells_type_param
+    }
+
     /// Returns the rendered source text for this type.
     #[must_use]
     pub fn as_str(&self) -> &str {
@@ -762,6 +876,35 @@ impl RustType {
     #[must_use]
     pub fn into_string(self) -> String {
         self.text
+    }
+}
+
+impl From<String> for RustType {
+    /// A concrete type holding no callable, from already-rendered text.
+    fn from(text: String) -> Self {
+        Self::raw(text)
+    }
+}
+
+impl AsRef<str> for RustType {
+    fn as_ref(&self) -> &str {
+        &self.text
+    }
+}
+
+impl std::borrow::Borrow<str> for RustType {
+    /// Lets a slice of types `join` into a comma-separated list.
+    fn borrow(&self) -> &str {
+        &self.text
+    }
+}
+
+impl std::ops::Deref for RustType {
+    type Target = str;
+
+    /// The text, for the positions that splice it into a larger template.
+    fn deref(&self) -> &str {
+        &self.text
     }
 }
 

@@ -20,7 +20,7 @@
 
 use crate::rust::RustExpr;
 use super::*;
-use crate::emitter::call::CallText;
+use crate::emitter::call::RenderedCall;
 
 impl FunctionEmitter<'_> {
     /// Emit a `new <view>(..)` / `new ArrayBuffer(..)` construction.
@@ -221,12 +221,12 @@ impl FunctionEmitter<'_> {
     /// opposite of a typed array's fixed little-endian order; that default is
     /// the spec's, and it is the one thing about `DataView` most easily got
     /// wrong.
-    pub(super) fn data_view_access_text(
+    pub(super) fn data_view_access(
         &self,
         write: bool,
         element: smelt_stdlib::TypedArrayElement,
         args: &[Operand],
-    ) -> Result<CallText, EmitError> {
+    ) -> Result<RenderedCall, EmitError> {
         let Some((view, accessor_args)) = args.split_first() else {
             return Err(EmitError::new(
                 "internal: a `DataView` accessor call takes its receiver first",
@@ -267,7 +267,7 @@ impl FunctionEmitter<'_> {
         } else {
             (crate::thrown::DATA_VIEW_GET_FN, crate::thrown::DATA_VIEW_SET_FN)
         };
-        Ok(CallText::propagating(match value {
+        Ok(RenderedCall::propagating(match value {
             Some(value) => format!(
                 "{set_adapter}(&{view_text}, {kind}, {offset}, {value}, {little_endian})"
             ),

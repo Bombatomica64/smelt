@@ -228,7 +228,7 @@ impl FunctionEmitter<'_> {
             smelt_hir::IncomingMessageOp::Method => RustExpr::postfix_on(&receiver, format!("{receiver}.method()")),
             smelt_hir::IncomingMessageOp::Url => RustExpr::postfix_on(&receiver, format!("{receiver}.url()")),
             smelt_hir::IncomingMessageOp::Headers => {
-                let container = self.signature_type_text(dest_ty)?;
+                let container = self.signature_type(dest_ty)?;
                 RustExpr::loose(format!(
                     "<{container} as ::std::iter::FromIterator<(String, String)>>::from_iter({receiver}.headers())"
                 ))

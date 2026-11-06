@@ -4,6 +4,7 @@
 //! canonical tagged enum. Truly dynamic members (`unknown`, unscoped type
 //! parameters, or erased host shapes) continue to use `SmeltUnknown`.
 
+use crate::rust::RustType;
 use crate::rust::RustExpr;
 use super::*;
 use crate::rust::RustIdent;
@@ -17,8 +18,8 @@ impl FunctionEmitter<'_> {
     /// Render a concrete union storage type at a use site of the current
     /// function, with its generic arguments resolved in this function's
     /// lexical type-parameter scope (see [`Self::union_type_text_in`]).
-    pub(super) fn union_type_text(&self, ty: TypeId) -> Result<String, EmitError> {
-        self.union_type_text_in(ty, &self.render_scope().substitution())
+    pub(super) fn union_rust_type(&self, ty: TypeId) -> Result<RustType, EmitError> {
+        self.union_type_text_in(ty, &self.render_scope().substitution()).map(RustType::from)
     }
 
     /// Render a concrete union storage type at a use site, resolving each of
@@ -73,17 +74,17 @@ impl FunctionEmitter<'_> {
     /// Spell a concrete union with the generated enum's OWN declared
     /// parameter names (`SmeltUnionN<T>`), for the enum's definition and impl
     /// blocks, where those names are in scope by construction.
-    pub(super) fn union_declared_type_text(&self, ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn union_declared_type(&self, ty: TypeId) -> Result<RustType, EmitError> {
         let params = self.union_type_params(ty)?;
         if params.is_empty() {
-            return Ok(union_name(ty));
+            return Ok(RustType::from(union_name(ty)));
         }
         let args = params
             .iter()
             .map(|param| self.union_type_param_name(*param))
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
-        Ok(format!("{}<{args}>", union_name(ty)))
+        Ok(RustType::raw(format!("{}<{args}>", union_name(ty))))
     }
 
     /// Collect free type parameters retained by a concrete union's members.
@@ -264,7 +265,7 @@ impl FunctionEmitter<'_> {
         }
         // A caller that already owns a clone needs no second one; `.clone().clone()`
         // is not what a hand-writing Rust team would produce.
-        if value_text.ends_with(".clone()") {
+        if value_text.has_clone_tail() {
             return RustExpr::postfix_on(&value_text, self.carrier_format(format_args!("{value_text}.into_smelt_unknown()")));
         }
         RustExpr::postfix_on(&value_text, self.carrier_format(format_args!("{value_text}.clone().into_smelt_unknown()")))
@@ -529,7 +530,7 @@ impl FunctionEmitter<'_> {
                 .enumerate()
                 .map(|(index, member)| {
                     if *member == awaited {
-                        let awaited_text = self.type_text(awaited)?;
+                        let awaited_text = self.rendered_type(awaited)?;
                         Ok(format!(
                             "{source_name}::M{index}(value) => SmeltFuture::<{awaited_text}>::resolved(value)"
                         ))
@@ -1845,7 +1846,7 @@ pub(crate) fn emit_union_definitions(
         // and is not weakened by it: it routes through the erased view, which
         // needs `IntoSmeltUnknown` anyway.
         let default_generics = impl_generics.clone();
-        let target = emitter.union_declared_type_text(type_id)?;
+        let target = emitter.union_declared_type(type_id)?;
         // Render the members in the enum's OWN type-parameter environment. The
         // default environment is the first function's lexical scope, which does
         // not declare the union's parameters, so a member mentioning one erased

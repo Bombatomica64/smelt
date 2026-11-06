@@ -68,23 +68,22 @@ enum MutListArgKind {
 /// (a body with no error channel, a `try` block with a catch arm) handles the
 /// `Result` itself.
 #[derive(Clone, Debug)]
-pub(super) struct CallText {
+pub(super) struct RenderedCall {
     /// The call expression, without any `?`.
     call: RustExpr,
     /// Whether the call yields a `Result` this body propagates with `?`.
     propagates: bool,
 }
 
-impl From<RustExpr> for CallText {
+impl From<RustExpr> for RenderedCall {
     /// A call that yields its value directly.
     fn from(call: RustExpr) -> Self {
         Self::plain(call)
     }
 }
 
-impl CallText {
+impl RenderedCall {
     /// A call that yields its value directly.
-    #[track_caller]
     pub(super) fn plain(call: impl Into<RustExpr>) -> Self {
         Self {
             call: call.into(),
@@ -93,7 +92,6 @@ impl CallText {
     }
 
     /// A call that yields a `Result` whose error propagates.
-    #[track_caller]
     pub(super) fn propagating(call: impl Into<RustExpr>) -> Self {
         Self {
             call: call.into(),
@@ -102,7 +100,6 @@ impl CallText {
     }
 
     /// `call`, propagating exactly when the callee can throw.
-    #[track_caller]
     pub(super) fn propagating_if(call: impl Into<RustExpr>, propagates: bool) -> Self {
         Self {
             call: call.into(),
@@ -130,7 +127,7 @@ impl CallText {
     }
 }
 
-impl From<String> for CallText {
+impl From<String> for RenderedCall {
     fn from(call: String) -> Self {
         Self::plain(call)
     }
@@ -360,7 +357,7 @@ impl FunctionEmitter<'_> {
                         };
                         self.value_at_type(value, *item_ty)?
                     }
-                    None => RustExpr::atom("()"),
+                    None => RustExpr::unit(),
                 };
                 Ok(RustExpr::atom(format!(
                     "SmeltFuture::from_future(Box::pin(async move {{ {sleep_ms}({duration_text} as f64).await; Ok::<_, {ERROR_BOX}>({value_text}) }}))",
@@ -485,7 +482,7 @@ impl FunctionEmitter<'_> {
                     }
                     _ => format!("({executor_text})(smelt_resolve, smelt_reject);"),
                 };
-                let output_text = self.signature_type_text(output_ty)?;
+                let output_text = self.signature_type(output_ty)?;
                 // `Promise<void>` still accepts an ignored optional value, but
                 // a concrete `Promise<T>` exposes a typed resolver. Keeping the
                 // resolver parameter at `T` lets named executors pass through
@@ -495,9 +492,9 @@ impl FunctionEmitter<'_> {
                 } else {
                     output_ty
                 };
-                let resolve_input_text = self.signature_type_text(resolve_input_ty)?;
+                let resolve_input_text = self.signature_type(resolve_input_ty)?;
                 // The executor's declared `resolve` type goes through
-                // `function_type_param_text`, so a list-typed resolver argument is
+                // `function_type_param`, so a list-typed resolver argument is
                 // spelled `&SmeltList<..>` there. This synthesized resolver has to
                 // match that spelling exactly or the executor call does not type-check,
                 // and its body then needs an owned value to store into the result slot.
@@ -506,7 +503,7 @@ impl FunctionEmitter<'_> {
                 let resolve_input_text = if resolve_by_ref {
                     format!("&{resolve_input_text}")
                 } else {
-                    resolve_input_text
+                    resolve_input_text.into_string()
                 };
                 let resolve_source = if resolve_by_ref {
                     RustExpr::chain("value.clone()").ending_in_clone()
@@ -621,7 +618,7 @@ impl FunctionEmitter<'_> {
                 // `onFinally` takes no argument; the invocation helper drops the
                 // placeholder for a zero-parameter callback.
                 let invocation =
-                    self.promise_callback_invocation_with(callback, &RustExpr::opaque(&callback_expr), &RustExpr::atom("()"))?;
+                    self.promise_callback_invocation_with(callback, &RustExpr::opaque(&callback_expr), &RustExpr::unit())?;
                 // The settle step awaits a returned promise and propagates a
                 // throw or rejection with `?` — which is exactly the case where
                 // `finally`'s own rejection replaces the original outcome.
@@ -870,12 +867,12 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a function call to its Rust text representation.
-    pub(super) fn call_text(&self, callee: &Callee, args: &[Operand]) -> Result<CallText, EmitError> {
+    pub(super) fn rendered_call(&self, callee: &Callee, args: &[Operand]) -> Result<RenderedCall, EmitError> {
         match callee {
             Callee::Builtin(BuiltinFn::ConsoleLog { absent }) => {
                 let rendered_args = args
                     .iter()
-                    .map(|arg| self.console_arg_text(arg, *absent))
+                    .map(|arg| self.console_arg(arg, *absent))
                     .collect::<Result<Vec<_>, _>>()?;
                 if rendered_args.is_empty() {
                     Ok("{ println!(); }".to_owned().into())
@@ -899,7 +896,7 @@ impl FunctionEmitter<'_> {
                 // default for a write that only comes from that surface.
                 let (format_spec, value) = args
                     .first()
-                    .map(|argument| self.console_arg_text(argument, AbsentSpelling::Undefined))
+                    .map(|argument| self.console_arg(argument, AbsentSpelling::Undefined))
                     .transpose()?
                     .unwrap_or_else(|| ("{}", "\"\"".to_owned()));
                 let macro_name = if matches!(callee, Callee::Builtin(BuiltinFn::ConsoleWrite)) {
@@ -910,7 +907,7 @@ impl FunctionEmitter<'_> {
                 Ok(RustExpr::atom(format!("{{ {macro_name}!(\"{format_spec}\", {value}); }}")).into())
             }
             Callee::Op(op) => Ok(self.fallible_op_call(op)?.text),
-            Callee::BaseInit(func) => self.base_initializer_call_text(*func, args),
+            Callee::BaseInit(func) => self.base_initializer_call(*func, args),
             Callee::Static(func) => {
                 let function = self
                     .mir
@@ -941,7 +938,7 @@ impl FunctionEmitter<'_> {
                         rendered_args.push(self.default_value(target_ty)?);
                     }
                     let arg_values = rendered_args.join(", ");
-                    return Ok(CallText::propagating_if(
+                    return Ok(RenderedCall::propagating_if(
                         RustExpr::atom(format!("{class_name}::new({arg_values})")),
                         self.call_is_throwing(function),
                     ));
@@ -955,7 +952,7 @@ impl FunctionEmitter<'_> {
                         Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                     ) || self.is_erased_class_type(self.operand_ty(receiver)?)
                     {
-                        return self.default_value(function.return_ty).map(CallText::from);
+                        return self.default_value(function.return_ty).map(RenderedCall::from);
                     }
                     let receiver_text = match receiver {
                         Operand::Copy(place) | Operand::Move(place) => self.place_expr(place)?,
@@ -1000,7 +997,7 @@ impl FunctionEmitter<'_> {
                                 );
                             }
                             // A callback parameter the method does not retain is
-                            // emitted `&dyn Fn(..)` (`param_type_text`), the same
+                            // emitted `&dyn Fn(..)` (`param_type`), the same
                             // borrowed-callback ABI a free function gets, so the
                             // argument is the same reborrow the free-function
                             // ladders render. Passing the owned `Rc<dyn Fn>` was
@@ -1080,7 +1077,7 @@ impl FunctionEmitter<'_> {
                     } else {
                         RustExpr::atom(format!("{{ {} {call} }}", prebound.join(" ")))
                     };
-                    return Ok(CallText::propagating_if(call, self.call_is_throwing(function)));
+                    return Ok(RenderedCall::propagating_if(call, self.call_is_throwing(function)));
                 }
                 if let HirOrigin::ClassStaticMethod { class, method, .. } = function.origin {
                     // `Class.staticMethod(args)` lowers to the receiver-free
@@ -1105,7 +1102,7 @@ impl FunctionEmitter<'_> {
                         rendered_args.push(self.default_value(target_ty)?);
                     }
                     let arg_values = rendered_args.join(", ");
-                    return Ok(CallText::propagating_if(
+                    return Ok(RenderedCall::propagating_if(
                         RustExpr::atom(format!("{class_name}::{method_name}({arg_values})")),
                         self.call_is_throwing(function),
                     ));
@@ -1137,7 +1134,7 @@ impl FunctionEmitter<'_> {
                             .map(|arg| self.erase(arg))
                             .collect::<Result<Vec<_>, _>>()?
                             .join(", ");
-                        return Ok(CallText::propagating_if(
+                        return Ok(RenderedCall::propagating_if(
                             RustExpr::chain(format!("{rust_function_name}(vec![{items}])")),
                             self.call_is_throwing(function),
                         ));
@@ -1220,7 +1217,7 @@ impl FunctionEmitter<'_> {
                         rendered_args.push(self.default_value(self.local_decl(*param)?.ty)?);
                     }
                     let arg_values = rendered_args.join(", ");
-                    return Ok(CallText::propagating_if(
+                    return Ok(RenderedCall::propagating_if(
                         RustExpr::chain(format!("{rust_function_name}({arg_values})")),
                         self.call_is_throwing(function),
                     ));
@@ -1291,7 +1288,7 @@ impl FunctionEmitter<'_> {
                     }
                 }
                 let arg_values = rendered_args.join(", ");
-                Ok(CallText::propagating_if(
+                Ok(RenderedCall::propagating_if(
                     RustExpr::chain(format!("{rust_function_name}({arg_values})")),
                     self.call_is_throwing(function),
                 ))
@@ -1340,7 +1337,7 @@ impl FunctionEmitter<'_> {
                 let declared_abi = self
                     .class_field_declared_function_type(indirect_callee)
                     .map(|declared| declared.params);
-                let rendered_args = match self.rest_vector_call_args_text(args, Some(function))? {
+                let rendered_args = match self.rest_vector_call_args(args, Some(function))? {
                     Some(packed) => packed.join(", "),
                     None => self.indirect_call_args_text_with_abi(
                         function,
@@ -1376,7 +1373,7 @@ impl FunctionEmitter<'_> {
                         "{{ let smelt_callable = ::std::clone::Clone::clone(&{callee_text}); (smelt_callable)({rendered_args}){suffix} }}"
                     )).into());
                 }
-                Ok(CallText::propagating_if(
+                Ok(RenderedCall::propagating_if(
                     RustExpr::atom(format!("({callee_text})({rendered_args})")),
                     self.function_value_call_is_fallible(function),
                 ))
@@ -1569,7 +1566,7 @@ impl FunctionEmitter<'_> {
                 .and_then(|params| params.get(index).copied())
                 .unwrap_or(substituted)
         };
-        let packed_rest = self.packed_rest_arg_text(args, Some(function))?;
+        let packed_rest = self.packed_rest_arg(args, Some(function))?;
         let positional_args = packed_rest.as_ref().and_then(|(index, _)| args.get(..*index)).unwrap_or(args);
         let mut rendered_args = positional_args
             .iter()
@@ -2684,7 +2681,7 @@ impl FunctionEmitter<'_> {
         // rendering and compare.
         #[cfg(debug_assertions)]
         let monomorphization_before_arguments = self.sampled_call_monomorphization(callee, args);
-        let mut call_text = self.call_text(callee, args)?.into_expression();
+        let mut call_text = self.rendered_call(callee, args)?.into_expression();
         #[cfg(debug_assertions)]
         self.debug_assert_call_monomorphization_stable(
             &self.sampled_callee_name(callee),
@@ -2942,7 +2939,7 @@ impl FunctionEmitter<'_> {
         {
             return Ok(call_text);
         }
-        let rendered = self.call_text(callee, args)?;
+        let rendered = self.rendered_call(callee, args)?;
         // A closure body that is itself fallible returns
         // `Result<_, Box<dyn std::error::Error>>`, so a throwing call inside it
         // keeps its `?` and the error stays recoverable for whoever invokes the
@@ -3049,7 +3046,7 @@ impl FunctionEmitter<'_> {
     /// takes that type's default, as a `Base::new(..)` call does. A throwing
     /// base constructor makes the initializer fallible, so the call carries the
     /// same `?` suffix a throwing `new` does.
-    fn base_initializer_call_text(&self, func: FuncId, args: &[Operand]) -> Result<CallText, EmitError> {
+    fn base_initializer_call(&self, func: FuncId, args: &[Operand]) -> Result<RenderedCall, EmitError> {
         let function = self
             .mir
             .functions
@@ -3079,7 +3076,7 @@ impl FunctionEmitter<'_> {
             let target_ty = self.function_local_decl(function, *param)?.ty;
             rendered_args.push(self.default_value(target_ty)?);
         }
-        Ok(CallText::propagating_if(
+        Ok(RenderedCall::propagating_if(
             RustExpr::atom(format!(
                 "Self::{}({})",
                 crate::base_init::base_initializer_name(self.mir, class)?,
@@ -3157,7 +3154,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts an operand to console.log argument format and returns format string and value.
-    pub(super) fn console_arg_text(
+    pub(super) fn console_arg(
         &self,
         operand: &Operand,
         absent: AbsentSpelling,
@@ -3338,7 +3335,7 @@ impl FunctionEmitter<'_> {
 
     /// Render `value_text` of type `ty` as a `String` expression, console-style.
     ///
-    /// The same three cases as [`Self::console_arg_text`], but producing an
+    /// The same three cases as [`Self::console_arg`], but producing an
     /// owned `String` rather than a format-spec pair, so it can be used inside a
     /// match arm. `value_text` names a *reference* to the value.
     fn console_value(
@@ -3831,7 +3828,7 @@ impl FunctionEmitter<'_> {
             prefix = smelt_stdlib::runtime_symbols::host_override::SLOT_PREFIX,
             suffix = crate::stdlib::host_override_slot_suffix(class_name),
         ));
-        Ok(Some(RustExpr::postfix_on(&slot, format!(
+        Ok(Some(RustExpr::chain(format!(
             "{slot}.with(|smelt_slot| smelt_host_override_instance_of(smelt_slot, &{probed}, &[{marker_list}]))"
         ))))
     }

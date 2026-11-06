@@ -536,7 +536,7 @@ impl FunctionEmitter<'_> {
                         // `impl Trait` is illegal in a `let` annotation, and the
                         // annotation is precisely what drives parameter inference
                         // here, so the boxed `dyn` spelling is required.
-                        ty = self.type_text(callee_ty)?,
+                        ty = self.rendered_type(callee_ty)?,
                     )));
                 }
                 {
@@ -599,7 +599,7 @@ impl FunctionEmitter<'_> {
                         )?;
                         catch_text.push_str(&format!(
                             "let {exception_name}: {} = {exception_value};\n",
-                            self.type_text(exception_decl.ty)?
+                            self.rendered_type(exception_decl.ty)?
                         ));
                         self.mark_local_declared(exception_local);
                     }
@@ -650,7 +650,7 @@ impl FunctionEmitter<'_> {
                             let unknown_ty = self.type_id(Type::Unknown)?;
                             self.value_at_type(value, unknown_ty)?
                         } else {
-                            self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined"))
+                            self.carrier_expr(&RustExpr::undefined())
                         };
                         format!("SmeltGeneratorCommand::Throw({thrown})")
                     }
@@ -943,7 +943,7 @@ impl FunctionEmitter<'_> {
                     // Annotate the backing Vec with the element type so heterogeneous
                     // closures coerce to the shared `Rc<dyn Fn>` element (the dest
                     // annotation used to drive this before `Type::List` became SmeltList).
-                    let elem_text = self.type_text(item_ty)?;
+                    let elem_text = self.rendered_type(item_ty)?;
                     return Ok(RustExpr::atom(format!(
                         "SmeltList::from({{ let smelt_list_items: Vec<{elem_text}> = vec![{items_text}]; smelt_list_items }})"
                     )));
@@ -1031,7 +1031,7 @@ impl FunctionEmitter<'_> {
                             if matches!(self.mir.types.get(value_ty), Some(Type::Function(_))) {
                                 format!(
                                     "{{ let smelt_fn: {} = {}; smelt_fn }}",
-                                    self.type_text(value_ty)?,
+                                    self.rendered_type(value_ty)?,
                                     self.value_at_type(entry_value, value_ty)?
                                 )
                             } else {
@@ -1088,7 +1088,7 @@ impl FunctionEmitter<'_> {
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", "));
                 if items.is_empty() {
-                    Ok(RustExpr::atom("()"))
+                    Ok(RustExpr::unit())
                 } else if items.len() == 1 {
                     Ok(RustExpr::atom(format!("({items_text},)")))
                 } else {
@@ -1855,7 +1855,7 @@ impl FunctionEmitter<'_> {
                     // `undefined` at the destination type.
                     let unknown_ty = self.type_id(Type::Unknown)?;
                     let undefined_text =
-                        self.rendered_at_type(&self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined")), unknown_ty, dest_ty, &self.render_scope())?;
+                        self.rendered_at_type(&self.carrier_expr(&RustExpr::undefined()), unknown_ty, dest_ty, &self.render_scope())?;
                     return Ok(RustExpr::postfix_on(&map_expr, format!("{map_expr}.unwrap_or({undefined_text})")));
                 }
                 // A callable-object record IS callable: its synthetic
@@ -1872,7 +1872,7 @@ impl FunctionEmitter<'_> {
                     return self.default_value(dest_ty);
                 }
                 let callee_text = self.operand_expr(callee)?;
-                if callee_text.as_str() == "()" {
+                if callee_text.is_unit() {
                     return self.default_value(dest_ty);
                 }
                 let emitted_params = self.emitted_function_param_types(&callee_text)?;
@@ -1913,11 +1913,11 @@ impl FunctionEmitter<'_> {
                 }
                 .or_else(|| self.class_field_declared_function_type(callee));
                 let mut rendered_args = if let Some(rest_args) =
-                    self.rest_vector_call_args_text(args, rest_function)?
+                    self.rest_vector_call_args(args, rest_function)?
                 {
                     rest_args
                 } else {
-                    let packed_rest = self.packed_rest_arg_text(args, rest_function)?;
+                    let packed_rest = self.packed_rest_arg(args, rest_function)?;
                     let positional_args = packed_rest.as_ref().and_then(|(index, _)| args.get(..*index)).unwrap_or(args);
                     let mut rendered_args = positional_args
                         .iter()
@@ -1987,7 +1987,7 @@ impl FunctionEmitter<'_> {
                     rendered_args.into_iter().map(RustExpr::into_string).collect()
                 };
                 if args.is_empty()
-                    && rendered_args.as_slice() == ["Vec::new()"]
+                    && rendered_args.len() == 1
                     && matches!(
                         self.mir.types.get(callee_ty),
                         Some(Type::Function(function)) if function.params.is_empty()
@@ -2619,12 +2619,12 @@ impl FunctionEmitter<'_> {
 
 
     /// Packs a call's arguments into the single list a rest-only callee takes.
-    pub(super) fn rest_vector_call_args_text(
+    pub(super) fn rest_vector_call_args(
         &self,
         args: &[Operand],
         function: Option<&FunctionType>,
     ) -> Result<Option<Vec<String>>, EmitError> {
-        Ok(self.packed_rest_arg_text(args, function)?.and_then(|(index, list)| (index == 0).then(|| vec![list])))
+        Ok(self.packed_rest_arg(args, function)?.and_then(|(index, list)| (index == 0).then(|| vec![list])))
     }
 
     /// The rest parameter's index and its packed list, for a call whose operands
@@ -2634,7 +2634,7 @@ impl FunctionEmitter<'_> {
     /// callee has no list-typed rest, when no operand reaches it (the padding fills
     /// an empty list), or when a single operand there already has the list's Rust
     /// type, which is how a spread into the rest arrives.
-    pub(super) fn packed_rest_arg_text(
+    pub(super) fn packed_rest_arg(
         &self,
         args: &[Operand],
         function: Option<&FunctionType>,
@@ -2661,7 +2661,7 @@ impl FunctionEmitter<'_> {
         // where `T` is erased, which is what a spread into the rest arrives as.
         if let [single_arg] = rest_args {
             let arg_ty = self.operand_ty(single_arg)?;
-            if arg_ty == param || self.type_text(arg_ty)? == self.type_text(param)? {
+            if arg_ty == param || self.rendered_type(arg_ty)? == self.rendered_type(param)? {
                 return Ok(None);
             }
         }
@@ -3005,7 +3005,7 @@ impl FunctionEmitter<'_> {
             // key the source type explicitly allows.
             if self.renders_erased(*value)? {
                 let cloned = if self.dict_uses_smelt_record(*key) { "" } else { ".cloned()" };
-                return Ok(RustExpr::opaque(format!(
+                return Ok(RustExpr::postfix_on(&receiver_text, format!(
                     "{receiver_text}.get({field_name:?}){cloned}.unwrap_or({})",
                     self.absent_value()
                 )));
@@ -3185,7 +3185,7 @@ impl FunctionEmitter<'_> {
             call
         };
         let wrapped_returned = self.erase_rendered(&returned, function.return_ty)?;
-        let receiver_clone = if receiver_text.as_str() == "self" {
+        let receiver_clone = if receiver_text.is_receiver() {
             self.self_struct_clone_expr(class)?
         } else {
             RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.clone()")).ending_in_clone()
@@ -3286,7 +3286,7 @@ impl FunctionEmitter<'_> {
         receiver_text: &RustExpr,
         field: Symbol,
     ) -> Result<RustExpr, EmitError> {
-        Ok(RustExpr::from(self.string_field_read(receiver_text, field)?.0))
+        Ok(self.string_field_read(receiver_text, field)?.0)
     }
 
     /// A `String` receiver's builtin field read, as Rust text PAIRED with the
@@ -3311,31 +3311,31 @@ impl FunctionEmitter<'_> {
         &self,
         receiver_text: &RustExpr,
         field: Symbol,
-    ) -> Result<(String, TypeId), EmitError> {
+    ) -> Result<(RustExpr, TypeId), EmitError> {
         let unknown_ty = self.type_id(Type::Unknown)?;
         Ok(match self.symbol_name(field)? {
             "source" => (
-                format!("{receiver_text}.clone()"),
+                RustExpr::postfix_on(receiver_text, format!("{receiver_text}.clone()")).ending_in_clone(),
                 self.type_id(Type::String)?,
             ),
             "global" | "ignoreCase" | "ignore_case" | "multiline" => {
                 match self.existing_type_id(Type::Bool) {
-                    Some(bool_ty) => ("false".to_owned(), bool_ty),
-                    None => (self.carrier_expr(&RustExpr::atom("SmeltUnknown::Bool(false)")).into_string(), unknown_ty),
+                    Some(bool_ty) => (RustExpr::path("false"), bool_ty),
+                    None => (self.carrier_expr(&RustExpr::atom("SmeltUnknown::Bool(false)")), unknown_ty),
                 }
             }
-            "constructor" => (self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null")).into_string(), unknown_ty),
+            "constructor" => (self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null")), unknown_ty),
             "length" => {
                 let count = format!("{receiver_text}.chars().count()");
                 if let Some(int_ty) = self.existing_type_id(Type::Int) {
-                    (format!("({count} as i64)"), int_ty)
+                    (RustExpr::atom(format!("({count} as i64)")), int_ty)
                 } else if let Some(float_ty) = self.existing_type_id(Type::Float) {
-                    (format!("({count} as f64)"), float_ty)
+                    (RustExpr::atom(format!("({count} as f64)")), float_ty)
                 } else {
-                    (self.carrier_format(format_args!("SmeltUnknown::Number({count} as f64)")), unknown_ty)
+                    (RustExpr::atom(self.carrier_format(format_args!("SmeltUnknown::Number({count} as f64)"))), unknown_ty)
                 }
             }
-            _ => (self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null")).into_string(), unknown_ty),
+            _ => (self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null")), unknown_ty),
         })
     }
 
