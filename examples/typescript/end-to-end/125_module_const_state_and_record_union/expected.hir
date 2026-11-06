@@ -10,16 +10,16 @@ module examples/typescript/end-to-end/125_module_const_state_and_record_union/in
     %1 const b: (String, String, Bool)
     %2 const collect: fn(Bool) -> Dict<String, String | List<String>>
   exprs
-    #0: None = global_get @2(cache)
-    #1: None = global_get @3(seen)
+    #0: None = global_get @4(cache)
+    #1: None = global_get @5(seen)
     #2: String = ":id"
-    #3: fn(String) -> (String, String, Bool) = @4(get_pattern)
+    #3: fn(String) -> (String, String, Bool) = @6(get_pattern)
     #4: (String, String, Bool) = call #3(#2)
     #5: String = ":id"
-    #6: fn(String) -> (String, String, Bool) = @4(get_pattern)
+    #6: fn(String) -> (String, String, Bool) = @6(get_pattern)
     #7: (String, String, Bool) = call #6(#5)
     #8: String = ":name"
-    #9: fn(String) -> (String, String, Bool) = @4(get_pattern)
+    #9: fn(String) -> (String, String, Bool) = @6(get_pattern)
     #10: (String, String, Bool) = call #9(#8)
     #11: (String, String, Bool) = %0
     #12: Float = 1.0
@@ -27,10 +27,10 @@ module examples/typescript/end-to-end/125_module_const_state_and_record_union/in
     #14: (String, String, Bool) = %1
     #15: Float = 0.0
     #16: String = tuple_index #14, 0
-    #17: List<String> = global_get @3(seen)
+    #17: List<String> = global_get @5(seen)
     #18: String = "|"
     #19: String = string_join #17, #18
-    #20: None = @8(console_log)
+    #20: None = @10(console_log)
     #21: None = call #20(#13, #16, #19)
     #22: fn(Bool) -> Dict<String, String | List<String>> = closure BodyId(3) captures 0 -> Dict<String, String | List<String>>
     #23: fn(Bool) -> Dict<String, String | List<String>> = %2
@@ -41,7 +41,7 @@ module examples/typescript/end-to-end/125_module_const_state_and_record_union/in
     #28: Bool = false
     #29: Dict<String, String | List<String>> = closure_call #27(#28)
     #30: String = json_stringify #29
-    #31: None = @9(console_log)
+    #31: None = @11(console_log)
     #32: None = call #31(#26, #30)
   stmts
     s0: #0

@@ -37,11 +37,10 @@ module examples/typescript/end-to-end/57_reassigned_method/input.ts (ModuleId(0)
     s5: #20
 
 interned types
-  t0 = Router
-  t1 = Unknown
-  t2 = String
-  t3 = Dict<String, Unknown>
-  t4 = fn(String) -> Unknown
+  t0 = String
+  t1 = fn(String) -> String
+  t2 = Router
+  t3 = Unknown
+  t4 = Dict<String, Unknown>
   t5 = fn(String) -> String
-  t6 = fn(String) -> String
-  t7 = None
+  t6 = None

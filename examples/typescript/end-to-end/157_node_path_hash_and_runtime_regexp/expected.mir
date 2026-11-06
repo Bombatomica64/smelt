@@ -111,7 +111,7 @@ fn describe_compile (FuncId(4)) -> String
   bb2:
     return none
   bb3:
-    %8 = instanceof move %2, class33
+    %8 = instanceof move %2, class0
     %9 = "rejected " + move %8
     return move %9
   bb4:
@@ -135,7 +135,7 @@ fn try_flags (FuncId(5)) -> String
   bb3:
     return "bad flags"
   bb4:
-    return copy %1.field26
+    return copy %1.field27
 
 fn new (FuncId(6)) -> UnsupportedPathError
   locals
@@ -143,7 +143,7 @@ fn new (FuncId(6)) -> UnsupportedPathError
     %1 param message: Optional<String>
     %2 temp: String
   bb0:
-    %0 = struct33 {}
+    %0 = struct0 {}
     %0.field37 = "Error"
     %2 = copy %1 ?? ""
     %0.field36 = move %2
@@ -369,8 +369,8 @@ fn main (FuncId(7)) -> None throws
   bb43:
     %85 = call @console_log(move %82, move %83, move %84) -> bb44
   bb44:
-    %1 = external_new14("x+", "g")
-    %87 = call @console_log(copy %1.field42, copy %1.field26) -> bb45
+    %1 = external_new15("x+", "g")
+    %87 = call @console_log(copy %1.field42, copy %1.field27) -> bb45
   bb45:
     return none
 

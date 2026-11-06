@@ -75,16 +75,16 @@ fn main (FuncId(7)) -> None throws
     %6 = call fn6() -> bb1
   bb1:
     %5 = move %6
-    %7 = call @console_log(copy %5.field7) -> bb2
+    %7 = call @console_log(copy %5.field3) -> bb2
   bb2:
     %8 = closure_call copy %5.field2(1.0)
     %9 = call @console_log(move %8) -> bb3
   bb3:
-    %10 = closure_call copy %5.field3()
+    %10 = closure_call copy %5.field4()
     %11 = call @console_log(move %10) -> bb4
   bb4:
-    %12 = closure_call copy %5.field4()
-    %13 = closure_call copy %5.field5()
+    %12 = closure_call copy %5.field5()
+    %13 = closure_call copy %5.field6()
     %14 = move %12 + move %13
     %15 = call @console_log(move %14) -> bb5
   bb5:

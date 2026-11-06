@@ -52,17 +52,17 @@ module examples/typescript/end-to-end/81_receiver_capture_in_callback/input.ts (
     s4: #38
 
 interned types
-  t0 = Index
-  t1 = Bool
-  t2 = String
-  t3 = Dict<String, Bool>
-  t4 = None
-  t5 = List<String>
-  t6 = Int
-  t7 = Unknown
-  t8 = fn(String, Int, List<String>) -> Bool
-  t9 = List<Unknown>
-  t10 = fn(String, Int, List<String>) -> String
-  t11 = fn(String) -> None
-  t12 = fn(List<String>) -> List<String>
-  t13 = fn(List<String>, String) -> List<String>
+  t0 = None
+  t1 = String
+  t2 = List<String>
+  t3 = fn(String) -> None
+  t4 = fn(List<String>) -> List<String>
+  t5 = fn(List<String>, String) -> List<String>
+  t6 = Index
+  t7 = Bool
+  t8 = Dict<String, Bool>
+  t9 = Int
+  t10 = Unknown
+  t11 = fn(String, Int, List<String>) -> Bool
+  t12 = List<Unknown>
+  t13 = fn(String, Int, List<String>) -> String

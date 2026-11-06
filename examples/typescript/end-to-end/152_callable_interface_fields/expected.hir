@@ -2,7 +2,7 @@ module examples/typescript/end-to-end/152_callable_interface_fields/input.ts (Mo
   body BodyId(6)
   items
     interface Get fields [Public __smelt_call: fn(String) -> Float] methods []
-    interface Set fields [Public __smelt_call: fn(String, String | Float) -> None] methods []
+    interface Set fields [Public __smelt_call: fn(String, Float | String) -> None] methods []
     interface SetHeaderOptions fields [Public append?: Optional<Bool>] methods []
     interface SetHeader fields [Public __smelt_call: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None] methods []
     interface Echo fields [Public __smelt_call: fn(String) -> String] methods []
@@ -18,7 +18,7 @@ module examples/typescript/end-to-end/152_callable_interface_fields/input.ts (Mo
     #4: Context = %0
     #5: String = "a"
     #6: String = "hello"
-    #7: fn(String, String | Float) -> None = assert_type #3
+    #7: fn(String, Float | String) -> None = assert_type #3
     #8: None = closure_call #7(#5, #6)
     #9: Context = %0
     #10: Context = %0
@@ -26,7 +26,7 @@ module examples/typescript/end-to-end/152_callable_interface_fields/input.ts (Mo
     #12: Context = %0
     #13: String = "b"
     #14: Float = 7.0
-    #15: fn(String, String | Float) -> None = assert_type #11
+    #15: fn(String, Float | String) -> None = assert_type #11
     #16: None = closure_call #15(#13, #14)
     #17: Context = %0
     #18: Context = %0
@@ -149,28 +149,28 @@ module examples/typescript/end-to-end/152_callable_interface_fields/input.ts (Mo
     s16: #117
 
 interned types
-  t0 = Context
+  t0 = Float
   t1 = String
-  t2 = Unknown
-  t3 = Dict<String, Unknown>
-  t4 = Float
-  t5 = fn(String) -> Float
-  t6 = None
-  t7 = String | Float
-  t8 = fn(String, String | Float) -> None
-  t9 = Bool
-  t10 = Optional<Bool>
-  t11 = SetHeaderOptions
-  t12 = Optional<SetHeaderOptions>
-  t13 = Optional<String>
-  t14 = fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None
-  t15 = K
-  t16 = fn(String) -> String
-  t17 = Map<String, String>
-  t18 = Get
-  t19 = Set
-  t20 = SetHeader
-  t21 = Echo
-  t22 = K
-  t23 = fn() -> Float
+  t2 = Map<String, String>
+  t3 = Get
+  t4 = Set
+  t5 = SetHeader
+  t6 = Echo
+  t7 = fn() -> Float
+  t8 = None
+  t9 = SetHeaderOptions
+  t10 = Optional<SetHeaderOptions>
+  t11 = K
+  t12 = Context
+  t13 = Unknown
+  t14 = Dict<String, Unknown>
+  t15 = fn(String) -> Float
+  t16 = Float | String
+  t17 = fn(String, Float | String) -> None
+  t18 = Bool
+  t19 = Optional<Bool>
+  t20 = Optional<String>
+  t21 = fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None
+  t22 = fn(String) -> String
+  t23 = K
   t24 = Dict<String, Bool>

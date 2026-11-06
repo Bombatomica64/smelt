@@ -23,8 +23,8 @@ fn new (FuncId(2)) -> GCtx<P>
     %0 user this: GCtx<P>
     %1 param path: P
   bb0:
-    %0 = struct1 {}
-    %0.field7 = copy %1
+    %0 = struct0 {}
+    %0.field4 = copy %1
     return move %0
 
 fn text (FuncId(3)) -> String

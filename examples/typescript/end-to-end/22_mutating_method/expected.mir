@@ -6,7 +6,7 @@ fn new (FuncId(0)) -> Counter
     %1 param value: Float
   bb0:
     %0 = struct0 {}
-    %0.field1 = copy %1
+    %0.field3 = copy %1
     return move %0
 
 fn inc (FuncId(1)) -> Float
@@ -15,9 +15,9 @@ fn inc (FuncId(1)) -> Float
     %1 param delta: Float
     %2 temp: Float
   bb0:
-    %2 = copy %0.field1 + copy %1
-    %0.field1 = move %2
-    return copy %0.field1
+    %2 = copy %0.field3 + copy %1
+    %0.field3 = move %2
+    return copy %0.field3
 
 fn main (FuncId(2)) -> None
   locals

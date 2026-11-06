@@ -45,7 +45,7 @@ fn new (FuncId(2)) -> Box
   locals
     %0 user this: Box
   bb0:
-    %0 = struct6 {}
+    %0 = struct0 {}
     return move %0
 
 fn #respond (FuncId(3)) -> String
@@ -83,7 +83,7 @@ fn new (FuncId(5)) -> Ctx
   locals
     %0 user this: Ctx
   bb0:
-    %0 = struct1 {}
+    %0 = struct4 {}
     return move %0
 
 fn main (FuncId(6)) -> None
@@ -145,11 +145,11 @@ fn main (FuncId(6)) -> None
     %20 = call fn5() -> bb8
   bb8:
     %5 = move %20
-    %21 = copy %5.field16
+    %21 = copy %5.field9
     %22 = closure_call move %21("a")
-    %23 = copy %5.field16
+    %23 = copy %5.field9
     %24 = closure_call move %23("b", 301.0)
-    %25 = copy %5.field16
+    %25 = copy %5.field9
     %26 = closure_call move %25("c", 302.0, "x")
     %27 = call @console_log(move %22, move %24, move %26) -> bb9
   bb9:

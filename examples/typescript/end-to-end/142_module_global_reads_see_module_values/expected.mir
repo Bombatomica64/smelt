@@ -50,7 +50,7 @@ fn snapshot_seed (FuncId(4)) -> Float
     %2 = copy %0["seed"] + move %1
     return move %2
 
-fn double__module_examples/typescript/end-to-end/142_module_global_reads_see_module_values/input.ts (FuncId(5)) -> Float
+fn double__module_main (FuncId(5)) -> Float
   locals
     %0 param n: Float
     %1 temp: Float

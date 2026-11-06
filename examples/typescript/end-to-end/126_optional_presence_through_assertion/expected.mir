@@ -68,9 +68,9 @@ fn lookup (FuncId(1)) -> List<String>
     return move %2
   bb5:
     %15 = copy %5
-    %16 = copy %15.field3 + ":"
+    %16 = copy %15.field2 + ":"
     %17 = move %5
-    %18 = move %16 + copy %17.field4
+    %18 = move %16 + copy %17.field3
     %19 = list_push copy %2, move %18
     goto bb6
   bb6:
@@ -163,7 +163,7 @@ fn main (FuncId(3)) -> None
     switch move %24 ? bb11 : bb12
   bb11:
     %26 = move %2
-    %25 = copy %26.field3
+    %25 = copy %26.field2
     goto bb13
   bb12:
     %25 = "none"
@@ -178,7 +178,7 @@ fn main (FuncId(3)) -> None
     switch move %31 ? bb15 : bb16
   bb15:
     %33 = move %3
-    %32 = copy %33.field3
+    %32 = copy %33.field2
     goto bb17
   bb16:
     %32 = "none"
@@ -189,12 +189,12 @@ fn main (FuncId(3)) -> None
     %4 = {"handler": "h", "score": 1.0}
     %5 = move %4
     %37 = {}
-    %5.field5 = move %37
-    %38 = copy %5.field5
+    %5.field9 = move %37
+    %38 = copy %5.field9
     %38["k"] = "v"
-    %5.field5 = move %38
-    %39 = copy %5.field5
-    %40 = call @console_log(copy %5.field3, copy %5.field4, copy %39["k"]) -> bb19
+    %5.field9 = move %38
+    %39 = copy %5.field9
+    %40 = call @console_log(copy %5.field2, copy %5.field3, copy %39["k"]) -> bb19
   bb19:
     return none
 

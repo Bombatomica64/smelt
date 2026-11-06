@@ -3,7 +3,7 @@ module examples/typescript/end-to-end/172_checker_evaluated_annotation_types/inp
   items
     type Words = Unknown
     interface Config fields [Public port: Float, Public host: String, Public tags: List<String>] methods []
-    class Store fields [] constructor Some(ItemId(5)) methods [ItemId(4)] implements []
+    class Store fields [] constructor Some(ItemId(7)) methods [ItemId(6)] implements []
   locals
     %0 const words: List<String>
     %1 const port: Float
@@ -28,7 +28,7 @@ module examples/typescript/end-to-end/172_checker_evaluated_annotation_types/inp
     #15: List<String> = %0
     #16: String = "+"
     #17: String = string_join #15, #16
-    #18: None = @7(console_log)
+    #18: None = @9(console_log)
     #19: None = call #18(#14, #17)
     #20: Float = %1
     #21: Float = 1.0
@@ -38,12 +38,12 @@ module examples/typescript/end-to-end/172_checker_evaluated_annotation_types/inp
     #25: String = string_join #23, #24
     #26: List<String> = %2
     #27: Float = len #26
-    #28: None = @8(console_log)
+    #28: None = @10(console_log)
     #29: None = call #28(#22, #25, #27)
     #30: Float = %3
     #31: Float = 2.0
     #32: Float = Mul #30, #31
-    #33: None = @9(console_log)
+    #33: None = @11(console_log)
     #34: None = call #33(#32)
   stmts
     s0: let %0: List<String> = #2
@@ -55,13 +55,13 @@ module examples/typescript/end-to-end/172_checker_evaluated_annotation_types/inp
     s6: #34
 
 interned types
-  t0 = T
+  t0 = Float
   t1 = String
-  t2 = List<String>
-  t3 = Float
-  t4 = Unknown
-  t5 = Config
-  t6 = Store
-  t7 = fn(String) -> Float
-  t8 = None
-  t9 = fn(String) -> Float
+  t2 = fn(String) -> Float
+  t3 = T
+  t4 = List<String>
+  t5 = Unknown
+  t6 = Config
+  t7 = Store
+  t8 = fn(String) -> Float
+  t9 = None

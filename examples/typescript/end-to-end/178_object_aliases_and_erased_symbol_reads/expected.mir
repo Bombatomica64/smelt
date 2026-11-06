@@ -13,11 +13,11 @@ fn configure (FuncId(0)) -> String
     %6 temp: Float
     %7 temp: String
   bb0:
-    %1 = copy %0?.field1
+    %1 = copy %0?.field4
     %2 = move %1 ?? "default"
     %3 = "" + move %2
     %4 = move %3 + "/"
-    %5 = copy %0?.field2
+    %5 = copy %0?.field5
     %6 = move %5 ?? 3.0
     %7 = move %4 + move %6
     return move %7
@@ -29,9 +29,9 @@ fn first (FuncId(1)) -> String
     %2 temp: String
     %3 temp: String
   bb0:
-    %1 = "" + copy %0.field7
+    %1 = "" + copy %0.field10
     %2 = move %1 + "x"
-    %3 = move %2 + copy %0.field9
+    %3 = move %2 + copy %0.field12
     return move %3
 
 fn paths (FuncId(2)) -> String
@@ -42,7 +42,7 @@ fn paths (FuncId(2)) -> String
     %3 temp: List<String>
     %4 temp: String
   bb0:
-    %1 = tuple_index copy %0.field37, 0
+    %1 = tuple_index copy %0.field1, 0
     %2 = closure ClosureId(0) []
     %3 = list_map move %1, move %2
     %4 = string_join move %3, ","
@@ -74,9 +74,9 @@ fn new (FuncId(4)) -> Request
     %1 param routes: List<(String, String)>
     %2 param context: Optional<String>
   bb0:
-    %0 = struct23 {}
-    %0.field31 = copy %1
-    %0.field32 = copy %2
+    %0 = struct0 {}
+    %0.field33 = copy %1
+    %0.field34 = copy %2
     return move %0
 
 fn __smelt_get___smelt_symbol_unique__at_663 (FuncId(5)) -> (List<(String, String)>)
@@ -84,7 +84,7 @@ fn __smelt_get___smelt_symbol_unique__at_663 (FuncId(5)) -> (List<(String, Strin
     %0 param this: Request
     %1 temp: (List<(String, String)>)
   bb0:
-    %1 = (copy %0.field31)
+    %1 = (copy %0.field33)
     return move %1
 
 fn __smelt_get_context (FuncId(6)) -> String throws
@@ -94,13 +94,13 @@ fn __smelt_get_context (FuncId(6)) -> String throws
     %2 temp: Dict<String, Unknown>
     %3 temp: Unknown
   bb0:
-    %1 = primitive_cast_bool copy %0.field32
+    %1 = primitive_cast_bool copy %0.field34
     switch move %1 ? bb1 : bb2
   bb1:
-    return copy %0.field32
+    return copy %0.field34
   bb2:
     %2 = {"__smelt_error": "Error", "message": "no context", "stack": undefined, "cause": undefined}
-    %3 = unknown_cast move %2 as t8
+    %3 = unknown_cast move %2 as t11
     throw move %3
 
 fn main (FuncId(7)) -> None

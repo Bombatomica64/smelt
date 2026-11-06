@@ -5,8 +5,8 @@ fn new (FuncId(0)) -> Leaf
     %0 user this: Leaf
     %1 param tag: String
   bb0:
-    %0 = struct3 {}
-    %0.field4 = copy %1
+    %0 = struct0 {}
+    %0.field1 = copy %1
     return move %0
 
 fn main (FuncId(1)) -> None
@@ -160,12 +160,12 @@ fn main (FuncId(1)) -> None
     %38 = call @console_log(move %37) -> bb1
   bb1:
     %2 = {"field": 0.0}
-    %2.field0 = 5.0
+    %2.field2 = 5.0
     %3 = 5.0
     %40 = primitive_cast_string move %3
     %41 = "field: " + move %40
     %42 = move %41 + " "
-    %43 = primitive_cast_string copy %2.field0
+    %43 = primitive_cast_string copy %2.field2
     %44 = move %42 + move %43
     %45 = call @console_log(move %44) -> bb2
   bb2:
@@ -207,23 +207,23 @@ fn main (FuncId(1)) -> None
   bb7:
     %10 = {"field": 0.0}
     %11 = undefined
-    %66 = copy %10.field0 != 0.0
+    %66 = copy %10.field2 != 0.0
     %67 = !move %66
     switch move %67 ? bb8 : bb9
   bb8:
     %12 = 7.0
-    %10.field0 = copy %12
+    %10.field2 = copy %12
     %11 = move %12
     goto bb10
   bb9:
-    %11 = copy %10.field0
+    %11 = copy %10.field2
     goto bb10
   bb10:
     %13 = move %11
     %68 = primitive_cast_string move %13
     %69 = "or field: " + move %68
     %70 = move %69 + " "
-    %71 = primitive_cast_string copy %10.field0
+    %71 = primitive_cast_string copy %10.field2
     %72 = move %70 + move %71
     %73 = call @console_log(move %72) -> bb11
   bb11:
@@ -246,7 +246,7 @@ fn main (FuncId(1)) -> None
     goto bb15
   bb15:
     %17 = move %15
-    %80 = move %17?.field4
+    %80 = move %17?.field1
     %81 = "or element: " + move %80
     %82 = move %81 + " "
     %83 = dict_keys copy %14
@@ -272,7 +272,7 @@ fn main (FuncId(1)) -> None
     goto bb20
   bb20:
     %20 = move %18
-    %92 = move %20?.field4
+    %92 = move %20?.field1
     %93 = "or element again: " + move %92
     %94 = move %93 + " "
     %95 = dict_keys move %14
@@ -338,14 +338,14 @@ fn main (FuncId(1)) -> None
     %126 = call @console_log(move %125) -> bb33
   bb33:
     %29 = {}
-    %128 = copy %29.field0 == none
+    %128 = copy %29.field2 == none
     switch move %128 ? bb34 : bb35
   bb34:
     %30 = 4.0
-    %29.field0 = move %30
+    %29.field2 = move %30
     goto bb35
   bb35:
-    %129 = primitive_cast_string copy %29.field0
+    %129 = primitive_cast_string copy %29.field2
     %130 = "nullish field: " + move %129
     %131 = call @console_log(move %130) -> bb36
   bb36:

@@ -6,7 +6,7 @@ module examples/typescript/end-to-end/142_module_global_reads_see_module_values/
     global mut p: Dict<String, (Float, String)>
     global mut table: Dict<String, Float>
     global mut snapshot: Dict<String, Float>
-    fn double__module_examples/typescript/end-to-end/142_module_global_reads_see_module_values/input.ts owner Module
+    fn double__module_main owner Module
     fn zero owner Module
     fn read_p owner Module
     fn greet owner Module

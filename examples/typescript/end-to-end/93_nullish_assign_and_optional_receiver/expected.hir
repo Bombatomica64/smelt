@@ -182,15 +182,15 @@ module examples/typescript/end-to-end/93_nullish_assign_and_optional_receiver/in
     s36: #124
 
 interned types
-  t0 = Bag
-  t1 = Headers
-  t2 = None
+  t0 = None
+  t1 = String
+  t2 = Headers
   t3 = Optional<Headers>
-  t4 = Bool
-  t5 = String
-  t6 = Dict<String, String>
-  t7 = Response
-  t8 = Optional<String>
-  t9 = fn(String) -> String
-  t10 = fn(String, String) -> None
-  t11 = fn(Headers) -> None
+  t4 = fn(String, String) -> None
+  t5 = fn(String) -> String
+  t6 = fn(Headers) -> None
+  t7 = Bag
+  t8 = Bool
+  t9 = Dict<String, String>
+  t10 = Response
+  t11 = Optional<String>

@@ -52,12 +52,13 @@ module examples/typescript/end-to-end/64_error_subclass_optional_message/input.t
 
 interned types
   t0 = Float
-  t1 = String
-  t2 = Dict<String, String>
-  t3 = HTTPException
-  t4 = GatewayError
-  t5 = HTTPExceptionOptions
-  t6 = Optional<HTTPExceptionOptions>
-  t7 = Optional<String>
-  t8 = Unknown
-  t9 = None
+  t1 = HTTPExceptionOptions
+  t2 = Optional<HTTPExceptionOptions>
+  t3 = String
+  t4 = Unknown
+  t5 = Optional<Unknown>
+  t6 = Dict<String, String>
+  t7 = HTTPException
+  t8 = GatewayError
+  t9 = Optional<String>
+  t10 = None

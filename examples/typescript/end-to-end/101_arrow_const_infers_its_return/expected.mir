@@ -13,7 +13,7 @@ async fn boxed (FuncId(0)) -> String
     %1 = move %3
     %4 = async_then(copy %0, move %1)
     %2 = await move %4
-    return copy %2.field5
+    return copy %2.field1
 
 fn direct (FuncId(1)) -> String
   locals
@@ -25,7 +25,7 @@ fn direct (FuncId(1)) -> String
     %2 = closure ClosureId(1) []
     %1 = move %2
     %3 = closure_call move %1(copy %0)
-    return copy %3.field5
+    return copy %3.field1
 
 fn new (FuncId(2)) -> Wrapper
   locals
@@ -33,7 +33,7 @@ fn new (FuncId(2)) -> Wrapper
     %1 param label: String
   bb0:
     %0 = struct0 {}
-    %0.field5 = copy %1
+    %0.field1 = copy %1
     return move %0
 
 async fn main (FuncId(3)) -> None throws

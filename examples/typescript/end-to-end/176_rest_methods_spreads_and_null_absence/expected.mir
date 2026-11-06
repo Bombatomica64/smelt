@@ -17,12 +17,12 @@ fn show (FuncId(0)) -> String
   bb0:
     %1 = "" + copy %0.field25
     %2 = move %1 + "="
-    %3 = copy %0.field6 ?? "null"
+    %3 = copy %0.field13 ?? "null"
     %4 = move %2 + move %3
     %5 = move %4 + ":"
     %6 = move %5 + false
     %7 = move %6 + ":"
-    %8 = copy %0.field6 == none
+    %8 = copy %0.field13 == none
     %9 = move %7 + move %8
     return move %9
 
@@ -62,13 +62,13 @@ fn add (FuncId(3)) -> Float
     %6 temp: Float
     %7 temp: Float
   bb0:
-    %3 = copy %0.field7
+    %3 = copy %0.field6
     %4 = list_push copy %3, copy %1
-    %0.field7 = move %3
-    %5 = copy %0.field7
+    %0.field6 = move %3
+    %5 = copy %0.field6
     %6 = list_extend copy %5, copy %2
-    %0.field7 = move %5
-    %7 = len copy %0.field7
+    %0.field6 = move %5
+    %7 = len copy %0.field6
     return move %7
 
 fn join (FuncId(4)) -> String
@@ -96,7 +96,7 @@ fn new (FuncId(6)) -> Bag
   bb0:
     %0 = struct0 {}
     %1 = []
-    %0.field7 = move %1
+    %0.field6 = move %1
     return move %0
 
 fn main (FuncId(7)) -> None
@@ -190,18 +190,18 @@ fn main (FuncId(7)) -> None
   bb10:
     %2 = ("a")
     %3 = ["b"]
-    %4 = copy %0.field19
+    %4 = copy %0.field7
     %5 = copy %2
     %6 = move %2
     %7 = copy %3
     %8 = move %3
     %31 = copy %4
     %32 = closure_call move %31(copy %5[0])
-    %33 = copy %0.field19
+    %33 = copy %0.field7
     %34 = closure_call move %33(copy %6[0])
     %35 = move %4
     %36 = closure_call move %35(copy %7[0], copy %7[1])
-    %37 = copy %0.field19
+    %37 = copy %0.field7
     %38 = closure_call move %37(copy %8[0], copy %8[1])
     %39 = call @console_log(move %32, move %34, move %36, move %38) -> bb11
   bb11:

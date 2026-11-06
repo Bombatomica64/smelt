@@ -158,7 +158,7 @@ async fn run (FuncId(7)) -> None
   bb10:
     return none
 
-fn sleep__module_examples/typescript/end-to-end/184_nested_prime_race_headers_body/input.ts (FuncId(8)) -> Future<None>
+fn sleep__module_main (FuncId(8)) -> Future<None>
   locals
     %0 param ms: Float
     %1 temp: Future<None>

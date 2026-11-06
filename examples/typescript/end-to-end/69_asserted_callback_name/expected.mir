@@ -27,7 +27,7 @@ fn new (FuncId(2)) -> Checker
   locals
     %0 user this: Checker
   bb0:
-    %0 = struct4 {}
+    %0 = struct0 {}
     return move %0
 
 fn main (FuncId(3)) -> None

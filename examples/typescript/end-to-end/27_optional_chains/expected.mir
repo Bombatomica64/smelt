@@ -7,8 +7,8 @@ fn new (FuncId(0)) -> User
     %2 param scores: List<Float>
   bb0:
     %0 = struct0 {}
-    %0.field1 = copy %1
-    %0.field2 = copy %2
+    %0.field2 = copy %1
+    %0.field3 = copy %2
     return move %0
 
 fn label (FuncId(1)) -> String
@@ -42,11 +42,11 @@ fn main (FuncId(2)) -> None
   bb1:
     %0 = move %7
     %1 = none
-    %2 = copy %0?.field1
-    %3 = move %1?.field1
-    %10 = copy %0?.field2
+    %2 = copy %0?.field2
+    %3 = move %1?.field2
+    %10 = copy %0?.field3
     %4 = move %10?.[0.0]
-    %5 = move %0?.method3()
+    %5 = move %0?.method1()
     %13 = call @console_log(move %2) -> bb2
   bb2:
     %14 = call @console_log(move %3) -> bb3

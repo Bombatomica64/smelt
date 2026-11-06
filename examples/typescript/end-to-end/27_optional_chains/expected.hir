@@ -52,17 +52,15 @@ module examples/typescript/end-to-end/27_optional_chains/input.ts (ModuleId(0))
     s9: #28
 
 interned types
-  t0 = User
-  t1 = None
-  t2 = Optional<User>
-  t3 = Unknown
-  t4 = Optional<Unknown>
-  t5 = Float
-  t6 = fn() -> Unknown
-  t7 = String
-  t8 = List<Float>
-  t9 = Optional<String>
-  t10 = Optional<List<Float>>
-  t11 = Optional<Float>
-  t12 = fn() -> String
-  t13 = Optional<fn() -> String>
+  t0 = String
+  t1 = Float
+  t2 = List<Float>
+  t3 = fn() -> String
+  t4 = User
+  t5 = None
+  t6 = Optional<User>
+  t7 = Optional<String>
+  t8 = Unknown
+  t9 = Optional<List<Float>>
+  t10 = Optional<Float>
+  t11 = Optional<fn() -> String>

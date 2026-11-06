@@ -76,25 +76,27 @@ module examples/typescript/end-to-end/97_generic_class_default_bounds/input.ts (
     s9: #55
 
 interned types
-  t0 = Float
-  t1 = Chain
-  t2 = String
-  t3 = Track
-  t4 = T
+  t0 = T
+  t1 = Chain<T>
+  t2 = List<T>
+  t3 = fn() -> Chain<T>
+  t4 = fn(T) -> Chain<T>
   t5 = T
   t6 = Chain<T>
-  t7 = Chain<T>
-  t8 = List<T>
-  t9 = fn() -> Chain<T>
-  t10 = Unknown
-  t11 = None
-  t12 = Track<T>
-  t13 = Chain<Float>
-  t14 = fn(Float) -> Chain<Float>
-  t15 = List<Float>
-  t16 = fn() -> Chain<Float>
-  t17 = Chain<String>
-  t18 = Track<String>
-  t19 = fn(String) -> Chain<String>
-  t20 = fn() -> String
-  t21 = fn() -> Chain<String>
+  t7 = fn() -> T
+  t8 = Float
+  t9 = Chain
+  t10 = String
+  t11 = Chain<String>
+  t12 = Track
+  t13 = Unknown
+  t14 = None
+  t15 = Track<T>
+  t16 = Chain<Float>
+  t17 = fn(Float) -> Chain<Float>
+  t18 = List<Float>
+  t19 = fn() -> Chain<Float>
+  t20 = Track<String>
+  t21 = fn(String) -> Chain<String>
+  t22 = fn() -> String
+  t23 = fn() -> Chain<String>

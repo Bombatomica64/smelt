@@ -1,7 +1,7 @@
 module examples/typescript/end-to-end/121_callback_into_union_function_arm/input.ts (ModuleId(0))
   body BodyId(4)
   items
-    class Ex fields [Public code: Float] constructor Some(ItemId(2)) methods [] implements []
+    class Ex fields [Public code: Float] constructor Some(ItemId(4)) methods [] implements []
     type ExFn = fn(String) -> Ex
   locals
     %0 const timeout: fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float
@@ -12,27 +12,27 @@ module examples/typescript/end-to-end/121_callback_into_union_function_arm/input
     #2: Float = 1.0
     #3: Optional<Ex | fn(String) -> Ex> = none
     #4: Float = closure_call #1(#2, #3)
-    #5: None = @5(console_log)
+    #5: None = @7(console_log)
     #6: None = call #5(#4)
     #7: fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float = %0
     #8: Float = 2.0
     #9: fn() -> Ex = closure BodyId(2) captures 0 -> Ex
     #10: Float = closure_call #7(#8, #9)
-    #11: None = @6(console_log)
+    #11: None = @8(console_log)
     #12: None = call #11(#10)
     #13: fn(String) -> Ex = closure BodyId(3) captures 0 -> Ex
     #14: fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float = %0
     #15: Float = 3.0
     #16: fn(String) -> Ex = %1
     #17: Float = closure_call #14(#15, #16)
-    #18: None = @7(console_log)
+    #18: None = @9(console_log)
     #19: None = call #18(#17)
     #20: fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float = %0
     #21: Float = 4.0
     #22: Float = 1.0
     #23: Ex = new Ex(#22)
     #24: Float = closure_call #20(#21, #23)
-    #25: None = @8(console_log)
+    #25: None = @10(console_log)
     #26: None = call #25(#24)
   stmts
     s0: let %0: fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float = #0
@@ -43,10 +43,10 @@ module examples/typescript/end-to-end/121_callback_into_union_function_arm/input
     s5: #26
 
 interned types
-  t0 = String
-  t1 = Ex
-  t2 = fn(String) -> Ex
-  t3 = Float
+  t0 = Float
+  t1 = String
+  t2 = Ex
+  t3 = fn(String) -> Ex
   t4 = Ex | fn(String) -> Ex
   t5 = Optional<Ex | fn(String) -> Ex>
   t6 = fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float

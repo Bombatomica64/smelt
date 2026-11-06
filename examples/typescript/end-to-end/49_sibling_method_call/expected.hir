@@ -32,7 +32,7 @@ module examples/typescript/end-to-end/49_sibling_method_call/input.ts (ModuleId(
     s3: #19
 
 interned types
-  t0 = Registry
+  t0 = None
   t1 = String
-  t2 = None
-  t3 = fn(String) -> None
+  t2 = fn(String) -> None
+  t3 = Registry

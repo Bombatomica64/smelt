@@ -1,10 +1,10 @@
 module examples/typescript/end-to-end/160_function_item_typed_identity/input.ts (ModuleId(0))
   body BodyId(10)
   items
-    fn default_handler__module_examples/typescript/end-to-end/160_function_item_typed_identity/input.ts owner Module
+    fn default_handler__module_main owner Module
     type ErrorHandler = fn(String, String) -> String
     fn named_handler owner Module
-    class App fields [Public error_handler: fn(String, String) -> String, Public other: fn(String, String) -> String] constructor Some(ItemId(5)) methods [] implements []
+    class App fields [Public error_handler: fn(String, String) -> String, Public other: fn(String, String) -> String] constructor Some(ItemId(7)) methods [] implements []
   locals
     %0 const a: App
     %1 const b: App
@@ -22,7 +22,7 @@ module examples/typescript/end-to-end/160_function_item_typed_identity/input.ts 
     #10: fn(String, String) -> String = #9.error_handler
     #11: fn(String, String) -> String = closure BodyId(7) captures 0 -> String
     #12: Bool = JsStrictEq #10, #11
-    #13: None = @7(console_log)
+    #13: None = @9(console_log)
     #14: None = call #13(#4, #8, #12)
     #15: App = new App()
     #16: App = %1
@@ -46,7 +46,7 @@ module examples/typescript/end-to-end/160_function_item_typed_identity/input.ts 
     #34: String = "t"
     #35: fn(String, String) -> String = bind_this #31, #30
     #36: String = closure_call #35(#33, #34)
-    #37: None = @8(console_log)
+    #37: None = @10(console_log)
     #38: None = call #37(#22, #29, #36)
   stmts
     s0: let %0: App = #0
@@ -56,9 +56,10 @@ module examples/typescript/end-to-end/160_function_item_typed_identity/input.ts 
     s4: #38
 
 interned types
-  t0 = String
-  t1 = fn(String, String) -> String
-  t2 = App
-  t3 = fn(String, String) -> String
-  t4 = None
-  t5 = Bool
+  t0 = ErrorHandler
+  t1 = String
+  t2 = fn(String, String) -> String
+  t3 = App
+  t4 = fn(String, String) -> String
+  t5 = None
+  t6 = Bool

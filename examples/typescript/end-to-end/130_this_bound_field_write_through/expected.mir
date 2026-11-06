@@ -18,14 +18,14 @@ fn describe (FuncId(0)) -> String
   bb0:
     %3 = this
     %4 = this
-    %5 = copy %4.field5 + 1.0
-    %3.field5 = move %5
+    %5 = copy %4.field2 + 1.0
+    %3.field2 = move %5
     %6 = this
-    %2 = copy %6.field4
+    %2 = copy %6.field1
     %7 = closure ClosureId(0) [copy %2]
     %1 = move %7
     %8 = this
-    %8.field1 = move %1
+    %8.field3 = move %1
     %9 = copy %0 + " "
     %10 = move %9 + copy %2
     %11 = move %10 + " (built)"
@@ -38,10 +38,10 @@ fn new (FuncId(1)) -> Tally
     %2 temp: fn(String) -> String
   bb0:
     %0 = struct0 {}
-    %0.field5 = 0.0
+    %0.field2 = 0.0
     %2 = closure ClosureId(1) []
-    %0.field1 = move %2
-    %0.field4 = copy %1
+    %0.field3 = move %2
+    %0.field1 = copy %1
     return move %0
 
 fn main (FuncId(2)) -> None throws
@@ -68,28 +68,28 @@ fn main (FuncId(2)) -> None throws
     %2 = call fn1("apples") -> bb1
   bb1:
     %0 = move %2
-    %3 = bind_this copy %0.field1, copy %0
+    %3 = bind_this copy %0.field3, copy %0
     %4 = closure_call move %3("first")
     %5 = call @console_log(move %4) -> bb2
   bb2:
-    %6 = bind_this copy %0.field1, copy %0
+    %6 = bind_this copy %0.field3, copy %0
     %7 = closure_call move %6("second")
     %8 = call @console_log(move %7) -> bb3
   bb3:
-    %9 = bind_this copy %0.field1, copy %0
+    %9 = bind_this copy %0.field3, copy %0
     %10 = closure_call move %9("third")
     %11 = call @console_log(move %10) -> bb4
   bb4:
-    %12 = call @console_log(copy %0.field5) -> bb5
+    %12 = call @console_log(copy %0.field2) -> bb5
   bb5:
     %13 = call fn1("pears") -> bb6
   bb6:
     %1 = move %13
-    %14 = bind_this copy %1.field1, copy %1
+    %14 = bind_this copy %1.field3, copy %1
     %15 = closure_call move %14("solo")
     %16 = call @console_log(move %15) -> bb7
   bb7:
-    %17 = call @console_log(copy %1.field5, copy %0.field5) -> bb8
+    %17 = call @console_log(copy %1.field2, copy %0.field2) -> bb8
   bb8:
     return none
 

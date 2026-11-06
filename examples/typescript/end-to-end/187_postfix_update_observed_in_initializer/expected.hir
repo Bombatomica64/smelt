@@ -81,11 +81,9 @@ module examples/typescript/end-to-end/187_postfix_update_observed_in_initializer
 
 interned types
   t0 = Float
-  t1 = Echo
-  t2 = Unknown
-  t3 = fn(Float) -> Unknown
-  t4 = fn(Float) -> Float
-  t5 = None
-  t6 = fn() -> Float
-  t7 = List<Float>
-  t8 = fn(Float) -> Float
+  t1 = fn(Float) -> Float
+  t2 = Echo
+  t3 = None
+  t4 = fn() -> Float
+  t5 = List<Float>
+  t6 = fn(Float) -> Float

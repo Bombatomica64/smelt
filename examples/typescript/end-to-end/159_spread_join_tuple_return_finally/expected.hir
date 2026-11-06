@@ -73,9 +73,9 @@ module examples/typescript/end-to-end/159_spread_join_tuple_return_finally/input
     suspend #44 on #43 -> state45
 
 interned types
-  t0 = Unknown
-  t1 = Float
-  t2 = String
+  t0 = String
+  t1 = Unknown
+  t2 = Float
   t3 = Dict<String, String>
   t4 = Optional<Dict<String, String>>
   t5 = fn(Optional<Dict<String, String>>) -> String

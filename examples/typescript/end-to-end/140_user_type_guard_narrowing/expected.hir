@@ -1,7 +1,7 @@
 module examples/typescript/end-to-end/140_user_type_guard_narrowing/input.ts (ModuleId(0))
   body BodyId(15)
   items
-    fn is_req__module_examples/typescript/end-to-end/140_user_type_guard_narrowing/input.ts owner Module
+    fn is_req__module_main owner Module
     interface Req fields [Public kind: String, Public url: String] methods []
     interface RawReq fields [Public kind: String, Public raw: Float] methods []
     fn is_raw owner Module
@@ -142,21 +142,21 @@ module examples/typescript/end-to-end/140_user_type_guard_narrowing/input.ts (Mo
     s18: #99
 
 interned types
-  t0 = Req
-  t1 = RawReq
-  t2 = Req | RawReq
-  t3 = Bool
-  t4 = fn(Req | RawReq) -> Bool
-  t5 = String
-  t6 = Dict<String, String>
-  t7 = List<String>
-  t8 = Float
-  t9 = Unknown
-  t10 = Dict<String, Unknown>
-  t11 = List<Unknown>
-  t12 = Checker
-  t13 = fn(Req | RawReq) -> Bool
-  t14 = fn(Req | RawReq) -> String
+  t0 = Bool
+  t1 = Req
+  t2 = RawReq
+  t3 = Req | RawReq
+  t4 = String
+  t5 = fn(Req | RawReq) -> Bool
+  t6 = fn(Req | RawReq) -> String
+  t7 = fn(Req | RawReq) -> Bool
+  t8 = Dict<String, String>
+  t9 = List<String>
+  t10 = Float
+  t11 = Unknown
+  t12 = Dict<String, Unknown>
+  t13 = List<Unknown>
+  t14 = Checker
   t15 = String | Float
   t16 = fn(String | Float) -> Bool
   t17 = fn(String | Float, Bool) -> Float

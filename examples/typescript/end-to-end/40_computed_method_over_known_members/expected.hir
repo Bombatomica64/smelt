@@ -52,14 +52,16 @@ module examples/typescript/end-to-end/40_computed_method_over_known_members/inpu
     s6: #31
 
 interned types
-  t0 = Body
-  t1 = Counter
-  t2 = String
-  t3 = fn(Body, String) -> String
-  t4 = Float
-  t5 = fn(Counter, String) -> Float
-  t6 = None
-  t7 = fn() -> Float
-  t8 = Bool
-  t9 = fn(Body, String) -> String
-  t10 = fn(Counter, String) -> Float
+  t0 = String
+  t1 = fn() -> String
+  t2 = Float
+  t3 = fn() -> Float
+  t4 = Body
+  t5 = Counter
+  t6 = fn(Body, String) -> String
+  t7 = fn(Counter, String) -> Float
+  t8 = None
+  t9 = fn() -> Float
+  t10 = Bool
+  t11 = fn(Body, String) -> String
+  t12 = fn(Counter, String) -> Float

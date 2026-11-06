@@ -27,14 +27,14 @@ fn get_pattern (FuncId(0)) -> (String, String, Bool)
     %9 = move %8?.[copy %0]
     return move %9
 
-fn smelt_global_init__cache__2 (FuncId(1)) -> Dict<String, (String, String, Bool)>
+fn smelt_global_init__cache__4 (FuncId(1)) -> Dict<String, (String, String, Bool)>
   locals
     %0 temp: Dict<String, (String, String, Bool)>
   bb0:
     %0 = {}
     return move %0
 
-fn smelt_global_init__seen__3 (FuncId(2)) -> List<String>
+fn smelt_global_init__seen__5 (FuncId(2)) -> List<String>
   locals
     %0 temp: List<String>
   bb0:

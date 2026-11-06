@@ -64,13 +64,13 @@ module examples/typescript/end-to-end/99_substituted_parameter_keeps_its_abi/inp
     s6: #47
 
 interned types
-  t0 = Float
-  t1 = Chain
-  t2 = String
-  t3 = T
-  t4 = Chain<T>
-  t5 = fn(T) -> Chain<T>
-  t6 = List<T>
+  t0 = T
+  t1 = Chain<T>
+  t2 = fn(T) -> Chain<T>
+  t3 = List<T>
+  t4 = Float
+  t5 = Chain
+  t6 = String
   t7 = Unknown
   t8 = None
   t9 = Chain<Float>

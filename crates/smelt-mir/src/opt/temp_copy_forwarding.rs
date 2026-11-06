@@ -95,10 +95,14 @@ fn forward_body(
     shared: &HashSet<LocalId>,
     types: &TypeInterner,
 ) -> bool {
+    // Counted once: a forwarding only removes a temporary that is dropped from
+    // consideration with it, so the counts of the rest stay right, and recounting
+    // per statement would make the pass quadratic in the size of the body.
+    let single_use = Body { locals, blocks }.single_use_temps();
     let mut changed = false;
     for block_index in 0..blocks.len() {
         let mut index: usize = 0;
-        while let Some(found) = next_forward(Body { locals, blocks }, shared, types, block_index, index) {
+        while let Some(found) = next_forward(Body { locals, blocks }, shared, &single_use, types, block_index, index) {
             let Some(block) = blocks.get_mut(block_index) else {
                 break;
             };
@@ -127,12 +131,13 @@ struct Forward {
 fn next_forward(
     body: Body<'_>,
     shared: &HashSet<LocalId>,
+    single_use: &HashSet<LocalId>,
     types: &TypeInterner,
     block_index: usize,
     start: usize,
 ) -> Option<Forward> {
     let block = body.blocks.get(block_index)?;
-    (start..block.statements.len()).find_map(|at| forwardable(body, block, shared, types, at))
+    (start..block.statements.len()).find_map(|at| forwardable(body, block, shared, single_use, types, at))
 }
 
 /// The forwarding of the statement at `at`, when it is a copy every guard admits.
@@ -140,6 +145,7 @@ fn forwardable(
     body: Body<'_>,
     block: &BasicBlock,
     shared: &HashSet<LocalId>,
+    single_use: &HashSet<LocalId>,
     types: &TypeInterner,
     at: usize,
 ) -> Option<Forward> {
@@ -150,7 +156,7 @@ fn forwardable(
     let temp_decl = body.local_decl(temp)?;
     let same_type = temp_decl.ty == body.local_decl(from)?.ty;
     let callable = matches!(types.get(temp_decl.ty), Some(Type::Function(_)));
-    if temp == from || !same_type || callable || !body.is_single_use_temp(temp) {
+    if temp == from || !same_type || callable || !single_use.contains(&temp) {
         return None;
     }
     let after = at.saturating_add(1);

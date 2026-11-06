@@ -187,25 +187,25 @@ module examples/typescript/end-to-end/176_rest_methods_spreads_and_null_absence/
     s16: #148
 
 interned types
-  t0 = Bag
-  t1 = Float
-  t2 = List<Float>
-  t3 = String
-  t4 = (String)
-  t5 = List<String>
+  t0 = Float
+  t1 = String
+  t2 = Bool
+  t3 = Float | String | Bool
+  t4 = List<Float | String | Bool>
+  t5 = List<Float>
   t6 = Label
-  t7 = None
-  t8 = Optional<String>
-  t9 = Entry
-  t10 = fn(Entry) -> String
-  t11 = fn(Optional<String>) -> String
-  t12 = Bool
-  t13 = Float | String | Bool
-  t14 = List<Float | String | Bool>
-  t15 = Unknown
-  t16 = fn(String, Optional<String>) -> String
-  t17 = fn(...List<Float | String | Bool>) -> Float
-  t18 = fn(Float, ...List<Float>) -> Float
+  t7 = fn(...List<Float | String | Bool>) -> Float
+  t8 = fn(Float, ...List<Float>) -> Float
+  t9 = Optional<String>
+  t10 = Bag
+  t11 = (String)
+  t12 = List<String>
+  t13 = None
+  t14 = Entry
+  t15 = fn(Entry) -> String
+  t16 = fn(Optional<String>) -> String
+  t17 = Unknown
+  t18 = fn(String, Optional<String>) -> String
   t19 = fn(String, ...List<String>) -> String
   t20 = Int
   t21 = fn(Entry) -> String

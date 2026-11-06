@@ -43,10 +43,10 @@ module examples/typescript/end-to-end/39_module_scope_reassignment/input.ts (Mod
     #27: Float = Neg #26
     #28: Float = %0
     #29: Float = if #25 then #27 else #28
-    #30: None = @4(console_log)
+    #30: None = @6(console_log)
     #31: None = call #30(#29)
     #32: Float = %1
-    #33: None = @5(console_log)
+    #33: None = @7(console_log)
     #34: None = call #33(#32)
     #35: fn(String) -> Float = %2
     #36: None = undefined
@@ -57,7 +57,7 @@ module examples/typescript/end-to-end/39_module_scope_reassignment/input.ts (Mod
     #41: String = "ab"
     #42: Float = closure_call #40(#41)
     #43: Float = if #37 then #39 else #42
-    #44: None = @6(console_log)
+    #44: None = @8(console_log)
     #45: None = call #44(#43)
     #46: Optional<fn(String) -> Float> = %3
     #47: None = undefined
@@ -68,7 +68,7 @@ module examples/typescript/end-to-end/39_module_scope_reassignment/input.ts (Mod
     #52: String = "ab"
     #53: Float = closure_call #51(#52)
     #54: Float = if #48 then #50 else #53
-    #55: None = @7(console_log)
+    #55: None = @9(console_log)
     #56: None = call #55(#54)
     #57: Optional<fn(String) -> Float> = %5
     #58: None = undefined
@@ -79,16 +79,16 @@ module examples/typescript/end-to-end/39_module_scope_reassignment/input.ts (Mod
     #63: String = "ab"
     #64: Float = closure_call #62(#63)
     #65: Float = if #59 then #61 else #64
-    #66: None = @8(console_log)
+    #66: None = @10(console_log)
     #67: None = call #66(#65)
     #68: fn(String) -> Float = %7
     #69: String = "ab"
     #70: Float = closure_call #68(#69)
-    #71: None = @9(console_log)
+    #71: None = @11(console_log)
     #72: None = call #71(#70)
-    #73: fn() -> String = @2(inside_a_function)
+    #73: fn() -> String = @4(inside_a_function)
     #74: String = call #73()
-    #75: None = @10(console_log)
+    #75: None = @12(console_log)
     #76: None = call #75(#74)
   stmts
     s0: let %0: Optional<Float>

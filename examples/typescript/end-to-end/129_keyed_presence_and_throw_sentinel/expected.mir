@@ -26,17 +26,17 @@ fn try_add (FuncId(0)) -> None
   bb2:
     return none
   bb3:
-    %7 = instanceof copy %3, class5
+    %7 = instanceof copy %3, class0
     switch move %7 ? bb6 : bb7
   bb4:
     %6 = call @console_log("added", copy %1, copy %2) -> bb5 unwind bb3
   bb5:
     goto bb2
   bb6:
-    %8 = instanceof copy %3, class6
-    %9 = "" + copy %3.field9
+    %8 = instanceof copy %3, class17
+    %9 = "" + copy %3.field20
     %10 = move %9 + ":"
-    %11 = move %10 + copy %3.field8
+    %11 = move %10 + copy %3.field19
     %12 = call @console_log("rejected", copy %2, move %8, move %11) -> bb8
   bb7:
     %13 = call @console_log("unexpected", copy %2) -> bb10
@@ -53,11 +53,11 @@ fn new (FuncId(1)) -> UnsupportedPathError
     %1 param message: Optional<String>
     %2 temp: String
   bb0:
-    %0 = struct5 {}
-    %0.field9 = "Error"
+    %0 = struct0 {}
+    %0.field20 = "Error"
     %2 = copy %1 ?? ""
-    %0.field8 = move %2
-    %0.field10 = ""
+    %0.field19 = move %2
+    %0.field21 = ""
     return move %0
 
 fn insert (FuncId(2)) -> None throws
@@ -97,7 +97,7 @@ fn insert (FuncId(2)) -> None throws
   bb2:
     %3 = copy %1[copy %6]
     %4 = undefined
-    %9 = copy %2.field14?.[copy %3]
+    %9 = copy %2.field4?.[copy %3]
     %4 = move %9
     %10 = !copy %4
     switch move %10 ? bb5 : bb6
@@ -105,9 +105,9 @@ fn insert (FuncId(2)) -> None throws
     %6 = copy %6 + 1
     goto bb1
   bb4:
-    switch copy %2.field15 ? bb14 : bb15
+    switch copy %2.field5 ? bb14 : bb15
   bb5:
-    %11 = dict_for_in_keys copy %2.field14
+    %11 = dict_for_in_keys copy %2.field4
     %12 = 0
     goto bb7
   bb6:
@@ -131,7 +131,7 @@ fn insert (FuncId(2)) -> None throws
     %12 = copy %12 + 1
     goto bb7
   bb10:
-    %22 = copy %2.field14
+    %22 = copy %2.field4
     %23 = call fn3() -> bb13
   bb11:
     throw symbol("Symbol()@237")
@@ -139,13 +139,13 @@ fn insert (FuncId(2)) -> None throws
     goto bb9
   bb13:
     %22[copy %3] = copy %23
-    %2.field14 = move %22
+    %2.field4 = move %22
     %4 = move %23
     goto bb6
   bb14:
     throw symbol("Symbol()@237")
   bb15:
-    %2.field15 = true
+    %2.field5 = true
     return none
 
 fn new (FuncId(3)) -> TrieNode
@@ -153,10 +153,10 @@ fn new (FuncId(3)) -> TrieNode
     %0 user this: TrieNode
     %1 temp: Dict<String, TrieNode>
   bb0:
-    %0 = struct13 {}
+    %0 = struct1 {}
     %1 = {}
-    %0.field14 = move %1
-    %0.field15 = false
+    %0.field4 = move %1
+    %0.field5 = false
     return move %0
 
 fn #insert_path (FuncId(4)) -> None throws
@@ -178,7 +178,7 @@ fn #insert_path (FuncId(4)) -> None throws
   bb0:
     goto bb1
   bb1:
-    %4 = copy %0.field23?.[copy %1]
+    %4 = copy %0.field12?.[copy %1]
     %5 = copy %4 != none
     switch move %5 ? bb4 : bb5
   bb2:
@@ -250,23 +250,23 @@ fn add (FuncId(5)) -> None throws
     %38 temp: String
     %39 temp: Float
   bb0:
-    %5 = dict_contains_key copy %0.field24, copy %1, own
+    %5 = dict_contains_key copy %0.field13, copy %1, own
     %6 = !move %5
     switch move %6 ? bb1 : bb2
   bb1:
-    %7 = copy %0.field23
+    %7 = copy %0.field12
     %8 = call fn3() -> bb3
   bb2:
     %23 = regex_search "\((?!\?:)", copy %2
     switch move %23 ? bb9 : bb10
   bb3:
     %7[copy %1] = move %8
-    %0.field23 = move %7
-    %9 = copy %0.field24
+    %0.field12 = move %7
+    %9 = copy %0.field13
     %10 = {}
     %9[copy %1] = move %10
-    %0.field24 = move %9
-    %11 = copy %0.field24
+    %0.field13 = move %9
+    %11 = copy %0.field13
     %12 = dict_for_in_keys copy %11["ALL"]
     %13 = 0
     goto bb4
@@ -276,15 +276,15 @@ fn add (FuncId(5)) -> None throws
     switch move %15 ? bb5 : bb7
   bb5:
     %4 = copy %12[copy %13]
-    %16 = copy %0.field24
+    %16 = copy %0.field13
     %17 = copy %16[copy %1]
-    %18 = copy %0.field24
+    %18 = copy %0.field13
     %19 = copy %18["ALL"]
     %20 = []
     %21 = list_concat copy %19[copy %4], move %20
     %17[copy %4] = move %21
     %16[copy %1] = move %17
-    %0.field24 = move %16
+    %0.field13 = move %16
     %22 = call fn4(copy %0, copy %1, move %4) -> bb8
   bb6:
     %13 = copy %13 + 1
@@ -296,7 +296,7 @@ fn add (FuncId(5)) -> None throws
   bb9:
     %24 = call fn1(copy %2) -> bb11
   bb10:
-    %25 = copy %0.field24
+    %25 = copy %0.field13
     %26 = dict_contains_key copy %25[copy %1], copy %2, own
     %27 = !move %26
     switch move %27 ? bb12 : bb13
@@ -305,26 +305,26 @@ fn add (FuncId(5)) -> None throws
   bb12:
     %28 = call fn4(copy %0, copy %1, copy %2) -> bb14
   bb13:
-    %32 = copy %0.field24
+    %32 = copy %0.field13
     %33 = copy %32[copy %1]
     %34 = copy %33[copy %2]
     %32[copy %1] = copy %33
-    %0.field24 = move %32
+    %0.field13 = move %32
     %35 = list_push copy %34, copy %3
     %33[copy %2] = move %34
-    %36 = copy %0.field25
+    %36 = copy %0.field14
     %37 = copy %1 + " "
     %38 = move %37 + copy %2
     %39 = list_push copy %36, move %38
-    %0.field25 = move %36
+    %0.field14 = move %36
     return none
   bb14:
-    %29 = copy %0.field24
+    %29 = copy %0.field13
     %30 = copy %29[copy %1]
     %31 = []
     %30[copy %2] = move %31
     %29[copy %1] = move %30
-    %0.field24 = move %29
+    %0.field13 = move %29
     goto bb13
 
 fn new (FuncId(6)) -> Router
@@ -336,16 +336,16 @@ fn new (FuncId(6)) -> Router
     %4 temp: Dict<String, Dict<String, List<String>>>
     %5 temp: List<String>
   bb0:
-    %0 = struct0 {}
+    %0 = struct6 {}
     %1 = call fn3() -> bb1
   bb1:
     %2 = {"ALL": move %1}
-    %0.field23 = move %2
+    %0.field12 = move %2
     %3 = {}
     %4 = {"ALL": move %3}
-    %0.field24 = move %4
+    %0.field13 = move %4
     %5 = []
-    %0.field25 = move %5
+    %0.field14 = move %5
     return move %0
 
 fn main (FuncId(7)) -> None
@@ -377,10 +377,10 @@ fn main (FuncId(7)) -> None
   bb5:
     %7 = call fn0(copy %1, "GET", "/users/(a|b)") -> bb6
   bb6:
-    %8 = string_join copy %1.field25, ", "
+    %8 = string_join copy %1.field14, ", "
     %9 = call @console_log(move %8) -> bb7
   bb7:
-    %10 = json_stringify copy %1.field24
+    %10 = json_stringify copy %1.field13
     %11 = call @console_log(move %10) -> bb8
   bb8:
     return none

@@ -104,7 +104,7 @@ async fn run (FuncId(0)) -> None throws
   bb19:
     return none
 
-async fn get_key__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts (FuncId(1)) -> CryptoKey
+async fn get_key__module_main (FuncId(1)) -> CryptoKey
   locals
     %0 param secret: String | Uint8Array | DataView | ArrayBuffer
     %1 user bytes: Uint8Array | DataView | ArrayBuffer
@@ -139,7 +139,7 @@ async fn get_key__module_examples/typescript/end-to-end/181_crypto_hmac_json_spa
     %11 = await move %10
     return move %11
 
-async fn sign__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts (FuncId(2)) -> String throws
+async fn sign__module_main (FuncId(2)) -> String throws
   locals
     %0 param value: String
     %1 param secret: String | Uint8Array | DataView | ArrayBuffer
@@ -170,7 +170,7 @@ async fn sign__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_
   bb2:
     return move %13
 
-async fn verify__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts (FuncId(3)) -> Bool
+async fn verify__module_main (FuncId(3)) -> Bool
   locals
     %0 param value: String
     %1 param claimed: String
@@ -201,7 +201,7 @@ async fn verify__module_examples/typescript/end-to-end/181_crypto_hmac_json_spac
     %14 = await move %13
     return move %14
 
-async fn cleanup_after__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts (FuncId(4)) -> String
+async fn cleanup_after__module_main (FuncId(4)) -> String
   locals
     %0 param work: fn() -> Future<None>
     %1 user cleaned: String
@@ -240,11 +240,11 @@ async fn cleanup_after__module_examples/typescript/end-to-end/181_crypto_hmac_js
   bb9:
     goto bb3
 
-async fn failing__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts (FuncId(5)) -> None throws
+async fn failing__module_main (FuncId(5)) -> None throws
   bb0:
     throw "boom"
 
-fn rethrow_through__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts (FuncId(6)) -> String
+fn rethrow_through__module_main (FuncId(6)) -> String
   locals
     %0 param kind: Float
     %1 user ran: usize

@@ -35,19 +35,19 @@ module examples/typescript/end-to-end/120_forward_arrow_after_class/input.ts (Mo
     suspend #15 on #14 -> state16
 
 interned types
-  t0 = Request
-  t1 = Bool
-  t2 = Float
-  t3 = Future<Float>
-  t4 = async fn(Request, Bool) -> Future<Float>
-  t5 = Unknown
-  t6 = async fn(Request) -> Future<Float>
-  t7 = String
-  t8 = Dict<String, String>
-  t9 = None
-  t10 = Optional<String>
-  t11 = fn() -> Dict<String, String>
-  t12 = fn(String) -> Optional<String>
+  t0 = String
+  t1 = Dict<String, String>
+  t2 = None
+  t3 = Optional<String>
+  t4 = fn() -> Dict<String, String>
+  t5 = fn(String) -> Optional<String>
+  t6 = Request
+  t7 = Bool
+  t8 = Float
+  t9 = Future<Float>
+  t10 = async fn(Request, Bool) -> Future<Float>
+  t11 = Unknown
+  t12 = async fn(Request) -> Future<Float>
   t13 = List<String>
   t14 = async fn(Request) -> Future<Float>
   t15 = Future<None>

@@ -8,10 +8,10 @@ module examples/typescript/end-to-end/133_presence_rules/input.ts (ModuleId(0))
     fn buckets owner Module
     fn matches owner Module
   locals
-    %0 const isRaw: fn(Wrapper | Request) -> Bool
+    %0 const isRaw: fn(Request | Wrapper) -> Bool
     %1 const req: Request
   exprs
-    #0: fn(Wrapper | Request) -> Bool = closure BodyId(7) captures 0 -> Bool
+    #0: fn(Request | Wrapper) -> Bool = closure BodyId(7) captures 0 -> Bool
     #1: String = "https://x/"
     #2: String = "POST"
     #3: String = "a"
@@ -19,16 +19,16 @@ module examples/typescript/end-to-end/133_presence_rules/input.ts (ModuleId(0))
     #5: String = "text/plain"
     #6: Dict<String, String> = {#4: #5}
     #7: Request = request_new input=#1 method=#2 headers=#6 body=#3
-    #8: fn(Wrapper | Request) -> Bool = %0
+    #8: fn(Request | Wrapper) -> Bool = %0
     #9: Request = %1
     #10: Bool = closure_call #8(#9)
-    #11: fn(Wrapper | Request) -> Bool = %0
+    #11: fn(Request | Wrapper) -> Bool = %0
     #12: Request = %1
     #13: Wrapper = new Wrapper(#12)
     #14: Bool = closure_call #11(#13)
     #15: None = @8(console_log)
     #16: None = call #15(#10, #14)
-    #17: fn(Wrapper | Request) -> Bool = %0
+    #17: fn(Request | Wrapper) -> Bool = %0
     #18: Request = %1
     #19: Wrapper = new Wrapper(#18)
     #20: Request = #19.raw
@@ -125,7 +125,7 @@ module examples/typescript/end-to-end/133_presence_rules/input.ts (ModuleId(0))
     #111: None = @16(console_log)
     #112: None = call #111(#106, #110)
   stmts
-    s0: let %0: fn(Wrapper | Request) -> Bool = #0
+    s0: let %0: fn(Request | Wrapper) -> Bool = #0
     s1: let %1: Request = #7
     s2: #16
     s3: #29
@@ -138,20 +138,20 @@ module examples/typescript/end-to-end/133_presence_rules/input.ts (ModuleId(0))
     s10: #112
 
 interned types
-  t0 = Wrapper
+  t0 = String
   t1 = Request
-  t2 = Wrapper | Request
-  t3 = Bool
-  t4 = fn(Wrapper | Request) -> Bool
-  t5 = String
-  t6 = Dict<String, String>
-  t7 = List<String>
-  t8 = fn(String) -> List<String>
-  t9 = None
-  t10 = Optional<Dict<String, String>>
-  t11 = fn(Dict<String, String>, Optional<Dict<String, String>>, String) -> String
-  t12 = fn(Dict<String, String>, String) -> String
-  t13 = fn() -> String
+  t2 = fn() -> String
+  t3 = Wrapper
+  t4 = Request | Wrapper
+  t5 = Bool
+  t6 = fn(Request | Wrapper) -> Bool
+  t7 = Dict<String, String>
+  t8 = List<String>
+  t9 = fn(String) -> List<String>
+  t10 = None
+  t11 = Optional<Dict<String, String>>
+  t12 = fn(Dict<String, String>, Optional<Dict<String, String>>, String) -> String
+  t13 = fn(Dict<String, String>, String) -> String
   t14 = RegExp
   t15 = Bool | RegExp
   t16 = fn(Bool | RegExp, String) -> Bool

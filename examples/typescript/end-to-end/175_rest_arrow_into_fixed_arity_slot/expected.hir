@@ -68,23 +68,23 @@ module examples/typescript/end-to-end/175_rest_arrow_into_fixed_arity_slot/input
     s7: #45
 
 interned types
-  t0 = Ctx
-  t1 = String
-  t2 = Unknown
-  t3 = Dict<String, Unknown>
-  t4 = List<String>
-  t5 = Float
-  t6 = String | Float
-  t7 = fn(String, String | Float) -> String
-  t8 = Bool
-  t9 = Optional<String>
-  t10 = Respond
-  t11 = (String, String | Float)
-  t12 = List<Unknown>
-  t13 = Int
-  t14 = fn(String, String | Float) -> String
-  t15 = fn(String, String | Float) -> String
-  t16 = None
-  t17 = fn(String, String) -> String
+  t0 = String
+  t1 = Float
+  t2 = String | Float
+  t3 = Respond
+  t4 = fn(String, String | Float) -> String
+  t5 = fn(String, String) -> String
+  t6 = Ctx
+  t7 = Unknown
+  t8 = Dict<String, Unknown>
+  t9 = List<String>
+  t10 = fn(String, String | Float) -> String
+  t11 = Bool
+  t12 = Optional<String>
+  t13 = (String, String | Float)
+  t14 = List<Unknown>
+  t15 = Int
+  t16 = fn(String, String | Float) -> String
+  t17 = None
   t18 = (String)
   t19 = (String, String)

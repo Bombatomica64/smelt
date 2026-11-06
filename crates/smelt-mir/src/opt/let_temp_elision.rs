@@ -43,7 +43,7 @@
 
 use smelt_hir::Type;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::Pass;
 use crate::{BasicBlock, Body, LocalDecl, LocalId, Mir, Operand, Place, Rvalue, Statement};
@@ -75,12 +75,15 @@ fn elide_body(
     captures: &HashSet<LocalId>,
     types: &smelt_hir::TypeInterner,
 ) -> bool {
+    // Counted once, as in `TempCopyForwarding`: eliding a pair touches only that
+    // pair's locals, and a recount per statement is quadratic in the body.
+    let facts = BodyFacts::of(Body { locals, blocks });
     let mut changed = false;
     for block_index in 0..blocks.len() {
         let mut index: usize = 0;
         loop {
             let body = Body { locals, blocks };
-            let Some((at, user)) = next_pair(body, captures, types, block_index, index) else {
+            let Some((at, user)) = next_pair(body, &facts, captures, types, block_index, index) else {
                 break;
             };
             let Some(block) = blocks.get_mut(block_index) else {
@@ -104,6 +107,7 @@ fn elide_body(
 /// index and user local. `None` when the block has no more pairs.
 fn next_pair(
     body: Body<'_>,
+    facts: &BodyFacts,
     captures: &HashSet<LocalId>,
     types: &smelt_hir::TypeInterner,
     block_index: usize,
@@ -111,7 +115,7 @@ fn next_pair(
 ) -> Option<(usize, LocalId)> {
     let len = body.blocks.get(block_index)?.statements.len();
     while index.saturating_add(1) < len {
-        if let Some(user) = elidable_pair(body, captures, types, block_index, index) {
+        if let Some(user) = elidable_pair(body, facts, captures, types, block_index, index) {
             return Some((index, user));
         }
         index = index.saturating_add(1);
@@ -123,6 +127,7 @@ fn next_pair(
 /// are an elidable `t = rv; u = move t` pair.
 fn elidable_pair(
     body: Body<'_>,
+    facts: &BodyFacts,
     captures: &HashSet<LocalId>,
     types: &smelt_hir::TypeInterner,
     block_index: usize,
@@ -150,26 +155,36 @@ fn elidable_pair(
         reads
     };
     let is_function = |ty| matches!(types.get(ty), Some(Type::Function(_)));
-    (body.is_single_use_temp(temp)
-        && initializer_count(body, user) == 1
+    (facts.single_use.contains(&temp)
+        && facts.initializers.get(&user) == Some(&1)
         && !reads_user
         && temp_decl.ty == user_decl.ty
         && !is_function(temp_decl.ty))
         .then_some(user)
 }
 
-/// How many definitions of `local` are not source reassignments: everything
-/// [`Body::assignment_count`] counts minus whole-local `AssignPlace`s.
-fn initializer_count(body: Body<'_>, local: LocalId) -> usize {
-    let reassignments = body
-        .blocks
-        .iter()
-        .flat_map(|block| &block.statements)
-        .filter(|statement| {
-            matches!(statement, Statement::AssignPlace { place: Place::Local(target), .. } if *target == local)
-        })
-        .count();
-    body.assignment_count(local).saturating_sub(reassignments)
+/// What the guards ask of a whole body, computed in one walk.
+struct BodyFacts {
+    /// Temporaries assigned once and read once.
+    single_use: HashSet<LocalId>,
+    /// Per local, how many definitions are not source reassignments: every
+    /// definition minus whole-local `AssignPlace`s.
+    initializers: HashMap<LocalId, usize>,
+}
+
+impl BodyFacts {
+    /// The facts of `body`.
+    fn of(body: Body<'_>) -> Self {
+        let mut initializers = body.assignment_counts();
+        for statement in body.blocks.iter().flat_map(|block| &block.statements) {
+            if let Statement::AssignPlace { place: Place::Local(target), .. } = statement
+                && let Some(count) = initializers.get_mut(target)
+            {
+                *count = count.saturating_sub(1);
+            }
+        }
+        Self { single_use: body.single_use_temps(), initializers }
+    }
 }
 
 #[cfg(test)]

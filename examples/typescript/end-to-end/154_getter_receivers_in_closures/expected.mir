@@ -8,7 +8,7 @@ fn content_type (FuncId(0)) -> String
     %2 temp: Optional<String>
     %3 temp: String
   bb0:
-    %1 = copy %0.field19
+    %1 = copy %0.field10
     %2 = call fn3(move %1, "content-type") -> bb1
   bb1:
     %3 = move %2 ?? "none"
@@ -34,8 +34,8 @@ fn new (FuncId(2)) -> Request
     %0 user this: Request
     %1 param headers: Map<String, String>
   bb0:
-    %0 = struct2 {}
-    %0.field7 = copy %1
+    %0 = struct0 {}
+    %0.field6 = copy %1
     return move %0
 
 fn header (FuncId(3)) -> Optional<String>
@@ -44,7 +44,7 @@ fn header (FuncId(3)) -> Optional<String>
     %1 param name: String
     %2 temp: Optional<String>
   bb0:
-    %2 = dict_get copy %0.field7, copy %1, _
+    %2 = dict_get copy %0.field6, copy %1, _
     return move %2
 
 fn names (FuncId(4)) -> List<String>
@@ -54,7 +54,7 @@ fn names (FuncId(4)) -> List<String>
     %2 temp: List<String>
     %3 temp: List<String>
   bb0:
-    %1 = dict_keys copy %0.field7
+    %1 = dict_keys copy %0.field6
     %2 = []
     %3 = list_concat move %1, move %2
     return move %3
@@ -65,7 +65,7 @@ fn has (FuncId(5)) -> Bool
     %1 param name: String
     %2 temp: Bool
   bb0:
-    %2 = dict_contains_key copy %0.field7, copy %1, own
+    %2 = dict_contains_key copy %0.field6, copy %1, own
     return move %2
 
 fn new (FuncId(6)) -> Context
@@ -73,9 +73,9 @@ fn new (FuncId(6)) -> Context
     %0 user this: Context
     %1 param raw: Map<String, String>
   bb0:
-    %0 = struct1 {}
-    %0.field13 = 0.0
-    %0.field15 = copy %1
+    %0 = struct7 {}
+    %0.field16 = 0.0
+    %0.field18 = copy %1
     return move %0
 
 fn __smelt_get_req (FuncId(7)) -> Request
@@ -86,17 +86,17 @@ fn __smelt_get_req (FuncId(7)) -> Request
     %3 temp: Bool
     %4 temp: Request
   bb0:
-    %2 = copy %0.field13 + 1.0
-    %0.field13 = move %2
-    %3 = copy %0.field14 == none
+    %2 = copy %0.field16 + 1.0
+    %0.field16 = move %2
+    %3 = copy %0.field17 == none
     switch move %3 ? bb1 : bb2
   bb1:
-    %4 = call fn2(copy %0.field15) -> bb3
+    %4 = call fn2(copy %0.field18) -> bb3
   bb2:
-    return copy %0.field14
+    return copy %0.field17
   bb3:
     %1 = move %4
-    %0.field14 = move %1
+    %0.field17 = move %1
     goto bb2
 
 fn text (FuncId(8)) -> String
@@ -142,12 +142,12 @@ fn main (FuncId(9)) -> None
   bb2:
     %6 = call @console_log(move %5) -> bb3
   bb3:
-    %7 = call @console_log(copy %1.field13) -> bb4
+    %7 = call @console_log(copy %1.field16) -> bb4
   bb4:
     %8 = closure_call move %0(copy %1)
     %9 = call @console_log(move %8) -> bb5
   bb5:
-    %10 = call @console_log(copy %1.field13) -> bb6
+    %10 = call @console_log(copy %1.field16) -> bb6
   bb6:
     %11 = ["accept", "x-missing", "content-type"]
     %12 = call fn1(copy %1, move %11) -> bb7
@@ -155,15 +155,15 @@ fn main (FuncId(9)) -> None
     %13 = string_join move %12, ","
     %14 = call @console_log(move %13) -> bb8
   bb8:
-    %15 = call @console_log(copy %1.field13) -> bb9
+    %15 = call @console_log(copy %1.field16) -> bb9
   bb9:
-    %16 = copy %1.field19
+    %16 = copy %1.field10
     %17 = call fn4(move %16) -> bb10
   bb10:
     %18 = string_join move %17, ","
     %19 = call @console_log(move %18) -> bb11
   bb11:
-    %20 = call @console_log(copy %1.field13) -> bb12
+    %20 = call @console_log(copy %1.field16) -> bb12
   bb12:
     return none
 
@@ -174,7 +174,7 @@ closure ClosureId(0) -> Bool
     %2 temp: Request
     %3 temp: Bool
   bb0:
-    %2 = copy %1.field19
+    %2 = copy %1.field10
     %3 = call fn5(copy %2, copy %0) -> bb1
   bb1:
     return copy %3
@@ -189,7 +189,7 @@ closure ClosureId(1) -> Bool
     %5 temp: Bool
     %6 temp: Bool
   bb0:
-    %3 = copy %1.field19
+    %3 = copy %1.field10
     %4 = call fn5(copy %3, copy %0) -> bb1
   bb1:
     switch copy %4 ? bb2 : bb3
@@ -214,7 +214,7 @@ closure ClosureId(2) -> String
     %6 temp: String
     %7 temp: String
   bb0:
-    %2 = copy %0.field19
+    %2 = copy %0.field10
     %3 = call fn3(copy %2, "accept") -> bb1
   bb1:
     %4 = primitive_cast_bool copy %3

@@ -15,7 +15,7 @@
 //! passes, the validator and the emitter all ask through this module, so a new
 //! variant is described once and every analysis sees it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     BasicBlock, Callee, GlobalProjection, LocalDecl, LocalId, LocalKind, MirClosure, MirFunction,
@@ -1374,6 +1374,36 @@ impl<'a> Body<'a> {
             }
         }
         count
+    }
+
+    /// How many times each local is read anywhere in this body.
+    #[must_use]
+    pub fn read_counts(self) -> HashMap<LocalId, usize> {
+        let mut counts: HashMap<LocalId, usize> = HashMap::new();
+        let mut tally = |read: LocalId| {
+            let count = counts.entry(read).or_default();
+            *count = count.saturating_add(1);
+        };
+        for block in self.blocks {
+            for statement in &block.statements {
+                statement.read_locals(&mut tally);
+            }
+            if let Some(terminator) = &block.terminator {
+                terminator.read_locals(&mut tally);
+            }
+        }
+        counts
+    }
+
+    /// Every temporary assigned once and read once, in one walk of the body.
+    #[must_use]
+    pub fn single_use_temps(self) -> HashSet<LocalId> {
+        let assigned = self.assignment_counts();
+        self.read_counts()
+            .into_iter()
+            .filter(|(local, reads)| *reads == 1 && assigned.get(local) == Some(&1) && self.is_temp(*local))
+            .map(|(local, _)| local)
+            .collect()
     }
 
     /// The declaration of `local`, if the index is in range.

@@ -3,7 +3,7 @@ module examples/typescript/end-to-end/69_asserted_callback_name/input.ts (Module
   items
     type Predicate = fn(String) -> Bool
     fn is_long owner Module
-    class Checker fields [] constructor Some(ItemId(5)) methods [ItemId(4)] implements []
+    class Checker fields [] constructor Some(ItemId(7)) methods [ItemId(6)] implements []
   locals
     %0 const words: List<String>
     %1 const lengths: List<Float>
@@ -19,35 +19,35 @@ module examples/typescript/end-to-end/69_asserted_callback_name/input.ts (Module
     #7: List<String> = list_filter #5, #6
     #8: String = ","
     #9: String = string_join #7, #8
-    #10: None = @7(console_log)
+    #10: None = @9(console_log)
     #11: None = call #10(#9)
     #12: List<String> = %0
     #13: fn(String, Int, List<String>) -> Bool = closure BodyId(4) captures 0 -> Bool
     #14: List<String> = list_filter #12, #13
     #15: String = ","
     #16: String = string_join #14, #15
-    #17: None = @8(console_log)
+    #17: None = @10(console_log)
     #18: None = call #17(#16)
     #19: List<String> = %0
     #20: fn(String, Int, List<String>) -> Bool = closure BodyId(5) captures 0 -> Bool
     #21: List<String> = list_filter #19, #20
     #22: String = ","
     #23: String = string_join #21, #22
-    #24: None = @9(console_log)
+    #24: None = @11(console_log)
     #25: None = call #24(#23)
     #26: List<String> = %0
     #27: fn(String, Int, List<String>) -> Bool = closure BodyId(6) captures 0 -> Bool
     #28: List<String> = list_filter #26, #27
     #29: String = ","
     #30: String = string_join #28, #29
-    #31: None = @10(console_log)
+    #31: None = @12(console_log)
     #32: None = call #31(#30)
     #33: List<String> = %0
     #34: fn(String) -> Bool = closure BodyId(7) captures 0 -> Bool
     #35: List<String> = list_filter #33, #34
     #36: String = ","
     #37: String = string_join #35, #36
-    #38: None = @11(console_log)
+    #38: None = @13(console_log)
     #39: None = call #38(#37)
     #40: List<String> = %0
     #41: fn(String, Int, List<String>) -> Float = closure BodyId(8) captures 0 -> Float
@@ -55,7 +55,7 @@ module examples/typescript/end-to-end/69_asserted_callback_name/input.ts (Module
     #43: List<Float> = %1
     #44: String = ","
     #45: String = string_join #43, #44
-    #46: None = @12(console_log)
+    #46: None = @14(console_log)
     #47: None = call #46(#45)
     #48: Checker = new Checker()
     #49: List<String> = %0
@@ -63,7 +63,7 @@ module examples/typescript/end-to-end/69_asserted_callback_name/input.ts (Module
     #51: List<String> = list_filter #49, #50
     #52: String = ","
     #53: String = string_join #51, #52
-    #54: None = @13(console_log)
+    #54: None = @15(console_log)
     #55: None = call #54(#53)
   stmts
     s0: let %0: List<String> = #4
@@ -78,17 +78,17 @@ module examples/typescript/end-to-end/69_asserted_callback_name/input.ts (Module
     s9: #55
 
 interned types
-  t0 = String
-  t1 = Bool
+  t0 = Bool
+  t1 = String
   t2 = fn(String) -> Bool
-  t3 = List<String>
-  t4 = Int
-  t5 = Unknown
-  t6 = Float
-  t7 = fn(String, Int, List<String>) -> Float
-  t8 = List<Float>
-  t9 = Checker
-  t10 = fn(String) -> Bool
+  t3 = fn(String) -> Bool
+  t4 = List<String>
+  t5 = Int
+  t6 = Unknown
+  t7 = Float
+  t8 = fn(String, Int, List<String>) -> Float
+  t9 = List<Float>
+  t10 = Checker
   t11 = None
   t12 = fn(String, Int, List<String>) -> Bool
   t13 = fn(String, Int, List<String>) -> Bool

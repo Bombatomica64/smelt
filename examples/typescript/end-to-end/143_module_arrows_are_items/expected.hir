@@ -1,11 +1,11 @@
 module examples/typescript/end-to-end/143_module_arrows_are_items/input.ts (ModuleId(0))
   body BodyId(10)
   items
-    fn respond__module_examples/typescript/end-to-end/143_module_arrows_are_items/input.ts owner Module
-    fn add__module_examples/typescript/end-to-end/143_module_arrows_are_items/input.ts owner Module
-    fn fact__module_examples/typescript/end-to-end/143_module_arrows_are_items/input.ts owner Module
+    fn respond__module_main owner Module
+    fn add__module_main owner Module
+    fn fact__module_main owner Module
     fn join owner Module
-    fn scan__module_examples/typescript/end-to-end/143_module_arrows_are_items/input.ts owner Module
+    fn scan__module_main owner Module
     interface Brand fields [Public _brand: String] methods []
     class Counter fields [Public total: Float] constructor Some(ItemId(10)) methods [ItemId(7), ItemId(8), ItemId(9)] implements []
     fn run owner Module
@@ -23,28 +23,28 @@ module examples/typescript/end-to-end/143_module_arrows_are_items/input.ts (Modu
     suspend #4 on #3 -> state5
 
 interned types
-  t0 = String
-  t1 = Float
-  t2 = Optional<Float>
-  t3 = Response
-  t4 = Brand
-  t5 = fn(String, Optional<Float>) -> Response
-  t6 = fn(Float, Optional<Float>) -> Float
-  t7 = fn(Float) -> Float
-  t8 = List<String>
-  t9 = fn(...List<String>) -> String
-  t10 = Optional<String>
-  t11 = Bool
-  t12 = Optional<Bool>
-  t13 = None
-  t14 = fn(String, Optional<String>, Optional<Bool>) -> Optional<String>
-  t15 = Future<None>
-  t16 = async fn() -> Future<None>
-  t17 = fn(String, ...List<String>) -> String
-  t18 = Counter
-  t19 = Future<Response>
-  t20 = Response | Future<Response>
-  t21 = fn() -> Float
-  t22 = fn() -> Response | Future<Response>
+  t0 = Float
+  t1 = Response
+  t2 = Future<Response>
+  t3 = Response | Future<Response>
+  t4 = String
+  t5 = fn() -> Float
+  t6 = fn() -> Response | Future<Response>
+  t7 = Optional<Float>
+  t8 = Brand
+  t9 = fn(String, Optional<Float>) -> Response
+  t10 = fn(Float, Optional<Float>) -> Float
+  t11 = fn(Float) -> Float
+  t12 = List<String>
+  t13 = fn(...List<String>) -> String
+  t14 = Optional<String>
+  t15 = Bool
+  t16 = Optional<Bool>
+  t17 = None
+  t18 = fn(String, Optional<String>, Optional<Bool>) -> Optional<String>
+  t19 = Future<None>
+  t20 = async fn() -> Future<None>
+  t21 = fn(String, ...List<String>) -> String
+  t22 = Counter
   t23 = Future<String>
   t24 = async fn() -> Future<None>

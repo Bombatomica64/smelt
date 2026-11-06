@@ -47,7 +47,7 @@ fn new (FuncId(3)) -> Sink
   locals
     %0 user this: Sink
   bb0:
-    %0 = struct1 {}
+    %0 = struct0 {}
     return move %0
 
 fn main (FuncId(4)) -> None

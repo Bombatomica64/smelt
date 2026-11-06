@@ -62,7 +62,7 @@ module examples/typescript/end-to-end/83_class_expression_binding/input.ts (Modu
     #51: None = call #50(#49)
     #52: String = "instanceof: "
     #53: Boxed<Float> = %2
-    #54: Bool = instanceof #53, class12
+    #54: Bool = instanceof #53, class16
     #55: String = "yes"
     #56: String = "no"
     #57: String = if #54 then #55 else #56
@@ -101,22 +101,22 @@ module examples/typescript/end-to-end/83_class_expression_binding/input.ts (Modu
     s12: #76
 
 interned types
-  t0 = __smelt_anon_class_733
-  t1 = Unknown
-  t2 = Reporting
-  t3 = DeclaredReporting
-  t4 = T
-  t5 = __smelt_anon_class_1394<T>
-  t6 = List<T>
-  t7 = Float
-  t8 = None
-  t9 = __smelt_anon_class_1394
-  t10 = Boxed
-  t11 = Counter
-  t12 = String
-  t13 = List<String>
-  t14 = fn() -> String
-  t15 = fn(String) -> None
+  t0 = None
+  t1 = String
+  t2 = fn(String) -> None
+  t3 = fn() -> String
+  t4 = __smelt_anon_class_733
+  t5 = Unknown
+  t6 = Reporting
+  t7 = DeclaredReporting
+  t8 = T
+  t9 = __smelt_anon_class_1394<T>
+  t10 = List<T>
+  t11 = Float
+  t12 = __smelt_anon_class_1394
+  t13 = Boxed
+  t14 = Counter
+  t15 = List<String>
   t16 = Boxed<T>
   t17 = Boxed<Float>
   t18 = fn(Float) -> Float

@@ -10,8 +10,8 @@ fn bump (FuncId(0)) -> None
     %3 temp: Float
   bb0:
     %2 = len copy %1
-    %3 = copy %0.field3 + move %2
-    %0.field3 = move %3
+    %3 = copy %0.field8 + move %2
+    %0.field8 = move %3
     return none
 
 fn new (FuncId(1)) -> Ticker
@@ -19,7 +19,7 @@ fn new (FuncId(1)) -> Ticker
     %0 user this: Ticker
   bb0:
     %0 = struct0 {}
-    %0.field3 = 0.0
+    %0.field8 = 0.0
     return move %0
 
 fn bump (FuncId(2)) -> String
@@ -28,7 +28,7 @@ fn bump (FuncId(2)) -> String
     %1 param key: String
     %2 temp: String
   bb0:
-    %2 = copy %0.field8 + copy %1
+    %2 = copy %0.field12 + copy %1
     return move %2
 
 fn describe (FuncId(3)) -> String
@@ -39,7 +39,7 @@ fn describe (FuncId(3)) -> String
     %3 temp: String
     %4 temp: String
   bb0:
-    %2 = copy %0.field8 + "/"
+    %2 = copy %0.field12 + "/"
     %3 = primitive_cast_string copy %1
     %4 = move %2 + move %3
     return move %4
@@ -48,8 +48,8 @@ fn new (FuncId(4)) -> Labeller
   locals
     %0 user this: Labeller
   bb0:
-    %0 = struct1 {}
-    %0.field8 = "labelled"
+    %0 = struct3 {}
+    %0.field12 = "labelled"
     return move %0
 
 fn describe (FuncId(5)) -> Float
@@ -65,7 +65,7 @@ fn new (FuncId(6)) -> Sizer
   locals
     %0 user this: Sizer
   bb0:
-    %0 = struct11 {}
+    %0 = struct6 {}
     return move %0
 
 fn main (FuncId(7)) -> None
@@ -99,7 +99,7 @@ fn main (FuncId(7)) -> None
     %0 = move %3
     %4 = call fn0(copy %0, "ab") -> bb2
   bb2:
-    %5 = primitive_cast_string copy %0.field3
+    %5 = primitive_cast_string copy %0.field8
     %6 = "void method: " + move %5
     %7 = call @console_log(move %6) -> bb3
   bb3:

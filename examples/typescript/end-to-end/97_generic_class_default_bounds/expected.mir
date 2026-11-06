@@ -34,8 +34,8 @@ fn new (FuncId(2)) -> Track<T>
     %0 user this: Track<T>
     %1 param chain: Chain<T>
   bb0:
-    %0 = struct1 {}
-    %0.field11 = copy %1
+    %0 = struct7 {}
+    %0.field10 = copy %1
     return move %0
 
 fn latest (FuncId(3)) -> T
@@ -43,7 +43,7 @@ fn latest (FuncId(3)) -> T
     %0 param this: Track<T>
     %1 temp: Chain<T>
   bb0:
-    %1 = copy %0.field11
+    %1 = copy %0.field10
     return copy %1.field4
 
 fn main (FuncId(4)) -> None throws
@@ -90,14 +90,14 @@ fn main (FuncId(4)) -> None throws
     %12 = call fn2(move %11) -> bb8
   bb8:
     %1 = move %12
-    %13 = copy %1.field11
-    %14 = call fn1(copy %1.field11, "b") -> bb9
+    %13 = copy %1.field10
+    %14 = call fn1(copy %1.field10, "b") -> bb9
   bb9:
     %15 = call fn3(copy %1) -> bb10
   bb10:
     %16 = call @console_log(move %15) -> bb11
   bb11:
-    %17 = copy %1.field11
+    %17 = copy %1.field10
     %19 = closure_call copy %17.field6()
     %20 = call @console_log(copy %19.field4) -> bb12
   bb12:

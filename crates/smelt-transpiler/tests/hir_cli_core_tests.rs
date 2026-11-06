@@ -849,3 +849,17 @@ fn building_twice_produces_identical_output() -> TestResult {
 
     Ok(())
 }
+
+/// A single-file command lowers what a build lowers, so a dependency the frontend
+/// rejects fails it, naming that dependency. It used to be skipped, and the target
+/// printed as if its imports had lowered.
+#[test]
+fn dump_hir_reports_a_dependency_that_fails_to_lower() -> TestResult {
+    let project = TempProject::new()?;
+    let root = project.path();
+    fs::create_dir_all(root)?;
+    fs::write(root.join("dep.ts"), "let a = 1;\nexport const b = f(a, (a = 2));\nfunction f(x: number, y: number): number { return x + y; }\n")?;
+    fs::write(root.join("main.ts"), "import { b } from './dep';\nconsole.log(b);\n")?;
+    let error = smelt_in(root, &["dump-hir", "main.ts"]).err().ok_or("dump-hir accepted a rejected dependency")?;
+    ensure(error.to_string().contains("dep.ts"), format!("the error must name the dependency: {error}"))
+}

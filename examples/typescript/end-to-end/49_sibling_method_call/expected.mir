@@ -6,8 +6,8 @@ fn stash (FuncId(0)) -> None
     %1 param value: String
     %2 temp: String
   bb0:
-    %2 = copy %0.field2 + copy %1
-    %0.field2 = move %2
+    %2 = copy %0.field6 + copy %1
+    %0.field6 = move %2
     return none
 
 fn keep (FuncId(1)) -> None
@@ -16,8 +16,8 @@ fn keep (FuncId(1)) -> None
     %1 param value: String
     %2 temp: String
   bb0:
-    %2 = copy %0.field1 + copy %1
-    %0.field1 = move %2
+    %2 = copy %0.field5 + copy %1
+    %0.field5 = move %2
     return none
 
 fn add (FuncId(2)) -> None
@@ -38,8 +38,8 @@ fn new (FuncId(3)) -> Registry
     %0 user this: Registry
   bb0:
     %0 = struct0 {}
-    %0.field1 = ""
-    %0.field2 = ""
+    %0.field5 = ""
+    %0.field6 = ""
     return move %0
 
 fn main (FuncId(4)) -> None
@@ -59,8 +59,8 @@ fn main (FuncId(4)) -> None
   bb2:
     %3 = call fn2(copy %0, "b") -> bb3
   bb3:
-    %4 = copy %0.field2 + ","
-    %5 = move %4 + copy %0.field1
+    %4 = copy %0.field6 + ","
+    %5 = move %4 + copy %0.field5
     %6 = call @console_log(move %5) -> bb4
   bb4:
     return none

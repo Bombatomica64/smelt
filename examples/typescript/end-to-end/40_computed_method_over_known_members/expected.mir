@@ -105,7 +105,7 @@ fn new (FuncId(8)) -> Counter
   locals
     %0 user this: Counter
   bb0:
-    %0 = struct1 {}
+    %0 = struct4 {}
     return move %0
 
 fn main (FuncId(9)) -> None

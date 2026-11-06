@@ -454,6 +454,25 @@ mod tests {
         ));
     }
 
+    /// Every command that lowers a manifest takes `--define`, so it can agree with
+    /// `build` on which typed versions apply; one that lowers no manifest does not.
+    #[test]
+    fn define_is_on_every_manifest_command() {
+        let define = ["--define", "K=1"];
+        for command in [
+            &["smelt", "build"][..],
+            &["smelt", "check"],
+            &["smelt", "probe"],
+            &["smelt", "list-escape-report", "Smelt.toml"],
+            &["smelt", "typedness-report", "Smelt.toml"],
+            &["smelt", "ts7-parity-report", "Smelt.toml"],
+        ] {
+            let arguments = [command, &define[..]].concat();
+            assert!(Args::try_parse_from(&arguments).is_ok(), "{command:?}");
+        }
+        assert!(Args::try_parse_from(["smelt", "dump-hir", "a.ts", "--define", "K=1"]).is_err());
+    }
+
     /// A gate with nothing to compare against would pass vacuously, and an
     /// update with nowhere to write would do nothing, so clap refuses both.
     #[test]
