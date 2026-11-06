@@ -5,7 +5,8 @@
 
 use std::fmt::Write as _;
 
-use smelt_hir::{PropertyLookup, Type, TypeId};
+use smelt_hir::op_table::{opt, regex_replace_args_text, tail};
+use smelt_hir::{Type, TypeId};
 
 use crate::{
     BuiltinFn, Callee, Constant, GlobalProjection, LocalId, LocalKind, Mir, Operand, Place,
@@ -183,1669 +184,193 @@ fn statement_text(statement: &Statement) -> String {
     }
 }
 
-/// Formats an rvalue to human-readable text.
-fn rvalue_text(rvalue: &Rvalue) -> String {
-    match rvalue {
-        Rvalue::Use(operand) => operand_text(operand),
-        Rvalue::ThisRead => "this".to_owned(),
-        Rvalue::BindThis { callee, receiver } => format!(
-            "bind_this {}, {}",
-            operand_text(callee),
-            operand_text(receiver)
-        ),
-        Rvalue::GeneratorYield {
-            value,
-            unwind,
-            cleanup,
-        } => {
-            let mut text = format!("yield {}", operand_text(value));
-            if let Some(handler) = unwind {
-                push_fmt(&mut text, format_args!(" unwind bb{}", handler.catch_block.0));
-            }
-            if let Some(cleanup) = cleanup {
-                push_fmt(&mut text, format_args!(" cleanup bb{}", cleanup.block.0));
-            }
-            text
-        }
-        Rvalue::GeneratorNext {
-            generator,
-            value,
-            kind,
-        } => value.as_ref().map_or_else(
-            || format!("{kind:?} {}", operand_text(generator)),
-            |value| format!("{kind:?} {} with {}", operand_text(generator), operand_text(value)),
-        ),
-        Rvalue::GeneratorDone { result } => format!("done {}", operand_text(result)),
-        Rvalue::GeneratorValue { result } => format!("value {}", operand_text(result)),
-        Rvalue::GeneratorDelegate { generator } => {
-            format!("yield* {}", operand_text(generator))
-        }
-        Rvalue::List(items) => format!(
-            "[{}]",
-            items
-                .iter()
-                .map(operand_text)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        Rvalue::Set(items) => format!(
-            "set{{{}}}",
-            items
-                .iter()
-                .map(operand_text)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        Rvalue::Dict(entries) => format!(
-            "{{{}}}",
-            entries
-                .iter()
-                .map(|(key, entry_value)| {
-                    format!("{}: {}", operand_text(key), operand_text(entry_value))
-                })
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        Rvalue::Tuple(items) => format!(
-            "({})",
-            items
-                .iter()
-                .map(operand_text)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        Rvalue::Closure { id, captures } => format!(
-            "closure {:?} [{}]",
-            id,
-            captures
-                .iter()
-                .map(operand_text)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        Rvalue::ClosureCall { callee, args } => format!(
-            "closure_call {}({})",
-            operand_text(callee),
-            args.iter().map(operand_text).collect::<Vec<_>>().join(", ")
-        ),
-        Rvalue::Construct { callee, args } => format!(
-            "construct {}({})",
-            operand_text(callee),
-            args.iter().map(operand_text).collect::<Vec<_>>().join(", ")
-        ),
-        Rvalue::ClosureCallSpread { callee, args } => {
-            format!(
-                "closure_call {}(...{})",
-                operand_text(callee),
-                operand_text(args)
-            )
-        }
-        Rvalue::Binary { op, lhs, rhs } => {
-            format!(
-                "{} {} {}",
-                operand_text(lhs),
-                smelt_hir::bin_op_text(*op),
-                operand_text(rhs)
-            )
-        }
-        Rvalue::Unary { op, operand } => {
-            let op_text = match op {
-                smelt_hir::UnaryOp::Not => "!",
-                smelt_hir::UnaryOp::Neg => "-",
-            };
-            format!("{op_text}{}", operand_text(operand))
-        }
-        Rvalue::FunctionTableLookup { key, cases } => {
-            let case_text = cases
-                .iter()
-                .map(|(case_key, operand)| format!("{case_key:?}: {}", operand_text(operand)))
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!(
-                "function_table_lookup {} {{{case_text}}}",
-                operand_text(key)
-            )
-        }
-        Rvalue::OptionalField { receiver, field } => {
-            format!("{}?.field{}", operand_text(receiver), field.0)
-        }
-        Rvalue::OptionalIndex { receiver, index } => {
-            format!("{}?.[{}]", operand_text(receiver), operand_text(index))
-        }
-        Rvalue::OptionalMethod {
-            receiver,
-            method,
-            args,
-        } => {
-            let args_text = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
-            format!(
-                "{}?.method{}({args_text})",
-                operand_text(receiver),
-                method.0
-            )
-        }
-        Rvalue::UnionMethod {
-            receiver,
-            method,
-            args,
-        } => {
-            let args_text = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
-            format!(
-                "union_method {}.method{}({args_text})",
-                operand_text(receiver),
-                method.0
-            )
-        }
-        Rvalue::BoundMethod {
-            receiver,
-            bound,
-            method,
-            args,
-        } => {
-            let args_text = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
-            format!(
-                "bound_method<{}> {}.method{}({args_text})",
-                bound.0,
-                operand_text(receiver),
-                method.0
-            )
-        }
-        Rvalue::BoundField {
-            receiver,
-            bound,
-            field,
-        } => format!(
-            "bound_field<{}> {}.field{}",
-            bound.0,
-            operand_text(receiver),
-            field.0
-        ),
-        Rvalue::OptionalCoalesce { optional, fallback } => {
-            format!("{} ?? {}", operand_text(optional), operand_text(fallback))
-        }
-        Rvalue::InstanceOf {
-            value: operand,
-            class,
-        } => {
-            format!("instanceof {}, class{}", operand_text(operand), class.0)
-        }
-        Rvalue::InstanceOfValue { value, target } => {
-            format!(
-                "instanceof {}, {}",
-                operand_text(value),
-                operand_text(target)
-            )
-        }
-        Rvalue::UnknownIs {
-            value: unknown_value,
-            kind,
-        } => {
-            format!("unknown_is {kind:?} {}", operand_text(unknown_value))
-        }
-        Rvalue::PrototypeSentinel {
-            value: unknown_value,
-            own_slot_shadows,
-        } => {
-            if *own_slot_shadows {
-                format!("proto_accessor {}", operand_text(unknown_value))
-            } else {
-                format!("prototype_sentinel {}", operand_text(unknown_value))
-            }
-        }
-        Rvalue::BoxPrimitive { value } => {
-            format!("box_primitive {}", operand_text(value))
-        }
-        Rvalue::DefineProperties {
-            target,
-            descriptors,
-        } => format!(
-            "define_properties {} {}",
-            operand_text(target),
-            operand_text(descriptors)
-        ),
-        Rvalue::ObjectFromPrototype { prototype } => {
-            format!("object_from_prototype {}", operand_text(prototype))
-        }
-        Rvalue::TypeofValue {
-            value: unknown_value,
-        } => {
-            format!("typeof {}", operand_text(unknown_value))
-        }
-        Rvalue::UnknownCast {
-            value: unknown_value,
-            target,
-        } => {
-            format!(
-                "unknown_cast {} as t{}",
-                operand_text(unknown_value),
-                target.0
-            )
-        }
-        Rvalue::Struct { class, fields } => {
-            let field_list = fields
-                .iter()
-                .map(|(field, field_value)| {
-                    format!("field{}: {}", field.0, operand_text(field_value))
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("struct{} {{{field_list}}}", class.0)
-        }
-        Rvalue::ExternalClassInstance { class, args } => {
-            let arg_list = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
-            format!("external_new{}({arg_list})", class.0)
-        }
-        Rvalue::Len(operand) => format!("len {}", operand_text(operand)),
-        Rvalue::NumericAbs(operand) => format!("numeric_abs {}", operand_text(operand)),
-        Rvalue::NumericRound { op, operand } => {
-            let op_text = match op {
-                smelt_hir::NumericRoundOp::Floor => "floor",
-                smelt_hir::NumericRoundOp::Ceil => "ceil",
-                smelt_hir::NumericRoundOp::Round => "round",
-                smelt_hir::NumericRoundOp::Trunc => "trunc",
-            };
-            format!("numeric_{op_text} {}", operand_text(operand))
-        }
-        Rvalue::NumericExtrema { op, args, spread } => {
-            let op_text = match op {
-                smelt_hir::NumericExtremaOp::Min => "min",
-                smelt_hir::NumericExtremaOp::Max => "max",
-            };
-            let arg_list = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
-            spread.as_ref().map_or_else(
-                || format!("numeric_{op_text} {arg_list}"),
-                |spread_operand| {
-                    format!("numeric_{op_text} {arg_list} ...{}", operand_text(spread_operand))
-                },
-            )
-        }
-        Rvalue::NumericHypot { args } => {
-            let arg_list = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
-            format!("numeric_hypot {arg_list}")
-        }
-        Rvalue::NumericPredicate { op, operand } => {
-            let op_text = match op {
-                smelt_hir::NumericPredicateOp::IsFinite => "is_finite",
-                smelt_hir::NumericPredicateOp::IsInteger => "is_integer",
-                smelt_hir::NumericPredicateOp::IsSafeInteger => "is_safe_integer",
-                smelt_hir::NumericPredicateOp::IsNaN => "is_nan",
-            };
-            format!("numeric_{op_text} {}", operand_text(operand))
-        }
-        Rvalue::NumericUnaryFunc { op, operand } => {
-            let op_text = match op {
-                smelt_hir::NumericUnaryFuncOp::Sqrt => "sqrt",
-                smelt_hir::NumericUnaryFuncOp::Cbrt => "cbrt",
-                smelt_hir::NumericUnaryFuncOp::Sign => "sign",
-                smelt_hir::NumericUnaryFuncOp::Sin => "sin",
-                smelt_hir::NumericUnaryFuncOp::Cos => "cos",
-                smelt_hir::NumericUnaryFuncOp::Tan => "tan",
-                smelt_hir::NumericUnaryFuncOp::Asin => "asin",
-                smelt_hir::NumericUnaryFuncOp::Acos => "acos",
-                smelt_hir::NumericUnaryFuncOp::Atan => "atan",
-                smelt_hir::NumericUnaryFuncOp::Log => "log",
-                smelt_hir::NumericUnaryFuncOp::Log10 => "log10",
-                smelt_hir::NumericUnaryFuncOp::Log2 => "log2",
-                smelt_hir::NumericUnaryFuncOp::Exp => "exp",
-                smelt_hir::NumericUnaryFuncOp::Clz32 => "clz32",
-            };
-            format!("numeric_{op_text} {}", operand_text(operand))
-        }
-        Rvalue::NumericPow { base, exponent } => {
-            format!(
-                "numeric_pow {}, {}",
-                operand_text(base),
-                operand_text(exponent)
-            )
-        }
-        Rvalue::NumericAtan2 { y, x } => {
-            format!("numeric_atan2 {}, {}", operand_text(y), operand_text(x))
-        }
-        Rvalue::NumericRandom => "numeric_random".to_owned(),
-        Rvalue::NumericRandomInt { start, end } => {
-            format!(
-                "numeric_random_int {}, {}",
-                operand_text(start),
-                operand_text(end)
-            )
-        }
-        Rvalue::NumericToStringRadix { operand, radix } => {
-            format!(
-                "numeric_to_string_radix {}, {}",
-                operand_text(operand),
-                operand_text(radix)
-            )
-        }
-        Rvalue::NumericToFixed { operand, digits } => {
-            format!(
-                "numeric_to_fixed {}, {}",
-                operand_text(operand),
-                operand_text(digits)
-            )
-        }
-        Rvalue::ParseIntRadix { operand, radix } => {
-            format!(
-                "parse_int_radix {}, {}",
-                operand_text(operand),
-                operand_text(radix)
-            )
-        }
-        Rvalue::PrimitiveCast { op, operand } => {
-            let op_text = match op {
-                smelt_hir::PrimitiveCastOp::ToBool => "bool",
-                smelt_hir::PrimitiveCastOp::ToInt => "int",
-                smelt_hir::PrimitiveCastOp::ToFloat => "float",
-                smelt_hir::PrimitiveCastOp::ToInt32 => "int32",
-                smelt_hir::PrimitiveCastOp::ParseFloat => "parse_float",
-                smelt_hir::PrimitiveCastOp::FromCharCodes => "from_char_codes",
-                smelt_hir::PrimitiveCastOp::FromCodePoints => "from_code_points",
-                smelt_hir::PrimitiveCastOp::ToJsNumber => "js_number",
-                smelt_hir::PrimitiveCastOp::ToString => "string",
-            };
-            format!("primitive_cast_{op_text} {}", operand_text(operand))
-        }
-        Rvalue::StringCase { op, operand } => {
-            let op_text = match op {
-                smelt_hir::StringCaseOp::Lower => "lower",
-                smelt_hir::StringCaseOp::Upper => "upper",
-            };
-            format!("string_{op_text} {}", operand_text(operand))
-        }
-        Rvalue::StringNormalize { form, operand } => {
-            let form_text = match form {
-                smelt_hir::StringNormalizeForm::Nfc => "nfc",
-                smelt_hir::StringNormalizeForm::Nfd => "nfd",
-                smelt_hir::StringNormalizeForm::Nfkc => "nfkc",
-                smelt_hir::StringNormalizeForm::Nfkd => "nfkd",
-            };
-            format!("string_normalize_{form_text} {}", operand_text(operand))
-        }
-        Rvalue::UriTranscode { op, operand } => {
-            let op_text = match op {
-                smelt_hir::UriTranscodeOp::Encode => "uri_encode",
-                smelt_hir::UriTranscodeOp::EncodeComponent => "uri_encode_component",
-                smelt_hir::UriTranscodeOp::Decode => "uri_decode",
-                smelt_hir::UriTranscodeOp::DecodeComponent => "uri_decode_component",
-            };
-            format!("{op_text} {}", operand_text(operand))
-        }
-        Rvalue::ObjectToStringTag { operand } => {
-            format!("object_to_string_tag {}", operand_text(operand))
-        }
-        Rvalue::StructuredClone { operand } => {
-            format!("structured_clone {}", operand_text(operand))
-        }
-        Rvalue::StringTrim { side, operand } => {
-            let side_text = match side {
-                smelt_hir::StringTrimSide::Both => "both",
-                smelt_hir::StringTrimSide::Start => "start",
-                smelt_hir::StringTrimSide::End => "end",
-            };
-            format!("string_trim_{side_text} {}", operand_text(operand))
-        }
-        Rvalue::StringLocaleCompare { left, right } => {
-            format!(
-                "string_locale_compare {}, {}",
-                operand_text(left),
-                operand_text(right)
-            )
-        }
-        Rvalue::StringAffix {
-            op,
-            haystack,
-            needle,
-        } => {
-            let op_text = match op {
-                smelt_hir::StringAffixOp::StartsWith => "starts_with",
-                smelt_hir::StringAffixOp::EndsWith => "ends_with",
-            };
-            format!(
-                "string_{op_text} {}, {}",
-                operand_text(haystack),
-                operand_text(needle)
-            )
-        }
-        Rvalue::StringSearch {
-            op,
-            haystack,
-            needle,
-            from_index,
-        } => {
-            let op_text = match op {
-                smelt_hir::StringSearchOp::Find => "find",
-                smelt_hir::StringSearchOp::RFind => "rfind",
-                smelt_hir::StringSearchOp::Regex => "search",
-            };
-            let base = format!(
-                "string_{op_text} {}, {}",
-                operand_text(haystack),
-                operand_text(needle)
-            );
-            from_index.as_ref().map_or_else(
-                || base.clone(),
-                |index| format!("{base}, {}", operand_text(index)),
-            )
-        }
-        Rvalue::StringReplace {
-            op,
-            haystack,
-            pattern,
-            replacement,
-        } => {
-            let op_text = match op {
-                smelt_hir::StringReplaceOp::First => "replace_first",
-                smelt_hir::StringReplaceOp::All => "replace_all",
-            };
-            format!(
-                "string_{op_text} {}, {}, {}",
-                operand_text(haystack),
-                operand_text(pattern),
-                operand_text(replacement)
-            )
-        }
-        Rvalue::StringRemoveAffix {
-            op,
-            haystack,
-            affix,
-        } => {
-            let op_text = match op {
-                smelt_hir::StringAffixOp::StartsWith => "remove_prefix",
-                smelt_hir::StringAffixOp::EndsWith => "remove_suffix",
-            };
-            format!(
-                "string_{op_text} {}, {}",
-                operand_text(haystack),
-                operand_text(affix)
-            )
-        }
-        Rvalue::StringRepeat { operand, count } => {
-            format!(
-                "string_repeat {}, {}",
-                operand_text(operand),
-                operand_text(count)
-            )
-        }
-        Rvalue::StringPad {
-            op,
-            operand,
-            target_len,
-            pad,
-        } => {
-            let op_text = match op {
-                smelt_hir::StringPadOp::Start => "pad_start",
-                smelt_hir::StringPadOp::End => "pad_end",
-            };
-            format!(
-                "string_{op_text} {}, {}, {}",
-                operand_text(operand),
-                operand_text(target_len),
-                operand_text(pad)
-            )
-        }
-        Rvalue::StringPredicate { op, operand } => {
-            let op_text = match op {
-                smelt_hir::StringPredicateOp::IsDigit => "isdigit",
-                smelt_hir::StringPredicateOp::IsAlpha => "isalpha",
-                smelt_hir::StringPredicateOp::IsAlnum => "isalnum",
-            };
-            format!("string_{op_text} {}", operand_text(operand))
-        }
-        Rvalue::RegexIsMatch {
-            op,
-            pattern,
-            haystack,
-        } => {
-            let op_text = match op {
-                smelt_hir::RegexMatchOp::Search => "search",
-                smelt_hir::RegexMatchOp::Match => "match",
-                smelt_hir::RegexMatchOp::FullMatch => "fullmatch",
-            };
-            format!(
-                "regex_{op_text} {}, {}",
-                operand_text(pattern),
-                operand_text(haystack)
-            )
-        }
-        Rvalue::RegexReplace {
-            op,
-            pattern,
-            haystack,
-            replacement,
-        } => {
-            let op_text = match op {
-                smelt_hir::StringReplaceOp::First => "replace",
-                smelt_hir::StringReplaceOp::All => "replace_all",
-            };
-            format!(
-                "regex_{op_text} {}, {}, {}",
-                operand_text(pattern),
-                operand_text(haystack),
-                operand_text(replacement)
-            )
-        }
-        Rvalue::RegexReplaceCallback {
-            op,
-            pattern,
-            haystack,
-            callback,
-            args,
-        } => {
-            let op_text = match op {
-                smelt_hir::StringReplaceOp::First => "replace_callback",
-                smelt_hir::StringReplaceOp::All => "replace_all_callback",
-            };
-            let args_text = args
-                .iter()
-                .map(|arg| match arg {
-                    smelt_hir::RegexReplaceArg::Matched => "matched".to_owned(),
-                    smelt_hir::RegexReplaceArg::Capture(index) => format!("p{index}"),
-                    smelt_hir::RegexReplaceArg::Position => "position".to_owned(),
-                    smelt_hir::RegexReplaceArg::Source => "source".to_owned(),
-                })
-                .collect::<Vec<_>>()
-                .join(",");
-            format!(
-                "regex_{op_text} {}, {}, {} [{args_text}]",
-                operand_text(pattern),
-                operand_text(haystack),
-                operand_text(callback)
-            )
-        }
-        Rvalue::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
-            format!(
-                "regex_replace_first_upper {}, {}",
-                operand_text(pattern),
-                operand_text(haystack)
-            )
-        }
-        Rvalue::RegexSplit { pattern, haystack } => {
-            format!(
-                "regex_split {}, {}",
-                operand_text(pattern),
-                operand_text(haystack)
-            )
-        }
-        Rvalue::RegexFind { pattern, haystack } => {
-            format!(
-                "regex_find {}, {}",
-                operand_text(pattern),
-                operand_text(haystack)
-            )
-        }
-        Rvalue::RegexTest { regex, haystack } => {
-            format!(
-                "regex_test {} {}",
-                operand_text(regex),
-                operand_text(haystack)
-            )
-        }
-        Rvalue::RegexExec { regex, haystack } => {
-            format!(
-                "regex_exec {}, {}",
-                operand_text(regex),
-                operand_text(haystack)
-            )
-        }
-        Rvalue::RegexMatchAll { regex, haystack } => {
-            format!(
-                "regex_match_all {}, {}",
-                operand_text(regex),
-                operand_text(haystack)
-            )
-        }
-        Rvalue::StringCharAt { operand, index } => {
-            format!(
-                "string_char_at {}, {}",
-                operand_text(operand),
-                operand_text(index)
-            )
-        }
-        Rvalue::StringCharCodeAt { operand, index } => {
-            format!(
-                "string_char_code_at {}, {}",
-                operand_text(operand),
-                operand_text(index)
-            )
-        }
-        Rvalue::StringContains {
-            haystack,
-            needle,
-            from_index,
-        } => {
-            let base = format!(
-                "string_contains {}, {}",
-                operand_text(haystack),
-                operand_text(needle)
-            );
-            from_index.as_ref().map_or_else(
-                || base.clone(),
-                |index| format!("{base}, {}", operand_text(index)),
-            )
-        }
-        Rvalue::StringSlice {
-            operand,
-            start,
-            end,
-        } => format!(
-            "string_slice {}, {}, {}",
-            operand_text(operand),
-            optional_operand_text(start.as_ref()),
-            optional_operand_text(end.as_ref())
-        ),
-        Rvalue::ListContains { list, item } => {
-            format!(
-                "list_contains {}, {}",
-                operand_text(list),
-                operand_text(item)
-            )
-        }
-        Rvalue::SetContains { set, item } => {
-            format!("set_contains {}, {}", operand_text(set), operand_text(item))
-        }
-        Rvalue::SetDisjoint { left, right } => {
-            format!(
-                "set_isdisjoint {}, {}",
-                operand_text(left),
-                operand_text(right)
-            )
-        }
-        Rvalue::SetRelation { op, left, right } => {
-            let op_text = match op {
-                smelt_hir::SetRelationOp::IsSubset => "issubset",
-                smelt_hir::SetRelationOp::IsSuperset => "issuperset",
-            };
-            format!(
-                "set_{op_text} {}, {}",
-                operand_text(left),
-                operand_text(right)
-            )
-        }
-        Rvalue::SetAdd { set, item } => {
-            format!("set_add {}, {}", operand_text(set), operand_text(item))
-        }
-        Rvalue::SetRemove { op, set, item } => {
-            let op_text = match op {
-                smelt_hir::SetRemoveOp::Delete => "delete",
-                smelt_hir::SetRemoveOp::Discard => "discard",
-                smelt_hir::SetRemoveOp::Remove => "remove",
-            };
-            format!(
-                "set_{op_text} {}, {}",
-                operand_text(set),
-                operand_text(item)
-            )
-        }
-        Rvalue::SetClear { set } => format!("set_clear {}", operand_text(set)),
-        Rvalue::SetCopy { set } => format!("set_copy {}", operand_text(set)),
-        Rvalue::ListToSet { list } => format!("list_to_set {}", operand_text(list)),
-        Rvalue::ListPairsToDict { list } => {
-            format!("list_pairs_to_dict {}", operand_text(list))
-        }
-        Rvalue::SetBinary { op, left, right } => {
-            let op_text = match op {
-                smelt_hir::SetBinaryOp::Union => "union",
-                smelt_hir::SetBinaryOp::Intersection => "intersection",
-                smelt_hir::SetBinaryOp::Difference => "difference",
-                smelt_hir::SetBinaryOp::SymmetricDifference => "symmetric_difference",
-            };
-            format!(
-                "set_{op_text} {}, {}",
-                operand_text(left),
-                operand_text(right)
-            )
-        }
-        Rvalue::EventEmitterNew => "event_emitter_new".to_owned(),
-        Rvalue::ProcessEnvRead { name } => format!("process_env_read {name:?}"),
-        Rvalue::EventEmitterOp { op, emitter, args } => {
-            let name = match op {
-                smelt_hir::EventEmitterOp::On => "on",
-                smelt_hir::EventEmitterOp::Once => "once",
-                smelt_hir::EventEmitterOp::Off => "off",
-                smelt_hir::EventEmitterOp::RemoveAll => "remove_all",
-                smelt_hir::EventEmitterOp::Emit => "emit",
-                smelt_hir::EventEmitterOp::ListenerCount => "listener_count",
-            };
-            let mut text = format!("emitter_{name} {}", operand_text(emitter));
-            for arg in args {
-                text.push(' ');
-                text.push_str(&operand_text(arg));
-            }
-            text
-        }
-        Rvalue::HttpCreateServer { handler } => {
-            format!("http_create_server {}", operand_text(handler))
-        }
-        Rvalue::SqliteOpen { path } => format!("sqlite_open {}", operand_text(path)),
-        Rvalue::SqliteOp { op, receiver, args } => {
-            let mut text = format!("sqlite_{op:?} {}", operand_text(receiver)).to_lowercase();
-            for arg in args {
-                text.push(' ');
-                text.push_str(&operand_text(arg));
-            }
-            text
-        }
-        Rvalue::HttpCreateFetchServer { fetch } => {
-            format!("http_create_fetch_server {}", operand_text(fetch))
-        }
-        Rvalue::HttpServerOp { op, server, args } => {
-            let name = match op {
-                smelt_hir::HttpServerOp::Listen => "listen",
-                smelt_hir::HttpServerOp::Close => "close",
-                smelt_hir::HttpServerOp::Address => "address",
-            };
-            let mut text = format!("http_server_{name} {}", operand_text(server));
-            for arg in args {
-                text.push(' ');
-                text.push_str(&operand_text(arg));
-            }
-            text
-        }
-        Rvalue::IncomingMessageOp { op, message } => {
-            let name = match op {
-                smelt_hir::IncomingMessageOp::Method => "method",
-                smelt_hir::IncomingMessageOp::Url => "url",
-                smelt_hir::IncomingMessageOp::Headers => "headers",
-            };
-            format!("incoming_message_{name} {}", operand_text(message))
-        }
-        Rvalue::ServerResponseOp { op, response, args } => {
-            let name = match op {
-                smelt_hir::ServerResponseOp::StatusCode => "status_code",
-                smelt_hir::ServerResponseOp::SetStatusCode => "set_status_code",
-                smelt_hir::ServerResponseOp::SetHeader => "set_header",
-                smelt_hir::ServerResponseOp::GetHeader => "get_header",
-                smelt_hir::ServerResponseOp::WriteHead => "write_head",
-                smelt_hir::ServerResponseOp::Write => "write",
-                smelt_hir::ServerResponseOp::End => "end",
-            };
-            let mut text = format!("server_response_{name} {}", operand_text(response));
-            for arg in args {
-                text.push(' ');
-                text.push_str(&operand_text(arg));
-            }
-            text
-        }
-        Rvalue::RequestNew {
-            input,
-            method,
-            headers,
-            body,
-            signal,
-            init_members,
-        } => {
-            let mut parts = vec![format!("input={}", operand_text(input))];
-            if let Some(method) = method {
-                parts.push(format!("method={}", operand_text(method)));
-            }
-            if let Some(headers) = headers {
-                parts.push(format!("headers={}", operand_text(headers)));
-            }
-            if let Some(body) = body {
-                parts.push(format!("body={}", operand_text(body)));
-            }
-            if let Some(signal) = signal {
-                parts.push(format!("signal={}", operand_text(signal)));
-            }
-            for (member, value) in init_members {
-                parts.push(format!("{}={}", member.field_name(), operand_text(value)));
-            }
-            format!("request_new {}", parts.join(" "))
-        }
-        Rvalue::RequestOp { op, request, args } => {
-            let name = match op {
-                smelt_hir::RequestOp::Url => "url",
-                smelt_hir::RequestOp::Method => "method",
-                smelt_hir::RequestOp::Headers => "headers",
-                smelt_hir::RequestOp::BodyUsed => "body_used",
-                smelt_hir::RequestOp::Body => "body",
-                smelt_hir::RequestOp::Text => "text",
-                smelt_hir::RequestOp::Json => "json",
-                smelt_hir::RequestOp::FormData => "form_data",
-                smelt_hir::RequestOp::ArrayBuffer => "array_buffer",
-                smelt_hir::RequestOp::Bytes => "bytes",
-                smelt_hir::RequestOp::Clone => "clone",
-                smelt_hir::RequestOp::Signal => "signal",
-                smelt_hir::RequestOp::Init(member) => member.field_name(),
-            };
-            let mut text = format!("request_{name} {}", operand_text(request));
-            for arg in args {
-                text.push(' ');
-                text.push_str(&operand_text(arg));
-            }
-            text
-        }
-        Rvalue::ResponseNew {
-            body,
-            status,
-            status_text,
-            headers,
-        } => {
-            let mut parts = Vec::new();
-            if let Some(body) = body {
-                parts.push(format!("body={}", operand_text(body)));
-            }
-            if let Some(status) = status {
-                parts.push(format!("status={}", operand_text(status)));
-            }
-            if let Some(status_text) = status_text {
-                parts.push(format!("status_text={}", operand_text(status_text)));
-            }
-            if let Some(headers) = headers {
-                parts.push(format!("headers={}", operand_text(headers)));
-            }
-            if parts.is_empty() {
-                "response_new".to_owned()
-            } else {
-                format!("response_new {}", parts.join(" "))
-            }
-        }
-        Rvalue::ResponseOp { op, response, args } => {
-            let name = match op {
-                smelt_hir::ResponseOp::Status => "status",
-                smelt_hir::ResponseOp::Ok => "ok",
-                smelt_hir::ResponseOp::StatusText => "status_text",
-                smelt_hir::ResponseOp::Headers => "headers",
-                smelt_hir::ResponseOp::BodyUsed => "body_used",
-                smelt_hir::ResponseOp::Body => "body",
-                smelt_hir::ResponseOp::Text => "text",
-                smelt_hir::ResponseOp::Json => "json",
-                smelt_hir::ResponseOp::FormData => "form_data",
-                smelt_hir::ResponseOp::ArrayBuffer => "array_buffer",
-                smelt_hir::ResponseOp::Bytes => "bytes",
-                smelt_hir::ResponseOp::Clone => "clone",
-            };
-            let mut text = format!("response_{name} {}", operand_text(response));
-            for arg in args {
-                text.push(' ');
-                text.push_str(&operand_text(arg));
-            }
-            text
-        }
-        Rvalue::TextEncoderNew => "text_encoder_new".to_owned(),
-        Rvalue::TextDecoderNew { label } => label.as_ref().map_or_else(
-            || "text_decoder_new".to_owned(),
-            |label| format!("text_decoder_new {}", operand_text(label)),
-        ),
-        Rvalue::TextEncoderOp { op, encoder, args } => {
-            let op_name = match op {
-                smelt_hir::TextEncoderOp::Encode => "encode",
-                smelt_hir::TextEncoderOp::Encoding => "encoding",
-            };
-            let args_text = args
-                .iter()
-                .map(operand_text)
-                .collect::<Vec<_>>()
-                .join(", ");
-            if args_text.is_empty() {
-                format!("text_encoder_{op_name} {}", operand_text(encoder))
-            } else {
-                format!(
-                    "text_encoder_{op_name} {} {args_text}",
-                    operand_text(encoder)
-                )
-            }
-        }
-        Rvalue::TextDecoderOp { op, decoder, args } => {
-            let op_name = match op {
-                smelt_hir::TextDecoderOp::Decode => "decode",
-                smelt_hir::TextDecoderOp::Encoding => "encoding",
-            };
-            let args_text = args
-                .iter()
-                .map(operand_text)
-                .collect::<Vec<_>>()
-                .join(", ");
-            if args_text.is_empty() {
-                format!("text_decoder_{op_name} {}", operand_text(decoder))
-            } else {
-                format!(
-                    "text_decoder_{op_name} {} {args_text}",
-                    operand_text(decoder)
-                )
-            }
-        }
-        Rvalue::TypedArrayNew { class_name, args } => {
-            let args_text = args.iter().map(operand_text).collect::<Vec<_>>().join(" ");
-            if args_text.is_empty() {
-                format!("typed_array_new {class_name}")
-            } else {
-                format!("typed_array_new {class_name} {args_text}")
-            }
-        }
-        Rvalue::ByteArrayOp { op, bytes, args } => {
-            let op_name = op.name();
-            let receiver = operand_text(bytes);
-            if args.is_empty() {
-                format!("byte_array_{op_name} {receiver}")
-            } else {
-                let args_text = args.iter().map(operand_text).collect::<Vec<_>>().join(" ");
-                format!("byte_array_{op_name} {receiver} {args_text}")
-            }
-        }
-        Rvalue::UrlSearchParamsNew { init } => init.as_ref().map_or_else(
-            || "url_search_params_new".to_owned(),
-            |init| format!("url_search_params_new {}", operand_text(init)),
-        ),
-        Rvalue::AbortSignalOp { op, args } => {
-            let op_name = match op {
-                smelt_hir::AbortSignalOp::Abort => "abort",
-                smelt_hir::AbortSignalOp::Timeout => "timeout",
-            };
-            let args_text = args
-                .iter()
-                .map(operand_text)
-                .collect::<Vec<_>>()
-                .join(", ");
-            if args_text.is_empty() {
-                format!("abort_signal_{op_name}")
-            } else {
-                format!("abort_signal_{op_name} {args_text}")
-            }
-        }
-        Rvalue::GlobalObject => "global_object".to_owned(),
-        Rvalue::HostModuleCall { op, args } => {
-            let args_text = args
-                .iter()
-                .map(operand_text)
-                .collect::<Vec<_>>()
-                .join(" ");
-            format!("{} {args_text}", op.name())
-        }
-        Rvalue::CryptoOp { op, args } => {
-            let op_name = match op {
-                smelt_hir::CryptoOp::RandomUuid => "random_uuid",
-                smelt_hir::CryptoOp::GetRandomValues => "get_random_values",
-                smelt_hir::CryptoOp::Digest => "digest",
-                smelt_hir::CryptoOp::ImportKey => "import_key",
-                smelt_hir::CryptoOp::Sign => "sign",
-                smelt_hir::CryptoOp::Verify => "verify",
-            };
-            let args_text = args
-                .iter()
-                .map(operand_text)
-                .collect::<Vec<_>>()
-                .join(", ");
-            if args_text.is_empty() {
-                format!("crypto_{op_name}")
-            } else {
-                format!("crypto_{op_name} {args_text}")
-            }
-        }
-        Rvalue::FormDataNew => "form_data_new".to_owned(),
-        Rvalue::FormDataOp { op, form, args } => {
-            let op_name = match op {
-                smelt_hir::FormDataOp::Get => "get",
-                smelt_hir::FormDataOp::GetAll => "get_all",
-                smelt_hir::FormDataOp::Has => "has",
-                smelt_hir::FormDataOp::Set => "set",
-                smelt_hir::FormDataOp::Append => "append",
-                smelt_hir::FormDataOp::Delete => "delete",
-                smelt_hir::FormDataOp::Keys => "keys",
-                smelt_hir::FormDataOp::Values => "values",
-                smelt_hir::FormDataOp::Entries => "entries",
-                smelt_hir::FormDataOp::ForEach => "for_each",
-            };
-            let args_text = args
-                .iter()
-                .map(operand_text)
-                .collect::<Vec<_>>()
-                .join(", ");
-            if args_text.is_empty() {
-                format!("form_data_{op_name} {}", operand_text(form))
-            } else {
-                format!("form_data_{op_name} {}, {args_text}", operand_text(form))
-            }
-        }
-        Rvalue::UrlOp { op, url, args } => {
-            let args_text = args
-                .iter()
-                .map(operand_text)
-                .fold(String::new(), |mut text, arg| {
-                    text.push_str(", ");
-                    text.push_str(&arg);
-                    text
-                });
-            format!("url_{op:?} {}{args_text}", operand_text(url))
-        }
-        Rvalue::UrlSearchParamsOp { op, params, args } => {
-            let op_text = match op {
-                smelt_hir::UrlSearchParamsOp::Get => "get",
-                smelt_hir::UrlSearchParamsOp::GetAll => "get_all",
-                smelt_hir::UrlSearchParamsOp::Has => "has",
-                smelt_hir::UrlSearchParamsOp::Set => "set",
-                smelt_hir::UrlSearchParamsOp::Append => "append",
-                smelt_hir::UrlSearchParamsOp::Delete => "delete",
-                smelt_hir::UrlSearchParamsOp::Sort => "sort",
-                smelt_hir::UrlSearchParamsOp::ToText => "to_text",
-                smelt_hir::UrlSearchParamsOp::Keys => "keys",
-                smelt_hir::UrlSearchParamsOp::Values => "values",
-                smelt_hir::UrlSearchParamsOp::Entries => "entries",
-            };
-            let args_text = args
-                .iter()
-                .map(operand_text)
-                .collect::<Vec<_>>()
-                .join(", ");
-            if args_text.is_empty() {
-                format!("url_search_params_{op_text} {}", operand_text(params))
-            } else {
-                format!(
-                    "url_search_params_{op_text} {}, {args_text}",
-                    operand_text(params)
-                )
-            }
-        }
-        Rvalue::HeadersNew { init } => init.as_ref().map_or_else(
-            || "headers_new".to_owned(),
-            |init| format!("headers_new {}", operand_text(init)),
-        ),
-        Rvalue::HeadersOp { op, headers, args } => {
-            let op_text = match op {
-                smelt_hir::HeadersOp::Get => "get",
-                smelt_hir::HeadersOp::Has => "has",
-                smelt_hir::HeadersOp::Set => "set",
-                smelt_hir::HeadersOp::Append => "append",
-                smelt_hir::HeadersOp::Delete => "delete",
-                smelt_hir::HeadersOp::Keys => "keys",
-                smelt_hir::HeadersOp::Values => "values",
-                smelt_hir::HeadersOp::Entries => "entries",
-                smelt_hir::HeadersOp::GetSetCookie => "get_set_cookie",
-            };
-            let args_text = args
-                .iter()
-                .map(operand_text)
-                .collect::<Vec<_>>()
-                .join(", ");
-            if args_text.is_empty() {
-                format!("headers_{op_text} {}", operand_text(headers))
-            } else {
-                format!("headers_{op_text} {}, {args_text}", operand_text(headers))
-            }
-        }
-        Rvalue::SetProjection { op, set } => {
-            let op_text = match op {
-                smelt_hir::SetProjectionOp::Values => "values",
-                smelt_hir::SetProjectionOp::Entries => "entries",
-            };
-            format!("set_{op_text} {}", operand_text(set))
-        }
-        Rvalue::ListConcat { left, right } => {
-            format!(
-                "list_concat {}, {}",
-                operand_text(left),
-                operand_text(right)
-            )
-        }
-        Rvalue::ConcatSpread { value } => {
-            format!("concat_spread {}", operand_text(value))
-        }
-        Rvalue::ListSearch {
-            op,
-            list,
-            item,
-            from_index,
-        } => {
-            let op_text = match op {
-                smelt_hir::ListSearchOp::Find => "find",
-                smelt_hir::ListSearchOp::RFind => "rfind",
-            };
-            let base = format!(
-                "list_{op_text} {}, {}",
-                operand_text(list),
-                operand_text(item)
-            );
-            from_index.as_ref().map_or_else(
-                || base.clone(),
-                |index| format!("{base}, {}", operand_text(index)),
-            )
-        }
-        Rvalue::ListCallback { op, list, callback } => {
-            let op_text = match op {
-                smelt_hir::ListCallbackOp::Map => "map",
-                smelt_hir::ListCallbackOp::Filter => "filter",
-                smelt_hir::ListCallbackOp::Find => "find_callback",
-                smelt_hir::ListCallbackOp::FindIndex => "find_index",
-                smelt_hir::ListCallbackOp::FindLast => "find_last_callback",
-                smelt_hir::ListCallbackOp::FindLastIndex => "find_last_index",
-                smelt_hir::ListCallbackOp::Some => "some",
-                smelt_hir::ListCallbackOp::Every => "every",
-                smelt_hir::ListCallbackOp::ForEach => "for_each",
-                smelt_hir::ListCallbackOp::FlatMap => "flat_map",
-            };
-            format!(
-                "list_{op_text} {}, {}",
-                operand_text(list),
-                operand_text(callback)
-            )
-        }
-        Rvalue::ListFromLength { length } => {
-            format!("list_from_length {}", operand_text(length))
-        }
-        Rvalue::ListFromLengthMap { length, callback } => format!(
-            "list_from_length_map {}, {}",
-            operand_text(length),
-            operand_text(callback)
-        ),
-        Rvalue::ListReduce {
-            list,
-            initial,
-            callback,
-            from_right,
-        } => format!(
-            "{} {}, {}, {}",
-            if *from_right { "list_reduce_right" } else { "list_reduce" },
-            operand_text(list),
-            optional_operand_text(initial.as_ref()),
-            operand_text(callback)
-        ),
-        Rvalue::ListSlice { list, start, end } => format!(
-            "list_slice {}, {}, {}",
-            operand_text(list),
-            optional_operand_text(start.as_ref()),
-            optional_operand_text(end.as_ref())
-        ),
-        Rvalue::ListSplice {
-            list,
-            start,
-            delete_count,
-            items,
-            mutate,
-        } => format!(
-            "list_splice {}, {}, {}, [{}], {}",
-            operand_text(list),
-            operand_text(start),
-            optional_operand_text(delete_count.as_ref()),
-            items
-                .iter()
-                .map(|item| {
-                    if item.spread {
-                        format!("...{}", operand_text(&item.value))
-                    } else {
-                        operand_text(&item.value)
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join(", "),
-            mutate
-        ),
-        Rvalue::ListFill {
-            list,
-            value: fill_value,
-            start,
-            end,
-        } => format!(
-            "list_fill {}, {}, {}, {}",
-            operand_text(list),
-            operand_text(fill_value),
-            optional_operand_text(start.as_ref()),
-            optional_operand_text(end.as_ref())
-        ),
-        Rvalue::ListCopyWithin {
-            list,
-            target,
-            start,
-            end,
-        } => format!(
-            "list_copy_within {}, {}, {}, {}",
-            operand_text(list),
-            operand_text(target),
-            operand_text(start),
-            optional_operand_text(end.as_ref())
-        ),
-        Rvalue::ListWith {
-            list,
-            index,
-            value: replacement,
-        } => format!(
-            "list_with {}, {}, {}",
-            operand_text(list),
-            operand_text(index),
-            operand_text(replacement)
-        ),
-        Rvalue::ListFlat { list, depth } => format!(
-            "list_flat {}, {}",
-            operand_text(list),
-            optional_operand_text(depth.as_ref())
-        ),
-        Rvalue::ListProjection { op, list } => {
-            let op_text = match op {
-                smelt_hir::ListProjectionOp::Keys => "keys",
-                smelt_hir::ListProjectionOp::Values => "values",
-                smelt_hir::ListProjectionOp::Entries => "entries",
-            };
-            format!("list_{op_text} {}", operand_text(list))
-        }
-        Rvalue::ListPush { list, item } => {
-            format!("list_push {}, {}", operand_text(list), operand_text(item))
-        }
-        Rvalue::ListExtend { list, other } => {
-            format!(
-                "list_extend {}, {}",
-                operand_text(list),
-                operand_text(other)
-            )
-        }
-        Rvalue::ListInsert { list, index, item } => format!(
-            "list_insert {}, {}, {}",
-            operand_text(list),
-            operand_text(index),
-            operand_text(item)
-        ),
-        Rvalue::ListUnshift { list, items } => format!(
-            "list_unshift {} [{}]",
-            operand_text(list),
-            items
-                .iter()
-                .map(operand_text)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        Rvalue::ListReverse { list } => format!("list_reverse {}", operand_text(list)),
-        Rvalue::ListClear { list } => format!("list_clear {}", operand_text(list)),
-        Rvalue::ListCopy { list } => format!("list_copy {}", operand_text(list)),
-        Rvalue::TupleToList { tuple } => format!("tuple_to_list {}", operand_text(tuple)),
-        Rvalue::ListToTuple { list } => format!("list_to_tuple {}", operand_text(list)),
-        Rvalue::TupleToSet { tuple } => format!("tuple_to_set {}", operand_text(tuple)),
-        Rvalue::ListCount { list, item } => {
-            format!("list_count {}, {}", operand_text(list), operand_text(item))
-        }
-        Rvalue::ListSum { list } => format!("list_sum {}", operand_text(list)),
-        Rvalue::ListBoolFold { op, list } => {
-            let op_text = match op {
-                smelt_hir::BoolFoldOp::All => "all",
-                smelt_hir::BoolFoldOp::Any => "any",
-            };
-            format!("list_{op_text} {}", operand_text(list))
-        }
-        Rvalue::ListSorted { list, key, reverse } => {
-            let key_text = if key.is_some() { " <key>" } else { "" };
-            let reverse_text = if *reverse { " reverse" } else { "" };
-            format!(
-                "list_sorted {}{}{}",
-                operand_text(list),
-                key_text,
-                reverse_text
-            )
-        }
-        Rvalue::ListReversed { list } => format!("list_reversed {}", operand_text(list)),
-        Rvalue::ListEnumerate { list } => format!("list_enumerate {}", operand_text(list)),
-        Rvalue::ListZip { left, right } => {
-            format!("list_zip {}, {}", operand_text(left), operand_text(right))
-        }
-        Rvalue::ListRange { start, end, step } => format!(
-            "list_range {}, {}, {}",
-            operand_text(start),
-            operand_text(end),
-            operand_text(step)
-        ),
-        Rvalue::ListRandomChoice { list } => {
-            format!("list_random_choice {}", operand_text(list))
-        }
-        Rvalue::ListIndex { list, item } => {
-            format!("list_index {}, {}", operand_text(list), operand_text(item))
-        }
-        Rvalue::ListRemove { list, item } => {
-            format!("list_remove {}, {}", operand_text(list), operand_text(item))
-        }
-        Rvalue::ListSort {
-            list,
-            comparator,
-            key,
-            reverse,
-        } => {
-            let comparator_text = if comparator.is_some() {
-                " <comparator>"
-            } else {
-                ""
-            };
-            let key_text = if key.is_some() { " <key>" } else { "" };
-            let reverse_text = if *reverse { " reverse" } else { "" };
-            format!(
-                "list_sort {}{}{}{}",
-                operand_text(list),
-                comparator_text,
-                key_text,
-                reverse_text
-            )
-        }
-        Rvalue::ListPop { list } => format!("list_pop {}", operand_text(list)),
-        Rvalue::ListShift { list } => format!("list_shift {}", operand_text(list)),
-        Rvalue::ListNext { list } => format!("list_next {}", operand_text(list)),
-        Rvalue::TupleContains { tuple, item } => {
-            format!(
-                "tuple_contains {}, {}",
-                operand_text(tuple),
-                operand_text(item)
-            )
-        }
-        Rvalue::TupleIndex { tuple, index } => {
-            format!("tuple_index {}, {}", operand_text(tuple), index)
-        }
-        Rvalue::TupleSlice { tuple, start, end } => {
-            format!("tuple_slice {}, {}, {}", operand_text(tuple), start, end)
-        }
-        Rvalue::DictContainsKey { dict, key, lookup } => {
-            let reach = match lookup {
-                PropertyLookup::Own => "own",
-                PropertyLookup::PrototypeChain => "chain",
-            };
-            format!(
-                "dict_contains_key {}, {}, {reach}",
-                operand_text(dict),
-                operand_text(key)
-            )
-        }
-        Rvalue::DictSet {
-            dict,
-            key,
-            value: dict_value,
-        } => {
-            format!(
-                "dict_set {}, {}, {}",
-                operand_text(dict),
-                operand_text(key),
-                operand_text(dict_value)
-            )
-        }
-        Rvalue::DictRemoveKey { dict, key } => {
-            format!(
-                "dict_remove_key {}, {}",
-                operand_text(dict),
-                operand_text(key)
-            )
-        }
-        Rvalue::DictGet { dict, key, default } => format!(
-            "dict_get {}, {}, {}",
-            operand_text(dict),
-            operand_text(key),
-            optional_operand_text(default.as_ref())
-        ),
-        Rvalue::DictSetDefault { dict, key, default } => format!(
-            "dict_setdefault {}, {}, {}",
-            operand_text(dict),
-            operand_text(key),
-            operand_text(default)
-        ),
-        Rvalue::DictClear { dict } => format!("dict_clear {}", operand_text(dict)),
-        Rvalue::DictPop { dict, key, default } => format!(
-            "dict_pop {}, {}, {}",
-            operand_text(dict),
-            operand_text(key),
-            optional_operand_text(default.as_ref())
-        ),
-        Rvalue::DictUpdate { dict, other } => {
-            format!(
-                "dict_update {}, {}",
-                operand_text(dict),
-                operand_text(other)
-            )
-        }
-        Rvalue::DictAssign { target, sources } => format!(
-            "dict_assign {}, [{}]",
-            operand_text(target),
-            sources
-                .iter()
-                .map(operand_text)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        Rvalue::CallableObjectAssign {
-            callable,
-            props,
-            spreads,
-        } => {
-            let mut spread_text = String::new();
-            for value in spreads {
-                let _ = write!(spread_text, ", ...{}", operand_text(value));
-            }
-            format!(
-                "callable_object_assign {}, {{{}}}{}",
-                operand_text(callable),
-                props
-                    .iter()
-                    .map(|(name, prop_value)| format!("{name:?}: {}", operand_text(prop_value)))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                spread_text
-            )
-        }
-        Rvalue::DictCopy { dict } => format!("dict_copy {}", operand_text(dict)),
-        Rvalue::DictProjection { op, dict } => {
-            let op_text = match op {
-                smelt_hir::DictProjectionOp::FromEntries => "from_entries",
-                smelt_hir::DictProjectionOp::Keys => "keys",
-                smelt_hir::DictProjectionOp::OwnKeys => "own_keys",
-                smelt_hir::DictProjectionOp::ForInKeys => "for_in_keys",
-                smelt_hir::DictProjectionOp::Symbols => "symbols",
-                smelt_hir::DictProjectionOp::Values => "values",
-                smelt_hir::DictProjectionOp::Entries => "entries",
-            };
-            format!("dict_{op_text} {}", operand_text(dict))
-        }
-        Rvalue::StringSplit {
-            haystack,
-            separator,
-            limit,
-        } => {
-            format!(
-                "string_split {}, {}, {}",
-                operand_text(haystack),
-                operand_text(separator),
-                optional_operand_text(limit.as_ref())
-            )
-        }
-        Rvalue::StringChars { haystack } => {
-            format!("string_chars {}", operand_text(haystack))
-        }
-        Rvalue::StringJoin { items, separator } => {
-            format!(
-                "string_join {}, {}",
-                operand_text(items),
-                operand_text(separator)
-            )
-        }
-        Rvalue::JsonStringify { value: json_value } => {
-            format!("json_stringify {}", operand_text(json_value))
-        }
-        Rvalue::HttpGetText { url } => format!("http_get_text {}", operand_text(url)),
-        Rvalue::GlobalGet { global } => format!("global_get #{global}"),
-        Rvalue::GlobalSet { global, value: stored } => {
-            format!("global_set #{global} = {}", operand_text(stored))
-        }
-        Rvalue::DateNow => "date_now".to_owned(),
-        Rvalue::DateSetNow { timestamp } => format!("date_set_now {}", operand_text(timestamp)),
-        Rvalue::DateResetNow => "date_reset_now".to_owned(),
-        Rvalue::VitestRestoreAllMocks => "vitest_restore_all_mocks".to_owned(),
-        Rvalue::DateTimezoneOffset => "date_timezone_offset".to_owned(),
-        Rvalue::DateSetTimezoneOffset { offset } => {
-            format!("date_set_timezone_offset {}", operand_text(offset))
-        }
-        Rvalue::DateResetTimezoneOffset => "date_reset_timezone_offset".to_owned(),
-        Rvalue::VitestMockFn { implementation } => implementation.as_ref().map_or_else(
-            || "vitest_mock_fn".to_owned(),
-            |implementation| format!("vitest_mock_fn {}", operand_text(implementation)),
-        ),
-        Rvalue::VitestMockCalledTimes { mock, count } => format!(
-            "vitest_mock_called_times {} {}",
-            operand_text(mock),
-            operand_text(count)
-        ),
-        Rvalue::VitestMockCalledWith { mock, args, last } => format!(
-            "vitest_mock_called_with{} {} [{}]",
-            if *last { "_last" } else { "" },
-            operand_text(mock),
-            args.iter().map(operand_text).collect::<Vec<_>>().join(", ")
-        ),
-        Rvalue::VitestSpyOn { target, name } => {
-            format!("vitest_spy_on {} {}", operand_text(target), operand_text(name))
-        }
-        Rvalue::VitestAsymmetricEqual { actual, expected } => format!(
-            "vitest_asymmetric_equal {} {}",
-            operand_text(actual),
-            operand_text(expected)
-        ),
-        Rvalue::VitestMockLastResolvedWith { mock, expected } => format!(
-            "vitest_mock_last_resolved_with {} {}",
-            operand_text(mock),
-            operand_text(expected)
-        ),
-        Rvalue::DateTimezoneContext { timezone } => {
-            format!("date_timezone_context {}", operand_text(timezone))
-        }
-        Rvalue::DateToIsoString { timestamp_ms } => {
-            format!("date_to_iso_string {}", operand_text(timestamp_ms))
-        }
-        Rvalue::DateToString { timestamp_ms } => {
-            format!("date_to_string {}", operand_text(timestamp_ms))
-        }
-        Rvalue::DateToUtcString { timestamp_ms } => {
-            format!("date_to_utc_string {}", operand_text(timestamp_ms))
-        }
-        Rvalue::JsonIndent { text, space } => {
-            format!("json_indent {}, {}", operand_text(text), operand_text(space))
-        }
-        Rvalue::DateFromParts { parts } => format!(
-            "date_from_parts [{}]",
-            parts
-                .iter()
-                .map(operand_text)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        Rvalue::DateFromValue { value: date_value } => {
-            format!("date_from_value {}", operand_text(date_value))
-        }
-        Rvalue::DateGetPart { part, timestamp_ms } => {
-            format!("date_get_{part:?} {}", operand_text(timestamp_ms))
-        }
-        Rvalue::DateSetPart {
-            part,
-            timestamp_ms,
-            values,
-        } => format!(
-            "date_set_{part:?} {}, [{}]",
-            operand_text(timestamp_ms),
-            values
-                .iter()
-                .map(operand_text)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        Rvalue::UrlField { field, url } => {
-            let field_text = match field {
-                smelt_hir::UrlField::Href => "href",
-                smelt_hir::UrlField::Protocol => "protocol",
-                smelt_hir::UrlField::Host => "host",
-                smelt_hir::UrlField::Origin => "origin",
-                smelt_hir::UrlField::Hostname => "hostname",
-                smelt_hir::UrlField::Username => "username",
-                smelt_hir::UrlField::Password => "password",
-                smelt_hir::UrlField::Port => "port",
-                smelt_hir::UrlField::Pathname => "pathname",
-                smelt_hir::UrlField::Search => "search",
-                smelt_hir::UrlField::Hash => "hash",
-            };
-            format!("url_{field_text} {}", operand_text(url))
-        }
-        Rvalue::FileReadText { path } => format!("file_read_text {}", operand_text(path)),
-        Rvalue::FileWriteText { path, text } => {
-            format!(
-                "file_write_text {}, {}",
-                operand_text(path),
-                operand_text(text)
-            )
-        }
-        Rvalue::BlobOp { op, blob, args } => {
-            let op_name = match op {
-                smelt_hir::BlobOp::Size => "size",
-                smelt_hir::BlobOp::Type => "type",
-                smelt_hir::BlobOp::Name => "name",
-                smelt_hir::BlobOp::LastModified => "last_modified",
-                smelt_hir::BlobOp::Text => "text",
-                smelt_hir::BlobOp::ArrayBuffer => "array_buffer",
-                smelt_hir::BlobOp::Bytes => "bytes",
-                smelt_hir::BlobOp::Slice => "slice",
-            };
-            let args_text = args
-                .iter()
-                .map(operand_text)
-                .collect::<Vec<_>>()
-                .join(", ");
-            if args_text.is_empty() {
-                format!("blob_{op_name} {}", operand_text(blob))
-            } else {
-                format!("blob_{op_name} {} {args_text}", operand_text(blob))
-            }
-        }
-        Rvalue::BlobFromParts {
-            parts,
-            blob_type,
-            name,
-            last_modified,
-        } => {
-            let name_text = name
-                .as_ref()
-                .map_or_else(|| "none".to_owned(), operand_text);
-            let last_modified_text = last_modified
-                .as_ref()
-                .map_or_else(|| "none".to_owned(), operand_text);
-            format!(
-                "blob_from_parts {}, {}, {name_text}, {last_modified_text}",
-                operand_text(parts),
-                operand_text(blob_type),
-            )
-        }
-        Rvalue::HostConstruct { class_name, args } => {
-            let args_text = args.iter().map(operand_text).collect::<Vec<_>>();
-            format!("host_construct {class_name}({})", args_text.join(", "))
-        }
-        Rvalue::ArgumentsObject { fixed, rest } => {
-            let fixed_text = fixed.iter().map(operand_text).collect::<Vec<_>>();
-            let rest_text = rest
-                .as_ref()
-                .map_or_else(|| "none".to_owned(), operand_text);
-            format!("arguments_object [{}], {rest_text}", fixed_text.join(", "))
-        }
-        Rvalue::BuiltinNamespace { name } => {
-            format!("builtin_namespace {name}")
-        }
-        Rvalue::HostGlobalRead { class } => format!("host_global_read class{}", class.0),
-        Rvalue::HostGlobalWrite {
-            class,
-            value: stored,
-        } => {
-            format!("host_global_write class{} = {}", class.0, operand_text(stored))
-        }
-        Rvalue::HostGlobalPresent { class } => format!("host_global_present class{}", class.0),
-        Rvalue::Await(operand) => format!("await {}", operand_text(operand)),
-        Rvalue::AsyncOp { op, args } => {
-            let op_text = match op {
-                smelt_hir::AsyncOp::All => "async_all",
-                smelt_hir::AsyncOp::Race => "async_race",
-                smelt_hir::AsyncOp::AllSettled => "async_all_settled",
-                smelt_hir::AsyncOp::Sleep => "async_sleep",
-                smelt_hir::AsyncOp::ExitDrain => "async_exit_drain",
-                smelt_hir::AsyncOp::SetTimeout => "async_set_timeout",
-                smelt_hir::AsyncOp::ClearTimeout => "async_clear_timeout",
-                smelt_hir::AsyncOp::SetInterval => "async_set_interval",
-                smelt_hir::AsyncOp::ClearInterval => "async_clear_interval",
-                smelt_hir::AsyncOp::Promise => "async_promise",
-                smelt_hir::AsyncOp::Then => "async_then",
-                smelt_hir::AsyncOp::Catch => "async_catch",
-                smelt_hir::AsyncOp::Finally => "async_finally",
-                smelt_hir::AsyncOp::SpawnLocal => "async_spawn_local",
-                smelt_hir::AsyncOp::CreateTask => "async_create_task",
-                smelt_hir::AsyncOp::WaitFor => "async_wait_for",
-                smelt_hir::AsyncOp::Resolve => "async_resolve",
-                smelt_hir::AsyncOp::Reject => "async_reject",
-                smelt_hir::AsyncOp::HttpGetText => "async_http_get_text",
-                smelt_hir::AsyncOp::HttpFetch => "async_http_fetch",
-            };
-            let arg_list = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
-            format!("{op_text}({arg_list})")
-        }
-    }
+/// Rebinds one op field to its text; see the display grammar in
+/// `smelt_hir::op_table`.
+macro_rules! render_op_field {
+    (one, $field:ident) => { operand_text($field) };
+    (opt, $field:ident) => { $field.as_ref().map(operand_text) };
+    (many, $field:ident) => { $field.iter().map(operand_text).collect::<Vec<_>>() };
+    (splice, $field:ident) => {
+        $field
+            .iter()
+            .map(|item| {
+                let value = operand_text(&item.value);
+                if item.spread { format!("...{value}") } else { value }
+            })
+            .collect::<Vec<_>>()
+    };
+    (symbol_pairs, $field:ident) => {
+        $field
+            .iter()
+            .map(|(name, value)| format!("{name:?}: {}", operand_text(value)))
+            .collect::<Vec<_>>()
+    };
+    ({ $key:ty }, $field:ident) => {
+        $field
+            .iter()
+            .map(|(key, value)| (key, operand_text(value)))
+            .collect::<Vec<_>>()
+    };
+    ([$data:ty], $field:ident) => { $field };
+    ((sym $label:literal), $field:ident) => { format!("{}{}", $label, $field.0) };
+    ((ty), $field:ident) => { format!("t{}", $field.0) };
 }
+
+/// Generates [`rvalue_text`]: the arms of the forms only MIR has, then one
+/// generated arm per op-table entry.
+macro_rules! define_rvalue_text {
+    ($(
+        $(#[$meta:meta])*
+        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt $(@ $role:tt)?),* $(,)? })?
+        $($fact:ident $fact_value:tt)*
+        => $display:tt;
+    )*) => {
+        /// Formats an rvalue to human-readable text.
+        fn rvalue_text(rvalue: &Rvalue) -> String {
+            match rvalue {
+                Rvalue::Use(operand) => operand_text(operand),
+                Rvalue::DictEntryPush { entry, item } => {
+                    format!("dict_entry_push {}, {}", operand_text(entry), operand_text(item))
+                }
+                Rvalue::GeneratorYield {
+                    value,
+                    unwind,
+                    cleanup,
+                } => {
+                    let mut text = format!("yield {}", operand_text(value));
+                    if let Some(handler) = unwind {
+                        push_fmt(&mut text, format_args!(" unwind bb{}", handler.catch_block.0));
+                    }
+                    if let Some(cleanup) = cleanup {
+                        push_fmt(&mut text, format_args!(" cleanup bb{}", cleanup.block.0));
+                    }
+                    text
+                }
+                Rvalue::List(items) => format!(
+                    "[{}]",
+                    items
+                        .iter()
+                        .map(operand_text)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                Rvalue::Set(items) => format!(
+                    "set{{{}}}",
+                    items
+                        .iter()
+                        .map(operand_text)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                Rvalue::Dict(entries) => format!(
+                    "{{{}}}",
+                    entries
+                        .iter()
+                        .map(|(key, entry_value)| {
+                            format!("{}: {}", operand_text(key), operand_text(entry_value))
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                Rvalue::Tuple(items) => format!(
+                    "({})",
+                    items
+                        .iter()
+                        .map(operand_text)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                Rvalue::Closure { id, captures } => format!(
+                    "closure {:?} [{}]",
+                    id,
+                    captures
+                        .iter()
+                        .map(operand_text)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                Rvalue::Binary { op, lhs, rhs } => {
+                    format!(
+                        "{} {} {}",
+                        operand_text(lhs),
+                        smelt_hir::bin_op_text(*op),
+                        operand_text(rhs)
+                    )
+                }
+                Rvalue::Unary { op, operand } => {
+                    let op_text = match op {
+                        smelt_hir::UnaryOp::Not => "!",
+                        smelt_hir::UnaryOp::Neg => "-",
+                    };
+                    format!("{op_text}{}", operand_text(operand))
+                }
+                Rvalue::UnionMethod {
+                    receiver,
+                    method,
+                    args,
+                } => {
+                    let args_text = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
+                    format!(
+                        "union_method {}.method{}({args_text})",
+                        operand_text(receiver),
+                        method.0
+                    )
+                }
+                Rvalue::BoundMethod {
+                    receiver,
+                    bound,
+                    method,
+                    args,
+                } => {
+                    let args_text = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
+                    format!(
+                        "bound_method<{}> {}.method{}({args_text})",
+                        bound.0,
+                        operand_text(receiver),
+                        method.0
+                    )
+                }
+                Rvalue::BoundField {
+                    receiver,
+                    bound,
+                    field,
+                } => format!(
+                    "bound_field<{}> {}.field{}",
+                    bound.0,
+                    operand_text(receiver),
+                    field.0
+                ),
+                Rvalue::Struct { class, fields } => {
+                    let field_list = fields
+                        .iter()
+                        .map(|(field, field_value)| {
+                            format!("field{}: {}", field.0, operand_text(field_value))
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("struct{} {{{field_list}}}", class.0)
+                }
+                Rvalue::ExternalClassInstance { class, args } => {
+                    let arg_list = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
+                    format!("external_new{}({arg_list})", class.0)
+                }
+                Rvalue::GlobalGet { global } => format!("global_get #{global}"),
+                Rvalue::GlobalSet { global, value: stored } => {
+                    format!("global_set #{global} = {}", operand_text(stored))
+                }
+                Rvalue::Await(operand) => format!("await {}", operand_text(operand)),
+                $(
+                    Rvalue::$name $({ $($field),* })? => {
+                        $($(let $field = render_op_field!($kind, $field);)*)?
+                        smelt_hir::op_mir_display!($display)
+                    }
+                )*
+            }
+        }
+    };
+}
+
+smelt_hir::for_each_op!(define_rvalue_text);
 
 /// Formats a terminator to human-readable text.
 fn terminator_text(terminator: &Terminator) -> String {
@@ -1858,7 +383,11 @@ fn terminator_text(terminator: &Terminator) -> String {
             target,
             unwind,
         } => {
-            let arg_list = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
+            let mut arg_texts = args.iter().map(operand_text).collect::<Vec<_>>();
+            if let Callee::Op(op) = callee {
+                op.reads(|operand| arg_texts.push(operand_text(operand)));
+            }
+            let arg_list = arg_texts.join(", ");
             let unwind_text = unwind.map_or_else(String::new, |handler| {
                 format!(" unwind bb{}", handler.catch_block.0)
             });
@@ -1942,28 +471,37 @@ fn callee_text(callee: &Callee) -> String {
         Callee::Builtin(BuiltinFn::ConsoleLog { .. }) => "@console_log".to_owned(),
         Callee::Builtin(BuiltinFn::ConsoleWrite) => "@console_write".to_owned(),
         Callee::Builtin(BuiltinFn::ConsoleErrorWrite) => "@console_error_write".to_owned(),
-        Callee::Builtin(BuiltinFn::JsonParse { target: None }) => "@json_parse".to_owned(),
-        Callee::Builtin(BuiltinFn::JsonParse { target: Some(_) }) => "@json_decode".to_owned(),
-        Callee::Builtin(BuiltinFn::Base64(op)) => format!("@{}", op.name()),
-        Callee::Builtin(BuiltinFn::RegExpCompile) => "@regexp_compile".to_owned(),
-        Callee::Builtin(BuiltinFn::UrlNew) => "@url_new".to_owned(),
-        Callee::Builtin(BuiltinFn::UrlSetHref) => "@url_set_href".to_owned(),
-        Callee::Builtin(BuiltinFn::BigInt(op)) => format!("@{}", op.name()),
-        Callee::Builtin(BuiltinFn::HostModule(op)) => format!("@{}", op.name()),
-        Callee::Builtin(BuiltinFn::DataViewAccess { write, element }) => format!(
-            "@data_view_{}{}",
-            if *write { "set" } else { "get" },
-            element.element_name()
-        ),
-        Callee::Builtin(BuiltinFn::UriDecode(op)) => match op {
-            smelt_hir::UriTranscodeOp::Decode => "@decode_uri".to_owned(),
-            smelt_hir::UriTranscodeOp::DecodeComponent => "@decode_uri_component".to_owned(),
-            // The encoding direction is infallible and never becomes a callee.
-            smelt_hir::UriTranscodeOp::Encode
-            | smelt_hir::UriTranscodeOp::EncodeComponent => "@encode_uri".to_owned(),
-        },
+        Callee::Op(op) => op_call_text(op),
     }
 }
+
+/// Generates [`op_call_text`] from the op table's `call` facts.
+macro_rules! define_op_call_text {
+    ($(
+        $(#[$meta:meta])*
+        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt $(@ $role:tt)?),* $(,)? })?
+        $($fact:ident $fact_value:tt)*
+        => $display:tt;
+    )*) => {
+        /// How a call terminator names the fallible operation it carries.
+        #[allow(
+            unused_variables,
+            reason = "each arm binds every field; a fact reads the ones it needs"
+        )]
+        fn op_call_text(rvalue: &Rvalue) -> String {
+            match rvalue {
+                $(
+                    Rvalue::$name $({ $($field,)* })? => {
+                        smelt_hir::op_call_text!($($fact $fact_value)*)
+                    }
+                )*
+                _ => "@not_an_op".to_owned(),
+            }
+        }
+    };
+}
+
+smelt_hir::for_each_op!(define_op_call_text);
 
 /// Formats an operand to human-readable text.
 fn operand_text(operand: &Operand) -> String {
@@ -1972,11 +510,6 @@ fn operand_text(operand: &Operand) -> String {
         Operand::Move(place) => format!("move {}", place_text(place)),
         Operand::Const(constant) => constant_text(constant),
     }
-}
-
-/// Formats an optional operand to human-readable text.
-fn optional_operand_text(operand: Option<&Operand>) -> String {
-    operand.map_or_else(|| "_".to_owned(), operand_text)
 }
 
 /// Formats a place to human-readable text.

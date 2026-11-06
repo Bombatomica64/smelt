@@ -553,7 +553,7 @@ export function groupBy<T, K extends PropertyKey>(
             "the guard block ends in a goto at the join: {output}"
         );
         assert!(
-            output.contains("%14 = list_push copy %2[copy %5], move %4"),
+            output.contains("%14 = dict_entry_push copy %2[copy %5], move %4"),
             "the entry mutation still inserts the key: {output}"
         );
         // The seeding block survives as an unreachable block: block ids are

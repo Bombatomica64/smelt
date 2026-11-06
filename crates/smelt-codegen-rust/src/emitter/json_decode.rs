@@ -13,8 +13,8 @@
 //! typed code at the FIRST declared type it flows into: `JSON.parse<T>(s)`,
 //! `JSON.parse(s) as T`, `const v: T = JSON.parse(s)`, a `T`-typed parameter or
 //! a `T`-returning function. The frontend marks those parses
-//! (`ExprKind::JsonParse { decode: true }`, MIR `BuiltinFn::JsonParse { target:
-//! Some(T) }`). When `T` has a decodable Rust shape (see
+//! (`ExprKind::JsonParse { target: Some(T), .. }`, MIR `Rvalue::JsonParse { target:
+//! Some(T), .. }`). When `T` has a decodable Rust shape (see
 //! [`FunctionEmitter::json_decode_target`]) the call site emits
 //! `smelt_json_decode_<T>(&text)?`, which parses and then decodes the JSON
 //! value into `T`'s concrete Rust type, throwing a catchable `TypeError` (an
@@ -559,9 +559,13 @@ fn json_decode_targets(mir: &Mir) -> Vec<TypeId> {
     for (blocks, locals) in bodies {
         for block in blocks {
             if let Some(Terminator::Call {
-                callee: Callee::Builtin(BuiltinFn::JsonParse { target: Some(target) }),
+                callee: Callee::Op(op),
                 ..
             }) = &block.terminator
+                && let Rvalue::JsonParse {
+                    target: Some(target),
+                    ..
+                } = &**op
                 && !targets.contains(target)
             {
                 targets.push(*target);

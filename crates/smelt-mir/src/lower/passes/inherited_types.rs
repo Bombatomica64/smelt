@@ -6,8 +6,10 @@
 //! parameters are not declared; they stand for the subclass's arguments
 //! (`class YearParser extends Parser<number>` copies `Parser::run` with `T =
 //! f64`). Codegen emits the copy from a clone of the function whose types are
-//! substituted, and it holds `&Mir`, so it can only LOOK UP the substituted
-//! types. This pass interns them, once, in the pass that owns the type table.
+//! substituted. It declares unions and record helpers from the table before it
+//! renders any body, so a substituted union the copy spells has to be in the
+//! table first, or the copy names an enum nothing declares (E0412). This pass
+//! interns those types, once, in the pass that owns the type table.
 //!
 //! It adds types and never rewrites one, so no existing id changes meaning.
 

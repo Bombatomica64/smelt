@@ -416,11 +416,16 @@ fn body_only_moves(
         // callee has to be producing a `T`, and the only evidence available here
         // is that some argument carried one in. Calls are terminators, so the
         // statement walk above cannot see them.
-        if let Some(Terminator::Call { args, dest, .. }) = &block.terminator
+        if let Some(Terminator::Call { callee, args, dest, .. }) = &block.terminator
             && local_mentions(*dest)
-            && !args.iter().any(&mentions)
         {
-            return false;
+            let mut mentioned = args.iter().any(&mentions);
+            if let smelt_mir::Callee::Op(op) = callee {
+                op.reads(|operand| mentioned |= mentions(operand));
+            }
+            if !mentioned {
+                return false;
+            }
         }
     }
     true
@@ -473,13 +478,14 @@ fn rvalue_preserves_opacity(rvalue: &Rvalue) -> bool {
         Rvalue::List(_)
             | Rvalue::Tuple(_)
             | Rvalue::ListPush { .. }
+            | Rvalue::DictEntryPush { .. }
             | Rvalue::ListExtend { .. }
             // Capturing into a closure environment.
             | Rvalue::Closure { .. }
             // Container-level queries read the *container*, never an element, so
             // a `SmeltList<T>` operand leaves `T` opaque even though the result
             // (a length) drops it.
-            | Rvalue::Len(_)
+            | Rvalue::Len { .. }
             // Handing a `T` to a callback moves it into the callee. Whether that
             // callee's signature can carry `T` is a separate question, answered
             // by `callback_occurrences_are_liftable`. `ListCallback` is the
@@ -988,7 +994,13 @@ fn body_uses_bound_only_through_trait(
         }
         if let Some(terminator) = &block.terminator {
             let projected = match terminator {
-                Terminator::Call { args, .. } => args.iter().any(operand_projects),
+                Terminator::Call { callee, args, .. } => {
+                    let mut projects = args.iter().any(operand_projects);
+                    if let smelt_mir::Callee::Op(op) = callee {
+                        op.reads(|operand| projects |= operand_projects(operand));
+                    }
+                    projects
+                }
                 Terminator::Switch { cond: probe, .. }
                 | Terminator::Match {
                     scrutinee: probe, ..

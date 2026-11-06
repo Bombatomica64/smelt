@@ -23,7 +23,7 @@
 //! **Malformed input is deliberately not asserted here; see
 //! `uri_decode_throw_runtime.rs`.** Both decoders throw a `URIError` on
 //! malformed input, and that throw is catchable: they lower to a
-//! `Terminator::Call` of `BuiltinFn::UriDecode` (the shape `JSON.parse` uses)
+//! `Terminator::Call` of `Callee::Op` (the shape `JSON.parse` uses)
 //! rather than a fallible stdlib *rvalue*, which has no throwing edge in MIR.
 //! See `blocker-logs/hono-h10-uri-and-base64-globals.md`. The character-set
 //! boundary itself is unit-tested in `smelt-runtime`'s

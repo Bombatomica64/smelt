@@ -250,8 +250,10 @@ fn measure_body(
         }
         match &block.terminator {
             Some(Terminator::Call { callee, args, .. }) => {
-                if let Callee::Indirect(operand) = callee {
-                    read(operand);
+                match callee {
+                    Callee::Indirect(operand) => read(operand),
+                    Callee::Op(op) => op.reads(&mut read),
+                    Callee::Static(_) | Callee::Builtin(_) | Callee::BaseInit(_) => {}
                 }
                 args.iter().for_each(&mut read);
             }
@@ -315,7 +317,7 @@ fn measure_body(
                 Callee::Indirect(operand) => operand.local()
                     .and_then(local_ty)
                     .map_or(Typedness::Concrete, |ty| emitter.typedness_of(ty)),
-                Callee::Static(_) | Callee::Builtin(_) | Callee::BaseInit(_) => {
+                Callee::Static(_) | Callee::Builtin(_) | Callee::Op(_) | Callee::BaseInit(_) => {
                     Typedness::Concrete
                 }
             };

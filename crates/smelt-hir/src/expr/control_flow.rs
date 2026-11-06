@@ -77,3 +77,28 @@ pub enum AsyncOp {
     /// it later without changing this op's meaning.
     HttpFetch,
 }
+
+impl AsyncOp {
+    /// Whether this operation schedules work on the timer or promise task
+    /// queues. `race` drives the same task queue.
+    #[must_use]
+    pub const fn arms_a_timer(self) -> bool {
+        matches!(
+            self,
+            Self::Sleep
+                | Self::ExitDrain
+                | Self::Resolve
+                | Self::Reject
+                | Self::SetTimeout
+                | Self::ClearTimeout
+                | Self::SetInterval
+                | Self::ClearInterval
+                | Self::Promise
+                | Self::Then
+                | Self::Catch
+                | Self::Finally
+                | Self::Race
+                | Self::SpawnLocal
+        )
+    }
+}

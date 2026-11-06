@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use smelt_hir::{BodyId, PropertyLookup, Span, Symbol, TypeId, Visibility};
+use smelt_hir::{BodyId, Language, Span, Symbol, TypeId, Visibility};
 
 /// Unique identifier for a function in MIR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -199,11 +199,11 @@ pub struct MirClosure {
     /// identity (`===`). The `ItemId` index is crate-unique, so it is a safe
     /// accessor key across all references.
     pub function_item_key: Option<usize>,
-    /// How this closure body's source language spells an absent value.
+    /// The language this closure body came from.
     ///
-    /// See `MirFunction::absent`. A closure body is emitted through its own
-    /// synthesized `MirFunction`, so the spelling has to travel with it.
-    pub absent: AbsentSpelling,
+    /// See `MirFunction::language`. A closure body is emitted through its own
+    /// synthesized `MirFunction`, so the language has to travel with it.
+    pub language: Language,
 }
 
 /// One explicit MIR closure capture.
@@ -371,19 +371,25 @@ pub struct MirFunction {
     pub blocks: Vec<BasicBlock>,
     /// Entry block ID.
     pub entry: BlockId,
-    /// How this body's SOURCE LANGUAGE spells an absent value.
+    /// The language this body came from, which decides what the source meant
+    /// wherever the operand and its type do not say: how an absent value is
+    /// spelled (`undefined` in JavaScript, `None` in Python) and whether a
+    /// number is a JavaScript double.
     ///
-    /// Same rule, and the same reason, as `BuiltinFn::ConsoleLog`'s own field:
-    /// stringifying an `Optional` that holds nothing is `undefined` in
-    /// JavaScript and `None` in Python, and the disagreement is not observable
-    /// from the operand or its type. It is carried per BODY rather than per
-    /// node because a body comes from exactly one source file while the sites
-    /// that need the answer -- `String(x)`, a template interpolation, a `+`
-    /// concatenation -- are ordinary rvalues that no one would widen for it.
-    pub absent: AbsentSpelling,
+    /// Carried per BODY rather than per node because a body comes from exactly
+    /// one source file while the sites that need the answer -- `String(x)`, a
+    /// template interpolation, a `+` concatenation -- are ordinary rvalues that
+    /// no one would widen for it.
+    pub language: Language,
 }
 
 impl MirFunction {
+    /// How this body's language spells an absent value.
+    #[must_use]
+    pub const fn absent(&self) -> AbsentSpelling {
+        AbsentSpelling::of(self.language)
+    }
+
     /// Creates a new MIR function with an empty entry block.
     pub(crate) fn new(
         id: FuncId,
@@ -415,7 +421,7 @@ impl MirFunction {
             // Overwritten by lowering from the body's own file; the default is
             // the TypeScript-shaped answer, matching `absent_spelling`'s own
             // fallback for a synthesized span with no source module.
-            absent: AbsentSpelling::Undefined,
+            language: Language::TypeScript,
         }
     }
 
@@ -608,6 +614,15 @@ pub enum AbsentSpelling {
 }
 
 impl AbsentSpelling {
+    /// How `language` spells an absent value.
+    #[must_use]
+    pub const fn of(language: Language) -> Self {
+        match language {
+            Language::TypeScript => Self::Undefined,
+            Language::Python => Self::None,
+        }
+    }
+
     /// The word this language prints for an absent value.
     #[must_use]
     pub const fn text(self) -> &'static str {
@@ -687,1617 +702,152 @@ pub enum Constant {
     None,
 }
 
-/// An MIR rvalue.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum Rvalue {
-    /// Use an existing operand directly.
-    Use(Operand),
-    /// Suspend the current generator and expose a value to its caller.
-    GeneratorYield {
-        /// Value exposed by the suspension point.
-        value: Operand,
-        /// Lexical catch continuation active at the suspension point.
-        unwind: Option<ExceptionHandler>,
-        /// Innermost finally continuation active at the suspension point.
-        cleanup: Option<GeneratorCleanup>,
-    },
-    /// Resume a synchronous generator once.
-    GeneratorNext {
-        /// Generator handle to resume.
-        generator: Operand,
-        /// Optional value sent into the suspended yield expression.
-        value: Option<Operand>,
-        /// Protocol method used for this resumption.
-        kind: GeneratorResumeKind,
-    },
-    /// Test whether a generator resume result represents completion.
-    GeneratorDone {
-        /// Resume result to inspect.
-        result: Operand,
-    },
-    /// Extract the yielded or returned value from a generator resume result.
-    GeneratorValue {
-        /// Resume result whose payload is extracted.
-        result: Operand,
-    },
-    /// Resume a delegated generator and forward its yielded values.
-    GeneratorDelegate {
-        /// Generator whose suspension points are forwarded.
-        generator: Operand,
-    },
-    /// Construct a list.
-    List(Vec<Operand>),
-    /// Construct a set.
-    Set(Vec<Operand>),
-    /// Construct a dictionary.
-    Dict(Vec<(Operand, Operand)>),
-    /// Construct a tuple.
-    Tuple(Vec<Operand>),
-    /// Apply a binary operator.
-    Binary {
-        /// The operator.
-        op: smelt_hir::BinOp,
-        /// Left-hand operand.
-        lhs: Operand,
-        /// Right-hand operand.
-        rhs: Operand,
-    },
-    /// Apply a unary operator.
-    Unary {
-        /// The operator.
-        op: smelt_hir::UnaryOp,
-        /// The operand.
-        operand: Operand,
-    },
-    /// Select a first-class function value from a static string-keyed table.
-    FunctionTableLookup {
-        /// String key used to select the function.
-        key: Operand,
-        /// Function values keyed by source object field text.
-        cases: Vec<(String, Operand)>,
-    },
-    /// Read a field through a TypeScript optional-chain receiver.
-    OptionalField {
-        /// Receiver operand, either `T` or `Option<T>`.
-        receiver: Operand,
-        /// Field name to read when the receiver is present.
-        field: Symbol,
-    },
-    /// Read an index through a TypeScript optional-chain receiver.
-    OptionalIndex {
-        /// Receiver operand, either an indexable `T` or `Option<T>`.
-        receiver: Operand,
-        /// Index operand used when the receiver is present.
-        index: Operand,
-    },
-    /// Call a method through a TypeScript optional-chain receiver.
-    OptionalMethod {
-        /// Receiver operand, either `T` or `Option<T>`.
-        receiver: Operand,
-        /// Method name to call when the receiver is present.
-        method: Symbol,
-        /// Call arguments.
-        args: Vec<Operand>,
-    },
-    /// Call a method shared by every concrete arm of a tagged union.
-    UnionMethod {
-        /// Tagged-union receiver whose active arm selects the implementation.
-        receiver: Operand,
-        /// Shared source method name.
-        method: Symbol,
-        /// Call arguments evaluated before dispatch.
-        args: Vec<Operand>,
-    },
-    /// Call a method through a type parameter's class or interface bound
-    /// (`a.speak()` with `a: A` and `A extends Animal`).
-    ///
-    /// The call is typed by the bound's declaration but dispatched by the
-    /// receiver's concrete type, so it has no single static callee: codegen
-    /// renders it through the generated bound trait (`A: AnimalLike`) when the
-    /// parameter is a real Rust generic, and as a dynamic member call when the
-    /// parameter erased.
-    BoundMethod {
-        /// Receiver whose static type is the bounded type parameter.
-        receiver: Operand,
-        /// The bound's class or interface name.
-        bound: Symbol,
-        /// Source method name.
-        method: Symbol,
-        /// Call arguments, receiver excluded.
-        args: Vec<Operand>,
-    },
-    /// Read a property through a type parameter's class or interface bound
-    /// (`a.legs` with `a: A` and `A extends Animal`); see [`Self::BoundMethod`].
-    BoundField {
-        /// Receiver whose static type is the bounded type parameter.
-        receiver: Operand,
-        /// The bound's class or interface name.
-        bound: Symbol,
-        /// Source property name.
-        field: Symbol,
-    },
-    /// Return an optional value's content or a fallback operand.
-    OptionalCoalesce {
-        /// Optional operand to inspect.
-        optional: Operand,
-        /// Fallback operand used when the optional is empty.
-        fallback: Operand,
-    },
-    /// Test whether a value is an instance of a class.
-    InstanceOf {
-        /// Value being tested. Kept as an operand so side effects are evaluated before the check.
-        value: Operand,
-        /// Target class symbol.
-        class: Symbol,
-    },
-    /// Test whether a value's prototype chain reaches a runtime constructor's
-    /// `prototype` (`OrdinaryHasInstance`, JS `value instanceof target`).
-    InstanceOfValue {
-        /// Value whose prototype chain is walked.
-        value: Operand,
-        /// Constructor function value whose `prototype` is looked for.
-        target: Operand,
-    },
-    /// Test the runtime tag of a TypeScript `unknown` value.
-    UnknownIs {
-        /// Value being tested.
-        value: Operand,
-        /// Runtime tag to check.
-        kind: smelt_hir::UnknownKind,
-    },
-    /// Return the JavaScript `typeof` string for a runtime-erased value.
-    TypeofValue {
-        /// Value being classified.
-        value: Operand,
-    },
-    /// Return the opaque `Object.getPrototypeOf` sentinel for an erased value.
-    PrototypeSentinel {
-        /// Value whose prototype sentinel is being computed.
-        value: Operand,
-        /// Whether an own `__proto__` slot on the receiver shadows the answer;
-        /// see [`smelt_hir::ExprKind::PrototypeSentinel`].
-        own_slot_shadows: bool,
-    },
-    /// Box a primitive the way `Object(value)` does; objects pass through
-    /// (see the runtime `smelt_box_value`).
-    BoxPrimitive {
-        /// Value being boxed.
-        value: Operand,
-    },
-    /// Create a fresh erased object from a runtime prototype value
-    /// (`Object.create(proto)`; see the runtime `smelt_object_from_prototype`).
-    ObjectFromPrototype {
-        /// Prototype the fresh object inherits from.
-        prototype: Operand,
-    },
-    /// Install a property-descriptor table onto an erased object
-    /// (`Object.defineProperty` / `Object.defineProperties`; see the runtime
-    /// `smelt_define_properties`).
-    DefineProperties {
-        /// Object the properties are installed on; also the result value.
-        target: Operand,
-        /// Erased object mapping property key to property descriptor.
-        descriptors: Operand,
-    },
-    /// Extract a typed value from a TypeScript `unknown` value.
-    UnknownCast {
-        /// Value being extracted.
-        value: Operand,
-        /// Type expected after extraction.
-        target: TypeId,
-    },
-    /// Construct a class instance.
-    Struct {
-        /// The class being constructed.
-        class: Symbol,
-        /// Field initializers.
-        fields: Vec<(Symbol, Operand)>,
-    },
-    /// Construct an imported class value whose implementation is not part of this crate.
-    ExternalClassInstance {
-        /// The imported class being constructed.
-        class: Symbol,
-        /// Constructor arguments, kept so their expressions are lowered before erasure.
-        args: Vec<Operand>,
-    },
-    /// Compute the length of a value.
-    Len(Operand),
-    /// Compute the absolute value of an integer or floating-point number.
-    NumericAbs(Operand),
-    /// Round a floating-point value with a standard numeric operation.
-    NumericRound {
-        /// Operation to apply.
-        op: smelt_hir::NumericRoundOp,
-        /// Numeric operand to round.
-        operand: Operand,
-    },
-    /// Compute the minimum or maximum of floating-point operands.
-    NumericExtrema {
-        /// Operation to apply.
-        op: smelt_hir::NumericExtremaOp,
-        /// Numeric operands to compare.
-        args: Vec<Operand>,
-        /// Optional numeric list folded alongside `args`, produced when the
-        /// source spreads a list into `Math.max`/`Math.min`.
-        spread: Option<Operand>,
-    },
-    /// Compute the Euclidean norm of floating-point operands.
-    NumericHypot {
-        /// Numeric operands to combine.
-        args: Vec<Operand>,
-    },
-    /// Test a numeric value with a numeric predicate.
-    NumericPredicate {
-        /// Predicate to apply.
-        op: smelt_hir::NumericPredicateOp,
-        /// Numeric operand to test.
-        operand: Operand,
-    },
-    /// Apply a direct unary numeric function.
-    NumericUnaryFunc {
-        /// Operation to apply.
-        op: smelt_hir::NumericUnaryFuncOp,
-        /// Numeric operand to transform.
-        operand: Operand,
-    },
-    /// Construct a closure value from a MIR closure body and captured operands.
-    Closure {
-        /// Closure table identifier.
-        id: ClosureId,
-        /// Captured operands in closure capture order.
-        captures: Vec<Operand>,
-    },
-    /// Read the JavaScript `this` receiver installed by the innermost active call.
-    ///
-    /// Evaluates to the receiver a [`Rvalue::BindThis`] callable installed for
-    /// the duration of the current invocation, or `undefined` when the current
-    /// call supplied none (a plain `f()` invocation).
-    ThisRead,
-    /// Bind a receiver to a callable value, as `Function.prototype.bind` does.
-    ///
-    /// The result is a callable that installs `receiver` as the `this` seen by
-    /// [`Rvalue::ThisRead`] inside the callee for the duration of one call and
-    /// restores the previous binding afterwards.
-    BindThis {
-        /// The callable whose receiver is bound.
-        callee: Operand,
-        /// The receiver value the callee's `this` resolves to.
-        receiver: Operand,
-    },
-    /// Call a closure value.
-    ClosureCall {
-        /// Closure value to call.
-        callee: Operand,
-        /// Call arguments.
-        args: Vec<Operand>,
-    },
-    /// JavaScript `new callee(args)` through a function VALUE (`[[Construct]]`).
-    ///
-    /// Distinct from [`Rvalue::ClosureCall`] because construction allocates an
-    /// object linked to the callee's `prototype`, runs the callee with that
-    /// object as its receiver, and keeps the allocated object unless the callee
-    /// returned one of its own.
-    Construct {
-        /// Function value being constructed through.
-        callee: Operand,
-        /// Constructor arguments.
-        args: Vec<Operand>,
-    },
-    /// Call a closure value with a runtime argument vector from spread syntax.
-    ClosureCallSpread {
-        /// Closure value to call.
-        callee: Operand,
-        /// Runtime argument list.
-        args: Operand,
-    },
-    /// Raise a floating-point base to a floating-point exponent.
-    NumericPow {
-        /// Base operand.
-        base: Operand,
-        /// Exponent operand.
-        exponent: Operand,
-    },
-    /// Compute the arctangent of two numeric coordinates.
-    NumericAtan2 {
-        /// Y coordinate.
-        y: Operand,
-        /// X coordinate.
-        x: Operand,
-    },
-    /// Generate a pseudo-random floating-point value in the half-open range `[0, 1)`.
-    NumericRandom,
-    /// Generate a pseudo-random integer in an inclusive range.
-    NumericRandomInt {
-        /// Inclusive lower bound.
-        start: Operand,
-        /// Inclusive upper bound.
-        end: Operand,
-    },
-    /// Convert a numeric value to a string with a numeric radix.
-    NumericToStringRadix {
-        /// Numeric operand.
-        operand: Operand,
-        /// Numeric radix operand.
-        radix: Operand,
-    },
-    /// Format a numeric value as a fixed-point decimal string
-    /// (`Number.prototype.toFixed`).
-    NumericToFixed {
-        /// Numeric operand being formatted.
-        operand: Operand,
-        /// Number of fractional digits to render.
-        digits: Operand,
-    },
-    /// Parse an integer from a string with a numeric radix.
-    ParseIntRadix {
-        /// String operand.
-        operand: Operand,
-        /// Numeric radix operand.
-        radix: Operand,
-    },
-    /// Convert a primitive value to another primitive type.
-    PrimitiveCast {
-        /// Conversion operation to apply.
-        op: smelt_hir::PrimitiveCastOp,
-        /// Primitive operand to convert.
-        operand: Operand,
-    },
-    /// Change the case of a string value.
-    StringCase {
-        /// Operation to apply to the string.
-        op: smelt_hir::StringCaseOp,
-        /// String operand to transform.
-        operand: Operand,
-    },
-    /// Normalize a Unicode string value.
-    StringNormalize {
-        /// Normalization form to apply.
-        form: smelt_hir::StringNormalizeForm,
-        /// String operand to normalize.
-        operand: Operand,
-    },
-    /// Collate two strings per JavaScript `left.localeCompare(right)` with no
-    /// locale or option arguments (see the runtime `smelt_locale_compare`
-    /// helper for the collation levels that are and are not modeled).
-    StringLocaleCompare {
-        /// Receiver string.
-        left: Operand,
-        /// String compared against the receiver.
-        right: Operand,
-    },
-    /// One of the four ECMA-262 URI transcoding globals (`encodeURI`,
-    /// `encodeURIComponent`, `decodeURI`, `decodeURIComponent`); see
-    /// `smelt_hir::UriTranscodeOp` and the `smelt_encode_uri*` /
-    /// `smelt_decode_uri*` runtime helpers.
-    UriTranscode {
-        /// Which of the four globals this is.
-        op: smelt_hir::UriTranscodeOp,
-        /// String operand to transcode.
-        operand: Operand,
-    },
-    /// Resolve the JavaScript `Object.prototype.toString.call(x)` tag
-    /// (`"[object Tag]"`) from an erased value's runtime variant and host
-    /// identity markers (see the runtime `smelt_object_to_string_tag` helper).
-    ObjectToStringTag {
-        /// Erased value operand to probe.
-        operand: Operand,
-    },
-    /// Deep-copy an erased value graph with fresh identities, preserving host
-    /// markers (`structuredClone(x)`; see the runtime `smelt_structured_clone`).
-    StructuredClone {
-        /// Erased value operand to deep-clone.
-        operand: Operand,
-    },
-    /// Trim whitespace from a string value.
-    StringTrim {
-        /// Which side of the string to trim.
-        side: smelt_hir::StringTrimSide,
-        /// String operand to trim.
-        operand: Operand,
-    },
-    /// Test whether a string has a prefix or suffix.
-    StringAffix {
-        /// Affix operation to apply.
-        op: smelt_hir::StringAffixOp,
-        /// String value to search in.
-        haystack: Operand,
-        /// Affix to search for.
-        needle: Operand,
-    },
-    /// Find a substring index in a string, returning -1 when absent.
-    StringSearch {
-        /// Search operation to apply.
-        op: smelt_hir::StringSearchOp,
-        /// String value to search in.
-        haystack: Operand,
-        /// Substring to search for.
-        needle: Operand,
-        /// Optional JavaScript `fromIndex` position.
-        from_index: Option<Operand>,
-    },
-    /// Replace literal string matches with a literal replacement string.
-    StringReplace {
-        /// Replacement operation to apply.
-        op: smelt_hir::StringReplaceOp,
-        /// String value to transform.
-        haystack: Operand,
-        /// Literal pattern to replace.
-        pattern: Operand,
-        /// Literal replacement value.
-        replacement: Operand,
-    },
-    /// Remove a literal string prefix or suffix when it is present.
-    StringRemoveAffix {
-        /// Affix side to remove.
-        op: smelt_hir::StringAffixOp,
-        /// String value to transform.
-        haystack: Operand,
-        /// Affix to remove.
-        affix: Operand,
-    },
-    /// Repeat a string a numeric number of times.
-    StringRepeat {
-        /// String value to repeat.
-        operand: Operand,
-        /// Number of repetitions.
-        count: Operand,
-    },
-    /// Pad a string to a target length.
-    StringPad {
-        /// Padding side.
-        op: smelt_hir::StringPadOp,
-        /// String value to pad.
-        operand: Operand,
-        /// Target string length.
-        target_len: Operand,
-        /// Padding string.
-        pad: Operand,
-    },
-    /// Test whether every character in a string satisfies a predicate.
-    StringPredicate {
-        /// Predicate to apply.
-        op: smelt_hir::StringPredicateOp,
-        /// String value to test.
-        operand: Operand,
-    },
-    /// Test whether a regex pattern matches a string.
-    RegexIsMatch {
-        /// Regex match shape to apply.
-        op: smelt_hir::RegexMatchOp,
-        /// Regex pattern text.
-        pattern: Operand,
-        /// String value being matched.
-        haystack: Operand,
-    },
-    /// Replace regex matches with a replacement string.
-    RegexReplace {
-        /// Replacement operation to apply.
-        op: smelt_hir::StringReplaceOp,
-        /// Regex pattern text.
-        pattern: Operand,
-        /// String value to transform.
-        haystack: Operand,
-        /// Replacement text.
-        replacement: Operand,
-    },
-    /// Replace regex matches with the result of a callback.
-    RegexReplaceCallback {
-        /// Replacement operation to apply.
-        op: smelt_hir::StringReplaceOp,
-        /// Regex pattern text.
-        pattern: Operand,
-        /// String value to transform.
-        haystack: Operand,
-        /// Callback receiving the matched text and returning replacement text.
-        callback: Operand,
-        /// The ECMA-262 replacer arguments the callback declared, in order —
-        /// `(matched, p1, …, pN, position, string)` truncated to its arity.
-        /// Resolved in the frontend, where the pattern's capture-group count is
-        /// known, so the emitter only has to render each role.
-        args: Vec<smelt_hir::RegexReplaceArg>,
-    },
-    /// Replace the first regex match with its uppercase text.
-    RegexReplaceFirstMatchUppercase {
-        /// Regex pattern text.
-        pattern: Operand,
-        /// String value to transform.
-        haystack: Operand,
-    },
-    /// Split a string with a regex pattern.
-    RegexSplit {
-        /// Regex pattern text.
-        pattern: Operand,
-        /// String value to split.
-        haystack: Operand,
-    },
-    /// Return the first regex match as a JavaScript-like match array.
-    RegexFind {
-        /// Regex pattern text.
-        pattern: Operand,
-        /// String value to search.
-        haystack: Operand,
-    },
-    /// Execute a JavaScript-like `RegExp` value and return a match object.
-    RegexExec {
-        /// `RegExp` value.
-        regex: Operand,
-        /// String value to search.
-        haystack: Operand,
-    },
-    /// `regex.test(haystack)` on a concrete `RegExp` receiver, answering a
-    /// `bool` (see `smelt_hir::ExprKind::RegexTest`).
-    RegexTest {
-        /// `RegExp` value.
-        regex: Operand,
-        /// String value to search.
-        haystack: Operand,
-    },
-    /// Return every match index from JavaScript `String.prototype.matchAll`.
-    RegexMatchAll {
-        /// `RegExp` value.
-        regex: Operand,
-        /// String value to search.
-        haystack: Operand,
-    },
-    /// Read a single character from a string as a string value.
-    StringCharAt {
-        /// String value to index.
-        operand: Operand,
-        /// Numeric character index.
-        index: Operand,
-    },
-    /// Read a single character code from a string as a numeric value.
-    StringCharCodeAt {
-        /// String value to index.
-        operand: Operand,
-        /// Numeric character index.
-        index: Operand,
-    },
-    /// Test whether one string contains another string.
-    StringContains {
-        /// String value to search in.
-        haystack: Operand,
-        /// Substring to search for.
-        needle: Operand,
-        /// Optional JavaScript `position` argument for `String.prototype.includes`.
-        from_index: Option<Operand>,
-    },
-    /// Take a substring slice from a string.
-    StringSlice {
-        /// String value to slice.
-        operand: Operand,
-        /// Inclusive start index, or omitted for zero.
-        start: Option<Operand>,
-        /// Exclusive end index, or omitted for string length.
-        end: Option<Operand>,
-    },
-    /// Test whether a list contains an item.
-    ListContains {
-        /// List value to search in.
-        list: Operand,
-        /// Item to search for.
-        item: Operand,
-    },
-    /// Test whether a set contains an item.
-    SetContains {
-        /// Set value to search in.
-        set: Operand,
-        /// Item to search for.
-        item: Operand,
-    },
-    /// Test whether two sets have no shared items.
-    SetDisjoint {
-        /// Left set operand.
-        left: Operand,
-        /// Right set operand.
-        right: Operand,
-    },
-    /// Test a relation between two sets.
-    SetRelation {
-        /// Set relation to evaluate.
-        op: smelt_hir::SetRelationOp,
-        /// Left set operand.
-        left: Operand,
-        /// Right set operand.
-        right: Operand,
-    },
-    /// Insert an item into a set.
-    SetAdd {
-        /// Set value to mutate.
-        set: Operand,
-        /// Item to insert.
-        item: Operand,
-    },
-    /// Remove an item from a set.
-    SetRemove {
-        /// Missing-item behavior.
-        op: smelt_hir::SetRemoveOp,
-        /// Set value to mutate.
-        set: Operand,
-        /// Item to remove.
-        item: Operand,
-    },
-    /// Clear all items from a set.
-    SetClear {
-        /// Set value to mutate.
-        set: Operand,
-    },
-    /// Return a shallow copy of a set.
-    SetCopy {
-        /// Set value to copy.
-        set: Operand,
-    },
-    /// Convert a list into a set by collecting unique items.
-    ListToSet {
-        /// List value to collect into a set.
-        list: Operand,
-    },
-    /// Convert a list of key/value tuples into a dictionary.
-    ListPairsToDict {
-        /// List of pair tuples to collect into a dictionary.
-        list: Operand,
-    },
-    /// Combine two sets into a new set.
-    SetBinary {
-        /// Set operation to apply.
-        op: smelt_hir::SetBinaryOp,
-        /// Left set operand.
-        left: Operand,
-        /// Right set operand.
-        right: Operand,
-    },
-    /// Project values or entries from a set.
-    SetProjection {
-        /// Projection to apply.
-        op: smelt_hir::SetProjectionOp,
-        /// Set value to project.
-        set: Operand,
-    },
-    /// Build an empty `EventEmitter`.
-    EventEmitterNew,
-    /// `process.env.NAME` (`smelt_hir::ExprKind::ProcessEnvRead`).
-    ProcessEnvRead {
-        /// The variable's name.
-        name: String,
-    },
-    /// An `EventEmitter` member operation on a concrete emitter receiver.
-    EventEmitterOp {
-        /// Which operation this member performs.
-        op: smelt_hir::EventEmitterOp,
-        /// The emitter receiver.
-        emitter: Operand,
-        /// The event name, followed by the operation's own arguments.
-        args: Vec<Operand>,
-    },
-    /// `createServer(handler)`: build a `node:http` server.
-    HttpCreateServer {
-        /// The request handler, called once per accepted request.
-        handler: Operand,
-    },
-    /// `new DatabaseSync(path)` (`smelt_hir::ExprKind::SqliteOpen`).
-    SqliteOpen {
-        /// The database path.
-        path: Operand,
-    },
-    /// A `node:sqlite` operation (`smelt_hir::ExprKind::SqliteOp`).
-    SqliteOp {
-        /// Which operation.
-        op: smelt_hir::SqliteOp,
-        /// The database or statement receiver.
-        receiver: Operand,
-        /// SQL text or erased parameters.
-        args: Vec<Operand>,
-    },
-    /// A `node:http` server answering requests with a fetch handler
-    /// (`smelt_hir::ExprKind::HttpCreateFetchServer`).
-    HttpCreateFetchServer {
-        /// The fetch handler, called with the request alone.
-        fetch: Operand,
-    },
-    /// A `node:http` `Server` member operation.
-    HttpServerOp {
-        /// Which operation this member performs.
-        op: smelt_hir::HttpServerOp,
-        /// The server receiver.
-        server: Operand,
-        /// The operation's arguments.
-        args: Vec<Operand>,
-    },
-    /// A `node:http` `IncomingMessage` property read.
-    IncomingMessageOp {
-        /// Which property this reads.
-        op: smelt_hir::IncomingMessageOp,
-        /// The request receiver.
-        message: Operand,
-    },
-    /// A `node:http` `ServerResponse` member operation.
-    ServerResponseOp {
-        /// Which operation this member performs.
-        op: smelt_hir::ServerResponseOp,
-        /// The response receiver.
-        response: Operand,
-        /// The operation's arguments, in source order.
-        args: Vec<Operand>,
-    },
-    /// Build a concrete `Request` value.
-    ///
-    /// The init literal's keys arrive as separate operands, like
-    /// [`Self::ResponseNew`].
-    RequestNew {
-        /// The URL argument.
-        input: Operand,
-        /// `init.method`, when the init literal set it.
-        method: Option<Operand>,
-        /// `init.headers`, when the init literal set it.
-        headers: Option<Operand>,
-        /// `init.body`, when the init literal set it.
-        body: Option<Operand>,
-        /// `init.signal`, when the init literal set it.
-        ///
-        /// The request's own signal FOLLOWS this one rather than being it (see
-        /// `smelt_hir::ExprKind::RequestNew`).
-        signal: Option<Operand>,
-        /// The STORED `RequestInit` members the init supplied, in source order
-        /// (see `smelt_hir::ExprKind::RequestNew`).
-        init_members: Vec<(smelt_hir::RequestInitMember, Operand)>,
-    },
-    /// A `Request` member operation on a concrete `Request` receiver.
-    RequestOp {
-        /// Which operation this member performs.
-        op: smelt_hir::RequestOp,
-        /// The `Request` receiver.
-        request: Operand,
-        /// Operation arguments; every modeled member is nullary today.
-        args: Vec<Operand>,
-    },
-    /// Build a concrete `Response` value.
-    ///
-    /// The init literal's keys arrive as separate operands rather than as a
-    /// record, so the emitter builds the concrete runtime value without
-    /// re-deriving a shape at run time. See `ExprKind::ResponseNew`.
-    ResponseNew {
-        /// The body argument, when the source passed one.
-        body: Option<Operand>,
-        /// `init.status`, when the init literal set it.
-        status: Option<Operand>,
-        /// `init.statusText`, when the init literal set it.
-        status_text: Option<Operand>,
-        /// `init.headers`, when the init literal set it.
-        headers: Option<Operand>,
-    },
-    /// A `Response` member operation on a concrete `Response` receiver.
-    ResponseOp {
-        /// Which operation this member performs.
-        op: smelt_hir::ResponseOp,
-        /// The `Response` receiver.
-        response: Operand,
-        /// Operation arguments; every modeled member is nullary today.
-        args: Vec<Operand>,
-    },
-    /// Construct a WHATWG `TextEncoder` value.
-    TextEncoderNew,
-    /// Construct a WHATWG `TextDecoder` value.
-    TextDecoderNew {
-        /// Optional encoding-label value.
-        label: Option<Operand>,
-    },
-    /// Apply a `TextEncoder` member to a concrete receiver.
-    TextEncoderOp {
-        /// Member to read or call.
-        op: smelt_hir::TextEncoderOp,
-        /// `TextEncoder` receiver.
-        encoder: Operand,
-        /// Operation arguments (the string to encode, or none).
-        args: Vec<Operand>,
-    },
-    /// Apply a `TextDecoder` member to a concrete receiver.
-    TextDecoderOp {
-        /// Member to read or call.
-        op: smelt_hir::TextDecoderOp,
-        /// `TextDecoder` receiver.
-        decoder: Operand,
-        /// Operation arguments (the byte view to decode, or none).
-        args: Vec<Operand>,
-    },
-    /// Construct a value of the concrete typed-array family.
-    TypedArrayNew {
-        /// The source constructor name — one of the eleven views, or
-        /// `ArrayBuffer`.
-        class_name: String,
-        /// The constructor arguments, as written.
-        args: Vec<Operand>,
-    },
-    /// Read a member of, or call a method on, the concrete typed-array family.
-    ByteArrayOp {
-        /// Member to read or call.
-        op: smelt_hir::ByteArrayOp,
-        /// The view (or byte-storage) receiver.
-        bytes: Operand,
-        /// Operation arguments (a range, a value, a source view, or none).
-        args: Vec<Operand>,
-    },
-    /// Apply an `AbortSignal` static.
-    ///
-    /// No receiver operand: the two statics BUILD a signal (see
-    /// `smelt_hir::AbortSignalOp`).
-    AbortSignalOp {
-        /// Which static to apply.
-        op: smelt_hir::AbortSignalOp,
-        /// Operation arguments, in source order.
-        args: Vec<Operand>,
-    },
-    /// The shared ambient global object (see `smelt_hir::ExprKind::GlobalObject`).
-    GlobalObject,
-    /// An INFALLIBLE modeled host-module call (`path.join(..)`); see
-    /// `smelt_hir::ExprKind::HostModuleCall`. The fallible ones are
-    /// [`BuiltinFn::HostModule`] call terminators.
-    HostModuleCall {
-        /// Which host function this call runs.
-        op: smelt_hir::HostModuleOp,
-        /// Operation arguments, in the op's documented order.
-        args: Vec<Operand>,
-    },
-    /// Apply a `WebCrypto` operation.
-    ///
-    /// No receiver operand: the `crypto` namespace holds no state a program can
-    /// observe, so the call is its arguments (see `smelt_hir::CryptoOp`).
-    CryptoOp {
-        /// Operation to apply.
-        op: smelt_hir::CryptoOp,
-        /// Operation arguments, in source order.
-        args: Vec<Operand>,
-    },
-    /// Construct an empty WHATWG `FormData` value.
-    ///
-    /// No initializer: the spec's only constructor argument is an
-    /// `HTMLFormElement`, which is DOM and outside the profile.
-    FormDataNew,
-    /// Apply a `FormData` operation to a concrete receiver.
-    FormDataOp {
-        /// Operation to apply.
-        op: smelt_hir::FormDataOp,
-        /// `FormData` receiver.
-        form: Operand,
-        /// Operation arguments (name; name and value; or a callback).
-        args: Vec<Operand>,
-    },
-    /// Construct a WHATWG `URLSearchParams` value.
-    UrlSearchParamsNew {
-        /// Optional initializer value.
-        init: Option<Operand>,
-    },
-    /// Read or write a component of a concrete `URL`, or take its
-    /// `searchParams`.
-    UrlOp {
-        /// Operation to apply.
-        op: smelt_hir::UrlOp,
-        /// `URL` receiver.
-        url: Operand,
-        /// The written value for a setter; empty otherwise.
-        args: Vec<Operand>,
-    },
-    /// Apply a `URLSearchParams` operation to a concrete receiver.
-    UrlSearchParamsOp {
-        /// Operation to apply.
-        op: smelt_hir::UrlSearchParamsOp,
-        /// `URLSearchParams` receiver.
-        params: Operand,
-        /// Operation arguments (name, or name and value).
-        args: Vec<Operand>,
-    },
-    /// Construct a WHATWG `Headers` value.
-    ///
-    /// The initializer's static type selects the conversion at emit time (a
-    /// record, a list of name/value pairs, or another `Headers`), so no runtime
-    /// tag test decides how the value is built.
-    HeadersNew {
-        /// Optional initializer value.
-        init: Option<Operand>,
-    },
-    /// Apply a WHATWG `Headers` operation to a concrete `Headers` receiver.
-    HeadersOp {
-        /// Operation to apply.
-        op: smelt_hir::HeadersOp,
-        /// `Headers` receiver.
-        headers: Operand,
-        /// Operation arguments (name, or name and value).
-        args: Vec<Operand>,
-    },
-    /// Concatenate two lists into a new list.
-    ListConcat {
-        /// Left list value.
-        left: Operand,
-        /// Right list value.
-        right: Operand,
-    },
-    /// Normalize one erased `Array.prototype.concat` argument into the list of
-    /// items it contributes, applying JavaScript's `IsConcatSpreadable` rule at
-    /// runtime: an array splices its elements in, any other value appends as a
-    /// single element.
-    ConcatSpread {
-        /// The erased argument value.
-        value: Operand,
-    },
-    /// Find an item index in a list, returning -1 when absent.
-    ListSearch {
-        /// Search direction.
-        op: smelt_hir::ListSearchOp,
-        /// List value to search.
-        list: Operand,
-        /// Item to search for.
-        item: Operand,
-        /// Optional JavaScript `fromIndex` argument.
-        from_index: Option<Operand>,
-    },
-    /// Apply a capture-free callback to a list operation.
-    ListCallback {
-        /// List callback operation to apply.
-        op: smelt_hir::ListCallbackOp,
-        /// List value to process.
-        list: Operand,
-        /// Closure or callable value.
-        callback: Operand,
-    },
-    /// Build a sparse-like unknown list from a numeric length.
-    ListFromLength {
-        /// Numeric length source.
-        length: Operand,
-    },
-    /// Build a list by invoking a mapper for indexes from zero to length.
-    ListFromLengthMap {
-        /// Numeric length source.
-        length: Operand,
-        /// Closure or callable value.
-        callback: Operand,
-    },
-    /// Reduce a list with a capture-free reducer callback and initial value.
-    ListReduce {
-        /// List value to reduce.
-        list: Operand,
-        /// Initial accumulator value, or omitted for JavaScript-style first-item seeding.
-        initial: Option<Operand>,
-        /// Closure or callable value.
-        callback: Operand,
-        /// `true` for `reduceRight`: fold from the last index down to zero.
-        from_right: bool,
-    },
-    /// Take a shallow slice from a list.
-    ListSlice {
-        /// List value to slice.
-        list: Operand,
-        /// Inclusive start index, or omitted for zero.
-        start: Option<Operand>,
-        /// Exclusive end index, or omitted for collection length.
-        end: Option<Operand>,
-    },
-    /// Remove and optionally insert list items.
-    ListSplice {
-        /// List value to mutate or copy.
-        list: Operand,
-        /// Start index.
-        start: Operand,
-        /// Number of items to delete, or omitted to delete through the end.
-        delete_count: Option<Operand>,
-        /// Replacement items.
-        items: Vec<MirListSpliceItem>,
-        /// Whether to mutate the source list and return removed items.
-        mutate: bool,
-    },
-    /// Fill a list range with one value.
-    ListFill {
-        /// List value to mutate.
-        list: Operand,
-        /// Value to assign.
-        value: Operand,
-        /// Inclusive start index, or omitted for zero.
-        start: Option<Operand>,
-        /// Exclusive end index, or omitted for collection length.
-        end: Option<Operand>,
-    },
-    /// Copy a range inside a list.
-    ListCopyWithin {
-        /// List value to mutate.
-        list: Operand,
-        /// Target index.
-        target: Operand,
-        /// Source start index.
-        start: Operand,
-        /// Source end index, or omitted for collection length.
-        end: Option<Operand>,
-    },
-    /// Return a copied list with one replaced item.
-    ListWith {
-        /// List value to copy.
-        list: Operand,
-        /// Index to replace.
-        index: Operand,
-        /// Replacement value.
-        value: Operand,
-    },
-    /// Flatten a list to an optional JavaScript depth.
-    ListFlat {
-        /// List value to flatten.
-        list: Operand,
-        /// Explicit flatten depth, or omitted for JavaScript's depth of one.
-        depth: Option<Operand>,
-    },
-    /// Project array keys, values, or entries.
-    ListProjection {
-        /// Projection operation.
-        op: smelt_hir::ListProjectionOp,
-        /// List value to project.
-        list: Operand,
-    },
-    /// Push one item into a list and return the new length.
-    ListPush {
-        /// List value to mutate.
-        list: Operand,
-        /// Item to append.
-        item: Operand,
-    },
-    /// Extend a list with items from another list and return `None`.
-    ListExtend {
-        /// List value to mutate.
-        list: Operand,
-        /// List supplying items to copy.
-        other: Operand,
-    },
-    /// Insert one item into a list at an integer index and return `None`.
-    ListInsert {
-        /// List value to mutate.
-        list: Operand,
-        /// Integer index where the item is inserted.
-        index: Operand,
-        /// Item to insert.
-        item: Operand,
-    },
-    /// Insert zero or more items at the front of a list and return the new length.
-    ListUnshift {
-        /// List value to mutate.
-        list: Operand,
-        /// Items to insert at the front.
-        items: Vec<Operand>,
-    },
-    /// Reverse a list in place and return the language-specific result.
-    ListReverse {
-        /// List value to mutate.
-        list: Operand,
-    },
-    /// Clear all items from a list and return `None`.
-    ListClear {
-        /// List value to mutate.
-        list: Operand,
-    },
-    /// Return a shallow copy of a list.
-    ListCopy {
-        /// List value to copy.
-        list: Operand,
-    },
-    /// Convert a homogeneous tuple into a list.
-    TupleToList {
-        /// Tuple value to collect into a list.
-        tuple: Operand,
-    },
-    /// Convert a homogeneous list into a statically-sized tuple.
-    ListToTuple {
-        /// List value to collect into a tuple.
-        list: Operand,
-    },
-    /// Convert a homogeneous tuple into a set by collecting unique items.
-    TupleToSet {
-        /// Tuple value to collect into a set.
-        tuple: Operand,
-    },
-    /// Count list items equal to a target item.
-    ListCount {
-        /// List value to scan.
-        list: Operand,
-        /// Item to count.
-        item: Operand,
-    },
-    /// Sum numeric items in a list.
-    ListSum {
-        /// List value to reduce.
-        list: Operand,
-    },
-    /// Fold boolean items in a list with `all` or `any` semantics.
-    ListBoolFold {
-        /// Fold operation to apply.
-        op: smelt_hir::BoolFoldOp,
-        /// Boolean list value to reduce.
-        list: Operand,
-    },
-    /// Return a sorted copy of a list.
-    ListSorted {
-        /// List value to copy and sort.
-        list: Operand,
-        /// Optional key closure for Python `sorted(values, key=...)`.
-        ///
-        /// The key is a normal closure operand mapping one list item to a
-        /// sortable value.
-        key: Option<Operand>,
-        /// Whether to sort in descending order, as in Python `reverse=True`.
-        reverse: bool,
-    },
-    /// Return a reversed copy of a list.
-    ListReversed {
-        /// List value to copy in reverse order.
-        list: Operand,
-    },
-    /// Pair list items with zero-based integer indexes.
-    ListEnumerate {
-        /// List value to enumerate.
-        list: Operand,
-    },
-    /// Pair two lists elementwise, truncating to the shorter list.
-    ListZip {
-        /// Left list value to zip.
-        left: Operand,
-        /// Right list value to zip.
-        right: Operand,
-    },
-    /// Materialize an integer range as a list.
-    ListRange {
-        /// Inclusive start value.
-        start: Operand,
-        /// Exclusive end value.
-        end: Operand,
-        /// Step value.
-        step: Operand,
-    },
-    /// Pick one item from a list with a pseudo-random index.
-    ListRandomChoice {
-        /// List value to choose from.
-        list: Operand,
-    },
-    /// Return the first index of an equal list item.
-    ListIndex {
-        /// List value to scan.
-        list: Operand,
-        /// Item to locate.
-        item: Operand,
-    },
-    /// Remove the first list item equal to a target item and return `None`.
-    ListRemove {
-        /// List value to mutate.
-        list: Operand,
-        /// Item to remove.
-        item: Operand,
-    },
-    /// Sort a list in place and return `None`.
-    ListSort {
-        /// List value to mutate.
-        list: Operand,
-        /// Optional comparator closure for JavaScript-style sort.
-        ///
-        /// The comparator is a normal closure operand, like other list
-        /// callbacks; it takes two list items and returns a number.
-        comparator: Option<Operand>,
-        /// Optional key closure for Python `list.sort(key=...)`.
-        ///
-        /// The key is a normal closure operand mapping one list item to a
-        /// sortable value. It is mutually exclusive with `comparator`.
-        key: Option<Operand>,
-        /// Whether to sort in descending order, as in Python `reverse=True`.
-        reverse: bool,
-    },
-    /// Pop the last item from a list.
-    ListPop {
-        /// List value to mutate.
-        list: Operand,
-    },
-    /// Remove and return the first item from a list.
-    ListShift {
-        /// List value to mutate.
-        list: Operand,
-    },
-    /// Consume the first list item and return its typed iterator result.
-    ListNext {
-        /// List value to mutate.
-        list: Operand,
-    },
-    /// Test whether a tuple contains an item.
-    TupleContains {
-        /// Tuple value to search in.
-        tuple: Operand,
-        /// Item to search for.
-        item: Operand,
-    },
-    /// Read one statically-known tuple field by index.
-    TupleIndex {
-        /// Tuple value to read from.
-        tuple: Operand,
-        /// Zero-based tuple item index.
-        index: usize,
-    },
-    /// Build a tuple from a statically-known slice of another tuple.
-    TupleSlice {
-        /// Tuple value to slice.
-        tuple: Operand,
-        /// Inclusive normalized start index.
-        start: usize,
-        /// Exclusive normalized end index.
-        end: usize,
-    },
-    /// Test whether a dictionary contains a key.
-    DictContainsKey {
-        /// Dictionary value to search in.
-        dict: Operand,
-        /// Key to search for.
-        key: Operand,
-        /// How far the presence test may look: own properties only
-        /// (`Object.hasOwn`, a typed collection probe) or the whole prototype
-        /// chain (the `in` operator).
-        lookup: PropertyLookup,
-    },
-    /// Insert or replace a dictionary key-value pair.
-    DictSet {
-        /// Dictionary value to mutate.
-        dict: Operand,
-        /// Key to write.
-        key: Operand,
-        /// Value to write.
-        value: Operand,
-    },
-    /// Remove a dictionary key and return whether it existed.
-    DictRemoveKey {
-        /// Dictionary value to mutate.
-        dict: Operand,
-        /// Key to remove.
-        key: Operand,
-    },
-    /// Look up a dictionary key and return an optional value or default.
-    DictGet {
-        /// Dictionary value to read.
-        dict: Operand,
-        /// Key to look up.
-        key: Operand,
-        /// Optional default value for missing keys.
-        default: Option<Operand>,
-    },
-    /// Return an existing dictionary value or insert and return a default.
-    DictSetDefault {
-        /// Dictionary value to mutate.
-        dict: Operand,
-        /// Key to look up or insert.
-        key: Operand,
-        /// Default value to insert for a missing key.
-        default: Operand,
-    },
-    /// Clear all entries from a dictionary and return `None`.
-    DictClear {
-        /// Dictionary value to mutate.
-        dict: Operand,
-    },
-    /// Remove a dictionary key and return its value.
-    DictPop {
-        /// Dictionary value to mutate.
-        dict: Operand,
-        /// Key to remove.
-        key: Operand,
-        /// Optional default value for missing keys.
-        default: Option<Operand>,
-    },
-    /// Extend a dictionary with entries from another dictionary and return `None`.
-    DictUpdate {
-        /// Dictionary value to mutate.
-        dict: Operand,
-        /// Dictionary supplying entries to copy.
-        other: Operand,
-    },
-    /// Merge source dictionaries into a target dictionary and return the target.
-    DictAssign {
-        /// Dictionary receiving copied entries.
-        target: Operand,
-        /// Dictionaries supplying entries to copy.
-        sources: Vec<Operand>,
-    },
-    /// Attach object-literal properties to a callable JavaScript value.
-    CallableObjectAssign {
-        /// Callable value receiving the properties.
-        callable: Operand,
-        /// Static property values to attach.
-        props: Vec<(Symbol, Operand)>,
-        /// Record values whose own enumerable entries are copied onto the
-        /// callable object at runtime (dynamic `Object.assign` sources).
-        spreads: Vec<Operand>,
-    },
-    /// Return a shallow copy of a dictionary.
-    DictCopy {
-        /// Dictionary value to copy.
-        dict: Operand,
-    },
-    /// Project keys, values, or entries from a dictionary.
-    DictProjection {
-        /// Projection to apply.
-        op: smelt_hir::DictProjectionOp,
-        /// Dictionary value to project.
-        dict: Operand,
-    },
-    /// Split a string into a list of strings.
-    StringSplit {
-        /// String value to split.
-        haystack: Operand,
-        /// Separator string.
-        separator: Operand,
-        /// Optional maximum number of pieces.
-        limit: Option<Operand>,
-    },
-    /// Convert a string into one-character strings.
-    StringChars {
-        /// String value to expand.
-        haystack: Operand,
-    },
-    /// Join a list of strings with a separator string.
-    StringJoin {
-        /// String items to join.
-        items: Operand,
-        /// Separator string.
-        separator: Operand,
-    },
-    /// Serialize a JSON-compatible value to a JSON string.
-    JsonStringify {
-        /// Value to serialize.
-        value: Operand,
-    },
-    /// Perform a blocking HTTP GET request and return response text.
-    HttpGetText {
-        /// URL to request.
-        url: Operand,
-    },
-    /// Read a module-level mutable global by index into `Mir::globals`.
-    GlobalGet {
-        /// Index into `Mir::globals`.
-        global: u32,
-    },
-    /// Store into a module-level mutable global; evaluates to the stored value.
-    GlobalSet {
-        /// Index into `Mir::globals`.
-        global: u32,
-        /// The value to store.
-        value: Operand,
-    },
-    /// Read the current timestamp in milliseconds.
-    DateNow,
-    /// Configure the timestamp returned by JavaScript `Date.now()`.
-    DateSetNow {
-        /// Timestamp or Date-compatible value to use as the mocked clock.
-        timestamp: Operand,
-    },
-    /// Restore the real JavaScript `Date.now()` clock.
-    DateResetNow,
-    /// Read the configured JavaScript `Date.prototype.getTimezoneOffset` value.
-    DateTimezoneOffset,
-    /// Configure the return value observed by `Date.prototype.getTimezoneOffset`.
-    DateSetTimezoneOffset {
-        /// Offset from UTC in minutes.
-        offset: Operand,
-    },
-    /// Restore the default `Date.prototype.getTimezoneOffset` implementation.
-    DateResetTimezoneOffset,
-    /// Construct a stateful Vitest `vi.fn([impl])` mock object.
-    VitestMockFn {
-        /// Optional wrapped implementation used as the default outcome.
-        implementation: Option<Operand>,
-    },
-    /// Whether a Vitest mock's recorded call count equals `count` (bool).
-    VitestMockCalledTimes {
-        /// The (possibly non-mock) actual value under assertion.
-        mock: Operand,
-        /// Expected call count.
-        count: Operand,
-    },
-    /// Whether a Vitest mock recorded a call deep-equal to `args` (bool).
-    /// When `last` is set, only the most recent recorded call is compared.
-    VitestMockCalledWith {
-        /// The (possibly non-mock) actual value under assertion.
-        mock: Operand,
-        /// Expected call arguments.
-        args: Vec<Operand>,
-        /// Compare only the most recent recorded call (`toHaveBeenLastCalledWith`).
-        last: bool,
-    },
-    /// `vi.restoreAllMocks()`: undo every installed spy, newest first.
-    VitestRestoreAllMocks,
-    /// `vi.spyOn(target, name)`: install a recording mock over the member and
-    /// evaluate to it.
-    VitestSpyOn {
-        /// The object whose member is replaced.
-        target: Operand,
-        /// The member name.
-        name: Operand,
-    },
-    /// Whether two values are deep-equal under the vitest matcher rules,
-    /// where either side may hold an asymmetric matcher (bool).
-    VitestAsymmetricEqual {
-        /// The actual value under assertion.
-        actual: Operand,
-        /// The expected value, possibly an asymmetric matcher or containing one.
-        expected: Operand,
-    },
-    /// Whether a Vitest mock's most recent result deep-equals `expected`
-    /// after flattening a resolved promise (bool).
-    VitestMockLastResolvedWith {
-        /// The (possibly non-mock) actual value under assertion.
-        mock: Operand,
-        /// Expected resolved value.
-        expected: Operand,
-    },
-    /// Create a date-fns-compatible date context function for an IANA time zone.
-    DateTimezoneContext {
-        /// IANA time zone name.
-        timezone: Operand,
-    },
-    /// Convert a timestamp in milliseconds to an ISO-8601 string.
-    DateToIsoString {
-        /// Timestamp in milliseconds.
-        timestamp_ms: Operand,
-    },
-    /// Convert a timestamp in milliseconds to JavaScript Date string output.
-    DateToString {
-        /// Timestamp in milliseconds.
-        timestamp_ms: Operand,
-    },
-    /// Convert a timestamp in milliseconds to `Date.prototype.toUTCString()`
-    /// output (`Sun, 24 Dec 2000 10:30:59 GMT`).
-    DateToUtcString {
-        /// Timestamp in milliseconds.
-        timestamp_ms: Operand,
-    },
-    /// Re-indent compact JSON text for `JSON.stringify`'s `space` argument.
-    JsonIndent {
-        /// The compact JSON text.
-        text: Operand,
-        /// The source `space` argument.
-        space: Operand,
-    },
-    /// Construct a timestamp in milliseconds from local Date constructor parts.
-    DateFromParts {
-        /// Date constructor parts: year, month, date, hours, minutes, seconds, milliseconds.
-        parts: Vec<Operand>,
-    },
-    /// Construct a timestamp in milliseconds from one JavaScript Date constructor value.
-    DateFromValue {
-        /// Date constructor argument.
-        value: Operand,
-    },
-    /// Read a local-time date component from a timestamp.
-    DateGetPart {
-        /// Component to read.
-        part: smelt_hir::DatePart,
-        /// Timestamp in milliseconds.
-        timestamp_ms: Operand,
-    },
-    /// Return a timestamp with a local-time date component replaced.
-    DateSetPart {
-        /// Component to replace.
-        part: smelt_hir::DatePart,
-        /// Timestamp in milliseconds.
-        timestamp_ms: Operand,
-        /// Replacement values accepted by the corresponding JS setter.
-        values: Vec<Operand>,
-    },
-    /// Extract a parsed URL field.
-    UrlField {
-        /// URL field to extract.
-        field: smelt_hir::UrlField,
-        /// URL string to parse.
-        url: Operand,
-    },
-    /// Read a UTF-8 text file.
-    FileReadText {
-        /// File path to read.
-        path: Operand,
-    },
-    /// Write a UTF-8 text file.
-    FileWriteText {
-        /// File path to write.
-        path: Operand,
-        /// Text content to write.
-        text: Operand,
-    },
-    /// Apply a `Blob`/`File` member to a concrete receiver.
-    BlobOp {
-        /// Member to read or call.
-        op: smelt_hir::BlobOp,
-        /// `Blob` receiver.
-        blob: Operand,
-        /// Operation arguments (`slice`'s range and content type, or none).
-        args: Vec<Operand>,
-    },
-    /// Construct a WHATWG `Blob` or `File` from its constructor arguments.
-    ///
-    /// The parts operand's TYPE selects the conversion: a list of strings or a
-    /// list of blobs is consumed directly, and only a heterogeneous array is
-    /// erased and walked at runtime. See `emitter::blob::blob_new_text`.
-    BlobFromParts {
-        /// `BlobPart` array: string parts, blob parts, or an erased mixed array.
-        parts: Operand,
-        /// Resolved MIME `type` string.
-        blob_type: Operand,
-        /// `File` name; present only for `new File(...)`, which also stamps
-        /// the `__smelt_file` marker on top of `__smelt_blob`.
-        name: Option<Operand>,
-        /// `File` options `lastModified` milliseconds, when spelled.
-        last_modified: Option<Operand>,
-    },
-    /// Construct a modeled host object of a registry identity from its
-    /// constructor arguments, through the *same* runtime constructor the
-    /// reflected `Object.getPrototypeOf(x).constructor` path uses.
-    ///
-    /// See `ExprKind::HostConstruct`: clone idioms reach a host constructor both
-    /// directly and reflectively, and the records must be indistinguishable.
-    HostConstruct {
-        /// Host constructor's registry class name (`"ArrayBuffer"`, `"DataView"`).
-        class_name: String,
-        /// Spelled constructor arguments, erased.
-        args: Vec<Operand>,
-    },
-    /// The single interned value for a global builtin name used as a value.
-    ///
-    /// See `ExprKind::BuiltinNamespace`: one object per global name, so
-    /// `Blob === Blob` and `blob.constructor === Blob` hold.
-    BuiltinNamespace {
-        /// The global builtin's source name (`"Blob"`, `"Math"`).
-        name: String,
-    },
-    /// The enclosing non-arrow function's `arguments` object, rebuilt from that
-    /// function's own parameters.
-    ///
-    /// See `ExprKind::ArgumentsObject`: the elements live under index keys and
-    /// `length` is non-enumerable, which is what makes an `arguments` object
-    /// compare equal to the plain object with the same indexed properties.
-    ArgumentsObject {
-        /// Positional parameter reads, in declaration order.
-        fixed: Vec<Operand>,
-        /// The rest parameter's list, flattened onto the end when present.
-        rest: Option<Operand>,
-    },
-    /// Read a modeled host constructor's global override slot
-    /// (`globalThis.<class>`). Yields a native-handle marker when the slot is
-    /// `Native`, the stored constructor when overridden, or JS `undefined` when
-    /// set absent. See `Rvalue::HostGlobalWrite`.
-    HostGlobalRead {
-        /// Modeled host constructor whose override slot is read.
-        class: Symbol,
-    },
-    /// Write a modeled host constructor's global override slot
-    /// (`globalThis.<class> = value`); evaluates to the stored value. The
-    /// runtime write helper classifies the value into the slot state (`Absent`
-    /// for `undefined`, `Native` for a native-handle marker, `Ctor` otherwise).
-    HostGlobalWrite {
-        /// Modeled host constructor whose override slot is written.
-        class: Symbol,
-        /// The value being stored.
-        value: Operand,
-    },
-    /// Whether a modeled host constructor's global override slot is present
-    /// (`false` only when overridden to JS `undefined`). Bool-typed.
-    HostGlobalPresent {
-        /// Modeled host constructor whose override slot presence is tested.
-        class: Symbol,
-    },
-    /// Await a future and produce its output.
-    Await(Operand),
-    /// Run a runtime-backed async operation.
-    AsyncOp {
-        /// Operation to perform.
-        op: smelt_hir::AsyncOp,
-        /// Operation inputs.
-        args: Vec<Operand>,
-    },
+/// Generates [`Rvalue`]: the forms only MIR has, then every operation in the op
+/// table.
+macro_rules! define_rvalue {
+    ($(
+        $(#[$meta:meta])*
+        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt $(@ $role:tt)?),* $(,)? })?
+        $($fact:ident $fact_value:tt)*
+        => $display:tt;
+    )*) => {
+        /// An MIR rvalue.
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub enum Rvalue {
+            /// Use an existing operand directly.
+            Use(Operand),
+            /// `dict[key].push(item)` through the entry, in place.
+            ///
+            /// Neither the old nor the new group is copied, and a key that is
+            /// absent is inserted with the value type's default first, so this
+            /// is `groups.entry(key).or_default().push(item)`. `entry` always
+            /// reads a [`Place::Index`] into a dict; it is an operand so that a
+            /// walk sees the base and key like any other projected read.
+            DictEntryPush {
+                /// The dict entry to append to.
+                entry: Operand,
+                /// Item to append.
+                item: Operand,
+            },
+            /// Suspend the current generator and expose a value to its caller.
+            GeneratorYield {
+                /// Value exposed by the suspension point.
+                value: Operand,
+                /// Lexical catch continuation active at the suspension point.
+                unwind: Option<ExceptionHandler>,
+                /// Innermost finally continuation active at the suspension point.
+                cleanup: Option<GeneratorCleanup>,
+            },
+            /// Construct a list.
+            List(Vec<Operand>),
+            /// Construct a set.
+            Set(Vec<Operand>),
+            /// Construct a dictionary.
+            Dict(Vec<(Operand, Operand)>),
+            /// Construct a tuple.
+            Tuple(Vec<Operand>),
+            /// Apply a binary operator.
+            Binary {
+                /// The operator.
+                op: smelt_hir::BinOp,
+                /// Left-hand operand.
+                lhs: Operand,
+                /// Right-hand operand.
+                rhs: Operand,
+            },
+            /// Apply a unary operator.
+            Unary {
+                /// The operator.
+                op: smelt_hir::UnaryOp,
+                /// The operand.
+                operand: Operand,
+            },
+            /// Call a method shared by every concrete arm of a tagged union.
+            UnionMethod {
+                /// Tagged-union receiver whose active arm selects the implementation.
+                receiver: Operand,
+                /// Shared source method name.
+                method: Symbol,
+                /// Call arguments evaluated before dispatch.
+                args: Vec<Operand>,
+            },
+            /// Call a method through a type parameter's class or interface bound
+            /// (`a.speak()` with `a: A` and `A extends Animal`).
+            ///
+            /// The call is typed by the bound's declaration but dispatched by the
+            /// receiver's concrete type, so it has no single static callee: codegen
+            /// renders it through the generated bound trait (`A: AnimalLike`) when the
+            /// parameter is a real Rust generic, and as a dynamic member call when the
+            /// parameter erased.
+            BoundMethod {
+                /// Receiver whose static type is the bounded type parameter.
+                receiver: Operand,
+                /// The bound's class or interface name.
+                bound: Symbol,
+                /// Source method name.
+                method: Symbol,
+                /// Call arguments, receiver excluded.
+                args: Vec<Operand>,
+            },
+            /// Read a property through a type parameter's class or interface bound
+            /// (`a.legs` with `a: A` and `A extends Animal`); see [`Self::BoundMethod`].
+            BoundField {
+                /// Receiver whose static type is the bounded type parameter.
+                receiver: Operand,
+                /// The bound's class or interface name.
+                bound: Symbol,
+                /// Source property name.
+                field: Symbol,
+            },
+            /// Construct a class instance.
+            Struct {
+                /// The class being constructed.
+                class: Symbol,
+                /// Field initializers.
+                fields: Vec<(Symbol, Operand)>,
+            },
+            /// Construct an imported class value whose implementation is not part of this crate.
+            ExternalClassInstance {
+                /// The imported class being constructed.
+                class: Symbol,
+                /// Constructor arguments, kept so their expressions are lowered before erasure.
+                args: Vec<Operand>,
+            },
+            /// Construct a closure value from a MIR closure body and captured operands.
+            Closure {
+                /// Closure table identifier.
+                id: ClosureId,
+                /// Captured operands in closure capture order.
+                captures: Vec<Operand>,
+            },
+            /// Read a module-level mutable global by index into `Mir::globals`.
+            GlobalGet {
+                /// Index into `Mir::globals`.
+                global: u32,
+            },
+            /// Store into a module-level mutable global; evaluates to the stored value.
+            GlobalSet {
+                /// Index into `Mir::globals`.
+                global: u32,
+                /// The value to store.
+                value: Operand,
+            },
+            /// Await a future and produce its output.
+            Await(Operand),
+            $(
+                $(#[$meta])*
+                $name $({
+                    $(
+                        $(#[$field_meta])*
+                        $field: smelt_hir::op_field_ty!(Operand, MirListSpliceItem, $kind),
+                    )*
+                })?,
+            )*
+        }
+    };
 }
 
-/// Protocol operation used to resume or abruptly complete a generator.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum GeneratorResumeKind {
-    /// Continue execution normally.
-    Next,
-    /// Complete with a caller-supplied return value.
-    Return,
-    /// Inject a caller-supplied exception.
-    Throw,
-}
+smelt_hir::for_each_op!(define_rvalue);
 
 /// A MIR statement.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2470,6 +1020,10 @@ pub enum Callee {
     Indirect(Operand),
     /// A builtin function.
     Builtin(BuiltinFn),
+    /// An operation that can throw (see [`Rvalue::is_fallible`]), carried here
+    /// for the call terminator's unwind edge. Its operands are its own fields;
+    /// the call's `args` are empty.
+    Op(Box<Rvalue>),
     /// A base class's constructor run as an initializer over a derived instance
     /// (a derived constructor's `super(..)`; see
     /// `smelt_hir::ExprKind::BaseConstructorInit`).
@@ -2500,119 +1054,6 @@ pub enum BuiltinFn {
     ConsoleWrite,
     /// Write exact text to stderr.
     ConsoleErrorWrite,
-    /// Parse JSON text (`JSON.parse`).
-    ///
-    /// A builtin rather than an rvalue because it is *fallible*: malformed text
-    /// throws a catchable `SyntaxError` in JavaScript. Only `Terminator::Call`
-    /// and `Terminator::Await` carry an `unwind` edge, so a fallible operation
-    /// has to be a call to reach an enclosing `try`.
-    ///
-    /// `target` is `Some(T)` when the source declared the parse's type (see
-    /// `smelt_hir::ExprKind::JsonParse::decode`): the backend then decodes the
-    /// parsed value strictly into `T`, throwing a catchable `TypeError` on a
-    /// mismatch, whenever `T` has a decodable Rust shape. `None` is the dynamic
-    /// parse that answers the erased JSON value.
-    JsonParse {
-        /// The source-declared type the parsed value is decoded into.
-        target: Option<TypeId>,
-    },
-    /// A `DataView` element accessor (`getInt16`, `setFloat64`, ...), which
-    /// throws a catchable `RangeError` when the offset is outside the view.
-    ///
-    /// A builtin for exactly the reason [`Self::JsonParse`] is, and it is the
-    /// first stdlib MEMBER to need that route: `TypedArray.prototype.set`,
-    /// `ArrayBuffer.prototype.resize` and `Atomics.*` are the same shape, and
-    /// `blocker-logs/standards-throwing-rvalue.md` records why a fallible
-    /// rvalue is not the alternative.
-    ///
-    /// The payload is the accessor's identity, which its source name encodes
-    /// and nothing else does: the DIRECTION and the element type. The element
-    /// type is `smelt_stdlib`'s, not a copy of it.
-    DataViewAccess {
-        /// Whether this accessor WRITES (`setX`) rather than reads (`getX`).
-        write: bool,
-        /// The element type, which is the accessor's width and signedness.
-        element: smelt_hir::TypedArrayElement,
-    },
-    /// `decodeURI` / `decodeURIComponent`, which throw a catchable `URIError`
-    /// on malformed percent-encoding.
-    ///
-    /// A builtin for exactly the reason [`Self::JsonParse`] is. The encoding
-    /// direction stays [`Rvalue::UriTranscode`] and gets no unwind edge:
-    /// `UriTranscodeOp::is_fallible` is the single place that distinction is
-    /// recorded, and it has always said only the two decoders can throw.
-    ///
-    /// Before this existed, a decoder emitted
-    /// `smelt_decode_uri(..).expect("URIError: URI malformed")` — so source
-    /// that catches a `URIError` did not merely fail to catch it: the handler
-    /// block had no predecessor, MIR dropped it, and the fallback the source
-    /// wrote was absent from the generated crate. Hono's `tryDecode` is that
-    /// shape.
-    UriDecode(smelt_hir::UriTranscodeOp),
-    /// `btoa` / `atob`, which throw a catchable `InvalidCharacterError`
-    /// `DOMException` on input their direction cannot represent.
-    ///
-    /// A builtin for the reason [`Self::JsonParse`] is, and for BOTH directions
-    /// rather than one: `btoa` refuses a code point above U+00FF and `atob`
-    /// refuses a malformed base64 string, so neither has an infallible rvalue
-    /// form to keep.
-    Base64(smelt_hir::Base64Op),
-    /// `new RegExp(pattern, flags)` over a run-time pattern, which throws a
-    /// catchable `SyntaxError` when the pattern (or a flag) is malformed.
-    ///
-    /// A builtin for the reason [`Self::JsonParse`] is. Literal patterns never
-    /// reach it: they keep the infallible `New { class: RegExp }` construction
-    /// (see `smelt_hir::ExprKind::RegExpCompile`).
-    RegExpCompile,
-    /// A FALLIBLE modeled host-module call (see
-    /// `smelt_hir::HostModuleOp::is_fallible`); the infallible ones are
-    /// [`Rvalue::HostModuleCall`].
-    HostModule(smelt_hir::HostModuleOp),
-    /// A fallible JavaScript `bigint` operation (`BigInt(x)`, `asIntN`,
-    /// `asUintN`, the bigint `/`, `%`, `**`, `<<`, `>>`, `toString(radix)`,
-    /// and `JSON.stringify` over a value that can hold a bigint), which throws
-    /// a catchable `RangeError` (or `SyntaxError`, `TypeError`) on some inputs.
-    ///
-    /// A builtin for the reason [`Self::JsonParse`] is: the throw has to reach
-    /// an enclosing `try`, and only a call terminator carries an unwind edge.
-    BigInt(smelt_hir::BigIntOp),
-    /// `new URL(input, base?)`, which throws a catchable `TypeError` when the
-    /// input (resolved against the base) is not a valid URL.
-    ///
-    /// A builtin for the reason [`Self::JsonParse`] is. The arguments are the
-    /// input text and, when the source passed one, the base text.
-    UrlNew,
-    /// `url.href = text`, which throws a catchable `TypeError` when the text
-    /// is not a valid URL; the only throwing `URL` setter. The arguments are
-    /// the `URL` and the text, and the call answers the assigned text.
-    UrlSetHref,
-}
-
-impl BuiltinFn {
-    /// Return whether this builtin can leave through the error channel.
-    ///
-    /// Asked by the throwing pass, so a fallible builtin with no handler in
-    /// scope marks its enclosing function `can_throw`. That used to be a
-    /// `matches!` naming `JsonParse` alone, which is why `decodeURI` in a
-    /// function with no `try` emitted `smelt_decode_uri_throwing(..)?` inside a
-    /// signature that returns no `Result` (E0277): every fallible builtin added
-    /// after `JSON.parse` was invisible to the pass. Stating it on the enum is
-    /// what makes the next one impossible to forget.
-    #[must_use]
-    pub const fn is_fallible(self) -> bool {
-        match self {
-            Self::JsonParse { .. }
-            | Self::UriDecode(_)
-            | Self::Base64(_)
-            | Self::RegExpCompile
-            | Self::HostModule(_)
-            | Self::DataViewAccess { .. }
-            | Self::BigInt(_)
-            | Self::UrlNew
-            | Self::UrlSetHref => true,
-            Self::ConsoleLog { .. } | Self::ConsoleWrite | Self::ConsoleErrorWrite => false,
-        }
-    }
 }
 
 /// Visit every type id a function's emission reads: its return type, local

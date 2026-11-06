@@ -1608,9 +1608,9 @@ impl ModuleBuilder<'_> {
         // Only a source-written `<T>` is a declared target; the fallback
         // `Record<string, unknown>` is the frontend's guess, and decoding
         // against it would reject arrays and primitives Node accepts.
-        let decode = call.type_arguments.is_some();
+        let target = call.type_arguments.is_some().then_some(ty);
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::JsonParse { text, decode },
+            kind: ExprKind::JsonParse { text, target },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
@@ -1662,7 +1662,7 @@ impl ModuleBuilder<'_> {
         }
         let text = self.json_parse_text_argument(argument, body, "JSON.parse()")?;
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::JsonParse { text, decode: true },
+            kind: ExprKind::JsonParse { text, target: Some(target) },
             ty: target,
             span: self.span(span.start, span.end),
         })))
@@ -1712,7 +1712,7 @@ impl ModuleBuilder<'_> {
         };
         let text = self.json_parse_text_argument(argument, body, "JSON.parse()")?;
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::JsonParse { text, decode: true },
+            kind: ExprKind::JsonParse { text, target: Some(target) },
             ty: target,
             span: self.span(call.span.start, call.span.end),
         })))

@@ -15,6 +15,7 @@ categories = ["compilers", "development-tools"]
 workspace = true
 
 [dependencies]
+elsa = "1"
 serde = { workspace = true }
 # The shared stdlib REGISTRY. HIR already models stdlib concepts (`ByteArrayOp`,
 # `Base64Op`, `UriTranscodeOp`), and where one of them needs the element table —

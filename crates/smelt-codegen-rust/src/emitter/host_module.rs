@@ -18,7 +18,7 @@ impl FunctionEmitter<'_> {
     /// Emit an INFALLIBLE host-module call (a `node:path` function).
     ///
     /// The hasher members never reach here: they are fallible, so MIR lowers
-    /// them to `BuiltinFn::HostModule` call terminators (see
+    /// them to call terminators (`Callee::Op`) (see
     /// [`Self::host_module_call_text`]).
     pub(super) fn host_module_rvalue_text(
         &self,

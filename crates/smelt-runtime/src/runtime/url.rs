@@ -22,8 +22,8 @@
 // # Throwing operations
 //
 // `new URL(text)` and the `href` setter throw a catchable `TypeError` on text
-// that is not a URL. Both are MIR call terminators (`BuiltinFn::UrlNew`,
-// `BuiltinFn::UrlSetHref`) for the reason every fallible stdlib operation is:
+// that is not a URL. Both are MIR call terminators (`Rvalue::UrlNew`,
+// the `href` setter) for the reason every fallible stdlib operation is:
 // only a call carries an unwind edge (see
 // `blocker-logs/standards-throwing-rvalue.md`). Their adapters report through
 // the erased error channel, so they are emitted with the other throwing

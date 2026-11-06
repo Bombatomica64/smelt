@@ -1769,3 +1769,45 @@ export function useSink(): number {
         "a parameter a method signature spells stays declared: {source}"
     );
 }
+
+/// A union only an inherited member copy spells has to be declared.
+///
+/// `run` is emitted into `YearParser` at `T = f64`, and nothing else in the
+/// program names that instantiation. Declarations come from the type table,
+/// ahead of every body, so `inherited_types` must put the substituted union
+/// there; without it the copy names an enum nothing declares (E0412).
+#[test]
+fn a_union_only_an_inherited_copy_spells_is_declared() {
+    let source = source_for(
+        r#"
+type ParseResult<T> = { value: T; rest: string } | null;
+class ValueSetter<T> {
+  value: T;
+  priority: number;
+  constructor(value: T, priority: number) { this.value = value; this.priority = priority; }
+}
+abstract class Parser<T> {
+  abstract priority: number;
+  abstract parse(text: string): ParseResult<T>;
+  run(text: string): { setter: ValueSetter<T>; rest: string } | null {
+    const result = this.parse(text);
+    if (!result) { return null; }
+    return { setter: new ValueSetter(result.value, this.priority), rest: result.rest };
+  }
+}
+class YearParser extends Parser<number> {
+  priority = 130;
+  parse(text: string): ParseResult<number> { return { value: text.length, rest: "" }; }
+}
+console.log(new YearParser().priority);
+"#,
+    );
+    let names: std::collections::BTreeSet<&str> = source
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .filter(|word| word.starts_with("SmeltUnion"))
+        .collect();
+    assert!(!names.is_empty(), "the program should need a union: {source}");
+    for name in names {
+        assert!(source.contains(&format!("enum {name}")), "{name} is not declared: {source}");
+    }
+}

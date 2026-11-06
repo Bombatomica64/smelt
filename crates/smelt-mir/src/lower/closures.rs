@@ -169,7 +169,7 @@ impl LoweringCtx<'_> {
             can_throw: function.can_throw,
             is_generator: function.is_generator,
             function_item_key,
-            absent: function.absent,
+            language: function.language,
         });
         self.closures.extend(nested_closures);
         let dest = self.push_temp(expr_ty, expr_span);

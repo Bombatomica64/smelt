@@ -645,13 +645,13 @@ impl FunctionEmitter<'_> {
                     .transpose()?
                     .unwrap_or_else(|| "Default::default()".to_owned());
                 let command = match kind {
-                    smelt_mir::GeneratorResumeKind::Next => {
+                    smelt_hir::GeneratorResumeKind::Next => {
                         format!("SmeltGeneratorCommand::Next({raw_value})")
                     }
-                    smelt_mir::GeneratorResumeKind::Return => {
+                    smelt_hir::GeneratorResumeKind::Return => {
                         format!("SmeltGeneratorCommand::Return({raw_value})")
                     }
-                    smelt_mir::GeneratorResumeKind::Throw => {
+                    smelt_hir::GeneratorResumeKind::Throw => {
                         let thrown = if let Some(value) = value {
                             let unknown_ty = self.type_id(Type::Unknown)?;
                             self.value_at_type(value, unknown_ty)?
@@ -1368,6 +1368,15 @@ impl FunctionEmitter<'_> {
                 self.url_search_params_op_text(*op, params, args, dest_ty)
             }
             Rvalue::UrlOp { op, url, args } => self.url_op_text(*op, url, args, dest_ty),
+            // Lowering gives each of these a call terminator (`fallible_op`).
+            Rvalue::Base64Transcode { .. }
+            | Rvalue::RegExpCompile { .. }
+            | Rvalue::DataViewAccess { .. }
+            | Rvalue::BigIntCall { .. }
+            | Rvalue::UrlNew { .. }
+            | Rvalue::JsonParse { .. } => Err(EmitError::new(
+                "internal: a fallible operation reached the assignment path",
+            )),
             Rvalue::TextEncoderNew => Ok("SmeltTextEncoder::new()".to_owned()),
             Rvalue::TextDecoderNew { label } => self.text_decoder_new_text(label.as_ref()),
             Rvalue::TextEncoderOp { op, encoder, args } => {
@@ -1580,8 +1589,8 @@ impl FunctionEmitter<'_> {
                     Ok(text)
                 }
             }
-            Rvalue::Len(operand) => self.len_text(operand, dest_ty),
-            Rvalue::NumericAbs(operand) => self.numeric_abs_text(operand),
+            Rvalue::Len { operand } => self.len_text(operand, dest_ty),
+            Rvalue::NumericAbs { operand } => self.numeric_abs_text(operand),
             Rvalue::NumericRound { op, operand } => self.numeric_round_text(*op, operand, dest_ty),
             Rvalue::NumericExtrema { op, args, spread } => {
                 self.numeric_extrema_text(*op, args, spread.as_ref(), dest_ty)
@@ -1660,9 +1669,6 @@ impl FunctionEmitter<'_> {
                 callback,
                 args,
             } => self.regex_replace_callback_text(*op, pattern, haystack, callback, args),
-            Rvalue::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
-                self.regex_replace_first_match_uppercase_text(pattern, haystack)
-            }
             Rvalue::RegexSplit { pattern, haystack } => self.regex_split_text(pattern, haystack),
             Rvalue::RegexFind { pattern, haystack } => {
                 self.regex_find_text(pattern, haystack, dest_ty)
@@ -2221,6 +2227,9 @@ impl FunctionEmitter<'_> {
             } => self.list_with_text(list, index, replacement, dest_ty),
             Rvalue::ListFlat { list, depth } => self.list_flat_text(list, depth.as_ref(), dest_ty),
             Rvalue::ListProjection { op, list } => self.list_projection_text(*op, list, dest_ty),
+            Rvalue::DictEntryPush { entry, item } => {
+                self.dict_entry_push_text(entry, item, dest_ty)
+            }
             Rvalue::ListPush { list, item } => self.list_push_text(list, item, dest_ty),
             Rvalue::ListExtend { list, other } => self.list_extend_text(list, other, dest_ty),
             Rvalue::ListInsert { list, index, item } => {

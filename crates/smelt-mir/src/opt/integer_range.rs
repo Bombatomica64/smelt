@@ -42,10 +42,10 @@
 
 use std::collections::{HashMap, HashSet};
 
-use smelt_hir::{BinOp, IntWidth, PrimitiveCastOp, Type, TypeId, TypeInterner, UnaryOp};
+use smelt_hir::{BinOp, IntWidth, Language, PrimitiveCastOp, Type, TypeId, TypeInterner, UnaryOp};
 
 use crate::{
-    AbsentSpelling, BasicBlock, BlockId, Constant, GlobalProjection, LocalDecl, LocalId,
+    BasicBlock, BlockId, Constant, GlobalProjection, LocalDecl, LocalId,
     LocalKind, Mir, Operand, Place, Rvalue, Statement, Terminator,
 };
 
@@ -87,7 +87,7 @@ impl IntegerRange {
         } = mir;
         let mut changed = false;
         for function in functions.iter_mut() {
-            if function.is_generator || function.absent != AbsentSpelling::Undefined {
+            if function.is_generator || function.language != Language::TypeScript {
                 continue;
             }
             let excluded = function.params.iter().copied().collect();
@@ -100,7 +100,7 @@ impl IntegerRange {
             );
         }
         for closure in closures.iter_mut() {
-            if closure.is_generator || closure.absent != AbsentSpelling::Undefined {
+            if closure.is_generator || closure.language != Language::TypeScript {
                 continue;
             }
             let mut excluded: HashSet<LocalId> = closure.params.iter().copied().collect();
@@ -357,7 +357,7 @@ fn is_integer_definition(value: &Rvalue, candidates: &Candidates) -> bool {
             lhs,
             rhs,
         } => is_integer_operand(lhs, candidates) && is_integer_operand(rhs, candidates),
-        Rvalue::Len(_) => true,
+        Rvalue::Len { .. } => true,
         _ => false,
     }
 }
@@ -528,6 +528,17 @@ fn useful_locals(
             if let Operand::Copy(place) | Operand::Move(place) = operand {
                 record_place(place, &mut useful);
             }
+        }
+        if let Some(Terminator::Call {
+            callee: crate::Callee::Op(op),
+            ..
+        }) = &block.terminator
+        {
+            op.reads(|operand| {
+                if let Operand::Copy(place) | Operand::Move(place) = operand {
+                    record_place(place, &mut useful);
+                }
+            });
         }
     }
     (useful, reassigned)
@@ -867,7 +878,7 @@ impl Analysis<'_> {
                 self.operand_interval(lhs, state)?
                     .sub(self.operand_interval(rhs, state)?),
             ),
-            Rvalue::Len(_) => Some(Interval::new(Some(0), Some(MAX_LENGTH))),
+            Rvalue::Len { .. } => Some(Interval::new(Some(0), Some(MAX_LENGTH))),
             _ => Some(Interval {
                 lo: None,
                 hi: None,
@@ -1209,7 +1220,7 @@ fn accepted_locals(
                     let mut reads_rejected = false;
                     if let Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } =
                         &blocks[definition.block].statements[definition.statement]
-                        && !matches!(value, Rvalue::Len(_))
+                        && !matches!(value, Rvalue::Len { .. })
                     {
                         value.reads(|operand| {
                             if let Some(read) = operand.local() {
@@ -1279,7 +1290,7 @@ fn choose_widths(
                 _ => continue,
             };
             if accepted.contains(&dest) {
-                if !matches!(value, Rvalue::Len(_)) {
+                if !matches!(value, Rvalue::Len { .. }) {
                     value.reads(|operand| {
                         if let Some(read) = operand.local() {
                             union(&mut parents, dest, read);
@@ -1428,7 +1439,7 @@ impl Rewriter<'_> {
                 value,
             } if self.is_retyped(*dest) => {
                 let width = self.widths[dest];
-                if matches!(value, Rvalue::Len(_)) {
+                if matches!(value, Rvalue::Len { .. }) {
                     // The measured value is a container, but it may be an
                     // element read whose index needs the usual treatment.
                     self.rewrite_rvalue(value, prelude);
@@ -1541,8 +1552,16 @@ impl Rewriter<'_> {
     fn rewrite_terminator(&mut self, terminator: &mut Terminator, prelude: &mut Vec<Statement>) {
         match terminator {
             Terminator::Call { args, callee, .. } => {
-                if let crate::Callee::Indirect(operand) = callee {
-                    self.rewrite_number_operand(operand, prelude);
+                match callee {
+                    crate::Callee::Indirect(operand) => {
+                        self.rewrite_number_operand(operand, prelude);
+                    }
+                    crate::Callee::Op(op) => {
+                        op.reads_mut(|operand| self.rewrite_number_operand(operand, prelude));
+                    }
+                    crate::Callee::Static(_)
+                    | crate::Callee::Builtin(_)
+                    | crate::Callee::BaseInit(_) => {}
                 }
                 for arg in args {
                     self.rewrite_number_operand(arg, prelude);

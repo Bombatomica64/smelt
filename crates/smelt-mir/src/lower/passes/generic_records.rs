@@ -7,7 +7,9 @@
 //! backend substitutes the instantiation's type arguments into the declared
 //! field types (`status?: T` at `T = f64` becomes `Option<f64>`), and it does
 //! that substitution by *looking up* the substituted type in the MIR type
-//! table — the emitter holds `&Mir` and cannot intern.
+//! table. Codegen can name a type the table lacks (`intern_late`), but it
+//! declares unions and record helpers from the table before it renders any body,
+//! so a substituted type has to be here first.
 //!
 //! Nothing guaranteed that lookup would succeed. `Optional<Float>` exists in
 //! the table only if some other part of the program happened to spell it, so a
