@@ -1,12 +1,13 @@
 //! Lowering of the op table's transcribed group.
 //!
-//! A transcribed operation lowers each child in field order and assigns the one
-//! rvalue of the same name to a temporary; this module is that rule, once, for
-//! every entry of `smelt_hir::for_each_transcribed_op!`.
+//! A transcribed operation lowers each child in field order into the one rvalue
+//! of the same name, assigned to a temporary or, when the op can throw, carried
+//! by a call terminator; this module is that rule, once, for every entry of
+//! `smelt_hir::for_each_transcribed_op!`.
 
 use smelt_hir::{Expr, ExprKind};
 
-use crate::{MirListSpliceItem, Operand, Rvalue};
+use crate::{Callee, MirListSpliceItem, Operand, Place, Rvalue, Terminator};
 
 use super::LowerError;
 use super::context::LoweringCtx;
@@ -51,6 +52,7 @@ macro_rules! transcribed_op_kinds {
     ($(
         $(#[$meta:meta])*
         $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt),* $(,)? })?
+        $($fact:ident $fact_value:tt)*
         => $display:tt;
     )*) => {
         $(ExprKind::$name $({ $($field: _),* })?)|*
@@ -71,11 +73,12 @@ macro_rules! define_lower_transcribed_op {
     ($(
         $(#[$meta:meta])*
         $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt),* $(,)? })?
+        $($fact:ident $fact_value:tt)*
         => $display:tt;
     )*) => {
         impl LoweringCtx<'_> {
             /// Lowers a transcribed operation: each child in field order, then
-            /// one rvalue assigned to a temporary of the expression's type.
+            /// one rvalue placed by [`LoweringCtx::finish_op`].
             ///
             /// `lower_expr` admits only [`transcribed_op_pattern`] here, so the
             /// last arm is unreachable from source.
@@ -97,10 +100,36 @@ macro_rules! define_lower_transcribed_op {
                         ));
                     }
                 };
-                self.assign_temp(expr.ty, expr.span, value)
+                self.finish_op(expr, value)
             }
         }
     };
 }
 
 smelt_hir::for_each_transcribed_op!(define_lower_transcribed_op);
+
+impl LoweringCtx<'_> {
+    /// Places a lowered operation: an assignment, or for an op that can throw a
+    /// call terminator.
+    ///
+    /// A `Statement::Assign` has no unwind edge, so a throwing op there could
+    /// never reach an enclosing `try`: the catch block would have no predecessor
+    /// and MIR would drop the handler the source wrote. With no handler active,
+    /// the throwing pass sees the same terminator and marks the function.
+    fn finish_op(&mut self, expr: &Expr, value: Rvalue) -> Result<Operand, LowerError> {
+        if !value.is_fallible() {
+            return self.assign_temp(expr.ty, expr.span, value);
+        }
+        let dest = self.push_temp(expr.ty, expr.span);
+        let target = self.function.push_block(expr.span);
+        self.terminate(Terminator::Call {
+            callee: Callee::Op(Box::new(value)),
+            args: Vec::new(),
+            dest,
+            target,
+            unwind: self.current_exception_handler(),
+        })?;
+        self.switch_to(target);
+        Ok(Operand::Copy(Place::Local(dest)))
+    }
+}

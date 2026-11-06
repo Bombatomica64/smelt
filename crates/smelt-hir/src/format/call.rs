@@ -54,6 +54,7 @@ macro_rules! define_expr_text {
     ($(
         $(#[$meta:meta])*
         $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt),* $(,)? })?
+        $($fact:ident $fact_value:tt)*
         => $display:tt;
     )*) => {
         /// Formats an expression as text.
@@ -79,49 +80,6 @@ macro_rules! define_expr_text {
                     format!("{}[{}]", expr_ref(*receiver), expr_ref(*index))
                 }
                 ExprKind::TypeAssert { value } => format!("assert_type {}", expr_ref(*value)),
-                ExprKind::Base64Transcode { op, operand } => {
-                    format!("{} {}", op.name(), expr_ref(*operand))
-                }
-                ExprKind::RegExpCompile { pattern, flags } => {
-                    format!("regexp_compile {} {}", expr_ref(*pattern), expr_ref(*flags))
-                }
-                ExprKind::BigIntCall { op, args } => {
-                    let args_text = args
-                        .iter()
-                        .map(|arg| expr_ref(*arg))
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    format!("{} {args_text}", op.name())
-                }
-                ExprKind::DataViewAccess {
-                    write,
-                    element,
-                    view,
-                    args,
-                } => {
-                    let args_text = args
-                        .iter()
-                        .map(|arg| expr_ref(*arg))
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    let direction = if *write { "set" } else { "get" };
-                    format!(
-                        "data_view_{direction}{} {} {args_text}",
-                        element.element_name(),
-                        expr_ref(*view)
-                    )
-                }
-                ExprKind::UrlNew { input, base } => base.map_or_else(
-                    || format!("url_new {}", expr_ref(*input)),
-                    |base| format!("url_new {}, {}", expr_ref(*input), expr_ref(base)),
-                ),
-                ExprKind::JsonParse { text, decode } => {
-                    if *decode {
-                        format!("json_decode {}", expr_ref(*text))
-                    } else {
-                        format!("json_parse {}", expr_ref(*text))
-                    }
-                }
                 ExprKind::BinOp { op, lhs, rhs } => {
                     format!("{op:?} {}, {}", expr_ref(*lhs), expr_ref(*rhs))
                 }

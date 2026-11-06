@@ -125,6 +125,8 @@ mod local_binding;
 mod helper_reservation;
 mod blob;
 mod fetch_types;
+/// Emission of the operations that can throw.
+mod fallible_op;
 mod url;
 mod fixed_int;
 mod abort_signal;

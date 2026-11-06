@@ -222,6 +222,7 @@ macro_rules! define_rvalue_text {
     ($(
         $(#[$meta:meta])*
         $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt),* $(,)? })?
+        $($fact:ident $fact_value:tt)*
         => $display:tt;
     )*) => {
         /// Formats an rvalue to human-readable text.
@@ -379,7 +380,11 @@ fn terminator_text(terminator: &Terminator) -> String {
             target,
             unwind,
         } => {
-            let arg_list = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
+            let mut arg_texts = args.iter().map(operand_text).collect::<Vec<_>>();
+            if let Callee::Op(op) = callee {
+                op.reads(|operand| arg_texts.push(operand_text(operand)));
+            }
+            let arg_list = arg_texts.join(", ");
             let unwind_text = unwind.map_or_else(String::new, |handler| {
                 format!(" unwind bb{}", handler.catch_block.0)
             });
@@ -463,28 +468,37 @@ fn callee_text(callee: &Callee) -> String {
         Callee::Builtin(BuiltinFn::ConsoleLog { .. }) => "@console_log".to_owned(),
         Callee::Builtin(BuiltinFn::ConsoleWrite) => "@console_write".to_owned(),
         Callee::Builtin(BuiltinFn::ConsoleErrorWrite) => "@console_error_write".to_owned(),
-        Callee::Builtin(BuiltinFn::JsonParse { target: None }) => "@json_parse".to_owned(),
-        Callee::Builtin(BuiltinFn::JsonParse { target: Some(_) }) => "@json_decode".to_owned(),
-        Callee::Builtin(BuiltinFn::Base64(op)) => format!("@{}", op.name()),
-        Callee::Builtin(BuiltinFn::RegExpCompile) => "@regexp_compile".to_owned(),
-        Callee::Builtin(BuiltinFn::UrlNew) => "@url_new".to_owned(),
-        Callee::Builtin(BuiltinFn::UrlSetHref) => "@url_set_href".to_owned(),
-        Callee::Builtin(BuiltinFn::BigInt(op)) => format!("@{}", op.name()),
-        Callee::Builtin(BuiltinFn::HostModule(op)) => format!("@{}", op.name()),
-        Callee::Builtin(BuiltinFn::DataViewAccess { write, element }) => format!(
-            "@data_view_{}{}",
-            if *write { "set" } else { "get" },
-            element.element_name()
-        ),
-        Callee::Builtin(BuiltinFn::UriDecode(op)) => match op {
-            smelt_hir::UriTranscodeOp::Decode => "@decode_uri".to_owned(),
-            smelt_hir::UriTranscodeOp::DecodeComponent => "@decode_uri_component".to_owned(),
-            // The encoding direction is infallible and never becomes a callee.
-            smelt_hir::UriTranscodeOp::Encode
-            | smelt_hir::UriTranscodeOp::EncodeComponent => "@encode_uri".to_owned(),
-        },
+        Callee::Op(op) => op_call_text(op),
     }
 }
+
+/// Generates [`op_call_text`] from the op table's `call` facts.
+macro_rules! define_op_call_text {
+    ($(
+        $(#[$meta:meta])*
+        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt),* $(,)? })?
+        $($fact:ident $fact_value:tt)*
+        => $display:tt;
+    )*) => {
+        /// How a call terminator names the fallible operation it carries.
+        #[allow(
+            unused_variables,
+            reason = "each arm binds every field; a fact reads the ones it needs"
+        )]
+        fn op_call_text(rvalue: &Rvalue) -> String {
+            match rvalue {
+                $(
+                    Rvalue::$name $({ $($field,)* })? => {
+                        smelt_hir::op_call_text!($($fact $fact_value)*)
+                    }
+                )*
+                _ => "@not_an_op".to_owned(),
+            }
+        }
+    };
+}
+
+smelt_hir::for_each_op!(define_op_call_text);
 
 /// Formats an operand to human-readable text.
 fn operand_text(operand: &Operand) -> String {

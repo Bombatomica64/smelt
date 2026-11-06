@@ -86,6 +86,7 @@ macro_rules! walk_rvalue_operands {
     ($rvalue:expr, $visit:ident, $mutability:tt, $(
         $(#[$meta:meta])*
         $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt),* $(,)? })?
+        $($fact:ident $fact_value:tt)*
         => $display:tt;
     )*) => {
     match $rvalue {
@@ -163,15 +164,49 @@ macro_rules! define_rvalue_walks {
 
 smelt_hir::for_each_op!(define_rvalue_walks);
 
+/// Generates [`Rvalue::is_fallible`] from the op table's `fallible` facts.
+macro_rules! define_rvalue_is_fallible {
+    ($(
+        $(#[$meta:meta])*
+        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt),* $(,)? })?
+        $($fact:ident $fact_value:tt)*
+        => $display:tt;
+    )*) => {
+        impl Rvalue {
+            /// Whether this rvalue can throw a catchable error, and so has to be
+            /// the callee of a call terminator rather than an assignment.
+            #[must_use]
+            #[allow(
+                unused_variables,
+                reason = "each arm binds every field; a fact reads the ones it needs"
+            )]
+            pub fn is_fallible(&self) -> bool {
+                match self {
+                    $(
+                        Self::$name $({ $($field,)* })? => {
+                            smelt_hir::op_fallible!($($fact $fact_value)*)
+                        }
+                    )*
+                    _ => false,
+                }
+            }
+        }
+    };
+}
+
+smelt_hir::for_each_op!(define_rvalue_is_fallible);
+
 /// Expands to the one operand walk over a [`Terminator`], shared by
 /// [`Terminator::reads`] and [`Terminator::reads_mut`].
 macro_rules! walk_terminator_operands {
-    ($terminator:expr, $visit:ident) => {
+    ($terminator:expr, $visit:ident, $op_reads:ident) => {
         match $terminator {
             Terminator::Goto(_) => {}
             Terminator::Call { callee, args, .. } => {
-                if let Callee::Indirect(operand) = callee {
-                    $visit(operand);
+                match callee {
+                    Callee::Indirect(operand) => $visit(operand),
+                    Callee::Op(op) => op.$op_reads(&mut $visit),
+                    Callee::Static(_) | Callee::Builtin(_) | Callee::BaseInit(_) => {}
                 }
                 for arg in args {
                     $visit(arg);
@@ -448,12 +483,12 @@ impl Statement {
 impl Terminator {
     /// Visit every operand this terminator reads, including an indirect callee.
     pub fn reads(&self, mut visit: impl FnMut(&Operand)) {
-        walk_terminator_operands!(self, visit);
+        walk_terminator_operands!(self, visit, reads);
     }
 
     /// Visit every operand [`Self::reads`] visits, in rewritable form.
     pub fn reads_mut(&mut self, mut visit: impl FnMut(&mut Operand)) {
-        walk_terminator_operands!(self, visit);
+        walk_terminator_operands!(self, visit, reads_mut);
     }
 
     /// The local this terminator defines: a call's or await's destination.
@@ -690,6 +725,54 @@ mod tests {
     }
 
     /// `splice` mutates its receiver; a non-mutating splice is a copy.
+    #[test]
+    fn fallibility_is_stated_per_op_not_per_family() {
+        use smelt_hir::{UriTranscodeOp, UrlField, UrlOp};
+        let uri = |op| Rvalue::UriTranscode { op, operand: copy(A) };
+        assert!(uri(UriTranscodeOp::Decode).is_fallible());
+        assert!(!uri(UriTranscodeOp::Encode).is_fallible());
+        let url = |op| Rvalue::UrlOp { op, url: copy(A), args: Vec::new() };
+        assert!(url(UrlOp::Set(UrlField::Href)).is_fallible());
+        assert!(!url(UrlOp::Set(UrlField::Hash)).is_fallible());
+        assert!(!url(UrlOp::Get(UrlField::Href)).is_fallible());
+        assert!(Rvalue::UrlNew { input: copy(A), base: None }.is_fallible());
+        assert!(!Rvalue::Use(copy(A)).is_fallible());
+    }
+
+    #[test]
+    fn a_call_terminator_reads_the_operands_of_the_op_it_carries() {
+        let mut terminator = Terminator::Call {
+            callee: Callee::Op(Box::new(Rvalue::UrlNew {
+                input: copy(A),
+                base: Some(copy(B)),
+            })),
+            args: Vec::new(),
+            dest: C,
+            target: BlockId(0),
+            unwind: None,
+        };
+        let mut read = Vec::new();
+        terminator.reads(|operand| read.extend(operand.local()));
+        assert_eq!(read, [A, B]);
+        terminator.reads_mut(|operand| *operand = copy(C));
+        let mut rewritten = Vec::new();
+        terminator.reads(|operand| rewritten.extend(operand.local()));
+        assert_eq!(rewritten, [C, C]);
+    }
+
+    #[test]
+    fn reads_follow_evaluation_order() {
+        let fill = Rvalue::ListFill {
+            list: copy(A),
+            value: copy(B),
+            start: Some(copy(C)),
+            end: None,
+        };
+        let mut read = Vec::new();
+        fill.reads(|operand| read.extend(operand.local()));
+        assert_eq!(read, [A, B, C]);
+    }
+
     #[test]
     fn mutated_receiver_follows_the_splice_mutate_flag() {
         let splice = |mutate| Rvalue::ListSplice {

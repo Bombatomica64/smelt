@@ -1368,6 +1368,15 @@ impl FunctionEmitter<'_> {
                 self.url_search_params_op_text(*op, params, args, dest_ty)
             }
             Rvalue::UrlOp { op, url, args } => self.url_op_text(*op, url, args, dest_ty),
+            // Lowering gives each of these a call terminator (`fallible_op`).
+            Rvalue::Base64Transcode { .. }
+            | Rvalue::RegExpCompile { .. }
+            | Rvalue::DataViewAccess { .. }
+            | Rvalue::BigIntCall { .. }
+            | Rvalue::UrlNew { .. }
+            | Rvalue::JsonParse { .. } => Err(EmitError::new(
+                "internal: a fallible operation reached the assignment path",
+            )),
             Rvalue::TextEncoderNew => Ok("SmeltTextEncoder::new()".to_owned()),
             Rvalue::TextDecoderNew { label } => self.text_decoder_new_text(label.as_ref()),
             Rvalue::TextEncoderOp { op, encoder, args } => {

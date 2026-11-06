@@ -25,7 +25,7 @@ use std::convert::TryFrom;
 use smelt_hir::{BodyId, Literal as HirLiteral, Span, Type, TypeId};
 
 use crate::{
-    BuiltinFn, Callee, ClosureId, Constant, FuncId, LocalId, Mir, MirClosure, MirFunction, Operand,
+    Callee, ClosureId, Constant, FuncId, LocalId, Mir, MirClosure, MirFunction, Operand, Rvalue,
     Place, Terminator,
 };
 
@@ -809,7 +809,7 @@ fn intern_bound_dispatch_carrier_type(mir: &mut Mir) {
             matches!(
                 statement,
                 crate::Statement::Assign {
-                    value: crate::Rvalue::BoundMethod { .. } | crate::Rvalue::BoundField { .. },
+                    value: Rvalue::BoundMethod { .. } | Rvalue::BoundField { .. },
                     ..
                 }
             )
@@ -846,19 +846,21 @@ fn intern_fallible_builtin_return_types(mir: &mut Mir) {
         .filter_map(|block| block.terminator.as_ref())
     {
         if let Terminator::Call {
-            callee: Callee::Builtin(builtin),
+            callee: Callee::Op(op),
             ..
         } = terminator
         {
-            match builtin {
-                BuiltinFn::JsonParse { .. } => needed.push(Type::Unknown),
-                BuiltinFn::UriDecode(_) | BuiltinFn::Base64(_) => needed.push(Type::String),
+            match &**op {
+                Rvalue::JsonParse { .. } => needed.push(Type::Unknown),
+                Rvalue::UriTranscode { .. } | Rvalue::Base64Transcode { .. } => {
+                    needed.push(Type::String);
+                }
                 // A read answers a number and a write answers `undefined`, and
                 // both spellings are already in the table wherever an accessor
                 // was lowered — the frontend types the node. Interning them
                 // anyway costs nothing and keeps the arm honest about what the
                 // call produces.
-                BuiltinFn::DataViewAccess { write, element } => {
+                Rvalue::DataViewAccess { write, element, .. } => {
                     needed.push(if *write {
                         Type::None
                     } else if element.is_bigint() {
@@ -867,20 +869,14 @@ fn intern_fallible_builtin_return_types(mir: &mut Mir) {
                         Type::Float
                     });
                 }
-                BuiltinFn::BigInt(op) => needed.push(if op.returns_string() {
+                Rvalue::BigIntCall { op, .. } => needed.push(if op.returns_string() {
                     Type::String
                 } else {
                     Type::BigInt
                 }),
                 // The result is the frontend's `RegExp` (or `URL`) class
                 // type, which it interned when it typed the node.
-                BuiltinFn::ConsoleLog { .. }
-                | BuiltinFn::ConsoleWrite
-                | BuiltinFn::ConsoleErrorWrite
-                | BuiltinFn::RegExpCompile
-                | BuiltinFn::UrlNew
-                | BuiltinFn::UrlSetHref
-                | BuiltinFn::HostModule(_) => {}
+                _ => {}
             }
         }
     }

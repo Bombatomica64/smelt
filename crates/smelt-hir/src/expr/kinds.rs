@@ -1,7 +1,7 @@
 //! HIR expression kinds: the `ExprKind` enum, one variant per lowered
 //! expression form, with the per-subsystem operation enums it carries.
 
-use super::{Base64Op, BinOp, ClosureExpr, Literal, UnaryOp};
+use super::{BinOp, ClosureExpr, Literal, UnaryOp};
 use crate::ids::{BlockId, BodyId, ExprId, ItemId, LocalId, Symbol, TypeId};
 use serde::{Deserialize, Serialize};
 
@@ -51,6 +51,7 @@ macro_rules! define_expr_kind {
     ($(
         $(#[$meta:meta])*
         $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt),* $(,)? })?
+        $($fact:ident $fact_value:tt)*
         => $display:tt;
     )*) => {
         #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,89 +109,6 @@ macro_rules! define_expr_kind {
             },
             TypeAssert {
                 value: ExprId,
-            },
-            /// One direction of the base64 codec (`btoa` / `atob`).
-            ///
-            /// Both directions throw, so both reach MIR as a call terminator rather
-            /// than an rvalue — see `Base64Op`.
-            Base64Transcode {
-                /// Which direction this call runs.
-                op: Base64Op,
-                /// The string to encode or decode.
-                operand: ExprId,
-            },
-            /// `new RegExp(pattern, flags)` over a pattern that is NOT a source literal.
-            ///
-            /// A literal pattern (`/a+/`, `new RegExp('a+')`) is checked by the
-            /// frontend and stays an ordinary `New { class: RegExp }`. A pattern that is
-            /// only known at run time can be malformed, and JavaScript answers that
-            /// with a catchable `SyntaxError` AT CONSTRUCTION (`try { new RegExp(p) }
-            /// catch { .. }`), so this node reaches MIR as a call terminator with an
-            /// unwind edge — the same route `JSON.parse` takes — rather than an
-            /// infallible rvalue that could only panic at the first match.
-            RegExpCompile {
-                /// The pattern text, a `String`.
-                pattern: ExprId,
-                /// The flags text, a `String` (`""` when the source passed none).
-                flags: ExprId,
-            },
-            /// A `DataView` element accessor: `getInt16(offset, littleEndian?)` or
-            /// `setFloat64(offset, value, littleEndian?)`.
-            ///
-            /// One node for all twenty accessors, carrying the DIRECTION and the
-            /// element type the registry resolved from the source member name. A
-            /// variant per accessor would be twenty ways to say one operation, and
-            /// the element type is named rather than copied
-            /// ([`smelt_stdlib::TypedArrayElement`]) so the accessor rule, the emitted
-            /// kind enum and the view classes keep one element table.
-            ///
-            /// The element kind is not a property of the receiver here — the same view
-            /// answers `getInt16` and `getFloat64` — which is exactly why `DataView`
-            /// cannot share [`Self::ByteArrayOp`]'s shape, where the kind rides on the
-            /// value.
-            DataViewAccess {
-                /// Whether this accessor WRITES (`setX`) rather than reads (`getX`).
-                write: bool,
-                /// The element type, which is the accessor's width and signedness.
-                element: smelt_stdlib::TypedArrayElement,
-                /// The `DataView` receiver.
-                view: ExprId,
-                /// The accessor arguments, as written.
-                args: Vec<ExprId>,
-            },
-            /// A fallible JavaScript `bigint` operation (see [`crate::BigIntOp`]):
-            /// `BigInt(x)`, `BigInt.asIntN`/`asUintN`, and the bigint `/`, `%` and
-            /// `**`, each of which can throw a catchable `RangeError`.
-            BigIntCall {
-                /// Which operation this is.
-                op: crate::BigIntOp,
-                /// The operands in source order (`[value]`, `[bits, value]`, or
-                /// `[lhs, rhs]`).
-                args: Vec<ExprId>,
-            },
-            /// `new URL(input, base?)`: a parsed WHATWG URL value.
-            ///
-            /// Both operands are strings; a `URL` argument is read as its `href` by
-            /// the frontend, the stringification the constructor itself performs.
-            UrlNew {
-                /// The URL text to parse.
-                input: ExprId,
-                /// The base URL text a relative `input` resolves against.
-                base: Option<ExprId>,
-            },
-            /// `JSON.parse(text)` / Python `json.loads(text)`.
-            ///
-            /// `decode` is `true` when the expression's type is a target the SOURCE
-            /// declared — `JSON.parse<T>(s)`, `JSON.parse(s) as T`, or a parse that flows
-            /// straight into a `T`-annotated variable, `T`-typed parameter or
-            /// `T`-returning function. Such a parse is a typed entry boundary: the backend
-            /// decodes the parsed value strictly into `T` and throws a catchable
-            /// `TypeError` on mismatch (design adapted from Bun's `--aot` typed entry
-            /// checks, oven-sh/bun#45631). `false` keeps the dynamic parse whose type is
-            /// the frontend's fallback (an untyped `JSON.parse(s)`, Python `json.loads`).
-            JsonParse {
-                text: ExprId,
-                decode: bool,
             },
             BinOp {
                 op: BinOp,

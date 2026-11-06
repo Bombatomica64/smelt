@@ -55,13 +55,10 @@ impl FunctionEmitter<'_> {
     ///
     /// The encoders are total, and only that INFALLIBLE direction reaches this
     /// rvalue path. The decoders never do: ECMA-262 rejects malformed input
-    /// with a `URIError`, so `decodeURI`/`decodeURIComponent` lower to
-    /// `Terminator::Call { Callee::Builtin(BuiltinFn::UriDecode(op)), unwind }`
-    /// so their `URIError` is catchable — a fallible rvalue has no unwind edge,
-    /// which used to leave a `try`/`catch` around a decode with no predecessor
-    /// for its handler, so MIR dropped the fallback the source wrote. Encoding
-    /// cannot fail for well-formed UTF-16 input, so it needs no such edge and
-    /// keeps the cheaper form.
+    /// with a `URIError`, so `decodeURI`/`decodeURIComponent` are fallible and
+    /// lower to a call terminator (`Callee::Op`) whose unwind edge makes that
+    /// `URIError` catchable. Encoding cannot fail for well-formed UTF-16 input,
+    /// so it needs no such edge and keeps the cheaper form.
     pub(super) fn uri_transcode_text(
         &self,
         op: smelt_hir::UriTranscodeOp,
@@ -84,14 +81,10 @@ impl FunctionEmitter<'_> {
             UriTranscodeOp::DecodeComponent => strings::DECODE_URI_COMPONENT,
         };
         if op.is_fallible() {
-            // A fallible op must have been routed to the call terminator by
-            // `lower/expr.rs`. Arriving here means the two decisions have
-            // drifted apart, and the old behaviour -- an `.expect(...)` that
-            // aborts where JavaScript would let a `catch` run -- is exactly
-            // what this reports instead of re-emitting.
+            // A fallible op is a call terminator's callee; an `.expect(..)` here
+            // would abort where JavaScript lets a `catch` run.
             return Err(EmitError::new(format!(
-                "internal: fallible `{name}` reached the infallible rvalue path; \
-                 it must lower to BuiltinFn::UriDecode"
+                "internal: fallible `{name}` reached the infallible rvalue path"
             )));
         }
         Ok(format!("{helper}({receiver_text}.as_str())"))

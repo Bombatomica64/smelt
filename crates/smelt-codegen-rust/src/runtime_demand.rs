@@ -23,7 +23,7 @@
 
 use smelt_hir::{AsyncOp, Type};
 use smelt_mir::{
-    BasicBlock, BuiltinFn, Callee, LocalDecl, LocalId, Mir, Operand, Place, Rvalue, Statement,
+    BasicBlock, Callee, LocalDecl, LocalId, Mir, Operand, Place, Rvalue, Statement,
     Terminator,
 };
 use smelt_stdlib::{BackendDependency, StdlibClass};
@@ -535,18 +535,24 @@ impl RuntimeDemand {
         if unwind.is_some() {
             self.add(Need::PanicRoute);
         }
-        let Callee::Builtin(builtin) = callee else {
+        let Callee::Op(op) = callee else {
             return;
         };
-        match builtin {
-            BuiltinFn::UrlNew | BuiltinFn::UrlSetHref => self.add(Need::UrlThrowing),
-            BuiltinFn::DataViewAccess { .. } => self.add(Need::DataViewAccess),
-            BuiltinFn::JsonParse { .. } => self.add(Need::JsonParse),
-            BuiltinFn::UriDecode(_) => self.add(Need::UriDecode),
-            BuiltinFn::Base64(_) => self.add(Need::Base64),
-            BuiltinFn::HostModule(smelt_hir::HostModuleOp::Hash(_)) => self.add(Need::NodeHash),
-            BuiltinFn::RegExpCompile => self.add(Need::RegExpCompile),
-            BuiltinFn::BigInt(smelt_hir::BigIntOp::JsonStringify) => self.add(Need::DepSerdeJson),
+        match &**op {
+            Rvalue::UrlNew { .. } | Rvalue::UrlOp { .. } => self.add(Need::UrlThrowing),
+            Rvalue::DataViewAccess { .. } => self.add(Need::DataViewAccess),
+            Rvalue::JsonParse { .. } => self.add(Need::JsonParse),
+            Rvalue::UriTranscode { .. } => self.add(Need::UriDecode),
+            Rvalue::Base64Transcode { .. } => self.add(Need::Base64),
+            Rvalue::HostModuleCall {
+                op: smelt_hir::HostModuleOp::Hash(_),
+                ..
+            } => self.add(Need::NodeHash),
+            Rvalue::RegExpCompile { .. } => self.add(Need::RegExpCompile),
+            Rvalue::BigIntCall {
+                op: smelt_hir::BigIntOp::JsonStringify,
+                ..
+            } => self.add(Need::DepSerdeJson),
             _ => {}
         }
     }

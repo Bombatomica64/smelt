@@ -693,7 +693,7 @@ impl ModuleBuilder<'_> {
                 // callback throws", so `(value: string) => string` wins and the
                 // coercion adapter inserts an unwrap against a non-throwing
                 // Rust closure (E0599). A decoder called DIRECTLY inside a
-                // `try` is catchable (that is the `BuiltinFn::UriDecode`
+                // `try` is catchable (that is the `Callee::Op`
                 // terminator); reached through a callback value it still
                 // aborts. Closing that needs `may_throw` inference through
                 // callback parameter types — see
@@ -719,7 +719,7 @@ impl ModuleBuilder<'_> {
             // throws", so the declared `(value: string) => string` wins and a
             // `may_throw` closure would fail the coercion into it (E0599). A
             // base64 call made DIRECTLY inside a `try` is catchable (that is
-            // the `BuiltinFn::Base64` terminator); reached through a callback
+            // the `Callee::Op` terminator); reached through a callback
             // value it still aborts, which is the same standing limitation.
             "btoa" | "atob" => {
                 let op = Self::base64_global(name)?;

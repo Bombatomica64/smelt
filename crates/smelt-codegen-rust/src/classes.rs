@@ -416,11 +416,16 @@ fn body_only_moves(
         // callee has to be producing a `T`, and the only evidence available here
         // is that some argument carried one in. Calls are terminators, so the
         // statement walk above cannot see them.
-        if let Some(Terminator::Call { args, dest, .. }) = &block.terminator
+        if let Some(Terminator::Call { callee, args, dest, .. }) = &block.terminator
             && local_mentions(*dest)
-            && !args.iter().any(&mentions)
         {
-            return false;
+            let mut mentioned = args.iter().any(&mentions);
+            if let smelt_mir::Callee::Op(op) = callee {
+                op.reads(|operand| mentioned |= mentions(operand));
+            }
+            if !mentioned {
+                return false;
+            }
         }
     }
     true
@@ -988,7 +993,13 @@ fn body_uses_bound_only_through_trait(
         }
         if let Some(terminator) = &block.terminator {
             let projected = match terminator {
-                Terminator::Call { args, .. } => args.iter().any(operand_projects),
+                Terminator::Call { callee, args, .. } => {
+                    let mut projects = args.iter().any(operand_projects);
+                    if let smelt_mir::Callee::Op(op) = callee {
+                        op.reads(|operand| projects |= operand_projects(operand));
+                    }
+                    projects
+                }
                 Terminator::Switch { cond: probe, .. }
                 | Terminator::Match {
                     scrutinee: probe, ..

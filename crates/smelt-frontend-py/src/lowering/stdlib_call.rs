@@ -143,7 +143,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::JsonParse {
                 text,
-                decode: false,
+                target: None,
             },
             ty,
             span: self.span(call.range()),

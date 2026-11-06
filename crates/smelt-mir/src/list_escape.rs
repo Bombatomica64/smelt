@@ -782,6 +782,11 @@ impl<'a> BodyWalk<'a> {
                 self.escape_operand(operand, EscapeReason::CallArgument);
                 None
             }
+            // An op's operands are its arguments, and no summary models it.
+            Callee::Op(op) => {
+                op.reads(|operand| self.escape_operand(operand, EscapeReason::CallArgument));
+                None
+            }
             // The receiver flows through the base initializer and back out, and
             // no summary models that, so every argument conservatively escapes.
             Callee::Builtin(_) | Callee::BaseInit(_) => None,

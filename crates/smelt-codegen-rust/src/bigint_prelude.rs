@@ -21,7 +21,7 @@
 //!
 //! The fallible operations answer `Result<_, Box<dyn Error>>` with the same
 //! branded error record a source `throw new RangeError(..)` builds, because each
-//! is reached through a fallible builtin call (`BuiltinFn::BigInt`) whose
+//! is reached through a fallible builtin call (`Rvalue::BigIntCall`) whose
 //! unwind edge can land in a source `catch`. The infallible helpers that can
 //! still throw on an absurd input (a shift or power whose result would exceed
 //! V8's maximum bigint size) throw through the panic route, the same channel

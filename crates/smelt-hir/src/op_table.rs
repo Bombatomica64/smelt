@@ -16,7 +16,7 @@
 //!
 //! ```text
 //! /// docs
-//! Name { field: kind, ... } => (display);
+//! Name { field: kind, ... } fact(value)... => (display);
 //! ```
 //!
 //! Field order is evaluation order. A unit operation omits the braces.
@@ -32,6 +32,18 @@
 //! | `[T]`            | `T`, carried unchanged    | `T`, carried unchanged       |
 //! | `(sym "label")`  | `Symbol`                  | `Symbol`                     |
 //! | `(ty)`           | `TypeId`                  | `TypeId`                     |
+//!
+//! # Facts
+//!
+//! A fact is a per-op statement written in terms of the op's fields, each bound
+//! as a reference.
+//!
+//! * `fallible(condition)`: the op can throw a catchable error when `condition`
+//!   holds. Lowering asks [`op_fallible!`] through `Rvalue::is_fallible` and
+//!   gives such an op a call terminator, whose unwind edge is the only way a
+//!   `try` the source wrote can see the throw; otherwise the op is a plain
+//!   assignment.
+//! * `call(text)`: how `dump-mir` names the op in its call-terminator form.
 //!
 //! # Display
 //!
@@ -73,6 +85,22 @@ macro_rules! op_mir_display {
     (($both:expr)) => { $both };
 }
 
+/// Expands to an entry's `fallible` condition; an entry without one cannot throw.
+#[macro_export]
+macro_rules! op_fallible {
+    () => { false };
+    (fallible ($condition:expr) $($rest:tt)*) => { $condition };
+    ($other:ident $value:tt $($rest:tt)*) => { $crate::op_fallible!($($rest)*) };
+}
+
+/// Expands to an entry's `call` name; only an op that can throw needs one.
+#[macro_export]
+macro_rules! op_call_text {
+    () => { "@infallible_op".to_owned() };
+    (call ($text:expr) $($rest:tt)*) => { $text };
+    ($other:ident $value:tt $($rest:tt)*) => { $crate::op_call_text!($($rest)*) };
+}
+
 /// Hands `callback` every operation, the transcribed group then the custom one.
 #[macro_export]
 macro_rules! for_each_op {
@@ -90,7 +118,8 @@ macro_rules! for_each_transcribed_op {
 }
 
 /// The operations whose lowering is pure transcription: every child is lowered
-/// in field order and the result is one rvalue assigned to a temporary.
+/// in field order and the result is one rvalue, assigned to a temporary or, when
+/// the op can throw, carried by a call terminator.
 ///
 /// `$($before)*` is forwarded ahead of the entries so the group can be appended
 /// to entries a previous group already collected.
@@ -2032,12 +2061,168 @@ macro_rules! op_group_transcribed {
                 args: many,
             }
                 => (format!("{op}({})", args.join(", ")));
+            /// One of the four ECMA-262 URI transcoding globals applied to `operand`:
+            /// `encodeURI`, `encodeURIComponent`, `decodeURI`, `decodeURIComponent`.
+            /// `op` carries which; see [`UriTranscodeOp`] for why one node covers all
+            /// four, and the `smelt_encode_uri*` / `smelt_decode_uri*` runtime helpers
+            /// for the exact character sets.
+            UriTranscode {
+                /// Which of the four globals this is.
+                op: [$crate::UriTranscodeOp],
+                /// String operand to transcode.
+                operand: one,
+            }
+                fallible(op.is_fallible())
+                call(if matches!(op, $crate::UriTranscodeOp::Decode) { "@decode_uri".to_owned() } else { "@decode_uri_component".to_owned() })
+                => (format!("{op} {operand}"));
+            /// A call into a modeled Node host module (`path.join(..)`,
+            /// `createHash('sha256')`, `hash.update(..)`), resolved from the IMPORT the
+            /// callee names rather than from its spelling — see [`HostModuleOpKind`]
+            /// for each op's arguments and result type.
+            HostModuleCall {
+                /// Which host function this call runs.
+                op: [$crate::HostModuleOp],
+                /// Operation arguments, in the op's documented order.
+                args: many,
+            }
+                fallible(op.is_fallible())
+                call(format!("@{}", op.name()))
+                => (format!("{} {}", op.name(), args.join(" ")));
+            /// Read or write a component of a concrete `URL`, or take its
+            /// `searchParams`.
+            UrlOp {
+                /// Which operation this is.
+                op: [$crate::UrlOp],
+                /// The `URL` receiver.
+                url: one,
+                /// The written value for a setter; empty otherwise.
+                args: many,
+            }
+                fallible(matches!(op, $crate::UrlOp::Set($crate::UrlField::Href)))
+                call("@url_set_href".to_owned())
+                => (format!("url_{op:?} {url}{}", tail(", ", ", ", &args)));
+            /// `btoa` / `atob`: the base64 transcoders of the web platform.
+            ///
+            /// Fallible in both directions: `btoa` refuses a code point above U+00FF
+            /// and `atob` refuses malformed base64, so both throw a catchable
+            /// `InvalidCharacterError` `DOMException`.
+            Base64Transcode {
+                /// Which direction this is.
+                op: [$crate::Base64Op],
+                /// The string transcoded.
+                operand: one,
+            }
+                fallible(true)
+                call(format!("@{}", op.name()))
+                => (format!("{} {operand}", op.name()));
+            /// `new RegExp(pattern, flags)` over a pattern that is NOT a source literal.
+            ///
+            /// A literal pattern (`/a+/`, `new RegExp('a+')`) is checked by the
+            /// frontend and stays an ordinary `New { class: RegExp }`. A pattern that is
+            /// only known at run time can be malformed, and JavaScript answers that
+            /// with a catchable `SyntaxError` AT CONSTRUCTION (`try { new RegExp(p) }
+            /// catch { .. }`), so this operation is fallible rather than an infallible
+            /// rvalue that could only panic at the first match.
+            RegExpCompile {
+                /// The pattern text, a `String`.
+                pattern: one,
+                /// The flags text, a `String` (`""` when the source passed none).
+                flags: one,
+            }
+                fallible(true)
+                call("@regexp_compile".to_owned())
+                => (format!("regexp_compile {pattern} {flags}"));
+            /// A `DataView` element accessor: `getInt16(offset, littleEndian?)` or
+            /// `setFloat64(offset, value, littleEndian?)`, which throws a catchable
+            /// `RangeError` when the offset is outside the view.
+            ///
+            /// One node for all twenty accessors, carrying the DIRECTION and the
+            /// element type the registry resolved from the source member name. The
+            /// element kind is not a property of the receiver here (the same view
+            /// answers `getInt16` and `getFloat64`), which is why `DataView` cannot
+            /// share `ByteArrayOp`'s shape, where the kind rides on the value.
+            DataViewAccess {
+                /// Whether this accessor WRITES (`setX`) rather than reads (`getX`).
+                write: [bool],
+                /// The element type, which is the accessor's width and signedness.
+                element: [$crate::TypedArrayElement],
+                /// The `DataView` receiver.
+                view: one,
+                /// The accessor arguments, as written.
+                args: many,
+            }
+                fallible(true)
+                call(format!(
+                    "@data_view_{}{}",
+                    if *write { "set" } else { "get" },
+                    element.element_name()
+                ))
+                => (format!(
+                    "data_view_{}{} {view} {}",
+                    if *write { "set" } else { "get" },
+                    element.element_name(),
+                    args.join(" ")
+                ));
+            /// A fallible JavaScript `bigint` operation (see [`crate::BigIntOp`]):
+            /// `BigInt(x)`, `BigInt.asIntN`/`asUintN`, and the bigint `/`, `%` and
+            /// `**`, each of which can throw a catchable `RangeError`.
+            BigIntCall {
+                /// Which operation this is.
+                op: [$crate::BigIntOp],
+                /// The operands in source order (`[value]`, `[bits, value]`, or
+                /// `[lhs, rhs]`).
+                args: many,
+            }
+                fallible(true)
+                call(format!("@{}", op.name()))
+                => (format!("{} {}", op.name(), args.join(" ")));
+            /// `new URL(input, base?)`: a parsed WHATWG URL value, which throws a
+            /// catchable `TypeError` when the input (resolved against the base) is not
+            /// a valid URL.
+            ///
+            /// Both operands are strings; a `URL` argument is read as its `href` by
+            /// the frontend, the stringification the constructor itself performs.
+            UrlNew {
+                /// The URL text to parse.
+                input: one,
+                /// The base URL text a relative `input` resolves against.
+                base: opt,
+            }
+                fallible(true)
+                call("@url_new".to_owned())
+                => (base.map_or_else(
+                    || format!("url_new {input}"),
+                    |base| format!("url_new {input}, {base}"),
+                ));
+            /// `JSON.parse(text)` / Python `json.loads(text)`, which throws a catchable
+            /// `SyntaxError` on malformed text.
+            ///
+            /// `target` is `Some(T)` when the SOURCE declared the parse's type:
+            /// `JSON.parse<T>(s)`, `JSON.parse(s) as T`, or a parse that flows straight
+            /// into a `T`-annotated variable, `T`-typed parameter or `T`-returning
+            /// function. Such a parse is a typed entry boundary: the backend decodes
+            /// the parsed value strictly into `T` and throws a catchable `TypeError` on
+            /// mismatch (design adapted from Bun's `--aot` typed entry checks,
+            /// oven-sh/bun#45631). `None` keeps the dynamic parse whose type is the
+            /// frontend's fallback (an untyped `JSON.parse(s)`, Python `json.loads`).
+            JsonParse {
+                /// The JSON text.
+                text: one,
+                /// The source-declared type the parsed value is decoded into.
+                target: [Option<$crate::TypeId>],
+            }
+                fallible(true)
+                call(if target.is_some() { "@json_decode" } else { "@json_parse" }.to_owned())
+                => (format!(
+                    "{} {text}",
+                    if target.is_some() { "json_decode" } else { "json_parse" }
+                ));
         }
     };
 }
 
 /// The operations MIR lowering handles by hand, because they carry a mutation
-/// receiver, a terminator or short-circuiting control flow.
+/// receiver or short-circuiting control flow.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! op_group_custom {
@@ -2070,40 +2255,6 @@ macro_rules! op_group_custom {
                 fallback: one,
             }
                 => (format!("{optional} ?? {fallback}"));
-            /// One of the four ECMA-262 URI transcoding globals applied to `operand`:
-            /// `encodeURI`, `encodeURIComponent`, `decodeURI`, `decodeURIComponent`.
-            /// `op` carries which; see [`UriTranscodeOp`] for why one node covers all
-            /// four, and the `smelt_encode_uri*` / `smelt_decode_uri*` runtime helpers
-            /// for the exact character sets.
-            UriTranscode {
-                /// Which of the four globals this is.
-                op: [$crate::UriTranscodeOp],
-                /// String operand to transcode.
-                operand: one,
-            }
-                => (format!("{op} {operand}"));
-            /// A call into a modeled Node host module (`path.join(..)`,
-            /// `createHash('sha256')`, `hash.update(..)`), resolved from the IMPORT the
-            /// callee names rather than from its spelling — see [`HostModuleOpKind`]
-            /// for each op's arguments and result type.
-            HostModuleCall {
-                /// Which host function this call runs.
-                op: [$crate::HostModuleOp],
-                /// Operation arguments, in the op's documented order.
-                args: many,
-            }
-                => (format!("{} {}", op.name(), args.join(" ")));
-            /// Read or write a component of a concrete `URL`, or take its
-            /// `searchParams`.
-            UrlOp {
-                /// Which operation this is.
-                op: [$crate::UrlOp],
-                /// The `URL` receiver.
-                url: one,
-                /// The written value for a setter; empty otherwise.
-                args: many,
-            }
-                => (format!("url_{op:?} {url}{}", tail(", ", ", ", &args)));
             /// Push one item into a list and return the new length.
             ListPush {
                 /// List value to mutate.
@@ -2235,4 +2386,24 @@ pub fn regex_replace_args_text(args: &[crate::RegexReplaceArg]) -> String {
         })
         .collect::<Vec<_>>()
         .join(",")
+}
+
+#[cfg(test)]
+mod tests {
+    //! The text helpers every display clause leans on.
+
+    use super::{opt, tail};
+
+    #[test]
+    fn tail_is_nothing_for_no_items_and_leads_otherwise() {
+        assert_eq!(tail(", ", ", ", &[]), "");
+        let items = ["a".to_owned(), "b".to_owned()];
+        assert_eq!(tail(" ", ", ", &items), " a, b");
+    }
+
+    #[test]
+    fn an_absent_child_prints_as_a_blank() {
+        assert_eq!(opt(&None), "_");
+        assert_eq!(opt(&Some("x".to_owned())), "x");
+    }
 }

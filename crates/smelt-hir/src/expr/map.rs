@@ -77,6 +77,7 @@ macro_rules! define_try_map_child_exprs {
     ($(
         $(#[$meta:meta])*
         $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt),* $(,)? })?
+        $($fact:ident $fact_value:tt)*
         => $display:tt;
     )*) => {
         impl ExprKind {
@@ -134,50 +135,6 @@ macro_rules! define_try_map_child_exprs {
                         value: f(value)?,
                     },
                     Self::TypeAssert { value } => Self::TypeAssert { value: f(value)? },
-                    Self::Base64Transcode { op, operand } => Self::Base64Transcode {
-                        op,
-                        operand: f(operand)?,
-                    },
-                    Self::RegExpCompile { pattern, flags } => Self::RegExpCompile {
-                        pattern: f(pattern)?,
-                        flags: f(flags)?,
-                    },
-                    Self::DataViewAccess {
-                        write,
-                        element,
-                        view,
-                        args,
-                    } => {
-                        let view = f(view)?;
-                        let mut mapped = Vec::with_capacity(args.len());
-                        for arg in args {
-                            mapped.push(f(arg)?);
-                        }
-                        Self::DataViewAccess {
-                            write,
-                            element,
-                            view,
-                            args: mapped,
-                        }
-                    }
-                    Self::BigIntCall { op, args } => {
-                        let mut mapped = Vec::with_capacity(args.len());
-                        for arg in args {
-                            mapped.push(f(arg)?);
-                        }
-                        Self::BigIntCall { op, args: mapped }
-                    }
-                    Self::UrlNew { input, base } => Self::UrlNew {
-                        input: f(input)?,
-                        base: match base {
-                            Some(base) => Some(f(base)?),
-                            None => None,
-                        },
-                    },
-                    Self::JsonParse { text, decode } => Self::JsonParse {
-                        text: f(text)?,
-                        decode,
-                    },
                     Self::BinOp { op, lhs, rhs } => Self::BinOp {
                         op,
                         lhs: f(lhs)?,

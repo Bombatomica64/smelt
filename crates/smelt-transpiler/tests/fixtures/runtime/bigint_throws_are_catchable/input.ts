@@ -6,7 +6,7 @@
 // bigint all throw in JavaScript, and the throw is catchable -- including when
 // the throwing expression sits directly in the `try` block rather than in a
 // called function. Each lowers to a fallible
-// `BuiltinFn::BigInt` call, whose unwind edge is what lets the `catch` below
+// `Rvalue::BigIntCall` call, whose unwind edge is what lets the `catch` below
 // see the branded `RangeError` / `SyntaxError` / `TypeError` with Node's own
 // message.
 //

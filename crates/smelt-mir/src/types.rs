@@ -693,6 +693,7 @@ macro_rules! define_rvalue {
     ($(
         $(#[$meta:meta])*
         $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt),* $(,)? })?
+        $($fact:ident $fact_value:tt)*
         => $display:tt;
     )*) => {
         /// An MIR rvalue.
@@ -991,6 +992,10 @@ pub enum Callee {
     Indirect(Operand),
     /// A builtin function.
     Builtin(BuiltinFn),
+    /// An operation that can throw (see [`Rvalue::is_fallible`]), carried here
+    /// for the call terminator's unwind edge. Its operands are its own fields;
+    /// the call's `args` are empty.
+    Op(Box<Rvalue>),
     /// A base class's constructor run as an initializer over a derived instance
     /// (a derived constructor's `super(..)`; see
     /// `smelt_hir::ExprKind::BaseConstructorInit`).
@@ -1021,119 +1026,6 @@ pub enum BuiltinFn {
     ConsoleWrite,
     /// Write exact text to stderr.
     ConsoleErrorWrite,
-    /// Parse JSON text (`JSON.parse`).
-    ///
-    /// A builtin rather than an rvalue because it is *fallible*: malformed text
-    /// throws a catchable `SyntaxError` in JavaScript. Only `Terminator::Call`
-    /// and `Terminator::Await` carry an `unwind` edge, so a fallible operation
-    /// has to be a call to reach an enclosing `try`.
-    ///
-    /// `target` is `Some(T)` when the source declared the parse's type (see
-    /// `smelt_hir::ExprKind::JsonParse::decode`): the backend then decodes the
-    /// parsed value strictly into `T`, throwing a catchable `TypeError` on a
-    /// mismatch, whenever `T` has a decodable Rust shape. `None` is the dynamic
-    /// parse that answers the erased JSON value.
-    JsonParse {
-        /// The source-declared type the parsed value is decoded into.
-        target: Option<TypeId>,
-    },
-    /// A `DataView` element accessor (`getInt16`, `setFloat64`, ...), which
-    /// throws a catchable `RangeError` when the offset is outside the view.
-    ///
-    /// A builtin for exactly the reason [`Self::JsonParse`] is, and it is the
-    /// first stdlib MEMBER to need that route: `TypedArray.prototype.set`,
-    /// `ArrayBuffer.prototype.resize` and `Atomics.*` are the same shape, and
-    /// `blocker-logs/standards-throwing-rvalue.md` records why a fallible
-    /// rvalue is not the alternative.
-    ///
-    /// The payload is the accessor's identity, which its source name encodes
-    /// and nothing else does: the DIRECTION and the element type. The element
-    /// type is `smelt_stdlib`'s, not a copy of it.
-    DataViewAccess {
-        /// Whether this accessor WRITES (`setX`) rather than reads (`getX`).
-        write: bool,
-        /// The element type, which is the accessor's width and signedness.
-        element: smelt_hir::TypedArrayElement,
-    },
-    /// `decodeURI` / `decodeURIComponent`, which throw a catchable `URIError`
-    /// on malformed percent-encoding.
-    ///
-    /// A builtin for exactly the reason [`Self::JsonParse`] is. The encoding
-    /// direction stays [`Rvalue::UriTranscode`] and gets no unwind edge:
-    /// `UriTranscodeOp::is_fallible` is the single place that distinction is
-    /// recorded, and it has always said only the two decoders can throw.
-    ///
-    /// Before this existed, a decoder emitted
-    /// `smelt_decode_uri(..).expect("URIError: URI malformed")` — so source
-    /// that catches a `URIError` did not merely fail to catch it: the handler
-    /// block had no predecessor, MIR dropped it, and the fallback the source
-    /// wrote was absent from the generated crate. Hono's `tryDecode` is that
-    /// shape.
-    UriDecode(smelt_hir::UriTranscodeOp),
-    /// `btoa` / `atob`, which throw a catchable `InvalidCharacterError`
-    /// `DOMException` on input their direction cannot represent.
-    ///
-    /// A builtin for the reason [`Self::JsonParse`] is, and for BOTH directions
-    /// rather than one: `btoa` refuses a code point above U+00FF and `atob`
-    /// refuses a malformed base64 string, so neither has an infallible rvalue
-    /// form to keep.
-    Base64(smelt_hir::Base64Op),
-    /// `new RegExp(pattern, flags)` over a run-time pattern, which throws a
-    /// catchable `SyntaxError` when the pattern (or a flag) is malformed.
-    ///
-    /// A builtin for the reason [`Self::JsonParse`] is. Literal patterns never
-    /// reach it: they keep the infallible `New { class: RegExp }` construction
-    /// (see `smelt_hir::ExprKind::RegExpCompile`).
-    RegExpCompile,
-    /// A FALLIBLE modeled host-module call (see
-    /// `smelt_hir::HostModuleOp::is_fallible`); the infallible ones are
-    /// [`Rvalue::HostModuleCall`].
-    HostModule(smelt_hir::HostModuleOp),
-    /// A fallible JavaScript `bigint` operation (`BigInt(x)`, `asIntN`,
-    /// `asUintN`, the bigint `/`, `%`, `**`, `<<`, `>>`, `toString(radix)`,
-    /// and `JSON.stringify` over a value that can hold a bigint), which throws
-    /// a catchable `RangeError` (or `SyntaxError`, `TypeError`) on some inputs.
-    ///
-    /// A builtin for the reason [`Self::JsonParse`] is: the throw has to reach
-    /// an enclosing `try`, and only a call terminator carries an unwind edge.
-    BigInt(smelt_hir::BigIntOp),
-    /// `new URL(input, base?)`, which throws a catchable `TypeError` when the
-    /// input (resolved against the base) is not a valid URL.
-    ///
-    /// A builtin for the reason [`Self::JsonParse`] is. The arguments are the
-    /// input text and, when the source passed one, the base text.
-    UrlNew,
-    /// `url.href = text`, which throws a catchable `TypeError` when the text
-    /// is not a valid URL; the only throwing `URL` setter. The arguments are
-    /// the `URL` and the text, and the call answers the assigned text.
-    UrlSetHref,
-}
-
-impl BuiltinFn {
-    /// Return whether this builtin can leave through the error channel.
-    ///
-    /// Asked by the throwing pass, so a fallible builtin with no handler in
-    /// scope marks its enclosing function `can_throw`. That used to be a
-    /// `matches!` naming `JsonParse` alone, which is why `decodeURI` in a
-    /// function with no `try` emitted `smelt_decode_uri_throwing(..)?` inside a
-    /// signature that returns no `Result` (E0277): every fallible builtin added
-    /// after `JSON.parse` was invisible to the pass. Stating it on the enum is
-    /// what makes the next one impossible to forget.
-    #[must_use]
-    pub const fn is_fallible(self) -> bool {
-        match self {
-            Self::JsonParse { .. }
-            | Self::UriDecode(_)
-            | Self::Base64(_)
-            | Self::RegExpCompile
-            | Self::HostModule(_)
-            | Self::DataViewAccess { .. }
-            | Self::BigInt(_)
-            | Self::UrlNew
-            | Self::UrlSetHref => true,
-            Self::ConsoleLog { .. } | Self::ConsoleWrite | Self::ConsoleErrorWrite => false,
-        }
-    }
 }
 
 /// Visit every type id a function's emission reads: its return type, local

@@ -5670,7 +5670,7 @@ const bag = JSON.parse(text) as Record<string, unknown>;
     ensure_eq!(
         body.exprs
             .iter()
-            .filter(|expr| matches!(expr.kind, ExprKind::JsonParse { decode: true, .. }))
+            .filter(|expr| matches!(expr.kind, ExprKind::JsonParse { target: Some(_), .. }))
             .count(),
         2
     );
@@ -5686,10 +5686,10 @@ fn json_parse_targets(ctx: &HirCtx) -> Vec<String> {
         .iter()
         .flat_map(|body| body.exprs.iter())
         .filter_map(|expr| match expr.kind {
-            ExprKind::JsonParse { decode: true, .. } => {
+            ExprKind::JsonParse { target: Some(_), .. } => {
                 Some(smelt_hir::type_display(&ctx.krate, expr.ty))
             }
-            ExprKind::JsonParse { decode: false, .. } => Some("dynamic".to_owned()),
+            ExprKind::JsonParse { target: None, .. } => Some("dynamic".to_owned()),
             _ => None,
         })
         .collect::<Vec<_>>();

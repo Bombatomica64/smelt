@@ -529,6 +529,17 @@ fn useful_locals(
                 record_place(place, &mut useful);
             }
         }
+        if let Some(Terminator::Call {
+            callee: crate::Callee::Op(op),
+            ..
+        }) = &block.terminator
+        {
+            op.reads(|operand| {
+                if let Operand::Copy(place) | Operand::Move(place) = operand {
+                    record_place(place, &mut useful);
+                }
+            });
+        }
     }
     (useful, reassigned)
 }
@@ -1541,8 +1552,16 @@ impl Rewriter<'_> {
     fn rewrite_terminator(&mut self, terminator: &mut Terminator, prelude: &mut Vec<Statement>) {
         match terminator {
             Terminator::Call { args, callee, .. } => {
-                if let crate::Callee::Indirect(operand) = callee {
-                    self.rewrite_number_operand(operand, prelude);
+                match callee {
+                    crate::Callee::Indirect(operand) => {
+                        self.rewrite_number_operand(operand, prelude);
+                    }
+                    crate::Callee::Op(op) => {
+                        op.reads_mut(|operand| self.rewrite_number_operand(operand, prelude));
+                    }
+                    crate::Callee::Static(_)
+                    | crate::Callee::Builtin(_)
+                    | crate::Callee::BaseInit(_) => {}
                 }
                 for arg in args {
                     self.rewrite_number_operand(arg, prelude);

@@ -324,7 +324,7 @@ impl FunctionEmitter<'_> {
         Ok(Some(format!("-{}", self.bigint_ref_text(operand)?)))
     }
 
-    /// Renders a fallible bigint builtin call (`BuiltinFn::BigInt`).
+    /// Renders a fallible bigint builtin call (`Rvalue::BigIntCall`).
     ///
     /// The trailing `?` is what marks the call fallible to
     /// `emit_throwing_call_terminator`, which binds the caught `RangeError`
