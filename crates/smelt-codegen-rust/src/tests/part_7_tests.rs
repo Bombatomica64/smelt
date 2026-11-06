@@ -809,8 +809,6 @@ fn emits_date_to_iso_string_for_erased_datearg_surfaces() {
         r#"
 declare const value: unknown;
 const isoFromUnknown = new Date(value).toISOString();
-const formatter = Intl.DateTimeFormat("en-US");
-const isoFromFormatter = formatter.format(value);
 "#,
     );
 
