@@ -29,7 +29,7 @@
 //! `resolve` handed on as a value (`emitter.once('done', resolve)`) is not a
 //! call here; its value comes from the slot it is passed to, and it keeps rule 3.
 
-use smelt_hir::{Body, Expr, ExprId, ExprKind, LocalId, TypeId};
+use smelt_hir::{Body, Expr, ExprId, ExprKind, Literal, LocalId, TypeId};
 
 /// How deeply nested closures are followed while looking for `resolve` calls.
 const MAX_CLOSURE_DEPTH: usize = 32;
@@ -77,8 +77,15 @@ fn collect_calls(
             ExprKind::ClosureCall { callee, args } if reads_local(body, *callee, resolve) => {
                 match args.first() {
                     Some(argument) => {
-                        if let Some(argument) = expr_at(body, *argument) {
-                            calls.argument_types.push(argument.ty);
+                        match uncast_argument(body, *argument) {
+                            // `resolve()` reaches an erased parameter as its
+                            // padded absent value, and `resolve(undefined)`
+                            // says the same thing.
+                            Some(Expr { kind: ExprKind::Literal(Literal::None | Literal::Undefined), .. }) => {
+                                calls.has_empty_call = true;
+                            }
+                            Some(argument) => calls.argument_types.push(argument.ty),
+                            None => {}
                         }
                     }
                     None => calls.has_empty_call = true,
@@ -98,6 +105,18 @@ fn collect_calls(
             }
             _ => {}
         }
+    }
+}
+
+/// The value a `resolve` call passes, before its erasure into the parameter.
+///
+/// The executor is first lowered against an erased `resolve`, so a typed argument
+/// reaches the call wrapped in a cast to `unknown`: the evidence is what it wraps.
+fn uncast_argument(body: &Body, id: ExprId) -> Option<&Expr> {
+    let argument = expr_at(body, id)?;
+    match argument.kind {
+        ExprKind::UnknownCast { value, .. } => uncast_argument(body, value),
+        _ => Some(argument),
     }
 }
 

@@ -4,14 +4,12 @@
 
 use crate::lowering::js_text::js_str_text;
 use crate::lowering::{
-    Argument, BinOp, BindingPattern, Body, CallbackCallArg, CallbackExpr, CallbackExprKind,
+    Argument, BinOp, Body, CallbackCallArg, CallbackExpr, CallbackExprKind,
     CaptureMode, ClosureCapture, Expr, ExprKind, Expression, FunctionType, HashMap, Item,
     Literal, LocalDecl, ModuleBuilder, Param, SmeltError, Span, Type,
 };
 use smelt_hir::ErasureReason;
 use oxc::span::GetSpan;
-use crate::lowering::support::arrow_block_statements;
-
 impl ModuleBuilder<'_> {
     /// Resolve a callback function symbol back to its normal HIR item.
     pub(in crate::lowering) fn callback_function_item(
@@ -492,12 +490,12 @@ impl ModuleBuilder<'_> {
         &mut self,
         argument: &Argument<'_>,
         expected_param_tys: &[smelt_hir::TypeId],
-        body: &Body,
+        body: &mut Body,
     ) -> Result<CallbackExpr, SmeltError> {
         if let Some(callback) = self.asserted_arrow_callback(argument, expected_param_tys, body)? {
             return Ok(callback);
         }
-        let Argument::ArrowFunctionExpression(arrow) = argument else {
+        {
             // A callback produced by a call (`xs.filter(negate(isEven))`) is
             // deliberately NOT modeled here. The compact callback IR can only
             // stand in a fabricated callee for it, which silently replaces the
@@ -505,9 +503,6 @@ impl ModuleBuilder<'_> {
             // once, in the enclosing body, and then called — see the callable
             // surface branch of `Self::callback_argument`, which owns the
             // enclosing `Body` and can bind the result to a local.
-            if let Argument::FunctionExpression(function) = argument {
-                return self.function_callback_from_params(function, expected_param_tys, body);
-            }
             if let Argument::Identifier(identifier) = argument
                 && let Some(callback) = self.named_callback_reference(
                     identifier.name.as_str(),
@@ -543,15 +538,8 @@ impl ModuleBuilder<'_> {
             return Err(SmeltError::unsupported(
                 self.span(argument.span().start, argument.span().end),
                 "array callback methods currently require arrow function callbacks",
-            ));
-        };
-        if arrow.r#async {
-            return Err(SmeltError::unsupported(
-                self.span(arrow.span.start, arrow.span.end),
-                "async callbacks need closure-body lowering",
-            ));
+            ))
         }
-        self.arrow_callback_from_params(arrow, expected_param_tys, body)
     }
 
     /// Resolve a bare identifier callback (`xs.map(fn)`) to a typed callback
@@ -618,29 +606,6 @@ impl ModuleBuilder<'_> {
             }));
         }
         if let Some(local) = self.scope.lookup(name) {
-            // A callback declaration whose local was never MATERIALIZED holds no
-            // value: the binding is only a declaration, and calls to the name are
-            // kept concrete by inlining the callback's own body instead (see
-            // `local_arrow_binding_local` and the `materialized` flag). Capturing
-            // such a local emits a call to the placeholder default callback the
-            // emitter renders for an unassigned function local — `|_| false` —
-            // so `words.filter(isShort)` answered `false` for every element and
-            // kept nothing. A silent wrong value, with the direct call
-            // `isShort('ab')` right beside it answering correctly, because that
-            // path inlines.
-            //
-            // Hand the decision back rather than guessing: the caller's fallback
-            // reaches `identifier_expression`, which already knows this rule and
-            // rebuilds the closure from the callback's body for exactly this
-            // case. A callback from ANOTHER body, or one whose binding really was
-            // materialized, does hold a value and is captured as before.
-            let binding_holds_no_value = self.scope.callback(name).is_some_and(|callback| {
-                !callback.materialized
-                    && body.blocks.first().map(|block| block.span) == callback.defining_body_span
-            });
-            if binding_holds_no_value {
-                return Ok(None);
-            }
             let local_ty = Self::local_ty(body, local);
             if let Some(Type::Function(function)) = self.ctx.krate.types.get(local_ty).cloned() {
                 // Same arity rule as item references above: fewer declared
@@ -705,7 +670,7 @@ impl ModuleBuilder<'_> {
         &mut self,
         array: &oxc::ast::ast::ArrayExpression<'_>,
         expected_param_tys: &[smelt_hir::TypeId],
-        body: &Body,
+        body: &mut Body,
     ) -> Result<Option<CallbackExpr>, SmeltError> {
         let [first, second] = array.elements.as_slice() else {
             return Ok(None);
@@ -720,8 +685,13 @@ impl ModuleBuilder<'_> {
             .first()
             .copied()
             .unwrap_or_else(|| self.erase_with(ErasureReason::MissingAnnotation, "iteratee element"));
-        let params = HashMap::default();
-        let value = self.callback_expression(value_expression, &params, body)?;
+        // JavaScript builds the iteratee array once, at the call.
+        let source_value = self.expression(value_expression, body)?;
+        let value_ty = Self::expr_ty(body, source_value);
+        let span = self.span(array.span.start, array.span.end);
+        let symbol = self.ctx.krate.symbols.intern("__iteratee_value");
+        let local = self.capture_bind_value(source_value, value_ty, symbol, span, body);
+        let value = CallbackExpr { kind: CallbackExprKind::Capture(local), ty: value_ty };
         let field = self.intern_source_name(&js_str_text(path.value));
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let field_ty = self.erase_with(ErasureReason::ByName, &js_str_text(path.value));
@@ -782,18 +752,6 @@ impl ModuleBuilder<'_> {
         body: &Body,
     ) -> Result<CallbackExpr, SmeltError> {
         match expression {
-            Expression::ArrowFunctionExpression(arrow) => {
-                if arrow.r#async {
-                    return Err(SmeltError::unsupported(
-                        self.span(arrow.span.start, arrow.span.end),
-                        "async callbacks need closure-body lowering",
-                    ));
-                }
-                self.arrow_callback_from_params(arrow, expected_param_tys, body)
-            }
-            Expression::FunctionExpression(function) => {
-                self.function_callback_from_params(function, expected_param_tys, body)
-            }
             Expression::ParenthesizedExpression(parenthesized) => {
                 self.arrow_callback_expression(&parenthesized.expression, expected_param_tys, body)
             }
@@ -1082,145 +1040,6 @@ impl ModuleBuilder<'_> {
         self.scope.is_bound(name)
             || self.source_facts.declares_module_value(name)
             || (self.imports.is_value(name) && self.host_module_identifier_export_path(name).is_none())
-    }
-
-    /// Lower a function-expression callback after expected parameter types are known.
-    pub(in crate::lowering) fn function_callback_from_params(
-        &mut self,
-        function: &oxc::ast::ast::Function<'_>,
-        expected_param_tys: &[smelt_hir::TypeId],
-        body: &Body,
-    ) -> Result<CallbackExpr, SmeltError> {
-        if function.r#async {
-            return Err(SmeltError::unsupported(
-                self.span(function.span.start, function.span.end),
-                "async callbacks need closure-body lowering",
-            ));
-        }
-        if function.params.rest.is_some() || function.params.items.len() > expected_param_tys.len()
-        {
-            return Err(SmeltError::unsupported(
-                self.span(function.span.start, function.span.end),
-                "array callback parameter count is not supported for this method",
-            ));
-        }
-        let Some(function_body) = &function.body else {
-            return Err(SmeltError::unsupported(
-                self.span(function.span.start, function.span.end),
-                "function expression callbacks must have a body",
-            ));
-        };
-        let mut params = HashMap::new();
-        for (index, param) in function.params.items.iter().enumerate() {
-            let Some(expected_ty) = expected_param_tys.get(index).copied() else {
-                return Err(SmeltError::unsupported(
-                    self.span(param.span.start, param.span.end),
-                    "array callback parameter count is not supported for this method",
-                ));
-            };
-            self.bind_callback_param_pattern(&param.pattern, index, expected_ty, &mut params)?;
-        }
-        self.callback_block_expression(&function_body.statements, &mut params, body)
-    }
-
-    /// Lower an arrow callback after the expected parameter types are known.
-    pub(in crate::lowering) fn arrow_callback_from_params(
-        &mut self,
-        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
-        expected_param_tys: &[smelt_hir::TypeId],
-        body: &Body,
-    ) -> Result<CallbackExpr, SmeltError> {
-        if arrow.params.items.len() > expected_param_tys.len() {
-            return Err(SmeltError::unsupported(
-                self.span(arrow.span.start, arrow.span.end),
-                "array callback parameter count is not supported for this method",
-            ));
-        }
-        // A tuple rest parameter binds a tuple of fixed parameters, which the
-        // compact callback IR has no literal for; the closure-body path lowers
-        // it (`lowering::tuple_rest`).
-        if self
-            .tuple_rest_arrows
-            .contains_key(&(arrow.params.span.start, arrow.params.span.end))
-        {
-            return Err(SmeltError::unsupported(
-                self.span(arrow.span.start, arrow.span.end),
-                "a tuple rest parameter is lowered through the closure body",
-            ));
-        }
-        let mut params = HashMap::new();
-        for (index, param) in arrow.params.items.iter().enumerate() {
-            let Some(expected_ty) = expected_param_tys.get(index).copied() else {
-                return Err(SmeltError::unsupported(
-                    self.span(param.span.start, param.span.end),
-                    "array callback parameter count is not supported for this method",
-                ));
-            };
-            self.bind_callback_param_pattern(&param.pattern, index, expected_ty, &mut params)?;
-        }
-        if let Some(rest) = &arrow.params.rest {
-            let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
-                return Err(SmeltError::unsupported(
-                    self.span(rest.span.start, rest.span.end),
-                    "destructured rest callback parameters need closure-body lowering",
-                ));
-            };
-            let rest_index = arrow.params.items.len();
-            let rest_ty = expected_param_tys.get(rest_index).copied().ok_or_else(|| {
-                SmeltError::unsupported(
-                    self.span(rest.span.start, rest.span.end),
-                    "rest callback parameter has no expected input type",
-                )
-            })?;
-            if matches!(self.ctx.krate.types.get(rest_ty), Some(Type::List(_)))
-                && expected_param_tys.len() == rest_index + 1
-            {
-                params.insert(
-                    binding.name.as_str(),
-                    CallbackExpr {
-                        kind: CallbackExprKind::Param(rest_index),
-                        ty: rest_ty,
-                    },
-                );
-            } else {
-                let rest_items = expected_param_tys
-                    .iter()
-                    .enumerate()
-                    .skip(rest_index)
-                    .map(|(index, ty)| CallbackExpr {
-                        kind: CallbackExprKind::Param(index),
-                        ty: *ty,
-                    })
-                    .collect::<Vec<_>>();
-                let item_ty = rest
-                    .type_annotation
-                    .as_ref()
-                    .and_then(|annotation| {
-                        let list_ty = self.ts_type_to_hir(&annotation.type_annotation).ok()?;
-                        match self.ctx.krate.types.get(list_ty) {
-                            Some(Type::List(item_ty)) => Some(*item_ty),
-                            _ => None,
-                        }
-                    })
-                    .or_else(|| rest_items.first().map(|item| item.ty))
-                    .unwrap_or_else(|| {
-                        self.erase_with(ErasureReason::MissingAnnotation, binding.name.as_str())
-                    });
-                params.insert(
-                    binding.name.as_str(),
-                    CallbackExpr {
-                        kind: CallbackExprKind::ListLit(rest_items),
-                        ty: self.ctx.krate.types.intern(Type::List(item_ty)),
-                    },
-                );
-            }
-        }
-        // A concise body is the expression itself since oxc 0.147.
-        if let Some(body_expression) = arrow.get_expression() {
-            self.callback_expression(body_expression, &params, body)
-        } else {
-            self.callback_block_expression(arrow_block_statements(arrow), &mut params, body)
-        }
     }
 
 }

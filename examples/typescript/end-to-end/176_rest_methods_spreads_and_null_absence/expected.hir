@@ -202,8 +202,8 @@ interned types
   t12 = Bool
   t13 = Float | String | Bool
   t14 = List<Float | String | Bool>
-  t15 = fn(String, Optional<String>) -> String
-  t16 = Unknown
+  t15 = Unknown
+  t16 = fn(String, Optional<String>) -> String
   t17 = fn(String, Optional<String>) -> String
   t18 = fn(...List<Float | String | Bool>) -> Float
   t19 = fn(Float, ...List<Float>) -> Float

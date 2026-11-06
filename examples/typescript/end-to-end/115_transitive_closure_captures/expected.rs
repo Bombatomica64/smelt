@@ -3632,8 +3632,8 @@ fn main() {
     let smelt_captured_closure_arg_0 = closure_arg_0.clone();
     move |closure_arg_0: String| -> ::std::rc::Rc<dyn Fn(String) -> String> {
     let _smelt_tmp_2 = ::std::rc::Rc::new({
-    let smelt_captured_closure_arg_0_0 = closure_arg_0.clone();
     let smelt_captured_closure_arg_0 = smelt_captured_closure_arg_0.clone();
+    let smelt_captured_closure_arg_0_0 = closure_arg_0.clone();
     move |closure_arg_0: String| {
     let _smelt_tmp_3: String = smelt_captured_closure_arg_0.clone() + &closure_arg_0.clone();
     let _smelt_tmp_4: String = _smelt_tmp_3.clone() + &smelt_captured_closure_arg_0_0.clone();

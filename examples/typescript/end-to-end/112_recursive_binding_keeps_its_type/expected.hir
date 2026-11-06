@@ -35,6 +35,7 @@ interned types
   t5 = fn(Float) -> Float
   t6 = Bool
   t7 = fn(Float, String) -> String
-  t8 = fn(String) -> String
-  t9 = None
-  t10 = fn(String, Float) -> String
+  t8 = fn(Float, String) -> String
+  t9 = fn(String) -> String
+  t10 = None
+  t11 = fn(String, Float) -> String

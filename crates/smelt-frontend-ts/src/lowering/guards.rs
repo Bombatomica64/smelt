@@ -59,11 +59,16 @@ impl ModuleBuilder<'_> {
                 span: self.span(span.start, span.end),
             }));
         }
+        // A constructor read from a value (`pair.errorClass`) is only known at
+        // run time, so the prototype-chain walk runs there too.
         let Expression::Identifier(class_ident) = target else {
-            return Err(SmeltError::unsupported(
-                self.span(target.span().start, target.span().end),
-                "TypeScript instanceof requires a direct class constructor on the right side",
-            ));
+            let target = self.expression(target, body)?;
+            let ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::InstanceOfValue { value, target },
+                ty,
+                span: self.span(span.start, span.end),
+            }));
         };
         let class_text = class_ident.name.as_str();
         // `x instanceof Uint8Array` (any typed-array view) resolves through the
@@ -187,7 +192,6 @@ impl ModuleBuilder<'_> {
             // function value, never a nominal class; the nominal path below
             // keeps its compile-time marker probe.
             let target_is_function_value = self.scope.is_bound(class_text)
-                || self.scope.has_callback(class_text)
                 || self
                     .items
                     .get(class_text)

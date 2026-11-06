@@ -171,7 +171,7 @@ impl ModuleBuilder<'_> {
         };
         let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Array.from mapper element");
         let index_ty = self.ctx.krate.types.intern(Type::Float);
-        let callback = self.callback_argument_with_body_fallback(
+        let callback = self.callback_argument_with_return_hint(
             mapper_arg,
             &[unknown_ty, index_ty],
             index_ty,

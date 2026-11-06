@@ -93,178 +93,148 @@ fn main (FuncId(1)) -> None
     %2 user w: Optional<String>
     %3 temp: fn(String, Optional<String>) -> String
     %4 temp: String
-    %5 temp: fn(String, Optional<String>) -> String
-    %6 temp: String
-    %7 temp: None
+    %5 temp: String
+    %6 temp: None
+    %7 temp: String
     %8 temp: String
     %9 temp: String
-    %10 temp: String
-    %11 temp: None
-    %12 temp: List<Optional<String>>
+    %10 temp: None
+    %11 temp: List<Optional<String>>
+    %12 temp: usize
     %13 temp: usize
-    %14 temp: usize
+    %14 temp: Bool
     %15 temp: Bool
     %16 temp: Bool
-    %17 temp: Bool
-    %18 temp: Optional<String>
-    %19 temp: String
-    %20 temp: Float
-    %21 temp: Optional<String>
+    %17 temp: Optional<String>
+    %18 temp: String
+    %19 temp: Float
+    %20 temp: Optional<String>
+    %21 temp: Bool
     %22 temp: Bool
-    %23 temp: Bool
-    %24 temp: Optional<String>
+    %23 temp: Optional<String>
+    %24 temp: String
     %25 temp: String
-    %26 temp: String
+    %26 temp: Bool
     %27 temp: Bool
-    %28 temp: Bool
-    %29 temp: Optional<String>
-    %30 temp: String
-    %31 temp: Optional<String>
+    %28 temp: Optional<String>
+    %29 temp: String
+    %30 temp: Optional<String>
+    %31 temp: Bool
     %32 temp: Bool
-    %33 temp: Bool
-    %34 temp: Optional<Float>
-    %35 temp: String
-    %36 temp: Float
+    %33 temp: Optional<Float>
+    %34 temp: String
+    %35 temp: Float
+    %36 temp: Bool
     %37 temp: Bool
-    %38 temp: Bool
-    %39 temp: Optional<Bool>
+    %38 temp: Optional<Bool>
+    %39 temp: String
     %40 temp: String
     %41 temp: String
-    %42 temp: String
-    %43 temp: Bool
-    %44 temp: None
+    %42 temp: Bool
+    %43 temp: None
   bb0:
     %3 = closure ClosureId(0) []
-    %4 = closure_call move %3("p", none)
-    %5 = closure ClosureId(1) []
-    %6 = closure_call move %5("p", "q")
-    %7 = call @console_log(move %4, move %6) -> bb1
+    %0 = move %3
+    %4 = closure_call copy %0("p", none)
+    %5 = closure_call move %0("p", "q")
+    %6 = call @console_log(move %4, move %5) -> bb1
   bb1:
-    %8 = call fn0("/book/", "/hey") -> bb2
+    %7 = call fn0("/book/", "/hey") -> bb2
   bb2:
-    %9 = call fn0("/", "book") -> bb3
+    %8 = call fn0("/", "book") -> bb3
   bb3:
-    %10 = call fn0("/", "/book") -> bb4
+    %9 = call fn0("/", "/book") -> bb4
   bb4:
-    %11 = call @console_log(move %8, move %9, move %10) -> bb5
+    %10 = call @console_log(move %7, move %8, move %9) -> bb5
   bb5:
     %1 = ["/xy", undefined]
-    %13 = 0
+    %12 = 0
     goto bb6
   bb6:
-    %14 = len copy %1
-    %15 = copy %13 < move %14
-    switch move %15 ? bb7 : bb9
+    %13 = len copy %1
+    %14 = copy %12 < move %13
+    switch move %14 ? bb7 : bb9
   bb7:
-    %2 = copy %1[copy %13]
-    %16 = unknown_is Null copy %2
-    %17 = !move %16
-    switch move %17 ? bb10 : bb11
+    %2 = copy %1[copy %12]
+    %15 = unknown_is Null copy %2
+    %16 = !move %15
+    switch move %16 ? bb10 : bb11
   bb8:
-    %13 = copy %13 + 1
+    %12 = copy %12 + 1
     goto bb6
   bb9:
     return none
   bb10:
-    %19 = copy %2
-    %20 = -1.0
-    %21 = move %19?.[move %20]
-    %18 = move %21
+    %18 = copy %2
+    %19 = -1.0
+    %20 = move %18?.[move %19]
+    %17 = move %20
     goto bb12
   bb11:
-    %18 = none
+    %17 = none
     goto bb12
   bb12:
-    %22 = unknown_is Null copy %2
-    %23 = !move %22
-    switch move %23 ? bb13 : bb14
+    %21 = unknown_is Null copy %2
+    %22 = !move %21
+    switch move %22 ? bb13 : bb14
   bb13:
-    %25 = copy %2
-    %26 = string_slice move %25, 1.0, _
-    %24 = move %26
+    %24 = copy %2
+    %25 = string_slice move %24, 1.0, _
+    %23 = move %25
     goto bb15
   bb14:
-    %24 = none
+    %23 = none
     goto bb15
   bb15:
-    %27 = unknown_is Null copy %2
-    %28 = !move %27
-    switch move %28 ? bb16 : bb17
+    %26 = unknown_is Null copy %2
+    %27 = !move %26
+    switch move %27 ? bb16 : bb17
   bb16:
-    %30 = copy %2
-    %31 = move %30?.method11()
-    %29 = move %31
+    %29 = copy %2
+    %30 = move %29?.method11()
+    %28 = move %30
     goto bb18
   bb17:
-    %29 = none
+    %28 = none
     goto bb18
   bb18:
-    %32 = unknown_is Null copy %2
-    %33 = !move %32
-    switch move %33 ? bb19 : bb20
+    %31 = unknown_is Null copy %2
+    %32 = !move %31
+    switch move %32 ? bb19 : bb20
   bb19:
-    %35 = copy %2
-    %36 = string_find move %35, "x"
-    %34 = move %36
+    %34 = copy %2
+    %35 = string_find move %34, "x"
+    %33 = move %35
     goto bb21
   bb20:
-    %34 = none
+    %33 = none
     goto bb21
   bb21:
-    %37 = unknown_is Null copy %2
-    %38 = !move %37
-    switch move %38 ? bb22 : bb23
+    %36 = unknown_is Null copy %2
+    %37 = !move %36
+    switch move %37 ? bb22 : bb23
   bb22:
-    %41 = move %2
-    %42 = "/"
-    %43 = string_starts_with move %41, move %42
-    %39 = move %43
+    %40 = move %2
+    %41 = "/"
+    %42 = string_starts_with move %40, move %41
+    %38 = move %42
     goto bb24
   bb23:
-    %39 = none
+    %38 = none
     goto bb24
   bb24:
-    %44 = call @console_log(move %18, move %24, move %29, move %34, move %39) -> bb25
+    %43 = call @console_log(move %17, move %23, move %28, move %33, move %38) -> bb25
   bb25:
     goto bb8
 
 closure ClosureId(0) -> String
   locals
-    %0 param __callback_param_0: String
-    %1 param __callback_param_1: Optional<String>
-    %2 temp: Bool
-    %3 temp: Optional<String>
-    %4 temp: String
+    %0 param a: String
+    %1 param b: Optional<String>
+    %2 temp: String
+    %3 temp: String
   bb0:
-    %2 = copy %1 != none
-    switch copy %2 ? bb1 : bb2
-  bb1:
-    %3 = copy %1
-    goto bb3
-  bb2:
-    %3 = "-"
-    goto bb3
-  bb3:
-    %4 = copy %0 + copy %3
-    return copy %4
-
-closure ClosureId(1) -> String
-  locals
-    %0 param __callback_param_0: String
-    %1 param __callback_param_1: Optional<String>
-    %2 temp: Bool
-    %3 temp: Optional<String>
-    %4 temp: String
-  bb0:
-    %2 = copy %1 != none
-    switch copy %2 ? bb1 : bb2
-  bb1:
-    %3 = copy %1
-    goto bb3
-  bb2:
-    %3 = "-"
-    goto bb3
-  bb3:
-    %4 = copy %0 + copy %3
-    return copy %4
+    %2 = copy %1 ?? "-"
+    %3 = copy %0 + copy %2
+    return copy %3
 

@@ -3519,162 +3519,144 @@ impl SmeltFromUnknown for SmeltMatch {
 fn main() {
     let words: SmeltList<Option<String>>;
     let mut w: Option<String>;
+    let mut _smelt_tmp_12: usize;
     let mut _smelt_tmp_13: usize;
-    let mut _smelt_tmp_14: usize;
+    let mut _smelt_tmp_14: bool;
     let mut _smelt_tmp_15: bool;
     let mut _smelt_tmp_16: bool;
-    let mut _smelt_tmp_17: bool;
-    let mut _smelt_tmp_18: Option<String>;
-    let mut _smelt_tmp_19: String;
-    let mut _smelt_tmp_20: f64;
-    let mut _smelt_tmp_21: Option<String>;
+    let mut _smelt_tmp_17: Option<String>;
+    let mut _smelt_tmp_18: String;
+    let mut _smelt_tmp_19: f64;
+    let mut _smelt_tmp_20: Option<String>;
+    let mut _smelt_tmp_21: bool;
     let mut _smelt_tmp_22: bool;
-    let mut _smelt_tmp_23: bool;
-    let mut _smelt_tmp_24: Option<String>;
+    let mut _smelt_tmp_23: Option<String>;
+    let mut _smelt_tmp_24: String;
     let mut _smelt_tmp_25: String;
-    let mut _smelt_tmp_26: String;
+    let mut _smelt_tmp_26: bool;
     let mut _smelt_tmp_27: bool;
-    let mut _smelt_tmp_28: bool;
-    let mut _smelt_tmp_29: Option<String>;
-    let mut _smelt_tmp_30: String;
-    let mut _smelt_tmp_31: Option<String>;
+    let mut _smelt_tmp_28: Option<String>;
+    let mut _smelt_tmp_29: String;
+    let mut _smelt_tmp_30: Option<String>;
+    let mut _smelt_tmp_31: bool;
     let mut _smelt_tmp_32: bool;
-    let mut _smelt_tmp_33: bool;
-    let mut _smelt_tmp_34: Option<f64>;
-    let mut _smelt_tmp_35: String;
-    let mut _smelt_tmp_36: f64;
+    let mut _smelt_tmp_33: Option<f64>;
+    let mut _smelt_tmp_34: String;
+    let mut _smelt_tmp_35: f64;
+    let mut _smelt_tmp_36: bool;
     let mut _smelt_tmp_37: bool;
-    let mut _smelt_tmp_38: bool;
-    let mut _smelt_tmp_39: Option<bool>;
+    let mut _smelt_tmp_38: Option<bool>;
+    let mut _smelt_tmp_40: String;
     let mut _smelt_tmp_41: String;
-    let mut _smelt_tmp_42: String;
-    let mut _smelt_tmp_43: bool;
+    let mut _smelt_tmp_42: bool;
     let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: Option<String>| {
-    let mut _smelt_tmp_3: Option<String>;
-    let _smelt_tmp_4: String;
-    let _smelt_tmp_2: bool = !(closure_arg_1.clone().is_none());
-    if _smelt_tmp_2 {
-    _smelt_tmp_3 = closure_arg_1.clone();
-    } else {
-    _smelt_tmp_3 = Some("-".to_owned());
-    }
-    _smelt_tmp_4 = closure_arg_0.clone() + &_smelt_tmp_3.clone().unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_4.clone()
+    let _smelt_tmp_2: String = closure_arg_1.clone().unwrap_or("-".to_owned());
+    let _smelt_tmp_3: String = closure_arg_0.clone() + &_smelt_tmp_2.clone();
+    _smelt_tmp_3.clone()
     });
-    let _smelt_tmp_4: String = (_smelt_tmp_3)("p".to_owned(), None);
-    let _smelt_tmp_5 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: Option<String>| {
-    let mut _smelt_tmp_3: Option<String>;
-    let _smelt_tmp_4: String;
-    let _smelt_tmp_2: bool = !(closure_arg_1.clone().is_none());
-    if _smelt_tmp_2 {
-    _smelt_tmp_3 = closure_arg_1.clone();
-    } else {
-    _smelt_tmp_3 = Some("-".to_owned());
-    }
-    _smelt_tmp_4 = closure_arg_0.clone() + &_smelt_tmp_3.clone().unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_4.clone()
-    });
-    let _smelt_tmp_6: String = (_smelt_tmp_5)("p".to_owned(), Some("q".to_owned()));
-    let _ = { println!("{} {}", _smelt_tmp_4, _smelt_tmp_6); };
-    let _smelt_tmp_8: String = merge_path__module_main(Some("/book/".to_owned()), Some("/hey".to_owned()));
-    let _smelt_tmp_9: String = merge_path__module_main(Some("/".to_owned()), Some("book".to_owned()));
-    let _smelt_tmp_10: String = merge_path__module_main(Some("/".to_owned()), Some("/book".to_owned()));
-    let _ = { println!("{} {} {}", _smelt_tmp_8, _smelt_tmp_9, _smelt_tmp_10); };
+    let join = _smelt_tmp_3.clone();
+    let _smelt_tmp_4: String = (join)("p".to_owned(), None);
+    let _smelt_tmp_5: String = (join)("p".to_owned(), Some("q".to_owned()));
+    let _ = { println!("{} {}", _smelt_tmp_4, _smelt_tmp_5); };
+    let _smelt_tmp_7: String = merge_path__module_main(Some("/book/".to_owned()), Some("/hey".to_owned()));
+    let _smelt_tmp_8: String = merge_path__module_main(Some("/".to_owned()), Some("book".to_owned()));
+    let _smelt_tmp_9: String = merge_path__module_main(Some("/".to_owned()), Some("/book".to_owned()));
+    let _ = { println!("{} {} {}", _smelt_tmp_7, _smelt_tmp_8, _smelt_tmp_9); };
     words = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Option<String>> = vec![Some("/xy".to_owned()), None::<String>]; smelt_list_items }));
-    _smelt_tmp_13 = 0;
+    _smelt_tmp_12 = 0;
     loop {
-    _smelt_tmp_14 = words.len();
-    _smelt_tmp_15 = _smelt_tmp_13 < _smelt_tmp_14;
-    if !(_smelt_tmp_15) { break; }
-    w = words.borrow().get(_smelt_tmp_13).cloned().unwrap_or_else(|| None::<String>);
-    _smelt_tmp_16 = w.clone().is_none();
-    _smelt_tmp_17 = !(_smelt_tmp_16);
-    if _smelt_tmp_17 {
-    _smelt_tmp_19 = w.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_20 = -1.0;
-    _smelt_tmp_21 = ({ let smelt_len = _smelt_tmp_19.chars().count() as i64; let smelt_index = _smelt_tmp_20 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| _smelt_tmp_19.chars().nth(index).map(|ch| ch.to_string()));
-    _smelt_tmp_18 = _smelt_tmp_21;
-    _smelt_tmp_22 = w.clone().is_none();
-    _smelt_tmp_23 = !(_smelt_tmp_22);
-    if _smelt_tmp_23 {
-    _smelt_tmp_25 = w.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_26 = _smelt_tmp_25.chars().skip({ let smelt_len = _smelt_tmp_25.chars().count() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take(_smelt_tmp_25.chars().count().saturating_sub({ let smelt_len = _smelt_tmp_25.chars().count() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).collect::<String>();
-    _smelt_tmp_24 = Some(_smelt_tmp_26);
+    _smelt_tmp_13 = words.len();
+    _smelt_tmp_14 = _smelt_tmp_12 < _smelt_tmp_13;
+    if !(_smelt_tmp_14) { break; }
+    w = words.borrow().get(_smelt_tmp_12).cloned().unwrap_or_else(|| None::<String>);
+    _smelt_tmp_15 = w.clone().is_none();
+    _smelt_tmp_16 = !(_smelt_tmp_15);
+    if _smelt_tmp_16 {
+    _smelt_tmp_18 = w.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_19 = -1.0;
+    _smelt_tmp_20 = ({ let smelt_len = _smelt_tmp_18.chars().count() as i64; let smelt_index = _smelt_tmp_19 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| _smelt_tmp_18.chars().nth(index).map(|ch| ch.to_string()));
+    _smelt_tmp_17 = _smelt_tmp_20;
+    _smelt_tmp_21 = w.clone().is_none();
+    _smelt_tmp_22 = !(_smelt_tmp_21);
+    if _smelt_tmp_22 {
+    _smelt_tmp_24 = w.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_25 = _smelt_tmp_24.chars().skip({ let smelt_len = _smelt_tmp_24.chars().count() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take(_smelt_tmp_24.chars().count().saturating_sub({ let smelt_len = _smelt_tmp_24.chars().count() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).collect::<String>();
+    _smelt_tmp_23 = Some(_smelt_tmp_25);
     } else {
-    _smelt_tmp_24 = None::<String>;
+    _smelt_tmp_23 = None::<String>;
     }
-    _smelt_tmp_27 = w.clone().is_none();
-    _smelt_tmp_28 = !(_smelt_tmp_27);
-    if _smelt_tmp_28 {
-    _smelt_tmp_30 = w.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_31 = Some(_smelt_tmp_30.to_uppercase());
-    _smelt_tmp_29 = _smelt_tmp_31;
+    _smelt_tmp_26 = w.clone().is_none();
+    _smelt_tmp_27 = !(_smelt_tmp_26);
+    if _smelt_tmp_27 {
+    _smelt_tmp_29 = w.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_30 = Some(_smelt_tmp_29.to_uppercase());
+    _smelt_tmp_28 = _smelt_tmp_30;
     } else {
-    _smelt_tmp_29 = None::<String>;
+    _smelt_tmp_28 = None::<String>;
     }
-    _smelt_tmp_32 = w.clone().is_none();
-    _smelt_tmp_33 = !(_smelt_tmp_32);
-    if _smelt_tmp_33 {
-    _smelt_tmp_35 = w.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_36 = _smelt_tmp_35.find(&"x".to_owned()).map_or(-1.0, |idx| idx as f64);
-    _smelt_tmp_34 = Some(_smelt_tmp_36);
+    _smelt_tmp_31 = w.clone().is_none();
+    _smelt_tmp_32 = !(_smelt_tmp_31);
+    if _smelt_tmp_32 {
+    _smelt_tmp_34 = w.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_35 = _smelt_tmp_34.find(&"x".to_owned()).map_or(-1.0, |idx| idx as f64);
+    _smelt_tmp_33 = Some(_smelt_tmp_35);
     } else {
-    _smelt_tmp_34 = None::<f64>;
+    _smelt_tmp_33 = None::<f64>;
     }
-    _smelt_tmp_37 = w.clone().is_none();
-    _smelt_tmp_38 = !(_smelt_tmp_37);
-    if _smelt_tmp_38 {
-    _smelt_tmp_41 = w.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_42 = "/".to_owned();
-    _smelt_tmp_43 = _smelt_tmp_41.starts_with(&_smelt_tmp_42);
-    _smelt_tmp_39 = Some(_smelt_tmp_43);
+    _smelt_tmp_36 = w.clone().is_none();
+    _smelt_tmp_37 = !(_smelt_tmp_36);
+    if _smelt_tmp_37 {
+    _smelt_tmp_40 = w.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_41 = "/".to_owned();
+    _smelt_tmp_42 = _smelt_tmp_40.starts_with(&_smelt_tmp_41);
+    _smelt_tmp_38 = Some(_smelt_tmp_42);
     } else {
-    _smelt_tmp_39 = None::<bool>;
+    _smelt_tmp_38 = None::<bool>;
     }
-    let _ = { println!("{} {} {} {} {}", match &_smelt_tmp_18 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_24 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_29 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_34 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_39 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    _smelt_tmp_13 = _smelt_tmp_13 + 1;
+    let _ = { println!("{} {} {} {} {}", match &_smelt_tmp_17 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_23 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_28 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_33 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_38 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    _smelt_tmp_12 = _smelt_tmp_12 + 1;
     continue;
     } else {
-    _smelt_tmp_18 = None::<String>;
-    _smelt_tmp_22 = w.clone().is_none();
-    _smelt_tmp_23 = !(_smelt_tmp_22);
-    if _smelt_tmp_23 {
-    _smelt_tmp_25 = w.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_26 = _smelt_tmp_25.chars().skip({ let smelt_len = _smelt_tmp_25.chars().count() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take(_smelt_tmp_25.chars().count().saturating_sub({ let smelt_len = _smelt_tmp_25.chars().count() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).collect::<String>();
-    _smelt_tmp_24 = Some(_smelt_tmp_26);
+    _smelt_tmp_17 = None::<String>;
+    _smelt_tmp_21 = w.clone().is_none();
+    _smelt_tmp_22 = !(_smelt_tmp_21);
+    if _smelt_tmp_22 {
+    _smelt_tmp_24 = w.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_25 = _smelt_tmp_24.chars().skip({ let smelt_len = _smelt_tmp_24.chars().count() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take(_smelt_tmp_24.chars().count().saturating_sub({ let smelt_len = _smelt_tmp_24.chars().count() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).collect::<String>();
+    _smelt_tmp_23 = Some(_smelt_tmp_25);
     } else {
-    _smelt_tmp_24 = None::<String>;
+    _smelt_tmp_23 = None::<String>;
     }
-    _smelt_tmp_27 = w.clone().is_none();
-    _smelt_tmp_28 = !(_smelt_tmp_27);
-    if _smelt_tmp_28 {
-    _smelt_tmp_30 = w.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_31 = Some(_smelt_tmp_30.to_uppercase());
-    _smelt_tmp_29 = _smelt_tmp_31;
+    _smelt_tmp_26 = w.clone().is_none();
+    _smelt_tmp_27 = !(_smelt_tmp_26);
+    if _smelt_tmp_27 {
+    _smelt_tmp_29 = w.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_30 = Some(_smelt_tmp_29.to_uppercase());
+    _smelt_tmp_28 = _smelt_tmp_30;
     } else {
-    _smelt_tmp_29 = None::<String>;
+    _smelt_tmp_28 = None::<String>;
     }
-    _smelt_tmp_32 = w.clone().is_none();
-    _smelt_tmp_33 = !(_smelt_tmp_32);
-    if _smelt_tmp_33 {
-    _smelt_tmp_35 = w.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_36 = _smelt_tmp_35.find(&"x".to_owned()).map_or(-1.0, |idx| idx as f64);
-    _smelt_tmp_34 = Some(_smelt_tmp_36);
+    _smelt_tmp_31 = w.clone().is_none();
+    _smelt_tmp_32 = !(_smelt_tmp_31);
+    if _smelt_tmp_32 {
+    _smelt_tmp_34 = w.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_35 = _smelt_tmp_34.find(&"x".to_owned()).map_or(-1.0, |idx| idx as f64);
+    _smelt_tmp_33 = Some(_smelt_tmp_35);
     } else {
-    _smelt_tmp_34 = None::<f64>;
+    _smelt_tmp_33 = None::<f64>;
     }
-    _smelt_tmp_37 = w.clone().is_none();
-    _smelt_tmp_38 = !(_smelt_tmp_37);
-    if _smelt_tmp_38 {
-    _smelt_tmp_41 = w.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_42 = "/".to_owned();
-    _smelt_tmp_43 = _smelt_tmp_41.starts_with(&_smelt_tmp_42);
-    _smelt_tmp_39 = Some(_smelt_tmp_43);
+    _smelt_tmp_36 = w.clone().is_none();
+    _smelt_tmp_37 = !(_smelt_tmp_36);
+    if _smelt_tmp_37 {
+    _smelt_tmp_40 = w.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_41 = "/".to_owned();
+    _smelt_tmp_42 = _smelt_tmp_40.starts_with(&_smelt_tmp_41);
+    _smelt_tmp_38 = Some(_smelt_tmp_42);
     } else {
-    _smelt_tmp_39 = None::<bool>;
+    _smelt_tmp_38 = None::<bool>;
     }
-    let _ = { println!("{} {} {} {} {}", match &_smelt_tmp_18 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_24 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_29 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_34 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_39 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    _smelt_tmp_13 = _smelt_tmp_13 + 1;
+    let _ = { println!("{} {} {} {} {}", match &_smelt_tmp_17 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_23 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_28 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_33 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_38 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    _smelt_tmp_12 = _smelt_tmp_12 + 1;
     continue;
     }
     }

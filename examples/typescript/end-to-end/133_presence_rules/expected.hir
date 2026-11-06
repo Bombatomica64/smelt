@@ -1,5 +1,5 @@
 module examples/typescript/end-to-end/133_presence_rules/input.ts (ModuleId(0))
-  body BodyId(10)
+  body BodyId(8)
   items
     class Wrapper fields [Public raw: Request, Public count: Float] constructor Some(ItemId(5)) methods [ItemId(6)] implements []
     fn segments owner Module
@@ -11,129 +11,131 @@ module examples/typescript/end-to-end/133_presence_rules/input.ts (ModuleId(0))
     %0 const isRaw: fn(Wrapper | Request) -> Bool
     %1 const req: Request
   exprs
-    #0: String = "https://x/"
-    #1: String = "POST"
-    #2: String = "a"
-    #3: String = "Content-Type"
-    #4: String = "text/plain"
-    #5: Dict<String, String> = {#3: #4}
-    #6: Request = request_new input=#0 method=#1 headers=#5 body=#2
-    #7: fn(Wrapper | Request) -> Bool = closure BodyId(7) captures 0 -> Bool
-    #8: Request = %1
-    #9: Bool = closure_call #7(#8)
-    #10: fn(Wrapper | Request) -> Bool = closure BodyId(8) captures 0 -> Bool
-    #11: Request = %1
-    #12: Wrapper = new Wrapper(#11)
-    #13: Bool = closure_call #10(#12)
-    #14: None = @8(console_log)
-    #15: None = call #14(#9, #13)
-    #16: fn(Wrapper | Request) -> Bool = closure BodyId(9) captures 0 -> Bool
-    #17: Request = %1
-    #18: Wrapper = new Wrapper(#17)
-    #19: Request = #18.raw
-    #20: Bool = closure_call #16(#19)
-    #21: Request = %1
-    #22: Wrapper = new Wrapper(#21)
-    #23: fn() -> String = #22.header
-    #24: Request = %1
-    #25: Wrapper = new Wrapper(#24)
-    #26: String = #25.header()
-    #27: None = @9(console_log)
-    #28: None = call #27(#20, #26)
-    #29: Request = %1
-    #30: Wrapper = new Wrapper(#29)
-    #31: String = "raw"
-    #32: Bool = dict_contains_key #30, #31, chain
-    #33: Request = %1
-    #34: Wrapper = new Wrapper(#33)
-    #35: String = "header"
-    #36: Bool = dict_contains_key #34, #35, chain
-    #37: Request = %1
-    #38: Wrapper = new Wrapper(#37)
-    #39: String = "nope"
-    #40: Bool = dict_contains_key #38, #39, chain
-    #41: None = @10(console_log)
-    #42: None = call #41(#32, #36, #40)
-    #43: String = "a/b/c"
-    #44: fn(String) -> List<String> = @0(segments)
-    #45: List<String> = call #44(#43)
-    #46: String = ","
-    #47: String = string_join #45, #46
-    #48: None = @11(console_log)
-    #49: None = call #48(#47)
-    #50: String = "id"
-    #51: String = "1"
-    #52: Dict<String, String> = {#50: #51}
-    #53: String = "action"
-    #54: String = "create"
-    #55: Dict<String, String> = {#53: #54}
-    #56: String = "action"
-    #57: fn(Dict<String, String>, Optional<Dict<String, String>>, String) -> String = @1(pick)
-    #58: String = call #57(#52, #55, #56)
-    #59: String = "id"
-    #60: String = "1"
-    #61: Dict<String, String> = {#59: #60}
-    #62: None = undefined
-    #63: String = "id"
-    #64: fn(Dict<String, String>, Optional<Dict<String, String>>, String) -> String = @1(pick)
-    #65: String = call #64(#61, #62, #63)
-    #66: None = @12(console_log)
-    #67: None = call #66(#58, #65)
-    #68: Dict<String, String> = {}
-    #69: String = "x"
-    #70: fn(Dict<String, String>, String) -> String = @2(pick_or)
-    #71: String = call #70(#68, #69)
-    #72: String = "x"
-    #73: String = "y"
-    #74: Dict<String, String> = {#72: #73}
-    #75: String = "x"
-    #76: fn(Dict<String, String>, String) -> String = @2(pick_or)
-    #77: String = call #76(#74, #75)
-    #78: None = @13(console_log)
-    #79: None = call #78(#71, #77)
-    #80: fn() -> String = @3(buckets)
-    #81: String = call #80()
-    #82: None = @14(console_log)
-    #83: None = call #82(#81)
-    #84: String = "^[0-9]+$"
-    #85: String = ""
-    #86: RegExp = new RegExp(#84, #85)
-    #87: String = "123"
-    #88: fn(Bool | RegExp, String) -> Bool = @4(matches)
-    #89: Bool = call #88(#86, #87)
-    #90: String = "^[0-9]+$"
-    #91: String = ""
-    #92: RegExp = new RegExp(#90, #91)
-    #93: String = "abc"
-    #94: fn(Bool | RegExp, String) -> Bool = @4(matches)
-    #95: Bool = call #94(#92, #93)
-    #96: Bool = true
-    #97: String = "x"
-    #98: fn(Bool | RegExp, String) -> Bool = @4(matches)
-    #99: Bool = call #98(#96, #97)
-    #100: None = @15(console_log)
-    #101: None = call #100(#89, #95, #99)
-    #102: String = "^a(?=/next)"
-    #103: String = ""
-    #104: RegExp = new RegExp(#102, #103)
-    #105: String = #104.source
-    #106: String = "x/y"
-    #107: String = ""
-    #108: RegExp = new RegExp(#106, #107)
-    #109: String = primitive_cast_string #108
-    #110: None = @16(console_log)
-    #111: None = call #110(#105, #109)
+    #0: fn(Wrapper | Request) -> Bool = closure BodyId(7) captures 0 -> Bool
+    #1: String = "https://x/"
+    #2: String = "POST"
+    #3: String = "a"
+    #4: String = "Content-Type"
+    #5: String = "text/plain"
+    #6: Dict<String, String> = {#4: #5}
+    #7: Request = request_new input=#1 method=#2 headers=#6 body=#3
+    #8: fn(Wrapper | Request) -> Bool = %0
+    #9: Request = %1
+    #10: Bool = closure_call #8(#9)
+    #11: fn(Wrapper | Request) -> Bool = %0
+    #12: Request = %1
+    #13: Wrapper = new Wrapper(#12)
+    #14: Bool = closure_call #11(#13)
+    #15: None = @8(console_log)
+    #16: None = call #15(#10, #14)
+    #17: fn(Wrapper | Request) -> Bool = %0
+    #18: Request = %1
+    #19: Wrapper = new Wrapper(#18)
+    #20: Request = #19.raw
+    #21: Bool = closure_call #17(#20)
+    #22: Request = %1
+    #23: Wrapper = new Wrapper(#22)
+    #24: fn() -> String = #23.header
+    #25: Request = %1
+    #26: Wrapper = new Wrapper(#25)
+    #27: String = #26.header()
+    #28: None = @9(console_log)
+    #29: None = call #28(#21, #27)
+    #30: Request = %1
+    #31: Wrapper = new Wrapper(#30)
+    #32: String = "raw"
+    #33: Bool = dict_contains_key #31, #32, chain
+    #34: Request = %1
+    #35: Wrapper = new Wrapper(#34)
+    #36: String = "header"
+    #37: Bool = dict_contains_key #35, #36, chain
+    #38: Request = %1
+    #39: Wrapper = new Wrapper(#38)
+    #40: String = "nope"
+    #41: Bool = dict_contains_key #39, #40, chain
+    #42: None = @10(console_log)
+    #43: None = call #42(#33, #37, #41)
+    #44: String = "a/b/c"
+    #45: fn(String) -> List<String> = @0(segments)
+    #46: List<String> = call #45(#44)
+    #47: String = ","
+    #48: String = string_join #46, #47
+    #49: None = @11(console_log)
+    #50: None = call #49(#48)
+    #51: String = "id"
+    #52: String = "1"
+    #53: Dict<String, String> = {#51: #52}
+    #54: String = "action"
+    #55: String = "create"
+    #56: Dict<String, String> = {#54: #55}
+    #57: String = "action"
+    #58: fn(Dict<String, String>, Optional<Dict<String, String>>, String) -> String = @1(pick)
+    #59: String = call #58(#53, #56, #57)
+    #60: String = "id"
+    #61: String = "1"
+    #62: Dict<String, String> = {#60: #61}
+    #63: None = undefined
+    #64: String = "id"
+    #65: fn(Dict<String, String>, Optional<Dict<String, String>>, String) -> String = @1(pick)
+    #66: String = call #65(#62, #63, #64)
+    #67: None = @12(console_log)
+    #68: None = call #67(#59, #66)
+    #69: Dict<String, String> = {}
+    #70: String = "x"
+    #71: fn(Dict<String, String>, String) -> String = @2(pick_or)
+    #72: String = call #71(#69, #70)
+    #73: String = "x"
+    #74: String = "y"
+    #75: Dict<String, String> = {#73: #74}
+    #76: String = "x"
+    #77: fn(Dict<String, String>, String) -> String = @2(pick_or)
+    #78: String = call #77(#75, #76)
+    #79: None = @13(console_log)
+    #80: None = call #79(#72, #78)
+    #81: fn() -> String = @3(buckets)
+    #82: String = call #81()
+    #83: None = @14(console_log)
+    #84: None = call #83(#82)
+    #85: String = "^[0-9]+$"
+    #86: String = ""
+    #87: RegExp = new RegExp(#85, #86)
+    #88: String = "123"
+    #89: fn(Bool | RegExp, String) -> Bool = @4(matches)
+    #90: Bool = call #89(#87, #88)
+    #91: String = "^[0-9]+$"
+    #92: String = ""
+    #93: RegExp = new RegExp(#91, #92)
+    #94: String = "abc"
+    #95: fn(Bool | RegExp, String) -> Bool = @4(matches)
+    #96: Bool = call #95(#93, #94)
+    #97: Bool = true
+    #98: String = "x"
+    #99: fn(Bool | RegExp, String) -> Bool = @4(matches)
+    #100: Bool = call #99(#97, #98)
+    #101: None = @15(console_log)
+    #102: None = call #101(#90, #96, #100)
+    #103: String = "^a(?=/next)"
+    #104: String = ""
+    #105: RegExp = new RegExp(#103, #104)
+    #106: String = #105.source
+    #107: String = "x/y"
+    #108: String = ""
+    #109: RegExp = new RegExp(#107, #108)
+    #110: String = primitive_cast_string #109
+    #111: None = @16(console_log)
+    #112: None = call #111(#106, #110)
   stmts
-    s0: let %1: Request = #6
-    s1: #15
-    s2: #28
-    s3: #42
-    s4: #49
-    s5: #67
-    s6: #79
-    s7: #83
-    s8: #101
-    s9: #111
+    s0: let %0: fn(Wrapper | Request) -> Bool = #0
+    s1: let %1: Request = #7
+    s2: #16
+    s3: #29
+    s4: #43
+    s5: #50
+    s6: #68
+    s7: #80
+    s8: #84
+    s9: #102
+    s10: #112
 
 interned types
   t0 = Wrapper
@@ -159,8 +161,9 @@ interned types
   t20 = (Float, String)
   t21 = List<(Float, String)>
   t22 = Optional<List<String>>
-  t23 = fn(String) -> List<String>
-  t24 = fn(Dict<String, String>, Optional<Dict<String, String>>, String) -> String
-  t25 = fn(Dict<String, String>, String) -> String
-  t26 = fn() -> String
-  t27 = fn(Bool | RegExp, String) -> Bool
+  t23 = fn(Wrapper | Request) -> Bool
+  t24 = fn(String) -> List<String>
+  t25 = fn(Dict<String, String>, Optional<Dict<String, String>>, String) -> String
+  t26 = fn(Dict<String, String>, String) -> String
+  t27 = fn() -> String
+  t28 = fn(Bool | RegExp, String) -> Bool

@@ -1450,6 +1450,10 @@ impl ModuleBuilder<'_> {
             // the closure-body path) handles it instead of failing here.
             return Ok(false);
         };
+        // A parameter default only the closure-body path applies.
+        if arrow.params.items.iter().any(|param| param.initializer.is_some()) {
+            return Ok(false);
+        }
         let mut iter = self.expression(&member.object, body)?;
         let iter_ty = Self::expr_ty(body, iter);
         // A KEYED collection's `forEach` receives the *key* as its second

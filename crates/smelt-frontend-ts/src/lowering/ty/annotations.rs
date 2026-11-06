@@ -3117,46 +3117,6 @@ impl ModuleBuilder<'_> {
             .map(|descriptor| descriptor.read_ty)
     }
 
-    /// Whether reading `field` off a value of `receiver_ty` runs a getter.
-    ///
-    /// True when the receiver is a class (or a class-constrained type
-    /// parameter) whose own declaration, or a base class's, records `field` as
-    /// an instance getter (see [`Self::class_getter_read_type`]) and no stored
-    /// field of that name shadows it first. A getter read executes source code,
-    /// so callers that would evaluate the read more than once, or evaluate it
-    /// where JavaScript would not, use this to keep it to exactly one read.
-    pub(in crate::lowering) fn class_member_reads_through_getter(
-        &self,
-        receiver_ty: smelt_hir::TypeId,
-        field: smelt_hir::Symbol,
-    ) -> bool {
-        let Some(Type::Class { name, .. }) = self
-            .ctx
-            .krate
-            .types
-            .get(self.type_param_constraint_or_self(receiver_ty))
-        else {
-            return false;
-        };
-        let mut class_name = Some(*name);
-        let mut seen = HashSet::new();
-        while let Some(current) = class_name
-            && seen.insert(current)
-        {
-            let Some(class) = self.class_by_symbol(current) else {
-                return false;
-            };
-            if class.fields.iter().any(|item| item.name == field) {
-                return false;
-            }
-            if Self::class_getter_read_type(class, field).is_some() {
-                return true;
-            }
-            class_name = class.base;
-        }
-        false
-    }
-
     /// Resolve the type of a class field.
     pub(in crate::lowering) fn class_field_type(
         &mut self,
@@ -3179,6 +3139,10 @@ impl ModuleBuilder<'_> {
             }
             // not a new erasure: the receiver is already erased
             Type::Unknown => Ok(self.unknown_type()),
+            // TypeScript accepts no member read off `never`, so a `never`
+            // receiver here is a contextual type inference could not resolve,
+            // and its members have no static layout.
+            Type::Never => Ok(self.erase(ErasureReason::TypeLevel)),
             // A member of a class- or interface-bounded parameter has the type
             // its bound declares (see `type_param_member_bound`); any other
             // parameter's members have no static layout.

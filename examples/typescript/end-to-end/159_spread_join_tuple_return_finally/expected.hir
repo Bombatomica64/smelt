@@ -7,7 +7,7 @@ module examples/typescript/end-to-end/159_spread_join_tuple_return_finally/input
     fn next_accept owner Module
     fn work owner Module
     fn finally_then_catch owner Module
-    class Failure fields [Public message: String] constructor Some(ItemId(12)) methods [] implements []
+    class Failure fields [Public message: String] constructor Some(ItemId(11)) methods [] implements []
     fn failing owner Module
     fn prepare owner Module
     fn caught owner Module
@@ -22,7 +22,7 @@ module examples/typescript/end-to-end/159_spread_join_tuple_return_finally/input
     #4: String = call #3(#2)
     #5: fn(Optional<Dict<String, String>>) -> String = @1(with_defaults)
     #6: String = call #5()
-    #7: None = @14(console_log)
+    #7: None = @13(console_log)
     #8: None = call #7(#4, #6)
     #9: String = "json"
     #10: fn(String) -> (Float, Optional<Accept>) = @2(next_accept)
@@ -41,7 +41,7 @@ module examples/typescript/end-to-end/159_spread_join_tuple_return_finally/input
     #23: Optional<Accept> = tuple_index #21, 1
     #24: None = undefined
     #25: Bool = JsStrictEq #23, #24
-    #26: None = @15(console_log)
+    #26: None = @14(console_log)
     #27: None = call #26(#16, #18, #25)
     #28: String = "{"maxAge": 12.7}"
     #29: Unknown = json_parse #28
@@ -53,7 +53,7 @@ module examples/typescript/end-to-end/159_spread_join_tuple_return_finally/input
     #35: Unknown = #34.max_age
     #36: Float = 0.0
     #37: Float = BitOr #35, #36
-    #38: None = @16(console_log)
+    #38: None = @15(console_log)
     #39: None = call #38(#32, #37)
     #40: fn() -> Future<None> = @4(finally_then_catch)
     #41: Future<None> = call #40()

@@ -2,27 +2,16 @@
 //! narrowing, param-pattern binding and inference, arrow closure bodies,
 //! throw analysis, and capture-name collection over expressions/statements.
 
-use crate::lowering::js_text::js_str_text;
 use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::state::local_scope::ScopeGroups;
 use crate::lowering::{
-    Argument, ArrayExpressionElement, AssignmentTarget, BinOp, BinaryOperator, BindingPattern,
+    Argument, ArrayExpressionElement, AssignmentTarget, BinaryOperator, BindingPattern,
     Body, CallbackExpr, CallbackExprKind, CaptureMode, ChainElement, ClosureCapture, Expr,
     ExprKind, Expression, ForStatementInit, ForStatementLeft, FunctionType, HashMap, HashSet,
-    Literal, LocalDecl, LogicalOperator, ModuleBuilder, ObjectPropertyKind, Param, PropertyKey,
-    SimpleAssignmentTarget, SmeltError, Span, Statement, Stmt, Type,
+    LocalDecl, ModuleBuilder, ObjectPropertyKind, Param, SimpleAssignmentTarget, SmeltError, Span, Statement, Stmt, Type,
 };
 use smelt_hir::ErasureReason;
 use super::super::support::{arrow_block_statements, statement_terminates};
-use oxc::span::GetSpan;
-use oxc::ast::ast::UnaryOperator;
-use std::borrow::Cow;
-
-/// Fallback-eligible error for a compact callback guard that `typeof`-tests a
-/// union-typed parameter; see `reject_callback_union_typeof_guard`.
-pub(super) const CALLBACK_UNION_TYPEOF_GUARD: &str =
-    "callback typeof guard on a union parameter needs closure-body lowering";
-
 /// The body form of a callback lowered through a real HIR closure body.
 ///
 /// Selects how [`ModuleBuilder::closure_body_expr_from_parts`] lowers the
@@ -42,1068 +31,6 @@ enum ClosureBodyKind<'a, 'src> {
 }
 
 impl ModuleBuilder<'_> {
-    /// Lower a terminating block-bodied callback into a nested callback expression.
-    pub(in crate::lowering) fn callback_block_expression<'a>(
-        &mut self,
-        statements: &'a [Statement<'a>],
-        params: &mut HashMap<&'a str, CallbackExpr>,
-        body: &Body,
-    ) -> Result<CallbackExpr, SmeltError> {
-        let Some((first, rest)) = statements.split_first() else {
-            return Err(SmeltError::unsupported(
-                self.span(0, 0),
-                "block-bodied callbacks must terminate with return or throw",
-            ));
-        };
-        match first {
-            Statement::VariableDeclaration(declaration) => {
-                if declaration.declarations.len() != 1 {
-                    return Err(SmeltError::unsupported(
-                        self.span(declaration.span.start, declaration.span.end),
-                        "callback block declarations must declare one local",
-                    ));
-                }
-                let Some(declarator) = declaration.declarations.first() else {
-                    return Err(SmeltError::unsupported(
-                        self.span(declaration.span.start, declaration.span.end),
-                        "callback block declarations must declare one local",
-                    ));
-                };
-                let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
-                    return Err(SmeltError::unsupported(
-                        self.span(declarator.span.start, declarator.span.end),
-                        "callback block declarations require simple bindings",
-                    ));
-                };
-                // `let x;` holds `undefined` in JavaScript — it is not a
-                // missing initializer, it is an initializer spelled by
-                // omission. MIR's `HirStmt::Let` lowering already encodes
-                // exactly this rule for module and function bodies
-                // (`Operand::Const(Constant::Undefined)`); this path simply
-                // never applied it, so an ordinary `let res: T | undefined`
-                // inside an inlined callback blocked. Answering `undefined`
-                // here makes the two paths agree rather than adding a rule.
-                let value = match &declarator.init {
-                    Some(init) => self.callback_expression(init, params, body)?,
-                    None => CallbackExpr {
-                        kind: CallbackExprKind::Literal(Literal::None),
-                        ty: self.ctx.krate.types.intern(Type::None),
-                    },
-                };
-                let prior = params.insert(binding.name.as_str(), value);
-                let result = self.callback_block_expression(rest, params, body);
-                if let Some(prior) = prior {
-                    params.insert(binding.name.as_str(), prior);
-                } else {
-                    params.remove(binding.name.as_str());
-                }
-                result
-            }
-            Statement::IfStatement(if_stmt) => {
-                // A callback `if/else` where both arms terminate with a value
-                // (`if (c) { return a; } else { return b; }`) is a direct
-                // conditional expression: lower each arm as a terminating
-                // statement and reconcile the two branch types the same way a
-                // ternary does. When an arm does not terminate — e.g. it mutates
-                // a captured local or the callback parameter and then falls
-                // through to shared trailing statements (`if (c) { value = x; }
-                // else if (d) { value = y; } ... return value;`) — the compact
-                // side-effect-free callback IR cannot model the assignment, so
-                // surface a fallback-eligible error that retries the whole arrow
-                // through full closure-body lowering (which makes parameters
-                // mutable locals and lowers `if/else if` chains natively).
-                if let Some(alternate) = &if_stmt.alternate {
-                    // The direct-conditional form requires both arms to be the
-                    // final statement (nothing after the `if/else`) and to
-                    // terminate with a value. Any other shape — trailing
-                    // statements after the `if/else`, or an arm that mutates a
-                    // local/parameter instead of returning — cannot be modeled by
-                    // the compact IR, so surface the fallback-eligible error
-                    // (`should_fallback_to_closure_body_for_callback`) that
-                    // retries the whole arrow through full closure-body lowering.
-                    let fallback_error = SmeltError::unsupported(
-                        self.span(if_stmt.span.start, if_stmt.span.end),
-                        "callback if/else blocks need direct conditional expression lowering",
-                    );
-                    if !rest.is_empty() {
-                        return Err(fallback_error);
-                    }
-                    self.reject_callback_union_typeof_guard(
-                        params,
-                        &if_stmt.test,
-                        self.span(if_stmt.span.start, if_stmt.span.end),
-                    )?;
-                    let cond = self.callback_truthy_expression(&if_stmt.test, params, body)?;
-                    let mut then_params =
-                        self.callback_params_with_guard_narrowing(params, &if_stmt.test);
-                    let Ok(then_expr) = self.callback_terminating_statement(
-                        &if_stmt.consequent,
-                        &mut then_params,
-                        body,
-                    ) else {
-                        return Err(fallback_error);
-                    };
-                    let mut else_params = params.clone();
-                    let Ok(else_expr) =
-                        self.callback_terminating_statement(alternate, &mut else_params, body)
-                    else {
-                        return Err(fallback_error);
-                    };
-                    // An arm that THROWS cannot live inside a ternary either, for
-                    // the same reason an arm that assigns a captured local
-                    // cannot: `CallbackExprKind::Throw` emits its
-                    // `Stmt::Throw` as a statement, which hoists out of the
-                    // guard and runs unconditionally. See
-                    // `Self::conditional_throw_fallback_error`.
-                    if Self::callback_expr_contains_throw(&then_expr)
-                        || Self::callback_expr_contains_throw(&else_expr)
-                    {
-                        return Err(Self::conditional_throw_fallback_error(self.span(
-                            if_stmt.span.start,
-                            if_stmt.span.end,
-                        )));
-                    }
-                    let (then_expr, else_expr, ty) = self.callback_unify_conditional_exprs(
-                        then_expr,
-                        else_expr,
-                        if_stmt.span.start,
-                        if_stmt.span.end,
-                    )?;
-                    return Ok(CallbackExpr {
-                        kind: CallbackExprKind::Conditional {
-                            cond: Box::new(cond),
-                            then_expr: Box::new(then_expr),
-                            else_expr: Box::new(else_expr),
-                        },
-                        ty,
-                    });
-                }
-                self.reject_callback_union_typeof_guard(
-                    params,
-                    &if_stmt.test,
-                    self.span(if_stmt.span.start, if_stmt.span.end),
-                )?;
-                let cond = self.callback_truthy_expression(&if_stmt.test, params, body)?;
-                let then_expr =
-                    match self.callback_terminating_statement(&if_stmt.consequent, params, body) {
-                        Ok(expr) => expr,
-                        Err(error) if !rest.is_empty() => {
-                            drop(error);
-                            let side_effect = self.callback_side_effect_statement(
-                                &if_stmt.consequent,
-                                params,
-                                body,
-                            )?;
-                            // The guarded side effect is modeled as a ternary
-                            // (`cond ? side_effect : none`), and the compact IR
-                            // lowers each ternary arm as a pure sub-expression.
-                            // An arm that assigns a captured local
-                            // (`if (!called) { ret = fn(); called = true; }`)
-                            // cannot live inside a ternary: `AssignCapture` emits
-                            // its assignment as a statement, which would hoist out
-                            // of the guard and run unconditionally. Surface the
-                            // fallback-eligible error so the whole arrow retries
-                            // through full closure-body lowering, which lowers the
-                            // `if` natively with a real branch.
-                            if Self::callback_expr_contains_capture_assignment(&side_effect) {
-                                return Err(SmeltError::unsupported(
-                                    self.span(if_stmt.span.start, if_stmt.span.end),
-                                    "callback if guard mutates a captured local; needs closure-body lowering",
-                                ));
-                            }
-                            // A guarded THROW hoists out of the ternary exactly
-                            // as a guarded capture assignment does.
-                            if Self::callback_expr_contains_throw(&side_effect) {
-                                return Err(Self::conditional_throw_fallback_error(self.span(
-                                    if_stmt.span.start,
-                                    if_stmt.span.end,
-                                )));
-                            }
-                            let none_ty = self.ctx.krate.types.intern(Type::None);
-                            let none_expr = CallbackExpr {
-                                kind: CallbackExprKind::Literal(Literal::None),
-                                ty: none_ty,
-                            };
-                            let guarded_effect = CallbackExpr {
-                                kind: CallbackExprKind::Conditional {
-                                    cond: Box::new(cond),
-                                    then_expr: Box::new(side_effect),
-                                    else_expr: Box::new(none_expr),
-                                },
-                                ty: none_ty,
-                            };
-                            let result = self.callback_block_expression(rest, params, body)?;
-                            let result_ty = result.ty;
-                            return Ok(CallbackExpr {
-                                kind: CallbackExprKind::Sequence {
-                                    effects: vec![guarded_effect],
-                                    result: Box::new(result),
-                                },
-                                ty: result_ty,
-                            });
-                        }
-                        Err(error) => return Err(error),
-                    };
-                let else_expr = self.callback_block_expression(rest, params, body)?;
-                // `if (c) { throw e } return v` is the shape H70 was found on:
-                // the guarded throw hoisted out of the ternary and the whole
-                // closure became an unconditional `throw`, losing the condition,
-                // the branch and the tail return. See
-                // `Self::conditional_throw_fallback_error`.
-                if Self::callback_expr_contains_throw(&then_expr)
-                    || Self::callback_expr_contains_throw(&else_expr)
-                {
-                    return Err(Self::conditional_throw_fallback_error(
-                        self.span(if_stmt.span.start, if_stmt.span.end),
-                    ));
-                }
-                let (then_expr, else_expr, ty) = self.callback_unify_conditional_exprs(
-                    then_expr,
-                    else_expr,
-                    if_stmt.span.start,
-                    if_stmt.span.end,
-                )?;
-                Ok(CallbackExpr {
-                    kind: CallbackExprKind::Conditional {
-                        cond: Box::new(cond),
-                        then_expr: Box::new(then_expr),
-                        else_expr: Box::new(else_expr),
-                    },
-                    ty,
-                })
-            }
-            Statement::ReturnStatement(return_stmt) => {
-                if !rest.is_empty() {
-                    return Err(SmeltError::unsupported(
-                        self.span(return_stmt.span.start, return_stmt.span.end),
-                        "callback statements after return are not supported",
-                    ));
-                }
-                let value = return_stmt.argument.as_ref().ok_or_else(|| {
-                    SmeltError::unsupported(
-                        self.span(return_stmt.span.start, return_stmt.span.end),
-                        "callback return statements must return a value",
-                    )
-                })?;
-                self.callback_expression(value, params, body)
-            }
-            Statement::ThrowStatement(throw_stmt) => {
-                if !rest.is_empty() {
-                    return Err(SmeltError::unsupported(
-                        self.span(throw_stmt.span.start, throw_stmt.span.end),
-                        "callback statements after throw are not supported",
-                    ));
-                }
-                self.callback_throw_expression(Some(&throw_stmt.argument), params, body)
-            }
-            Statement::ExpressionStatement(expr_stmt) => {
-                if rest.is_empty() {
-                    return Err(SmeltError::unsupported(
-                        self.span(expr_stmt.span.start, expr_stmt.span.end),
-                        "callback expression statements must be followed by a return or throw",
-                    ));
-                }
-                let effect = self.callback_expression(&expr_stmt.expression, params, body)?;
-                let result = self.callback_block_expression(rest, params, body)?;
-                let result_ty = result.ty;
-                Ok(CallbackExpr {
-                    kind: CallbackExprKind::Sequence {
-                        effects: vec![effect],
-                        result: Box::new(result),
-                    },
-                    ty: result_ty,
-                })
-            }
-            _ => Err(SmeltError::unsupported(
-                self.span(first.span().start, first.span().end),
-                "callback block statements must be const declarations, if guards, return, or throw",
-            )),
-        }
-    }
-
-    /// Lower a callback statement that is evaluated only for side effects.
-    pub(in crate::lowering) fn callback_side_effect_statement<'a>(
-        &mut self,
-        side_effect_statement: &'a Statement<'a>,
-        params: &HashMap<&'a str, CallbackExpr>,
-        body: &Body,
-    ) -> Result<CallbackExpr, SmeltError> {
-        let none_ty = self.ctx.krate.types.intern(Type::None);
-        match side_effect_statement {
-            Statement::ExpressionStatement(expr_stmt) => {
-                self.callback_expression(&expr_stmt.expression, params, body)
-            }
-            Statement::BlockStatement(block) => {
-                let mut effects = Vec::new();
-                for block_statement in &block.body {
-                    let effect = match block_statement {
-                        Statement::ExpressionStatement(expr_stmt) => {
-                            self.callback_expression(&expr_stmt.expression, params, body)?
-                        }
-                        Statement::ThrowStatement(throw_stmt) => self.callback_throw_expression(
-                            Some(&throw_stmt.argument),
-                            params,
-                            body,
-                        )?,
-                        _ => {
-                            return Err(SmeltError::unsupported(
-                                self.span(block_statement.span().start, block_statement.span().end),
-                                "callback side-effect blocks only support expression and throw statements",
-                            ));
-                        }
-                    };
-                    effects.push(effect);
-                }
-                Ok(CallbackExpr {
-                    kind: CallbackExprKind::Sequence {
-                        effects,
-                        result: Box::new(CallbackExpr {
-                            kind: CallbackExprKind::Literal(Literal::None),
-                            ty: none_ty,
-                        }),
-                    },
-                    ty: none_ty,
-                })
-            }
-            _ => Err(SmeltError::unsupported(
-                self.span(
-                    side_effect_statement.span().start,
-                    side_effect_statement.span().end,
-                ),
-                "callback side-effect statement kind is not supported yet",
-            )),
-        }
-    }
-
-    /// Report whether a compact callback expression tree assigns a captured
-    /// local anywhere (`AssignCapture`). Such assignments cannot survive inside
-    /// a ternary arm of the compact IR — they are emitted as statements and
-    /// would hoist out of their guard — so a guarded side effect containing one
-    /// must fall back to full closure-body lowering.
-    pub(in crate::lowering) fn callback_expr_contains_capture_assignment(
-        callback: &CallbackExpr,
-    ) -> bool {
-        match &callback.kind {
-            CallbackExprKind::AssignCapture { .. } => true,
-            CallbackExprKind::Sequence { effects, result } => {
-                effects
-                    .iter()
-                    .any(Self::callback_expr_contains_capture_assignment)
-                    || Self::callback_expr_contains_capture_assignment(result)
-            }
-            CallbackExprKind::Conditional {
-                cond,
-                then_expr,
-                else_expr,
-            } => {
-                Self::callback_expr_contains_capture_assignment(cond)
-                    || Self::callback_expr_contains_capture_assignment(then_expr)
-                    || Self::callback_expr_contains_capture_assignment(else_expr)
-            }
-            CallbackExprKind::ListLit(items) => items
-                .iter()
-                .any(Self::callback_expr_contains_capture_assignment),
-            CallbackExprKind::DictLit(entries) => entries
-                .iter()
-                .any(|(_, value)| Self::callback_expr_contains_capture_assignment(value)),
-            CallbackExprKind::Throw { message } => message
-                .as_ref()
-                .is_some_and(|message| Self::callback_expr_contains_capture_assignment(message)),
-            CallbackExprKind::Index { receiver, .. }
-            | CallbackExprKind::Field { receiver, .. }
-            | CallbackExprKind::HasField { receiver, .. }
-            | CallbackExprKind::FieldTruthy { receiver, .. }
-            | CallbackExprKind::ValueTruthy { value: receiver }
-            | CallbackExprKind::UnknownIs {
-                value: receiver, ..
-            }
-            | CallbackExprKind::TypeofValue { value: receiver } => {
-                Self::callback_expr_contains_capture_assignment(receiver)
-            }
-            CallbackExprKind::DynamicIndex { receiver, index } => {
-                Self::callback_expr_contains_capture_assignment(receiver)
-                    || Self::callback_expr_contains_capture_assignment(index)
-            }
-            CallbackExprKind::HasDynamicField { receiver, field } => {
-                Self::callback_expr_contains_capture_assignment(receiver)
-                    || Self::callback_expr_contains_capture_assignment(field)
-            }
-            CallbackExprKind::Unary { operand, .. } => {
-                Self::callback_expr_contains_capture_assignment(operand)
-            }
-            CallbackExprKind::Binary { lhs, rhs, .. } => {
-                Self::callback_expr_contains_capture_assignment(lhs)
-                    || Self::callback_expr_contains_capture_assignment(rhs)
-            }
-            CallbackExprKind::Call { callee, args } => {
-                Self::callback_expr_contains_capture_assignment(callee)
-                    || args
-                        .iter()
-                        .any(|arg| Self::callback_expr_contains_capture_assignment(&arg.expr))
-            }
-            CallbackExprKind::MethodCall { receiver, args, .. } => {
-                Self::callback_expr_contains_capture_assignment(receiver)
-                    || args
-                        .iter()
-                        .any(|arg| Self::callback_expr_contains_capture_assignment(&arg.expr))
-            }
-            CallbackExprKind::FunctionTableLookup { key, .. } => {
-                Self::callback_expr_contains_capture_assignment(key)
-            }
-            CallbackExprKind::Capture(_)
-            | CallbackExprKind::Param(_)
-            | CallbackExprKind::Function(_)
-            | CallbackExprKind::Literal(_) => false,
-        }
-    }
-
-    /// Lower a callback statement that must terminate the current branch.
-    pub(in crate::lowering) fn callback_terminating_statement<'a>(
-        &mut self,
-        statement: &'a Statement<'a>,
-        params: &mut HashMap<&'a str, CallbackExpr>,
-        body: &Body,
-    ) -> Result<CallbackExpr, SmeltError> {
-        match statement {
-            Statement::BlockStatement(block) => {
-                self.callback_block_expression(&block.body, params, body)
-            }
-            Statement::ReturnStatement(return_stmt) => {
-                let value = return_stmt.argument.as_ref().ok_or_else(|| {
-                    SmeltError::unsupported(
-                        self.span(return_stmt.span.start, return_stmt.span.end),
-                        "callback return statements must return a value",
-                    )
-                })?;
-                self.callback_expression(value, params, body)
-            }
-            Statement::ThrowStatement(throw_stmt) => {
-                self.callback_throw_expression(Some(&throw_stmt.argument), params, body)
-            }
-            _ => Err(SmeltError::unsupported(
-                self.span(statement.span().start, statement.span().end),
-                "callback branch must terminate with return or throw",
-            )),
-        }
-    }
-
-    /// Return callback parameters narrowed by facts proven in a true branch guard.
-    pub(in crate::lowering) fn callback_params_with_guard_narrowing<'a>(
-        &mut self,
-        params: &HashMap<&'a str, CallbackExpr>,
-        expression: &Expression<'_>,
-    ) -> HashMap<&'a str, CallbackExpr> {
-        let mut narrowed = params.clone();
-        self.apply_callback_guard_narrowing(&mut narrowed, expression);
-        narrowed
-    }
-
-    /// Refuse a compact callback guard that `typeof`-tests a union-typed
-    /// parameter, so the callback is retried through full closure-body
-    /// lowering (see `should_fallback_to_closure_body_for_callback`).
-    ///
-    /// The compact callback IR narrows only by changing a parameter's
-    /// recorded type, and it has no node that projects one arm out of a union
-    /// value. `xs.map((v) => typeof v === "number" ? v + 1 : v + "!")` over a
-    /// `(number | string)[]` therefore read `v` at its union type in both arms
-    /// and lowered `v + 1` as string concatenation (`"11"`). Full closure-body
-    /// lowering applies the guard with the ordinary narrowing rules, which
-    /// project the arm (`UnknownCast`) in each branch, as it already does for
-    /// a function declaration with the same body.
-    pub(in crate::lowering) fn reject_callback_union_typeof_guard(
-        &self,
-        params: &HashMap<&str, CallbackExpr>,
-        test: &Expression<'_>,
-        span: Span,
-    ) -> Result<(), SmeltError> {
-        if self.callback_guard_tests_union_typeof(params, test) {
-            return Err(SmeltError::unsupported(span, CALLBACK_UNION_TYPEOF_GUARD));
-        }
-        Ok(())
-    }
-
-    /// Whether `test` contains a `typeof` comparison on a parameter whose
-    /// type is a union (directly or inside an optional).
-    fn callback_guard_tests_union_typeof(&self, params: &HashMap<&str, CallbackExpr>, test: &Expression<'_>) -> bool {
-        match test {
-            Expression::LogicalExpression(logical) => {
-                self.callback_guard_tests_union_typeof(params, &logical.left)
-                    || self.callback_guard_tests_union_typeof(params, &logical.right)
-            }
-            Expression::UnaryExpression(unary) if unary.operator == UnaryOperator::LogicalNot => {
-                self.callback_guard_tests_union_typeof(params, &unary.argument)
-            }
-            Expression::ParenthesizedExpression(inner) => {
-                self.callback_guard_tests_union_typeof(params, &inner.expression)
-            }
-            _ => Self::typeof_comparison(test).is_some_and(|(name, _, _)| {
-                params.get(name.as_str()).is_some_and(|param| {
-                    let ty = match self.ctx.krate.types.get(param.ty) {
-                        Some(Type::Optional(inner)) => *inner,
-                        _ => param.ty,
-                    };
-                    matches!(self.ctx.krate.types.get(ty), Some(Type::Union(_)))
-                })
-            }),
-        }
-    }
-
-    /// Apply simple `value !== undefined` callback type facts to a parameter map.
-    pub(in crate::lowering) fn apply_callback_guard_narrowing(
-        &mut self,
-        params: &mut HashMap<&str, CallbackExpr>,
-        expression: &Expression<'_>,
-    ) {
-        if let Expression::LogicalExpression(logical) = expression
-            && logical.operator == LogicalOperator::And
-        {
-            self.apply_callback_guard_narrowing(params, &logical.left);
-            self.apply_callback_guard_narrowing(params, &logical.right);
-            return;
-        }
-
-        let Expression::BinaryExpression(binary) = expression else {
-            return;
-        };
-        if !matches!(
-            binary.operator,
-            BinaryOperator::StrictInequality | BinaryOperator::Inequality
-        ) {
-            return;
-        }
-        let name = match (&binary.left, &binary.right) {
-            (Expression::Identifier(identifier), Expression::Identifier(undefined))
-                if undefined.name == "undefined" =>
-            {
-                identifier.name.as_str()
-            }
-            (Expression::Identifier(identifier), Expression::NullLiteral(_)) => {
-                identifier.name.as_str()
-            }
-            _ => return,
-        };
-        let Some(param) = params.get_mut(name) else {
-            return;
-        };
-        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(param.ty) {
-            param.ty = *inner;
-        }
-    }
-
-    /// Lower a callback condition using JavaScript truthiness where needed.
-    pub(in crate::lowering) fn callback_truthy_expression(
-        &mut self,
-        expression: &Expression<'_>,
-        params: &HashMap<&str, CallbackExpr>,
-        body: &Body,
-    ) -> Result<CallbackExpr, SmeltError> {
-        if let Expression::ChainExpression(chain) = expression
-            && let ChainElement::StaticMemberExpression(member) = &chain.expression
-        {
-            let receiver = self.callback_expression(&member.object, params, body)?;
-            return Ok(CallbackExpr {
-                kind: CallbackExprKind::FieldTruthy {
-                    receiver: Box::new(receiver),
-                    field: self.intern_source_name(member.property.name.as_str()),
-                },
-                ty: self.ctx.krate.types.intern(Type::Bool),
-            });
-        }
-        if let Expression::ComputedMemberExpression(member) = expression {
-            if let Expression::Identifier(receiver_ident) = &member.object
-                && let Some(namespace) = self.object_namespaces.get(receiver_ident.name.as_str())
-            {
-                let case_keys = namespace.keys().cloned().collect::<Vec<_>>();
-                let key = self.callback_expression(&member.expression, params, body)?;
-                if self.ctx.krate.types.get(key.ty) != Some(&Type::String) {
-                    return Err(SmeltError::unsupported(
-                        self.span(member.expression.span().start, member.expression.span().end),
-                        "callback function-table truthy key must be a string",
-                    ));
-                }
-                return self.callback_function_table_has_key(
-                    &key,
-                    &case_keys,
-                    self.span(member.span.start, member.span.end),
-                );
-            }
-            let receiver = self.callback_expression(&member.object, params, body)?;
-            let field = self.callback_expression(&member.expression, params, body)?;
-            return Ok(CallbackExpr {
-                kind: CallbackExprKind::HasDynamicField {
-                    receiver: Box::new(receiver),
-                    field: Box::new(field),
-                },
-                ty: self.ctx.krate.types.intern(Type::Bool),
-            });
-        }
-        let expr = self.callback_expression(expression, params, body)?;
-        let expr_ty = expr.ty;
-        if self.ctx.krate.types.get(expr_ty) == Some(&Type::Bool) {
-            return Ok(expr);
-        }
-        if let CallbackExprKind::FunctionTableLookup { key, cases } = &expr.kind {
-            let case_keys = cases
-                .iter()
-                .map(|(case_key, _)| case_key.clone())
-                .collect::<Vec<_>>();
-            return self.callback_function_table_has_key(
-                key,
-                &case_keys,
-                self.expression_span(expression),
-            );
-        }
-        // Same rule as the ordinary condition path: functions and classes are
-        // always truthy, and so is a type parameter constrained to an object
-        // surface. An unconstrained `T` is tested for truthiness instead of
-        // being folded to `true`.
-        if matches!(
-            self.ctx.krate.types.get(expr_ty),
-            Some(Type::Function(_) | Type::Class { .. })
-        ) || (matches!(self.ctx.krate.types.get(expr_ty), Some(Type::TypeParam { .. }))
-            && self.type_is_always_truthy_object_surface(expr_ty))
-        {
-            return Ok(CallbackExpr {
-                kind: CallbackExprKind::Literal(Literal::Bool(true)),
-                ty: self.ctx.krate.types.intern(Type::Bool),
-            });
-        }
-        if self.ctx.krate.types.get(expr_ty) == Some(&Type::String) {
-            let string_ty = self.ctx.krate.types.intern(Type::String);
-            return Ok(CallbackExpr {
-                kind: CallbackExprKind::Binary {
-                    op: BinOp::NotEq,
-                    lhs: Box::new(expr),
-                    rhs: Box::new(CallbackExpr {
-                        kind: CallbackExprKind::Literal(Literal::String(String::new())),
-                        ty: string_ty,
-                    }),
-                },
-                ty: self.ctx.krate.types.intern(Type::Bool),
-            });
-        }
-        if self.ctx.krate.types.get(expr_ty) == Some(&Type::Int) {
-            // JavaScript number truthiness: a non-NaN integer is truthy iff it is
-            // non-zero. Integers are never NaN, so `n != 0` is exact (this lowers
-            // the common `(value, index) => index ? a : b` index-guard idiom).
-            let int_ty = self.ctx.krate.types.intern(Type::Int);
-            return Ok(CallbackExpr {
-                kind: CallbackExprKind::Binary {
-                    op: BinOp::NotEq,
-                    lhs: Box::new(expr),
-                    rhs: Box::new(CallbackExpr {
-                        kind: CallbackExprKind::Literal(Literal::Int(0)),
-                        ty: int_ty,
-                    }),
-                },
-                ty: self.ctx.krate.types.intern(Type::Bool),
-            });
-        }
-        if self.ctx.krate.types.get(expr_ty) == Some(&Type::Float) {
-            // JavaScript number truthiness: a float is truthy iff it is non-zero
-            // (covering both `+0` and `-0`) and not `NaN`. `n != 0.0` rejects the
-            // zeroes; `n == n` rejects `NaN` (the only value not equal to itself).
-            let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-            let float_ty = self.ctx.krate.types.intern(Type::Float);
-            let non_zero = CallbackExpr {
-                kind: CallbackExprKind::Binary {
-                    op: BinOp::NotEq,
-                    lhs: Box::new(expr.clone()),
-                    rhs: Box::new(CallbackExpr {
-                        kind: CallbackExprKind::Literal(Literal::Float(0.0)),
-                        ty: float_ty,
-                    }),
-                },
-                ty: bool_ty,
-            };
-            let not_nan = CallbackExpr {
-                kind: CallbackExprKind::Binary {
-                    op: BinOp::Eq,
-                    lhs: Box::new(expr.clone()),
-                    rhs: Box::new(expr),
-                },
-                ty: bool_ty,
-            };
-            return Ok(CallbackExpr {
-                kind: CallbackExprKind::Binary {
-                    op: BinOp::And,
-                    lhs: Box::new(non_zero),
-                    rhs: Box::new(not_nan),
-                },
-                ty: bool_ty,
-            });
-        }
-        // An erased value or an unconstrained type parameter in boolean position
-        // is a JavaScript truthiness test. A runtime tag check
-        // (`typeof x === "boolean"`) is not that test — it answers `true` for
-        // `false` and `false` for a truthy string or number — so this lowers to
-        // the same `ToBool` cast the ordinary expression path uses.
-        if matches!(
-            self.ctx.krate.types.get(expr_ty),
-            Some(Type::Unknown | Type::TypeParam { .. })
-        ) {
-            return Ok(CallbackExpr {
-                kind: CallbackExprKind::ValueTruthy {
-                    value: Box::new(expr),
-                },
-                ty: self.ctx.krate.types.intern(Type::Bool),
-            });
-        }
-        if self.is_nullishable_type(expr_ty) || self.type_is_truthy_condition_surface(expr_ty) {
-            let none_ty = self.ctx.krate.types.intern(Type::None);
-            return Ok(CallbackExpr {
-                kind: CallbackExprKind::Binary {
-                    op: BinOp::NotEq,
-                    lhs: Box::new(expr),
-                    rhs: Box::new(CallbackExpr {
-                        kind: CallbackExprKind::Literal(Literal::None),
-                        ty: none_ty,
-                    }),
-                },
-                ty: self.ctx.krate.types.intern(Type::Bool),
-            });
-        }
-        Err(SmeltError::unsupported(
-            self.expression_span(expression),
-            "callback conditions must be boolean, optional, or supported truthy checks",
-        ))
-    }
-
-    /// Lower a truthy check on a function table lookup into explicit key tests.
-    pub(in crate::lowering) fn callback_function_table_has_key(
-        &mut self,
-        key: &CallbackExpr,
-        cases: &[String],
-        span: Span,
-    ) -> Result<CallbackExpr, SmeltError> {
-        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let string_ty = self.ctx.krate.types.intern(Type::String);
-        let mut condition = None;
-        for case_key in cases {
-            let equals_case = CallbackExpr {
-                kind: CallbackExprKind::Binary {
-                    op: BinOp::Eq,
-                    lhs: Box::new(key.clone()),
-                    rhs: Box::new(CallbackExpr {
-                        kind: CallbackExprKind::Literal(Literal::String(case_key.clone())),
-                        ty: string_ty,
-                    }),
-                },
-                ty: bool_ty,
-            };
-            condition = Some(match condition {
-                Some(previous) => CallbackExpr {
-                    kind: CallbackExprKind::Binary {
-                        op: BinOp::Or,
-                        lhs: Box::new(previous),
-                        rhs: Box::new(equals_case),
-                    },
-                    ty: bool_ty,
-                },
-                None => equals_case,
-            });
-        }
-        condition.ok_or_else(|| {
-            SmeltError::unsupported(span, "callback function-table truthy check has no entries")
-        })
-    }
-
-    /// Lower a callback throw branch to a panic expression.
-    pub(in crate::lowering) fn callback_throw_expression(
-        &mut self,
-        argument: Option<&Expression<'_>>,
-        params: &HashMap<&str, CallbackExpr>,
-        body: &Body,
-    ) -> Result<CallbackExpr, SmeltError> {
-        let message = argument
-            .map(|argument| self.callback_throw_message(argument, params, body))
-            .transpose()?;
-        Ok(CallbackExpr {
-            kind: CallbackExprKind::Throw {
-                message: message.map(Box::new),
-            },
-            ty: self.ctx.krate.types.intern(Type::Never),
-        })
-    }
-
-    /// Lower a callback `throw` operand, preserving the value that was thrown.
-    ///
-    /// `throw` is value-preserving in JavaScript for every operand shape, so the
-    /// operand lowers through the ordinary callback expression path. A built-in
-    /// `Error` construction reaches
-    /// [`Self::callback_error_object_expression`] there and becomes the erased
-    /// error record, which is what makes `error instanceof Error`,
-    /// `error.message` and `error.name` observable in the `catch`.
-    ///
-    /// This used to strip `new Error(m)` / `new TypeError(m)` / `new RangeError(m)`
-    /// down to `m` and to replace every other construction with the empty string,
-    /// so a `throw` inside an arrow lost the thrown object entirely. Only the
-    /// non-`Error` construction keeps that empty-string fallback: the reduced
-    /// callback expression language cannot build an arbitrary class instance, and
-    /// widening that here would turn callbacks that lower today into blockers.
-    pub(in crate::lowering) fn callback_throw_message(
-        &mut self,
-        argument: &Expression<'_>,
-        params: &HashMap<&str, CallbackExpr>,
-        body: &Body,
-    ) -> Result<CallbackExpr, SmeltError> {
-        if matches!(argument, Expression::NewExpression(new_expr)
-            if !matches!(&new_expr.callee, Expression::Identifier(callee)
-                if smelt_stdlib::is_error_class_name(callee.name.as_str())))
-        {
-            let ty = self.ctx.krate.types.intern(Type::String);
-            return Ok(CallbackExpr {
-                kind: CallbackExprKind::Literal(Literal::String(String::new())),
-                ty,
-            });
-        }
-        self.callback_expression(argument, params, body)
-    }
-
-    /// Build the erased `Error` record for a built-in Error construction in a callback.
-    ///
-    /// This is the reduced-callback-IR twin of
-    /// `ModuleBuilder::error_object_constructor_expression`, and produces the same
-    /// `{ __smelt_error: <class>, message, cause? }` shape so a callback-thrown
-    /// error is indistinguishable from a statement-thrown one at the `catch`. The
-    /// `__smelt_error` value carries the spelled class name, which is what makes
-    /// `error.name` read truthfully for `TypeError`, `RangeError` and the rest.
-    ///
-    /// `AggregateError`'s leading `errors` iterable is retained under the
-    /// `errors` key, matching the statement path; its message is the second
-    /// argument. A non-literal options argument is lowered for its effects only,
-    /// because whether a `cause` is attached depends on `"cause" in options`,
-    /// which a static rule can only answer for a literal spelling.
-    pub(in crate::lowering) fn callback_error_object_expression(
-        &mut self,
-        new_expr: &oxc::ast::ast::NewExpression<'_>,
-        params: &HashMap<&str, CallbackExpr>,
-        body: &Body,
-    ) -> Result<CallbackExpr, SmeltError> {
-        let string_ty = self.ctx.krate.types.intern(Type::String);
-        // `Error` objects are not modeled as classes: they lower to the erased
-        // `{ __smelt_error, message, stack, cause? }` record shared with the
-        // statement path, so the record's values are erased.
-        let unknown_ty = self.erase_with(ErasureReason::UnmodeledType, "Error record");
-        let class_name = match &new_expr.callee {
-            Expression::Identifier(callee) => callee.name.to_string(),
-            _ => "Error".to_owned(),
-        };
-        let is_aggregate = class_name == "AggregateError";
-        let mut arguments = new_expr.arguments.iter();
-        let errors = if is_aggregate {
-            match arguments.next().and_then(Argument::as_expression) {
-                Some(errors_arg) => Some(self.callback_expression(errors_arg, params, body)?),
-                None => None,
-            }
-        } else {
-            None
-        };
-        let message = match arguments.next().and_then(Argument::as_expression) {
-            Some(message_arg) => self.callback_expression(message_arg, params, body)?,
-            None => CallbackExpr {
-                kind: CallbackExprKind::Literal(Literal::String("Error".to_owned())),
-                ty: string_ty,
-            },
-        };
-        let mut cause = None;
-        if let Some(Argument::ObjectExpression(options)) = arguments.next() {
-            for property in &options.properties {
-                let ObjectPropertyKind::ObjectProperty(property) = property else {
-                    continue;
-                };
-                let value = self.callback_expression(&property.value, params, body)?;
-                if matches!(&property.key, PropertyKey::StaticIdentifier(key) if key.name == "cause")
-                {
-                    cause = Some(value);
-                }
-            }
-        }
-        let mut entries = vec![
-            (
-                self.intern_exact_source_name("__smelt_error"),
-                CallbackExpr {
-                    kind: CallbackExprKind::Literal(Literal::String(class_name)),
-                    ty: string_ty,
-                },
-            ),
-            (self.intern_exact_source_name("message"), message),
-            // Every modeled `Error` carries the whole `ERROR_MARKER_FIELDS`
-            // layout, with `undefined` for a slot that has no value; see
-            // `ModuleBuilder::push_error_layout_entry` for why it must always be
-            // present. Keeping it here is what makes a callback-thrown error
-            // indistinguishable from a statement-thrown one.
-            (
-                self.intern_exact_source_name("stack"),
-                CallbackExpr {
-                    kind: CallbackExprKind::Literal(Literal::Undefined),
-                    ty: unknown_ty,
-                },
-            ),
-            (
-                self.intern_exact_source_name("cause"),
-                cause.unwrap_or(CallbackExpr {
-                    kind: CallbackExprKind::Literal(Literal::Undefined),
-                    ty: unknown_ty,
-                }),
-            ),
-        ];
-        if let Some(errors) = errors {
-            entries.push((self.intern_exact_source_name("errors"), errors));
-        }
-        Ok(CallbackExpr {
-            kind: CallbackExprKind::DictLit(entries),
-            ty: self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty)),
-        })
-    }
-
-    /// Bind names from a callback parameter pattern to callback expressions.
-    ///
-    /// The parameter itself is the root projection; every pattern below it
-    /// projects off that root, so the work is delegated to
-    /// [`Self::bind_callback_pattern_value`], which recurses.
-    pub(in crate::lowering) fn bind_callback_param_pattern<'a>(
-        &mut self,
-        pattern: &'a BindingPattern<'a>,
-        param_index: usize,
-        param_ty: smelt_hir::TypeId,
-        params: &mut HashMap<&'a str, CallbackExpr>,
-    ) -> Result<(), SmeltError> {
-        let root = CallbackExpr {
-            kind: CallbackExprKind::Param(param_index),
-            ty: param_ty,
-        };
-        self.bind_callback_pattern_value(pattern, root, params)
-    }
-
-    /// Bind every name a binding pattern introduces to a projection of `value`.
-    ///
-    /// Destructuring is nothing but projection: `([[, route]]) => route` binds
-    /// `route` to `param[0][1]`, and `({ a: { b } }) => b` binds `b` to
-    /// `param.a.b`. The compact callback IR already carries recursive
-    /// `Index`/`Field` nodes with a boxed receiver, and both lower through the
-    /// ordinary expression path, so nesting needs no new node kind: each level
-    /// wraps the projection built so far and recurses with the projected type.
-    /// Only a shape whose *type* cannot be resolved in the compact IR is
-    /// reported, so the caller retries through full closure-body lowering
-    /// rather than typing a binding as its container.
-    ///
-    /// A `...rest` element is deliberately not bound here: the compact IR has no
-    /// node for the tail of a list. An unreferenced rest costs nothing, and a
-    /// referenced one already fails as an unresolved callback identifier, which
-    /// is one of the messages retried through closure-body lowering.
-    fn bind_callback_pattern_value<'a>(
-        &mut self,
-        pattern: &'a BindingPattern<'a>,
-        value: CallbackExpr,
-        params: &mut HashMap<&'a str, CallbackExpr>,
-    ) -> Result<(), SmeltError> {
-        match pattern {
-            BindingPattern::BindingIdentifier(binding) => {
-                params.insert(binding.name.as_str(), value);
-                Ok(())
-            }
-            BindingPattern::ArrayPattern(array) => {
-                let item_tys = match self.ctx.krate.types.get(value.ty) {
-                    Some(Type::Tuple(items)) => items.clone(),
-                    Some(Type::List(item)) => vec![*item; array.elements.len()],
-                    _ => Vec::new(),
-                };
-                for (item_index, element) in array.elements.iter().enumerate() {
-                    let Some(element_pattern) = element else {
-                        continue;
-                    };
-                    let item_ty = item_tys.get(item_index).copied().unwrap_or(value.ty);
-                    let item = CallbackExpr {
-                        kind: CallbackExprKind::Index {
-                            receiver: Box::new(value.clone()),
-                            index: item_index,
-                        },
-                        ty: item_ty,
-                    };
-                    self.bind_callback_pattern_value(element_pattern, item, params)?;
-                }
-                Ok(())
-            }
-            BindingPattern::ObjectPattern(object) => {
-                for property in &object.properties {
-                    if property.computed {
-                        return Err(SmeltError::unsupported(
-                            self.span(property.span.start, property.span.end),
-                            "computed callback parameter destructuring needs closure-body lowering",
-                        ));
-                    }
-                    let field_text = match &property.key {
-                        PropertyKey::StaticIdentifier(identifier) => {
-                            Cow::Borrowed(identifier.name.as_str())
-                        }
-                        PropertyKey::StringLiteral(literal) => js_str_text(literal.value),
-                        _ => {
-                            return Err(SmeltError::unsupported(
-                                self.span(property.key.span().start, property.key.span().end),
-                                "dynamic callback parameter destructuring needs closure-body lowering",
-                            ));
-                        }
-                    };
-                    let field = self.intern_source_name(&field_text);
-                    // A destructured field's type is the FIELD's type. Falling
-                    // back to the receiver's own type here silently mistyped
-                    // every shape not listed below: `arrays.map(({ length }) =>
-                    // length)` over `T[][]` typed `length` as `T[]`, so the
-                    // callback claimed to return a list and the emitter
-                    // coerced the number into a one-element list. Where the
-                    // field type genuinely cannot be resolved in the compact
-                    // IR, report it so the caller retries through full
-                    // closure-body lowering instead of inventing a type.
-                    let field_ty = match self.ctx.krate.types.get(value.ty) {
-                        Some(Type::Dict(_, field_value) | Type::JsMap(_, field_value)) => {
-                            *field_value
-                        }
-                        Some(Type::Class { .. }) => self.class_field_type(value.ty, field)?,
-                        // `length` is carried by every list and string, and it
-                        // is a number rather than the receiver's own type.
-                        Some(Type::List(_) | Type::String) if field_text == "length" => {
-                            self.ctx.krate.types.intern(Type::Float)
-                        }
-                        // An erased receiver answers a field read at runtime, so
-                        // the binding really is `unknown` -- that is the field's
-                        // own type here, not the receiver's leaking through.
-                        // This is also the only shape the closure-body fallback
-                        // handles WORSE than the compact IR: it binds the
-                        // destructured name to `Default::default()` instead of
-                        // reading the field, so routing it there would answer
-                        // `({ length }) => length < 3` with a default.
-                        Some(Type::Unknown | Type::TypeParam { .. }) => self
-                            .callback_erase_unless_unknown(
-                                value.ty,
-                                ErasureReason::ByName,
-                                &field_text,
-                            ),
-                        _ => {
-                            return Err(SmeltError::unsupported(
-                                self.span(property.span.start, property.span.end),
-                                "callback parameter destructuring needs closure-body lowering",
-                            ));
-                        }
-                    };
-                    let field_value = CallbackExpr {
-                        kind: CallbackExprKind::Field {
-                            receiver: Box::new(value.clone()),
-                            field,
-                        },
-                        ty: field_ty,
-                    };
-                    self.bind_callback_pattern_value(&property.value, field_value, params)?;
-                }
-                Ok(())
-            }
-            BindingPattern::AssignmentPattern(_) => Err(SmeltError::unsupported(
-                self.span(pattern.span().start, pattern.span().end),
-                "default callback parameter destructuring needs closure-body lowering",
-            )),
-        }
-    }
-
     /// Read arrow parameter types, using contextual function types for omitted annotations.
     pub(in crate::lowering) fn arrow_callback_param_types_with_hint(
         &mut self,
@@ -1148,7 +75,13 @@ impl ModuleBuilder<'_> {
             // (`lowering/ty/annotations.rs`). Without
             // this the param looks non-nullable, so an `x === undefined` guard
             // constant-folds to `false`.
-            let ty = if param.optional
+            // A default the caller may omit has the same ABI, as for a function
+            // declaration; a contextual signature keeps its own parameter.
+            let omittable_default = contextual_function
+                .and_then(|function| function.params.get(index))
+                .is_none()
+                && Self::closure_param_default(param).is_some();
+            let ty = if (param.optional || omittable_default)
                 && !matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_)))
             {
                 self.ctx.krate.types.intern(Type::Optional(ty))
@@ -1506,6 +439,22 @@ impl ModuleBuilder<'_> {
         )
     }
 
+    /// The default a closure parameter applies when its argument is omitted.
+    ///
+    /// A default equal to the type's zero value needs none: an omitted argument
+    /// already arrives as that value (see `initializer_is_type_zero_default`).
+    fn closure_param_default<'src>(
+        param: &'src oxc::ast::ast::FormalParameter<'src>,
+    ) -> Option<&'src Expression<'src>> {
+        if !matches!(param.pattern, BindingPattern::BindingIdentifier(_)) {
+            return None;
+        }
+        param
+            .initializer
+            .as_deref()
+            .filter(|initializer| !Self::initializer_is_type_zero_default(initializer))
+    }
+
     /// The type a closure body's `return` statements agree on, if any.
     ///
     /// Used when the caller had no return type to give a block-bodied callback
@@ -1555,9 +504,9 @@ impl ModuleBuilder<'_> {
         clippy::too_many_arguments,
         reason = "shared closure-body lowering threads the params, body form, async flag, span and both contextual types through one call"
     )]
-    fn closure_body_expr_from_parts(
+    fn closure_body_expr_from_parts<'src>(
         &mut self,
-        params: &oxc::ast::ast::FormalParameters<'_>,
+        params: &'src oxc::ast::ast::FormalParameters<'src>,
         body_kind: ClosureBodyKind<'_, '_>,
         kind: BodyKind,
         is_async: bool,
@@ -1571,6 +520,7 @@ impl ModuleBuilder<'_> {
         let mut closure_params = Vec::new();
         let mut param_names = HashSet::new();
         let mut saved_locals = Vec::new();
+        let mut defaulted_params = Vec::new();
 
         for (index, param) in params.items.iter().enumerate() {
             let ty = param_tys.get(index).copied().ok_or_else(|| {
@@ -1609,6 +559,18 @@ impl ModuleBuilder<'_> {
                         binding.name.as_str().to_owned(),
                         self.scope.bind(binding.name.as_str().to_owned(), local),
                     ));
+                    if matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_)))
+                        && let Some(initializer) = Self::closure_param_default(param)
+                    {
+                        defaulted_params.push((
+                            local,
+                            ty,
+                            initializer,
+                            symbol,
+                            binding.name.to_string(),
+                            param_span,
+                        ));
+                    }
                 }
                 pattern => {
                     let mut names = Vec::new();
@@ -1700,6 +662,9 @@ impl ModuleBuilder<'_> {
         }
 
         let mut capture_names = Vec::new();
+        for (_, _, initializer, ..) in &defaulted_params {
+            self.collect_expression_capture_names(initializer, &param_names, &mut capture_names);
+        }
         match body_kind {
             ClosureBodyKind::ArrowExpression(arrow) => {
                 let return_expression = self.arrow_return_expression(arrow)?;
@@ -1723,6 +688,10 @@ impl ModuleBuilder<'_> {
         capture_names.dedup();
 
         let mut captures = Vec::new();
+        // A capture the source never reassigns keeps the facts proven around the
+        // closure, as TypeScript's own control flow does: the type the guard
+        // established still holds whenever the closure runs.
+        let mut captured_narrowings = HashMap::new();
         for name in capture_names {
             let Some(source_local) = saved_locals
                 .iter()
@@ -1746,6 +715,11 @@ impl ModuleBuilder<'_> {
                 mutable: source_decl.mutable,
                 span: source_decl.span,
             });
+            if !source_decl.mutable
+                && let Some(narrowed) = self.narrowed_type(name.as_str())
+            {
+                captured_narrowings.insert(name.clone(), narrowed);
+            }
             saved_locals.push((name.clone(), self.scope.bind(name, body_local)));
             captures.push(ClosureCapture {
                 source_local,
@@ -1813,9 +787,11 @@ impl ModuleBuilder<'_> {
         // A closure body is a fresh body: no statement block or postfix-update
         // deferral of the enclosing statement crosses into it (`FnCtx::nested`).
         let ctx = self.nested_fn_ctx(kind, is_async, ctx_return_ty);
-        let narrowings = ScopeGroups::NARROWINGS;
+        // `LocalId`s are per body, so the callable-write registry is too.
+        let scoped_state = ScopeGroups::NARROWINGS.with(ScopeGroups::CALLABLE_PROPS);
         let (lowering_result, actual_return_ty) =
-            self.with_nested_body(ctx, narrowings, |this, _| {
+            self.with_nested_body(ctx, scoped_state, |this, _| {
+                this.scope.push_narrowing_scope(captured_narrowings);
                 let mut actual_return_ty = return_ty;
                 // A binding declared inside a function body is not in scope outside it.
                 //
@@ -1838,14 +814,19 @@ impl ModuleBuilder<'_> {
                 // restoring once the body is lowered drops exactly the bindings the body
                 // introduced, and nothing else.
                 let bindings_before_body = this.scope.snapshot_bindings();
-                let predeclare_result = match body_kind {
-                    ClosureBodyKind::ArrowExpression(_) => Ok(()),
-                    ClosureBodyKind::Statements(statements) => this
-                        .predeclare_local_function_declarations(statements, &mut closure_body)
-                        .and_then(|()| {
-                            this.predeclare_forward_referenced_locals(statements, &mut closure_body)
-                        }),
-                };
+                let predeclare_result = this
+                    .apply_parameter_defaults(defaulted_params, &mut closure_body)
+                    .and_then(|()| match body_kind {
+                        ClosureBodyKind::ArrowExpression(_) => Ok(()),
+                        ClosureBodyKind::Statements(statements) => this
+                            .predeclare_local_function_declarations(statements, &mut closure_body)
+                            .and_then(|()| {
+                                this.predeclare_forward_referenced_locals(
+                                    statements,
+                                    &mut closure_body,
+                                )
+                            }),
+                    });
                 let lowering_result = if let Err(error) = predeclare_result {
                     Err(error)
                 } else {
@@ -1900,6 +881,12 @@ impl ModuleBuilder<'_> {
                     closure_body.finish_async();
                 }
                 this.scope.restore_bindings(bindings_before_body);
+                let mut unconsumed = Vec::new();
+                this.report_unconsumed_callable_props(&mut unconsumed);
+                let lowering_result = match unconsumed.into_iter().next() {
+                    Some(error) if lowering_result.is_ok() => Err(error),
+                    _ => lowering_result,
+                };
                 (lowering_result, actual_return_ty)
             });
         for (name, prior) in saved_locals.into_iter().rev() {
@@ -1940,37 +927,6 @@ impl ModuleBuilder<'_> {
             ty: closure_ty,
             span,
         }))
-    }
-
-    /// The fallback-eligible error for a callback that throws from a
-    /// CONDITIONALLY evaluated position.
-    ///
-    /// [`CallbackExprKind::Throw`] and `CallbackExprKind::AssignCapture` are the
-    /// two callback expression kinds that push a body STATEMENT — `Throw` pushes
-    /// `Stmt::Throw`, `AssignCapture` pushes `Stmt::Assign` (and then answers the
-    /// assigned value) — so each runs where it is *emitted*, not where its
-    /// value is *used*. Inside a
-    /// ternary arm those two places differ: the statement hoists out of the
-    /// guard and the throw becomes unconditional.
-    /// `(e) => { if (shouldGuard(e)) { throw e } return undefined }` lowered to
-    /// a closure whose whole body was `throw e` — the condition, the branch and
-    /// the tail return all gone — so radash's `guard` rethrew every error it was
-    /// written to swallow, and the rethrow escaped the source's own
-    /// `try`/`catch` (H70, `blocker-logs/hono-h66-promise-continuations.md`).
-    ///
-    /// This is the same shape as the capture-assignment guard beside it, the
-    /// other kind that emits a statement, and it takes the same remedy: surface
-    /// a fallback-eligible error
-    /// ([`Self::should_fallback_to_closure_body_for_callback`]) so the whole
-    /// arrow retries through full closure-body lowering, which lowers the branch
-    /// natively with a real `switch` terminator. A throw in an UNCONDITIONALLY
-    /// evaluated position (a callback whose entire body is a `throw`) is still
-    /// modeled by the compact IR, so those emissions stay byte-identical.
-    fn conditional_throw_fallback_error(span: Span) -> SmeltError {
-        SmeltError::unsupported(
-            span,
-            "callback throws inside a conditional; needs closure-body lowering",
-        )
     }
 
     /// Returns whether a legacy callback expression contains a source throw.
@@ -2177,71 +1133,11 @@ impl ModuleBuilder<'_> {
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?;
-            if !arrow.r#async
-                && let Ok(callback) = self.arrow_callback_from_params(arrow, &params, body)
-            {
-                let return_ty = explicit_return_ty.unwrap_or(callback.ty);
-                if !self.type_assignable_to(callback.ty, return_ty) {
-                    return Err(SmeltError::unsupported(
-                        self.span(arrow.span.start, arrow.span.end),
-                        "arrow expression return type does not match its annotation",
-                    ));
-                }
-                let span = self.span(arrow.span.start, arrow.span.end);
-                let tuple_rest = self
-                    .tuple_rest_arrows
-                    .contains_key(&(arrow.params.span.start, arrow.params.span.end));
-                let rest = arrow
-                    .params
-                    .rest
-                    .as_ref()
-                    .map(|_| arrow.params.items.len())
-                    .or_else(|| {
-                        contextual_function
-                            .as_ref()
-                            .and_then(|function| function.rest)
-                    })
-                    .filter(|_| !tuple_rest);
-                // The callback tree classified into the compact side-effect-free
-                // expression IR, but the compact IR only lowers a bounded method
-                // table (`.map`/`.at`/`Set.has`/...). A statically-resolvable
-                // method call it does not model (`controller.abort()`,
-                // `date.getTime()`, `text.localeCompare(other)`, a captured class
-                // instance method, ...) is rejected here with a "closure body"
-                // error even though the general expression path knows how to
-                // dispatch it. When that happens, fall through to the full
-                // closure-body lowering below, which routes the arrow body through
-                // `expression`/`statement` (the same path a non-callback method
-                // call uses) instead of surfacing the blocker.
-                match self.callback_expr_to_closure_with_return_ty(
-                    return_ty,
-                    &callback,
-                    &params,
-                    rest,
-                    contextual_function
-                        .as_ref()
-                        .and_then(|function| function.required_params),
-                    span,
-                    body,
-                ) {
-                    Ok(expr) => return Ok(expr),
-                    Err(error) if Self::should_fallback_to_closure_body_for_callback(&error) => {
-                        // Recoverable compact-IR gap: retry through the general
-                        // closure-body path, preserving the compact path's
-                        // resolved return type so the closure keeps its typed
-                        // signature.
-                        return self.arrow_closure_body_expr(arrow, &params, return_ty, body);
-                    }
-                    Err(error) => return Err(error),
-                }
-            }
-            let no_return_hint = explicit_return_ty.is_none() && contextual_function.is_none();
+            let contextual_return =
+                self.closure_contextual_return(contextual_function.as_ref(), arrow.r#async);
+            let no_return_hint = explicit_return_ty.is_none() && contextual_return.is_none();
             let mut return_ty = explicit_return_ty
-                .or_else(|| {
-                    contextual_function
-                        .as_ref()
-                        .map(|function| function.return_ty)
-                })
+                .or(contextual_return)
                 // not a new erasure: `unknown` is the "no return hint" sentinel
                 // of closure-body lowering (it infers block returns); a return
                 // that stays erased is recorded below.
@@ -2259,6 +1155,23 @@ impl ModuleBuilder<'_> {
         })();
         self.pop_type_parameter_scope();
         result
+    }
+
+    /// The return type a contextual signature fixes for a closure, if any.
+    ///
+    /// A return that mentions an unresolved type parameter or erased type is what
+    /// the closure's own body is about to answer: `countBy(xs, x => x.name)` is
+    /// how `K` gets its `string`, so the signature must not pre-empt the body.
+    /// An `async` body answers the awaited value, not its own return, so its
+    /// signature stays.
+    pub(in crate::lowering) fn closure_contextual_return(
+        &self,
+        contextual: Option<&FunctionType>,
+        is_async: bool,
+    ) -> Option<smelt_hir::TypeId> {
+        contextual.map(|function| function.return_ty).filter(|ty| {
+            is_async || (!self.type_mentions_type_param(*ty) && !self.type_contains_unknown(*ty))
+        })
     }
 
     /// Return the expression produced by an arrow function body.
@@ -2389,6 +1302,11 @@ impl ModuleBuilder<'_> {
                 for property in &object.properties {
                     match property {
                         ObjectPropertyKind::ObjectProperty(property) => {
+                            if property.computed
+                                && let Some(key) = property.key.as_expression()
+                            {
+                                self.collect_expression_capture_names(key, param_names, captures);
+                            }
                             self.collect_expression_capture_names(
                                 &property.value,
                                 param_names,
@@ -2506,6 +1424,22 @@ impl ModuleBuilder<'_> {
                     param_names,
                     captures,
                 );
+            }
+            Expression::TaggedTemplateExpression(tagged) => {
+                self.collect_expression_capture_names(&tagged.tag, param_names, captures);
+                for expression in &tagged.quasi.expressions {
+                    self.collect_expression_capture_names(expression, param_names, captures);
+                }
+            }
+            Expression::TSInstantiationExpression(instantiation) => {
+                self.collect_expression_capture_names(
+                    &instantiation.expression,
+                    param_names,
+                    captures,
+                );
+            }
+            Expression::PrivateInExpression(private_in) => {
+                self.collect_expression_capture_names(&private_in.right, param_names, captures);
             }
             Expression::SequenceExpression(sequence) => {
                 for sequence_expr in &sequence.expressions {
@@ -2796,6 +1730,9 @@ impl ModuleBuilder<'_> {
                         self.collect_statement_capture_names(child, param_names, captures);
                     }
                 }
+            }
+            Statement::LabeledStatement(labeled) => {
+                self.collect_statement_capture_names(&labeled.body, param_names, captures);
             }
             Statement::FunctionDeclaration(function) => {
                 // A nested `function` declaration is lowered into a closure of

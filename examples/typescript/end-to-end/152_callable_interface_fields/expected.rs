@@ -4162,7 +4162,7 @@ impl Context {
     let _smelt_tmp_6 = ::std::rc::Rc::new(|closure_arg_0: String| {
     closure_arg_0.clone()
     });
-    (*smelt_capture_this.borrow()).0.borrow_mut().echo = Echo { __smelt_call: _smelt_tmp_6.clone() };
+    (*smelt_capture_this.borrow()).0.borrow_mut().echo = Echo { __smelt_call: { let smelt_callback = _smelt_tmp_6.clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| (smelt_callback)(arg0)); smelt_adapted } };
     return ((*smelt_capture_this.borrow())).clone();
     }
     fn touch(&self) -> f64 {

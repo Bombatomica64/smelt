@@ -4919,13 +4919,13 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_48 = { let smelt_needle = 171.0; _smelt_tmp_47.borrow().iter().position(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).map_or(-1.0, |idx| idx as f64) };
     let _ = { println!("{} {}", _smelt_tmp_46, smelt_console_number(_smelt_tmp_48)); };
     _smelt_tmp_50 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![10.0, 255.0]; smelt_list_items }));
-    _smelt_tmp_51 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
-    let _smelt_tmp_3: String = { let value = (closure_arg_0 as f64).trunc() as i128; let radix = ((16.0 as f64).trunc() as u32).clamp(2, 36); let negative = value < 0; let mut n = value.unsigned_abs(); let mut digits = Vec::new(); if n == 0 { digits.push('0'); } while n > 0 { let digit = (n % u128::from(radix)) as u8; digits.push(if digit < 10 { (b'0' + digit) as char } else { (b'a' + digit - 10) as char }); n /= u128::from(radix); } if negative { digits.push('-'); } digits.iter().rev().collect::<String>() };
-    _smelt_tmp_3.clone()
+    _smelt_tmp_51 = ::std::rc::Rc::new(|closure_arg_0: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
+    let _smelt_tmp_1: String = { let value = (closure_arg_0 as f64).trunc() as i128; let radix = ((16.0 as f64).trunc() as u32).clamp(2, 36); let negative = value < 0; let mut n = value.unsigned_abs(); let mut digits = Vec::new(); if n == 0 { digits.push('0'); } while n > 0 { let digit = (n % u128::from(radix)) as u8; digits.push(if digit < 10 { (b'0' + digit) as char } else { (b'a' + digit - 10) as char }); n /= u128::from(radix); } if negative { digits.push('-'); } digits.iter().rev().collect::<String>() };
+    _smelt_tmp_1.clone()
     });
-    _smelt_tmp_52 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
-    let _smelt_tmp_3: String = { let value = (closure_arg_0 as f64).trunc() as i128; let radix = ((16.0 as f64).trunc() as u32).clamp(2, 36); let negative = value < 0; let mut n = value.unsigned_abs(); let mut digits = Vec::new(); if n == 0 { digits.push('0'); } while n > 0 { let digit = (n % u128::from(radix)) as u8; digits.push(if digit < 10 { (b'0' + digit) as char } else { (b'a' + digit - 10) as char }); n /= u128::from(radix); } if negative { digits.push('-'); } digits.iter().rev().collect::<String>() };
-    _smelt_tmp_3.clone()
+    _smelt_tmp_52 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
+    let _smelt_tmp_1: String = { let value = (closure_arg_0 as f64).trunc() as i128; let radix = ((16.0 as f64).trunc() as u32).clamp(2, 36); let negative = value < 0; let mut n = value.unsigned_abs(); let mut digits = Vec::new(); if n == 0 { digits.push('0'); } while n > 0 { let digit = (n % u128::from(radix)) as u8; digits.push(if digit < 10 { (b'0' + digit) as char } else { (b'a' + digit - 10) as char }); n /= u128::from(radix); } if negative { digits.push('-'); } digits.iter().rev().collect::<String>() };
+    _smelt_tmp_1.clone()
     }); let smelt_array = _smelt_tmp_50; smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
     _smelt_tmp_53 = _smelt_tmp_52.borrow().join(&",".to_owned());
     let _ = { println!("{}", _smelt_tmp_53); };

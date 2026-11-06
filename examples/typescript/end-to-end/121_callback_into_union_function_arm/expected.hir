@@ -45,10 +45,9 @@ interned types
   t2 = fn(String) -> Ex
   t3 = Float
   t4 = Ex | fn(String) -> Ex
-  t5 = fn(Float, Ex | fn(String) -> Ex) -> Float
-  t6 = None
-  t7 = Optional<Ex | fn(String) -> Ex>
+  t5 = Optional<Ex | fn(String) -> Ex>
+  t6 = fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float
+  t7 = None
   t8 = Bool
-  t9 = fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float
-  t10 = fn() -> Ex
-  t11 = fn(String) -> Ex
+  t9 = fn() -> Ex
+  t10 = fn(String) -> Ex

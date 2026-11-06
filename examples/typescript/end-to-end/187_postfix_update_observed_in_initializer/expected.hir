@@ -86,5 +86,6 @@ interned types
   t4 = fn(Float) -> Float
   t5 = None
   t6 = fn() -> Float
-  t7 = List<Float>
-  t8 = fn(Float) -> Float
+  t7 = fn() -> Float
+  t8 = List<Float>
+  t9 = fn(Float) -> Float

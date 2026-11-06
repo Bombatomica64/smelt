@@ -3975,13 +3975,13 @@ impl Router {
     if _smelt_tmp_5 {
     _smelt_tmp_7 = _smelt_tmp_4.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_8 = Into::<SmeltList<_>>::into({ let smelt_haystack = path.clone(); let smelt_separator = "/".to_owned(); if smelt_separator.is_empty() { if smelt_haystack.is_empty() { Vec::new() } else { smelt_haystack.chars().map(|ch| ch.to_string()).collect::<Vec<_>>() } } else { smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() } });
-    _smelt_tmp_9 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: &SmeltList<String>| {
-    let _smelt_tmp_3: bool = closure_arg_0.clone() != "".to_owned();
-    _smelt_tmp_3
+    _smelt_tmp_9 = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    let _smelt_tmp_1: bool = closure_arg_0.clone() != "".to_owned();
+    _smelt_tmp_1
     });
-    _smelt_tmp_10 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: &SmeltList<String>| {
-    let _smelt_tmp_3: bool = closure_arg_0.clone() != "".to_owned();
-    _smelt_tmp_3
+    _smelt_tmp_10 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    let _smelt_tmp_1: bool = closure_arg_0.clone() != "".to_owned();
+    _smelt_tmp_1
     }); let smelt_array = _smelt_tmp_8; smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>() });
     match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| _smelt_tmp_7.insert(_smelt_tmp_10))) {
         Ok(Ok(__smelt_value)) => {

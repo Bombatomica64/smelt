@@ -3,13 +3,13 @@
 
 use crate::lowering::js_text::{js_str_text, static_name_text};
 use crate::lowering::state::fn_ctx::BodyKind;
-use crate::lowering::{LocalCallback, LocalCallbackDefault, ModuleBuilder, RestParam, TestMatcher};
+use crate::lowering::{ModuleBuilder, RestParam, TestMatcher};
 use crate::SmeltError;
 use oxc::ast::ast::{Argument, BindingPattern, Expression, PropertyKey, Statement};
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{BinaryOperator, LogicalOperator, UnaryOperator};
 use smelt_hir::{
-    BinOp, Body, CallbackExpr, CallbackExprKind, CaptureMode, ClosureCapture, ErasureReason, Expr,
+    BinOp, Body, CaptureMode, ClosureCapture, ErasureReason, Expr,
     ExprKind, FileId, FunctionType, Literal, LocalDecl, Param, Pattern, PrimitiveCastOp,
     PropertyLookup, Span, Stmt, Type, UnaryOp, UnknownKind,
 };
@@ -4729,36 +4729,6 @@ impl ModuleBuilder<'_> {
                     *ty = self.ctx.krate.types.intern(Type::Optional(*ty));
                 }
             }
-            let mut default_params = HashMap::new();
-            for (index, param) in arrow.params.items.iter().enumerate() {
-                let ty = params
-                    .get(index)
-                    .copied()
-                    .unwrap_or_else(|| {
-                        self.erase_with(ErasureReason::MissingAnnotation, "closure parameter")
-                    });
-                Self::bind_local_callback_default_param(
-                    &param.pattern,
-                    index,
-                    ty,
-                    &mut default_params,
-                )?;
-            }
-            let defaults = arrow
-                .params
-                .items
-                .iter()
-                .map(|param| {
-                    param
-                        .initializer
-                        .as_ref()
-                        .map(|default| {
-                            self.callback_expression(default, &default_params, body)
-                                .map(LocalCallbackDefault::Callback)
-                        })
-                        .transpose()
-                })
-                .collect::<Result<Vec<_>, _>>()?;
             let rest = arrow.params.rest.as_ref().and_then(|_rest| {
                 let index = params.len().checked_sub(1)?;
                 let param_ty = params.get(index).copied()?;
@@ -4774,45 +4744,19 @@ impl ModuleBuilder<'_> {
                 .iter()
                 .position(|param| param.optional || Self::formal_parameter_has_default(param))
                 .unwrap_or(arrow.params.items.len());
-            let mut closure_defaults = defaults;
-            if rest.is_some() {
-                closure_defaults.push(None);
-            }
             let return_ty = arrow
                 .return_type
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?;
-            let callback_result = if arrow.r#async {
-                Err(SmeltError::unsupported(
-                    self.span(arrow.span.start, arrow.span.end),
-                    "async callbacks need closure-body lowering",
-                ))
-            } else {
-                match self.arrow_return_expression(arrow) {
-                    Ok(Expression::CallExpression(_)) => Err(SmeltError::unsupported(
-                        self.span(arrow.span.start, arrow.span.end),
-                        "call-bodied local arrows lower through closure bodies",
-                    )),
-                    _ => self.arrow_callback_from_params(arrow, &params, body),
-                }
-            };
-            let no_return_hint =
-                return_ty.is_none() && contextual_function.is_none() && callback_result.is_err();
+            let contextual_return =
+                self.closure_contextual_return(contextual_function.as_ref(), arrow.r#async);
+            let no_return_hint = return_ty.is_none() && contextual_return.is_none();
             let mut return_ty = return_ty
-                .or_else(|| {
-                    contextual_function
-                        .as_ref()
-                        .map(|function| function.return_ty)
-                })
-                .unwrap_or_else(|| {
-                    callback_result.as_ref().map_or_else(
-                        // not a new erasure: "no return hint" sentinel; recorded
-                        // after closure-body lowering if the return stays erased
-                        |_| self.unknown_type(),
-                        |callback| callback.ty,
-                    )
-                });
+                .or(contextual_return)
+                // not a new erasure: "no return hint" sentinel; recorded after
+                // closure-body lowering if the return stays erased
+                .unwrap_or_else(|| self.unknown_type());
             if arrow.r#async
                 && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
             {
@@ -4828,93 +4772,6 @@ impl ModuleBuilder<'_> {
                 is_async: arrow.r#async,
                 may_throw: false,
             }));
-            let predeclared_local = self.local_arrow_existing_body_local(name, body);
-            // A local callback is rebuilt into a closure at each use (and, when
-            // predeclared, once more right here), where a compact-IR gap can no
-            // longer retry through full closure-body lowering: the source
-            // arrow is gone, or the binding is already committed. Prove the
-            // rebuild now, and take the closure-body path below when it would
-            // fail — the same retry every inline callback argument gets
-            // (`should_fallback_to_closure_body_for_callback`).
-            let callback_result = callback_result.and_then(|callback| {
-                match self.compact_callback_rebuilds(
-                    return_ty,
-                    &callback,
-                    &params,
-                    rest.map(|rest| rest.index),
-                    Some(required_params),
-                    self.span(arrow.span.start, arrow.span.end),
-                    body,
-                ) {
-                    Err(error) if Self::should_fallback_to_closure_body_for_callback(&error) => {
-                        Err(error)
-                    }
-                    _ => Ok(callback),
-                }
-            });
-            if let Ok(callback) = callback_result {
-                let expected_callback_ty = match self.ctx.krate.types.get(return_ty) {
-                    Some(Type::Future(inner)) if arrow.r#async => *inner,
-                    _ => return_ty,
-                };
-                if !self.local_callback_return_type_compatible(callback.ty, expected_callback_ty) {
-                    return Err(SmeltError::unsupported(
-                        self.span(arrow.span.start, arrow.span.end),
-                        format!(
-                            "local closure return type does not match its annotation: actual {:?}, expected {:?}",
-                            self.ctx.krate.types.get(callback.ty),
-                            self.ctx.krate.types.get(expected_callback_ty)
-                        ),
-                    ));
-                }
-                let local = self.local_arrow_binding_local(
-                    name,
-                    symbol,
-                    fn_ty,
-                    self.span(start, end),
-                    body,
-                );
-                self.scope.bind(name.to_owned(), local);
-                if predeclared_local.is_some() {
-                    let value = self.callback_expr_to_closure_with_return_ty(
-                        return_ty,
-                        &callback,
-                        &params,
-                        rest.map(|rest| rest.index),
-                        Some(required_params),
-                        self.span(arrow.span.start, arrow.span.end),
-                        body,
-                    )?;
-                    let pat = body.push_pattern(Pattern::Binding(local));
-                    body.push_stmt_to_block(
-                        block,
-                        Stmt::Let {
-                            pat,
-                            ty: fn_ty,
-                            value: Some(value),
-                        },
-                    );
-                }
-                self.scope.register_callback(
-                    name.to_owned(),
-                    LocalCallback {
-                        defining_body_span: body
-                            .blocks
-                            .first()
-                            .map(|root_block| root_block.span),
-                        // The `Stmt::Let` above only runs for a predeclared local,
-                        // so that is exactly when the binding holds the closure.
-                        materialized: predeclared_local.is_some(),
-                        callback,
-                        params,
-                        defaults: closure_defaults,
-                        rest,
-                        required_params: Some(required_params),
-                        return_ty,
-                    },
-                );
-                return Ok(());
-            }
             let value = self.arrow_closure_body_expr(arrow, &params, return_ty, body)?;
             if no_return_hint {
                 self.record_unhinted_closure_return(value, body);
@@ -4946,7 +4803,7 @@ impl ModuleBuilder<'_> {
             // the erased spelling: `promise.then(res)` typed itself
             // `Promise<unknown>` over a continuation that resolves a `Response`
             // (E0271 in Hono's `context.rs` slice of `main.rs`).
-            let fn_ty = if arrow.return_type.is_none() && contextual_function.is_none() {
+            let fn_ty = if arrow.return_type.is_none() && contextual_return.is_none() {
                 self.inferred_return_function_ty(fn_ty, Self::expr_ty(body, value))
             } else {
                 fn_ty
@@ -5048,31 +4905,6 @@ impl ModuleBuilder<'_> {
         let mut widened = declared_ty.clone();
         widened.may_throw = true;
         self.ctx.krate.types.intern(Type::Function(widened))
-    }
-
-    /// Bind parameter names that may be referenced by local callback default values.
-    pub(in crate::lowering) fn bind_local_callback_default_param<'a>(
-        pattern: &'a BindingPattern<'a>,
-        index: usize,
-        ty: smelt_hir::TypeId,
-        params: &mut HashMap<&'a str, CallbackExpr>,
-    ) -> Result<(), SmeltError> {
-        match pattern {
-            BindingPattern::BindingIdentifier(binding) => {
-                params.insert(
-                    binding.name.as_str(),
-                    CallbackExpr {
-                        kind: CallbackExprKind::Param(index),
-                        ty,
-                    },
-                );
-                Ok(())
-            }
-            BindingPattern::AssignmentPattern(assign) => {
-                Self::bind_local_callback_default_param(&assign.left, index, ty, params)
-            }
-            _ => Ok(()),
-        }
     }
 
     /// Reserve the enclosing body's local that a nested function declaration is
@@ -5581,32 +5413,6 @@ impl ModuleBuilder<'_> {
         })
     }
 
-    /// Return whether a lowered local callback body satisfies its declared return type.
-    pub(in crate::lowering) fn local_callback_return_type_compatible(
-        &self,
-        actual: smelt_hir::TypeId,
-        expected: smelt_hir::TypeId,
-    ) -> bool {
-        self.type_assignable_to(actual, expected)
-            || matches!(self.ctx.krate.types.get(expected), Some(Type::Class { .. }))
-            || matches!(
-                self.ctx.krate.types.get(expected),
-                Some(Type::TypeParam { .. })
-            )
-            || matches!(
-                self.ctx.krate.types.get(expected),
-                Some(Type::Optional(inner)) if *inner == actual
-            )
-            || matches!(self.ctx.krate.types.get(actual), Some(Type::Unknown))
-            || matches!(
-                (
-                    self.ctx.krate.types.get(actual),
-                    self.ctx.krate.types.get(expected)
-                ),
-                (Some(Type::Function(_)), Some(Type::Function(_)))
-            )
-    }
-
     /// Lower a binding pattern in a variable declaration.
     pub(in crate::lowering) fn binding_declaration(
         &mut self,
@@ -5689,7 +5495,11 @@ impl ModuleBuilder<'_> {
                             && self.supports_stdlib_length(receiver_ty);
                         let is_stdlib_size = self.ctx.krate.symbols.get(field) == Some("size")
                             && self.supports_stdlib_size(receiver_ty);
-                        let ty = self.class_field_type(receiver_ty, field)?;
+                        let ty = if is_stdlib_len || is_stdlib_size {
+                            self.ctx.krate.types.intern(Type::Float)
+                        } else {
+                            self.class_field_type(receiver_ty, field)?
+                        };
                         let extracted = if is_stdlib_len || is_stdlib_size {
                             body.push_expr(Expr {
                                 kind: ExprKind::Len { operand: receiver },

@@ -4035,10 +4035,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_9: f64 = leaf.total();
     let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_6), smelt_console_number(_smelt_tmp_8), smelt_console_number(_smelt_tmp_9)); };
     _smelt_tmp_11 = ::std::rc::Rc::new(|closure_arg_0: &SmeltList<String>| {
-    let _smelt_tmp_1: String = "".to_owned() + &smelt_number_to_string((closure_arg_0.len() as f64));
-    let _smelt_tmp_2: String = _smelt_tmp_1.clone() + &":".to_owned();
-    let _smelt_tmp_3: String = _smelt_tmp_2.clone() + &closure_arg_0.borrow().get({ let smelt_normalized = 0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()).clone();
-    _smelt_tmp_3.clone()
+    let _smelt_tmp_1: f64 = closure_arg_0.len() as f64;
+    let _smelt_tmp_2: String = "".to_owned() + &smelt_number_to_string(_smelt_tmp_1);
+    let _smelt_tmp_3: String = _smelt_tmp_2.clone() + &":".to_owned();
+    let _smelt_tmp_4: String = _smelt_tmp_3.clone() + &closure_arg_0.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()).clone();
+    _smelt_tmp_4.clone()
     });
     let _smelt_tmp_12: SmeltList<String> = leaf.map(&*_smelt_tmp_11);
     joined = Into::<SmeltList<_>>::into(_smelt_tmp_12);
@@ -4095,13 +4096,13 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Base<T>
     return _smelt_tmp_3;
     }
     fn map(&self, fn_: &dyn Fn(&T) -> String) -> SmeltList<String> {
-    let _smelt_tmp_2 = ::std::rc::Rc::new(move |closure_arg_0: &T, closure_arg_1: i64, closure_arg_2: &SmeltList<T>| {
-    let _smelt_tmp_4: String = fn_(closure_arg_0);
-    _smelt_tmp_4.clone()
+    let _smelt_tmp_2 = ::std::rc::Rc::new(move |closure_arg_0: &T, _arg0: i64, _arg1: &SmeltList<T>| {
+    let _smelt_tmp_2: String = fn_(closure_arg_0);
+    _smelt_tmp_2.clone()
     });
-    let _smelt_tmp_3: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(move |closure_arg_0: &T, closure_arg_1: i64, closure_arg_2: &SmeltList<T>| {
-    let _smelt_tmp_4: String = fn_(closure_arg_0);
-    _smelt_tmp_4.clone()
+    let _smelt_tmp_3: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(move |closure_arg_0: &T, _arg0: i64, _arg1: &SmeltList<T>| {
+    let _smelt_tmp_2: String = fn_(closure_arg_0);
+    _smelt_tmp_2.clone()
     }); let smelt_array = self.0.borrow().items.clone(); smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item, index as i64, &smelt_array) }).collect::<Vec<_>>() });
     return _smelt_tmp_3;
     }
@@ -4156,13 +4157,13 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Middle<
     return _smelt_tmp_3;
     }
     fn map(&self, fn_: &dyn Fn(&SmeltList<T>) -> String) -> SmeltList<String> {
-    let _smelt_tmp_2 = ::std::rc::Rc::new(move |closure_arg_0: &SmeltList<T>, closure_arg_1: i64, closure_arg_2: &SmeltList<SmeltList<T>>| {
-    let _smelt_tmp_4: String = fn_(closure_arg_0);
-    _smelt_tmp_4.clone()
+    let _smelt_tmp_2 = ::std::rc::Rc::new(move |closure_arg_0: &SmeltList<T>, _arg0: i64, _arg1: &SmeltList<SmeltList<T>>| {
+    let _smelt_tmp_2: String = fn_(closure_arg_0);
+    _smelt_tmp_2.clone()
     });
-    let _smelt_tmp_3: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(move |closure_arg_0: &SmeltList<T>, closure_arg_1: i64, closure_arg_2: &SmeltList<SmeltList<T>>| {
-    let _smelt_tmp_4: String = fn_(closure_arg_0);
-    _smelt_tmp_4.clone()
+    let _smelt_tmp_3: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(move |closure_arg_0: &SmeltList<T>, _arg0: i64, _arg1: &SmeltList<SmeltList<T>>| {
+    let _smelt_tmp_2: String = fn_(closure_arg_0);
+    _smelt_tmp_2.clone()
     }); let smelt_array = self.0.borrow().items.clone(); smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item, index as i64, &smelt_array) }).collect::<Vec<_>>() });
     return _smelt_tmp_3;
     }
@@ -4228,13 +4229,13 @@ impl Leaf {
     return _smelt_tmp_3;
     }
     fn map(&self, fn_: &dyn Fn(&SmeltList<String>) -> String) -> SmeltList<String> {
-    let _smelt_tmp_2 = ::std::rc::Rc::new(move |closure_arg_0: &SmeltList<String>, closure_arg_1: i64, closure_arg_2: &SmeltList<SmeltList<String>>| {
-    let _smelt_tmp_4: String = fn_(closure_arg_0);
-    _smelt_tmp_4.clone()
+    let _smelt_tmp_2 = ::std::rc::Rc::new(move |closure_arg_0: &SmeltList<String>, _arg0: i64, _arg1: &SmeltList<SmeltList<String>>| {
+    let _smelt_tmp_2: String = fn_(closure_arg_0);
+    _smelt_tmp_2.clone()
     });
-    let _smelt_tmp_3: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(move |closure_arg_0: &SmeltList<String>, closure_arg_1: i64, closure_arg_2: &SmeltList<SmeltList<String>>| {
-    let _smelt_tmp_4: String = fn_(closure_arg_0);
-    _smelt_tmp_4.clone()
+    let _smelt_tmp_3: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(move |closure_arg_0: &SmeltList<String>, _arg0: i64, _arg1: &SmeltList<SmeltList<String>>| {
+    let _smelt_tmp_2: String = fn_(closure_arg_0);
+    _smelt_tmp_2.clone()
     }); let smelt_array = self.0.borrow().items.clone(); smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item, index as i64, &smelt_array) }).collect::<Vec<_>>() });
     return _smelt_tmp_3;
     }
@@ -4294,13 +4295,13 @@ impl Nums {
     return _smelt_tmp_3;
     }
     fn map(&self, fn_: &dyn Fn(f64) -> String) -> SmeltList<String> {
-    let _smelt_tmp_2 = ::std::rc::Rc::new(move |closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
-    let _smelt_tmp_4: String = fn_(closure_arg_0.clone());
-    _smelt_tmp_4.clone()
+    let _smelt_tmp_2 = ::std::rc::Rc::new(move |closure_arg_0: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
+    let _smelt_tmp_2: String = fn_(closure_arg_0.clone());
+    _smelt_tmp_2.clone()
     });
-    let _smelt_tmp_3: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(move |closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
-    let _smelt_tmp_4: String = fn_(closure_arg_0.clone());
-    _smelt_tmp_4.clone()
+    let _smelt_tmp_3: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(move |closure_arg_0: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
+    let _smelt_tmp_2: String = fn_(closure_arg_0.clone());
+    _smelt_tmp_2.clone()
     }); let smelt_array = self.0.borrow().items.clone(); smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
     return _smelt_tmp_3;
     }

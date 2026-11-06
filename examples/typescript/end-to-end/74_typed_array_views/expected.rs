@@ -4363,17 +4363,25 @@ fn main() {
     _smelt_tmp_103 = _smelt_tmp_102.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&",".to_owned());
     let _ = { println!("{}", _smelt_tmp_103); };
     _smelt_tmp_105 = Into::<SmeltList<_>>::into(SmeltList::new(wide.clone().to_elements().into_iter().enumerate().map(|(index, element)| (index.to_string(), element)).collect::<Vec<_>>()));
-    _smelt_tmp_106 = ::std::rc::Rc::new(|closure_arg_0: (String, f64), closure_arg_1: i64, closure_arg_2: &SmeltList<(String, f64)>| {
-    let _smelt_tmp_3: String = "".to_owned() + &closure_arg_0.0.clone();
-    let _smelt_tmp_4: String = _smelt_tmp_3.clone() + &"=".to_owned();
-    let _smelt_tmp_5: String = _smelt_tmp_4.clone() + &smelt_number_to_string(closure_arg_0.1);
-    _smelt_tmp_5.clone()
+    _smelt_tmp_106 = ::std::rc::Rc::new(|closure_arg_0: (String, f64), _arg0: i64, _arg1: &SmeltList<(String, f64)>| {
+    let _smelt_tmp_3: String = closure_arg_0.clone().0.clone();
+    let key: String = _smelt_tmp_3.clone();
+    let _smelt_tmp_4: f64 = closure_arg_0.clone().1.clone();
+    let value: f64 = _smelt_tmp_4;
+    let _smelt_tmp_5: String = "".to_owned() + &key.clone();
+    let _smelt_tmp_6: String = _smelt_tmp_5.clone() + &"=".to_owned();
+    let _smelt_tmp_7: String = _smelt_tmp_6.clone() + &smelt_number_to_string(value);
+    _smelt_tmp_7.clone()
     });
-    _smelt_tmp_107 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: (String, f64), closure_arg_1: i64, closure_arg_2: &SmeltList<(String, f64)>| {
-    let _smelt_tmp_3: String = "".to_owned() + &closure_arg_0.0.clone();
-    let _smelt_tmp_4: String = _smelt_tmp_3.clone() + &"=".to_owned();
-    let _smelt_tmp_5: String = _smelt_tmp_4.clone() + &smelt_number_to_string(closure_arg_0.1);
-    _smelt_tmp_5.clone()
+    _smelt_tmp_107 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: (String, f64), _arg0: i64, _arg1: &SmeltList<(String, f64)>| {
+    let _smelt_tmp_3: String = closure_arg_0.clone().0.clone();
+    let key: String = _smelt_tmp_3.clone();
+    let _smelt_tmp_4: f64 = closure_arg_0.clone().1.clone();
+    let value: f64 = _smelt_tmp_4;
+    let _smelt_tmp_5: String = "".to_owned() + &key.clone();
+    let _smelt_tmp_6: String = _smelt_tmp_5.clone() + &"=".to_owned();
+    let _smelt_tmp_7: String = _smelt_tmp_6.clone() + &smelt_number_to_string(value);
+    _smelt_tmp_7.clone()
     }); let smelt_array = _smelt_tmp_105; smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
     _smelt_tmp_108 = _smelt_tmp_107.borrow().join(&",".to_owned());
     let _ = { println!("{}", _smelt_tmp_108); };

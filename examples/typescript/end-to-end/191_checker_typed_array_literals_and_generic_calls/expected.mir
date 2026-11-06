@@ -197,7 +197,7 @@ fn main (FuncId(3)) -> None
 
 closure ClosureId(0) -> Bool
   locals
-    %0 param __callback_param_0: Float
+    %0 param v: Float
     %1 temp: Bool
   bb0:
     %1 = copy %0 > 9.0

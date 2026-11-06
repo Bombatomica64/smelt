@@ -3535,12 +3535,10 @@ impl SmeltFromUnknown for SmeltMatch {
 
 // @smelt:prelude-end — generated program below
 fn main() {
-    let _smelt_tmp_5: ::std::rc::Rc<dyn Fn(String, ::std::rc::Rc<dyn Fn() -> String>) -> String>;
-    let _smelt_tmp_6: ::std::rc::Rc<dyn Fn() -> String>;
-    let _smelt_tmp_7: String;
-    let _smelt_tmp_9: ::std::rc::Rc<dyn Fn(String, ::std::rc::Rc<dyn Fn() -> String>) -> String>;
-    let _smelt_tmp_10: ::std::rc::Rc<dyn Fn() -> String>;
-    let _smelt_tmp_11: String;
+    let _smelt_tmp_5: ::std::rc::Rc<dyn Fn() -> String>;
+    let _smelt_tmp_6: String;
+    let _smelt_tmp_8: ::std::rc::Rc<dyn Fn() -> String>;
+    let _smelt_tmp_9: String;
     let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: ::std::rc::Rc<dyn Fn() -> String>| {
     let _smelt_tmp_2: String = "".to_owned() + &closure_arg_0.clone();
     let _smelt_tmp_3: String = _smelt_tmp_2.clone() + &"=".to_owned();
@@ -3548,6 +3546,7 @@ fn main() {
     let _smelt_tmp_5: String = _smelt_tmp_3.clone() + &_smelt_tmp_4.clone();
     _smelt_tmp_5.clone()
     });
+    let run = _smelt_tmp_1.clone();
     let _smelt_tmp_2 = ::std::rc::Rc::new(|| {
     let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: f64| -> ::std::rc::Rc<dyn Fn(f64) -> f64> {
     let _smelt_tmp_1 = ::std::rc::Rc::new({
@@ -3574,16 +3573,9 @@ fn main() {
     let _smelt_tmp_10: String = smelt_number_to_string(_smelt_tmp_9);
     _smelt_tmp_10.clone()
     });
-    let _smelt_tmp_3: String = (_smelt_tmp_1)("first".to_owned(), _smelt_tmp_2.clone());
+    let _smelt_tmp_3: String = (run)("first".to_owned(), _smelt_tmp_2.clone());
     let _ = { println!("{}", _smelt_tmp_3); };
-    _smelt_tmp_5 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: ::std::rc::Rc<dyn Fn() -> String>| {
-    let _smelt_tmp_2: String = "".to_owned() + &closure_arg_0.clone();
-    let _smelt_tmp_3: String = _smelt_tmp_2.clone() + &"=".to_owned();
-    let _smelt_tmp_4: String = (closure_arg_1)();
-    let _smelt_tmp_5: String = _smelt_tmp_3.clone() + &_smelt_tmp_4.clone();
-    _smelt_tmp_5.clone()
-    });
-    _smelt_tmp_6 = ::std::rc::Rc::new(|| {
+    _smelt_tmp_5 = ::std::rc::Rc::new(|| {
     let _smelt_tmp_4 = ::std::rc::Rc::new(|closure_arg_0: f64| -> ::std::rc::Rc<dyn Fn(f64) -> f64> {
     let _smelt_tmp_1 = ::std::rc::Rc::new({
     let smelt_captured_closure_arg_0 = closure_arg_0.clone();
@@ -3614,19 +3606,12 @@ fn main() {
     let _smelt_tmp_12: String = (repeat)(_smelt_tmp_11);
     _smelt_tmp_12.clone()
     });
-    _smelt_tmp_7 = (_smelt_tmp_5)("second".to_owned(), _smelt_tmp_6.clone());
-    let _ = { println!("{}", _smelt_tmp_7); };
-    _smelt_tmp_9 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: ::std::rc::Rc<dyn Fn() -> String>| {
-    let _smelt_tmp_2: String = "".to_owned() + &closure_arg_0.clone();
-    let _smelt_tmp_3: String = _smelt_tmp_2.clone() + &"=".to_owned();
-    let _smelt_tmp_4: String = (closure_arg_1)();
-    let _smelt_tmp_5: String = _smelt_tmp_3.clone() + &_smelt_tmp_4.clone();
-    _smelt_tmp_5.clone()
-    });
-    _smelt_tmp_10 = ::std::rc::Rc::new(|| {
+    _smelt_tmp_6 = (run)("second".to_owned(), _smelt_tmp_5.clone());
+    let _ = { println!("{}", _smelt_tmp_6); };
+    _smelt_tmp_8 = ::std::rc::Rc::new(|| {
     "plain".to_owned()
     });
-    _smelt_tmp_11 = (_smelt_tmp_9)("third".to_owned(), _smelt_tmp_10.clone());
-    let _ = { println!("{}", _smelt_tmp_11); };
+    _smelt_tmp_9 = (run)("third".to_owned(), _smelt_tmp_8.clone());
+    let _ = { println!("{}", _smelt_tmp_9); };
     return;
 }

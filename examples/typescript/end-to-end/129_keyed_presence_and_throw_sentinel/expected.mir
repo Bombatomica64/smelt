@@ -387,11 +387,9 @@ fn main (FuncId(7)) -> None
 
 closure ClosureId(0) -> Bool
   locals
-    %0 param __callback_param_0: String
-    %1 param __callback_param_1: Int
-    %2 param __callback_param_2: List<String>
-    %3 temp: Bool
+    %0 param part: String
+    %1 temp: Bool
   bb0:
-    %3 = copy %0 != ""
-    return copy %3
+    %1 = copy %0 != ""
+    return copy %1
 

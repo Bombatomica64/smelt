@@ -61,3 +61,15 @@ fn builtin_prototype_chains() -> TestResult {
 fn declared_members_win() -> TestResult {
     verify_node_parity("declared_members_win")
 }
+
+/// A value thrown from a callback keeps its class, not just a message.
+#[test]
+fn thrown_from_callback() -> TestResult {
+    verify_node_parity("thrown_from_callback")
+}
+
+/// A closure's omitted argument takes its default, per call and in the callee.
+#[test]
+fn closure_parameter_defaults() -> TestResult {
+    verify_node_parity("closure_parameter_defaults")
+}

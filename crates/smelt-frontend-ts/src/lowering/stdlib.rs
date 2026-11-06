@@ -2888,7 +2888,7 @@ impl ModuleBuilder<'_> {
             // statement forms the side-effect-free callback IR cannot represent
             // (e.g. a `for` loop scanning sort criteria) retries through full
             // closure-body lowering instead of failing the whole file.
-            let callback = self.callback_argument_with_body_fallback(
+            let callback = self.callback_argument_with_return_hint(
                 argument,
                 &[element_ty, element_ty],
                 number_ty,
@@ -3482,7 +3482,7 @@ impl ModuleBuilder<'_> {
                 // find/filter: a named callback returning an erased/`any`
                 // value is coerced to bool by the truthy wrapper instead of
                 // being rejected for not returning `boolean` literally.
-                let callback = self.truthy_callback_argument_with_body_fallback(
+                let callback = self.truthy_callback_argument_with_return_hint(
                     callback_arg,
                     &[element_ty, index_ty, list_ty],
                     "array findLast/findLastIndex",

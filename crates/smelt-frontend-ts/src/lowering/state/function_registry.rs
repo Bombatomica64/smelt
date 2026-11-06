@@ -131,11 +131,6 @@ impl FunctionRegistry {
         self.rests.insert(name, rest);
     }
 
-    /// Return the forward-visible signature of the hoisted function `name`.
-    pub(in crate::lowering) fn forward_type(&self, name: &str) -> Option<ForwardFunctionType> {
-        self.forward_types.get(name).copied()
-    }
-
     /// Record the forward-visible signature of a hoisted function declaration.
     pub(in crate::lowering) fn set_forward_type(&mut self, name: String, symbol: Symbol, ty: TypeId) {
         self.forward_types.insert(name, (symbol, ty));

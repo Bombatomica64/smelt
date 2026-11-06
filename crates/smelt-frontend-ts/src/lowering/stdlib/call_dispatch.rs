@@ -704,8 +704,16 @@ impl<'builder> ModuleBuilder<'builder> {
         let asserted_callee = Self::transparent_asserted_callee(&call.callee);
         if asserted_callee.is_some() {
             let callee_expression = asserted_callee.unwrap_or(&call.callee);
-            let callee = self.expression(callee_expression, body)?;
-            let callee_ty = Self::expr_ty(body, callee);
+            let mut callee = self.expression(callee_expression, body)?;
+            let mut callee_ty = Self::expr_ty(body, callee);
+            if let Some(&Type::Optional(inner)) = self.ctx.krate.types.get(callee_ty) {
+                callee = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: callee },
+                    ty: inner,
+                    span: self.span(call.span.start, call.span.end),
+                });
+                callee_ty = inner;
+            }
             let Some(Type::Function(function)) = self.ctx.krate.types.get(callee_ty).cloned()
             else {
                 if self.callable_through_erased_abi(callee_ty) {
@@ -6362,7 +6370,6 @@ impl<'builder> ModuleBuilder<'builder> {
             function.return_ty
         };
         let supplied_arg_count = call.arguments.len();
-        let callback_meta = self.visible_callback(callee_ident.name.as_str(), body);
         // Dynamically dispatched callees (union/unknown/type-parameter/erased
         // callable surfaces) are invoked through the runtime `SmeltUnknown` call
         // ABI, which flattens the entire argument list. A spread must therefore
@@ -6398,8 +6405,7 @@ impl<'builder> ModuleBuilder<'builder> {
                 _ => None,
             }
         });
-        if callback_meta.is_none()
-            && self.call_has_spread_arguments_or_source_spread(call)
+        if self.call_has_spread_arguments_or_source_spread(call)
             && let Some(item_ty) = variadic_item_ty
         {
             let packed = self.packed_spread_call_arguments(item_ty, call, body)?;
@@ -6412,25 +6418,16 @@ impl<'builder> ModuleBuilder<'builder> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
-        let defaults = callback_meta.as_ref().map_or_else(
-            || vec![None; function.params.len()],
-            |callback| callback.defaults.clone(),
-        );
-        let rest = callback_meta
-            .as_ref()
-            .and_then(|callback| callback.rest)
-            .or_else(|| {
-                function.rest.and_then(|index| {
-                    let param = self.type_param_constraint_or_self(*function.params.get(index)?);
-                    match self.ctx.krate.types.get(param) {
-                        Some(Type::List(item_ty)) => Some(RestParam {
-                            index,
-                            item_ty: *item_ty,
-                        }),
-                        _ => None,
-                    }
-                })
-            });
+        let rest = function.rest.and_then(|index| {
+            let param = self.type_param_constraint_or_self(*function.params.get(index)?);
+            match self.ctx.krate.types.get(param) {
+                Some(Type::List(item_ty)) => Some(RestParam {
+                    index,
+                    item_ty: *item_ty,
+                }),
+                _ => None,
+            }
+        });
         let fixed_param_count = rest.map_or(function.params.len(), |rest| rest.index);
         if rest.is_some() && self.call_has_spread_arguments_or_source_spread(call) {
             let args = self.spread_closure_call_arguments(&function, rest, call, body)?;
@@ -6473,12 +6470,8 @@ impl<'builder> ModuleBuilder<'builder> {
         // `f('p')` against `(a: string, b?: string)` down the shortfall branch,
         // which dropped EVERY argument (`f()`), so `getPattern(':id')` in Hono
         // ran with an empty label.
-        let required_arg_count = defaults
-            .iter()
-            .take(fixed_param_count)
-            .position(Option::is_some)
-            .unwrap_or(fixed_param_count)
-            .min(function.required_params.unwrap_or(fixed_param_count));
+        let required_arg_count =
+            fixed_param_count.min(function.required_params.unwrap_or(fixed_param_count));
         if supplied_arg_count < required_arg_count
             || (rest.is_none() && supplied_arg_count > function.params.len())
         {
@@ -6524,30 +6517,23 @@ impl<'builder> ModuleBuilder<'builder> {
             })
             .collect::<Result<Vec<_>, _>>()?;
         for index in supplied_arg_count..fixed_param_count {
-            let Some(default) = defaults.get(index).and_then(|default| default.as_ref()) else {
-                // An optional parameter with no default receives `undefined`.
-                if index >= function.required_params.unwrap_or(fixed_param_count)
-                    && let Some(param_ty) = function.params.get(index).copied()
-                {
-                    args.push(body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::None),
-                        ty: param_ty,
-                        span: self.span(call.span.start, call.span.end),
-                    }));
-                    continue;
-                }
+            // An omitted optional parameter receives `undefined`.
+            let Some(param_ty) = function
+                .params
+                .get(index)
+                .copied()
+                .filter(|_| index >= function.required_params.unwrap_or(fixed_param_count))
+            else {
                 return Err(SmeltError::unsupported(
                     self.span(call.span.start, call.span.end),
                     "closure call argument count does not match closure parameters",
                 ));
             };
-            let default = self.local_callback_default_expr(
-                default,
-                &args,
-                body,
-                self.span(call.span.start, call.span.end),
-            )?;
-            args.push(default);
+            args.push(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::None),
+                ty: param_ty,
+                span: self.span(call.span.start, call.span.end),
+            }));
         }
         if let Some(rest) = rest {
             let rest_args = call
@@ -7176,36 +7162,13 @@ impl<'builder> ModuleBuilder<'builder> {
                 "partialBind requires a function argument",
             ));
         };
-        let mut callee_expr = self.argument(function_arg, body)?;
-        let mut function_ty = self
+        let callee_expr = self.argument(function_arg, body)?;
+        let function_ty = self
             .ctx
             .krate
             .types
             .get(Self::expr_ty(body, callee_expr))
             .cloned();
-        if !matches!(function_ty, Some(Type::Function(_)))
-            && let Argument::Identifier(identifier) = function_arg
-            && let Some(callback) = self.visible_callback(identifier.name.as_str(), body)
-        {
-            callee_expr = self.callback_expr_to_closure_with_return_ty(
-                callback.return_ty,
-                &callback.callback,
-                &callback.params,
-                callback.rest.map(|rest| rest.index),
-                callback.required_params,
-                self.span(identifier.span.start, identifier.span.end),
-                body,
-            )?;
-            function_ty = Some(Type::Function(FunctionType {
-                params: callback.params,
-                rest: callback.rest.map(|rest| rest.index),
-                required_params: callback.required_params,
-                    mutable_params: Vec::new(),
-                return_ty: callback.return_ty,
-                is_async: false,
-                may_throw: false,
-            }));
-        }
         let Some(Type::Function(function)) = function_ty else {
             return Err(SmeltError::unsupported(
                 self.span(function_arg.span().start, function_arg.span().end),

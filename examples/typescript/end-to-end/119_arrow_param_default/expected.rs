@@ -141,55 +141,46 @@ impl<T: Clone> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Se
 
 // @smelt:prelude-end — generated program below
 fn main() {
-    let _smelt_tmp_4: f64;
-    let _smelt_tmp_6: SmeltList<f64>;
-    let _smelt_tmp_8: f64;
-    let _smelt_tmp_10: ::std::rc::Rc<dyn Fn(String, String) -> String>;
-    let _smelt_tmp_11: String;
-    let _smelt_tmp_13: ::std::rc::Rc<dyn Fn(String, String) -> String>;
+    let _smelt_tmp_6: f64;
+    let _smelt_tmp_8: SmeltList<f64>;
+    let _smelt_tmp_10: f64;
+    let _smelt_tmp_12: String;
     let _smelt_tmp_14: String;
-    let _smelt_tmp_16: ::std::rc::Rc<dyn Fn(f64, f64) -> f64>;
-    let _smelt_tmp_17: f64;
+    let _smelt_tmp_16: f64;
     let _smelt_tmp_18: f64;
-    let _smelt_tmp_20: ::std::rc::Rc<dyn Fn(f64, f64) -> f64>;
-    let _smelt_tmp_21: f64;
-    let _smelt_tmp_2: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0, 4.0, 5.0]; smelt_list_items }));
-    let _smelt_tmp_3: SmeltList<SmeltList<f64>> = cluster(_smelt_tmp_2, None::<f64>);
-    _smelt_tmp_4 = _smelt_tmp_3.len() as f64;
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_4)); };
-    _smelt_tmp_6 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0, 4.0, 5.0]; smelt_list_items }));
-    let _smelt_tmp_7: SmeltList<SmeltList<f64>> = cluster(_smelt_tmp_6, Some(5.0));
-    _smelt_tmp_8 = _smelt_tmp_7.len() as f64;
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_8)); };
-    _smelt_tmp_10 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: String| {
-    let _smelt_tmp_2: String = "".to_owned() + &closure_arg_1.clone();
-    let _smelt_tmp_3: String = _smelt_tmp_2.clone() + &", ".to_owned();
-    let _smelt_tmp_4: String = _smelt_tmp_3.clone() + &closure_arg_0.clone();
-    _smelt_tmp_4.clone()
+    let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: Option<String>| {
+    let _smelt_tmp_3: String = closure_arg_1.clone().unwrap_or("hello".to_owned());
+    let greeting_1: String = _smelt_tmp_3.clone();
+    let _smelt_tmp_4: String = "".to_owned() + &greeting_1.clone();
+    let _smelt_tmp_5: String = _smelt_tmp_4.clone() + &", ".to_owned();
+    let _smelt_tmp_6: String = _smelt_tmp_5.clone() + &closure_arg_0.clone();
+    _smelt_tmp_6.clone()
     });
-    _smelt_tmp_11 = (_smelt_tmp_10)("ada".to_owned(), "hello".to_owned());
-    let _ = { println!("{}", _smelt_tmp_11); };
-    _smelt_tmp_13 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: String| {
-    let _smelt_tmp_2: String = "".to_owned() + &closure_arg_1.clone();
-    let _smelt_tmp_3: String = _smelt_tmp_2.clone() + &", ".to_owned();
-    let _smelt_tmp_4: String = _smelt_tmp_3.clone() + &closure_arg_0.clone();
-    _smelt_tmp_4.clone()
+    let greet = _smelt_tmp_2.clone();
+    let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: Option<f64>| {
+    let _smelt_tmp_3: f64 = closure_arg_0 * 2.0;
+    let _smelt_tmp_4: f64 = closure_arg_1.clone().unwrap_or(_smelt_tmp_3);
+    let factor_1: f64 = _smelt_tmp_4;
+    let _smelt_tmp_5: f64 = closure_arg_0 * factor_1;
+    _smelt_tmp_5
     });
-    _smelt_tmp_14 = (_smelt_tmp_13)("ada".to_owned(), "hi".to_owned());
+    let scaled = _smelt_tmp_3.clone();
+    let _smelt_tmp_4: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0, 4.0, 5.0]; smelt_list_items }));
+    let _smelt_tmp_5: SmeltList<SmeltList<f64>> = cluster(_smelt_tmp_4, None::<f64>);
+    _smelt_tmp_6 = _smelt_tmp_5.len() as f64;
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_6)); };
+    _smelt_tmp_8 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0, 4.0, 5.0]; smelt_list_items }));
+    let _smelt_tmp_9: SmeltList<SmeltList<f64>> = cluster(_smelt_tmp_8, Some(5.0));
+    _smelt_tmp_10 = _smelt_tmp_9.len() as f64;
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_10)); };
+    _smelt_tmp_12 = (greet)("ada".to_owned(), None);
+    let _ = { println!("{}", _smelt_tmp_12); };
+    _smelt_tmp_14 = (greet)("ada".to_owned(), Some("hi".to_owned()));
     let _ = { println!("{}", _smelt_tmp_14); };
-    _smelt_tmp_16 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: f64| {
-    let _smelt_tmp_2: f64 = closure_arg_0 * closure_arg_1;
-    _smelt_tmp_2
-    });
-    _smelt_tmp_17 = 3.0 * 2.0;
-    _smelt_tmp_18 = (_smelt_tmp_16)(3.0, _smelt_tmp_17);
+    _smelt_tmp_16 = (scaled)(3.0, None);
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_16)); };
+    _smelt_tmp_18 = (scaled)(3.0, Some(1.0));
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_18)); };
-    _smelt_tmp_20 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: f64| {
-    let _smelt_tmp_2: f64 = closure_arg_0 * closure_arg_1;
-    _smelt_tmp_2
-    });
-    _smelt_tmp_21 = (_smelt_tmp_20)(3.0, 1.0);
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_21)); };
     return;
 }
 

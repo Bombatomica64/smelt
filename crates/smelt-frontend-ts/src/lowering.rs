@@ -50,7 +50,7 @@ use oxc::ast::ast::{
 };
 use oxc::parser::{ParseOptions, Parser};
 use oxc::span::SourceType;
-use oxc::syntax::operator::{AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator};
+use oxc::syntax::operator::{BinaryOperator, LogicalOperator, UnaryOperator};
 use smelt_hir::{
     AsyncOp, BinOp, Body, CallbackCallArg, CallbackExpr, CallbackExprKind, CaptureMode, Class,
     ClosureCapture, ConstItem, DictProjectionOp, Expr, ExprKind, Field, FileId, Function,
@@ -272,34 +272,6 @@ struct AssertionNarrowing {
     target: smelt_hir::TypeId,
 }
 
-/// A local arrow/function callback value that has not escaped its defining body.
-#[derive(Debug, Clone)]
-struct LocalCallback {
-    /// Root span identifying the lexical body that owns the materialized closure.
-    defining_body_span: Option<Span>,
-    /// Whether the binding's local also HOLDS the closure value at runtime.
-    ///
-    /// A local callback is normally inlined at each use, which keeps a call
-    /// concrete (and a generic callback instantiable per call site) but gives
-    /// the binding's local no value. When the declaration additionally
-    /// materializes the closure into that local, the binding is a real function
-    /// value with observable JavaScript identity, and a reference must read it
-    /// instead of rebuilding a second closure.
-    materialized: bool,
-    /// Lowered callback expression tree.
-    callback: CallbackExpr,
-    /// Parameter types in source order.
-    params: Vec<smelt_hir::TypeId>,
-    /// Default argument expressions in source order.
-    defaults: Vec<Option<LocalCallbackDefault>>,
-    /// Rest parameter metadata when the source closure uses `...args`.
-    rest: Option<RestParam>,
-    /// Number of leading parameters counted by JavaScript `Function.length`.
-    required_params: Option<usize>,
-    /// Return type produced by the callback.
-    return_ty: smelt_hir::TypeId,
-}
-
 /// Source value bound into a `test.each` callback parameter.
 #[derive(Debug, Clone, Copy)]
 enum TableBindingValue<'a> {
@@ -318,13 +290,6 @@ impl TableBindingValue<'_> {
             Self::ObjectField(value) => value.span(),
         }
     }
-}
-
-/// A default argument expression stored for a local callback.
-#[derive(Debug, Clone)]
-enum LocalCallbackDefault {
-    /// The default references callback parameters and must be instantiated at each call site.
-    Callback(CallbackExpr),
 }
 
 /// A JavaScript/TypeScript rest parameter represented as one list argument.

@@ -261,5 +261,6 @@ interned types
   t55 = fn(String) -> Float
   t56 = fn() -> Pair<Float>
   t57 = fn() -> Pair<Float>
-  t58 = fn(fn(List<String>) -> String) -> String
-  t59 = fn(fn(List<String>) -> String) -> List<String>
+  t58 = fn(List<String>) -> String
+  t59 = fn(fn(List<String>) -> String) -> String
+  t60 = fn(fn(List<String>) -> String) -> List<String>

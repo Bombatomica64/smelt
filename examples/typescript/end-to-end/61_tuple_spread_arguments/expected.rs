@@ -153,6 +153,7 @@ fn main() {
     let mut __smelt_spread: (String, String, f64);
     let mut tail: (String, f64);
     let mut __smelt_spread_1: (String, f64);
+    let mut via_closure: ::std::rc::Rc<dyn Fn(String, String, f64) -> String>;
     let mut __smelt_spread_2: (String, String, f64);
     let mut sink: Sink;
     let mut __smelt_spread_3: (String, String, f64);
@@ -185,14 +186,15 @@ fn main() {
     __smelt_spread_1 = tail;
     let _smelt_tmp_21: String = record("DELETE".to_owned(), __smelt_spread_1.0.clone(), __smelt_spread_1.1);
     let _ = { println!("{}", _smelt_tmp_21); };
-    __smelt_spread_2 = routes.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), String::new(), 0.0));
     _smelt_tmp_23 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: String, closure_arg_2: f64| {
     let _smelt_tmp_4: String;
     let _smelt_tmp_3: String = record(closure_arg_0.clone(), closure_arg_1.clone(), closure_arg_2);
     _smelt_tmp_4 = "closure ".to_owned() + &_smelt_tmp_3.clone();
     _smelt_tmp_4.clone()
     });
-    _smelt_tmp_24 = (_smelt_tmp_23)(__smelt_spread_2.0.clone(), __smelt_spread_2.1.clone(), __smelt_spread_2.2);
+    via_closure = _smelt_tmp_23.clone();
+    __smelt_spread_2 = routes.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), String::new(), 0.0));
+    _smelt_tmp_24 = (via_closure)(__smelt_spread_2.0.clone(), __smelt_spread_2.1.clone(), __smelt_spread_2.2);
     let _ = { println!("{}", _smelt_tmp_24); };
     let _smelt_tmp_26: Sink = Sink::new();
     sink = _smelt_tmp_26;
