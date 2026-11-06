@@ -118,6 +118,12 @@ fn class_values() -> TestResult {
     verify_node_parity("class_values")
 }
 
+/// `f(a, (a = 2))`: an assignment as an argument evaluates in place.
+#[test]
+fn assignment_argument() -> TestResult {
+    verify_node_parity("assignment_argument")
+}
+
 /// Array-valued ternary arms join instead of one adopting the other's type.
 #[test]
 fn conditional_list_arms() -> TestResult {
