@@ -1,6 +1,7 @@
 //! Functions declared inside a body: local arrow consts and nested `function`
 //! declarations, which become locals holding closures.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
 use crate::lowering::RestParam;
@@ -242,10 +243,8 @@ impl ModuleBuilder<'_> {
         // declaration's name; anything else is an enclosing scope's binding,
         // which this declaration SHADOWS rather than reuses.
         if let Some(existing) = self.scope.lookup(id.name.as_str())
-            && let Ok(index) = usize::try_from(existing.0)
             && outer_body
-                .locals
-                .get(index)
+                .local_at(existing)
                 .is_some_and(|decl| decl.name == Some(function_symbol))
         {
             return existing;
@@ -493,9 +492,7 @@ impl ModuleBuilder<'_> {
                 else {
                     continue;
                 };
-                let Some(source_decl) = usize::try_from(source_local.0)
-                    .ok()
-                    .and_then(|index| outer_body.locals.get(index))
+                let Some(source_decl) = outer_body.local_at(source_local)
                 else {
                     continue;
                 };
@@ -587,9 +584,7 @@ impl ModuleBuilder<'_> {
             // The local was reserved before the body was lowered (the body may
             // reference it), so only its TYPE is still provisional here.
             let local = outer_local;
-            if let Ok(index) = usize::try_from(local.0)
-                && let Some(decl) = outer_body.locals.get_mut(index)
-            {
+            if let Some(decl) = outer_body.local_at_mut(local) {
                 decl.ty = fn_ty;
             }
             this.scope.bind(id.name.as_str().to_owned(), local);
@@ -690,9 +685,7 @@ impl ModuleBuilder<'_> {
         body: &Body,
     ) -> Option<smelt_hir::LocalId> {
         let local = self.scope.lookup(name)?;
-        usize::try_from(local.0)
-            .ok()
-            .and_then(|index| body.locals.get(index))
+        body.local_at(local)
             .map(|_| local)
     }
 
@@ -706,9 +699,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> smelt_hir::LocalId {
         if let Some(local) = self.local_arrow_existing_body_local(name, body)
-            && let Some(local_decl) = usize::try_from(local.0)
-                .ok()
-                .and_then(|index| body.locals.get_mut(index))
+            && let Some(local_decl) = body.local_at_mut(local)
         {
             local_decl.name = Some(symbol);
             local_decl.ty = ty;

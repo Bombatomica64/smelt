@@ -1,6 +1,7 @@
 //! Call-expression lowering hub: the order in which a call's decisions are taken,
 //! and the builtin registry that routes a call to its standard-library family.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::{ModuleBuilder, stdlib_dispatch};
 use crate::SmeltError;
@@ -1043,10 +1044,8 @@ impl<'builder> ModuleBuilder<'builder> {
         receiver: smelt_hir::ExprId,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
-        let index = usize::try_from(receiver.0).expect("expr id should fit into usize");
         let expr = body
-            .exprs
-            .get(index)
+            .expr_at(receiver)
             .expect("expr id should point to an existing expression")
             .clone();
         let ExprKind::Index {

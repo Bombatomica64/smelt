@@ -1,6 +1,7 @@
 
 //! Shared pure support functions for TypeScript lowering.
 
+use crate::lowering::body_arena::BodyArena;
 use super::{
     ConstItem, ConstLiteral, Declaration, ExprKind, HashMap, HashSet, Item, ModuleExportName,
     Program, PropertyKey, Statement, TSAccessibility, UnknownKind, Visibility,
@@ -31,6 +32,11 @@ pub(super) fn item_name<'a>(krate: &'a smelt_hir::Crate, item: &Item) -> Option<
         Item::Const(const_item) => const_item.name,
         Item::MutableGlobal(global_item) => global_item.name,
     };
+    source_spelling(krate, symbol)
+}
+
+/// The source spelling of `symbol`: the name recorded for it, else its rendering.
+pub(super) fn source_spelling(krate: &smelt_hir::Crate, symbol: smelt_hir::Symbol) -> Option<&str> {
     krate
         .names
         .get(symbol)
@@ -82,7 +88,7 @@ pub(super) fn const_literal_from_item(
     const_item: &ConstItem,
 ) -> Option<ConstLiteral> {
     let body = krate.bodies.get(usize::try_from(const_item.body.0).ok()?)?;
-    let expr = body.exprs.get(usize::try_from(const_item.value.0).ok()?)?;
+    let expr = body.expr_at(const_item.value)?;
     let ExprKind::Literal(literal) = &expr.kind else {
         return None;
     };

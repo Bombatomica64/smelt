@@ -1,6 +1,7 @@
 //! `forEach` over lists, maps and sets, lowered as a loop over the receiver with the
 //! callback body inlined.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use crate::lowering::support::arrow_block_statements;
@@ -543,13 +544,9 @@ impl ModuleBuilder<'_> {
             return Ok(());
         }
         let (target, value) = self.assignment_parts(assign, body)?;
-        if let Some(local_decl) = usize::try_from(target.0)
-            .ok()
-            .and_then(|index| body.exprs.get(index))
+        if let Some(local_decl) = body.expr_at(target)
             .and_then(|expr| match expr.kind {
-                ExprKind::Local(local) => usize::try_from(local.0)
-                    .ok()
-                    .and_then(|index| body.locals.get(index)),
+                ExprKind::Local(local) => body.local_at(local),
                 _ => None,
             })
             && !local_decl.mutable

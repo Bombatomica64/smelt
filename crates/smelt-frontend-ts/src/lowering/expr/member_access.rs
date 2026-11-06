@@ -1,6 +1,7 @@
 //! Member access: namespace member calls, static and computed member reads, and the
 //! well-known `Symbol`, `Number`, `Object` and `process` static surfaces.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use crate::lowering::js_text::js_str_text;
@@ -1596,7 +1597,7 @@ impl ModuleBuilder<'_> {
     /// The class-typed value under a type assertion to an erased type, or
     /// `None` when `expr` is not such an assertion.
     fn asserted_class_value(&self, expr: smelt_hir::ExprId, body: &Body) -> Option<smelt_hir::ExprId> {
-        let node = body.exprs.get(usize::try_from(expr.0).ok()?)?;
+        let node = body.expr_at(expr)?;
         let (ExprKind::TypeAssert { value } | ExprKind::UnknownCast { value, .. }) = node.kind else {
             return None;
         };

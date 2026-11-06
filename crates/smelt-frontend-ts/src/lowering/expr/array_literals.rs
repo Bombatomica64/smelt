@@ -1,5 +1,6 @@
 //! Array literals: element types, contextual hints and spreads.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::{
     ArrayExpressionElement, Body, Expr, ExprKind, Literal, ModuleBuilder, SetProjectionOp,
     SmeltError, Type,
@@ -421,8 +422,7 @@ impl ModuleBuilder<'_> {
         let mut has_null = false;
         let mut has_undefined = false;
         for item in items {
-            let index = usize::try_from(item.0).expect("expr id should fit into usize");
-            let Some(expr) = body.exprs.get(index) else {
+            let Some(expr) = body.expr_at(*item) else {
                 continue;
             };
             match &expr.kind {

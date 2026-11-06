@@ -1,6 +1,7 @@
 //! Destructuring patterns: `let { a, b: [c] } = value` and parameter patterns,
 //! lowered to one local declaration per bound name.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
 use crate::lowering::js_text::js_str_text;
@@ -507,14 +508,10 @@ impl ModuleBuilder<'_> {
 
     /// Return the span for an expression already inserted into a body.
     pub(in crate::lowering) fn body_expr_span(body: &Body, expr: smelt_hir::ExprId) -> Span {
-        let root_span = usize::try_from(body.root.0)
-            .ok()
-            .and_then(|index| body.blocks.get(index))
+        let root_span = body.block_at(body.root)
             .or_else(|| body.blocks.first())
             .map_or(Span::new(FileId(0), 0, 0), |block| block.span);
-        usize::try_from(expr.0)
-            .ok()
-            .and_then(|index| body.exprs.get(index))
+        body.expr_at(expr)
             .map_or(root_span, |expr| expr.span)
     }
 

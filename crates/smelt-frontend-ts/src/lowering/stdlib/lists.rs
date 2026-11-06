@@ -1,5 +1,6 @@
 //! Array methods: mutation, sorting, slicing and the modern copying forms.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::{ModuleBuilder, SmeltError};
 use oxc::ast::ast::{Argument, CallExpression, Expression};
 use oxc::span::GetSpan;
@@ -320,9 +321,7 @@ impl ModuleBuilder<'_> {
         // optionality comes from an optional BASE (`child.#values` with
         // `child: Node | undefined`) keeps the path it already had, which
         // writes the array back through the base.
-        let optional_from_base = usize::try_from(list.0)
-            .ok()
-            .and_then(|index| body.exprs.get(index))
+        let optional_from_base = body.expr_at(list)
             .is_some_and(|expr| match &expr.kind {
                 ExprKind::Field { receiver, .. } | ExprKind::OptionalField { receiver, .. } => {
                     matches!(

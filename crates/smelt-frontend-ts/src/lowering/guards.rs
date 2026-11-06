@@ -1,6 +1,7 @@
 //! Runtime tests as expressions: `instanceof`, `typeof`, nullish comparisons and
 //! type assertions.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::peel::{Wrappers, peel};
 use super::{ModuleBuilder, ambient_globals, unknown_kind_from_typeof};
 use crate::SmeltError;
@@ -884,17 +885,13 @@ impl ModuleBuilder<'_> {
             BinaryOperator::StrictEquality | BinaryOperator::StrictInequality
         );
         let value = self.expression(value_expr, body)?;
-        let Some(value_expression) = body
-            .exprs
-            .get(usize::try_from(value.0).unwrap_or(usize::MAX))
+        let Some(value_expression) = body.expr_at(value)
         else {
             return Ok(None);
         };
         let value = match &value_expression.kind {
             ExprKind::UnknownCast { value: erased, .. }
-                if body
-                    .exprs
-                    .get(usize::try_from(erased.0).unwrap_or(usize::MAX))
+                if body.expr_at(*erased)
                     .is_some_and(|erased_expr| matches!(erased_expr.kind, ExprKind::Local(local)
                         if self.ctx.krate.types.get(Self::local_ty(body, local)) == Some(&Type::Unknown))) =>
             {

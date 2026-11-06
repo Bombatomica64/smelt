@@ -1,6 +1,8 @@
 //! Member calls: `receiver.method(..)`, computed method calls, class statics and
 //! private callable fields, and the receiver facts those calls are decided on.
 
+use crate::lowering::body_arena::BodyArena;
+use crate::lowering::support::source_spelling;
 use crate::SmeltError;
 use crate::lowering::{ModuleBuilder, RestParam};
 use crate::lowering::spread_arguments::CallArg;
@@ -1314,12 +1316,7 @@ impl ModuleBuilder<'_> {
         class_name: smelt_hir::Symbol,
         field: smelt_hir::Symbol,
     ) -> bool {
-        let field_ty = self
-            .ctx
-            .krate
-            .names
-            .get(class_name)
-            .or_else(|| self.ctx.krate.symbols.get(class_name))
+        let field_ty = source_spelling(&self.ctx.krate, class_name)
             .map(str::to_owned)
             .and_then(|class_text| self.classes.fields(&class_text).cloned())
             .and_then(|fields| {
@@ -1365,9 +1362,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         span: Span,
     ) -> smelt_hir::ExprId {
-        let Some(expr) = usize::try_from(callee.0)
-            .ok()
-            .and_then(|index| body.exprs.get(index))
+        let Some(expr) = body.expr_at(callee)
         else {
             return callee;
         };
@@ -1456,9 +1451,7 @@ impl ModuleBuilder<'_> {
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &Body,
     ) -> bool {
-        let Some(expr) = usize::try_from(callee.0)
-            .ok()
-            .and_then(|index| body.exprs.get(index))
+        let Some(expr) = body.expr_at(callee)
         else {
             return false;
         };
@@ -1530,12 +1523,7 @@ impl ModuleBuilder<'_> {
         else {
             return false;
         };
-        let class_name = self
-            .ctx
-            .krate
-            .names
-            .get(name)
-            .or_else(|| self.ctx.krate.symbols.get(name))
+        let class_name = source_spelling(&self.ctx.krate, name)
             .map(str::to_owned);
         let is_callable_field = |fields: &[smelt_hir::Field]| {
             fields.iter().find(|item| item.name == field).is_some_and(|item| {

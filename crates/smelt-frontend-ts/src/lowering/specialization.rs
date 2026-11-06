@@ -1,5 +1,6 @@
 //! TypeScript specialization-manifest lookup and class-member materialization.
 
+use crate::lowering::body_arena::BodyArena;
 use std::path::Path;
 
 use super::{
@@ -328,17 +329,13 @@ impl ModuleBuilder<'_> {
                         .and_then(|name| {
                             let symbol = self.ctx.krate.symbols.intern(name);
                             original_stmts.iter().position(|statement_id| {
-                                let statement_index =
-                                    usize::try_from(statement_id.0).unwrap_or(usize::MAX);
                                 let Some(smelt_hir::Stmt::Assign { target, .. }) =
-                                    body.stmts.get(statement_index)
+                                    body.stmt_at(*statement_id)
                                 else {
                                     return false;
                                 };
-                                let target_index =
-                                    usize::try_from(target.0).unwrap_or(usize::MAX);
                                 matches!(
-                                    body.exprs.get(target_index),
+                                    body.expr_at(*target),
                                     Some(Expr {
                                         kind: ExprKind::Field { field, .. },
                                         ..

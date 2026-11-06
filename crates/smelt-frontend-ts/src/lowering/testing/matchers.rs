@@ -1,6 +1,7 @@
 //! Assertion lowering: vitest `expect(..)` matchers, asymmetric matchers, node
 //! `assert` calls and the HIR expressions they compare with.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::{ModuleBuilder, TestMatcher};
 use crate::SmeltError;
 use oxc::ast::ast::{Argument, Expression};
@@ -969,9 +970,7 @@ impl ModuleBuilder<'_> {
         body: &Body,
     ) -> bool {
         matches!(
-            usize::try_from(value.0)
-                .ok()
-                .and_then(|index| body.exprs.get(index)),
+            body.expr_at(value),
             Some(Expr {
                 kind: ExprKind::Literal(Literal::Float(number)),
                 ..

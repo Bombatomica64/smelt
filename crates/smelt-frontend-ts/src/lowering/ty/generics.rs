@@ -493,19 +493,6 @@ impl ModuleBuilder<'_> {
         self.types.pop_param_scope();
     }
 
-    /// Resolve a type parameter by source name from innermost to outermost scope.
-    pub(in crate::lowering) fn type_parameter_type(&self, name: &str) -> Option<smelt_hir::TypeId> {
-        self.types.param_type(name)
-    }
-
-    /// Resolve a lowered type parameter's active constraint, if any.
-    pub(in crate::lowering) fn type_parameter_constraint(
-        &self,
-        name: smelt_hir::Symbol,
-    ) -> Option<smelt_hir::TypeId> {
-        self.types.param_constraint(name)
-    }
-
     /// Builds a substitution map from generic parameter symbols to actual argument types.
     pub(in crate::lowering) fn type_argument_substitution(
         &mut self,

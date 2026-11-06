@@ -2,6 +2,7 @@
 
 mod ambient_globals;
 mod bigint;
+mod body_arena;
 mod checker_types;
 mod null_absent;
 mod open_array_hint;
@@ -875,7 +876,7 @@ struct ModuleBuilder<'ctx> {
     export_renames: HashMap<String, String>,
     /// Object constants that act as namespace-like API surfaces, each with its
     /// entries in source order.
-    object_namespaces: HashMap<String, IndexMap<String, smelt_hir::ItemId>>,
+    object_namespaces: crate::context::Published<HashMap<String, IndexMap<String, smelt_hir::ItemId>>>,
     /// Folded constant values visible to this module: literals, `enum` members,
     /// `RegExp` literals, object constants, collections and object-value
     /// projections.

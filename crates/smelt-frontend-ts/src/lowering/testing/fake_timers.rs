@@ -1,6 +1,7 @@
 //! Fake clocks in tests: `vi.useFakeTimers` and its controls, and sinon's
 //! `useFakeTimers`.
 
+use crate::lowering::support::source_spelling;
 use crate::lowering::js_text::js_str_text;
 use oxc::ast::ast::{Argument, CallExpression, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;
@@ -212,11 +213,7 @@ impl ModuleBuilder<'_> {
         let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(receiver_ty) else {
             return false;
         };
-        self.ctx
-            .krate
-            .names
-            .get(*name)
-            .or_else(|| self.ctx.krate.symbols.get(*name))
+        source_spelling(&self.ctx.krate, *name)
             == Some("SinonFakeTimers")
     }
 }

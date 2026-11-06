@@ -1,6 +1,7 @@
 //! Type-level declarations: type aliases, interfaces, type namespaces and the
 //! structural members they share.
 
+use crate::lowering::support::source_spelling;
 use crate::SmeltError;
 use crate::lowering::state::interface_registry::LoweredInterface;
 use crate::lowering::{InterfaceHeritageRef, ModuleBuilder};
@@ -12,10 +13,6 @@ use smelt_hir::{
 };
 
 impl ModuleBuilder<'_> {
-    /// Prefix a local type declaration with the active TypeScript namespace path.
-    pub(in crate::lowering) fn qualified_type_declaration_name(&self, name: &str) -> String {
-        self.types.qualify(name)
-    }
 
     /// The symbol a module-scope type declaration interns for its own name.
     ///
@@ -61,7 +58,7 @@ impl ModuleBuilder<'_> {
         alias: &oxc::ast::ast::TSTypeAliasDeclaration<'_>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let local_name_text = alias.id.name.as_str();
-        let name_text = self.qualified_type_declaration_name(local_name_text);
+        let name_text = self.types.qualify(local_name_text);
         let name = self.declared_type_name_symbol(local_name_text, &name_text);
         let type_params = self.push_type_parameter_scope(alias.type_parameters.as_deref())?;
         let surface = self
@@ -116,7 +113,7 @@ impl ModuleBuilder<'_> {
         let ty = result?;
         if is_callable_object {
             self.types.mark_callable_object_alias(name);
-            self.ctx.callable_object_aliases.insert(name);
+            self.ctx.callable_object_aliases.write().insert(name);
         }
         // An alias that NAMES a nominal type (`type IdContext = Context<Env,
         // '/:id'>`, `type A = SomeInterface`) is that type: a reference to the
@@ -140,12 +137,7 @@ impl ModuleBuilder<'_> {
                     oxc::ast::ast::TSTypeName::IdentifierReference(ident) => Some(ident.name.as_str()),
                     _ => None,
                 };
-                let target_name = self
-                    .ctx
-                    .krate
-                    .names
-                    .get(*target)
-                    .or_else(|| self.ctx.krate.symbols.get(*target));
+                let target_name = source_spelling(&self.ctx.krate, *target);
                 spelled.is_some_and(|spelled| {
                     target_name.is_some_and(|target_name| {
                         target_name == spelled
@@ -160,7 +152,7 @@ impl ModuleBuilder<'_> {
             && !names_nominal_type
         {
             self.types.set_alias_fields(name, fields.clone());
-            self.ctx.type_alias_fields.insert(name, fields);
+            self.ctx.type_alias_fields.write().insert(name, fields);
         }
         let item = self
             .ctx
@@ -182,7 +174,7 @@ impl ModuleBuilder<'_> {
         interface: &oxc::ast::ast::TSInterfaceDeclaration<'_>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let local_name_text = interface.id.name.as_str();
-        let name_text = self.qualified_type_declaration_name(local_name_text);
+        let name_text = self.types.qualify(local_name_text);
         let name = self.declared_type_name_symbol(local_name_text, &name_text);
         let type_params = self.push_type_parameter_scope(interface.type_parameters.as_deref())?;
         let mut fields = Vec::new();
@@ -364,17 +356,17 @@ impl ModuleBuilder<'_> {
             index_value_ty,
         });
         // Mirror the same facts into the shared context for later modules.
-        self.ctx.interface_extends.insert(name, heritage_refs);
+        self.ctx.interface_extends.write().insert(name, heritage_refs);
         self.ctx
             .interface_call_signatures
-            .insert(name, call_signatures);
+            .write().insert(name, call_signatures);
         if !construct_signatures.is_empty() {
             self.ctx
                 .interface_construct_signatures
-                .insert(name, construct_signatures);
+                .write().insert(name, construct_signatures);
         }
         if let Some(index_value_ty) = index_value_ty {
-            self.ctx.interface_index_values.insert(name, index_value_ty);
+            self.ctx.interface_index_values.write().insert(name, index_value_ty);
         }
         item
     }

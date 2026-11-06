@@ -37,6 +37,7 @@
 //! material, which is a surface rather than three calls, and they stay declared
 //! so using one is a named blocker.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use smelt_hir::{Body, CryptoOp, Expr, ExprKind, Type};
@@ -318,8 +319,7 @@ impl ModuleBuilder<'_> {
         data: smelt_hir::ExprId,
         body: &Body,
     ) -> smelt_hir::ExprId {
-        let index = usize::try_from(data.0).expect("expr id should fit into usize");
-        let Some(&ExprKind::TypeAssert { value }) = body.exprs.get(index).map(|expr| &expr.kind)
+        let Some(&ExprKind::TypeAssert { value }) = body.expr_at(data).map(|expr| &expr.kind)
         else {
             return data;
         };

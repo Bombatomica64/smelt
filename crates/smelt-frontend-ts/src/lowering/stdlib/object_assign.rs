@@ -1,5 +1,6 @@
 //! `Object.assign` onto records, classes and callable values.
 
+use crate::lowering::support::source_spelling;
 use crate::lowering::{ModuleBuilder, SmeltError};
 use crate::lowering::js_text::js_str_text;
 use oxc::ast::ast::{Argument, CallExpression, Expression, ObjectPropertyKind, PropertyKey};
@@ -356,12 +357,7 @@ impl ModuleBuilder<'_> {
                 break;
             }
             visited.push(symbol);
-            let source_name = self
-                .ctx
-                .krate
-                .names
-                .get(symbol)
-                .or_else(|| self.ctx.krate.symbols.get(symbol))
+            let source_name = source_spelling(&self.ctx.krate, symbol)
                 .map(str::to_owned);
             let (fields, base) = if let Some(item) = self.class_by_symbol(symbol) {
                 (item.fields.clone(), item.base)

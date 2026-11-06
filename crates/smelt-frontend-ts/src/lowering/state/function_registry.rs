@@ -19,6 +19,7 @@
 //!   surface. [`FunctionRegistry::shadow_implementations`] performs that
 //!   shadowing as one operation over the implemented names.
 
+use crate::context::Published;
 use std::collections::{HashMap, HashSet};
 
 use smelt_hir::{Symbol, TypeId};
@@ -41,9 +42,9 @@ pub(in crate::lowering) type MethodPredicateKey = (String, bool, String);
 pub(in crate::lowering) struct FunctionRegistry {
     /// TypeScript overload signatures keyed by implementation name, in source
     /// order.
-    overloads: HashMap<String, Vec<OverloadSignature>>,
+    overloads: Published<HashMap<String, Vec<OverloadSignature>>>,
     /// Rest-parameter metadata for top-level function declarations.
-    rests: HashMap<String, RestParam>,
+    rests: Published<HashMap<String, RestParam>>,
     /// Forward-visible function declaration signatures for hoisted callback
     /// calls.
     forward_types: HashMap<String, ForwardFunctionType>,
@@ -60,8 +61,8 @@ impl FunctionRegistry {
     /// Build the registry a fresh module starts from, seeded with the overloads
     /// and rest parameters published by earlier modules.
     pub(in crate::lowering) fn new(
-        overloads: HashMap<String, Vec<OverloadSignature>>,
-        rests: HashMap<String, RestParam>,
+        overloads: Published<HashMap<String, Vec<OverloadSignature>>>,
+        rests: Published<HashMap<String, RestParam>>,
     ) -> Self {
         Self {
             overloads,
@@ -76,7 +77,7 @@ impl FunctionRegistry {
         name: String,
         signature: OverloadSignature,
     ) {
-        self.overloads.entry(name).or_default().push(signature);
+        self.overloads.write().entry(name).or_default().push(signature);
     }
 
     /// Return every overload signature recorded for `name`.
@@ -103,7 +104,7 @@ impl FunctionRegistry {
         name: String,
         signatures: Vec<OverloadSignature>,
     ) {
-        self.overloads.insert(name, signatures);
+        self.overloads.write().insert(name, signatures);
     }
 
     /// Drop imported overloads shadowed by implementations in this module.
@@ -117,7 +118,7 @@ impl FunctionRegistry {
             reason = "keyed inserts of one value"
         )]
         for name in implemented {
-            self.overloads.insert(name.clone(), Vec::new());
+            self.overloads.write().insert(name.clone(), Vec::new());
         }
     }
 
@@ -128,7 +129,7 @@ impl FunctionRegistry {
 
     /// Record the rest-parameter metadata of the function named `name`.
     pub(in crate::lowering) fn set_rest(&mut self, name: String, rest: RestParam) {
-        self.rests.insert(name, rest);
+        self.rests.write().insert(name, rest);
     }
 
     /// Record the forward-visible signature of a hoisted function declaration.

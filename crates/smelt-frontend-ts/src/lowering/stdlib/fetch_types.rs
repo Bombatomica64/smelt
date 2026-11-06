@@ -24,6 +24,7 @@
 //! receiver's lowered type being the modeled `Headers` class, which is exactly
 //! how the `Map`/`Set` collection dispatch works.
 
+use crate::lowering::support::source_spelling;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use crate::lowering::js_text::static_name_text;
@@ -435,12 +436,7 @@ impl ModuleBuilder<'_> {
         let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(receiver_ty) else {
             return None;
         };
-        let class_name = self
-            .ctx
-            .krate
-            .names
-            .get(*name)
-            .or_else(|| self.ctx.krate.symbols.get(*name))?
+        let class_name = source_spelling(&self.ctx.krate, *name)?
             .to_owned();
         if self.source_shadows_global(&class_name) {
             return None;

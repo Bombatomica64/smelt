@@ -1,6 +1,7 @@
 //! Assignments: targets, global writes, updates, logical assignment, properties
 //! assigned onto callable locals, and what an assignment does to narrowing.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::{AssignmentTarget, Expression, SimpleAssignmentTarget};
@@ -953,7 +954,7 @@ impl ModuleBuilder<'_> {
                 this.push_stmt_to_sink(body, statement);
             }
         });
-        if let Some(entry) = usize::try_from(block.0).ok().and_then(|index| body.blocks.get_mut(index)) {
+        if let Some(entry) = body.block_at_mut(block) {
             entry.tail = Some(value);
         }
         let ty = Self::expr_ty(body, value);
@@ -996,7 +997,7 @@ impl ModuleBuilder<'_> {
         if matches!(self.ctx.krate.types.get(target_ty), Some(Type::Optional(_))) {
             return target;
         }
-        let Some(target_expr) = body.exprs.get(usize::try_from(target.0).unwrap_or(usize::MAX))
+        let Some(target_expr) = body.expr_at(target)
         else {
             return target;
         };

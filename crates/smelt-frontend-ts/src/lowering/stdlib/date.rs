@@ -1,5 +1,6 @@
 //! The `Date` global: `Date.now`, `Date.UTC`, construction and instance methods.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::{CallExpression, Expression};
@@ -43,9 +44,7 @@ impl ModuleBuilder<'_> {
 
     /// Return true when an expression carries JavaScript `Date` identity despite timestamp storage.
     pub(in crate::lowering) fn expression_is_known_date_value(&self, value: smelt_hir::ExprId, body: &Body) -> bool {
-        let Some(expr) = body
-            .exprs
-            .get(usize::try_from(value.0).unwrap_or(usize::MAX))
+        let Some(expr) = body.expr_at(value)
         else {
             return false;
         };
@@ -58,9 +57,7 @@ impl ModuleBuilder<'_> {
             ExprKind::TypeAssert { value: asserted_value } => {
                 self.expression_is_known_date_value(*asserted_value, body)
             }
-            ExprKind::Call { callee, .. } => body
-                .exprs
-                .get(usize::try_from(callee.0).unwrap_or(usize::MAX))
+            ExprKind::Call { callee, .. } => body.expr_at(*callee)
                 .and_then(|callee| match callee.kind {
                     ExprKind::Item(item) => Some(item),
                     _ => None,
@@ -250,9 +247,7 @@ impl ModuleBuilder<'_> {
         let Some(local) = self.scope.lookup(receiver.name.as_str()) else {
             return false;
         };
-        let Some(decl) = usize::try_from(local.0)
-            .ok()
-            .and_then(|index| body.locals.get(index))
+        let Some(decl) = body.local_at(local)
         else {
             return false;
         };

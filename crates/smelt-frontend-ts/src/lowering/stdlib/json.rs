@@ -1,5 +1,7 @@
 //! `JSON.stringify` and `JSON.parse`, and which types can cross them.
 
+use crate::lowering::body_arena::BodyArena;
+use crate::lowering::support::source_spelling;
 use crate::lowering::{ModuleBuilder, SmeltError};
 use oxc::ast::ast::{Argument, CallExpression, Expression};
 use oxc::span::GetSpan;
@@ -261,7 +263,7 @@ impl ModuleBuilder<'_> {
         else {
             return value;
         };
-        let Some(expr) = body.exprs.get(usize::try_from(value.0).unwrap_or(usize::MAX)) else {
+        let Some(expr) = body.expr_at(value) else {
             return value;
         };
         let is_json_read = matches!(
@@ -282,7 +284,7 @@ impl ModuleBuilder<'_> {
             return value;
         }
         let future_ty = self.ctx.krate.types.intern(Type::Future(target));
-        if let Some(read) = body.exprs.get_mut(usize::try_from(value.0).unwrap_or(usize::MAX)) {
+        if let Some(read) = body.expr_at_mut(value) {
             read.ty = future_ty;
         }
         value
@@ -377,12 +379,7 @@ impl ModuleBuilder<'_> {
                 // not know this class's fields" as "not serializable" rejected
                 // source that JavaScript accepts, and it is what made a
                 // `BodyInit` union unserializable as a whole.
-                if self
-                    .ctx
-                    .krate
-                    .names
-                    .get(name)
-                    .or_else(|| self.ctx.krate.symbols.get(name))
+                if source_spelling(&self.ctx.krate, name)
                     // A host object serializes cleanly: it erases to a
                     // byte-backed or marker record whose own enumerable
                     // properties are what `Serialize for SmeltUnknown` renders

@@ -1,6 +1,7 @@
 //! Arrow-function const-declaration lowering and related helpers.
 
 
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::js_text::js_str_text;
 use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::state::local_scope::ScopeGroups;
@@ -415,7 +416,7 @@ impl ModuleBuilder<'_> {
         self.items.insert(name_text.to_owned(), item);
         if let Some(rest) = rest {
             self.functions.set_rest(name_text.to_owned(), rest);
-            self.ctx.function_rests.insert(name_text.to_owned(), rest);
+            self.ctx.function_rests.write().insert(name_text.to_owned(), rest);
         }
         Ok(item)
     }
@@ -514,7 +515,7 @@ impl ModuleBuilder<'_> {
         let displaced = self.items.insert(name_text.to_owned(), item);
         if let Some(rest) = rest {
             self.functions.set_rest(name_text.to_owned(), rest);
-            self.ctx.function_rests.insert(name_text.to_owned(), rest);
+            self.ctx.function_rests.write().insert(name_text.to_owned(), rest);
         }
         Some((item, displaced))
     }
@@ -594,9 +595,9 @@ return_ty,
         if !found.is_empty() {
             return Some(self.joined_inferred_type(found));
         }
-        let root = body.blocks.get(usize::try_from(body.root.0).ok()?)?;
+        let root = body.block_at(body.root)?;
         let last_stmt = root.stmts.last()?;
-        match body.stmts.get(usize::try_from(last_stmt.0).ok()?) {
+        match body.stmt_at(*last_stmt) {
             Some(Stmt::Return(Some(expr))) => Some(Self::expr_ty(body, *expr)),
             _ => None,
         }
@@ -608,7 +609,7 @@ return_ty,
         block: smelt_hir::BlockId,
         out: &mut Vec<smelt_hir::TypeId>,
     ) {
-        let Some(block) = body.blocks.get(usize::try_from(block.0).ok().unwrap_or(usize::MAX))
+        let Some(block) = body.block_at(block)
         else {
             return;
         };
@@ -619,7 +620,7 @@ return_ty,
 
     /// Collect return value types from a statement and any nested statement bodies.
     pub(in crate::lowering) fn collect_return_types_from_stmt(body: &Body, stmt_id: smelt_hir::StmtId, out: &mut Vec<smelt_hir::TypeId>) {
-        let Some(stmt) = body.stmts.get(usize::try_from(stmt_id.0).ok().unwrap_or(usize::MAX))
+        let Some(stmt) = body.stmt_at(stmt_id)
         else {
             return;
         };

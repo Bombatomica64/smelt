@@ -1,5 +1,7 @@
 //! TypeScript type lowering, structural type inspection, and HIR type resolution.
 
+use crate::lowering::body_arena::BodyArena;
+use crate::lowering::support::source_spelling;
 use crate::lowering::js_text::js_str_text;
 use std::collections::{HashMap, HashSet};
 
@@ -298,7 +300,7 @@ impl ModuleBuilder<'_> {
                             .expect("function member should exist");
                         if !fields.is_empty() {
                             self.types.set_callable_fields(function_ty, fields.clone());
-                            self.ctx.callable_fields.insert(function_ty, fields);
+                            self.ctx.callable_fields.write().insert(function_ty, fields);
                         }
                         Ok(function_ty)
                     }
@@ -2315,7 +2317,7 @@ impl ModuleBuilder<'_> {
                 ));
             }
         };
-        if let Some(param_ty) = self.type_parameter_type(&name_text) {
+        if let Some(param_ty) = self.types.param_type(&name_text) {
             if reference.type_arguments.is_some() {
                 return Err(SmeltError::unsupported(
                     self.span(reference.span.start, reference.span.end),
@@ -2674,7 +2676,7 @@ impl ModuleBuilder<'_> {
                         {
                             let fields = self.substituted_fields(&fields, &substitutions);
                             self.types.set_callable_fields(function_ty, fields.clone());
-                            self.ctx.callable_fields.insert(function_ty, fields);
+                            self.ctx.callable_fields.write().insert(function_ty, fields);
                         }
                         return Ok(function_ty);
                     }
@@ -2996,7 +2998,7 @@ impl ModuleBuilder<'_> {
                 if reference.type_arguments.is_some() {
                     return Ok(None);
                 }
-                Ok(self.type_parameter_type(name.name.as_str()))
+                Ok(self.types.param_type(name.name.as_str()))
             }
             _ => Ok(None),
         }
@@ -3288,12 +3290,7 @@ impl ModuleBuilder<'_> {
                 } else {
                     None
                 };
-                let class_name = self
-                    .ctx
-                    .krate
-                    .names
-                    .get(name)
-                    .or_else(|| self.ctx.krate.symbols.get(name))
+                let class_name = source_spelling(&self.ctx.krate, name)
                     .map(str::to_owned);
                 let sidecar_field = class_name
                     .as_deref()
@@ -3498,12 +3495,7 @@ impl ModuleBuilder<'_> {
         class_name: smelt_hir::Symbol,
         method_name: smelt_hir::Symbol,
     ) -> Option<smelt_hir::TypeId> {
-        let class_text = self
-            .ctx
-            .krate
-            .names
-            .get(class_name)
-            .or_else(|| self.ctx.krate.symbols.get(class_name))
+        let class_text = source_spelling(&self.ctx.krate, class_name)
             .map(str::to_owned)?;
         let methods = self.classes.methods(&class_text).cloned()?;
         let method = methods.into_iter().find(|item| item.name == method_name)?;
@@ -3716,7 +3708,7 @@ impl ModuleBuilder<'_> {
                 continue;
             };
             saw_return = true;
-            let Some(expr) = body.exprs.get(usize::try_from(value.0).unwrap_or(usize::MAX)) else {
+            let Some(expr) = body.expr_at(*value) else {
                 return false;
             };
             if !matches!(expr.kind, ExprKind::Local(local) if local == receiver) {
@@ -3799,23 +3791,13 @@ impl ModuleBuilder<'_> {
         class: smelt_hir::Symbol,
         field: smelt_hir::Symbol,
     ) -> Option<smelt_hir::TypeId> {
-        let class_name = self
-            .ctx
-            .krate
-            .names
-            .get(class)
-            .or_else(|| self.ctx.krate.symbols.get(class))?
+        let class_name = source_spelling(&self.ctx.krate, class)?
             .to_owned();
         // Source names are normalized to snake_case in the symbol table, with
         // the original spelling kept in `names`, so both are accepted: a key
         // written `statusText` interns as `status_text`, and which one arrives
         // here depends on the table the caller's symbol came from.
-        let field_name = self
-            .ctx
-            .krate
-            .names
-            .get(field)
-            .or_else(|| self.ctx.krate.symbols.get(field))?
+        let field_name = source_spelling(&self.ctx.krate, field)?
             .to_owned();
         // A site may qualify the ambient interface to escape a local one of the
         // same name (`globalThis.ResponseInit` where the module declares its
@@ -3913,12 +3895,7 @@ impl ModuleBuilder<'_> {
             }
             _ => {}
         }
-        let class_name = self
-            .ctx
-            .krate
-            .names
-            .get(class)
-            .or_else(|| self.ctx.krate.symbols.get(class))?;
+        let class_name = source_spelling(&self.ctx.krate, class)?;
         if !smelt_stdlib::is_error_class_name(class_name) {
             return None;
         }
@@ -4181,12 +4158,7 @@ impl ModuleBuilder<'_> {
         method: smelt_hir::Symbol,
         span: oxc::span::Span,
     ) -> Result<Option<smelt_hir::TypeId>, SmeltError> {
-        let Some(class_name) = self
-            .ctx
-            .krate
-            .names
-            .get(class)
-            .or_else(|| self.ctx.krate.symbols.get(class))
+        let Some(class_name) = source_spelling(&self.ctx.krate, class)
             .map(str::to_owned)
         else {
             return Ok(None);
@@ -4315,7 +4287,7 @@ impl ModuleBuilder<'_> {
         let Some(Type::TypeParam { name }) = self.ctx.krate.types.get(ty) else {
             return None;
         };
-        let constraint = self.type_parameter_constraint(*name)?;
+        let constraint = self.types.param_constraint(*name)?;
         let Some(Type::Class { name: bound_name, args }) = self.ctx.krate.types.get(constraint) else {
             return None;
         };
@@ -4324,12 +4296,7 @@ impl ModuleBuilder<'_> {
         }
         let bound = *bound_name;
         let declared_class = self.class_by_symbol(bound).is_some_and(|class| class.type_params.is_empty())
-            || self
-                .ctx
-                .krate
-                .names
-                .get(bound)
-                .or_else(|| self.ctx.krate.symbols.get(bound))
+            || source_spelling(&self.ctx.krate, bound)
                 .is_some_and(|spelling| self.classes.item(spelling).is_some() && self.class_by_symbol(bound).is_none());
         let declared_interface = self
             .find_interface(bound)
@@ -4343,7 +4310,7 @@ impl ModuleBuilder<'_> {
         ty: smelt_hir::TypeId,
     ) -> smelt_hir::TypeId {
         match self.ctx.krate.types.get(ty) {
-            Some(Type::TypeParam { name }) => self.type_parameter_constraint(*name).unwrap_or(ty),
+            Some(Type::TypeParam { name }) => self.types.param_constraint(*name).unwrap_or(ty),
             _ => ty,
         }
     }
@@ -4360,12 +4327,7 @@ impl ModuleBuilder<'_> {
         let Some(Type::TypeParam { name }) = self.ctx.krate.types.get(ty) else {
             return false;
         };
-        let Some(spelling) = self
-            .ctx
-            .krate
-            .names
-            .get(*name)
-            .or_else(|| self.ctx.krate.symbols.get(*name))
+        let Some(spelling) = source_spelling(&self.ctx.krate, *name)
         else {
             return true;
         };
@@ -4513,12 +4475,7 @@ impl ModuleBuilder<'_> {
         name: smelt_hir::Symbol,
         field: smelt_hir::Symbol,
     ) -> Option<smelt_hir::TypeId> {
-        let class_name = self
-            .ctx
-            .krate
-            .names
-            .get(name)
-            .or_else(|| self.ctx.krate.symbols.get(name))?;
+        let class_name = source_spelling(&self.ctx.krate, name)?;
         if class_name != "RegExp" {
             return None;
         }
@@ -4579,12 +4536,7 @@ impl ModuleBuilder<'_> {
         &self,
         name: smelt_hir::Symbol,
     ) -> Option<smelt_stdlib::StdlibClass> {
-        let class_name = self
-            .ctx
-            .krate
-            .names
-            .get(name)
-            .or_else(|| self.ctx.krate.symbols.get(name))?;
+        let class_name = source_spelling(&self.ctx.krate, name)?;
         smelt_stdlib::typescript_stdlib_class(class_name)
     }
 
@@ -4597,12 +4549,7 @@ impl ModuleBuilder<'_> {
         &self,
         name: smelt_hir::Symbol,
     ) -> Option<smelt_stdlib::StdlibClass> {
-        let class_name = self
-            .ctx
-            .krate
-            .names
-            .get(name)
-            .or_else(|| self.ctx.krate.symbols.get(name))?;
+        let class_name = source_spelling(&self.ctx.krate, name)?;
         match smelt_stdlib::typescript_stdlib_class(class_name) {
             class @ Some(
                 smelt_stdlib::StdlibClass::Match | smelt_stdlib::StdlibClass::MatchGroups,
@@ -4657,9 +4604,7 @@ impl ModuleBuilder<'_> {
         len: usize,
         span: oxc::span::Span,
     ) -> Result<usize, SmeltError> {
-        let Some(index_expr) = usize::try_from(index_expr_id.0)
-            .ok()
-            .and_then(|index| body.exprs.get(index))
+        let Some(index_expr) = body.expr_at(index_expr_id)
         else {
             return Err(SmeltError::unsupported(
                 self.span(span.start, span.end),
@@ -4707,10 +4652,7 @@ impl ModuleBuilder<'_> {
     /// semantics rather than element indexing. See the `negative_index` lowering
     /// module for how reads and writes are lowered.
     pub(in crate::lowering) fn is_negative_numeric_expr(body: &Body, expr_id: smelt_hir::ExprId) -> bool {
-        let Ok(expr_index) = usize::try_from(expr_id.0) else {
-            return false;
-        };
-        let Some(candidate) = body.exprs.get(expr_index) else {
+        let Some(candidate) = body.expr_at(expr_id) else {
             return false;
         };
         match &candidate.kind {
@@ -4718,9 +4660,7 @@ impl ModuleBuilder<'_> {
             ExprKind::UnaryOp {
                 op: UnaryOp::Neg,
                 operand,
-            } => usize::try_from(operand.0)
-                .ok()
-                .and_then(|operand_index| body.exprs.get(operand_index))
+            } => body.expr_at(*operand)
                 .is_some_and(|operand_expr| {
                     matches!(operand_expr.kind, ExprKind::Literal(Literal::Float(_)))
                 }),

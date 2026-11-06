@@ -1,6 +1,7 @@
 //! The `Math` global: its call forms, its constants, and reads of its members as
 //! values.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
 use crate::lowering::{ModuleBuilder, stdlib_dispatch};
 use oxc::ast::ast::{Argument, Expression};
@@ -565,9 +566,7 @@ impl ModuleBuilder<'_> {
             return None;
         };
         let source_local = self.scope.lookup(method_ident.name.as_str())?;
-        let source_decl = usize::try_from(source_local.0)
-            .ok()
-            .and_then(|index| outer_body.locals.get(index))?;
+        let source_decl = outer_body.local_at(source_local)?;
 
         let span = self.span(member.span.start, member.span.end);
         let number_ty = self.ctx.krate.types.intern(Type::Float);

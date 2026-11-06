@@ -1,6 +1,7 @@
 //! Object literals: keys, accessors, spreads and the record type a literal takes from
 //! its context.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::{
     Body, Expr, ExprKind, Expression, Field, FunctionType, HashSet, Literal, LogicalOperator,
@@ -179,7 +180,7 @@ impl ModuleBuilder<'_> {
                     return (key, value);
                 };
                 if let Some(ExprKind::Literal(Literal::String(field_key))) =
-                    body.exprs.get(usize::try_from(key.0).unwrap_or(usize::MAX)).map(|expr| &expr.kind)
+                    body.expr_at(key).map(|expr| &expr.kind)
                 {
                     let field = self.intern_source_name(&field_key.clone());
                     if !self.ctx.krate.accessor_fields.contains(&(owner, field)) {
@@ -194,7 +195,7 @@ impl ModuleBuilder<'_> {
     /// The function an accessor marker `{ <marker>: fn }` wraps.
     fn accessor_marker_function(body: &Body, value: smelt_hir::ExprId, marker: &str) -> Option<smelt_hir::ExprId> {
         let Some(ExprKind::DictLit(pairs)) =
-            body.exprs.get(usize::try_from(value.0).unwrap_or(usize::MAX)).map(|expr| &expr.kind)
+            body.expr_at(value).map(|expr| &expr.kind)
         else {
             return None;
         };
@@ -202,7 +203,7 @@ impl ModuleBuilder<'_> {
             return None;
         };
         matches!(
-            body.exprs.get(usize::try_from(key.0).unwrap_or(usize::MAX)).map(|expr| &expr.kind),
+            body.expr_at(*key).map(|expr| &expr.kind),
             Some(ExprKind::Literal(Literal::String(text))) if text == marker
         )
         .then_some(*function)
@@ -376,7 +377,7 @@ impl ModuleBuilder<'_> {
                 self.erase_with(ErasureReason::DynamicOperator, "heterogeneous object spread");
             let erased = self.ctx.krate.types.intern(Type::Dict(key_ty, fallback_value_ty));
             for chunk in &chunks {
-                if let Some(expr) = usize::try_from(chunk.0).ok().and_then(|index| body.exprs.get_mut(index)) {
+                if let Some(expr) = body.expr_at_mut(*chunk) {
                     expr.ty = erased;
                 }
             }
@@ -765,9 +766,7 @@ impl ModuleBuilder<'_> {
         if chunks.contains(&last) {
             return;
         }
-        let Some(ExprKind::DictLit(entries)) = usize::try_from(last.0)
-            .ok()
-            .and_then(|index| body.exprs.get(index))
+        let Some(ExprKind::DictLit(entries)) = body.expr_at(last)
             .map(|expr| &expr.kind)
         else {
             return;
@@ -1020,7 +1019,7 @@ impl ModuleBuilder<'_> {
             return true;
         };
         entries.iter().all(|(key, value)| {
-            let expr = |id: smelt_hir::ExprId| body.exprs.get(usize::try_from(id.0).unwrap_or(usize::MAX));
+            let expr = |id: smelt_hir::ExprId| body.expr_at(id);
             let Some(ExprKind::Literal(Literal::String(field_key))) = expr(*key).map(|key| &key.kind) else {
                 return true;
             };
@@ -1055,9 +1054,7 @@ impl ModuleBuilder<'_> {
         let supplied_keys = entries
             .iter()
             .map(|(key, _)| {
-                let key_expr = body
-                    .exprs
-                    .get(usize::try_from(key.0).unwrap_or(usize::MAX))?;
+                let key_expr = body.expr_at(*key)?;
                 match &key_expr.kind {
                     ExprKind::Literal(Literal::String(field_key)) => Some(field_key.clone()),
                     _ => None,
@@ -1078,9 +1075,7 @@ impl ModuleBuilder<'_> {
             return None;
         }
         for (key, value) in entries {
-            let key_expr = body
-                .exprs
-                .get(usize::try_from(key.0).unwrap_or(usize::MAX))?;
+            let key_expr = body.expr_at(*key)?;
             let ExprKind::Literal(Literal::String(field_key)) = &key_expr.kind else {
                 return None;
             };

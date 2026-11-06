@@ -18,6 +18,7 @@
 //! [`InterfaceRegistry::register_lowered`] takes all of it at once, so no caller
 //! can record half an interface.
 
+use crate::context::Published;
 use std::collections::{HashMap, HashSet};
 
 use smelt_hir::{FunctionType, ItemId, Symbol, TypeId};
@@ -70,11 +71,11 @@ pub(in crate::lowering) struct InterfaceRegistry {
     lowered_local: HashSet<Symbol>,
     /// Heritage clauses, kept for resolving fields after cyclic type imports
     /// settle.
-    extends: HashMap<Symbol, Vec<InterfaceHeritageRef>>,
+    extends: Published<HashMap<Symbol, Vec<InterfaceHeritageRef>>>,
     /// Value types declared by interface string index signatures.
-    index_values: HashMap<Symbol, TypeId>,
+    index_values: Published<HashMap<Symbol, TypeId>>,
     /// Call signatures for callable interface types.
-    call_signatures: HashMap<Symbol, Vec<FunctionType>>,
+    call_signatures: Published<HashMap<Symbol, Vec<FunctionType>>>,
     /// Construct signatures (`new (): T`) for constructor-slot types.
     ///
     /// A constructor interface such as `interface MapCacheConstructor { new ():
@@ -82,7 +83,7 @@ pub(in crate::lowering) struct InterfaceRegistry {
     /// invokes it to produce the constructed type. Each construct signature is
     /// stored as the equivalent [`FunctionType`] so a reference to the interface
     /// can lower to a typed constructor slot instead of an erased dictionary.
-    construct_signatures: HashMap<Symbol, Vec<FunctionType>>,
+    construct_signatures: Published<HashMap<Symbol, Vec<FunctionType>>>,
 }
 
 impl InterfaceRegistry {
@@ -93,10 +94,10 @@ impl InterfaceRegistry {
     /// start empty: they describe the module about to be lowered.
     pub(in crate::lowering) fn new(
         visible: HashMap<String, ItemId>,
-        extends: HashMap<Symbol, Vec<InterfaceHeritageRef>>,
-        index_values: HashMap<Symbol, TypeId>,
-        call_signatures: HashMap<Symbol, Vec<FunctionType>>,
-        construct_signatures: HashMap<Symbol, Vec<FunctionType>>,
+        extends: Published<HashMap<Symbol, Vec<InterfaceHeritageRef>>>,
+        index_values: Published<HashMap<Symbol, TypeId>>,
+        call_signatures: Published<HashMap<Symbol, Vec<FunctionType>>>,
+        construct_signatures: Published<HashMap<Symbol, Vec<FunctionType>>>,
     ) -> Self {
         Self {
             names: visible
@@ -153,13 +154,13 @@ impl InterfaceRegistry {
             construct_signatures,
             index_value_ty,
         } = lowered;
-        self.extends.insert(name, extends);
-        self.call_signatures.insert(name, call_signatures);
+        self.extends.write().insert(name, extends);
+        self.call_signatures.write().insert(name, call_signatures);
         if !construct_signatures.is_empty() {
-            self.construct_signatures.insert(name, construct_signatures);
+            self.construct_signatures.write().insert(name, construct_signatures);
         }
         if let Some(index_value_ty) = index_value_ty {
-            self.index_values.insert(name, index_value_ty);
+            self.index_values.write().insert(name, index_value_ty);
         }
         self.names.entry(name_text).or_default().item = Some(item);
         self.lowered_local.insert(name);
@@ -243,10 +244,10 @@ mod tests {
     fn registry() -> InterfaceRegistry {
         InterfaceRegistry::new(
             HashMap::new(),
-            HashMap::new(),
-            HashMap::new(),
-            HashMap::new(),
-            HashMap::new(),
+            crate::context::Published::default(),
+            crate::context::Published::default(),
+            crate::context::Published::default(),
+            crate::context::Published::default(),
         )
     }
 

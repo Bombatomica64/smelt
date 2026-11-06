@@ -1,6 +1,7 @@
 //! Global functions: `require`, `structuredClone`, `Object.prototype.toString`,
 //! `atob`/`btoa` and the URI codecs.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::Expression;
@@ -65,9 +66,7 @@ impl ModuleBuilder<'_> {
         // through the `smelt_structured_clone` runtime helper.
         // not a new erasure: only compared against the operand's type
         let unknown_ty = self.unknown_type();
-        let operand_ty = body
-            .exprs
-            .get(usize::try_from(operand.0).unwrap_or(usize::MAX))
+        let operand_ty = body.expr_at(operand)
             .map(|expr| expr.ty);
         if operand_ty != Some(unknown_ty) {
             return Ok(Some(operand));

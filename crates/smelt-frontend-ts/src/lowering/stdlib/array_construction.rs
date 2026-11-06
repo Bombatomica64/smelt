@@ -1,5 +1,6 @@
 //! Building arrays through the global: `Array.from`, `new Array(..)` and `Array(..)`.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::{
     Argument, Body, DictProjectionOp, Expr, ExprKind, Expression, ModuleBuilder, ObjectPropertyKind,
     PrimitiveCastOp, PropertyKey, SetProjectionOp, SmeltError, Span, Type,
@@ -427,7 +428,7 @@ impl ModuleBuilder<'_> {
             let unknown_ty = self.unknown_type();
             self.ctx.krate.types.intern(Type::List(unknown_ty))
         };
-        if let Some(expr) = body.exprs.get_mut(usize::try_from(value.0).unwrap_or(usize::MAX))
+        if let Some(expr) = body.expr_at_mut(value)
             && matches!(expr.kind, ExprKind::ListFromLength { .. })
             && expr.ty == unknown_list_ty
         {

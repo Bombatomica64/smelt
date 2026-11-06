@@ -1,6 +1,8 @@
 //! Shared callback helpers: return-type checks, the call forms of `.call` and
 //! `.apply`, and what a receiver's type declares as a method.
 
+use crate::lowering::body_arena::BodyArena;
+use crate::lowering::support::source_spelling;
 use crate::RestParam;
 use crate::lowering::{
     BindingPattern, Body, CaptureMode, ClosureCapture, Expr, ExprKind, FunctionType, HashSet,
@@ -42,12 +44,7 @@ impl ModuleBuilder<'_> {
                     })
             })
         });
-        let sidecar_method = self
-            .ctx
-            .krate
-            .names
-            .get(name)
-            .or_else(|| self.ctx.krate.symbols.get(name))
+        let sidecar_method = source_spelling(&self.ctx.krate, name)
             .and_then(|class_name| self.classes.methods(class_name))
             .is_some_and(|methods| methods.iter().any(|candidate| candidate.name == method));
         // `type_alias_fields` mixes two producers: genuine object-type
@@ -242,9 +239,7 @@ impl ModuleBuilder<'_> {
         // spelling, instead of wrapping it to install a binding that equals the
         // default.
         if matches!(
-            usize::try_from(receiver.0)
-                .ok()
-                .and_then(|index| body.exprs.get(index))
+            body.expr_at(receiver)
                 .map(|expr| &expr.kind),
             Some(ExprKind::Literal(Literal::None))
         ) {
@@ -521,9 +516,7 @@ impl ModuleBuilder<'_> {
                     let Some(source_local) = saved_locals.lookup(name.as_str()) else {
                         continue;
                     };
-                    let Some(source_decl) = usize::try_from(source_local.0)
-                        .ok()
-                        .and_then(|index| outer_body.locals.get(index))
+                    let Some(source_decl) = outer_body.local_at(source_local)
                     else {
                         continue;
                     };

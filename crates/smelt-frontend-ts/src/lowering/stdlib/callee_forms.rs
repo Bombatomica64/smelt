@@ -2,6 +2,7 @@
 //! private member, `console`, a constructed value, the result of another call, an
 //! asserted callee, or a name bound to a value rather than an item.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
 use oxc::ast::ast::Expression;
@@ -349,7 +350,7 @@ impl ModuleBuilder<'_> {
             .collect::<Result<Vec<_>, _>>()?;
         // A function item referenced as a value is the item itself or its
         // typed closure view (`function_item`).
-        let callee_expr = usize::try_from(callee.0).ok().and_then(|index| body.exprs.get(index));
+        let callee_expr = body.expr_at(callee);
         let item = match callee_expr.map(|expr| &expr.kind) {
             Some(ExprKind::Item(item)) => Some(*item),
             Some(ExprKind::Closure(closure)) => closure.function_item,

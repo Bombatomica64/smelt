@@ -1,5 +1,6 @@
 //! Operator expressions: binary, unary, `in`, `delete` and `void`.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::js_text::js_str_text;
 use smelt_hir::{ErasureReason, PropertyLookup};
@@ -116,12 +117,11 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         expr: smelt_hir::ExprId,
     ) -> smelt_hir::ExprId {
-        let index = usize::try_from(expr.0).expect("expr id should fit into usize");
         let Some(Expr {
             kind: ExprKind::UnknownCast { value, .. },
             span,
             ..
-        }) = body.exprs.get(index)
+        }) = body.expr_at(expr)
         else {
             return expr;
         };
@@ -130,11 +130,10 @@ impl ModuleBuilder<'_> {
         // The narrowing cast rewraps a `Local` read at the narrowed type; recover
         // the local and re-read it at its erased base type so the comparison sees
         // the untouched original `SmeltUnknown`.
-        let inner_index = usize::try_from(inner.0).expect("expr id should fit into usize");
         let Some(Expr {
             kind: ExprKind::Local(local),
             ..
-        }) = body.exprs.get(inner_index)
+        }) = body.expr_at(inner)
         else {
             return expr;
         };

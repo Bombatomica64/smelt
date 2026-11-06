@@ -1,6 +1,7 @@
 //! Logical and nullish operators in value position: `&&`, `||`, `??` and the types
 //! their fallbacks join to.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::{
     BinOp, Body, Expr, ExprKind, Expression, Literal, LocalDecl, LogicalOperator, ModuleBuilder,
@@ -131,9 +132,8 @@ impl ModuleBuilder<'_> {
         lhs: smelt_hir::ExprId,
         body: &Body,
     ) -> Option<smelt_hir::ExprId> {
-        let index = usize::try_from(lhs.0).ok()?;
         let Some(ExprKind::Literal(Literal::Bool(value))) =
-            body.exprs.get(index).map(|expr| &expr.kind)
+            body.expr_at(lhs).map(|expr| &expr.kind)
         else {
             return None;
         };

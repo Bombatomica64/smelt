@@ -1,5 +1,6 @@
 //! `Promise`: its statics, its constructor and executor, and `then`/`catch`/`finally`.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
 use crate::lowering::{ArrayExpressionElement, ModuleBuilder};
 use crate::lowering::support::arrow_block_statements;
@@ -603,9 +604,7 @@ impl ModuleBuilder<'_> {
             may_throw: false,
         }));
         let callback = self.argument_with_hint(callback_arg, body, Some(callback_ty))?;
-        let declared_callback_result = body
-            .exprs
-            .get(usize::try_from(callback.0).unwrap_or(usize::MAX))
+        let declared_callback_result = body.expr_at(callback)
             .and_then(|expr| match &expr.kind {
                 ExprKind::Closure(closure) => Some(closure.return_ty),
                 _ => None,

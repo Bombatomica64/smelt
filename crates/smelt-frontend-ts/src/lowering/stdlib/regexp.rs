@@ -1,6 +1,7 @@
 //! Regular expressions: literals, `new RegExp`, `test`/`exec`, and the string methods
 //! that take a pattern (`match`, `replace`).
 
+use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::{Argument, CallExpression, Expression};
@@ -148,8 +149,7 @@ impl ModuleBuilder<'_> {
     /// `regex_replacement_pattern` for every statically known spelling, so this
     /// is how the pattern's own text is recovered after lowering.
     fn string_literal_expr_text(body: &Body, expr: smelt_hir::ExprId) -> Option<String> {
-        let index = usize::try_from(expr.0).ok()?;
-        match body.exprs.get(index).map(|held| &held.kind) {
+        match body.expr_at(expr).map(|held| &held.kind) {
             Some(ExprKind::Literal(Literal::String(text))) => Some(text.clone()),
             _ => None,
         }
@@ -557,9 +557,7 @@ impl ModuleBuilder<'_> {
                 .scope
                 .lookup(identifier.name.as_str())
                 .and_then(|local| {
-                    usize::try_from(local.0)
-                        .ok()
-                        .and_then(|index| body.locals.get(index))
+                    body.local_at(local)
                         .map(|decl| decl.ty)
                 })
                 .or_else(|| self.module_globals.get(identifier.name.as_str()).copied())
@@ -765,14 +763,14 @@ impl ModuleBuilder<'_> {
     /// operand (a parameter, a local, a field) carries its flags in the VALUE,
     /// so the answer is `None` rather than a guess.
     pub(in crate::lowering) fn static_regexp_flags(&self, pattern: smelt_hir::ExprId, body: &Body) -> Option<String> {
-        let expr = body.exprs.get(usize::try_from(pattern.0).ok()?)?;
+        let expr = body.expr_at(pattern)?;
         match &expr.kind {
             ExprKind::New { class, args }
                 if self.stdlib_class_of_symbol(*class) == Some(smelt_stdlib::StdlibClass::RegExp) =>
             {
                 match args.as_slice() {
                     [_] => Some(String::new()),
-                    [_, flags] => match &body.exprs.get(usize::try_from(flags.0).ok()?)?.kind {
+                    [_, flags] => match &body.expr_at(*flags)?.kind {
                         ExprKind::Literal(Literal::String(flags)) => Some(flags.clone()),
                         _ => None,
                     },
@@ -902,9 +900,7 @@ impl ModuleBuilder<'_> {
         // through the fallible builtin, so a malformed pattern throws the
         // catchable `SyntaxError` JavaScript throws at construction.
         let is_literal = |id: smelt_hir::ExprId| {
-            usize::try_from(id.0)
-                .ok()
-                .and_then(|index| body.exprs.get(index))
+            body.expr_at(id)
                 .is_some_and(|expr| matches!(expr.kind, ExprKind::Literal(Literal::String(_))))
         };
         if !is_literal(pattern) || !is_literal(flags) {
@@ -984,10 +980,8 @@ impl ModuleBuilder<'_> {
         self.regexp_text_operand(pattern, body)
             .map(Some)
             .ok_or_else(|| {
-                let index = usize::try_from(pattern.0).expect("expr id should fit into usize");
                 let span = body
-                    .exprs
-                    .get(index)
+                    .expr_at(pattern)
                     .expect("expr id should point to an existing expression")
                     .span;
                 SmeltError::unsupported(span, "RegExp.test() requires a string pattern")
@@ -1008,8 +1002,7 @@ impl ModuleBuilder<'_> {
             || self.type_contains_unknown(pattern_ty)
         {
             let string_ty = self.ctx.krate.types.intern(Type::String);
-            let index = usize::try_from(pattern.0).ok()?;
-            let span = body.exprs.get(index)?.span;
+            let span = body.expr_at(pattern)?.span;
             return Some(body.push_expr(Expr {
                 kind: ExprKind::UnknownCast {
                     value: pattern,

@@ -24,6 +24,7 @@
 //! behind. Explicit values and sources are then bound to locals in source
 //! order, so the struct literal's field order cannot reorder their effects.
 
+use crate::lowering::support::source_spelling;
 use crate::lowering::js_text::js_str_text;
 use oxc::ast::ast::{Expression, ObjectExpression, ObjectPropertyKind, PropertyKey};
 use smelt_hir::{Body, Expr, ExprKind, Field, Literal, Type};
@@ -201,12 +202,7 @@ impl ModuleBuilder<'_> {
                 // keeps the struct constructible.
                 None => continue,
             };
-            let key_text = self
-                .ctx
-                .krate
-                .names
-                .get(field.name)
-                .or_else(|| self.ctx.krate.symbols.get(field.name))
+            let key_text = source_spelling(&self.ctx.krate, field.name)
                 .unwrap_or_default()
                 .to_owned();
             let key = body.push_expr(Expr {
