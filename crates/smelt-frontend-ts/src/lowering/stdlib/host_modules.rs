@@ -260,7 +260,7 @@ impl ModuleBuilder<'_> {
         if !matches!(member_name, "update" | "digest") || !self.could_be_node_hash(member) {
             return Ok(None);
         }
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         if !self.is_node_hash_type(Self::expr_ty(body, receiver)) {

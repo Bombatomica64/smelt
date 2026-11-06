@@ -788,6 +788,8 @@ struct ModuleBuilder<'ctx> {
     path: String,
     /// Source text for diagnostics and spelled-out spans.
     source: String,
+    /// The member calls being dispatched, innermost last.
+    receiver_frames: Vec<stdlib::call_dispatch::ReceiverFrame>,
     /// Declarations and reads of this module, from its AST.
     source_facts: source_facts::SourceFacts,
     /// Mutable reference to the HIR context.

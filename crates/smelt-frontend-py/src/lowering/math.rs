@@ -61,23 +61,18 @@ impl ModuleBuilder<'_> {
         call: &ruff_python_ast::ExprCall,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expr::Attribute(attr) = call.func.as_ref() else {
+        let callee = self.qualified_callee(call);
+        let Some(member) = callee.as_deref().and_then(|callee| callee.strip_prefix("math.")) else {
             return Ok(None);
         };
-        let Expr::Name(module) = attr.value.as_ref() else {
-            return Ok(None);
-        };
-        if module.id.as_str() != "math" {
-            return Ok(None);
-        }
         let span = self.span(call.range());
-        match attr.attr.as_str() {
+        match member {
             "sqrt" | "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "log" | "log10"
             | "log2" | "exp" => {
                 if call.arguments.args.len() != 1 {
                     return Err(SmeltError::unsupported(
                         span,
-                        format!("math.{}() requires exactly one argument", attr.attr),
+                        format!("math.{member}() requires exactly one argument"),
                     ));
                 }
                 let operand = self.expression(&call.arguments.args[0], body)?;
@@ -87,10 +82,10 @@ impl ModuleBuilder<'_> {
                 ) {
                     return Err(SmeltError::unsupported(
                         span,
-                        format!("math.{}() requires a numeric argument", attr.attr),
+                        format!("math.{member}() requires a numeric argument"),
                     ));
                 }
-                let op = match attr.attr.as_str() {
+                let op = match member {
                     "sqrt" => NumericUnaryFuncOp::Sqrt,
                     "sin" => NumericUnaryFuncOp::Sin,
                     "cos" => NumericUnaryFuncOp::Cos,
@@ -172,17 +167,17 @@ impl ModuleBuilder<'_> {
                 if call.arguments.args.len() != 1 {
                     return Err(SmeltError::unsupported(
                         span,
-                        format!("math.{}() requires exactly one argument", attr.attr),
+                        format!("math.{member}() requires exactly one argument"),
                     ));
                 }
                 let operand = self.expression(&call.arguments.args[0], body)?;
                 if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::Float) {
                     return Err(SmeltError::unsupported(
                         span,
-                        format!("math.{}() requires a float argument", attr.attr),
+                        format!("math.{member}() requires a float argument"),
                     ));
                 }
-                let op = match attr.attr.as_str() {
+                let op = match member {
                     "floor" => NumericRoundOp::Floor,
                     "ceil" => NumericRoundOp::Ceil,
                     "trunc" => NumericRoundOp::Trunc,
@@ -199,17 +194,17 @@ impl ModuleBuilder<'_> {
                 if call.arguments.args.len() != 1 {
                     return Err(SmeltError::unsupported(
                         span,
-                        format!("math.{}() requires exactly one argument", attr.attr),
+                        format!("math.{member}() requires exactly one argument"),
                     ));
                 }
                 let operand = self.expression(&call.arguments.args[0], body)?;
                 if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::Float) {
                     return Err(SmeltError::unsupported(
                         span,
-                        format!("math.{}() requires a float argument", attr.attr),
+                        format!("math.{member}() requires a float argument"),
                     ));
                 }
-                let op = match attr.attr.as_str() {
+                let op = match member {
                     "isfinite" => NumericPredicateOp::IsFinite,
                     "isnan" => NumericPredicateOp::IsNaN,
                     _ => return Ok(None),
@@ -231,13 +226,8 @@ impl ModuleBuilder<'_> {
         attr: &ruff_python_ast::ExprAttribute,
         body: &mut Body,
     ) -> Option<smelt_hir::ExprId> {
-        let Expr::Name(module) = attr.value.as_ref() else {
-            return None;
-        };
-        if module.id.as_str() != "math" {
-            return None;
-        }
-        let value = match attr.attr.as_str() {
+        let qualified = self.qualified_attribute(attr)?;
+        let value = match qualified.strip_prefix("math.")? {
             "pi" => std::f64::consts::PI,
             "e" => std::f64::consts::E,
             "tau" => std::f64::consts::TAU,
@@ -257,18 +247,9 @@ impl ModuleBuilder<'_> {
         call: &ruff_python_ast::ExprCall,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Some(rule) = stdlib_dispatch::call_rule(call) else {
+        let Some(rule) = self.stdlib_call_rule(call) else {
             return Ok(None);
         };
-        let Expr::Attribute(attr) = call.func.as_ref() else {
-            return Ok(None);
-        };
-        let Expr::Name(module) = attr.value.as_ref() else {
-            return Ok(None);
-        };
-        if module.id.as_str() != "random" {
-            return Ok(None);
-        }
         let span = self.span(call.range());
         match rule {
             RuleId::PyRandomRandom => {

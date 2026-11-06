@@ -58,13 +58,12 @@ module examples/typescript/end-to-end/47_module_const_host_value/input.ts (Modul
     #42: None = @22(console_log)
     #43: None = call #42(#41)
     #44: Headers = global_get @2(headers)
-    #45: Headers = global_get @2(headers)
-    #46: String = "content-type"
-    #47: Optional<String> = headers_get #45, #46
-    #48: String = "none"
-    #49: String = #47 ?? #48
-    #50: None = @23(console_log)
-    #51: None = call #50(#49)
+    #45: String = "content-type"
+    #46: Optional<String> = headers_get #44, #45
+    #47: String = "none"
+    #48: String = #46 ?? #47
+    #49: None = @23(console_log)
+    #50: None = call #49(#48)
   stmts
     s0: #0
     s1: #1
@@ -80,7 +79,7 @@ module examples/typescript/end-to-end/47_module_const_host_value/input.ts (Modul
     s11: #36
     s12: #38
     s13: #43
-    s14: #51
+    s14: #50
 
 interned types
   t0 = TextEncoder

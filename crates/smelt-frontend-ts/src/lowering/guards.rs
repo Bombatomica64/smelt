@@ -1,7 +1,7 @@
 //! Lowering helpers for `instanceof`, `typeof`, nullish comparisons, type
 //! assertions, call-argument lowering, and `Promise` construction.
 
-use super::{ModuleBuilder, ambient_globals, stdlib_dispatch, unknown_kind_from_typeof};
+use super::{ModuleBuilder, ambient_globals, unknown_kind_from_typeof};
 use crate::SmeltError;
 use crate::lowering::js_text::js_str_text;
 use oxc::ast::ast::{Argument, BindingPattern, Expression, Statement, TSType, TSTypeName};
@@ -2354,13 +2354,7 @@ impl ModuleBuilder<'_> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsFetch) {
-            return Ok(None);
-        }
-        let Expression::Identifier(callee) = &call.callee else {
-            return Ok(None);
-        };
-        if callee.name != "fetch" {
+        if self.recognized_call(call) != Some(RuleId::TsFetch) {
             return Ok(None);
         }
         if !(1..=2).contains(&call.arguments.len()) {
@@ -2459,7 +2453,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         if matches!(&call.callee, Expression::StaticMemberExpression(_))
-            && stdlib_dispatch::call_rule(call) == Some(RuleId::TsDateNow)
+            && self.recognized_call(call) == Some(RuleId::TsDateNow)
         {
             if !call.arguments.is_empty() {
                 return Err(SmeltError::unsupported(
@@ -2484,7 +2478,7 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.date_member_call(member, call, body)? {
             return Ok(Some(expr));
         }
-        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsDateToIsoString) {
+        if self.recognized_call(call) != Some(RuleId::TsDateToIsoString) {
             return Ok(None);
         }
         let Expression::NewExpression(new_expr) = &member.object else {

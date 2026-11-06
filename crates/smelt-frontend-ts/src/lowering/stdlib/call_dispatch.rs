@@ -15,7 +15,7 @@ use smelt_hir::{
     ErasureReason, GeneratorResumeKind, Item, Literal, LocalDecl, Param, Pattern, Span, Stmt, Type,
     TypeParamDef,
 };
-use smelt_stdlib::RuleId;
+use smelt_stdlib::{DiagnosticCategory, RuleId};
 use std::collections::HashMap;
 
 /// Render the opaque runtime string that stands for a *unique* `Symbol(...)`.
@@ -69,6 +69,38 @@ enum StrippedGlobalCallee<'a> {
         /// Method invoked on the normalized namespace.
         method: &'a str,
     },
+}
+
+/// The receiver of one member call while its builtin handlers run.
+#[derive(Debug)]
+pub(in crate::lowering) struct ReceiverFrame {
+    /// The receiver's source span, or `None` for a call with no member callee.
+    object: Option<oxc::span::Span>,
+    /// What lowering the receiver answered, once a handler asked.
+    lowered: DispatchedReceiver,
+}
+
+/// The answer one lowering of a dispatched receiver gave.
+#[derive(Debug, Clone, Copy)]
+enum DispatchedReceiver {
+    /// No handler asked yet.
+    Unasked,
+    /// The receiver has no value of its own (a namespace, a class name).
+    NoValue,
+    /// The lowered receiver.
+    Value(smelt_hir::ExprId),
+}
+
+impl ReceiverFrame {
+    /// The empty frame of `call`.
+    fn of(call: &oxc::ast::ast::CallExpression<'_>) -> Self {
+        let object = match &call.callee {
+            Expression::StaticMemberExpression(member) => Some(member.object.span()),
+            Expression::ComputedMemberExpression(member) => Some(member.object.span()),
+            _ => None,
+        };
+        Self { object, lowered: DispatchedReceiver::Unasked }
+    }
 }
 
 impl<'builder> ModuleBuilder<'builder> {
@@ -2307,12 +2339,56 @@ impl<'builder> ModuleBuilder<'builder> {
         {
             return Ok(None);
         }
-        for handler in Self::builtin_call_handlers() {
-            if let Some(expr) = handler(self, call, body)? {
-                return Ok(Some(expr));
+        self.receiver_frames.push(ReceiverFrame::of(call));
+        let lowered = Self::builtin_call_handlers()
+            .into_iter()
+            .find_map(|handler| handler(self, call, body).transpose())
+            .transpose();
+        self.receiver_frames.pop();
+        lowered
+    }
+
+    /// The receiver of the call being dispatched, lowered once for all handlers.
+    ///
+    /// Most handlers gate on the receiver's type, so the first one to ask lowers
+    /// it and the rest read that answer. `None` is a receiver with no value of
+    /// its own (a namespace, a class name), which later rules own. A missing
+    /// host surface is a blocker whichever handler meets it, so it propagates.
+    pub(in crate::lowering) fn dispatched_receiver(
+        &mut self,
+        object: &Expression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let span = object.span();
+        if let Some(frame) = self.receiver_frames.last()
+            && frame.object == Some(span)
+        {
+            match frame.lowered {
+                DispatchedReceiver::Unasked => {}
+                DispatchedReceiver::NoValue => return Ok(None),
+                DispatchedReceiver::Value(receiver) => return Ok(Some(receiver)),
             }
         }
-        Ok(None)
+        let lowered = match self.expression(object, body) {
+            Ok(receiver) => Some(receiver),
+            Err(error) if error.category == DiagnosticCategory::MissingStdlib => {
+                return Err(error);
+            }
+            Err(_) => None,
+        };
+        if let Some(frame) = self.receiver_frames.last_mut()
+            && frame.object == Some(span)
+        {
+            frame.lowered = lowered.map_or(DispatchedReceiver::NoValue, DispatchedReceiver::Value);
+        }
+        Ok(lowered)
+    }
+
+    /// Forget the dispatched receiver after a handler rolled its lowering back.
+    pub(in crate::lowering) fn forget_dispatched_receiver(&mut self) {
+        if let Some(frame) = self.receiver_frames.last_mut() {
+            frame.lowered = DispatchedReceiver::Unasked;
+        }
     }
 
     /// Whether a receiver expression is statically ERASED (`any`), decided
@@ -5048,6 +5124,21 @@ impl<'builder> ModuleBuilder<'builder> {
         }
     }
 
+    /// The stdlib rule a call denotes: the recognition table's answer, unless a
+    /// program binding shadows the callee's root name.
+    ///
+    /// The one question every exact rule asks, so a recognized spelling is
+    /// matched once and a shadowed global gives way however it is reached.
+    pub(in crate::lowering) fn recognized_call(
+        &self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+    ) -> Option<RuleId> {
+        let rule = stdlib_dispatch::call_rule(call)?;
+        let shadowed = stdlib_dispatch::callee_root(&call.callee)
+            .is_some_and(|root| self.builtin_call_identifier_is_shadowed(root));
+        (!shadowed).then_some(rule)
+    }
+
     /// Route exact global and static namespace calls through shared recognition metadata.
     ///
     /// Receiver-, shape-, plugin-, and test-framework-dependent handlers remain
@@ -5058,7 +5149,7 @@ impl<'builder> ModuleBuilder<'builder> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Some(rule) = stdlib_dispatch::call_rule(call) else {
+        let Some(rule) = self.recognized_call(call) else {
             return Ok(None);
         };
         match rule {

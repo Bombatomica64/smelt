@@ -38,6 +38,19 @@ pub(super) const fn math_unary_op(function: MathFunction) -> Option<NumericUnary
     }
 }
 
+/// Return the root identifier of a callee, when it has one.
+///
+/// `randomUUID` for a bare call, `crypto` for `crypto.randomUUID` and for
+/// `crypto.subtle.digest` alike: shadowing a namespace takes its whole surface.
+#[must_use]
+pub(super) fn callee_root<'source>(callee: &'source Expression<'_>) -> Option<&'source str> {
+    match callee {
+        Expression::Identifier(identifier) => Some(identifier.name.as_str()),
+        Expression::StaticMemberExpression(member) => callee_root(&member.object),
+        _ => None,
+    }
+}
+
 /// Return the shared stdlib rule matching a TypeScript call expression.
 #[must_use]
 pub(super) fn call_rule(call: &CallExpression<'_>) -> Option<RuleId> {

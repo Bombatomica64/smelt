@@ -509,6 +509,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             int32_type_depth: 0,
             tuple_rest_arrows: HashMap::new(),
             type_param_owners: HashMap::new(),
+            receiver_frames: Vec::new(),
             source_facts: super::source_facts::SourceFacts::default(),
             asserted_call_return: None,
             erasure_anchor: Span::new(file_id, 0, 0),

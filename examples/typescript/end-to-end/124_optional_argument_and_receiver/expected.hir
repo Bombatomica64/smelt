@@ -47,46 +47,45 @@ module examples/typescript/end-to-end/124_optional_argument_and_receiver/input.t
     #37: Optional<String> = %2
     #38: String = %2
     #39: String = %2
-    #40: String = %2
-    #41: Float = 1.0
-    #42: String = string_slice #40, #41, _
-    #43: Bool = unknown_is Null #37
-    #44: Bool = Not #43
-    #45: None = none
-    #46: Optional<String> = if #44 then #42 else #45
-    #47: Optional<String> = %2
-    #48: String = %2
-    #49: Optional<String> = #48?.to_upper_case()
-    #50: Bool = unknown_is Null #47
-    #51: Bool = Not #50
-    #52: None = none
-    #53: Optional<String> = if #51 then #49 else #52
-    #54: Optional<String> = %2
+    #40: Float = 1.0
+    #41: String = string_slice #39, #40, _
+    #42: Bool = unknown_is Null #37
+    #43: Bool = Not #42
+    #44: None = none
+    #45: Optional<String> = if #43 then #41 else #44
+    #46: Optional<String> = %2
+    #47: String = %2
+    #48: Optional<String> = #47?.to_upper_case()
+    #49: Bool = unknown_is Null #46
+    #50: Bool = Not #49
+    #51: None = none
+    #52: Optional<String> = if #50 then #48 else #51
+    #53: Optional<String> = %2
+    #54: String = %2
     #55: String = %2
-    #56: String = %2
-    #57: String = "x"
-    #58: Float = string_find #56, #57
-    #59: Bool = unknown_is Null #54
-    #60: Bool = Not #59
-    #61: None = none
-    #62: Optional<Float> = if #60 then #58 else #61
-    #63: Optional<String> = %2
-    #64: String = %2
-    #65: String = "/"
+    #56: String = "x"
+    #57: Float = string_find #55, #56
+    #58: Bool = unknown_is Null #53
+    #59: Bool = Not #58
+    #60: None = none
+    #61: Optional<Float> = if #59 then #57 else #60
+    #62: Optional<String> = %2
+    #63: String = %2
+    #64: String = "/"
+    #65: String = assert_type #63
     #66: String = assert_type #64
-    #67: String = assert_type #65
-    #68: Bool = string_starts_with #66, #67
-    #69: Bool = unknown_is Null #63
-    #70: Bool = Not #69
-    #71: None = none
-    #72: Optional<Bool> = if #70 then #68 else #71
-    #73: None = @3(console_log)
-    #74: None = call #73(#36, #46, #53, #62, #72)
+    #67: Bool = string_starts_with #65, #66
+    #68: Bool = unknown_is Null #62
+    #69: Bool = Not #68
+    #70: None = none
+    #71: Optional<Bool> = if #69 then #67 else #70
+    #72: None = @3(console_log)
+    #73: None = call #72(#36, #45, #52, #61, #71)
   stmts
     s0: #9
     s1: #23
     s2: let %1: List<Optional<String>> = #26
-    s3: #74
+    s3: #73
     s4: for %2 in #27 BlockId(1)
 
 interned types

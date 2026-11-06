@@ -810,3 +810,56 @@ fn nested_class_statement_runs_in_the_enclosing_class_body() -> TestResult {
         "nested method decorator skips the enclosing class body",
     )
 }
+
+/// Whether lowering `source` produced a JSON-to-text expression.
+fn lowers_to_json_stringify(source: &str) -> Result<bool, String> {
+    let mut ctx = HirCtx::new();
+    lower_module(source, &mut ctx)?;
+    Ok(format!("{:?}", ctx.krate.bodies).contains("JsonStringify"))
+}
+
+#[test]
+fn stdlib_call_is_recognized_through_an_import_alias() -> TestResult {
+    for source in [
+        py!("import json as j\ntext: str = j.dumps(1)\n"),
+        py!("from json import dumps\ntext: str = dumps(1)\n"),
+        py!("from json import dumps as encode\ntext: str = encode(1)\n"),
+        py!("import json\ntext: str = json.dumps(1)\n"),
+    ] {
+        ensure(lowers_to_json_stringify(source)?, format!("expected a rule for {source}"))?;
+    }
+    Ok(())
+}
+
+#[test]
+fn a_local_named_like_a_module_is_not_the_module() -> TestResult {
+    let source = py!(r"
+import json
+
+class Encoder:
+    def dumps(self, value: int) -> str:
+        return 'local'
+
+def encode(json: Encoder) -> str:
+    return json.dumps(1)
+");
+    ensure(!lowers_to_json_stringify(source)?, "a parameter `json` must not reach the rule")?;
+    Ok(())
+}
+
+#[test]
+fn another_module_spelled_like_a_stdlib_module_alias_is_not_it() -> TestResult {
+    let source = py!(r"
+import yaml as json
+
+def encode(value: int) -> str:
+    return json.dumps(value)
+");
+    let mut ctx = HirCtx::new();
+    let lowered = lower_module(source, &mut ctx);
+    ensure(
+        lowered.is_err() || !format!("{:?}", ctx.krate.bodies).contains("JsonStringify"),
+        "`import yaml as json` must not reach the JSON rule",
+    )?;
+    Ok(())
+}

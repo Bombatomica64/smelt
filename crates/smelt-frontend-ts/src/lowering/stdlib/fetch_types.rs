@@ -137,7 +137,7 @@ impl ModuleBuilder<'_> {
         // The receiver is lowered before its type can be inspected, so bail out
         // on a receiver that cannot lower rather than reporting a `Headers`
         // diagnostic for an unrelated expression.
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         // A modeled method call on an OPTIONAL receiver is a call on the inner
@@ -201,7 +201,7 @@ impl ModuleBuilder<'_> {
         ) else {
             return Ok(None);
         };
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         // Same presence assertion as the `Headers` dispatch above, for the same
@@ -611,7 +611,7 @@ impl ModuleBuilder<'_> {
         ) else {
             return Ok(None);
         };
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         let span = self.span(member.span.start, member.span.end);
@@ -714,7 +714,7 @@ impl ModuleBuilder<'_> {
             "body" => Some(ResponseOp::Body),
             _ => return Ok(None),
         };
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         // A receiver the source narrowed to present keeps its modeled member
@@ -934,7 +934,7 @@ impl ModuleBuilder<'_> {
         ) else {
             return Ok(None);
         };
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         let span = self.span(member.span.start, member.span.end);
@@ -1000,7 +1000,7 @@ impl ModuleBuilder<'_> {
                 None => return Ok(None),
             },
         };
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         let span = self.span(member.span.start, member.span.end);
@@ -1472,7 +1472,7 @@ impl ModuleBuilder<'_> {
         {
             return Ok(None);
         }
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         let receiver_ty = Self::expr_ty(body, receiver);

@@ -77,19 +77,18 @@ module examples/typescript/end-to-end/92_request_init_members/input.ts (ModuleId
     #68: None = @9(console_log)
     #69: None = call #68(#67)
     #70: Request = %1
-    #71: Request = %1
-    #72: Request = request_clone #71
-    #73: fn(Request) -> String = @0(describe)
-    #74: String = call #73(#72)
-    #75: None = @10(console_log)
-    #76: None = call #75(#74)
-    #77: String = "https://a.test/three"
-    #78: String = "PUT"
-    #79: Request = request_new input=#77 method=#78
-    #80: fn(Request) -> String = @0(describe)
-    #81: String = call #80(#79)
-    #82: None = @11(console_log)
-    #83: None = call #82(#81)
+    #71: Request = request_clone #70
+    #72: fn(Request) -> String = @0(describe)
+    #73: String = call #72(#71)
+    #74: None = @10(console_log)
+    #75: None = call #74(#73)
+    #76: String = "https://a.test/three"
+    #77: String = "PUT"
+    #78: Request = request_new input=#76 method=#77
+    #79: fn(Request) -> String = @0(describe)
+    #80: String = call #79(#78)
+    #81: None = @11(console_log)
+    #82: None = call #81(#80)
   stmts
     s0: let %0: Request = #1
     s1: #6
@@ -102,8 +101,8 @@ module examples/typescript/end-to-end/92_request_init_members/input.ts (ModuleId
     s8: #55
     s9: #62
     s10: #69
-    s11: #76
-    s12: #83
+    s11: #75
+    s12: #82
 
 interned types
   t0 = String

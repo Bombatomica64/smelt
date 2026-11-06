@@ -24,339 +24,289 @@ module examples/typescript/end-to-end/48_form_data/input.ts (ModuleId(0))
   exprs
     #0: FormData = form_data_new
     #1: FormData = %0
-    #2: FormData = %0
-    #3: FormData = %0
-    #4: String = "a"
-    #5: String = "1"
-    #6: None = form_data_append #3, #4, #5
-    #7: FormData = %0
-    #8: FormData = %0
+    #2: String = "a"
+    #3: String = "1"
+    #4: None = form_data_append #1, #2, #3
+    #5: FormData = %0
+    #6: String = "a"
+    #7: String = "2"
+    #8: None = form_data_append #5, #6, #7
     #9: FormData = %0
-    #10: String = "a"
-    #11: String = "2"
+    #10: String = "b"
+    #11: String = "x"
     #12: None = form_data_append #9, #10, #11
     #13: FormData = %0
-    #14: FormData = %0
-    #15: FormData = %0
-    #16: String = "b"
-    #17: String = "x"
-    #18: None = form_data_append #15, #16, #17
-    #19: FormData = %0
-    #20: FormData = %0
-    #21: FormData = %0
-    #22: FormData = %0
-    #23: String = "a"
-    #24: Optional<String | File> = form_data_get #22, #23
-    #25: None = @3(console_log)
-    #26: None = call #25(#24)
-    #27: FormData = %0
-    #28: FormData = %0
-    #29: String = "a"
-    #30: List<String | File> = form_data_get_all #28, #29
-    #31: List<String | File> = []
-    #32: List<String | File> = list_concat #30, #31
-    #33: Float = len #32
-    #34: None = @4(console_log)
-    #35: None = call #34(#33)
-    #36: FormData = %0
-    #37: FormData = %0
+    #14: String = "a"
+    #15: Optional<String | File> = form_data_get #13, #14
+    #16: None = @3(console_log)
+    #17: None = call #16(#15)
+    #18: FormData = %0
+    #19: String = "a"
+    #20: List<String | File> = form_data_get_all #18, #19
+    #21: List<String | File> = []
+    #22: List<String | File> = list_concat #20, #21
+    #23: Float = len #22
+    #24: None = @4(console_log)
+    #25: None = call #24(#23)
+    #26: FormData = %0
+    #27: String = "b"
+    #28: Bool = form_data_has #26, #27
+    #29: FormData = %0
+    #30: String = "B"
+    #31: Bool = form_data_has #29, #30
+    #32: None = @5(console_log)
+    #33: None = call #32(#28, #31)
+    #34: FormData = %0
+    #35: String = "a"
+    #36: String = "9"
+    #37: None = form_data_set #34, #35, #36
     #38: FormData = %0
-    #39: FormData = %0
-    #40: String = "b"
-    #41: Bool = form_data_has #39, #40
-    #42: FormData = %0
-    #43: FormData = %0
-    #44: FormData = %0
-    #45: FormData = %0
-    #46: String = "B"
-    #47: Bool = form_data_has #45, #46
-    #48: None = @5(console_log)
-    #49: None = call #48(#41, #47)
-    #50: FormData = %0
-    #51: FormData = %0
-    #52: FormData = %0
-    #53: FormData = %0
-    #54: String = "a"
-    #55: String = "9"
-    #56: None = form_data_set #53, #54, #55
+    #39: List<String> = form_data_keys #38
+    #40: List<String> = []
+    #41: List<String> = list_concat #39, #40
+    #42: String = ","
+    #43: String = string_join #41, #42
+    #44: None = @6(console_log)
+    #45: None = call #44(#43)
+    #46: FormData = %0
+    #47: List<(String, String | File)> = form_data_entries #46
+    #48: (String, String | File) = %1
+    #49: Float = 0.0
+    #50: String = tuple_index #48, 0
+    #51: Float = 1.0
+    #52: String | File = tuple_index #48, 1
+    #53: String = %2
+    #54: String | File = %3
+    #55: None = @7(console_log)
+    #56: None = call #55(#53, #54)
     #57: FormData = %0
-    #58: FormData = %0
-    #59: FormData = %0
+    #58: String = "a"
+    #59: None = form_data_delete #57, #58
     #60: FormData = %0
     #61: List<String> = form_data_keys #60
     #62: List<String> = []
     #63: List<String> = list_concat #61, #62
     #64: String = ","
     #65: String = string_join #63, #64
-    #66: None = @6(console_log)
+    #66: None = @8(console_log)
     #67: None = call #66(#65)
     #68: FormData = %0
-    #69: FormData = %0
-    #70: FormData = %0
-    #71: FormData = %0
-    #72: List<(String, String | File)> = form_data_entries #71
-    #73: (String, String | File) = %1
-    #74: Float = 0.0
-    #75: String = tuple_index #73, 0
-    #76: Float = 1.0
-    #77: String | File = tuple_index #73, 1
-    #78: String = %2
-    #79: String | File = %3
-    #80: None = @7(console_log)
-    #81: None = call #80(#78, #79)
-    #82: FormData = %0
-    #83: FormData = %0
-    #84: FormData = %0
-    #85: FormData = %0
-    #86: String = "a"
-    #87: None = form_data_delete #85, #86
-    #88: FormData = %0
-    #89: FormData = %0
-    #90: FormData = %0
-    #91: FormData = %0
-    #92: List<String> = form_data_keys #91
-    #93: List<String> = []
-    #94: List<String> = list_concat #92, #93
-    #95: String = ","
-    #96: String = string_join #94, #95
-    #97: None = @8(console_log)
-    #98: None = call #97(#96)
-    #99: FormData = %0
-    #100: FormData = %0
-    #101: FormData = %0
-    #102: FormData = %0
-    #103: String = "a"
-    #104: Optional<String | File> = form_data_get #102, #103
-    #105: String = "absent"
-    #106: String | File = #104 ?? #105
-    #107: None = @9(console_log)
-    #108: None = call #107(#106)
-    #109: FormData = form_data_new
-    #110: FormData = %4
-    #111: FormData = %4
-    #112: FormData = %4
-    #113: String = "plain"
-    #114: String = "hello"
-    #115: List<String> = [#114]
-    #116: String = "text/plain"
-    #117: Blob = blob_from_parts #115, #116, none, none
-    #118: None = form_data_append #112, #113, #117
-    #119: FormData = %4
-    #120: FormData = %4
-    #121: FormData = %4
-    #122: String = "named"
-    #123: String = "hello"
-    #124: List<String> = [#123]
-    #125: String = "text/plain"
-    #126: Blob = blob_from_parts #124, #125, none, none
-    #127: String = "note.txt"
-    #128: None = form_data_append #121, #122, #126, #127
-    #129: FormData = %4
-    #130: FormData = %4
-    #131: FormData = %4
-    #132: String = "file"
-    #133: String = "bye"
-    #134: List<String> = [#133]
-    #135: String = "given.txt"
-    #136: String = "text/plain"
-    #137: File = blob_from_parts #134, #136, #135, none
-    #138: None = form_data_append #131, #132, #137
-    #139: FormData = %4
-    #140: FormData = %4
-    #141: FormData = %4
-    #142: FormData = %4
-    #143: List<String | File> = form_data_values #142
-    #144: String | File = %5
-    #145: Bool = unknown_is String #144
-    #146: String = "text"
-    #147: String = %5
-    #148: String = unknown_cast #147 as String
-    #149: None = @10(console_log)
-    #150: None = call #149(#146, #148)
-    #151: String = "file"
-    #152: File = %5
-    #153: File = unknown_cast #152 as File
-    #154: String = blob_name #153
-    #155: File = %5
-    #156: File = unknown_cast #155 as File
-    #157: String = blob_type #156
-    #158: File = %5
-    #159: File = unknown_cast #158 as File
-    #160: Float = blob_size #159
-    #161: File = %5
-    #162: File = unknown_cast #161 as File
-    #163: Future<String> = blob_text #162
-    #164: String = await #163
-    #165: None = @11(console_log)
-    #166: None = call #165(#151, #154, #157, #160, #164)
-    #167: String = "a=1&b=hello+world&a=2"
-    #168: String = "content-type"
-    #169: String = "application/x-www-form-urlencoded"
-    #170: Dict<String, String> = {#168: #169}
-    #171: Response = response_new body=#167 headers=#170
-    #172: Response = %6
-    #173: Future<FormData> = response_form_data #172
-    #174: FormData = await #173
-    #175: FormData = %7
-    #176: FormData = %7
-    #177: FormData = %7
-    #178: FormData = %7
-    #179: List<(String, String | File)> = form_data_entries #178
-    #180: (String, String | File) = %8
-    #181: Float = 0.0
-    #182: String = tuple_index #180, 0
-    #183: Float = 1.0
-    #184: String | File = tuple_index #180, 1
-    #185: String = %9
-    #186: String | File = %10
-    #187: None = @12(console_log)
-    #188: None = call #187(#185, #186)
-    #189: Response = %6
-    #190: Bool = response_body_used #189
-    #191: None = @13(console_log)
-    #192: None = call #191(#190)
-    #193: String = "----SmeltBoundary"
-    #194: String = "--"
-    #195: String = %11
-    #196: String = Add #194, #195
-    #197: String = "Content-Disposition: form-data; name="title""
-    #198: String = ""
-    #199: String = "hello"
-    #200: String = "--"
-    #201: String = %11
-    #202: String = Add #200, #201
-    #203: String = "Content-Disposition: form-data; name="doc"; filename="a.txt""
-    #204: String = "Content-Type: text/plain"
-    #205: String = ""
-    #206: String = "file body"
-    #207: String = "--"
-    #208: String = %11
-    #209: String = Add #207, #208
-    #210: String = "--"
-    #211: String = Add #209, #210
-    #212: String = ""
-    #213: List<String> = [#196, #197, #198, #199, #202, #203, #204, #205, #206, #211, #212]
-    #214: String = "
+    #69: String = "a"
+    #70: Optional<String | File> = form_data_get #68, #69
+    #71: String = "absent"
+    #72: String | File = #70 ?? #71
+    #73: None = @9(console_log)
+    #74: None = call #73(#72)
+    #75: FormData = form_data_new
+    #76: FormData = %4
+    #77: String = "plain"
+    #78: String = "hello"
+    #79: List<String> = [#78]
+    #80: String = "text/plain"
+    #81: Blob = blob_from_parts #79, #80, none, none
+    #82: None = form_data_append #76, #77, #81
+    #83: FormData = %4
+    #84: String = "named"
+    #85: String = "hello"
+    #86: List<String> = [#85]
+    #87: String = "text/plain"
+    #88: Blob = blob_from_parts #86, #87, none, none
+    #89: String = "note.txt"
+    #90: None = form_data_append #83, #84, #88, #89
+    #91: FormData = %4
+    #92: String = "file"
+    #93: String = "bye"
+    #94: List<String> = [#93]
+    #95: String = "given.txt"
+    #96: String = "text/plain"
+    #97: File = blob_from_parts #94, #96, #95, none
+    #98: None = form_data_append #91, #92, #97
+    #99: FormData = %4
+    #100: List<String | File> = form_data_values #99
+    #101: String | File = %5
+    #102: Bool = unknown_is String #101
+    #103: String = "text"
+    #104: String = %5
+    #105: String = unknown_cast #104 as String
+    #106: None = @10(console_log)
+    #107: None = call #106(#103, #105)
+    #108: String = "file"
+    #109: File = %5
+    #110: File = unknown_cast #109 as File
+    #111: String = blob_name #110
+    #112: File = %5
+    #113: File = unknown_cast #112 as File
+    #114: String = blob_type #113
+    #115: File = %5
+    #116: File = unknown_cast #115 as File
+    #117: Float = blob_size #116
+    #118: File = %5
+    #119: File = unknown_cast #118 as File
+    #120: Future<String> = blob_text #119
+    #121: String = await #120
+    #122: None = @11(console_log)
+    #123: None = call #122(#108, #111, #114, #117, #121)
+    #124: String = "a=1&b=hello+world&a=2"
+    #125: String = "content-type"
+    #126: String = "application/x-www-form-urlencoded"
+    #127: Dict<String, String> = {#125: #126}
+    #128: Response = response_new body=#124 headers=#127
+    #129: Response = %6
+    #130: Future<FormData> = response_form_data #129
+    #131: FormData = await #130
+    #132: FormData = %7
+    #133: List<(String, String | File)> = form_data_entries #132
+    #134: (String, String | File) = %8
+    #135: Float = 0.0
+    #136: String = tuple_index #134, 0
+    #137: Float = 1.0
+    #138: String | File = tuple_index #134, 1
+    #139: String = %9
+    #140: String | File = %10
+    #141: None = @12(console_log)
+    #142: None = call #141(#139, #140)
+    #143: Response = %6
+    #144: Bool = response_body_used #143
+    #145: None = @13(console_log)
+    #146: None = call #145(#144)
+    #147: String = "----SmeltBoundary"
+    #148: String = "--"
+    #149: String = %11
+    #150: String = Add #148, #149
+    #151: String = "Content-Disposition: form-data; name="title""
+    #152: String = ""
+    #153: String = "hello"
+    #154: String = "--"
+    #155: String = %11
+    #156: String = Add #154, #155
+    #157: String = "Content-Disposition: form-data; name="doc"; filename="a.txt""
+    #158: String = "Content-Type: text/plain"
+    #159: String = ""
+    #160: String = "file body"
+    #161: String = "--"
+    #162: String = %11
+    #163: String = Add #161, #162
+    #164: String = "--"
+    #165: String = Add #163, #164
+    #166: String = ""
+    #167: List<String> = [#150, #151, #152, #153, #156, #157, #158, #159, #160, #165, #166]
+    #168: String = "
 "
-    #215: String = string_join #213, #214
-    #216: String = "https://forms.test/upload"
-    #217: String = "POST"
-    #218: String = "content-type"
-    #219: String = "multipart/form-data; boundary="
-    #220: String = %11
-    #221: String = Add #219, #220
-    #222: Dict<String, String> = {#218: #221}
-    #223: String = %12
-    #224: Request = request_new input=#216 method=#217 headers=#222 body=#223
-    #225: Request = %13
-    #226: Request = %13
-    #227: Future<FormData> = request_form_data #226
-    #228: FormData = await #227
-    #229: FormData = %14
-    #230: FormData = %14
-    #231: FormData = %14
-    #232: FormData = %14
-    #233: List<(String, String | File)> = form_data_entries #232
-    #234: (String, String | File) = %15
-    #235: Float = 0.0
-    #236: String = tuple_index #234, 0
-    #237: Float = 1.0
-    #238: String | File = tuple_index #234, 1
-    #239: String | File = %17
-    #240: Bool = unknown_is String #239
-    #241: String = %16
-    #242: String = "text"
-    #243: String = %17
-    #244: String = unknown_cast #243 as String
-    #245: None = @14(console_log)
-    #246: None = call #245(#241, #242, #244)
-    #247: String = %16
-    #248: String = "file"
-    #249: File = %17
-    #250: File = unknown_cast #249 as File
-    #251: String = blob_name #250
-    #252: File = %17
-    #253: File = unknown_cast #252 as File
-    #254: String = blob_type #253
-    #255: File = %17
-    #256: File = unknown_cast #255 as File
-    #257: Float = blob_size #256
-    #258: File = %17
-    #259: File = unknown_cast #258 as File
-    #260: Future<String> = blob_text #259
-    #261: String = await #260
-    #262: None = @15(console_log)
-    #263: None = call #262(#247, #248, #251, #254, #257, #261)
-    #264: String = "plain"
-    #265: String = "content-type"
-    #266: String = "text/plain"
-    #267: Dict<String, String> = {#265: #266}
-    #268: Response = response_new body=#264 headers=#267
-    #269: String = "wrong type"
-    #270: async fn(Response, String) -> Future<None> = @0(read_or_report)
-    #271: Future<None> = call #270(#268, #269)
-    #272: None = await #271
-    #273: Response = %6
-    #274: String = "second read"
-    #275: async fn(Response, String) -> Future<None> = @0(read_or_report)
-    #276: Future<None> = call #275(#273, #274)
-    #277: None = await #276
-    #278: Future<None> = async_exit_drain()
-    #279: None = await #278
+    #169: String = string_join #167, #168
+    #170: String = "https://forms.test/upload"
+    #171: String = "POST"
+    #172: String = "content-type"
+    #173: String = "multipart/form-data; boundary="
+    #174: String = %11
+    #175: String = Add #173, #174
+    #176: Dict<String, String> = {#172: #175}
+    #177: String = %12
+    #178: Request = request_new input=#170 method=#171 headers=#176 body=#177
+    #179: Request = %13
+    #180: Future<FormData> = request_form_data #179
+    #181: FormData = await #180
+    #182: FormData = %14
+    #183: List<(String, String | File)> = form_data_entries #182
+    #184: (String, String | File) = %15
+    #185: Float = 0.0
+    #186: String = tuple_index #184, 0
+    #187: Float = 1.0
+    #188: String | File = tuple_index #184, 1
+    #189: String | File = %17
+    #190: Bool = unknown_is String #189
+    #191: String = %16
+    #192: String = "text"
+    #193: String = %17
+    #194: String = unknown_cast #193 as String
+    #195: None = @14(console_log)
+    #196: None = call #195(#191, #192, #194)
+    #197: String = %16
+    #198: String = "file"
+    #199: File = %17
+    #200: File = unknown_cast #199 as File
+    #201: String = blob_name #200
+    #202: File = %17
+    #203: File = unknown_cast #202 as File
+    #204: String = blob_type #203
+    #205: File = %17
+    #206: File = unknown_cast #205 as File
+    #207: Float = blob_size #206
+    #208: File = %17
+    #209: File = unknown_cast #208 as File
+    #210: Future<String> = blob_text #209
+    #211: String = await #210
+    #212: None = @15(console_log)
+    #213: None = call #212(#197, #198, #201, #204, #207, #211)
+    #214: String = "plain"
+    #215: String = "content-type"
+    #216: String = "text/plain"
+    #217: Dict<String, String> = {#215: #216}
+    #218: Response = response_new body=#214 headers=#217
+    #219: String = "wrong type"
+    #220: async fn(Response, String) -> Future<None> = @0(read_or_report)
+    #221: Future<None> = call #220(#218, #219)
+    #222: None = await #221
+    #223: Response = %6
+    #224: String = "second read"
+    #225: async fn(Response, String) -> Future<None> = @0(read_or_report)
+    #226: Future<None> = call #225(#223, #224)
+    #227: None = await #226
+    #228: Future<None> = async_exit_drain()
+    #229: None = await #228
   stmts
     s0: let %0: FormData = #0
-    s1: #6
-    s2: #12
-    s3: #18
-    s4: #26
-    s5: #35
-    s6: #49
-    s7: #56
-    s8: #67
-    s9: let %2: String = #75
-    s10: let %3: String | File = #77
-    s11: #81
-    s12: for %1 in #72 BlockId(1)
-    s13: #87
-    s14: #98
-    s15: #108
-    s16: let %4: FormData = #109
-    s17: #118
-    s18: #128
-    s19: #138
-    s20: #150
-    s21: #166
-    s22: if #145 then BlockId(3) else BlockId(4)
-    s23: for %5 in #143 BlockId(2)
-    s24: let %6: Response = #171
-    s25: let %7: FormData = #174
-    s26: let %9: String = #182
-    s27: let %10: String | File = #184
-    s28: #188
-    s29: for %8 in #179 BlockId(5)
-    s30: #192
-    s31: let %11: String = #193
-    s32: let %12: String = #215
-    s33: let %13: Request = #224
-    s34: let %14: FormData = #228
-    s35: let %16: String = #236
-    s36: let %17: String | File = #238
-    s37: #246
-    s38: #263
-    s39: if #240 then BlockId(7) else BlockId(8)
-    s40: for %15 in #233 BlockId(6)
-    s41: #272
-    s42: #277
-    s43: #279
+    s1: #4
+    s2: #8
+    s3: #12
+    s4: #17
+    s5: #25
+    s6: #33
+    s7: #37
+    s8: #45
+    s9: let %2: String = #50
+    s10: let %3: String | File = #52
+    s11: #56
+    s12: for %1 in #47 BlockId(1)
+    s13: #59
+    s14: #67
+    s15: #74
+    s16: let %4: FormData = #75
+    s17: #82
+    s18: #90
+    s19: #98
+    s20: #107
+    s21: #123
+    s22: if #102 then BlockId(3) else BlockId(4)
+    s23: for %5 in #100 BlockId(2)
+    s24: let %6: Response = #128
+    s25: let %7: FormData = #131
+    s26: let %9: String = #136
+    s27: let %10: String | File = #138
+    s28: #142
+    s29: for %8 in #133 BlockId(5)
+    s30: #146
+    s31: let %11: String = #147
+    s32: let %12: String = #169
+    s33: let %13: Request = #178
+    s34: let %14: FormData = #181
+    s35: let %16: String = #186
+    s36: let %17: String | File = #188
+    s37: #196
+    s38: #213
+    s39: if #190 then BlockId(7) else BlockId(8)
+    s40: for %15 in #183 BlockId(6)
+    s41: #222
+    s42: #227
+    s43: #229
   async state machine
     states [state0, state1, state2, state3, state4, state5, state6, state7]
-    suspend #164 on #163 -> state165
-    suspend #174 on #173 -> state175
-    suspend #228 on #227 -> state229
-    suspend #261 on #260 -> state262
-    suspend #272 on #271 -> state273
-    suspend #277 on #276 -> state278
-    suspend #279 on #278 -> state280
+    suspend #121 on #120 -> state122
+    suspend #131 on #130 -> state132
+    suspend #181 on #180 -> state182
+    suspend #211 on #210 -> state212
+    suspend #222 on #221 -> state223
+    suspend #227 on #226 -> state228
+    suspend #229 on #228 -> state230
 
 interned types
   t0 = FormData

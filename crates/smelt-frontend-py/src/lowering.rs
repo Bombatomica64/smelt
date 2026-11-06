@@ -120,6 +120,8 @@ pub(crate) struct ModuleBuilder<'ctx> {
     type_param_names: Vec<String>,
     /// Imported module/package namespaces available by local module name.
     module_namespaces: HashMap<String, HashMap<String, ItemId>>,
+    /// What each imported local name is bound to, as a fully qualified name.
+    import_aliases: HashMap<String, String>,
     /// Pytest fixture functions available to tests in this module.
     pytest_fixtures: IndexMap<String, PytestFixture>,
     /// Whether this module should use pytest-specific test discovery rules.
@@ -326,6 +328,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             type_aliases: HashMap::new(),
             type_param_names: Vec::new(),
             module_namespaces,
+            import_aliases: HashMap::new(),
             pytest_fixtures: IndexMap::new(),
             function_variadics: HashMap::new(),
             specialization,

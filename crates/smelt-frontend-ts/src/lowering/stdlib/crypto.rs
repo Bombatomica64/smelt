@@ -45,18 +45,14 @@ use smelt_stdlib::RuleId;
 impl ModuleBuilder<'_> {
     /// Lower a recognized `WebCrypto` call.
     ///
-    /// Registered in the exact-call dispatch chain, so the receiver spelling has
-    /// already been matched against the recognition table by
-    /// `stdlib_dispatch::call_rule` and only the arguments are left to lower.
+    /// Registered in the exact-call dispatch chain, so the callee has already
+    /// been recognized and found unshadowed and only the arguments are left.
     pub(in crate::lowering) fn crypto_call(
         &mut self,
         rule: RuleId,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        if self.crypto_name_is_shadowed(call) {
-            return Ok(None);
-        }
         let span = self.span(call.span.start, call.span.end);
         match rule {
             RuleId::TsCryptoRandomUuid => {
@@ -368,33 +364,4 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Return whether the module binds the name this call would recognize.
-    ///
-    /// A source `function randomUUID()`, a `const crypto = ..`, or an import of
-    /// either name from a module Smelt lowers is the program's own value, and
-    /// the recognized global must give way to it. The name checked is the ROOT
-    /// of the callee: for `crypto.subtle.digest(..)` that is `crypto`, so
-    /// shadowing the namespace takes its whole surface with it.
-    fn crypto_name_is_shadowed(&self, call: &oxc::ast::ast::CallExpression<'_>) -> bool {
-        let Some(root) = Self::callee_root_name(&call.callee) else {
-            return false;
-        };
-        self.scope.is_bound(root) || self.classes.contains(root) || self.import_alias_resolved(root)
-    }
-
-    /// Return the root identifier of a call's callee, when it has one.
-    ///
-    /// `randomUUID` for a bare call, `crypto` for `crypto.randomUUID` and for
-    /// `crypto.subtle.digest` alike.
-    fn callee_root_name<'source>(
-        callee: &'source oxc::ast::ast::Expression<'_>,
-    ) -> Option<&'source str> {
-        match callee {
-            oxc::ast::ast::Expression::Identifier(identifier) => Some(identifier.name.as_str()),
-            oxc::ast::ast::Expression::StaticMemberExpression(member) => {
-                Self::callee_root_name(&member.object)
-            }
-            _ => None,
-        }
-    }
 }

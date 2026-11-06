@@ -81,3 +81,74 @@ function later(): number { return 1; }
     )?;
     Ok(())
 }
+
+/// A binding named like a recognized global is that binding, whichever rule
+/// would have claimed the spelling.
+#[test]
+fn a_binding_shadows_every_recognized_global() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function encode(JSON: { stringify(value: number): string }): string {
+  return JSON.stringify(1);
+}
+export function now(Date: { now(): number }): number {
+  return Date.now();
+}
+export function load(fetch: (url: string) => string): string {
+  return fetch("/x");
+}
+export function pick(Math: { random(): number }): number {
+  return Math.random();
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(!any_expr(&ctx, |kind| matches!(
+        kind,
+        ExprKind::JsonStringify { .. }
+            | ExprKind::DateNow
+            | ExprKind::NumericRandom
+            | ExprKind::AsyncOp { .. }
+    )));
+    Ok(())
+}
+
+/// Importing a host module's export is not a shadow of its global spelling.
+#[test]
+fn a_host_module_import_keeps_the_rule() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { Buffer } from "node:buffer";
+export const bytes = Buffer.from("abc");
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// The handlers share one lowering of the receiver: however many of them gate
+/// on its type before one claims the call, the parameter is read once.
+#[test]
+fn a_dispatched_receiver_is_lowered_once() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function read(headers: Headers): string | null {
+  return headers.get("a");
+}
+"#),
+        &mut ctx,
+    )?;
+    let reads = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| &body.exprs)
+        .filter(|expr| matches!(expr.kind, ExprKind::Local(_)))
+        .count();
+    ensure_eq!(reads, 1);
+    Ok(())
+}

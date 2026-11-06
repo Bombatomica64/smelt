@@ -1307,16 +1307,7 @@ impl ModuleBuilder<'_> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsMathRandom) {
-            return Ok(None);
-        }
-        let Expression::StaticMemberExpression(member) = &call.callee else {
-            return Ok(None);
-        };
-        let Expression::Identifier(object) = &member.object else {
-            return Ok(None);
-        };
-        if object.name != "Math" || member.property.name != "random" {
+        if self.recognized_call(call) != Some(RuleId::TsMathRandom) {
             return Ok(None);
         }
         if !call.arguments.is_empty() {

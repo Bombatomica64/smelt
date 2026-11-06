@@ -28,7 +28,7 @@ use smelt_stdlib::RuleId;
 use std::borrow::Cow;
 
 use super::testing::LoweredActual;
-use super::{ModuleBuilder, SmeltError, stdlib_dispatch};
+use super::{ModuleBuilder, SmeltError};
 
 /// Static properties and runtime-spread record sources produced when lowering
 /// the source arguments of an `Object.assign` onto a callable value.
@@ -1500,16 +1500,7 @@ impl ModuleBuilder<'_> {
         call: &CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsJsonStringify) {
-            return Ok(None);
-        }
-        let Expression::StaticMemberExpression(member) = &call.callee else {
-            return Ok(None);
-        };
-        let Expression::Identifier(object) = &member.object else {
-            return Ok(None);
-        };
-        if object.name != "JSON" || member.property.name != "stringify" {
+        if self.recognized_call(call) != Some(RuleId::TsJsonStringify) {
             return Ok(None);
         }
         if call.arguments.is_empty() || call.arguments.len() > 3 {
@@ -1587,16 +1578,7 @@ impl ModuleBuilder<'_> {
         call: &CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsJsonParse) {
-            return Ok(None);
-        }
-        let Expression::StaticMemberExpression(member) = &call.callee else {
-            return Ok(None);
-        };
-        let Expression::Identifier(object) = &member.object else {
-            return Ok(None);
-        };
-        if object.name != "JSON" || member.property.name != "parse" {
+        if self.recognized_call(call) != Some(RuleId::TsJsonParse) {
             return Ok(None);
         }
         let [argument] = call.arguments.as_slice() else {
@@ -1660,7 +1642,7 @@ impl ModuleBuilder<'_> {
         let Expression::CallExpression(call) = expression else {
             return Ok(None);
         };
-        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsJsonParse) {
+        if self.recognized_call(call) != Some(RuleId::TsJsonParse) {
             return Ok(None);
         }
         let [argument] = call.arguments.as_slice() else {
@@ -1716,17 +1698,9 @@ impl ModuleBuilder<'_> {
         let Some(target) = hint else {
             return Ok(None);
         };
-        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsJsonParse)
+        if self.recognized_call(call) != Some(RuleId::TsJsonParse)
             || call.type_arguments.is_some()
             || call.arguments.len() != 1
-        {
-            return Ok(None);
-        }
-        let Expression::StaticMemberExpression(member) = &call.callee else {
-            return Ok(None);
-        };
-        if !matches!(&member.object, Expression::Identifier(object) if object.name == "JSON")
-            || member.property.name != "parse"
         {
             return Ok(None);
         }
@@ -1896,7 +1870,7 @@ impl ModuleBuilder<'_> {
         if member.property.name != "test" {
             return Ok(None);
         }
-        let is_known_regexp_test = stdlib_dispatch::call_rule(call) == Some(RuleId::TsRegExpTest);
+        let is_known_regexp_test = self.recognized_call(call) == Some(RuleId::TsRegExpTest);
         if !is_known_regexp_test && !self.could_be_regexp_test_receiver(&member.object, body) {
             return Ok(None);
         }

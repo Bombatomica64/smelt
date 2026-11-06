@@ -92,7 +92,7 @@ impl ModuleBuilder<'_> {
         let exprs_before = body.exprs.len();
         let bodies_before = self.ctx.krate.bodies.len();
         let items_before = self.ctx.krate.items.len();
-        let Ok(receiver) = self.expression(&member.object, body) else {
+        let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
         let receiver_class = self.stdlib_class_of_type(Self::expr_ty(body, receiver));
@@ -107,6 +107,9 @@ impl ModuleBuilder<'_> {
             (Some(smelt_stdlib::StdlibClass::SqliteStatement), "get") => (SqliteOp::Get, None),
             (Some(smelt_stdlib::StdlibClass::SqliteStatement), "run") => (SqliteOp::Run, None),
             _ => {
+                if body.exprs.len() > exprs_before {
+                    self.forget_dispatched_receiver();
+                }
                 body.exprs.truncate(exprs_before);
                 if self.ctx.krate.items.len() == items_before {
                     self.ctx.krate.bodies.truncate(bodies_before);

@@ -1080,8 +1080,9 @@ impl ModuleBuilder<'_> {
     /// interceptor keeps firing unchanged.
     pub(in crate::lowering) fn builtin_call_identifier_is_shadowed(&self, name: &str) -> bool {
         self.scope.is_bound(name)
-            || self.items.contains_key(name)
-            || self.imports.is_value(name)
+            || self.classes.contains(name)
+            || self.import_alias_resolved(name)
+            || (self.imports.is_value(name) && self.host_module_identifier_export_path(name).is_none())
     }
 
     /// Lower a function-expression callback after expected parameter types are known.
