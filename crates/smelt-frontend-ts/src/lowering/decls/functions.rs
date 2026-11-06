@@ -1,6 +1,7 @@
 //! Named function-declaration lowering: signatures, overloads, assertion and
 //! type-predicate returns, and function bodies.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::js_text::js_str_text;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -601,7 +602,7 @@ impl ModuleBuilder<'_> {
         self.items.insert(name_text.to_owned(), item);
         if let Some(rest) = rest {
             self.functions.set_rest(name_text.to_owned(), rest);
-            self.ctx.function_rests.insert(name_text.to_owned(), rest);
+            self.ctx.function_rests.write().insert(name_text.to_owned(), rest);
         }
         if let Some((parameter_name, Some(target))) = assertion_return
             && let Some(param_index) = function.params.items.iter().position(|param| {
@@ -782,11 +783,9 @@ impl ModuleBuilder<'_> {
 
     /// Return whether the root generator block lacks a terminal return.
     fn generator_root_falls_through(body: &Body) -> bool {
-        body.blocks
-            .get(usize::try_from(body.root.0).unwrap_or(usize::MAX))
+        body.block_at(body.root)
             .and_then(|block| block.stmts.last())
-            .and_then(|stmt| usize::try_from(stmt.0).ok())
-            .and_then(|stmt| body.stmts.get(stmt))
+            .and_then(|stmt| body.stmt_at(*stmt))
             .is_none_or(|stmt| !matches!(stmt, Stmt::Return(_)))
     }
 
@@ -2036,7 +2035,7 @@ impl ModuleBuilder<'_> {
             // `x.__smelt_index_store.insert(k, v)` and `x[k]` to a store lookup.
             if let Some(value_ty) = class_index_value_ty {
                 this.classes.set_index_value(class_name, value_ty);
-                this.ctx.class_index_values.insert(class_name, value_ty);
+                this.ctx.class_index_values.write().insert(class_name, value_ty);
             }
             this.add_overridden_base_method_fields(base, &method_sigs);
 

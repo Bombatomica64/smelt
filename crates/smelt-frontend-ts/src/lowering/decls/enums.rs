@@ -105,7 +105,7 @@ impl ModuleBuilder<'_> {
         // Publish to the current module for immediate use, and to the shared
         // context so later modules that import this enum fold its members too.
         self.consts.set_enum_members(enum_name.clone(), members.clone());
-        self.ctx.enum_members.insert(enum_name, members);
+        self.ctx.enum_members.write().insert(enum_name, members);
     }
 
     /// Register the enum name as a HIR type alias to its underlying primitive.
@@ -136,7 +136,7 @@ impl ModuleBuilder<'_> {
             return;
         };
         let ty = self.ctx.krate.types.intern(underlying);
-        let name_text = self.qualified_type_declaration_name(enum_name);
+        let name_text = self.types.qualify(enum_name);
         let name = self.declared_type_name_symbol(enum_name, &name_text);
         let item = self.ctx.krate.push_item(Item::TypeAlias(TypeAlias {
             name,

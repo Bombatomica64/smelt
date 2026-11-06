@@ -67,7 +67,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let receiver_ty = Self::expr_ty(body, receiver);
-        if !self.is_form_data_type(receiver_ty) {
+        if !self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::FormData) {
             return Ok(None);
         }
         let Some(op) = Self::form_data_method_op(rule, member_name) else {
@@ -125,12 +125,6 @@ impl ModuleBuilder<'_> {
             name,
             args: Vec::new(),
         })
-    }
-
-    /// Return whether a lowered type is the modeled `FormData` class.
-    pub(in crate::lowering) fn is_form_data_type(&self, ty: smelt_hir::TypeId) -> bool {
-        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::FormData)
-            && !self.source_shadows_global("FormData")
     }
 
     /// The `string | File` type of a form entry's VALUE.

@@ -5,6 +5,7 @@
 //! that closure directly as HIR. A callback with a source body lowers through
 //! [`ModuleBuilder::callback_argument`] and never reaches here.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::{
     BinOp, Body, CaptureMode, ClosureCapture, Expr, ExprKind, FunctionType, Literal, LocalDecl,
     ModuleBuilder, Param, PrimitiveCastOp, SmeltError, Span, Type,
@@ -168,7 +169,7 @@ impl ModuleBuilder<'_> {
         closure_body: &mut Body,
         span: Span,
     ) -> (Vec<ClosureCapture>, Option<smelt_hir::LocalId>) {
-        let Some(decl) = usize::try_from(local.0).ok().and_then(|index| body.locals.get(index)) else {
+        let Some(decl) = body.local_at(local) else {
             return (Vec::new(), None);
         };
         let mode = if decl

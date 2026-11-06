@@ -37,6 +37,7 @@
 //! material, which is a surface rather than three calls, and they stay declared
 //! so using one is a named blocker.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use smelt_hir::{Body, CryptoOp, Expr, ExprKind, Type};
@@ -87,7 +88,7 @@ impl ModuleBuilder<'_> {
                 // refused rather than silently ignored, because the previous
                 // lowering's answer to everything was to hand the argument back
                 // UNFILLED.
-                if !self.is_typed_array_view_type(ty)
+                if !self.is_modeled_class(ty, smelt_stdlib::StdlibClass::TypedArray)
                     && !matches!(
                         self.ctx.krate.types.get(ty),
                         Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
@@ -126,8 +127,8 @@ impl ModuleBuilder<'_> {
                 // adapter at run time; nothing else is bytes at all, and
                 // refusing it is better than hashing zero bytes.
                 let data_ty = Self::expr_ty(body, data);
-                if !self.is_typed_array_view_type(data_ty)
-                    && !self.is_array_buffer_type(data_ty)
+                if !self.is_modeled_class(data_ty, smelt_stdlib::StdlibClass::TypedArray)
+                    && !self.is_modeled_class(data_ty, smelt_stdlib::StdlibClass::ArrayBuffer)
                     && !matches!(
                         self.ctx.krate.types.get(data_ty),
                         Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
@@ -251,8 +252,8 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let data = self.byte_source_behind_assertion(data, body);
         let data_ty = Self::expr_ty(body, data);
-        let accepted = self.is_typed_array_view_type(data_ty)
-            || self.is_array_buffer_type(data_ty)
+        let accepted = self.is_modeled_class(data_ty, smelt_stdlib::StdlibClass::TypedArray)
+            || self.is_modeled_class(data_ty, smelt_stdlib::StdlibClass::ArrayBuffer)
             || matches!(
                 self.ctx.krate.types.get(data_ty),
                 Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
@@ -318,8 +319,7 @@ impl ModuleBuilder<'_> {
         data: smelt_hir::ExprId,
         body: &Body,
     ) -> smelt_hir::ExprId {
-        let index = usize::try_from(data.0).expect("expr id should fit into usize");
-        let Some(&ExprKind::TypeAssert { value }) = body.exprs.get(index).map(|expr| &expr.kind)
+        let Some(&ExprKind::TypeAssert { value }) = body.expr_at(data).map(|expr| &expr.kind)
         else {
             return data;
         };
@@ -328,9 +328,9 @@ impl ModuleBuilder<'_> {
             return data;
         };
         let all_byte_backed = members.iter().all(|member| {
-            self.is_typed_array_view_type(*member)
-                || self.is_data_view_type(*member)
-                || self.is_array_buffer_type(*member)
+            self.is_modeled_class(*member, smelt_stdlib::StdlibClass::TypedArray)
+                || self.is_modeled_class(*member, smelt_stdlib::StdlibClass::DataView)
+                || self.is_modeled_class(*member, smelt_stdlib::StdlibClass::ArrayBuffer)
         });
         if all_byte_backed { value } else { data }
     }

@@ -4,6 +4,7 @@
 //! resolution, interface satisfaction checks, and small accessors for looking
 //! up expression, local, and item types.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::js_text::js_str_text;
 use crate::lowering::{ModuleBuilder, field_type_satisfies};
 use crate::SmeltError;
@@ -358,7 +359,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let local_name = name.name.as_str();
-        let qualified_name = self.qualified_type_declaration_name(local_name);
+        let qualified_name = self.types.qualify(local_name);
         let parent = self.intern_type_name(&qualified_name);
         if !self.interfaces.resolves_locally(local_name, parent) {
             return Ok(None);
@@ -623,18 +624,14 @@ impl ModuleBuilder<'_> {
 
     /// Look up the type of an existing expression.
     pub(in crate::lowering) fn expr_ty(body: &Body, expr: smelt_hir::ExprId) -> smelt_hir::TypeId {
-        let index = usize::try_from(expr.0).expect("expr id should fit into usize");
-        body.exprs
-            .get(index)
+        body.expr_at(expr)
             .expect("expr id should point to an existing expression")
             .ty
     }
 
     /// Look up the type of an existing local.
     pub(in crate::lowering) fn local_ty(body: &Body, local: smelt_hir::LocalId) -> smelt_hir::TypeId {
-        let index = usize::try_from(local.0).expect("local id should fit into usize");
-        body.locals
-            .get(index)
+        body.local_at(local)
             .expect("local id should point to an existing local")
             .ty
     }
@@ -652,8 +649,7 @@ impl ModuleBuilder<'_> {
         body: &Body,
         local: smelt_hir::LocalId,
     ) -> Option<smelt_hir::TypeId> {
-        let index = usize::try_from(local.0).ok()?;
-        body.locals.get(index).map(|decl| decl.ty)
+        body.local_at(local).map(|decl| decl.ty)
     }
 
     /// Look up a lowered item by id.

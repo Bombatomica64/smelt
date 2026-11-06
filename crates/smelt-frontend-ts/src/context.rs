@@ -1,5 +1,7 @@
 //! HIR construction context for TypeScript frontend lowering.
 
+use std::ops::Deref;
+use std::rc::Rc;
 use std::collections::{HashMap, HashSet};
 
 use indexmap::IndexMap;
@@ -118,6 +120,37 @@ pub struct OverloadSignature {
     pub is_async: bool,
 }
 
+/// A table every module has published, shared with the builders that read it.
+///
+/// A builder takes a snapshot when it starts: taking one shares the table, and the
+/// first write on either side copies it, so a builder never sees what a later
+/// write publishes.
+#[derive(Debug, Default)]
+pub struct Published<T>(Rc<T>);
+
+impl<T> Clone for Published<T> {
+    /// Share the table.
+    fn clone(&self) -> Self {
+        Self(Rc::clone(&self.0))
+    }
+}
+
+impl<T> Deref for Published<T> {
+    type Target = T;
+
+    /// Read the table.
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T: Clone> Published<T> {
+    /// Write to this side's table, detaching it from any snapshot still sharing it.
+    pub fn write(&mut self) -> &mut T {
+        Rc::make_mut(&mut self.0)
+    }
+}
+
 /// Context for building HIR from TypeScript source.
 ///
 /// Manages the crate structure and accumulates items during lowering.
@@ -140,32 +173,32 @@ pub struct HirCtx {
     pub module_global_object_aliases: HashMap<String, HashSet<String>>,
     /// Exported object constants used as namespace-like API surfaces, each with
     /// its entries in source order.
-    pub object_namespaces: HashMap<String, IndexMap<String, ItemId>>,
+    pub object_namespaces: Published<HashMap<String, IndexMap<String, ItemId>>>,
     /// Exported object constants with literal data values.
-    pub object_consts: HashMap<String, ObjectConst>,
+    pub object_consts: Published<HashMap<String, ObjectConst>>,
     /// Exported object constants whose values can be projected by `Object.values`.
-    pub object_value_collections: HashMap<String, ConstCollection>,
+    pub object_value_collections: Published<HashMap<String, ConstCollection>>,
     /// Exported array/set constants that can be inlined by later modules.
-    pub const_collections: HashMap<String, ConstCollection>,
+    pub const_collections: Published<HashMap<String, ConstCollection>>,
     /// Const-folded TypeScript `enum` member values visible to later modules.
     ///
     /// Keyed by enum name then member name. Populated when an `enum`
     /// declaration is lowered, and read by later modules so an imported enum's
     /// members still fold to their constant literal in `EnumName.Member` reads
     /// and `case EnumName.Member:` labels.
-    pub enum_members: HashMap<String, HashMap<String, ConstLiteral>>,
+    pub enum_members: Published<HashMap<String, HashMap<String, ConstLiteral>>>,
     /// Function overload signatures visible to later TypeScript modules.
-    pub overloads: HashMap<String, Vec<OverloadSignature>>,
+    pub overloads: Published<HashMap<String, Vec<OverloadSignature>>>,
     /// Rest-parameter metadata visible to later TypeScript modules.
-    pub function_rests: HashMap<String, RestParam>,
+    pub function_rests: Published<HashMap<String, RestParam>>,
     /// Functions whose source return contract is a JavaScript `Date` value.
     pub date_returning_functions: HashSet<ItemId>,
     /// Structural fields attached to type aliases visible to later modules.
-    pub type_alias_fields: HashMap<smelt_hir::Symbol, Vec<Field>>,
+    pub type_alias_fields: Published<HashMap<smelt_hir::Symbol, Vec<Field>>>,
     /// Interface heritage clauses visible to later modules for lazy field lookup.
-    pub interface_extends: HashMap<smelt_hir::Symbol, Vec<crate::lowering::InterfaceHeritageRef>>,
+    pub interface_extends: Published<HashMap<smelt_hir::Symbol, Vec<crate::lowering::InterfaceHeritageRef>>>,
     /// Value types declared by interface string index signatures.
-    pub interface_index_values: HashMap<smelt_hir::Symbol, TypeId>,
+    pub interface_index_values: Published<HashMap<smelt_hir::Symbol, TypeId>>,
     /// Declared type parameters of every class the crate lowers, by name symbol.
     ///
     /// CRATE-scoped rather than per-module, and filled by the crate-wide
@@ -210,15 +243,15 @@ pub struct HirCtx {
     /// `instance.declaredButUnnamedMember` resolve to the index signature's value
     /// type instead of failing as an unknown class field. Declared named fields
     /// still take precedence; the index value is only the fallback shape.
-    pub class_index_values: HashMap<smelt_hir::Symbol, TypeId>,
+    pub class_index_values: Published<HashMap<smelt_hir::Symbol, TypeId>>,
     /// Interface call signatures visible to later modules.
-    pub interface_call_signatures: HashMap<smelt_hir::Symbol, Vec<FunctionType>>,
+    pub interface_call_signatures: Published<HashMap<smelt_hir::Symbol, Vec<FunctionType>>>,
     /// Interface construct signatures (`new (): T`) visible to later modules.
-    pub interface_construct_signatures: HashMap<smelt_hir::Symbol, Vec<FunctionType>>,
+    pub interface_construct_signatures: Published<HashMap<smelt_hir::Symbol, Vec<FunctionType>>>,
     /// Structural fields attached to callable intersection types.
-    pub callable_fields: HashMap<TypeId, Vec<Field>>,
+    pub callable_fields: Published<HashMap<TypeId, Vec<Field>>>,
     /// Type aliases whose source surface is a callable object intersection.
-    pub callable_object_aliases: HashSet<smelt_hir::Symbol>,
+    pub callable_object_aliases: Published<HashSet<smelt_hir::Symbol>>,
     /// Modeled host constructor names the crate reassigns via
     /// `globalThis.<Name> =` somewhere (the host-global override pre-pass).
     ///
@@ -323,26 +356,26 @@ impl HirCtx {
             export_aliases: HashMap::new(),
             module_exports: HashMap::new(),
             module_global_object_aliases: HashMap::new(),
-            object_namespaces: HashMap::new(),
-            object_consts: HashMap::new(),
-            object_value_collections: HashMap::new(),
-            const_collections: HashMap::new(),
-            enum_members: HashMap::new(),
-            overloads: HashMap::new(),
-            function_rests: HashMap::new(),
+            object_namespaces: Published::default(),
+            object_consts: Published::default(),
+            object_value_collections: Published::default(),
+            const_collections: Published::default(),
+            enum_members: Published::default(),
+            overloads: Published::default(),
+            function_rests: Published::default(),
             date_returning_functions: HashSet::new(),
-            type_alias_fields: HashMap::new(),
+            type_alias_fields: Published::default(),
             class_type_params: HashMap::new(),
             class_constructor_params: HashMap::new(),
             partial_records: HashMap::new(),
             erased_item_type_params: HashMap::new(),
-            interface_extends: HashMap::new(),
-            interface_index_values: HashMap::new(),
-            class_index_values: HashMap::new(),
-            interface_call_signatures: HashMap::new(),
-            interface_construct_signatures: HashMap::new(),
-            callable_fields: HashMap::new(),
-            callable_object_aliases: HashSet::new(),
+            interface_extends: Published::default(),
+            interface_index_values: Published::default(),
+            class_index_values: Published::default(),
+            interface_call_signatures: Published::default(),
+            interface_construct_signatures: Published::default(),
+            callable_fields: Published::default(),
+            callable_object_aliases: Published::default(),
             written_host_globals: HashSet::new(),
             project_sources_outside_crate: HashSet::new(),
             type_renames: HashMap::new(),

@@ -171,7 +171,7 @@ impl ModuleBuilder<'_> {
         let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
-        if !self.is_text_encoder_type(Self::expr_ty(body, receiver)) {
+        if !self.is_modeled_class(Self::expr_ty(body, receiver), smelt_stdlib::StdlibClass::TextEncoder) {
             return Ok(None);
         }
         let span = self.span(call.span.start, call.span.end);
@@ -213,7 +213,7 @@ impl ModuleBuilder<'_> {
         let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
-        if !self.is_text_decoder_type(Self::expr_ty(body, receiver)) {
+        if !self.is_modeled_class(Self::expr_ty(body, receiver), smelt_stdlib::StdlibClass::TextDecoder) {
             return Ok(None);
         }
         let span = self.span(call.span.start, call.span.end);
@@ -249,7 +249,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let span = self.span(member.span.start, member.span.end);
         match member.property.name.as_str() {
-            "encoding" if self.is_text_encoder_type(receiver_ty) => {
+            "encoding" if self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::TextEncoder) => {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::TextEncoderOp {
@@ -261,7 +261,7 @@ impl ModuleBuilder<'_> {
                     span,
                 })))
             }
-            "encoding" if self.is_text_decoder_type(receiver_ty) => {
+            "encoding" if self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::TextDecoder) => {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::TextDecoderOp {
@@ -308,17 +308,4 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn byte_array_type(&mut self) -> smelt_hir::TypeId {
         self.typed_array_class_type("Uint8Array")
     }
-
-    /// Return whether a lowered type is the modeled `TextEncoder` class.
-    pub(in crate::lowering) fn is_text_encoder_type(&self, ty: smelt_hir::TypeId) -> bool {
-        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::TextEncoder)
-            && !self.source_shadows_global("TextEncoder")
-    }
-
-    /// Return whether a lowered type is the modeled `TextDecoder` class.
-    pub(in crate::lowering) fn is_text_decoder_type(&self, ty: smelt_hir::TypeId) -> bool {
-        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::TextDecoder)
-            && !self.source_shadows_global("TextDecoder")
-    }
-
 }
