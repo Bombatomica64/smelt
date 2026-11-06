@@ -3660,10 +3660,15 @@ impl ModuleBuilder<'_> {
                     // indexed/field-accessed in this arm is never nullish (that is
                     // the null guards' domain). Drop `None` so a `case 'object'`
                     // narrows to the real object-shaped arm, not `string[] | null`.
+                    //
+                    // A dynamic member is any kind at run time, so it stays.
                     !matches!(self.ctx.krate.types.get(*item), Some(Type::None))
-                        && kinds
+                        && (matches!(
+                            self.ctx.krate.types.get(*item),
+                            Some(Type::Unknown | Type::TypeParam { .. })
+                        ) || kinds
                             .iter()
-                            .any(|kind| self.type_matches_typeof(*item, kind))
+                            .any(|kind| self.type_matches_typeof(*item, kind)))
                 })
                 .collect::<Vec<_>>();
             if let Some(narrowed) = self.intern_filtered_union(retained) {

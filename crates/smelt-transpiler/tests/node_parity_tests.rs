@@ -94,6 +94,12 @@ fn declared_erased_return() -> TestResult {
     verify_node_parity("declared_erased_return")
 }
 
+/// `typeof` of an optional is runtime, and its `case "object"` keeps dynamic members.
+#[test]
+fn typeof_of_optional() -> TestResult {
+    verify_node_parity("typeof_of_optional")
+}
+
 /// `DOMException` is an `Error`, `File` a `Blob`, a `TypeError` an `Error`, and a
 /// union arm answers for its base classes.
 #[test]

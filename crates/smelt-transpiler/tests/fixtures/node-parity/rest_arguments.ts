@@ -30,3 +30,15 @@ function throwing(cb: (a: number, ...xs: string[]) => number): number {
   try { return cb(3, "p", "q", "r"); } catch (e) { return -1; }
 }
 console.log(throwing((a, ...xs) => { if (a < 0) { throw new Error("no"); } return a + xs.length; }));
+function spreadInto<T, R>(rows: T[][], combine: (...args: T[]) => R): R[] {
+  const out: R[] = [];
+  for (let i = 0; i < 2; i++) {
+    const group = new Array(rows.length);
+    for (let j = 0; j < rows.length; j++) {
+      group[j] = rows[j][i];
+    }
+    out.push(combine(...group));
+  }
+  return out;
+}
+console.log(JSON.stringify(spreadInto([[1, 2], [3, 4], [5, 6]], (a, b, c) => a + b + c)));
