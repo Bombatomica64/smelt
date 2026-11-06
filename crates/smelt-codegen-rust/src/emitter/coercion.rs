@@ -111,7 +111,16 @@ impl FunctionEmitter<'_> {
         }
         let source_ty = self.operand_ty(operand)?;
         let operand_text = self.operand_text(operand)?;
-        if let Some(injected) = self.inject_union_value_text(&operand_text, source_ty, target, scope)? {
+        // A function operand renders as a borrow of its binding, and a union arm
+        // owns its value: the binding may be read again after the injection.
+        let owned_text = if matches!(self.mir.types.get(source_ty), Some(Type::Function(_)))
+            && matches!(operand, Operand::Copy(Place::Local(_)))
+        {
+            format!("{operand_text}.clone()")
+        } else {
+            operand_text.clone()
+        };
+        if let Some(injected) = self.inject_union_value_text(&owned_text, source_ty, target, scope)? {
             return Ok(injected);
         }
         if let Some(projected) = self.project_union_value_text(&operand_text, source_ty, target)? {

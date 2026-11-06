@@ -4706,10 +4706,10 @@ smelt_local.block_on(&smelt_runtime, async move {
 })
 }
 
-type SmeltFnTyped2_0 = ::std::rc::Rc<dyn Fn() -> SmeltFuture<()>>;
-fn __smelt_fn_typed_2_0() -> SmeltFnTyped2_0 {
-    thread_local! { static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped2_0> = ::std::cell::OnceCell::new(); }
-    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| { let smelt_function: SmeltFnTyped2_0 = ::std::rc::Rc::new(move || { SmeltFuture::from_future_primed(Box::pin(async move {
+type SmeltFnTyped5_0 = ::std::rc::Rc<dyn Fn() -> SmeltFuture<()>>;
+fn __smelt_fn_typed_5_0() -> SmeltFnTyped5_0 {
+    thread_local! { static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped5_0> = ::std::cell::OnceCell::new(); }
+    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| { let smelt_function: SmeltFnTyped5_0 = ::std::rc::Rc::new(move || { SmeltFuture::from_future_primed(Box::pin(async move {
         let smelt_async_value = {
     let _smelt_tmp_0: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(failing__module_main()));
     Ok::<SmeltFuture<()>, Box<dyn std::error::Error>>(_smelt_tmp_0)
@@ -4775,7 +4775,7 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_27 = serde_json::to_string(&{ let smelt_l = _smelt_tmp_26; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>())) }).expect("JSON serialization failed");
     _smelt_tmp_28 = smelt_json_indent(&_smelt_tmp_27, &("--".to_owned()).chars().take(10).collect::<String>());
     let _ = { println!("{}", _smelt_tmp_28); };
-    _smelt_tmp_30 = __smelt_fn_typed_2_0();
+    _smelt_tmp_30 = __smelt_fn_typed_5_0();
     let _smelt_tmp_31 = SmeltFuture::from_future(Box::pin(cleanup_after__module_main(::std::rc::Rc::new({ let _smelt_adapted_callback = _smelt_tmp_30.clone(); move || { let smelt_async_callback = _smelt_adapted_callback.clone(); { let smelt_async_source = (smelt_async_callback)(); SmeltFuture::from_future(Box::pin(async move { let smelt_async_output = smelt_async_source.await?; Ok::<_, Box<dyn std::error::Error>>(smelt_async_output) })) } } }))));
     _smelt_tmp_32 = _smelt_tmp_31.await?;
     let _ = { println!("{}", _smelt_tmp_32); };
@@ -4793,70 +4793,6 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_40: String = rethrow_through__module_main(1.0);
     let _ = { println!("{}", _smelt_tmp_40); };
     return Ok(());
-}
-
-pub(crate) async fn cleanup_after__module_main(work: ::std::rc::Rc<dyn Fn() -> SmeltFuture<()>>) -> Result<String, Box<dyn std::error::Error>> {
-    let mut smelt_pending_thrown: SmeltUnknown;
-    let mut _smelt_tmp_3: bool;
-    let _smelt_tmp_6: String;
-    let _smelt_tmp_7: String;
-    let mut cleaned: String = "no".to_owned();
-    smelt_pending_thrown = SmeltUnknown::Undefined;
-    _smelt_tmp_3 = false;
-    let _smelt_tmp_4: SmeltFuture<()> = (work)();
-    match _smelt_tmp_4.await {
-        Ok(__smelt_value) => {
-            let _smelt_tmp_5: () = { let _ = __smelt_value; };
-        }
-        Err(__smelt_error) => {
-            smelt_pending_thrown = smelt_thrown_value(&*__smelt_error);
-    _smelt_tmp_3 = true;
-        }
-    }
-    cleaned = "yes".to_owned();
-    'smelt_branch_6_9_5_627: {
-    if _smelt_tmp_3 {
-    break 'smelt_branch_6_9_5_627;
-    }
-    _smelt_tmp_7 = "resolved, cleaned up: ".to_owned() + &cleaned;
-    return Ok(_smelt_tmp_7);
-    };
-    _smelt_tmp_6 = "rejected, cleaned up: ".to_owned() + &cleaned;
-    return Ok(_smelt_tmp_6);
-}
-
-pub(crate) async fn failing__module_main() -> Result<(), Box<dyn std::error::Error>> {
-    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("boom".into())));
-}
-
-pub(crate) fn rethrow_through__module_main(kind: f64) -> String {
-    let mut smelt_pending_thrown: SmeltUnknown;
-    let mut _smelt_tmp_3: bool;
-    let _smelt_tmp_4: bool;
-    let _smelt_tmp_5: usize;
-    let _smelt_tmp_6: String;
-    let _smelt_tmp_7: String;
-    let _smelt_tmp_8: String;
-    let _smelt_tmp_9: f64;
-    let mut ran: usize = 0;
-    smelt_pending_thrown = SmeltUnknown::Undefined;
-    _smelt_tmp_3 = false;
-    _smelt_tmp_4 = kind == 0.0;
-    let smelt_pending_thrown: SmeltUnknown = if _smelt_tmp_4 { SmeltUnknown::String("first".into()) } else { SmeltUnknown::String("second".into()) };
-    _smelt_tmp_3 = true;
-    _smelt_tmp_5 = ran + 1;
-    ran = _smelt_tmp_5;
-    'smelt_branch_6_10_5_619: {
-    if _smelt_tmp_3 {
-    break 'smelt_branch_6_10_5_619;
-    }
-    return String::new();
-    };
-    _smelt_tmp_6 = "kind ".to_owned() + &smelt_number_to_string(kind);
-    _smelt_tmp_7 = _smelt_tmp_6 + &" caught, finally ran ".to_owned();
-    _smelt_tmp_9 = ran as f64;
-    _smelt_tmp_8 = _smelt_tmp_7 + &smelt_number_to_string(_smelt_tmp_9);
-    return _smelt_tmp_8;
 }
 
 pub(crate) async fn get_key__module_main(secret: SmeltUnion7) -> Result<SmeltCryptoKey, Box<dyn std::error::Error>> {
@@ -4922,4 +4858,68 @@ pub(crate) async fn verify__module_main(value: String, claimed: String, key: Sme
     let _smelt_tmp_13: SmeltFuture<bool> = { let smelt_algorithm = (_smelt_tmp_9.get(&"name".to_owned()).expect("missing field").clone()).clone(); let smelt_key = (key.clone()).clone(); let smelt_signature = (_smelt_tmp_10).to_bytes(); let smelt_data = (_smelt_tmp_12).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_verify(&smelt_algorithm, &smelt_key, &smelt_signature, &smelt_data) })) };
     let _smelt_tmp_14: bool = _smelt_tmp_13.await?;
     return Ok(_smelt_tmp_14);
+}
+
+pub(crate) async fn cleanup_after__module_main(work: ::std::rc::Rc<dyn Fn() -> SmeltFuture<()>>) -> Result<String, Box<dyn std::error::Error>> {
+    let mut smelt_pending_thrown: SmeltUnknown;
+    let mut _smelt_tmp_3: bool;
+    let _smelt_tmp_6: String;
+    let _smelt_tmp_7: String;
+    let mut cleaned: String = "no".to_owned();
+    smelt_pending_thrown = SmeltUnknown::Undefined;
+    _smelt_tmp_3 = false;
+    let _smelt_tmp_4: SmeltFuture<()> = (work)();
+    match _smelt_tmp_4.await {
+        Ok(__smelt_value) => {
+            let _smelt_tmp_5: () = { let _ = __smelt_value; };
+        }
+        Err(__smelt_error) => {
+            smelt_pending_thrown = smelt_thrown_value(&*__smelt_error);
+    _smelt_tmp_3 = true;
+        }
+    }
+    cleaned = "yes".to_owned();
+    'smelt_branch_6_9_5_627: {
+    if _smelt_tmp_3 {
+    break 'smelt_branch_6_9_5_627;
+    }
+    _smelt_tmp_7 = "resolved, cleaned up: ".to_owned() + &cleaned;
+    return Ok(_smelt_tmp_7);
+    };
+    _smelt_tmp_6 = "rejected, cleaned up: ".to_owned() + &cleaned;
+    return Ok(_smelt_tmp_6);
+}
+
+pub(crate) async fn failing__module_main() -> Result<(), Box<dyn std::error::Error>> {
+    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("boom".into())));
+}
+
+pub(crate) fn rethrow_through__module_main(kind: f64) -> String {
+    let mut smelt_pending_thrown: SmeltUnknown;
+    let mut _smelt_tmp_3: bool;
+    let _smelt_tmp_4: bool;
+    let _smelt_tmp_5: usize;
+    let _smelt_tmp_6: String;
+    let _smelt_tmp_7: String;
+    let _smelt_tmp_8: String;
+    let _smelt_tmp_9: f64;
+    let mut ran: usize = 0;
+    smelt_pending_thrown = SmeltUnknown::Undefined;
+    _smelt_tmp_3 = false;
+    _smelt_tmp_4 = kind == 0.0;
+    let smelt_pending_thrown: SmeltUnknown = if _smelt_tmp_4 { SmeltUnknown::String("first".into()) } else { SmeltUnknown::String("second".into()) };
+    _smelt_tmp_3 = true;
+    _smelt_tmp_5 = ran + 1;
+    ran = _smelt_tmp_5;
+    'smelt_branch_6_10_5_619: {
+    if _smelt_tmp_3 {
+    break 'smelt_branch_6_10_5_619;
+    }
+    return String::new();
+    };
+    _smelt_tmp_6 = "kind ".to_owned() + &smelt_number_to_string(kind);
+    _smelt_tmp_7 = _smelt_tmp_6 + &" caught, finally ran ".to_owned();
+    _smelt_tmp_9 = ran as f64;
+    _smelt_tmp_8 = _smelt_tmp_7 + &smelt_number_to_string(_smelt_tmp_9);
+    return _smelt_tmp_8;
 }

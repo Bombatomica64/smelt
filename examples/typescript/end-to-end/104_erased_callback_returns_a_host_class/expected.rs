@@ -4067,25 +4067,18 @@ impl Default for SmeltUnion4 {
     }
 }
 fn main() {
-    let _smelt_tmp_5: ::std::rc::Rc<dyn Fn(f64) -> SmeltArrayBuffer>;
-    let _smelt_tmp_0 = __smelt_fn_typed_6_0();
-    let _smelt_tmp_1: String = describe(SmeltUnion4::M1(_smelt_tmp_0));
-    let _ = { println!("{}", _smelt_tmp_1); };
-    let _smelt_tmp_3: String = describe(SmeltUnion4::M0(true));
-    let _ = { println!("{}", _smelt_tmp_3); };
-    _smelt_tmp_5 = __smelt_fn_typed_6_0();
-    let _smelt_tmp_6: String = label(SmeltUnion4::M1(_smelt_tmp_5));
+    let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: f64| {
+    let _smelt_tmp_1: SmeltArrayBuffer = SmeltArrayBuffer::new(((closure_arg_0) as f64).max(0.0) as usize);
+    _smelt_tmp_1.clone()
+    });
+    let make = _smelt_tmp_1.clone();
+    let _smelt_tmp_2: String = describe(SmeltUnion4::M1(make.clone()));
+    let _ = { println!("{}", _smelt_tmp_2); };
+    let _smelt_tmp_4: String = describe(SmeltUnion4::M0(true));
+    let _ = { println!("{}", _smelt_tmp_4); };
+    let _smelt_tmp_6: String = label(SmeltUnion4::M1(make));
     let _ = { println!("{}", _smelt_tmp_6); };
     return;
-}
-
-type SmeltFnTyped6_0 = ::std::rc::Rc<dyn Fn(f64) -> SmeltArrayBuffer>;
-fn __smelt_fn_typed_6_0() -> SmeltFnTyped6_0 {
-    thread_local! { static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped6_0> = ::std::cell::OnceCell::new(); }
-    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| { let smelt_function: SmeltFnTyped6_0 = ::std::rc::Rc::new(|closure_arg_0: f64| {
-    let _smelt_tmp_1: SmeltArrayBuffer = make__module_main(closure_arg_0);
-    _smelt_tmp_1.clone()
-    }); smelt_function }).clone())
 }
 
 // ==== source_main.rs
@@ -4120,9 +4113,4 @@ pub(crate) fn label(maker: SmeltUnion4) -> String {
     let _smelt_tmp_1: String = match &maker { SmeltUnion4::M0(_) => "boolean", SmeltUnion4::M1(_) => "function" }.to_owned();
     let _smelt_tmp_2: String = "".to_owned() + &_smelt_tmp_1;
     return _smelt_tmp_2;
-}
-
-pub(crate) fn make__module_main(size: f64) -> SmeltArrayBuffer {
-    let _smelt_tmp_1: SmeltArrayBuffer = SmeltArrayBuffer::new(((size) as f64).max(0.0) as usize);
-    return _smelt_tmp_1;
 }

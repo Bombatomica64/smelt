@@ -289,10 +289,10 @@ impl RuntimeDemand {
         demand.scan_declarations(mir);
         demand.scan_types(mir);
         for function in &mir.functions {
-            demand.scan_body(mir, &function.locals, &function.blocks);
+            demand.scan_body(mir, &function.locals, &function.blocks, function.return_ty);
         }
         for closure in &mir.closures {
-            demand.scan_body(mir, &closure.locals, &closure.blocks);
+            demand.scan_body(mir, &closure.locals, &closure.blocks, closure.return_ty);
         }
         demand.close();
         demand
@@ -466,13 +466,21 @@ impl RuntimeDemand {
     }
 
     /// Records what one function or closure body demands.
-    fn scan_body(&mut self, mir: &Mir, locals: &[LocalDecl], blocks: &[BasicBlock]) {
+    fn scan_body(&mut self, mir: &Mir, locals: &[LocalDecl], blocks: &[BasicBlock], return_ty: smelt_hir::TypeId) {
         for block in blocks {
             for statement in &block.statements {
                 self.scan_statement(mir, locals, statement);
             }
             if let Some(terminator) = &block.terminator {
                 self.scan_terminator(terminator);
+                // A class value returned at `string` is its string conversion,
+                // which goes through the erased form.
+                if let Terminator::Return(operand) = terminator
+                    && matches!(mir.types.get(return_ty), Some(Type::String))
+                    && operand_is_class_local(mir, locals, operand)
+                {
+                    self.add(Need::Unknown);
+                }
             }
         }
     }
@@ -706,6 +714,17 @@ fn operand_is_erased_local(mir: &Mir, locals: &[LocalDecl], target: &Operand) ->
         .ok()
         .and_then(|index| locals.get(index))
         .is_some_and(|decl| matches!(mir.types.get(decl.ty), Some(Type::Unknown)))
+}
+
+/// Whether `operand` reads a local of a class type.
+fn operand_is_class_local(mir: &Mir, locals: &[LocalDecl], operand: &Operand) -> bool {
+    let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = operand else {
+        return false;
+    };
+    usize::try_from(local.0)
+        .ok()
+        .and_then(|index| locals.get(index))
+        .is_some_and(|decl| matches!(mir.types.get(decl.ty), Some(Type::Class { .. })))
 }
 
 /// Whether `dest` is a type parameter and `source` that parameter's optional.

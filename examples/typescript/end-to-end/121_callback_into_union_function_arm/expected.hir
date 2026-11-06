@@ -2,42 +2,45 @@ module examples/typescript/end-to-end/121_callback_into_union_function_arm/input
   body BodyId(4)
   items
     class Ex fields [Public code: Float] constructor Some(ItemId(2)) methods [] implements []
-    fn timeout__module_examples/typescript/end-to-end/121_callback_into_union_function_arm/input.ts owner Module
     type ExFn = fn(String) -> Ex
   locals
-    %0 const e500: fn(String) -> Ex
+    %0 const timeout: fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float
+    %1 const e500: fn(String) -> Ex
   exprs
-    #0: Float = 1.0
-    #1: fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float = @4(timeout__module_examples/typescript/end-to-end/121_callback_into_union_function_arm/input.ts)
-    #2: Float = call #1(#0)
-    #3: None = @6(console_log)
-    #4: None = call #3(#2)
-    #5: Float = 2.0
-    #6: fn() -> Ex = closure BodyId(2) captures 0 -> Ex
-    #7: fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float = @4(timeout__module_examples/typescript/end-to-end/121_callback_into_union_function_arm/input.ts)
-    #8: Float = call #7(#5, #6)
-    #9: None = @7(console_log)
-    #10: None = call #9(#8)
-    #11: fn(String) -> Ex = closure BodyId(3) captures 0 -> Ex
-    #12: Float = 3.0
-    #13: fn(String) -> Ex = %0
-    #14: fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float = @4(timeout__module_examples/typescript/end-to-end/121_callback_into_union_function_arm/input.ts)
-    #15: Float = call #14(#12, #13)
-    #16: None = @8(console_log)
-    #17: None = call #16(#15)
-    #18: Float = 4.0
-    #19: Float = 1.0
-    #20: Ex = new Ex(#19)
-    #21: fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float = @4(timeout__module_examples/typescript/end-to-end/121_callback_into_union_function_arm/input.ts)
-    #22: Float = call #21(#18, #20)
-    #23: None = @9(console_log)
-    #24: None = call #23(#22)
+    #0: fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float = closure BodyId(1) captures 0 -> Float
+    #1: fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float = %0
+    #2: Float = 1.0
+    #3: Optional<Ex | fn(String) -> Ex> = none
+    #4: Float = closure_call #1(#2, #3)
+    #5: None = @5(console_log)
+    #6: None = call #5(#4)
+    #7: fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float = %0
+    #8: Float = 2.0
+    #9: fn() -> Ex = closure BodyId(2) captures 0 -> Ex
+    #10: Float = closure_call #7(#8, #9)
+    #11: None = @6(console_log)
+    #12: None = call #11(#10)
+    #13: fn(String) -> Ex = closure BodyId(3) captures 0 -> Ex
+    #14: fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float = %0
+    #15: Float = 3.0
+    #16: fn(String) -> Ex = %1
+    #17: Float = closure_call #14(#15, #16)
+    #18: None = @7(console_log)
+    #19: None = call #18(#17)
+    #20: fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float = %0
+    #21: Float = 4.0
+    #22: Float = 1.0
+    #23: Ex = new Ex(#22)
+    #24: Float = closure_call #20(#21, #23)
+    #25: None = @8(console_log)
+    #26: None = call #25(#24)
   stmts
-    s0: #4
-    s1: #10
-    s2: let %0: fn(String) -> Ex = #11
-    s3: #17
-    s4: #24
+    s0: let %0: fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float = #0
+    s1: #6
+    s2: #12
+    s3: let %1: fn(String) -> Ex = #13
+    s4: #19
+    s5: #26
 
 interned types
   t0 = String
@@ -49,5 +52,6 @@ interned types
   t6 = fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float
   t7 = None
   t8 = Bool
-  t9 = fn() -> Ex
-  t10 = fn(String) -> Ex
+  t9 = fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float
+  t10 = fn() -> Ex
+  t11 = fn(String) -> Ex

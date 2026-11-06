@@ -5018,16 +5018,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let Some(Expression::ArrowFunctionExpression(arrow)) = &declarator.init else {
                 return true;
             };
-            let text = self
-                .source
-                .get(
-                    usize::try_from(arrow.span.start).unwrap_or(usize::MAX)
-                        ..usize::try_from(arrow.span.end).unwrap_or(usize::MAX),
-                )
-                .unwrap_or_default();
             candidates.iter().all(|candidate| {
                 declared.contains(candidate)
-                    || !text.contains(candidate)
+                    || !self.source_facts.mentions(arrow.span, candidate)
                     || lowered.contains(candidate)
             })
         })
@@ -5147,9 +5140,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             .into_iter()
             .filter_map(|(name, const_start)| {
                 let spelled_in = |start: u32, end: u32| {
-                    self.source
-                        .get(usize::try_from(start).unwrap_or(usize::MAX)..usize::try_from(end).unwrap_or(usize::MAX))
-                        .is_some_and(|text| text.contains(&name))
+                    self.source_facts.mentions(oxc::span::Span::new(start, end), &name)
                 };
                 let referenced = spelled_in(0, const_start)
                     || referrer_spans
@@ -5192,10 +5183,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// binding now fails to resolve instead of diverging silently, which is the
     /// honest failure.
     ///
-    /// Source-text containment matches the surrounding heuristics in this pass
-    /// (`forward_arrow_const_names`, `arrow_const_dependencies_are_lowered`)
-    /// deliberately: over-refusing costs a closure, and a closure is always
-    /// correct here.
+    /// Over-refusing costs a closure, and a closure is always correct here.
     fn retain_capturable_arrow_consts(
         &self,
         program: &Program<'_>,

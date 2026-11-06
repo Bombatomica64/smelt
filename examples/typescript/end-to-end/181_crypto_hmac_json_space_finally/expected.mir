@@ -43,25 +43,25 @@ async fn run (FuncId(0)) -> None throws
     %40 temp: String
     %41 temp: None
   bb0:
-    %2 = call fn5("macha", "secret lucky charm") -> bb1
+    %2 = call fn2("macha", "secret lucky charm") -> bb1
   bb1:
     %0 = await move %2
     %4 = call @console_log(move %0) -> bb2
   bb2:
-    %5 = call fn4("secret lucky charm") -> bb3
+    %5 = call fn1("secret lucky charm") -> bb3
   bb3:
     %1 = await move %5
-    %7 = call fn6("macha", "macha", copy %1) -> bb4
+    %7 = call fn3("macha", "macha", copy %1) -> bb4
   bb4:
     %8 = await move %7
-    %9 = call fn6("macha", "other", move %1) -> bb5
+    %9 = call fn3("macha", "other", move %1) -> bb5
   bb5:
     %10 = await move %9
     %11 = call @console_log(move %8, move %10) -> bb6
   bb6:
     %12 = [1.0, 2.0, 3.0]
     %13 = typed_array_new Uint8Array move %12
-    %14 = call fn5("macha", move %13) -> bb7
+    %14 = call fn2("macha", move %13) -> bb7
   bb7:
     %15 = await move %14
     %16 = call @console_log(move %15) -> bb8
@@ -83,28 +83,125 @@ async fn run (FuncId(0)) -> None throws
     %29 = call @console_log(move %28) -> bb11
   bb11:
     %30 = closure ClosureId(0) []
-    %31 = call fn1(move %30) -> bb12
+    %31 = call fn4(move %30) -> bb12
   bb12:
     %32 = await move %31
     %33 = call @console_log(move %32) -> bb13
   bb13:
     %34 = closure ClosureId(1) []
-    %35 = call fn1(move %34) -> bb14
+    %35 = call fn4(move %34) -> bb14
   bb14:
     %36 = await move %35
     %37 = call @console_log(move %36) -> bb15
   bb15:
-    %38 = call fn3(0.0) -> bb16
+    %38 = call fn6(0.0) -> bb16
   bb16:
     %39 = call @console_log(move %38) -> bb17
   bb17:
-    %40 = call fn3(1.0) -> bb18
+    %40 = call fn6(1.0) -> bb18
   bb18:
     %41 = call @console_log(move %40) -> bb19
   bb19:
     return none
 
-async fn cleanup_after__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts (FuncId(1)) -> String
+async fn get_key__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts (FuncId(1)) -> CryptoKey
+  locals
+    %0 param secret: String | Uint8Array | DataView | ArrayBuffer
+    %1 user bytes: Uint8Array | DataView | ArrayBuffer
+    %2 temp: Bool
+    %3 temp: Uint8Array | DataView | ArrayBuffer
+    %4 temp: TextEncoder
+    %5 temp: String
+    %6 temp: Uint8Array
+    %7 temp: Uint8Array | DataView | ArrayBuffer
+    %8 temp: Dict<String, String>
+    %9 temp: List<String>
+    %10 temp: Future<CryptoKey>
+    %11 temp: CryptoKey
+  bb0:
+    %2 = unknown_is String copy %0
+    switch move %2 ? bb1 : bb2
+  bb1:
+    %4 = text_encoder_new
+    %5 = unknown_cast copy %0 as t0
+    %6 = text_encoder_encode move %4 move %5
+    %3 = move %6
+    goto bb3
+  bb2:
+    %7 = unknown_cast copy %0 as t6
+    %3 = move %7
+    goto bb3
+  bb3:
+    %1 = move %3
+    %8 = {"name": "HMAC", "hash": "SHA-256"}
+    %9 = ["sign", "verify"]
+    %10 = crypto_import_key "raw", move %1, copy %8.field8, copy %8.field9, false, move %9
+    %11 = await move %10
+    return move %11
+
+async fn sign__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts (FuncId(2)) -> String throws
+  locals
+    %0 param value: String
+    %1 param secret: String | Uint8Array | DataView | ArrayBuffer
+    %2 user key: CryptoKey
+    %3 user tag: ArrayBuffer
+    %4 temp: Future<CryptoKey>
+    %5 temp: CryptoKey
+    %6 temp: Dict<String, String>
+    %7 temp: TextEncoder
+    %8 temp: Uint8Array
+    %9 temp: Future<ArrayBuffer>
+    %10 temp: ArrayBuffer
+    %11 temp: Uint8Array
+    %12 temp: String
+    %13 temp: String
+  bb0:
+    %4 = call fn1(copy %1) -> bb1
+  bb1:
+    %2 = await move %4
+    %6 = {"name": "HMAC", "hash": "SHA-256"}
+    %7 = text_encoder_new
+    %8 = text_encoder_encode move %7 copy %0
+    %9 = crypto_sign copy %6.field8, move %2, move %8
+    %3 = await move %9
+    %11 = typed_array_new Uint8Array move %3
+    %12 = primitive_cast_from_char_codes move %11
+    %13 = call @btoa(move %12) -> bb2
+  bb2:
+    return move %13
+
+async fn verify__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts (FuncId(3)) -> Bool
+  locals
+    %0 param value: String
+    %1 param claimed: String
+    %2 param key: CryptoKey
+    %3 user tag: ArrayBuffer
+    %4 temp: Dict<String, String>
+    %5 temp: TextEncoder
+    %6 temp: Uint8Array
+    %7 temp: Future<ArrayBuffer>
+    %8 temp: ArrayBuffer
+    %9 temp: Dict<String, String>
+    %10 temp: Uint8Array
+    %11 temp: TextEncoder
+    %12 temp: Uint8Array
+    %13 temp: Future<Bool>
+    %14 temp: Bool
+  bb0:
+    %4 = {"name": "HMAC", "hash": "SHA-256"}
+    %5 = text_encoder_new
+    %6 = text_encoder_encode move %5 copy %1
+    %7 = crypto_sign copy %4.field8, copy %2, move %6
+    %3 = await move %7
+    %9 = {"name": "HMAC", "hash": "SHA-256"}
+    %10 = typed_array_new Uint8Array move %3
+    %11 = text_encoder_new
+    %12 = text_encoder_encode move %11 copy %0
+    %13 = crypto_verify copy %9.field8, copy %2, move %10, move %12
+    %14 = await move %13
+    return move %14
+
+async fn cleanup_after__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts (FuncId(4)) -> String
   locals
     %0 param work: fn() -> Future<None>
     %1 user cleaned: String
@@ -143,11 +240,11 @@ async fn cleanup_after__module_examples/typescript/end-to-end/181_crypto_hmac_js
   bb9:
     goto bb3
 
-async fn failing__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts (FuncId(2)) -> None throws
+async fn failing__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts (FuncId(5)) -> None throws
   bb0:
     throw "boom"
 
-fn rethrow_through__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts (FuncId(3)) -> String
+fn rethrow_through__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts (FuncId(6)) -> String
   locals
     %0 param kind: Float
     %1 user ran: usize
@@ -195,103 +292,6 @@ fn rethrow_through__module_examples/typescript/end-to-end/181_crypto_hmac_json_s
   bb10:
     goto bb3
 
-async fn get_key__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts (FuncId(4)) -> CryptoKey
-  locals
-    %0 param secret: String | Uint8Array | DataView | ArrayBuffer
-    %1 user bytes: Uint8Array | DataView | ArrayBuffer
-    %2 temp: Bool
-    %3 temp: Uint8Array | DataView | ArrayBuffer
-    %4 temp: TextEncoder
-    %5 temp: String
-    %6 temp: Uint8Array
-    %7 temp: Uint8Array | DataView | ArrayBuffer
-    %8 temp: Dict<String, String>
-    %9 temp: List<String>
-    %10 temp: Future<CryptoKey>
-    %11 temp: CryptoKey
-  bb0:
-    %2 = unknown_is String copy %0
-    switch move %2 ? bb1 : bb2
-  bb1:
-    %4 = text_encoder_new
-    %5 = unknown_cast copy %0 as t0
-    %6 = text_encoder_encode move %4 move %5
-    %3 = move %6
-    goto bb3
-  bb2:
-    %7 = unknown_cast copy %0 as t6
-    %3 = move %7
-    goto bb3
-  bb3:
-    %1 = move %3
-    %8 = {"name": "HMAC", "hash": "SHA-256"}
-    %9 = ["sign", "verify"]
-    %10 = crypto_import_key "raw", move %1, copy %8.field15, copy %8.field16, false, move %9
-    %11 = await move %10
-    return move %11
-
-async fn sign__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts (FuncId(5)) -> String throws
-  locals
-    %0 param value: String
-    %1 param secret: String | Uint8Array | DataView | ArrayBuffer
-    %2 user key: CryptoKey
-    %3 user tag: ArrayBuffer
-    %4 temp: Future<CryptoKey>
-    %5 temp: CryptoKey
-    %6 temp: Dict<String, String>
-    %7 temp: TextEncoder
-    %8 temp: Uint8Array
-    %9 temp: Future<ArrayBuffer>
-    %10 temp: ArrayBuffer
-    %11 temp: Uint8Array
-    %12 temp: String
-    %13 temp: String
-  bb0:
-    %4 = call fn4(copy %1) -> bb1
-  bb1:
-    %2 = await move %4
-    %6 = {"name": "HMAC", "hash": "SHA-256"}
-    %7 = text_encoder_new
-    %8 = text_encoder_encode move %7 copy %0
-    %9 = crypto_sign copy %6.field15, move %2, move %8
-    %3 = await move %9
-    %11 = typed_array_new Uint8Array move %3
-    %12 = primitive_cast_from_char_codes move %11
-    %13 = call @btoa(move %12) -> bb2
-  bb2:
-    return move %13
-
-async fn verify__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts (FuncId(6)) -> Bool
-  locals
-    %0 param value: String
-    %1 param claimed: String
-    %2 param key: CryptoKey
-    %3 user tag: ArrayBuffer
-    %4 temp: Dict<String, String>
-    %5 temp: TextEncoder
-    %6 temp: Uint8Array
-    %7 temp: Future<ArrayBuffer>
-    %8 temp: ArrayBuffer
-    %9 temp: Dict<String, String>
-    %10 temp: Uint8Array
-    %11 temp: TextEncoder
-    %12 temp: Uint8Array
-    %13 temp: Future<Bool>
-    %14 temp: Bool
-  bb0:
-    %4 = {"name": "HMAC", "hash": "SHA-256"}
-    %5 = text_encoder_new
-    %6 = text_encoder_encode move %5 copy %1
-    %7 = crypto_sign copy %4.field15, copy %2, move %6
-    %3 = await move %7
-    %9 = {"name": "HMAC", "hash": "SHA-256"}
-    %10 = typed_array_new Uint8Array move %3
-    %11 = text_encoder_new
-    %12 = text_encoder_encode move %11 copy %0
-    %13 = crypto_verify copy %9.field15, copy %2, move %10, move %12
-    %14 = await move %13
-    return move %14
-
 async fn main (FuncId(7)) -> None throws
   locals
     %0 user algorithm: Dict<String, String>
@@ -313,7 +313,7 @@ closure ClosureId(0) -> Future<None> throws
   locals
     %0 temp: Future<None>
   bb0:
-    %0 = call fn2() -> bb1
+    %0 = call fn5() -> bb1
   bb1:
     return copy %0
 
