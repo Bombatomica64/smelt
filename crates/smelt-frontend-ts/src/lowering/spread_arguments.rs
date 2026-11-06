@@ -542,6 +542,17 @@ impl ModuleBuilder<'_> {
         span: oxc::span::Span,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
+        self.rest_spread_value_at_span(value, rest_ty, self.span(span.start, span.end), body)
+    }
+
+    /// [`Self::rest_spread_list_value`] at an already resolved `span`.
+    pub(in crate::lowering) fn rest_spread_value_at_span(
+        &self,
+        value: smelt_hir::ExprId,
+        rest_ty: smelt_hir::TypeId,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
         let value_ty = Self::expr_ty(body, value);
         if value_ty == rest_ty {
             return value;
@@ -558,7 +569,7 @@ impl ModuleBuilder<'_> {
                     target: rest_ty,
                 },
                 ty: rest_ty,
-                span: self.span(span.start, span.end),
+                span,
             });
         }
         // A concrete list converts element by element: `g(...numbers)` into
@@ -568,7 +579,7 @@ impl ModuleBuilder<'_> {
         body.push_expr(Expr {
             kind: ExprKind::TypeAssert { value },
             ty: rest_ty,
-            span: self.span(span.start, span.end),
+            span,
         })
     }
 

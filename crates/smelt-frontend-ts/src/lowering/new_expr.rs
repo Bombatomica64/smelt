@@ -144,6 +144,12 @@ impl ModuleBuilder<'_> {
                         self.argument_with_hint(arg, body, params.get(index).copied())
                     })
                     .collect::<Result<Vec<_>, _>>()?;
+                let args = match callable_ty.and_then(|ty| self.ctx.krate.types.get(ty).cloned()) {
+                    Some(Type::Function(function)) => {
+                        self.pack_value_call_arguments(&function, args, &[], span, body)
+                    }
+                    _ => args,
+                };
                 let kind = if self.construct_through_value_is_dynamic(result_ty) {
                     ExprKind::Construct {
                         callee: callee_value,
@@ -759,9 +765,14 @@ impl ModuleBuilder<'_> {
         let args = new_expr
             .arguments
             .iter()
-            .take(function.params.len())
+            .take(function.rest.map_or(function.params.len(), |_| usize::MAX))
             .map(|arg| self.argument(arg, body))
             .collect::<Result<Vec<_>, _>>()?;
+        let spread_positions =
+            new_expr.arguments.iter().map(Argument::is_spread).collect::<Vec<_>>();
+        let call_span = self.span(new_expr.span.start, new_expr.span.end);
+        let args =
+            self.pack_value_call_arguments(&function, args, &spread_positions, call_span, body);
         let kind = if self.construct_through_value_is_dynamic(function.return_ty) {
             ExprKind::Construct {
                 callee: callee_expr,
@@ -825,9 +836,14 @@ impl ModuleBuilder<'_> {
         let args = new_expr
             .arguments
             .iter()
-            .take(function.params.len())
+            .take(function.rest.map_or(function.params.len(), |_| usize::MAX))
             .map(|arg| self.argument(arg, body))
             .collect::<Result<Vec<_>, _>>()?;
+        let spread_positions =
+            new_expr.arguments.iter().map(Argument::is_spread).collect::<Vec<_>>();
+        let call_span = self.span(new_expr.span.start, new_expr.span.end);
+        let args =
+            self.pack_value_call_arguments(&function, args, &spread_positions, call_span, body);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ClosureCall {
                 callee: callee_value,

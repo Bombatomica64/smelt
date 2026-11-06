@@ -7342,9 +7342,9 @@ function lazy(value: unknown, depth: number) {
 #[test]
 fn lowers_callback_apply_method_into_closure_body() -> Result<(), String> {
     // `fn.apply(thisArg, argsArray)` inside a closure body: the erased `this`
-    // operand is dropped and the trailing array spreads through the
-    // packed-argument closure-call ABI, mirroring the `.call(...args)` form
-    // (es-toolkit debounce forwards `_debounced.apply(this, args)`).
+    // operand is dropped and the array is the rest list of a rest-only callee,
+    // mirroring the `.call(...args)` form (es-toolkit debounce forwards
+    // `_debounced.apply(this, args)`).
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
@@ -7361,9 +7361,15 @@ function run(callback: (...args: number[]) => void, args: number[]) {
         ctx.krate
             .bodies
             .iter()
-            .flat_map(|body| body.exprs.iter())
-            .any(|expr| matches!(expr.kind, ExprKind::ClosureCallSpread { .. })),
-        "expected callback .apply(thisArg, args) to lower as a spread closure call"
+            .any(|body| body.exprs.iter().any(|expr| matches!(
+                &expr.kind,
+                ExprKind::ClosureCall { args, .. }
+                    if matches!(args.as_slice(), [list] if matches!(
+                        ctx.krate.types.get(body.exprs[list.0 as usize].ty),
+                        Some(smelt_hir::Type::List(_))
+                    ))
+            ))),
+        "expected callback .apply(thisArg, args) to pass args as the rest list"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())

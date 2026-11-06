@@ -151,7 +151,7 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn callback_apply_method_to_body_expr(
         &mut self,
         receiver: smelt_hir::ExprId,
-        _receiver_ty: smelt_hir::TypeId,
+        receiver_ty: smelt_hir::TypeId,
         args: &[smelt_hir::ExprId],
         ty: smelt_hir::TypeId,
         body: &mut Body,
@@ -184,6 +184,23 @@ impl ModuleBuilder<'_> {
         let arguments = *args.last().ok_or_else(|| {
             SmeltError::unsupported(span, "callback apply call requires an arguments array")
         })?;
+        // A callee that is all rest takes the array as that rest list.
+        if let Some(Type::Function(function)) = self.ctx.krate.types.get(receiver_ty).cloned()
+            && function.params.len() == 1
+            && let Some(rest) = self.list_rest_param(&function)
+            && rest.index == 0
+        {
+            let rest_ty = self.ctx.krate.types.intern(Type::List(rest.item_ty));
+            let list = self.rest_spread_value_at_span(arguments, rest_ty, span, body);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::ClosureCall {
+                    callee,
+                    args: vec![list],
+                },
+                ty,
+                span,
+            }));
+        }
         // A `ClosureCallSpread`'s runtime argument list is a `SmeltList<SmeltUnknown>`,
         // and the emitter resolves `List(Unknown)` out of the type table to render it.
         // Intern it here — at the one site that creates such a call from `apply` — so a

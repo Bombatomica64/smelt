@@ -120,7 +120,8 @@ impl ModuleBuilder<'_> {
         // `unknown`, what its erased definition returns); class parameters
         // were already substituted from the receiver by `resolve_method`.
         if let Some((rest_index, params)) = rest_signature {
-            args = self.pack_rest_arguments(args, &spread_positions, rest_index, &params, call.span, body);
+            let span = self.span(call.span.start, call.span.end);
+            args = self.pack_rest_arguments(args, &spread_positions, rest_index, &params, span, body);
         }
         let return_ty = if method_item.0 == u32::MAX {
             return_ty
@@ -242,10 +243,9 @@ impl ModuleBuilder<'_> {
         spread_positions: &[bool],
         rest_index: usize,
         params: &[smelt_hir::TypeId],
-        call_span: oxc::span::Span,
+        span: Span,
         body: &mut Body,
     ) -> Vec<smelt_hir::ExprId> {
-        let span = self.span(call_span.start, call_span.end);
         // A missing fixed argument before the rest position is an omitted
         // optional one: a `None` at the parameter's own type, as the
         // fixed-arity value-call path synthesizes.
@@ -275,6 +275,51 @@ impl ModuleBuilder<'_> {
         };
         args.push(packed);
         args
+    }
+
+    /// The list-typed rest parameter of `function`, when it has one.
+    pub(in crate::lowering) fn list_rest_param(
+        &self,
+        function: &smelt_hir::FunctionType,
+    ) -> Option<RestParam> {
+        function.rest.and_then(|index| {
+            let param = self.type_param_constraint_or_self(*function.params.get(index)?);
+            match self.ctx.krate.types.get(param) {
+                Some(Type::List(item_ty)) => Some(RestParam {
+                    index,
+                    item_ty: *item_ty,
+                }),
+                _ => None,
+            }
+        })
+    }
+
+    /// Pack the arguments of a call through a function VALUE into its parameters.
+    ///
+    /// A rest parameter receives one list, so `ClosureCall` operands line up with
+    /// parameters one to one. `spread_positions` marks which supplied arguments
+    /// are spreads, by position. A callee with no list-typed rest keeps its
+    /// arguments as they are.
+    pub(in crate::lowering) fn pack_value_call_arguments(
+        &self,
+        function: &smelt_hir::FunctionType,
+        args: Vec<smelt_hir::ExprId>,
+        spread_positions: &[bool],
+        span: Span,
+        body: &mut Body,
+    ) -> Vec<smelt_hir::ExprId> {
+        let Some(rest_index) = function.rest else {
+            return args;
+        };
+        let rest_is_list = function.params.len() == rest_index + 1
+            && matches!(
+                self.ctx.krate.types.get(function.params[rest_index]),
+                Some(Type::List(_))
+            );
+        if !rest_is_list {
+            return args;
+        }
+        self.pack_rest_arguments(args, spread_positions, rest_index, &function.params, span, body)
     }
 
     /// The parameter types of a class method with no rest parameter, or `None`
@@ -671,7 +716,8 @@ impl ModuleBuilder<'_> {
         if let Some(rest_index) = rest
             && rest_index < params.len()
         {
-            args = self.pack_rest_arguments(args, &spread_positions, rest_index, &params, call.span, body);
+            let span = self.span(call.span.start, call.span.end);
+            args = self.pack_rest_arguments(args, &spread_positions, rest_index, &params, span, body);
         }
         let return_ty = self.instantiate_generic_method_result(&method_type_params, return_ty);
         let callee = body.push_expr(Expr {
@@ -820,6 +866,14 @@ impl ModuleBuilder<'_> {
                     .skip(usize::from(!receiver_is_positional))
                     .map(|argument| self.argument(argument, body))
                     .collect::<Result<Vec<_>, _>>()?;
+                let spread_positions = call
+                    .arguments
+                    .iter()
+                    .skip(usize::from(!receiver_is_positional))
+                    .map(Argument::is_spread)
+                    .collect::<Vec<_>>();
+                let args =
+                    self.pack_value_call_arguments(&function, args, &spread_positions, span, body);
                 return Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::ClosureCall {
                         callee: callable,
@@ -976,16 +1030,7 @@ impl ModuleBuilder<'_> {
             && let Some(function_ty) = self.function_member_type(callee_ty)
             && let Some(Type::Function(function)) =
                 self.ctx.krate.types.get(function_ty).cloned()
-            && let Some(rest) = function.rest.and_then(|index| {
-                let param = self.type_param_constraint_or_self(*function.params.get(index)?);
-                match self.ctx.krate.types.get(param) {
-                    Some(Type::List(item_ty)) => Some(RestParam {
-                        index,
-                        item_ty: *item_ty,
-                    }),
-                    _ => None,
-                }
-            })
+            && let Some(rest) = self.list_rest_param(&function)
         {
             let callable = if callee_ty == function_ty {
                 callee
@@ -1143,6 +1188,8 @@ impl ModuleBuilder<'_> {
                 "calls through function types with never parameters are not lowered",
             ));
         }
+        let call_span = self.span(call.span.start, call.span.end);
+        let args = self.pack_value_call_arguments(&function, args, &[], call_span, body);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ClosureCall {
                 callee: callable,
@@ -1273,6 +1320,8 @@ impl ModuleBuilder<'_> {
                 span: self.span(member.span.start, member.span.end),
             })
         };
+        let call_span = self.span(call.span.start, call.span.end);
+        let args = self.pack_value_call_arguments(&function, args, &[], call_span, body);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ClosureCall {
                 callee: callable,

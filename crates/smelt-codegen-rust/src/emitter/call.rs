@@ -1317,21 +1317,14 @@ impl FunctionEmitter<'_> {
                         self.erased_call_argument_vector_text(indirect_callee, args)?
                     ).into());
                 }
-                // A rest-only callee invoked with positional arguments takes them
-                // packed into its single rest `SmeltList` parameter; without this
-                // the per-parameter mapping below would report "too many
-                // arguments".
                 let declared_abi = self
                     .class_field_declared_function_type(indirect_callee)
                     .map(|declared| declared.params);
-                let rendered_args = match self.rest_vector_call_args_text(args, Some(function))? {
-                    Some(packed) => packed.join(", "),
-                    None => self.indirect_call_args_text_with_abi(
-                        function,
-                        args,
-                        declared_abi.as_deref(),
-                    )?,
-                };
+                let rendered_args = self.indirect_call_args_text_with_abi(
+                    function,
+                    args,
+                    declared_abi.as_deref(),
+                )?;
                 let suffix = if self.function_value_call_is_fallible(function) {
                     "?"
                 } else {
@@ -1553,9 +1546,7 @@ impl FunctionEmitter<'_> {
                 .and_then(|params| params.get(index).copied())
                 .unwrap_or(substituted)
         };
-        let packed_rest = self.packed_rest_arg_text(args, Some(function))?;
-        let positional_args = packed_rest.as_ref().and_then(|(index, _)| args.get(..*index)).unwrap_or(args);
-        let mut rendered_args = positional_args
+        let mut rendered_args = args
             .iter()
             .enumerate()
             .map(|(index, arg)| {
@@ -1578,11 +1569,6 @@ impl FunctionEmitter<'_> {
                 }
             })
             .collect::<Result<Vec<_>, _>>()?;
-        if let Some((index, list)) = packed_rest
-            && let Some(param) = function.params.get(index)
-        {
-            rendered_args.push(self.callback_call_arg_text(function, index, abi_param(index, *param), list));
-        }
         for (index, target_ty) in function
             .params
             .iter()

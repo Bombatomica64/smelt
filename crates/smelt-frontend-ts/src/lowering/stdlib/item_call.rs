@@ -543,6 +543,11 @@ impl ModuleBuilder<'_> {
                 .iter()
                 .map(|arg| self.argument(arg, body))
                 .collect::<Result<Vec<_>, _>>()?;
+            let spread_positions =
+                call.arguments.iter().map(Argument::is_spread).collect::<Vec<_>>();
+            let span = self.span(call.span.start, call.span.end);
+            let args =
+                self.pack_value_call_arguments(&function, args, &spread_positions, span, body);
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::ClosureCall { callee, args },
                 ty: function.return_ty,

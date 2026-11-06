@@ -82,6 +82,12 @@ fn rest_arguments() -> TestResult {
     verify_node_parity("rest_arguments")
 }
 
+/// Rest arguments are packed by the frontend on every route through a function value.
+#[test]
+fn rest_value_calls() -> TestResult {
+    verify_node_parity("rest_value_calls")
+}
+
 /// Array-valued ternary arms join instead of one adopting the other's type.
 #[test]
 fn conditional_list_arms() -> TestResult {
