@@ -114,60 +114,54 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a supported arrow callback to a typed expression tree.
-    pub(in crate::lowering) fn arrow_callback(
+    pub(in crate::lowering) fn forwarding_callback(
         &mut self,
         argument: &Argument<'_>,
         expected_param_tys: &[smelt_hir::TypeId],
         body: &mut Body,
     ) -> Result<ForwardingCallback, SmeltError> {
-        if let Some(callback) = self.asserted_arrow_callback(argument, expected_param_tys, body)? {
+        if let Some(callback) = self.asserted_forwarding_callback(argument, expected_param_tys, body)? {
             return Ok(callback);
         }
+        // A callback produced by a call (`xs.filter(negate(isEven))`) is not
+        // modeled here: it is evaluated once, in the enclosing body, and then
+        // called. See the callable surface branch of `Self::callback_argument`.
+        if let Argument::Identifier(identifier) = argument
+            && let Some(callback) = self.named_callback_reference(
+                identifier.name.as_str(),
+                identifier.span.start,
+                identifier.span.end,
+                expected_param_tys,
+                body,
+            )?
         {
-            // A callback produced by a call (`xs.filter(negate(isEven))`) is
-            // deliberately NOT modeled here. The compact callback IR can only
-            // stand in a fabricated callee for it, which silently replaces the
-            // factory's real result with a null value. It has to be evaluated
-            // once, in the enclosing body, and then called — see the callable
-            // surface branch of `Self::callback_argument`, which owns the
-            // enclosing `Body` and can bind the result to a local.
-            if let Argument::Identifier(identifier) = argument
-                && let Some(callback) = self.named_callback_reference(
-                    identifier.name.as_str(),
-                    identifier.span.start,
-                    identifier.span.end,
-                    expected_param_tys,
-                    body,
-                )?
-            {
-                return Ok(callback);
-            }
-            if let Argument::StaticMemberExpression(_member) = argument {
-                return Ok(self.opaque_member_callback(expected_param_tys));
-            }
-            // A callback chosen at runtime between callable values
-            // (`xs.map(cond ? Object : identity)`) or coalesced from one
-            // (`xs.map(maybeFn ?? identity)`). The selected callee is an opaque
-            // callable surface here, so model the whole argument as an opaque
-            // callback that forwards the receiver's element arguments, the same
-            // way a member or imported-value callback is handled.
-            if matches!(
-                argument,
-                Argument::ConditionalExpression(_) | Argument::LogicalExpression(_)
-            ) {
-                return Ok(self.opaque_member_callback(expected_param_tys));
-            }
-            if let Argument::ArrayExpression(array) = argument
-                && let Some(callback) =
-                    self.matches_property_iteratee_callback(array, body)?
-            {
-                return Ok(callback);
-            }
-            return Err(SmeltError::unsupported(
-                self.span(argument.span().start, argument.span().end),
-                "array callback methods currently require arrow function callbacks",
-            ))
+            return Ok(callback);
         }
+        if let Argument::StaticMemberExpression(_member) = argument {
+            return Ok(self.opaque_member_callback(expected_param_tys));
+        }
+        // A callback chosen at runtime between callable values
+        // (`xs.map(cond ? Object : identity)`) or coalesced from one
+        // (`xs.map(maybeFn ?? identity)`). The selected callee is an opaque
+        // callable surface here, so model the whole argument as an opaque
+        // callback that forwards the receiver's element arguments, the same
+        // way a member or imported-value callback is handled.
+        if matches!(
+            argument,
+            Argument::ConditionalExpression(_) | Argument::LogicalExpression(_)
+        ) {
+            return Ok(self.opaque_member_callback(expected_param_tys));
+        }
+        if let Argument::ArrayExpression(array) = argument
+            && let Some(callback) =
+                self.matches_property_iteratee_callback(array, body)?
+        {
+            return Ok(callback);
+        }
+        Err(SmeltError::unsupported(
+            self.span(argument.span().start, argument.span().end),
+            "array callback methods currently require arrow function callbacks",
+        ))
     }
 
     /// Resolve a bare identifier callback (`xs.map(fn)`) to a typed callback
@@ -285,27 +279,27 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower callbacks wrapped in erased TypeScript assertion syntax.
-    pub(in crate::lowering) fn asserted_arrow_callback(
+    pub(in crate::lowering) fn asserted_forwarding_callback(
         &mut self,
         argument: &Argument<'_>,
         expected_param_tys: &[smelt_hir::TypeId],
         body: &Body,
     ) -> Result<Option<ForwardingCallback>, SmeltError> {
         match argument {
-            Argument::TSAsExpression(as_expr) => Ok(Some(self.arrow_callback_expression(
+            Argument::TSAsExpression(as_expr) => Ok(Some(self.asserted_callee_callback(
                 &as_expr.expression,
                 expected_param_tys,
                 body,
             )?)),
-            Argument::TSTypeAssertion(assertion) => Ok(Some(self.arrow_callback_expression(
+            Argument::TSTypeAssertion(assertion) => Ok(Some(self.asserted_callee_callback(
                 &assertion.expression,
                 expected_param_tys,
                 body,
             )?)),
             Argument::TSSatisfiesExpression(satisfies) => Ok(Some(
-                self.arrow_callback_expression(&satisfies.expression, expected_param_tys, body)?,
+                self.asserted_callee_callback(&satisfies.expression, expected_param_tys, body)?,
             )),
-            Argument::TSNonNullExpression(non_null) => Ok(Some(self.arrow_callback_expression(
+            Argument::TSNonNullExpression(non_null) => Ok(Some(self.asserted_callee_callback(
                 &non_null.expression,
                 expected_param_tys,
                 body,
@@ -315,7 +309,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower the expression inside a TypeScript assertion when it is a callback.
-    pub(in crate::lowering) fn arrow_callback_expression(
+    pub(in crate::lowering) fn asserted_callee_callback(
         &mut self,
         expression: &Expression<'_>,
         expected_param_tys: &[smelt_hir::TypeId],
@@ -323,16 +317,16 @@ impl ModuleBuilder<'_> {
     ) -> Result<ForwardingCallback, SmeltError> {
         match expression {
             Expression::ParenthesizedExpression(parenthesized) => {
-                self.arrow_callback_expression(&parenthesized.expression, expected_param_tys, body)
+                self.asserted_callee_callback(&parenthesized.expression, expected_param_tys, body)
             }
             Expression::TSAsExpression(as_expr) => {
-                self.arrow_callback_expression(&as_expr.expression, expected_param_tys, body)
+                self.asserted_callee_callback(&as_expr.expression, expected_param_tys, body)
             }
             Expression::TSSatisfiesExpression(satisfies) => {
-                self.arrow_callback_expression(&satisfies.expression, expected_param_tys, body)
+                self.asserted_callee_callback(&satisfies.expression, expected_param_tys, body)
             }
             Expression::TSNonNullExpression(non_null) => {
-                self.arrow_callback_expression(&non_null.expression, expected_param_tys, body)
+                self.asserted_callee_callback(&non_null.expression, expected_param_tys, body)
             }
             Expression::StaticMemberExpression(_member) => {
                 Ok(self.opaque_member_callback(expected_param_tys))

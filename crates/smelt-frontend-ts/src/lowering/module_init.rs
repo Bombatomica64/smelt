@@ -1640,8 +1640,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// `collect_module_globals` folds an annotated `const xs: T[] = [...]`
     /// before it is known whether the module writes through `xs`. A written
     /// binding lifts to a `MutableGlobal` slot, and every read must see that
-    /// slot: a folded copy of the initializer (which the compact callback IR
-    /// would inline) would silently read the stale initial elements.
+    /// slot: a folded copy of the initializer would silently read the stale
+    /// initial elements.
     fn forget_lifted_const_collections(&mut self) {
         let lifted: Vec<String> = self.mutable_global_items.keys().cloned().collect();
         for name in lifted {
@@ -2704,9 +2704,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
     /// Scan `const name = <arrow/function>` initializers for mutation targets.
     ///
-    /// Const arrow/function bindings lift to items (the compact callback and
-    /// function-item forms), so their bodies — like function declarations —
-    /// have no module-body local to assign through and need the global lift.
+    /// Const arrow/function bindings lift to items, so their bodies, like
+    /// function declarations, have no module-body local to assign through and
+    /// need the global lift.
     fn collect_mutated_names_in_const_callables(
         collector: &mut MutatedNameCollector,
         decl: &oxc::ast::ast::VariableDeclaration<'_>,

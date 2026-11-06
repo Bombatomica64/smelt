@@ -2968,9 +2968,7 @@ impl ModuleBuilder<'_> {
     /// operators, and answers `Err` where a ternary joins to a union. A
     /// ternary in argument position once asked that query, so
     /// `console.log(c ? 1 : "a")` and `f(c ? recordA : recordB)` failed to
-    /// lower while the same ternary assigned to a `const` was a union. The
-    /// compact callback IR still asks it; `callback_conditional_type` records
-    /// why that copy cannot move here yet.
+    /// lower while the same ternary assigned to a `const` was a union.
     fn ternary_branch_type(
         &mut self,
         body: &Body,

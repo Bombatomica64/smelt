@@ -47,8 +47,8 @@ pub(super) struct ResolveCalls {
 ///
 /// `executor` is the executor expression in `parent`; `bodies` holds every
 /// lowered closure body of the crate. Returns `None` when the executor did not
-/// lower to a closure with a `resolve` parameter (a compact callback, a named
-/// function value), since then there is no body to read.
+/// lower to a closure with a `resolve` parameter (a named function value), since
+/// then there is no body to read.
 pub(super) fn executor_resolve_calls(
     bodies: &[Body],
     parent: &Body,

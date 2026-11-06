@@ -3101,8 +3101,7 @@ impl ModuleBuilder<'_> {
     /// getter's return annotation), so the member-type resolver reads it from
     /// there instead of falling through to the `Unknown` boundary. Erasing it
     /// forced every chained access (`c.req.header(..)`) into dynamic
-    /// `SmeltUnknown` dispatch, and the compact callback IR could not lower a
-    /// method call on the erased receiver at all. Static and setter-only
+    /// `SmeltUnknown` dispatch. Static and setter-only
     /// descriptors are not instance reads, so they do not answer here.
     fn class_getter_read_type(
         class: &Class,

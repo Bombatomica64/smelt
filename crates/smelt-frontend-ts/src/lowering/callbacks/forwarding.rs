@@ -105,7 +105,7 @@ impl ModuleBuilder<'_> {
                 Param { name, local, ty: *ty, span }
             })
             .collect::<Vec<_>>();
-        let (captures, captured) = match callback.target {
+        let (captures, body_local) = match callback.target {
             ForwardTarget::Local { local, .. } | ForwardTarget::MatchesProperty { value: local, .. } => {
                 self.forwarded_capture(local, body, &mut closure_body, span)
             }
@@ -121,7 +121,7 @@ impl ModuleBuilder<'_> {
                 })
             })
             .collect::<Vec<_>>();
-        let answer = self.forwarded_answer(callback, captured, &param_exprs, &mut closure_body, span)?;
+        let answer = self.forwarded_answer(callback, body_local, &param_exprs, &mut closure_body, span)?;
         let tail = if return_ty == callback.ty {
             answer
         } else {
@@ -201,7 +201,7 @@ impl ModuleBuilder<'_> {
     fn forwarded_answer(
         &mut self,
         callback: ForwardingCallback,
-        captured: Option<smelt_hir::LocalId>,
+        body_local: Option<smelt_hir::LocalId>,
         params: &[smelt_hir::ExprId],
         closure_body: &mut Body,
         span: Span,
@@ -226,7 +226,7 @@ impl ModuleBuilder<'_> {
             }
             ForwardTarget::Local { local, ty } => {
                 let callee = closure_body.push_expr(Expr {
-                    kind: ExprKind::Local(captured.unwrap_or(local)),
+                    kind: ExprKind::Local(body_local.unwrap_or(local)),
                     ty,
                     span,
                 });
@@ -250,7 +250,7 @@ impl ModuleBuilder<'_> {
                     span,
                 });
                 let rhs = closure_body.push_expr(Expr {
-                    kind: ExprKind::Local(captured.unwrap_or(value)),
+                    kind: ExprKind::Local(body_local.unwrap_or(value)),
                     ty: value_ty,
                     span,
                 });

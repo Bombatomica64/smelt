@@ -242,55 +242,53 @@ impl ModuleBuilder<'_> {
         )? {
             return Ok(callback);
         }
-        {
-            // A callback factory whose callee is only *declared* here has no
-            // lowerable value, so a failed attempt falls through to the opaque
-            // callback below instead of failing the whole call. A missing host
-            // surface is a blocker the opaque callback must not absorb.
-            let direct = match self.argument(argument, body) {
-                Ok(expr) => Some(expr),
-                Err(error)
-                    if matches!(argument, Argument::CallExpression(_))
-                        && error.category != DiagnosticCategory::MissingStdlib =>
-                {
-                    drop(error);
-                    None
-                }
-                Err(error) => return Err(error),
-            };
-            if let Some(direct_expr) = direct {
-                let direct_ty = Self::expr_ty(body, direct_expr);
-                if let Some(Type::Function(function)) =
-                    self.ctx.krate.types.get(direct_ty).cloned()
-                {
-                    return Ok(ClosureCallback {
-                        expr: direct_expr,
-                        return_ty: function.return_ty,
-                    });
-                }
-                if let Some(callback) = self.bound_callable_value_callback(
-                    argument,
-                    direct_expr,
-                    direct_ty,
-                    expected_param_tys,
-                    body,
-                ) {
-                    let span = self.span(argument.span().start, argument.span().end);
-                    let return_ty = callback.ty;
-                    let expr =
-                        self.forwarding_closure(callback, expected_param_tys, span, body)?;
-                    return Ok(ClosureCallback { expr, return_ty });
-                }
-            } else {
+        // A callback factory whose callee is only *declared* here has no
+        // lowerable value, so a failed attempt falls through to the opaque
+        // callback below instead of failing the whole call. A missing host
+        // surface is a blocker the opaque callback must not absorb.
+        let direct = match self.argument(argument, body) {
+            Ok(expr) => Some(expr),
+            Err(error)
+                if matches!(argument, Argument::CallExpression(_))
+                    && error.category != DiagnosticCategory::MissingStdlib =>
+            {
+                drop(error);
+                None
+            }
+            Err(error) => return Err(error),
+        };
+        if let Some(direct_expr) = direct {
+            let direct_ty = Self::expr_ty(body, direct_expr);
+            if let Some(Type::Function(function)) =
+                self.ctx.krate.types.get(direct_ty).cloned()
+            {
+                return Ok(ClosureCallback {
+                    expr: direct_expr,
+                    return_ty: function.return_ty,
+                });
+            }
+            if let Some(callback) = self.bound_callable_value_callback(
+                argument,
+                direct_expr,
+                direct_ty,
+                expected_param_tys,
+                body,
+            ) {
                 let span = self.span(argument.span().start, argument.span().end);
-                let callback = self.opaque_member_callback(expected_param_tys);
                 let return_ty = callback.ty;
                 let expr =
                     self.forwarding_closure(callback, expected_param_tys, span, body)?;
                 return Ok(ClosureCallback { expr, return_ty });
             }
+        } else {
+            let span = self.span(argument.span().start, argument.span().end);
+            let callback = self.opaque_member_callback(expected_param_tys);
+            let return_ty = callback.ty;
+            let expr =
+                self.forwarding_closure(callback, expected_param_tys, span, body)?;
+            return Ok(ClosureCallback { expr, return_ty });
         }
-        let callback = self.arrow_callback(argument, expected_param_tys, body)?;
+        let callback = self.forwarding_callback(argument, expected_param_tys, body)?;
         let return_ty = callback.ty;
         let expr = self.forwarding_closure(callback, expected_param_tys, self.span(argument.span().start, argument.span().end), body)?;
         Ok(ClosureCallback { expr, return_ty })
@@ -299,10 +297,8 @@ impl ModuleBuilder<'_> {
     /// Model a callback argument that is a *call* — a callback factory such as
     /// `xs.filter(negate(isEven))` — as a call of its already lowered result.
     ///
-    /// The compact callback IR can only name a captured local, an item, or a
-    /// literal as a callee, so a factory call used to be replaced by a
-    /// fabricated null callee and never ran. Instead the factory's result is
-    /// bound to a local in the enclosing body — evaluated exactly once, as
+    /// The factory's result is bound to a local in the enclosing body, evaluated
+    /// exactly once, as
     /// JavaScript does, not once per element — and the callback calls that
     /// local, the same shape a named local of an erased callable type uses.
     ///
@@ -344,7 +340,7 @@ impl ModuleBuilder<'_> {
         {
             return Ok(ClosureCallback { expr: callback.expr, return_ty: bool_ty });
         }
-        match self.arrow_callback(argument, expected_param_tys, body) {
+        match self.forwarding_callback(argument, expected_param_tys, body) {
             Ok(callback) => {
                 let span = self.span(argument.span().start, argument.span().end);
                 let expr = self.forwarding_predicate_closure(callback, expected_param_tys, span, body)?;
@@ -426,10 +422,12 @@ impl ModuleBuilder<'_> {
         context: &'static str,
         body: &mut Body,
     ) -> Result<ClosureCallback, SmeltError> {
-        match self.inline_callback(argument, expected_param_tys, return_hint, context, body)? {
-            Some(callback) => Ok(callback),
-            None => self.callback_argument(argument, expected_param_tys, context, body),
+        if let Some(callback) =
+            self.inline_callback(argument, expected_param_tys, return_hint, context, body)?
+        {
+            return Ok(callback);
         }
+        self.callback_argument(argument, expected_param_tys, context, body)
     }
 
     /// Lower an inline callback literal through its closure body.

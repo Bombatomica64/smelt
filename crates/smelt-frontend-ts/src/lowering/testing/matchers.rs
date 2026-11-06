@@ -4435,11 +4435,9 @@ impl ModuleBuilder<'_> {
                 self.imports.mark_global_object_alias(binding.name.as_str().to_owned());
                 continue;
             }
-            // A `const f = (…) => …` arrow lifts to the compact callback/function
-            // form, which references `f` as an immutable item — sound because a
-            // `const` can never be reassigned. A `let`/`var` arrow may be
-            // reassigned later (`let cmp = defaultCmp; … cmp = other;`), and the
-            // callback form has no assignable place for that write. Only lift
+            // A `const f = (…) => …` arrow is an immutable closure local, sound
+            // because a `const` can never be reassigned. A `let`/`var` arrow may
+            // be reassigned later (`let cmp = defaultCmp; … cmp = other;`). Only lift
             // `const` arrows here; mutable-binding arrows fall through to the
             // general initializer path, which binds a mutable local holding the
             // arrow as a closure value so later reassignments lower to a plain

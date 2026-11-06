@@ -408,10 +408,8 @@ impl ModuleBuilder<'_> {
     /// Function expressions are the non-arrow sibling of the callback surface
     /// accepted by array methods. They always have a block body (never an
     /// expression body) and reuse the same shared closure-body machinery as
-    /// arrow callbacks, so a `function`-form callback whose body needs full
-    /// closure lowering (e.g. a method call the compact callback IR cannot
-    /// model) is lowered identically to the equivalent arrow. The callback's
-    /// own `arguments` binding is not modeled here; array-method callbacks that
+    /// arrow callbacks, so a `function`-form callback is lowered identically to
+    /// the equivalent arrow. The callback's own `arguments` binding is not modeled here; array-method callbacks that
     /// reference `arguments` are rejected by the general body lowering as usual.
     pub(in crate::lowering) fn function_closure_body_expr(
         &mut self,
@@ -738,10 +736,8 @@ impl ModuleBuilder<'_> {
         // `Unknown` — the element type of the mapped list is exactly what the
         // callback is supposed to answer, so the caller has nothing better to
         // offer. An expression-bodied arrow already inferred its own type; a
-        // block-bodied one kept the fallback, so ANY callback that the compact
-        // callback IR could not model (mentioning `this` is enough: the compact
-        // IR has no `this`, so every such callback lands here) was typed
-        // `-> Unknown` and its `map` produced a `List<Unknown>`.
+        // block-bodied one keeping the fallback would be typed `-> Unknown`, and
+        // its `map` would produce a `List<Unknown>`.
         //
         // That is how Hono's `buildRegExpStr` got a `List<Unknown>` out of a
         // `map` whose every arm is a string, and the erasure only surfaced two

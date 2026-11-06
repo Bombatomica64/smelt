@@ -195,12 +195,6 @@ impl ModuleBuilder<'_> {
     /// `item_ty`: the index coerced by [`Self::coerce_at_index_operand`], then
     /// an `OptionalIndex` typed `Optional<item_ty>`.
     ///
-    /// The one lowering of `.at`, shared by the direct call above and the
-    /// compact callback IR (`callback_at_call_to_body_expr`). The callback copy
-    /// once skipped the index coercion, so an erased index reached the emitter
-    /// raw and was read with a different string-to-number rule than the direct
-    /// path's `Number(...)` cast: `[0].map(() => ys.at(i))` with `i: any = " 1 "`
-    /// answered `ys[0]` while `ys.at(i)` answered `ys[1]`.
     pub(in crate::lowering) fn optional_at_index_expr(
         &mut self,
         receiver: smelt_hir::ExprId,
