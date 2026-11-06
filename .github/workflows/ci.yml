@@ -18,7 +18,6 @@ on:
       - '.gitignore'
       - '*.svg'
       - 'coverage-summary.json'
-      - 'lcov.info'
   pull_request:
     # `main` is the merge target that matters, but a *stacked* PR (one whose base
     # is the branch below it in a chain) would otherwise get no CI at all: a
@@ -41,7 +40,6 @@ on:
       - '.gitignore'
       - '*.svg'
       - 'coverage-summary.json'
-      - 'lcov.info'
 
 # Supersede in-flight runs for the same branch. Restricted to pull requests on
 # purpose: cancelling a `main` push run would skip the es-toolkit regression
@@ -453,7 +451,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add README.md coverage-summary.json coverage.svg lcov.info coverage-functions.svg coverage-lines.svg coverage-regions.svg coverage-branches.svg
+          git add README.md coverage-summary.json coverage.svg coverage-functions.svg coverage-lines.svg coverage-regions.svg coverage-branches.svg
           git diff --quiet --cached && echo "No coverage updates to commit." || git commit -m "chore(ci): update coverage report"
 
       # This job runs for many minutes, so main can move underneath it; replay
