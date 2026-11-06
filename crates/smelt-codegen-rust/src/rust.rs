@@ -104,30 +104,35 @@ impl RustExpr {
 
     /// An identifier or field path.
     #[must_use]
+    #[track_caller]
     pub fn path(text: impl Into<String>) -> Self {
         Self::with_precedence(text, Precedence::Path)
     }
 
     /// A postfix chain; see [`Precedence::Chain`].
     #[must_use]
+    #[track_caller]
     pub fn chain(text: impl Into<String>) -> Self {
         Self::with_precedence(text, Precedence::Chain)
     }
 
     /// A tightly binding non-chain; see [`Precedence::Atom`].
     #[must_use]
+    #[track_caller]
     pub fn atom(text: impl Into<String>) -> Self {
         Self::with_precedence(text, Precedence::Atom)
     }
 
     /// An `as` cast.
     #[must_use]
+    #[track_caller]
     pub fn cast(text: impl Into<String>) -> Self {
         Self::with_precedence(text, Precedence::Cast)
     }
 
     /// An expression with a loose top-level operator.
     #[must_use]
+    #[track_caller]
     pub fn loose(text: impl Into<String>) -> Self {
         Self::with_precedence(text, Precedence::Loose)
     }
@@ -148,6 +153,14 @@ impl RustExpr {
             other => other,
         };
         Self::with_precedence(text, precedence)
+    }
+
+    /// `text`, a field of `base`: a path stays a path, so `self.items` is
+    /// spelled without the parentheses a method chain may need.
+    #[must_use]
+    #[track_caller]
+    pub fn field_on(base: &(impl Formed + ?Sized), text: impl Into<String>) -> Self {
+        Self::with_precedence(text, base.precedence())
     }
 
     /// `text`, a postfix on `receiver` whose spine holds a path separator or a
@@ -181,6 +194,19 @@ impl RustExpr {
         self
     }
 
+    /// TEMPORARY migration audit.
+    #[track_caller]
+    fn audit(&self, kind: &str) {
+        use std::io::Write;
+        if self.precedence != Precedence::Unstated { return; }
+        let Ok(path) = std::env::var("SMELT_SHADOW") else { return };
+        let at = std::panic::Location::caller();
+        let short: String = self.text.chars().take(90).collect::<String>().replace('\n', " ");
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            let _ = writeln!(f, "U {kind} {}:{} {}:{} Unstated {short}", at.file(), at.line(), self.origin.file(), self.origin.line());
+        }
+    }
+
     /// How tightly this expression binds.
     #[must_use]
     pub fn binding(&self) -> Precedence {
@@ -200,7 +226,9 @@ impl RustExpr {
     /// nothing else observes. A chain keeps the plain `value.clone()` spelling; any
     /// other form is parenthesised so the result splices into a larger expression.
     #[must_use]
+    #[track_caller]
     pub fn cloned_value(&self) -> Self {
+        self.audit("clone");
         match (self.precedence.is_chain(), self.clone_tail) {
             (true, true) => self.clone(),
             (true, false) => Self::chain(format!("{}{CLONE_SUFFIX}", self.text)).ending_in_clone(),
@@ -216,7 +244,9 @@ impl RustExpr {
     /// a `&`. Any looser expression is parenthesised so the `&` cannot bind more
     /// tightly than the caller meant.
     #[must_use]
+    #[track_caller]
     pub fn borrowed_value(&self) -> Self {
+        self.audit("borrow");
         if !self.precedence.is_chain() {
             return Self::loose(format!("&({})", self.text));
         }
@@ -228,10 +258,25 @@ impl RustExpr {
         Self::loose(format!("&{place}"))
     }
 
-    /// The text, parenthesized only when it cannot take a postfix or a cast.
+    /// The text, parenthesized only when it cannot take a postfix.
     #[must_use]
+    #[track_caller]
     pub fn parenthesized_if_needed(&self) -> String {
+        self.audit("paren");
         if self.precedence.binds_tightly() {
+            self.text.clone()
+        } else {
+            format!("({})", self.text)
+        }
+    }
+
+    /// The text as the operand of an `as` cast: a cast or a unary operator binds
+    /// at least as tightly, anything looser is parenthesized.
+    #[must_use]
+    #[track_caller]
+    pub fn as_cast_operand(&self) -> String {
+        self.audit("cast");
+        if self.precedence <= Precedence::Cast {
             self.text.clone()
         } else {
             format!("({})", self.text)
@@ -302,29 +347,8 @@ impl std::ops::Deref for RustExpr {
     }
 }
 
-/// Whether `text` is exactly one Rust string literal (no trailing operators).
-///
-/// Used by [`erased_string`] to tell the emitter's own literal spelling apart
-/// from an arbitrary rendered expression that merely ends in a quote.
-#[must_use]
-fn is_string_literal(text: &str) -> bool {
-    let Some(body) = text.strip_prefix('"').and_then(|rest| rest.strip_suffix('"')) else {
-        return false;
-    };
-    let mut escaped = false;
-    for ch in body.chars() {
-        if escaped {
-            escaped = false;
-        } else if ch == '\\' {
-            escaped = true;
-        } else if ch == '"' {
-            // A closing quote inside the body means `text` was more than one
-            // literal (e.g. `"a".to_owned() + "b"`), so it is not a literal.
-            return false;
-        }
-    }
-    !escaped
-}
+/// The `.to_owned()` that follows the emitter's own spelling of a string constant.
+const TO_OWNED_SUFFIX: &str = ".to_owned()";
 
 /// Renders the erased-string construction for a rendered `String`-typed expression.
 ///
@@ -336,32 +360,15 @@ fn is_string_literal(text: &str) -> bool {
 /// converted with `.into()`, which is a no-op for an `Rc<str>` and a single
 /// buffer move-and-copy for a `String`.
 #[must_use]
-pub fn erased_string(text: &str) -> String {
-    match text.strip_suffix(".to_owned()") {
-        Some(literal) if is_string_literal(literal) => {
-            format!("SmeltUnknown::String({literal}.into())")
-        }
-        _ if is_field_path(text) => format!("SmeltUnknown::String({text}.into())"),
-        _ => format!("SmeltUnknown::String(({text}).into())"),
+pub fn erased_string(value: &RustExpr) -> RustExpr {
+    if value.owned_literal {
+        let literal = &value.text[..value.text.len() - TO_OWNED_SUFFIX.len()];
+        return RustExpr::atom(format!("SmeltUnknown::String({literal}.into())"));
     }
-}
-
-/// Whether `text` is a bare identifier or dotted field path (`self.message`).
-///
-/// Method-call and field syntax bind tighter than every operator, so appending
-/// `.into()` to such a path needs no parentheses; anything else gets them,
-/// because the expression may end in a binary operator whose operand `.into()`
-/// would otherwise steal.
-#[must_use]
-fn is_field_path(text: &str) -> bool {
-    !text.is_empty()
-        && text.split('.').all(|segment| {
-            let mut chars = segment.chars();
-            chars
-                .next()
-                .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_')
-                && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
-        })
+    if value.precedence == Precedence::Path {
+        return RustExpr::atom(format!("SmeltUnknown::String({value}.into())"));
+    }
+    RustExpr::atom(format!("SmeltUnknown::String(({value}).into())"))
 }
 
 impl std::fmt::Display for RustExpr {

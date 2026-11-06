@@ -310,7 +310,7 @@ impl FunctionEmitter<'_> {
             if strict_nullish {
                 let distinct = (provably_null(lhs) && provably_undefined(rhs))
                     || (provably_undefined(lhs) && provably_null(rhs));
-                RustExpr::from((!distinct).to_string())
+                RustExpr::path((!distinct).to_string())
             } else {
                 RustExpr::path("true")
             }

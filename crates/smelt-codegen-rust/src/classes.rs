@@ -643,8 +643,8 @@ fn method_names_match(mir: &Mir, left: FuncId, right: FuncId) -> bool {
 /// values such as `String` cannot be Rust `const` items.
 pub(crate) fn materialized_static_value(literal: Option<&smelt_hir::Literal>) -> RustExpr {
     match literal {
-        Some(smelt_hir::Literal::Bool(value)) => RustExpr::from(value.to_string()),
-        Some(smelt_hir::Literal::Int(value)) => RustExpr::from(value.to_string()),
+        Some(smelt_hir::Literal::Bool(value)) => RustExpr::chain(value.to_string()),
+        Some(smelt_hir::Literal::Int(value)) => RustExpr::chain(value.to_string()),
         Some(smelt_hir::Literal::Float(value)) if value.is_nan() => RustExpr::atom("f64::NAN"),
         Some(smelt_hir::Literal::Float(value))
             if value.is_infinite() && value.is_sign_positive() =>

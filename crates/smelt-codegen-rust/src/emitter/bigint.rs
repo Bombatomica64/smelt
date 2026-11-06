@@ -271,7 +271,7 @@ impl FunctionEmitter<'_> {
         let number_text = if matches!(self.mir.types.get(self.operand_ty(number)?), Some(Type::Float)) {
             self.operand_expr(number)?
         } else {
-            RustExpr::opaque(format!("{} as f64", self.operand_expr(number)?))
+            RustExpr::cast(format!("{} as f64", self.operand_expr(number)?))
         };
         let ordering = format!("smelt_bigint_compare_number({big_ref}, {number_text})");
         // The helper orders `bigint` against `number`; a `number < bigint`
@@ -373,7 +373,7 @@ impl FunctionEmitter<'_> {
                     if matches!(self.mir.types.get(self.operand_ty(radix)?), Some(Type::Float)) {
                         radix_operand
                     } else {
-                        RustExpr::opaque(format!("{radix_operand} as f64"))
+                        RustExpr::cast(format!("{radix_operand} as f64"))
                     };
                 Ok(CallText::propagating(RustExpr::chain(format!(
                     "smelt_bigint_to_string_radix({}, {radix_text})",
@@ -462,7 +462,7 @@ impl FunctionEmitter<'_> {
         match self.mir.types.get(self.operand_ty(bits)?) {
             Some(Type::Float) => self.operand_expr(bits),
             Some(Type::Int | Type::FixedInt(_)) => {
-                Ok(RustExpr::opaque(format!("{} as f64", self.operand_expr(bits)?)))
+                Ok(RustExpr::cast(format!("{} as f64", self.operand_expr(bits)?)))
             }
             _ => {
                 let float_ty = self.type_id(Type::Float)?;

@@ -60,16 +60,16 @@ pub(crate) fn storage_type_text(value_ty_text: &str) -> String {
 }
 
 /// Wraps a plain value as an accessor that answers it.
-pub(crate) fn constant_expr(value_text: &str) -> RustExpr {
-    RustExpr::atom_on(&ACCESSOR_TYPE, format!("{ACCESSOR_TYPE}::constant({value_text})"))
+pub(crate) fn constant_expr(value_text: &RustExpr) -> RustExpr {
+    RustExpr::atom(format!("{ACCESSOR_TYPE}::constant({value_text})"))
 }
 
 /// Wraps a getter closure (`Rc<dyn Fn() -> T>`) as an accessor.
-pub(crate) fn getter_expr(getter_expr: &str) -> RustExpr {
-    RustExpr::atom_on(&ACCESSOR_TYPE, format!("{ACCESSOR_TYPE}::new({getter_expr})"))
+pub(crate) fn getter_expr(getter_expr: &RustExpr) -> RustExpr {
+    RustExpr::atom(format!("{ACCESSOR_TYPE}::new({getter_expr})"))
 }
 
 /// Reads an accessor field: runs the getter.
-pub(crate) fn read_expr(field_text: &str) -> RustExpr {
+pub(crate) fn read_expr(field_text: &RustExpr) -> RustExpr {
     RustExpr::postfix_on(&field_text, format!("{field_text}.get()"))
 }

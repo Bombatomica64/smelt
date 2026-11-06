@@ -96,7 +96,7 @@ pub(crate) fn emit_record_into_smelt_unknown_impl(
                     let field_source = if accessor_owner
                         .is_some_and(|owner| accessor_prelude::is_accessor_field(mir, owner, field.name))
                     {
-                        RustExpr::atom(format!("({})", accessor_prelude::read_expr(&format!("self.{field_name}"))))
+                        RustExpr::atom(format!("({})", accessor_prelude::read_expr(&RustExpr::from(format!("self.{field_name}")))))
                     } else {
                         RustExpr::path(format!("self.{field_name}"))
                     };

@@ -148,7 +148,7 @@ impl FunctionEmitter<'_> {
         };
         let closure_expr = match self.closure_operand_expr_for_declared_type(callback) {
             Ok(text) => text,
-            Err(_) => RustExpr::from(self.operand_expr(callback)?.into_string()),
+            Err(_) => self.operand_expr(callback)?,
         };
         let value_ty = self.form_data_value_type_id()?;
         let value_arm = self.form_data_value_to_union_expr(&RustExpr::path("smelt_entry"), value_ty)?;

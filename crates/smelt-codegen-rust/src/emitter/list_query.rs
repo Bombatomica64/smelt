@@ -166,7 +166,7 @@ impl FunctionEmitter<'_> {
         };
         let closure_expr = match self.closure_operand_expr_for_declared_type(callback) {
             Ok(closure_expr) => closure_expr,
-            Err(_) => RustExpr::from(self.operand_expr(callback)?.into_string()),
+            Err(_) => self.operand_expr(callback)?,
         };
         let list_iteration =
             self.list_callback_iteration_parts(list, list_ty, element_ty, callback, function_ty)?;
@@ -195,7 +195,7 @@ impl FunctionEmitter<'_> {
         let call_text = if self.mir.types.get(function_ty.return_ty) == Some(&Type::Bool) {
             raw_call_text
         } else {
-            RustExpr::from(self.value_truthy_expr(&raw_call_text, function_ty.return_ty)?.into_string())
+            self.value_truthy_expr(&raw_call_text, function_ty.return_ty)?
         };
         let prefix = format!(
             "let smelt_callback = {closure_expr}; {prefix}",
@@ -293,7 +293,7 @@ impl FunctionEmitter<'_> {
         };
         let closure_expr = match self.closure_operand_expr_for_declared_type(callback) {
             Ok(closure_expr) => closure_expr,
-            Err(_) => RustExpr::from(self.operand_expr(callback)?.into_string()),
+            Err(_) => self.operand_expr(callback)?,
         };
         let list_iteration =
             self.list_callback_iteration_parts(list, list_ty, element_ty, callback, function_ty)?;
@@ -334,7 +334,7 @@ impl FunctionEmitter<'_> {
         };
         let closure_expr = match self.closure_operand_expr_for_declared_type(callback) {
             Ok(closure_expr) => closure_expr,
-            Err(_) => RustExpr::from(self.operand_expr(callback)?.into_string()),
+            Err(_) => self.operand_expr(callback)?,
         };
         let list_iteration =
             self.list_callback_iteration_parts(list, list_ty, element_ty, callback, function_ty)?;
@@ -364,7 +364,7 @@ impl FunctionEmitter<'_> {
         };
         let closure_expr = match self.closure_operand_expr_for_declared_type(callback) {
             Ok(closure_expr) => closure_expr,
-            Err(_) => RustExpr::from(self.operand_expr(callback)?.into_string()),
+            Err(_) => self.operand_expr(callback)?,
         };
         let list_iteration =
             self.list_callback_iteration_parts(list, list_ty, element_ty, callback, function_ty)?;
@@ -497,7 +497,7 @@ impl FunctionEmitter<'_> {
                 } else {
                     call_args.push(format!(
                         "&({})",
-                        self.rendered_at_type(&RustExpr::opaque("item.clone()"), element_ty, item_param_ty, &self.render_scope())?
+                        self.rendered_at_type(&RustExpr::chain("item.clone()").ending_in_clone(), element_ty, item_param_ty, &self.render_scope())?
                     ));
                 }
             } else {
@@ -754,7 +754,7 @@ impl FunctionEmitter<'_> {
                     // lifetime Rust extends to the end of the statement.
                     call_args.push(format!(
                         "&({})",
-                        self.rendered_at_type(&RustExpr::opaque(value_text), source_ty, param_ty, &self.render_scope())?
+                        self.rendered_at_type(&RustExpr::path(value_text), source_ty, param_ty, &self.render_scope())?
                     ));
                 } else if index == ARRAY_ARG_INDEX && array_by_ref {
                     // The array position is already bound as a reference (see
@@ -767,7 +767,7 @@ impl FunctionEmitter<'_> {
                 }
                 continue;
             }
-            call_args.push(self.rendered_at_type(&RustExpr::opaque(&value_text), source_ty, param_ty, &self.render_scope())?.into_string());
+            call_args.push(self.rendered_at_type(&RustExpr::path(value_text), source_ty, param_ty, &self.render_scope())?.into_string());
         }
         if let Some(initial_operand) = initial
             && self.operand_ty(initial_operand)? != dest_ty
@@ -796,7 +796,7 @@ impl FunctionEmitter<'_> {
             // than a local closure) renders as the parameter name itself, which
             // calls through the `&dyn Fn`. Fall back to it instead of dropping
             // the reduce body to a default value.
-            Err(_) => RustExpr::from(self.operand_expr(callback)?.into_string()),
+            Err(_) => self.operand_expr(callback)?,
         };
         // Coerce the callback result to the accumulator type so a reconcilable
         // (but not identical) return type still produces the next `acc` value.

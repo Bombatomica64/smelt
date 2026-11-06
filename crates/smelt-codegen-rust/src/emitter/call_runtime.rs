@@ -2,7 +2,6 @@
 
 use crate::rust::RustExpr;
 use super::*;
-use crate::emitter::rendered_value::cloned_value_text;
 use smelt_hir::FunctionType;
 
 impl FunctionEmitter<'_> {
@@ -59,7 +58,7 @@ impl FunctionEmitter<'_> {
                     .map(|arg| self.erase(arg))
                     .collect::<Result<Vec<_>, EmitError>>()?;
                 (
-                    format!("{slot_text}.call(vec![{}])", rendered.join(", ")),
+                    RustExpr::postfix_on(&slot_text, format!("{slot_text}.call(vec![{}])", rendered.join(", "))),
                     self.type_id(Type::Unknown)?,
                 )
             } else {
@@ -93,12 +92,12 @@ impl FunctionEmitter<'_> {
                 } else {
                     call
                 };
-                (call, function.return_ty)
+                (RustExpr::from(call), function.return_ty)
             };
         if self.mir.types.get(dest_ty) == Some(&Type::None) {
             return Ok(Some(RustExpr::atom(format!("{{ {call_text}; () }}"))));
         }
-        Ok(Some(self.rendered_at_type(&RustExpr::opaque(&call_text), source_ty, dest_ty, &self.render_scope())?))
+        Ok(Some(self.rendered_at_type(&call_text, source_ty, dest_ty, &self.render_scope())?))
     }
     /// Render array-literal elements by value without consuming local operands.
     ///
@@ -147,11 +146,11 @@ impl FunctionEmitter<'_> {
         // `callee_text` is usually already an owned temporary (an operand render
         // clones the local it reads), so take an owned copy rather than
         // deep-copying it a second time.
-        let callee_text = &cloned_value_text(callee_text);
+        let callee_text = &callee_text.cloned_value();
         RustExpr::atom(self.carrier_format(format_args!(
             "{{ let smelt_function_value = {callee_text}; let smelt_call_args: Vec<SmeltUnknown> = Into::into({args_expr}); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"{SMELT_CALL}\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| smelt_panic_throw(error)) }} else {{ {fallback} }} }}",
             fallback = not_callable.map_or_else(
-                || self.carrier_expr(&RustExpr::opaque("SmeltUnknown::Null")),
+                || self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null")),
                 |description| RustExpr::chain(format!("smelt_throw_not_callable({description:?})"))
             ),
         )))
@@ -651,7 +650,7 @@ impl FunctionEmitter<'_> {
                             let unknown_ty = self.type_id(Type::Unknown)?;
                             self.value_at_type(value, unknown_ty)?
                         } else {
-                            RustExpr::from(self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined")).into_string())
+                            self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined"))
                         };
                         format!("SmeltGeneratorCommand::Throw({thrown})")
                     }
@@ -998,7 +997,7 @@ impl FunctionEmitter<'_> {
                         })
                         .collect::<Result<Vec<_>, EmitError>>()?
                         .join(", "));
-                    return Ok(RustExpr::from(self.erase_object_expr(&entries_text).into_string()));
+                    return Ok(self.erase_object_expr(&entries_text));
                 }
                 // A source-spelled `Map` dest and a plain `Dict`/record dest share
                 // the same `Rvalue::Dict` literal; `dest_is_js_map` selects the
@@ -1189,7 +1188,7 @@ impl FunctionEmitter<'_> {
                     } else {
                         "f64"
                     };
-                    return Ok(RustExpr::from(Self::js_int32_binary_expr(*op, &lhs_text, &rhs_text, result_cast).into_string()));
+                    return Ok(Self::js_int32_binary_expr(*op, &lhs_text, &rhs_text, result_cast));
                 }
                 if matches!(*op, smelt_hir::BinOp::Shl | smelt_hir::BinOp::Shr) {
                     let lhs_text = self.bitwise_operand_number_expr(lhs)?;
@@ -1303,7 +1302,7 @@ impl FunctionEmitter<'_> {
                     };
                     if self.mir.types.get(dest_ty) == Some(&Type::Unknown) {
                         self.erase_rendered(
-                            &RustExpr::loose(format!("-({numeric_text})")),
+                            &RustExpr::cast(format!("-({numeric_text})")),
                             self.type_id(Type::Float)?,
                         )
                     } else {
@@ -1576,7 +1575,7 @@ impl FunctionEmitter<'_> {
                 if self.is_regexp_class_symbol(*class)?
                     && matches!(self.mir.types.get(dest_ty), Some(Type::String))
                 {
-                    Ok(RustExpr::from(Self::regexp_literal_expr(&text).into_string()))
+                    Ok(Self::regexp_literal_expr(&text))
                 } else {
                     Ok(text)
                 }
@@ -1795,7 +1794,7 @@ impl FunctionEmitter<'_> {
                     {
                         self.erase(callee)?
                     } else {
-                        RustExpr::from(self.operand_expr(callee)?.into_string())
+                        self.operand_expr(callee)?
                     };
                     let rendered_args =
                         args.iter()
@@ -3181,7 +3180,7 @@ impl FunctionEmitter<'_> {
             .collect::<Result<Vec<_>, EmitError>>()?;
         let call = RustExpr::chain(format!("smelt_receiver.{method_name}({})", args.join(", ")));
         let returned = if function.can_throw && !function.is_generator {
-            RustExpr::loose(format!("{call}?"))
+            RustExpr::atom(format!("{call}?"))
         } else {
             call
         };
@@ -3456,7 +3455,7 @@ impl FunctionEmitter<'_> {
             if index_ty == key_ty {
                 self.value_at_type(index, key_ty)?
             } else {
-                RustExpr::from(self.property_key_to_string_expr(&self.operand_expr(index)?, index_ty)?.into_string())
+                self.property_key_to_string_expr(&self.operand_expr(index)?, index_ty)?
             }
         } else {
             self.value_at_type(index, key_ty)?

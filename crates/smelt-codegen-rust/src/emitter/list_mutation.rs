@@ -929,7 +929,7 @@ impl FunctionEmitter<'_> {
         }
         let closure_expr = match self.closure_operand_expr_for_declared_type(comparator) {
             Ok(closure_expr) => closure_expr,
-            Err(_) => RustExpr::from(self.operand_expr(comparator)?.into_string()),
+            Err(_) => self.operand_expr(comparator)?,
         };
         let sort_call = self.list_sort_comparator_call_expr(
             comparator_ty,

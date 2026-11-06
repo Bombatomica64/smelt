@@ -846,7 +846,7 @@ impl FunctionEmitter<'_> {
                 let member_text = self.rust_type(member, false, substitution)?.into_string();
                 RustExpr::loose(self.carrier_format(format_args!("<{member_text} as SmeltFromUnknown>::smelt_from_unknown(value)")))
             } else {
-                RustExpr::from(self.extract_rendered(&RustExpr::path("value"), member, &self.render_scope())?.into_string())
+                self.extract_rendered(&RustExpr::path("value"), member, &self.render_scope())?
             } };
             if Some(position) == order.len().checked_sub(1) {
                 body.push_str(&format!("        Self::M{index}({extracted})\n"));

@@ -2116,7 +2116,7 @@ impl FunctionEmitter<'_> {
     /// cannot represent a hole at all, so they keep their ordinary default.
     pub(super) fn array_hole_value(&self, item_ty: TypeId) -> Result<RustExpr, EmitError> {
         if matches!(self.mir.types.get(item_ty), Some(Type::Unknown)) {
-            return Ok(RustExpr::from(self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined")).into_string()));
+            return Ok(self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined")));
         }
         self.default_value(item_ty)
     }
@@ -2146,8 +2146,8 @@ impl FunctionEmitter<'_> {
             Type::BigInt => Ok(RustExpr::atom_on(&crate::bigint_prelude::BIGINT_TYPE, format!("{}::default()", crate::bigint_prelude::BIGINT_TYPE))),
             Type::Float => Ok(RustExpr::path("0.0")),
             Type::String => Ok(RustExpr::atom("String::new()")),
-            Type::Unknown => Ok(RustExpr::from(self.null_value().into_string())),
-            Type::Never => Ok(RustExpr::from(self.null_value().into_string())),
+            Type::Unknown => Ok(self.null_value()),
+            Type::Never => Ok(self.null_value()),
             Type::None => Ok(RustExpr::atom("()")),
             // Annotate the element type: a bare `Vec::new()` is uninferable when
             // the default is used as a `.into_iter()`/`.map()` receiver whose
@@ -2158,13 +2158,13 @@ impl FunctionEmitter<'_> {
             ))),
             Type::Set(item) => Ok({ let receiver = self.set_container_name(*item); RustExpr::atom_on(&receiver, format!("{receiver}::new()")) }),
             Type::Dict(key, _) if self.dict_uses_smelt_record(*key) => {
-                Ok(RustExpr::from(self.carrier_expr(&RustExpr::atom("SmeltRecord::new()")).into_string()))
+                Ok(self.carrier_expr(&RustExpr::atom("SmeltRecord::new()")))
             }
             Type::Dict(key, _) if self.dict_uses_js_key_map(*key) => {
-                Ok(RustExpr::from(self.carrier_expr(&RustExpr::atom("SmeltJsMap::new()")).into_string()))
+                Ok(self.carrier_expr(&RustExpr::atom("SmeltJsMap::new()")))
             }
             Type::Dict(_, _) => Ok(RustExpr::loose("::std::collections::HashMap::new()")),
-            Type::JsMap(_, _) => Ok(RustExpr::from(self.carrier_expr(&RustExpr::atom("SmeltJsMap::new()")).into_string())),
+            Type::JsMap(_, _) => Ok(self.carrier_expr(&RustExpr::atom("SmeltJsMap::new()"))),
             Type::Optional(inner) => Ok(RustExpr::opaque(format!(
                 "None::<{}>",
                 self.type_text(self.flatten_optional_inner(*inner))?
@@ -2190,7 +2190,7 @@ impl FunctionEmitter<'_> {
                     .ok_or_else(|| EmitError::new("concrete union has no members"))?;
                 Ok({ let receiver = union::union_name(ty); RustExpr::atom_on(&receiver, format!("{receiver}::M0({})", self.default_value(first)?)) })
             }
-            Type::TypeParam { .. } | Type::Union(_) => Ok(RustExpr::from(self.null_value().into_string())),
+            Type::TypeParam { .. } | Type::Union(_) => Ok(self.null_value()),
             Type::Class { name, .. } if self.is_regexp_class_symbol(*name)? => {
                 Ok(RustExpr::atom("SmeltRegExp::new(String::new(), String::new())"))
             }
@@ -2261,7 +2261,7 @@ impl FunctionEmitter<'_> {
                 if self.stdlib_class_of_symbol(*name)?
                     == Some(smelt_stdlib::StdlibClass::ArrayBuffer) =>
             {
-                Ok(RustExpr::from(self.carrier_expr(&RustExpr::atom("SmeltArrayBuffer::new(0)")).into_string()))
+                Ok(self.carrier_expr(&RustExpr::atom("SmeltArrayBuffer::new(0)")))
             }
             // An empty window over empty storage, for the same reason.
             Type::Class { name, .. }
@@ -2657,7 +2657,7 @@ impl FunctionEmitter<'_> {
             let Ok(member) = self.symbol_source_name(field.name) else {
                 return false;
             };
-            match self.host_class_member_read_text(&RustExpr::path("smelt_host_value"), source, member) {
+            match self.host_class_member_read(&RustExpr::path("smelt_host_value"), source, member) {
                 Ok(Some(_)) => true,
                 Ok(None) => matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))),
                 Err(_) => false,

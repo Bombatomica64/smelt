@@ -2,7 +2,6 @@
 
 use crate::rust::RustExpr;
 use super::*;
-use crate::emitter::rendered_value::cloned_value_text;
 use smelt_hir::CLASS_INDEX_STORE_FIELD;
 
 impl FunctionEmitter<'_> {
@@ -198,7 +197,7 @@ impl FunctionEmitter<'_> {
             let call = format!("{method_name}({args_text}){throwing_suffix}");
             if !is_optional {
                 let head = if flattens {
-                    RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.{call}"))
+                    RustExpr::field_on(&receiver_text, format!("{receiver_text}.{call}"))
                 } else {
                     RustExpr::chain(format!("Some({receiver_text}.{call})"))
                 };
@@ -500,7 +499,7 @@ impl FunctionEmitter<'_> {
         // for the key or `None` (missing key -> `undefined`), giving the honest
         // `Option<T>` round-trip result rather than a stub.
         if let Some((key_ty, value_ty)) = self.class_index_store_types(receiver_ty) {
-            let store_text = RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.{CLASS_INDEX_STORE_FIELD}"));
+            let store_text = RustExpr::field_on(&receiver_text, format!("{receiver_text}.{CLASS_INDEX_STORE_FIELD}"));
             return self.dict_index_optional_read_expr(&store_text, key_ty, value_ty, index);
         }
         match self.mir.types.get(receiver_ty) {
@@ -560,7 +559,7 @@ impl FunctionEmitter<'_> {
                         // adapter — the same treatment the non-optional read
                         // gives this operand (`unknown_index_expr`).
                         let scrutinee = self
-                            .erase_concrete_union_expr(&cloned_value_text(&index_text), index_ty);
+                            .erase_concrete_union_expr(&index_text.cloned_value(), index_ty);
                         RustExpr::atom(self.carrier_format(format_args!(
                             "match {scrutinee} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
                         )))
@@ -646,7 +645,7 @@ impl FunctionEmitter<'_> {
                 // scrutinee. The non-optional index read already erases here
                 // (see `place.rs`'s `Type::Union` arm).
                 let scrutinee =
-                    self.erase_concrete_union_expr(&cloned_value_text(receiver_text), receiver_ty);
+                    self.erase_concrete_union_expr(&receiver_text.cloned_value(), receiver_ty);
                 Ok(RustExpr::atom(format!(
                     r"match {scrutinee} {{
                         SmeltUnknown::String(value) => {{

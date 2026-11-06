@@ -246,7 +246,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn match_label_expr(&self, constant: &Constant) -> RustExpr {
         match constant {
             Constant::String(value) => RustExpr::chain(format!("{value:?}")),
-            _ => RustExpr::from(constant_expr(constant).into_string()),
+            _ => constant_expr(constant),
         }
     }
 

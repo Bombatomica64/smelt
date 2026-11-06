@@ -129,20 +129,20 @@ impl FunctionEmitter<'_> {
         let receiver_ty = self.operand_ty(bytes)?;
         let float_ty = self.type_id(Type::Float)?;
         let (text, source_ty) = match op {
-            smelt_hir::ByteArrayOp::Length => (format!("{receiver}.length()"), float_ty),
-            smelt_hir::ByteArrayOp::ByteLength => (format!("{receiver}.byte_length()"), float_ty),
-            smelt_hir::ByteArrayOp::ByteOffset => (format!("{receiver}.byte_offset()"), float_ty),
+            smelt_hir::ByteArrayOp::Length => (RustExpr::postfix_on(&receiver, format!("{receiver}.length()")), float_ty),
+            smelt_hir::ByteArrayOp::ByteLength => (RustExpr::postfix_on(&receiver, format!("{receiver}.byte_length()")), float_ty),
+            smelt_hir::ByteArrayOp::ByteOffset => (RustExpr::postfix_on(&receiver, format!("{receiver}.byte_offset()")), float_ty),
             // `.buffer` SHARES the storage rather than copying it, so a write
             // through a second view over the same buffer is visible here.
             smelt_hir::ByteArrayOp::Buffer => {
-                (format!("{receiver}.buffer()"), self.array_buffer_type_id()?)
+                (RustExpr::postfix_on(&receiver, format!("{receiver}.buffer()")), self.array_buffer_type_id()?)
             }
             smelt_hir::ByteArrayOp::Subarray => (
-                format!("{receiver}.subarray({})", self.byte_range_args_expr(args)?),
+                RustExpr::postfix_on(&receiver, format!("{receiver}.subarray({})", self.byte_range_args_expr(args)?)),
                 receiver_ty,
             ),
             smelt_hir::ByteArrayOp::Slice => (
-                format!("{receiver}.slice({})", self.byte_range_args_expr(args)?),
+                RustExpr::postfix_on(&receiver, format!("{receiver}.slice({})", self.byte_range_args_expr(args)?)),
                 receiver_ty,
             ),
             // `set` and `fill` are the two mutating members. `set` takes a
@@ -162,7 +162,7 @@ impl FunctionEmitter<'_> {
                 };
                 let none_ty = self.type_id(Type::None)?;
                 (
-                    format!("{receiver}.set_from(&{source_text}, {offset})"),
+                    RustExpr::postfix_on(&receiver, format!("{receiver}.set_from(&{source_text}, {offset})")),
                     none_ty,
                 )
             }
@@ -173,14 +173,14 @@ impl FunctionEmitter<'_> {
                 let value_text = self.numeric_operand_expr(value)?;
                 let range = self.byte_range_args_expr(&args[1..])?;
                 (
-                    format!("{receiver}.fill({value_text}, {range})"),
+                    RustExpr::postfix_on(&receiver, format!("{receiver}.fill({value_text}, {range})")),
                     receiver_ty,
                 )
             }
             smelt_hir::ByteArrayOp::Elements => {
                 let list_ty = self.type_id(Type::List(float_ty))?;
                 (
-                    format!("SmeltList::new({receiver}.to_elements())"),
+                    RustExpr::atom(format!("SmeltList::new({receiver}.to_elements())")),
                     list_ty,
                 )
             }
@@ -188,9 +188,9 @@ impl FunctionEmitter<'_> {
                 let string_ty = self.type_id(Type::String)?;
                 let list_ty = self.type_id(Type::List(string_ty))?;
                 (
-                    format!(
+                    RustExpr::atom(format!(
                         "SmeltList::new((0..{receiver}.length() as usize).map(|index| index.to_string()).collect::<Vec<_>>())"
-                    ),
+                    )),
                     list_ty,
                 )
             }
@@ -199,14 +199,14 @@ impl FunctionEmitter<'_> {
                 let pair_ty = self.type_id(Type::Tuple(Vec::from([string_ty, float_ty])))?;
                 let list_ty = self.type_id(Type::List(pair_ty))?;
                 (
-                    format!(
+                    RustExpr::atom(format!(
                         "SmeltList::new({receiver}.to_elements().into_iter().enumerate().map(|(index, element)| (index.to_string(), element)).collect::<Vec<_>>())"
-                    ),
+                    )),
                     list_ty,
                 )
             }
         };
-        self.rendered_at_type(&RustExpr::opaque(&text), source_ty, dest_ty, &self.render_scope())
+        self.rendered_at_type(&text, source_ty, dest_ty, &self.render_scope())
     }
 
     /// Render the `(start, end)` pair every range member of the family takes.

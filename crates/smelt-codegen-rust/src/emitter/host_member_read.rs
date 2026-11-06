@@ -73,12 +73,12 @@ impl FunctionEmitter<'_> {
     /// this crate's type table — a crate that never mentions `Headers` has no
     /// `Type::Class { name: Headers }` to name, and declining is then the right
     /// answer because the conversion could not have been well typed anyway.
-    pub(super) fn host_class_member_read_text(
+    pub(super) fn host_class_member_read(
         &self,
         base_text: &RustExpr,
         base_ty: TypeId,
         member: &str,
-    ) -> Result<Option<(String, TypeId)>, EmitError> {
+    ) -> Result<Option<(RustExpr, TypeId)>, EmitError> {
         let Some(members) = self.host_class_members(base_ty)? else {
             return Ok(None);
         };
@@ -90,7 +90,7 @@ impl FunctionEmitter<'_> {
                 let Some(member_ty) = self.response_op_result_ty(op) else {
                     return Ok(None);
                 };
-                Ok(Some((self.response_op_on_expr(op, base_text)?.into_string(), member_ty)))
+                Ok(Some((self.response_op_on_expr(op, base_text)?, member_ty)))
             }
         }
     }

@@ -84,6 +84,7 @@ impl From<RustExpr> for CallText {
 
 impl CallText {
     /// A call that yields its value directly.
+    #[track_caller]
     pub(super) fn plain(call: impl Into<RustExpr>) -> Self {
         Self {
             call: call.into(),
@@ -92,6 +93,7 @@ impl CallText {
     }
 
     /// A call that yields a `Result` whose error propagates.
+    #[track_caller]
     pub(super) fn propagating(call: impl Into<RustExpr>) -> Self {
         Self {
             call: call.into(),
@@ -100,6 +102,7 @@ impl CallText {
     }
 
     /// `call`, propagating exactly when the callee can throw.
+    #[track_caller]
     pub(super) fn propagating_if(call: impl Into<RustExpr>, propagates: bool) -> Self {
         Self {
             call: call.into(),
@@ -110,7 +113,7 @@ impl CallText {
     /// The call as an expression of its value.
     pub(super) fn into_expression(self) -> RustExpr {
         if self.propagates {
-            RustExpr::atom_on(&self.call, format!("{}?", self.call))
+            RustExpr::atom(format!("{}?", self.call))
         } else {
             self.call
         }
@@ -939,7 +942,7 @@ impl FunctionEmitter<'_> {
                     }
                     let arg_values = rendered_args.join(", ");
                     return Ok(CallText::propagating_if(
-                        RustExpr::atom_on(&class_name, format!("{class_name}::new({arg_values})")),
+                        RustExpr::atom(format!("{class_name}::new({arg_values})")),
                         self.call_is_throwing(function),
                     ));
                 }
@@ -1071,11 +1074,11 @@ impl FunctionEmitter<'_> {
                         Vec::new()
                     };
                     let arg_values = rendered_args.join(", ");
-                    let call = format!("{receiver_text}.{method_name}({arg_values})");
+                    let call = RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.{method_name}({arg_values})"));
                     let call = if prebound.is_empty() {
                         call
                     } else {
-                        format!("{{ {} {call} }}", prebound.join(" "))
+                        RustExpr::atom(format!("{{ {} {call} }}", prebound.join(" ")))
                     };
                     return Ok(CallText::propagating_if(call, self.call_is_throwing(function)));
                 }
@@ -1103,7 +1106,7 @@ impl FunctionEmitter<'_> {
                     }
                     let arg_values = rendered_args.join(", ");
                     return Ok(CallText::propagating_if(
-                        RustExpr::opaque(format!("{class_name}::{method_name}({arg_values})")),
+                        RustExpr::atom(format!("{class_name}::{method_name}({arg_values})")),
                         self.call_is_throwing(function),
                     ));
                 }
@@ -1135,7 +1138,7 @@ impl FunctionEmitter<'_> {
                             .collect::<Result<Vec<_>, _>>()?
                             .join(", ");
                         return Ok(CallText::propagating_if(
-                            RustExpr::postfix_on(&rust_function_name, format!("{rust_function_name}(vec![{items}])")),
+                            RustExpr::chain(format!("{rust_function_name}(vec![{items}])")),
                             self.call_is_throwing(function),
                         ));
                     }
@@ -1218,7 +1221,7 @@ impl FunctionEmitter<'_> {
                     }
                     let arg_values = rendered_args.join(", ");
                     return Ok(CallText::propagating_if(
-                        RustExpr::postfix_on(&rust_function_name, format!("{rust_function_name}({arg_values})")),
+                        RustExpr::chain(format!("{rust_function_name}({arg_values})")),
                         self.call_is_throwing(function),
                     ));
                 }
@@ -1289,7 +1292,7 @@ impl FunctionEmitter<'_> {
                 }
                 let arg_values = rendered_args.join(", ");
                 Ok(CallText::propagating_if(
-                    RustExpr::postfix_on(&rust_function_name, format!("{rust_function_name}({arg_values})")),
+                    RustExpr::chain(format!("{rust_function_name}({arg_values})")),
                     self.call_is_throwing(function),
                 ))
             }
@@ -2951,7 +2954,7 @@ impl FunctionEmitter<'_> {
         } else {
             rendered.into_expression()
         };
-        call_text = self.wrap_native_async_call_expr(callee, RustExpr::from(call_text.into_string()))?;
+        call_text = self.wrap_native_async_call_expr(callee, call_text)?;
         // The emitted return, not the declared one. A monomorphized generic
         // callee really evaluates to its declared return with this call site's
         // bindings applied (`shift<T>(SmeltList<T>) -> SmeltList<T>` called with
@@ -3077,7 +3080,7 @@ impl FunctionEmitter<'_> {
             rendered_args.push(self.default_value(target_ty)?);
         }
         Ok(CallText::propagating_if(
-            RustExpr::opaque(format!(
+            RustExpr::atom(format!(
                 "Self::{}({})",
                 crate::base_init::base_initializer_name(self.mir, class)?,
                 rendered_args.join(", "),
@@ -3778,7 +3781,7 @@ impl FunctionEmitter<'_> {
             RustExpr::atom(format!("({receiver_text}.{method_name}.clone())({rendered_args})"))
         };
         if self.function_value_call_is_fallible(function) {
-            Ok(Some(RustExpr::loose(format!("{call}?"))))
+            Ok(Some(RustExpr::atom(format!("{call}?"))))
         } else {
             Ok(Some(call))
         }

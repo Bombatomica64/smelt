@@ -487,28 +487,27 @@ impl FunctionEmitter<'_> {
         for (index, arg) in args.iter().enumerate() {
             let (natural_text, natural_ty) = match arg {
                 smelt_hir::RegexReplaceArg::Matched => (
-                    "caps.get(0).expect(\"regex match missing\").as_str().to_string()".to_owned(),
+                    RustExpr::chain("caps.get(0).expect(\"regex match missing\").as_str().to_string()"),
                     string_ty,
                 ),
                 smelt_hir::RegexReplaceArg::Capture(group) => (
-                    format!("caps.get({group}).map(|smelt_group| smelt_group.as_str().to_string())"),
+                    RustExpr::chain(format!("caps.get({group}).map(|smelt_group| smelt_group.as_str().to_string())")),
                     optional_string_ty,
                 ),
                 smelt_hir::RegexReplaceArg::Position => (
-                    "smelt_subject[..caps.get(0).expect(\"regex match missing\").start()]\
-                     .chars().count() as f64"
-                        .to_owned(),
+                    RustExpr::cast("smelt_subject[..caps.get(0).expect(\"regex match missing\").start()]\
+                     .chars().count() as f64"),
                     float_ty,
                 ),
                 smelt_hir::RegexReplaceArg::Source => {
-                    ("smelt_subject.clone()".to_owned(), string_ty)
+                    (RustExpr::chain("smelt_subject.clone()").ending_in_clone(), string_ty)
                 }
             };
             let text = match (natural_ty, param_tys.get(index)) {
                 (Some(source), Some(&target)) if source != target => {
-                    self.rendered_at_type(&RustExpr::opaque(&natural_text), source, target, &self.render_scope())?
+                    self.rendered_at_type(&natural_text, source, target, &self.render_scope())?
                 }
-                _ => RustExpr::from(natural_text),
+                _ => natural_text,
             };
             texts.push(text.into_string());
         }
@@ -1313,7 +1312,7 @@ impl FunctionEmitter<'_> {
                 "match {item} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), {smelt_bigint_arm}SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}",
                 smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),"),
                 item = if matches!(self.mir.types.get(*item_ty), Some(Type::Union(_))) {
-                    format!("({})", self.erase_rendered(&RustExpr::opaque("item.clone()"), *item_ty)?)
+                    format!("({})", self.erase_rendered(&RustExpr::chain("item.clone()").ending_in_clone(), *item_ty)?)
                 } else {
                     "item".to_owned()
                 },

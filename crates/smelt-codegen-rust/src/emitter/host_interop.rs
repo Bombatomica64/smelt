@@ -193,9 +193,9 @@ impl FunctionEmitter<'_> {
         let name = crate::globals::global_static_name(self.mir, global);
         let ty = self.global_ty(global)?;
         if Self::global_uses_copy_cell(self.mir.types.get(ty)) {
-            Ok(RustExpr::postfix_on(&name, format!("{name}.with(::std::cell::Cell::get)")))
+            Ok(RustExpr::chain(format!("{name}.with(::std::cell::Cell::get)")))
         } else {
-            Ok(RustExpr::postfix_on(&name, format!("{name}.with(|value| value.borrow().clone())")))
+            Ok(RustExpr::chain(format!("{name}.with(|value| value.borrow().clone())")))
         }
     }
 
@@ -311,7 +311,7 @@ impl FunctionEmitter<'_> {
                 }
             }
         };
-        Ok(RustExpr::postfix_on(&name, format!(
+        Ok(RustExpr::chain(format!(
             "{name}.with(|smelt_global_cell| {{              let smelt_global_key = {key_text};              let smelt_global_value = {rendered_value};              smelt_global_cell.borrow_mut().insert(smelt_global_key, smelt_global_value); }})"
         )))
     }

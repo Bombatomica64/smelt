@@ -58,7 +58,7 @@ impl FunctionEmitter<'_> {
         };
         // Every use below is a `Vec` receiver (`.iter().any(..)`, `.contains(..)`),
         // so the elements are read out of the list's shared buffer.
-        let list_text = list_read_expr(&RustExpr::opaque(&receiver_text));
+        let list_text = list_read_expr(&receiver_text);
         let needle_ty = self.operand_ty(item)?;
         if needle_ty != item_ty {
             // A `T | undefined` needle (e.g. `array.includes(sample(array))`)
@@ -140,14 +140,14 @@ impl FunctionEmitter<'_> {
     fn list_receiver_surface(
         &self,
         list: &Operand,
-    ) -> Result<Option<(String, TypeId)>, EmitError> {
+    ) -> Result<Option<(RustExpr, TypeId)>, EmitError> {
         let list_ty = self.operand_ty(list)?;
         // The plain-list fast path reads by borrow: the only caller,
         // `list_contains_expr`, uses that text solely as an `.iter().any(..)` /
         // `.contains(&..)` receiver. The optional/union path below keeps an owned read
         // because `Option::expect` consumes `self` and the union projection may too.
         if let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) {
-            return Ok(Some((self.operand_borrow_expr(list)?.into_string(), *item_ty)));
+            return Ok(Some((self.operand_borrow_expr(list)?, *item_ty)));
         }
         // An optional receiver is unwrapped first: the narrowing that selected the
         // list arm also proved the value present, and the `expect` message matches
@@ -182,7 +182,7 @@ impl FunctionEmitter<'_> {
         let Some(projected) = self.project_union_value(&text, inner_ty, member_ty)? else {
             return Ok(None);
         };
-        Ok(Some((format!("({projected})"), item_ty)))
+        Ok(Some((RustExpr::from(format!("({projected})")), item_ty)))
     }
 
     /// Per-element comparison predicate against a bound `smelt_needle` value.    /// Per-element comparison predicate against a bound `smelt_needle` value.

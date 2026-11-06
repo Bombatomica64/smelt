@@ -28,7 +28,7 @@ impl FunctionEmitter<'_> {
 
     /// Converts a non-escaping MIR closure into a Rust closure literal.
     pub(super) fn closure_expr(&self, id: smelt_mir::ClosureId) -> Result<RustExpr, EmitError> {
-        Ok(RustExpr::from(self.closure_text_with_extra_params(id, &[], &[], None, None)?.text))
+        Ok(RustExpr::atom(self.closure_text_with_extra_params(id, &[], &[], None, None)?.text))
     }
 
     /// Whether a contextual `target_ty` re-types a closure parameter whose own
@@ -297,7 +297,7 @@ impl FunctionEmitter<'_> {
                         .borrow_mut()
                         .entry(key)
                         .or_insert(erased_function.into_string());
-                    return Ok(RustExpr::opaque(format!("__smelt_fn_erased_{key}()")));
+                    return Ok(RustExpr::chain(format!("__smelt_fn_erased_{key}()")));
                 }
                 return Ok(erased_function);
             }

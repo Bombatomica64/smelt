@@ -99,14 +99,14 @@ impl FunctionEmitter<'_> {
                 smelt_hir::PrimitiveCastOp::ToFloat | smelt_hir::PrimitiveCastOp::ToJsNumber,
                 Type::Float,
                 Type::FixedInt(_),
-            ) => Some(RustExpr::opaque(format!("{operand_expr} as f64"))),
+            ) => Some(RustExpr::cast(format!("{operand_expr} as f64"))),
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Optional(to), Type::Optional(from))
                 if is_float(to) && is_fixed(from) =>
             {
                 Some(RustExpr::postfix_on(&operand_expr, format!("{operand_expr}.map(f64::from)")))
             }
             (smelt_hir::PrimitiveCastOp::ToInt32, Type::FixedInt(width), Type::Float) => {
-                Some(RustExpr::opaque(format!("{operand_expr} as {}", width.rust_name())))
+                Some(RustExpr::cast(format!("{operand_expr} as {}", width.rust_name())))
             }
             (smelt_hir::PrimitiveCastOp::ToInt32, Type::Optional(to), Type::Optional(from))
                 if is_fixed(to) && is_float(from) =>
@@ -126,7 +126,7 @@ impl FunctionEmitter<'_> {
         if width == smelt_hir::IntWidth::Usize && !len_expr.ends_with(".0") {
             return RustExpr::from(len_expr);
         }
-        RustExpr::opaque(format!("{len_expr} as {}", width.rust_name()))
+        RustExpr::cast(format!("{len_expr} as {}", width.rust_name()))
     }
 
     /// JavaScript `ToInt32` of a numeric expression, as an `i32` expression.

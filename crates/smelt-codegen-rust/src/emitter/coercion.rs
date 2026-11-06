@@ -18,7 +18,7 @@ pub(crate) mod record;
 
 use crate::rust::RustExpr;
 use super::*;
-use crate::emitter::rendered_value::{borrowed_value_text, cloned_value_text};
+
 use crate::erased_list_alias;
 use crate::rust::{RustIdent, RustShape};
 use smelt_hir::FunctionType;
@@ -272,7 +272,7 @@ impl FunctionEmitter<'_> {
         {
             return Ok(RustExpr::chain(format!(
                 "Some({})",
-                self.rendered_at_type(&self.carrier_expr(&RustExpr::opaque("SmeltUnknown::Null")), self.type_id(Type::Unknown)?, *inner, scope)?
+                self.rendered_at_type(&self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null")), self.type_id(Type::Unknown)?, *inner, scope)?
             )));
         }
         if matches!(
@@ -295,7 +295,7 @@ impl FunctionEmitter<'_> {
         ) {
             let value_text = self.operand_expr(operand)?;
             if self.mir.types.get(*source_inner) == Some(&Type::Optional(*target_inner)) {
-                return Ok({ let receiver = cloned_value_text(&value_text); RustExpr::postfix_on(&receiver, format!("{receiver}.flatten()")) });
+                return Ok({ let receiver = value_text.cloned_value(); RustExpr::postfix_on(&receiver, format!("{receiver}.flatten()")) });
             }
             if source_inner == target_inner {
                 return Ok(value_text);
@@ -398,7 +398,7 @@ impl FunctionEmitter<'_> {
             && let Some(Type::Class { name, .. }) = self.mir.types.get(self.operand_ty(operand)?)
             && self.is_regexp_class_symbol(*name)?
         {
-            return Ok(RustExpr::from(Self::regexp_literal_expr(&self.operand_expr(operand)?).into_string()));
+            return Ok(Self::regexp_literal_expr(&self.operand_expr(operand)?));
         }
         if matches!(
             self.mir.types.get(target),
@@ -437,7 +437,7 @@ impl FunctionEmitter<'_> {
             // warning it drew in every argument/return/let position. The only
             // context that would need parentheses is a following method call,
             // which no consumer of this seam appends to a coercion result.
-            return Ok(RustExpr::opaque(format!("{} as f64", self.operand_expr(operand)?)));
+            return Ok(RustExpr::cast(format!("{} as f64", self.operand_expr(operand)?)));
         }
         if self.mir.types.get(target) == Some(&Type::Int)
             && self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::Float)
@@ -484,7 +484,7 @@ impl FunctionEmitter<'_> {
             }
             // `text` already renders an owned value here; a second clone would
             // deep-copy the temporary for nothing.
-            return Ok(RustExpr::from(cloned_value_text(&text).into_string()));
+            return Ok(text.cloned_value());
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(self.operand_ty(operand)?)
             && *inner == target
@@ -536,7 +536,7 @@ impl FunctionEmitter<'_> {
             {
                 let text = self.operand_expr(operand)?;
                 if erased_list_alias::leaves_erased_generic(self.mir.types.get(*source_item)) {
-                    return Ok(RustExpr::from(erased_list_alias::list_alias_expr(&text).into_string()));
+                    return Ok(erased_list_alias::list_alias_expr(&text));
                 }
                 return Ok(RustExpr::atom(format!("Into::<SmeltList<_>>::into({text})")));
             }
@@ -551,7 +551,7 @@ impl FunctionEmitter<'_> {
             {
                 return Ok(RustExpr::atom(self.carrier_format(format_args!(
                     "{{ let smelt_l: SmeltList<_> = {op}.into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| SmeltUnknown::Undefined).collect::<Vec<_>>()) }}",
-                    op = cloned_value_text(&self.operand_expr(operand)?)
+                    op = self.operand_expr(operand)?.cloned_value()
                 ))));
             }
             // A target element that is a GENERATED union (`number | number[]`
@@ -569,7 +569,7 @@ impl FunctionEmitter<'_> {
             };
             return Ok(RustExpr::atom(format!(
                 "{{ let smelt_l: SmeltList<_> = {op}.into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {value_text}).collect::<Vec<_>>()) }}",
-                op = cloned_value_text(&self.operand_expr(operand)?)
+                op = self.operand_expr(operand)?.cloned_value()
             )));
         }
         if let Some(Type::List(target_item)) = self.mir.types.get(target)
@@ -1003,7 +1003,7 @@ impl FunctionEmitter<'_> {
         // `value_text` is usually already an owned temporary (an operand render clones
         // the local it reads), so take an owned copy rather than deep-copying it a
         // second time.
-        let smelt_owned_value = cloned_value_text(value_text);
+        let smelt_owned_value = value_text.cloned_value();
         if source == target && !matches!(self.mir.types.get(target), Some(Type::Function(_))) {
             return Ok(value_text.to_owned());
         }
@@ -1097,7 +1097,7 @@ impl FunctionEmitter<'_> {
                 && self.list_items_render_as_unknown(target, scope)
             {
                 if erased_list_alias::leaves_erased_generic(self.mir.types.get(*source_item)) {
-                    return Ok(RustExpr::from(erased_list_alias::list_alias_expr(&smelt_owned_value).into_string()));
+                    return Ok(erased_list_alias::list_alias_expr(&smelt_owned_value));
                 }
                 return Ok(RustExpr::atom(format!("Into::<SmeltList<_>>::into({smelt_owned_value})")));
             }
@@ -1131,9 +1131,9 @@ impl FunctionEmitter<'_> {
             // name or field path) is safe to duplicate and kept inline to avoid
             // churn.
             let (prefix, base) = if Self::expression_text_is_trivial_place(value_text) {
-                (String::new(), value_text.clone().into_string())
+                (String::new(), value_text.clone())
             } else {
-                ("let smelt_tuple_src = ".to_owned(), "smelt_tuple_src".to_owned())
+                ("let smelt_tuple_src = ".to_owned(), RustExpr::path("smelt_tuple_src"))
             };
             let items_text = source_items
                 .iter()
@@ -1141,7 +1141,7 @@ impl FunctionEmitter<'_> {
                 .enumerate()
                 .map(|(index, (source_item, target_item))| {
                     self.rendered_at_type(
-                        &RustExpr::postfix_on(&base, format!("{base}.{index}")),
+                        &RustExpr::field_on(&base, format!("{base}.{index}")),
                         *source_item,
                         *target_item,
                                             scope,
@@ -1374,15 +1374,15 @@ impl FunctionEmitter<'_> {
             let source_items = source_items.clone();
             let target_item = *target_item;
             let (prefix, base) = if Self::expression_text_is_trivial_place(value_text) {
-                (String::new(), value_text.clone().into_string())
+                (String::new(), value_text.clone())
             } else {
-                ("let smelt_tuple_src = ".to_owned(), "smelt_tuple_src".to_owned())
+                ("let smelt_tuple_src = ".to_owned(), RustExpr::path("smelt_tuple_src"))
             };
             let items_text = source_items
                 .iter()
                 .enumerate()
                 .map(|(index, source_item)| {
-                    self.rendered_at_type(&RustExpr::postfix_on(&base, format!("{base}.{index}")), *source_item, target_item, scope)
+                    self.rendered_at_type(&RustExpr::field_on(&base, format!("{base}.{index}")), *source_item, target_item, scope)
                 })
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ");
@@ -1522,12 +1522,12 @@ impl FunctionEmitter<'_> {
     /// depending only on whether the caller already had it rendered.
     pub(super) fn erase(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
         if matches!(operand, Operand::Const(Constant::Undefined)) {
-            return Ok(RustExpr::from(self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined")).into_string()));
+            return Ok(self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined")));
         }
         let text = self.operand_expr(operand)?;
         // `text` is usually already an owned temporary (an operand render clones the local
         // it reads), so take an owned copy rather than deep-copying it a second time.
-        let smelt_owned_text = cloned_value_text(&text);
+        let smelt_owned_text = text.cloned_value();
         let ty = self.operand_ty(operand)?;
         match self.mir.types.get(ty) {
             Some(Type::TypeParam { name }) if !self.current_function_has_type_param(*name) => {
@@ -1537,7 +1537,7 @@ impl FunctionEmitter<'_> {
             // produced it still has to RUN: `text` is routinely a call (`let r:
             // unknown = setter(k, v)`), and answering the bare constant deleted
             // the call and its side effects from the program.
-            Some(Type::None) if text.trim() == "()" => Ok(RustExpr::from(self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null")).into_string())),
+            Some(Type::None) if text.trim() == "()" => Ok(self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null"))),
             Some(Type::None) => Ok(RustExpr::atom(self.carrier_format(format_args!("{{ let _ = {text}; SmeltUnknown::Null }}")))),
             Some(Type::List(item)) if !self.list_items_render_as_unknown(ty, &self.render_scope()) => {
                 // A `List<None>` erases its elements to `Null`, but an
@@ -1642,7 +1642,7 @@ impl FunctionEmitter<'_> {
                         .borrow_mut()
                         .entry(key)
                         .or_insert(accessor_body);
-                    return Ok(RustExpr::opaque(format!("__smelt_fn_value_{key}()")));
+                    return Ok(RustExpr::chain(format!("__smelt_fn_value_{key}()")));
                 }
                 if let Some(erased_call) = self.erased_call_assignment_expr(operand)? {
                     return Ok(erased_call);
@@ -1686,7 +1686,7 @@ impl FunctionEmitter<'_> {
             // reproduces the JavaScript iterator protocol (`next` →
             // `{ value, done }` steps) over the same shared state machine.
             Some(Type::Generator { .. }) => Ok(RustExpr::postfix_on(&smelt_owned_text, self.carrier_format(format_args!("{smelt_owned_text}.into_smelt_unknown()")))),
-            Some(Type::Never) | None => Ok(RustExpr::from(self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null")).into_string())),
+            Some(Type::Never) | None => Ok(self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null"))),
             // The rest has nothing to read from the operand itself.
             Some(_) => self.erase_value(&RenderedValue::new(text.clone(), ty)),
         }
@@ -1764,7 +1764,7 @@ impl FunctionEmitter<'_> {
         if matches!(self.mir.types.get(item), Some(Type::None))
             && self.container_local_all_undefined_constants(operand)?
         {
-            return Ok(RustExpr::from(self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined")).into_string()));
+            return Ok(self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined")));
         }
         self.erase_rendered(&RustExpr::path("value"), item)
     }
@@ -1916,7 +1916,7 @@ impl FunctionEmitter<'_> {
         let value_text = value.expr();
         // `value_text` is usually already an owned temporary (an operand render clones the local
         // it reads), so take an owned copy rather than deep-copying it a second time.
-        let smelt_owned_value = cloned_value_text(value_text);
+        let smelt_owned_value = value_text.cloned_value();
         match self.mir.types.get(ty) {
             Some(Type::Unknown) => Ok(value_text.to_owned()),
             // Unconditional, and correct for both spellings of a type
@@ -1931,7 +1931,7 @@ impl FunctionEmitter<'_> {
             Some(Type::None | Type::Never) | None if value_text.trim() != "()" => {
                 Ok(RustExpr::atom(self.carrier_format(format_args!("{{ let _ = {value_text}; SmeltUnknown::Null }}"))))
             }
-            Some(Type::None | Type::Never) | None => Ok(RustExpr::from(self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null")).into_string())),
+            Some(Type::None | Type::Never) | None => Ok(self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null"))),
             Some(Type::Bool) => Ok(RustExpr::atom(self.carrier_format(format_args!("SmeltUnknown::Bool({value_text})")))),
             Some(Type::BigInt) => Ok(RustExpr::atom(self.carrier_format(format_args!("SmeltUnknown::BigInt({smelt_owned_value})")))),
             Some(Type::Int | Type::FixedInt(_) | Type::Float) => {
@@ -1939,10 +1939,10 @@ impl FunctionEmitter<'_> {
                 // so `as f64` does not reassociate across it.
                 Ok(RustExpr::atom(self.carrier_format(format_args!(
                     "SmeltUnknown::Number({} as f64)",
-                    crate::emitter::rendered_value::cast_operand_text(value.expr())
+                    value.expr().as_cast_operand()
                 ))))
             }
-            Some(Type::String) => Ok(RustExpr::from(crate::rust::erased_string(value_text))),
+            Some(Type::String) => Ok(crate::rust::erased_string(value_text)),
             Some(Type::List(item)) if self.list_items_render_as_unknown(ty, &self.render_scope()) => {
                 // Keep the rendered-value and operand erasure paths in agreement:
                 // an already-erased generic array aliases the same backing buffer.
@@ -1950,11 +1950,11 @@ impl FunctionEmitter<'_> {
                 // The helper takes the value as a call argument, so only the
                 // direct wrap's method receiver needs a loose operand wrapped.
                 if erased_list_alias::leaves_erased_generic(self.mir.types.get(*item)) {
-                    Ok(RustExpr::from(erased_list_alias::array_alias_expr(value_text).into_string()))
+                    Ok(erased_list_alias::array_alias_expr(value_text))
                 } else {
                     Ok(RustExpr::atom(self.carrier_format(format_args!(
                         "SmeltUnknown::Array({}.into())",
-                        crate::emitter::rendered_value::cast_operand_text(value.expr())
+                        value.parenthesized_if_needed()
                     ))))
                 }
             }
@@ -1969,7 +1969,7 @@ impl FunctionEmitter<'_> {
                 // by-reference callback parameter), whose `into_iter()` yields `&T`.
                 Ok(RustExpr::atom(self.carrier_format(format_args!(
                     "{{ let smelt_l = {}; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| {value_wrap}).collect::<Vec<_>>())) }}",
-                    crate::emitter::rendered_value::cast_operand_text(value.expr())
+                    value.parenthesized_if_needed()
                 ))))
             }
             // A source-spelled `Map` erases through its `SmeltJsMap`
@@ -1998,7 +1998,7 @@ impl FunctionEmitter<'_> {
                 let value_wrap = self.erase_rendered(&RustExpr::path("value"), *item)?;
                 Ok(RustExpr::atom(self.carrier_format(format_args!(
                     "SmeltUnknown::Object(SmeltObject::new({}.into_iter().map(|(key, value)| ({key_wrap}, {value_wrap})).collect()))",
-                    crate::emitter::rendered_value::cast_operand_text(value.expr())
+                    value.parenthesized_if_needed()
                 ))))
             }
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => {
@@ -2018,7 +2018,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Class { name, .. })
                 if self.is_erased_class_type(ty) && self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::Date) =>
             {
-                Ok(RustExpr::from(self.date_unknown_identity_expr(value_text).into_string()))
+                Ok(self.date_unknown_identity_expr(value_text))
             }
             Some(Type::Class { .. }) if self.is_erased_class_type(ty) => Ok(value_text.to_owned()),
             Some(Type::Class { .. }) => self.class_unknown_object_expr(value_text, ty),
@@ -2029,14 +2029,14 @@ impl FunctionEmitter<'_> {
                 if !self.type_is_hash_set_key_safe(*item) {
                     return Ok(RustExpr::atom(self.carrier_format(format_args!(
                         "({}).clone().into_smelt_unknown()",
-                        crate::emitter::rendered_value::cast_operand_text(value.expr())
+                        value.parenthesized_if_needed()
                     ))));
                 }
                 let value_wrap = self.erase_rendered(&RustExpr::path("value"), *item)?;
                 // Insertion order, not hash order: see the sibling arm.
                 Ok(RustExpr::atom(self.carrier_format(format_args!(
                     "{{ let values = {}.clone().into_iter().map(|value| {value_wrap}).collect::<Vec<_>>(); SmeltUnknown::Array(values.into()) }}",
-                    crate::emitter::rendered_value::cast_operand_text(value.expr())
+                    value.parenthesized_if_needed()
                 ))))
             }
             Some(Type::Tuple(items)) => {
@@ -2045,7 +2045,7 @@ impl FunctionEmitter<'_> {
                     .enumerate()
                     .map(|(index, item)| {
                         self.erase_rendered(
-                            &{ let receiver = crate::emitter::rendered_value::cast_operand_text(value.expr()); RustExpr::postfix_on(&receiver, format!("{receiver}.{index}.clone()")) }.ending_in_clone(),
+                            &{ let receiver = value.expr(); RustExpr::postfix_on(receiver, format!("{receiver}.{index}.clone()")) }.ending_in_clone(),
                             *item,
                         )
                     })
@@ -2055,16 +2055,16 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Optional(inner)) => {
                 let value_wrap = self.erase_rendered(&RustExpr::path("value"), *inner)?;
-                Ok(RustExpr::postfix_on(&crate::emitter::rendered_value::cast_operand_text(value.expr()), self.carrier_format(format_args!(
+                Ok(RustExpr::postfix_on(&value.parenthesized_if_needed(), self.carrier_format(format_args!(
                     "{}.clone().map_or(SmeltUnknown::Undefined, |value| {value_wrap})",
-                    crate::emitter::rendered_value::cast_operand_text(value.expr())
+                    value.parenthesized_if_needed()
                 ))))
             }
             Some(Type::Function(function)) => {
                 if self.is_erased_unknown_rest_function(function) && !function.may_throw {
-                    return Ok(RustExpr::postfix_on(&crate::emitter::rendered_value::cast_operand_text(value.expr()), self.carrier_format(format_args!(
+                    return Ok(RustExpr::postfix_on(&value.parenthesized_if_needed(), self.carrier_format(format_args!(
                         "{}.clone().into_smelt_unknown()",
-                        crate::emitter::rendered_value::cast_operand_text(value.expr())
+                        value.parenthesized_if_needed()
                     ))));
                 }
                 let args = self.function_args_from_smelt_args_text(function, ErasedCallTargetAbi::Declared)?;
@@ -2158,12 +2158,12 @@ impl FunctionEmitter<'_> {
             // Same dynamic boundary as the operand-based erase above: route the
             // generator through the prelude's `IntoSmeltUnknown` iterator
             // adapter rather than failing emission.
-            Some(Type::Generator { .. }) => Ok(RustExpr::postfix_on(&crate::emitter::rendered_value::cast_operand_text(value.expr()), self.carrier_format(format_args!(
+            Some(Type::Generator { .. }) => Ok(RustExpr::postfix_on(&value.parenthesized_if_needed(), self.carrier_format(format_args!(
                 "{}.clone().into_smelt_unknown()",
-                crate::emitter::rendered_value::cast_operand_text(value.expr())
+                value.parenthesized_if_needed()
             )))),
             Some(Type::GeneratorResult { yield_ty, return_ty }) => {
-                self.erased_iterator_result_expr(&RustExpr::opaque(&crate::emitter::rendered_value::cast_operand_text(value.expr())), *yield_ty, *return_ty)
+                self.erased_iterator_result_expr(&RustExpr::opaque(&value.parenthesized_if_needed()), *yield_ty, *return_ty)
             }
         }
     }
@@ -2292,7 +2292,7 @@ impl FunctionEmitter<'_> {
     fn date_unknown_identity_expr(&self, value_text: &RustExpr) -> RustExpr {
         // `value_text` is usually already an owned temporary (an operand render clones the local
         // it reads), so take an owned copy rather than deep-copying it a second time.
-        let smelt_owned_value = cloned_value_text(value_text);
+        let smelt_owned_value = value_text.cloned_value();
         RustExpr::atom(self.carrier_format(format_args!(
             "match {smelt_owned_value} {{ SmeltUnknown::Object(value) if value.contains_key(\"{SMELT_DATE}\") => SmeltUnknown::Object(value), SmeltUnknown::Number(value) => SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"{SMELT_DATE}\".to_owned(), SmeltUnknown::Number(value))]))), value => value }}"
         )))
@@ -2391,7 +2391,7 @@ impl FunctionEmitter<'_> {
                 // An accessor erases the value its getter answers now.
                 let accessor = crate::accessor_prelude::is_accessor_field(self.mir, *name, field.name);
                 let optional_read = if accessor {
-                    crate::accessor_prelude::read_expr(&format!("{field_base}.{field_name}"))
+                    crate::accessor_prelude::read_expr(&RustExpr::field_on(&field_base, format!("{field_base}.{field_name}")))
                 } else {
                     RustExpr::postfix_on(&field_base, format!("{field_base}.{field_name}.clone()")).ending_in_clone()
                 };
@@ -2424,13 +2424,13 @@ impl FunctionEmitter<'_> {
                     self.erase_rendered(
                         &RustExpr::atom(format!(
                             "({})",
-                            crate::accessor_prelude::read_expr(&format!("{field_base}.{field_name}"))
+                            crate::accessor_prelude::read_expr(&RustExpr::field_on(&field_base, format!("{field_base}.{field_name}")))
                         )),
                         field.ty,
                     )?
                 } else {
                     self.erase_rendered(
-                        &RustExpr::postfix_on(&field_base, format!("{field_base}.{field_name}")),
+                        &RustExpr::field_on(&field_base, format!("{field_base}.{field_name}")),
                         field.ty,
                     )?
                 };
@@ -2537,7 +2537,7 @@ impl FunctionEmitter<'_> {
                     ),
                 )
             }
-            _ => RustExpr::from(String::new()),
+            _ => RustExpr::opaque(""),
         };
         // A NON-GENERIC reference record builds its snapshot on first use: the
         // view already holds the live handle, and a value carried across an
@@ -2548,7 +2548,7 @@ impl FunctionEmitter<'_> {
             && self.rust_shape(target)? != RustShape::GenericClass
         {
             let lazy = crate::lazy_view::lazy_reference_object_expr(
-                "smelt_reference_object_identity(&smelt_struct_value.0)",
+                &RustExpr::chain("smelt_reference_object_identity(&smelt_struct_value.0)"),
                 &format!("{entries} {host_markers}{class_marker}{proto_entries}{write_through}"),
                 "smelt_struct_value",
             );
@@ -2709,7 +2709,7 @@ impl FunctionEmitter<'_> {
         let reference = if self.operand_renders_as_shared_reference(value) {
             place
         } else {
-            borrowed_value_text(&place)
+            place.borrowed_value()
         };
         if let Some(members) = self.concrete_union_members(value_ty) {
             let name = union::union_name(value_ty);
@@ -3178,7 +3178,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         // `text` is usually already an owned temporary (an operand render clones the local
         // it reads), so take an owned copy rather than deep-copying it a second time.
-        let smelt_owned_text = cloned_value_text(text);
+        let smelt_owned_text = text.cloned_value();
         match self.mir.types.get(target) {
             Some(Type::Unknown) => Ok(text.to_owned()),
             // An erased `Date` keeps the marker record; the concrete `SmeltDate`
@@ -3246,7 +3246,7 @@ impl FunctionEmitter<'_> {
             // preserves the backing array id, so already-erased callers are
             // unaffected.
             Some(Type::List(_)) if self.list_items_render_as_unknown(target, scope) => {
-                Ok(RustExpr::from(erased_to_list_expr(text, None, &self.carrier_expr(&RustExpr::atom("SmeltUnknown::String(ch.to_string().into())"))).into_string()))
+                Ok(erased_to_list_expr(text, None, &self.carrier_expr(&RustExpr::atom("SmeltUnknown::String(ch.to_string().into())"))))
             }
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::String) => {
                 Ok(erased_to_list_expr(
@@ -3261,7 +3261,7 @@ impl FunctionEmitter<'_> {
                 let item_text = self.extract_rendered(&RustExpr::path("value"), *item, scope)?;
                 let char_text =
                     self.extract_rendered(&self.carrier_expr(&RustExpr::atom("SmeltUnknown::String(ch.to_string().into())")), *item, scope)?;
-                Ok(RustExpr::from(erased_to_list_expr(text, Some(&item_text), &char_text).into_string()))
+                Ok(erased_to_list_expr(text, Some(&item_text), &char_text))
             }
             Some(Type::Dict(key, item))
                 if self.mir.types.get(*key) == Some(&Type::String)
@@ -3427,7 +3427,7 @@ impl FunctionEmitter<'_> {
                 if self.record_conversion_stack.borrow().is_empty()
                     && let Some(call) = self.hoisted_record_conversion(text, target)?
                 {
-                    return Ok(RustExpr::from(call));
+                    return Ok(RustExpr::chain(call));
                 }
                 match self.inline_record_conversion(text, target, scope)? {
                     Some(conversion) => Ok(RustExpr::from(conversion)),
@@ -3801,7 +3801,7 @@ fn is_trivial_reeval_expr(text: &RustExpr) -> bool {
 fn erased_to_list_expr(text: &RustExpr, item_text: Option<&str>, char_text: &RustExpr) -> RustExpr {
         // `text` is usually already an owned temporary (an operand render clones the local
         // it reads), so take an owned copy rather than deep-copying it a second time.
-        let smelt_owned_text = cloned_value_text(text);
+        let smelt_owned_text = text.cloned_value();
     // Converts a `Vec<SmeltUnknown>`-producing expression into the element type,
     // then wraps it in a list with a FRESH JS reference identity. Only the array
     // arm has a source identity to carry over.

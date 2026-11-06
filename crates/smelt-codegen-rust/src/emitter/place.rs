@@ -3,7 +3,6 @@
 use crate::rust::RustExpr;
 use super::*;
 use crate::emitter::local_binding::PlaceTarget;
-use crate::emitter::rendered_value::cloned_value_text;
 
 impl FunctionEmitter<'_> {
     /// Render a dotted property name as the concrete key type of a dictionary.
@@ -143,7 +142,7 @@ impl FunctionEmitter<'_> {
                     // A concrete-union receiver stores a tagged enum; project it
                     // back to `SmeltUnknown` before the erased-object field match.
                     let scrutinee =
-                        self.erase_concrete_union_expr(&cloned_value_text(&base_text), base_ty);
+                        self.erase_concrete_union_expr(&base_text.cloned_value(), base_ty);
                     if field_rule == Some(smelt_stdlib::FieldRule::TsLength) {
                         // A callable's `.length` is its declared arity, which the
                         // erasure boundary parks in the function-length registry
@@ -290,7 +289,7 @@ impl FunctionEmitter<'_> {
                     let base_text = self.local_value(*base)?;
                     let field_name = sanitize_ident(self.symbol_name(*field)?);
                     let read = if crate::accessor_prelude::is_accessor_field_of_type(self.mir, *inner, *field) {
-                        crate::accessor_prelude::read_expr(&format!("_smelt_value.{field_name}"))
+                        crate::accessor_prelude::read_expr(&RustExpr::path(format!("_smelt_value.{field_name}")))
                     } else {
                         RustExpr::chain(format!("_smelt_value.{field_name}.clone()")).ending_in_clone()
                     };
@@ -319,7 +318,7 @@ impl FunctionEmitter<'_> {
                         return Ok(self.null_value());
                     }
                     let base_text = self.local_value(*base)?;
-                    let erased = self.erase_rendered(&cloned_value_text(&base_text), base_ty)?;
+                    let erased = self.erase_rendered(&base_text.cloned_value(), base_ty)?;
                     return Ok(RustExpr::chain(format!(
                         "smelt_get_unknown_field(&{erased}, {field_name:?})"
                     )));
@@ -565,7 +564,7 @@ impl FunctionEmitter<'_> {
                     }
                     Some(Type::Tuple(items)) => {
                         let tuple_index = self.tuple_index(index, items.len())?;
-                        Ok({ let receiver = self.local_value(*base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.{tuple_index}")) })
+                        Ok({ let receiver = self.local_value(*base)?; RustExpr::field_on(&receiver, format!("{receiver}.{tuple_index}")) })
                     }
                     // A class with an index signature backs keyed reads with a
                     // real store field (issue #84). A non-optional keyed read
@@ -672,17 +671,17 @@ impl FunctionEmitter<'_> {
         // non-fallible callback seam uses (`blocker-logs/hono-fallible-ops.md`,
         // the round-6 floor), so the program still stops at the throw instead
         // of continuing with a fabricated value.
-        let fallible_read = |read: String| -> String {
+        let fallible_read = |read: RustExpr| -> RustExpr {
             if !getter.can_throw {
                 return read;
             }
             if self.function.can_throw {
-                return format!("{read}?");
+                return RustExpr::atom(format!("{read}?"));
             }
-            format!("{read}.unwrap_or_else(|error| smelt_panic_throw(error))")
+            RustExpr::postfix_on(&read, format!("{read}.unwrap_or_else(|error| smelt_panic_throw(error))"))
         };
         if getter_class == owner.name {
-            return Ok(Some(RustExpr::from(fallible_read(format!("{base_text}.{method_name}()")))));
+            return Ok(Some(fallible_read(RustExpr::postfix_on(&base_text, format!("{base_text}.{method_name}()")))));
         }
         let descriptor_value = self.descriptor_value(getter_class, descriptor)?;
         let arguments = getter
@@ -692,14 +691,14 @@ impl FunctionEmitter<'_> {
             .enumerate()
             .map(|(index, _)| {
                 if index == 0 {
-                    cloned_value_text(&base_text)
+                    base_text.cloned_value()
                 } else {
                     RustExpr::atom("Default::default()")
                 }
             })
             .collect::<Vec<_>>()
             .join(", ");
-        Ok(Some(RustExpr::from(fallible_read(format!(
+        Ok(Some(fallible_read(RustExpr::postfix_on(&descriptor_value, format!(
             "{descriptor_value}.{method_name}({arguments})"
         )))))
     }
@@ -772,7 +771,7 @@ impl FunctionEmitter<'_> {
                     if self.parameter_needs_mutable_reference_in(setter, *parameter) {
                         format!("&mut {base_text}")
                     } else {
-                        cloned_value_text(&base_text).into_string()
+                        base_text.cloned_value().into_string()
                     }
                 } else {
                     "Default::default()".to_owned()
@@ -858,7 +857,7 @@ impl FunctionEmitter<'_> {
             })
             .collect::<Result<Vec<_>, EmitError>>()?;
         if fields.is_empty() {
-            Ok(RustExpr::atom_on(&class_name, format!("{class_name}::default()")))
+            Ok(RustExpr::atom(format!("{class_name}::default()")))
         } else {
             Ok(RustExpr::loose(format!(
                 "{class_name} {{ {}, ..Default::default() }}",
@@ -870,7 +869,7 @@ impl FunctionEmitter<'_> {
     /// Converts a place to its Rust text representation for assignment.
     pub(super) fn assignment_place_expr(&self, place: &Place) -> Result<RustExpr, EmitError> {
         match self.assignment_place_target(place)? {
-            PlaceTarget::Direct(text) | PlaceTarget::SharedCell { text, .. } => Ok(RustExpr::from(text)),
+            PlaceTarget::Direct(text) | PlaceTarget::SharedCell { text, .. } => Ok(text),
         }
     }
 
@@ -878,8 +877,8 @@ impl FunctionEmitter<'_> {
     /// when `base` lives in a shared cell.
     fn place_target_through(&self, base: LocalId, text: String) -> Result<PlaceTarget, EmitError> {
         Ok(match self.local_shared_cell(base)? {
-            Some(cell) => PlaceTarget::SharedCell { cell, text },
-            None => PlaceTarget::Direct(text),
+            Some(cell) => PlaceTarget::SharedCell { cell, text: RustExpr::from(text) },
+            None => PlaceTarget::Direct(RustExpr::from(text)),
         })
     }
 
@@ -929,10 +928,10 @@ impl FunctionEmitter<'_> {
                         } else {
                             self.value_at_type(index, *key_ty)?
                         };
-                        Ok(PlaceTarget::Direct(format!(
+                        Ok(PlaceTarget::Direct(RustExpr::from(format!(
                             "*{}.get_mut(&{key_text}).expect(\"index out of bounds\")",
                             self.local_mut_value(*base)?
-                        )))
+                        ))))
                     }
                     Some(Type::Tuple(items)) => {
                         let tuple_index = self.tuple_index(index, items.len())?;
@@ -982,10 +981,10 @@ impl FunctionEmitter<'_> {
                 if self.is_reference_class_type(base_ty)
                     && self.class_has_named_field(base_ty, *field)
                 {
-                    return Ok(PlaceTarget::Direct(format!(
+                    return Ok(PlaceTarget::Direct(RustExpr::from(format!(
                         "{base_read_text}.0.borrow_mut().{}",
                         sanitize_ident(self.symbol_name(*field)?)
-                    )));
+                    ))));
                 }
                 if self.structural_record_fields(base_ty).is_some() {
                     let text = format!(
@@ -994,7 +993,7 @@ impl FunctionEmitter<'_> {
                     );
                     return self.place_target_through(*base, text);
                 }
-                Ok(PlaceTarget::Direct(self.place_expr(place)?.into_string()))
+                Ok(PlaceTarget::Direct(self.place_expr(place)?))
             }
         }
     }
@@ -1420,7 +1419,7 @@ impl FunctionEmitter<'_> {
         // `base_text` is usually already an owned temporary (an operand render
         // clones the local it reads), so take an owned copy rather than
         // deep-copying the erased base a second time on every index read.
-        let base_text = &cloned_value_text(base_text);
+        let base_text = &base_text.cloned_value();
         let index_ty = self.operand_ty(index)?;
         let index_text = self.operand_expr(index)?;
         let key_text = self.property_key_to_string_expr(&index_text, index_ty)?;
@@ -1453,7 +1452,7 @@ impl FunctionEmitter<'_> {
                     ) =>
             {
                 let scrutinee =
-                    self.erase_concrete_union_expr(&cloned_value_text(&index_text), index_ty);
+                    self.erase_concrete_union_expr(&index_text.cloned_value(), index_ty);
                 RustExpr::atom(self.carrier_format(format_args!(
                     "match {scrutinee} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
                 )))
@@ -1486,8 +1485,8 @@ impl FunctionEmitter<'_> {
 /// Converts a statically materialized descriptor literal to Rust source.
 fn descriptor_literal_expr(literal: &smelt_hir::Literal) -> RustExpr {
     match literal {
-        smelt_hir::Literal::Bool(boolean) => RustExpr::from(boolean.to_string()),
-        smelt_hir::Literal::Int(integer) => RustExpr::from(integer.to_string()),
+        smelt_hir::Literal::Bool(boolean) => RustExpr::path(boolean.to_string()),
+        smelt_hir::Literal::Int(integer) => RustExpr::opaque(integer.to_string()),
         smelt_hir::Literal::BigInt(digits) => crate::bigint_prelude::literal_expr(digits),
         smelt_hir::Literal::Float(number) => {
             if number.is_nan() {

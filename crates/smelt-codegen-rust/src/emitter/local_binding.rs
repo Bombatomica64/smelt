@@ -150,14 +150,14 @@ impl LocalBinding {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum PlaceTarget {
     /// A binding, or a path through one, that needs no cell guard.
-    Direct(String),
+    Direct(RustExpr),
     /// A place behind `cell`'s mutable guard, which lives to the end of the
     /// statement.
     SharedCell {
         /// The cell the guard is taken on.
         cell: SharedCell,
         /// The place expression.
-        text: String,
+        text: RustExpr,
     },
 }
 

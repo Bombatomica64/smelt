@@ -519,7 +519,7 @@ impl FunctionEmitter<'_> {
             let null_arm = if facts.admits_null {
                 self.carrier_expr(&RustExpr::loose("Some(SmeltUnknown::Null) => None, "))
             } else {
-                RustExpr::from(String::new())
+                RustExpr::opaque("")
             };
             text.push_str(&format!(
                 "    let mark = smelt_decode_enter_key(path, {key:?});\n    let at = path.len();\n    \

@@ -81,7 +81,7 @@ impl FunctionEmitter<'_> {
             let right_arg = self.rendered_at_type(&RustExpr::chain("right.clone()").ending_in_clone(), element_ty, param_ty, &self.render_scope())?;
             let closure_expr = match self.closure_operand_expr_for_declared_type(key_operand) {
                 Ok(closure_expr) => closure_expr,
-                Err(_) => RustExpr::from(self.operand_expr(key_operand)?.into_string()),
+                Err(_) => self.operand_expr(key_operand)?,
             };
             let (first, second) = if reverse {
                 ("right_key", "left_key")
@@ -397,7 +397,7 @@ impl FunctionEmitter<'_> {
             Some(bound) => self.normalized_slice_bound_expr_with_default(
                 bound,
                 &len_source,
-                &RustExpr::opaque(format!("{len_source} as f64")),
+                &RustExpr::cast(format!("{len_source} as f64")),
             )?,
             None => len_source,
         };

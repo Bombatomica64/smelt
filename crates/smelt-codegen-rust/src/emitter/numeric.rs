@@ -130,7 +130,7 @@ impl FunctionEmitter<'_> {
         if let Some(width) = fixed_width {
             return Ok(Self::fixed_int_len_expr(len_expr, width));
         }
-        Ok(RustExpr::opaque(format!("{len_expr} as {cast}")))
+        Ok(RustExpr::cast(format!("{len_expr} as {cast}")))
     }
 
     /// Converts a numeric absolute-value operation to Rust text.
@@ -157,7 +157,7 @@ impl FunctionEmitter<'_> {
             return Ok(if matches!(self.mir.types.get(dest_ty), Some(Type::Int)) {
                 operand_expr
             } else {
-                RustExpr::opaque(format!("{operand_expr} as f64"))
+                RustExpr::cast(format!("{operand_expr} as f64"))
             });
         }
         // `floor`/`ceil`/`trunc` mean the same thing in both languages and map to
@@ -188,7 +188,7 @@ impl FunctionEmitter<'_> {
             )),
         };
         if matches!(self.mir.types.get(dest_ty), Some(Type::Int)) {
-            Ok(RustExpr::opaque(format!("{text} as i64")))
+            Ok(RustExpr::cast(format!("{text} as i64")))
         } else {
             Ok(text)
         }
@@ -273,7 +273,7 @@ impl FunctionEmitter<'_> {
         }
         let mut rendered = RustExpr::path("0.0f64");
         for arg in args {
-            rendered = RustExpr::from(RustExpr::postfix_on(&rendered, format!("{rendered}.hypot({})", self.float_operand_expr(arg)?)));
+            rendered = RustExpr::from(RustExpr::from(RustExpr::postfix_on(&rendered, format!("{rendered}.hypot({})", self.float_operand_expr(arg)?))));
         }
         Ok(rendered)
     }
@@ -458,7 +458,7 @@ impl FunctionEmitter<'_> {
             let radix_text = if matches!(self.mir.types.get(self.operand_ty(radix)?), Some(Type::Float)) {
                 radix_operand
             } else {
-                RustExpr::opaque(format!("{radix_operand} as f64"))
+                RustExpr::cast(format!("{radix_operand} as f64"))
             };
             // The frontend lowers a bigint receiver to the fallible
             // `BigIntOp::ToStringRadix` call; this rvalue form only remains

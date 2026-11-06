@@ -41,7 +41,7 @@ impl FunctionEmitter<'_> {
             && !self.is_erased_class_type(dict_ty)
             && let Some(field) = self.operand_string_literal(key)
         {
-            return Ok(RustExpr::from(self.type_has_property_statically(dict_ty, &field).to_string()));
+            return Ok(RustExpr::path(self.type_has_property_statically(dict_ty, &field).to_string()));
         }
         let Some(Type::Dict(key_ty, _) | Type::JsMap(key_ty, _)) = self.mir.types.get(dict_ty)
         else {

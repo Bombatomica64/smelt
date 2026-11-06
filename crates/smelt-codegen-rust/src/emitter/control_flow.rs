@@ -661,7 +661,7 @@ impl FunctionEmitter<'_> {
                                 self.value_at_type(index, *key)?
                             } else {
                                 let index_text = self.operand_expr(index)?;
-                                RustExpr::from(self.property_key_to_string_expr(&index_text, index_ty)?.into_string())
+                                self.property_key_to_string_expr(&index_text, index_ty)?
                             }
                         } else {
                             self.value_at_type(index, *key)?
@@ -774,7 +774,7 @@ impl FunctionEmitter<'_> {
                                 self.value_at_type(index, key_ty)?
                             } else {
                                 let index_text = self.operand_expr(index)?;
-                                RustExpr::from(self.property_key_to_string_expr(&index_text, index_ty)?.into_string())
+                                self.property_key_to_string_expr(&index_text, index_ty)?
                             }
                         } else {
                             self.value_at_type(index, key_ty)?
