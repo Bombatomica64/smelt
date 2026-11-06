@@ -36,13 +36,9 @@ pub enum Command {
         #[command(flatten)]
         hir: HirFlags,
 
-        /// Define a build-time value, like Bun's `--define`: `KEY=VALUE` where
-        /// VALUE is JSON text, e.g. `--define 'process.env.NODE_ENV="production"'`.
-        /// Repeatable; overrides `[build] define` in Smelt.toml. Smelt consults
-        /// defines only to decide whether a package's typed version
-        /// (`.sound/`, `@sound/*`) applies; it does not substitute them.
-        #[arg(long = "define", value_name = "KEY=VALUE", value_parser = parse_define)]
-        define: Vec<(String, String)>,
+        /// `--define KEY=VALUE`.
+        #[command(flatten)]
+        define: DefineArgs,
 
         /// Set an erasure reason's severity: `<reason>[:<glob>]=<allow|warn|deny>`
         /// (`all` for every reason). Repeatable; overrides `[erasure]`.
@@ -58,6 +54,10 @@ pub enum Command {
         /// every module's categorized diagnostics in one recoverable pass).
         #[arg(long = "message-format", value_enum, default_value_t = MessageFormat::Human)]
         message_format: MessageFormat,
+
+        /// `--define KEY=VALUE`.
+        #[command(flatten)]
+        define: DefineArgs,
 
         /// Set an erasure reason's severity: `<reason>[:<glob>]=<allow|warn|deny>`
         /// (`all` for every reason). Repeatable; overrides `[erasure]`.
@@ -142,7 +142,8 @@ pub enum Command {
         #[arg(long)]
         full: bool,
 
-        /// Previous Markdown report used to compute resolved and newly failing tests.
+        /// Previous JSON report (`--json-output`) used to compute resolved and
+        /// newly failing tests.
         #[arg(long = "baseline-report", value_name = "PATH")]
         baseline_report: Option<String>,
 
@@ -154,9 +155,13 @@ pub enum Command {
         #[arg(long)]
         suppress_warnings: bool,
 
-        /// Write the Markdown report to this file instead of stdout.
-        #[arg(long, value_name = "PATH")]
-        output: Option<String>,
+        /// Format and destination of the report.
+        #[command(flatten)]
+        report: ReportArgs,
+
+        /// Also write the report as JSON to this file, from the same run.
+        #[arg(long = "json-output", value_name = "PATH")]
+        json_output: Option<String>,
     },
 
     /// Probe how far a manifest transpiles and enumerate blockers by category
@@ -170,6 +175,10 @@ pub enum Command {
         /// Also run the generated `cargo test` suite when the crate transpiles.
         #[arg(long = "run-tests")]
         run_tests: bool,
+
+        /// `--define KEY=VALUE`.
+        #[command(flatten)]
+        define: DefineArgs,
 
         /// Format and destination of the report.
         #[command(flatten)]
@@ -224,6 +233,10 @@ pub enum Command {
         #[arg(value_name = "PATH", required = true)]
         inputs: Vec<String>,
 
+        /// `--define KEY=VALUE`.
+        #[command(flatten)]
+        define: DefineArgs,
+
         /// Format and destination of the report.
         #[command(flatten)]
         report: ReportArgs,
@@ -246,6 +259,10 @@ pub enum Command {
         /// Sidecars, directories, manifests or source files to measure.
         #[arg(value_name = "PATH", required = true)]
         paths: Vec<String>,
+
+        /// `--define KEY=VALUE`.
+        #[command(flatten)]
+        define: DefineArgs,
 
         /// Format, destination and baseline gate of the report.
         #[command(flatten)]
@@ -270,6 +287,10 @@ pub enum Command {
         /// Smelt manifest to lower (`Smelt.toml`).
         #[arg(value_name = "PATH")]
         manifest: String,
+
+        /// `--define KEY=VALUE`.
+        #[command(flatten)]
+        define: DefineArgs,
 
         /// Format and destination of the report.
         #[command(flatten)]
@@ -370,6 +391,18 @@ pub enum MessageFormat {
     Json,
 }
 
+/// `--define`, on every command that lowers a manifest.
+#[derive(ClapArgs, Debug, Clone, Default)]
+pub struct DefineArgs {
+    /// Define a build-time value, like Bun's `--define`: `KEY=VALUE` where
+    /// VALUE is JSON text, e.g. `--define 'process.env.NODE_ENV="production"'`.
+    /// Repeatable; overrides `[build] define` in Smelt.toml. Smelt consults
+    /// defines only to decide whether a package's typed version
+    /// (`.sound/`, `@sound/*`) applies; it does not substitute them.
+    #[arg(long = "define", value_name = "KEY=VALUE", value_parser = parse_define)]
+    pub values: Vec<(String, String)>,
+}
+
 /// Parse one `--define KEY=VALUE` argument, splitting at the first `=`.
 fn parse_define(argument: &str) -> Result<(String, String), String> {
     let (key, value) = argument
@@ -424,6 +457,25 @@ mod tests {
             parse(&["smelt", "check"]),
             Command::Check { message_format: MessageFormat::Human, .. }
         ));
+    }
+
+    /// Every command that lowers a manifest takes `--define`, so it can agree with
+    /// `build` on which typed versions apply; one that lowers no manifest does not.
+    #[test]
+    fn define_is_on_every_manifest_command() {
+        let define = ["--define", "K=1"];
+        for command in [
+            &["smelt", "build"][..],
+            &["smelt", "check"],
+            &["smelt", "probe"],
+            &["smelt", "list-escape-report", "Smelt.toml"],
+            &["smelt", "typedness-report", "Smelt.toml"],
+            &["smelt", "ts7-parity-report", "Smelt.toml"],
+        ] {
+            let arguments = [command, &define[..]].concat();
+            assert!(Args::try_parse_from(&arguments).is_ok(), "{command:?}");
+        }
+        assert!(Args::try_parse_from(["smelt", "dump-hir", "a.ts", "--define", "K=1"]).is_err());
     }
 
     /// A gate with nothing to compare against would pass vacuously, and an

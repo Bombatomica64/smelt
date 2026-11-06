@@ -54,7 +54,6 @@ NOISE_PREFIXES = ("unresolved name", "unresolved identifier", "unresolved const"
 MSG_RE = re.compile(r'message: \\"(.*?)\\"')
 SYM_RE = re.compile(r"unresolved (?:callback )?(?:identifier|class) [`']([^`']+)[`']")
 ABORT_FILE_RE = re.compile(r'error: "([^"]*\.(?:ts|py))')
-TEST_RESULT_RE = re.compile(r"(\d+) passed; (\d+) failed")
 
 
 def classify(cls: str) -> str:
@@ -164,17 +163,20 @@ def probe_library(smelt_bin, smelt_root, lib, work_dir, fixtures_dir):
 
     if os.path.isfile(cargo_manifest):
         res["transpile"] = True
-        report_path = os.path.join(lib_dir, "_test_report.md")
+        report_path = os.path.join(lib_dir, "_test_report.json")
         tr = run([smelt_bin, "rust-test-report",
                   "--build-manifest", manifest,
                   "--cargo-manifest", cargo_manifest,
                   "--full", "--suppress-warnings",
+                  "--format", "json",
                   "--output", report_path], cwd=smelt_root)
-        report = open(report_path).read() if os.path.isfile(report_path) else (tr.stdout + tr.stderr)
-        mr = TEST_RESULT_RE.search(report)
-        if mr:
-            res["passed"], res["failed"] = int(mr.group(1)), int(mr.group(2))
-        res["test_report"] = report
+        if os.path.isfile(report_path):
+            with open(report_path) as handle:
+                report = json.load(handle)
+            full = report.get("full") or {}
+            counts = (full.get("run") or {}).get("counts")
+            if counts:
+                res["passed"], res["failed"] = counts["passed"], counts["failed"]
     else:
         res["transpile"] = False
         ab = ABORT_FILE_RE.search(build_out)

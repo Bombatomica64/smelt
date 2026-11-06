@@ -20,6 +20,6 @@ module examples/typescript/end-to-end/21_this_field/input.ts (ModuleId(0))
 
 interned types
   t0 = String
-  t1 = User
-  t2 = None
-  t3 = fn() -> String
+  t1 = fn() -> String
+  t2 = User
+  t3 = None

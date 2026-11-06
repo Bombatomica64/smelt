@@ -2,7 +2,7 @@ module examples/typescript/end-to-end/42_module_arrow_shared_capture/input.ts (M
   body BodyId(5)
   items
     global mut rem: List<String>
-    fn second__module_examples/typescript/end-to-end/42_module_arrow_shared_capture/input.ts owner Module
+    fn second__module_main owner Module
     fn take owner Module
   locals
     %0 const outer: fn() -> None

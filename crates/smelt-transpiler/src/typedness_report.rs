@@ -95,6 +95,8 @@ impl TypednessReport {
 pub(crate) struct TypednessReportOptions<'a> {
     /// Inputs; see the module docs.
     pub(crate) paths: &'a [PathBuf],
+    /// Command-line defines, over a manifest's.
+    pub(crate) defines: &'a [(String, String)],
     /// Output format.
     pub(crate) format: ReportFormat,
     /// Baseline to compare against.
@@ -116,7 +118,7 @@ pub(crate) struct Worsening {
 pub(crate) fn typedness_report(options: &TypednessReportOptions<'_>) -> CliResult<GatedOutcome> {
     let mut programs = BTreeMap::new();
     for path in options.paths {
-        programs.extend(measure_input(path)?);
+        programs.extend(measure_input(path, options.defines)?);
     }
     let measured = TypednessReport::from_programs(programs);
     let baseline = match &options.baseline {
@@ -144,7 +146,7 @@ pub(crate) fn typedness_report(options: &TypednessReportOptions<'_>) -> CliResul
 }
 
 /// Measure one input path into program records.
-fn measure_input(path: &Path) -> CliResult<BTreeMap<String, ProgramRecord>> {
+fn measure_input(path: &Path, defines: &[(String, String)]) -> CliResult<BTreeMap<String, ProgramRecord>> {
     if path.is_dir() {
         let sidecar = std::iter::once(path.join(SIDECAR_FILE_NAME))
             .chain(path.parent().map(|parent| parent.join(SIDECAR_FILE_NAME)))
@@ -162,10 +164,11 @@ fn measure_input(path: &Path) -> CliResult<BTreeMap<String, ProgramRecord>> {
         return Ok(report::load_json::<TypednessReport>(path, "")?.programs);
     }
     if path.file_name().is_some_and(|file| file == "Smelt.toml") {
-        return measure_manifest(path);
+        return measure_manifest(path, defines);
     }
     // A single source program: the whole lowered crate is its record.
-    let record = lowering::lower_single_file(&name)
+    let record = lowering::ManifestLowering::for_file(&name)
+        .and_then(lowering::ManifestLowering::lower)
         .ok()
         .and_then(|(krate, _)| pipeline::lower_to_optimized_mir(&krate).ok())
         .and_then(|mir| smelt_codegen_rust::measure_typedness(&mir).ok())
@@ -174,9 +177,13 @@ fn measure_input(path: &Path) -> CliResult<BTreeMap<String, ProgramRecord>> {
 }
 
 /// Lower a manifest in-process and measure every source file.
-fn measure_manifest(manifest_path: &Path) -> CliResult<BTreeMap<String, ProgramRecord>> {
-    let config = config_parser::parse_path(manifest_path)?;
-    let (krate, _) = lowering::lower_manifest_entries(&config, manifest_path)?;
+fn measure_manifest(
+    manifest_path: &Path,
+    defines: &[(String, String)],
+) -> CliResult<BTreeMap<String, ProgramRecord>> {
+    let mut config = config_parser::parse_path(manifest_path)?;
+    config.extend_defines(defines.iter().cloned());
+    let (krate, _) = lowering::ManifestLowering::for_manifest(&config, manifest_path)?.lower()?;
     let mir = pipeline::lower_to_optimized_mir(&krate)?;
     let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
     Ok(programs_of(&smelt_codegen_rust::measure_typedness(&mir)?, manifest_dir))

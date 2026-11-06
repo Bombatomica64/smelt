@@ -23,10 +23,7 @@ impl Default for OutputKind {
 
 /// Project metadata from the [project] section of Smelt.toml.
 #[derive(Deserialize, Debug, JsonSchema)]
-#[expect(
-    dead_code,
-    reason = "configuration schema includes fields not consumed yet"
-)]
+#[serde(deny_unknown_fields)]
 pub struct Project {
     /// Project name.
     name: String,
@@ -38,10 +35,7 @@ pub struct Project {
 
 /// Top-level configuration for a Smelt project.
 #[derive(Deserialize, Debug, JsonSchema)]
-#[expect(
-    dead_code,
-    reason = "configuration schema includes fields not consumed yet"
-)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     /// Project metadata.
     project: Project,
@@ -50,6 +44,7 @@ pub struct Config {
     /// Output target configuration.
     output: Output,
     /// Runtime options.
+    #[serde(default)]
     runtime: Runtime,
     /// Generated-Rust options.
     #[serde(default)]
@@ -57,8 +52,9 @@ pub struct Config {
     /// Build options.
     #[serde(default)]
     build: Build,
-    /// Optional strict mode configuration.
-    strict: Option<Strict>,
+    /// Strict mode configuration.
+    #[serde(default)]
+    strict: Strict,
     /// TypeScript sources for dependencies imported by bare specifier.
     #[serde(default)]
     packages: BTreeMap<String, PackageSource>,
@@ -72,6 +68,53 @@ impl Config {
     #[must_use]
     pub fn project_name(&self) -> &str {
         &self.project.name
+    }
+
+    /// Get the project version, which the generated crate carries.
+    #[must_use]
+    pub fn project_version(&self) -> &str {
+        &self.project.version
+    }
+
+    /// Get the project description, which the generated crate carries.
+    #[must_use]
+    pub fn project_description(&self) -> Option<&str> {
+        self.project.description.as_deref()
+    }
+
+    /// Get the Rust edition of the generated crate.
+    #[must_use]
+    pub fn rust_edition(&self) -> &str {
+        self.rust.edition.as_deref().unwrap_or(DEFAULT_RUST_EDITION)
+    }
+
+    /// Get `[rust.dependencies]` as `(name, TOML value text)`, in name order.
+    #[must_use]
+    pub fn rust_dependencies(&self) -> Vec<(String, String)> {
+        self.rust
+            .dependencies
+            .iter()
+            .map(|(name, value)| (name.clone(), value.to_string()))
+            .collect()
+    }
+
+    /// The first rule of `specs/cli.md` this manifest breaks, as the message after
+    /// `error[smelt::manifest]: `.
+    pub(crate) fn violation(&self) -> Option<String> {
+        if self.strict.typescript == Some(false) {
+            return Some("strict.typescript=false is not supported in v1.0".to_owned());
+        }
+        if self.strict.python == Some(false) {
+            return Some("strict.python=false is not supported in v1.0".to_owned());
+        }
+        if let Some(strategy) = self.runtime.clone_strategy.as_deref().filter(|value| *value != "aggressive") {
+            return Some(format!("runtime.clone-strategy={strategy:?} is not supported in v1.0"));
+        }
+        let edition = self.rust_edition();
+        if !RUST_EDITIONS.contains(&edition) {
+            return Some(format!("rust.edition={edition:?} is not a Rust edition"));
+        }
+        None
     }
 
     /// Get the list of source file entries.
@@ -174,6 +217,7 @@ impl Config {
 
 /// Source file configuration from the [sources] section.
 #[derive(Deserialize, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Source {
     /// List of source file paths.
     entries: Vec<PathBuf>,
@@ -298,6 +342,7 @@ impl JsonSchema for PackageSource {
 
 /// Output configuration from the [output] section.
 #[derive(Deserialize, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Output {
     /// Target output directory.
     target: PathBuf,
@@ -313,6 +358,7 @@ pub struct Output {
 
 /// Build configuration from the [build] section.
 #[derive(Default, Deserialize, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Build {
     /// Build-time defines, spelled like Bun's `--define`: the key is the
     /// expression, the value is JSON text (`"process.env.NODE_ENV" =
@@ -325,9 +371,23 @@ pub struct Build {
     define: BTreeMap<String, String>,
 }
 
+/// The edition of a generated crate whose manifest names none.
+const DEFAULT_RUST_EDITION: &str = "2024";
+
+/// Every edition Cargo accepts.
+const RUST_EDITIONS: [&str; 4] = ["2015", "2018", "2021", "2024"];
+
 /// Generated-Rust configuration from the [rust] section.
 #[derive(Default, Deserialize, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Rust {
+    /// Rust edition of the generated crate; 2024 when absent.
+    edition: Option<String>,
+    /// Added to the generated crate's `[dependencies]` verbatim. Same syntax as
+    /// Cargo's table, and an entry here replaces what Smelt would add for that crate.
+    #[serde(default)]
+    #[schemars(with = "BTreeMap<String, serde_json::Value>")]
+    dependencies: BTreeMap<String, toml::Value>,
     /// Global allocator a generated program installs.
     #[serde(default)]
     allocator: Allocator,
@@ -372,36 +432,20 @@ pub enum Allocator {
     Mimalloc,
 }
 
-/// Strategy for cloning values in generated code.
-#[derive(Deserialize, Debug, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum CloneStrategy {
-    /// Always clone values.
-    Always,
-    /// Aggressively clone when beneficial.
-    Aggressive,
-    /// Never clone values.
-    Never,
-}
-
 /// Runtime configuration from the [runtime] section.
-#[derive(Deserialize, Debug, JsonSchema)]
-#[expect(
-    dead_code,
-    reason = "configuration schema includes fields not consumed yet"
-)]
+#[derive(Default, Deserialize, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Runtime {
-    /// Cloning strategy for generated code.
+    /// Cloning strategy for generated code; v1.0 supports only `"aggressive"`,
+    /// which is also the default.
     #[serde(rename = "clone-strategy")]
-    clone_strategy: CloneStrategy,
+    clone_strategy: Option<String>,
 }
 
-/// Strict mode configuration from the [strict] section.
-#[derive(Deserialize, Debug, JsonSchema)]
-#[expect(
-    dead_code,
-    reason = "configuration schema includes fields not consumed yet"
-)]
+/// Strict mode configuration from the [strict] section. v1.0 is always strict, so
+/// each flag is `true` or absent.
+#[derive(Default, Deserialize, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Strict {
     /// Enable strict mode for TypeScript.
     typescript: Option<bool>,

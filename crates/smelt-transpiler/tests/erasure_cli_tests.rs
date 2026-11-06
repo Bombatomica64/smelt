@@ -23,7 +23,7 @@ fn project(extra_manifest: &str) -> TestResult<TempProject> {
     fs::write(
         project.path().join("Smelt.toml"),
         format!(
-            "[project]\nname = \"erasure-cli\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"main.ts\"]\n\n[output]\ntarget = \"out\"\n\n[runtime]\nclone-strategy = \"always\"\n{extra_manifest}"
+            "[project]\nname = \"erasure-cli\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"main.ts\"]\n\n[output]\ntarget = \"out\"\n\n[runtime]\nclone-strategy = \"aggressive\"\n{extra_manifest}"
         ),
     )?;
     Ok(project)

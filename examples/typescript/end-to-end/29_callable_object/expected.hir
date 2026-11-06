@@ -52,13 +52,13 @@ module examples/typescript/end-to-end/29_callable_object/input.ts (ModuleId(0))
     s6: #35
 
 interned types
-  t0 = Unknown
-  t1 = String
-  t2 = Dict<String, Unknown>
-  t3 = Counter
-  t4 = fn() -> Counter
+  t0 = Float
+  t1 = Unknown
+  t2 = String
+  t3 = Dict<String, Unknown>
+  t4 = Counter
   t5 = fn() -> Counter
-  t6 = Float
+  t6 = fn() -> Counter
   t7 = None
   t8 = fn() -> Float
   t9 = fn() -> None

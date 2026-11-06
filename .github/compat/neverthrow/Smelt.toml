@@ -4,7 +4,7 @@ version = "0.0.0"
 description = "neverthrow Smelt probe"
 [sources]
 roots = ["src", "tests"]
-test-prefix = ["**/*.test.ts"]
+test-globs = ["**/*.test.ts"]
 entries = ["src/index.ts"]
 [output]
 target = "./dist-smelt"

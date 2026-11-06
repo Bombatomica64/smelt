@@ -20,12 +20,12 @@ fn match (FuncId(0)) -> List<String>
     %12 temp: List<String>
   bb0:
     %5 = this
-    %3 = copy %5.field17
+    %3 = copy %5.field8
     %4 = []
     %7 = closure ClosureId(0) [copy %4, copy %3]
     %2 = move %7
     %8 = this
-    %8.field6 = copy %2
+    %8.field9 = copy %2
     %9 = dict_keys copy %3
     %10 = len move %9
     %11 = call @console_log("first match", move %10) -> bb1
@@ -40,7 +40,7 @@ fn greet (FuncId(1)) -> String
     %2 temp: String
   bb0:
     %1 = this
-    %2 = copy %1.field35 + copy %0
+    %2 = copy %1.field40 + copy %0
     return move %2
 
 fn add (FuncId(2)) -> None
@@ -62,19 +62,19 @@ fn add (FuncId(2)) -> None
   bb0:
     %5 = copy %1 + " "
     %4 = move %5 + copy %2
-    %7 = dict_contains_key copy %0.field17, copy %4, own
+    %7 = dict_contains_key copy %0.field8, copy %4, own
     %8 = !move %7
     switch move %8 ? bb1 : bb2
   bb1:
-    %9 = copy %0.field17
+    %9 = copy %0.field8
     %10 = []
     %9[copy %4] = move %10
-    %0.field17 = move %9
+    %0.field8 = move %9
     goto bb2
   bb2:
-    %11 = copy %0.field17
+    %11 = copy %0.field8
     %12 = copy %11[copy %4]
-    %0.field17 = copy %11
+    %0.field8 = copy %11
     %13 = list_push copy %12, copy %3
     %11[copy %4] = move %12
     return none
@@ -125,11 +125,11 @@ fn new (FuncId(4)) -> TableRouter
     %2 temp: fn(String, String) -> List<String>
   bb0:
     %0 = struct0 {}
-    %0.field10 = "TableRouter"
+    %0.field7 = "TableRouter"
     %1 = {}
-    %0.field17 = move %1
+    %0.field8 = move %1
     %2 = closure ClosureId(1) []
-    %0.field6 = move %2
+    %0.field9 = move %2
     return move %0
 
 fn new (FuncId(5)) -> SmartRouter
@@ -138,11 +138,11 @@ fn new (FuncId(5)) -> SmartRouter
     %1 param routers: List<Router>
     %2 temp: fn(String, String) -> List<String>
   bb0:
-    %0 = struct1 {}
-    %0.field10 = "SmartRouter"
+    %0 = struct10 {}
+    %0.field7 = "SmartRouter"
     %2 = closure ClosureId(2) [copy %0]
-    %0.field6 = move %2
-    %0.field29 = copy %1
+    %0.field9 = move %2
+    %0.field34 = copy %1
     return move %0
 
 fn add (FuncId(6)) -> None throws
@@ -158,7 +158,7 @@ fn add (FuncId(6)) -> None throws
     %8 temp: Bool
     %9 temp: None
   bb0:
-    %5 = copy %0.field29
+    %5 = copy %0.field34
     %6 = 0
     goto bb1
   bb1:
@@ -167,7 +167,7 @@ fn add (FuncId(6)) -> None throws
     switch move %8 ? bb2 : bb4
   bb2:
     %4 = copy %5[copy %6]
-    %9 = closure_call copy %4.field15(copy %1, copy %2, copy %3)
+    %9 = closure_call copy %4.field4(copy %1, copy %2, copy %3)
     goto bb3
   bb3:
     %6 = copy %6 + 1
@@ -189,9 +189,9 @@ fn new (FuncId(7)) -> App
     %9 temp: Bool
     %10 temp: fn(String) -> Float
   bb0:
-    %0 = struct3 {}
+    %0 = struct11 {}
     %3 = []
-    %0.field38 = move %3
+    %0.field41 = move %3
     %4 = ["get", "post"]
     %5 = []
     %1 = list_concat move %4, move %5
@@ -224,17 +224,17 @@ fn #register (FuncId(8)) -> Float throws
     %7 temp: List<String>
     %8 temp: Float
   bb0:
-    %2 = !copy %0.field38
+    %2 = !copy %0.field41
     switch move %2 ? bb1 : bb2
   bb1:
     %3 = {"__smelt_error": "Error", "message": "sealed", "stack": undefined, "cause": undefined}
-    %4 = unknown_cast move %3 as t3
+    %4 = unknown_cast move %3 as t7
     throw move %4
   bb2:
-    %5 = copy %0.field38
+    %5 = copy %0.field41
     %6 = list_push copy %5, copy %1
-    %0.field38 = move %5
-    %7 = copy %0.field38
+    %0.field41 = move %5
+    %7 = copy %0.field41
     %8 = len move %7
     return move %8
 
@@ -246,7 +246,7 @@ fn routes (FuncId(9)) -> String
     %3 temp: String
   bb0:
     %1 = []
-    %2 = copy %0.field38 ?? move %1
+    %2 = copy %0.field41 ?? move %1
     %3 = string_join move %2, ", "
     return move %3
 
@@ -331,17 +331,17 @@ fn main (FuncId(10)) -> None throws
   bb3:
     %12 = call fn2(copy %0, "POST", "/b", "three") -> bb4
   bb4:
-    %13 = bind_this copy %0.field6, copy %0
+    %13 = bind_this copy %0.field9, copy %0
     %14 = closure_call move %13("GET", "/a")
     %15 = string_join move %14, ","
     %16 = call @console_log(move %15) -> bb5
   bb5:
-    %17 = bind_this copy %0.field6, copy %0
+    %17 = bind_this copy %0.field9, copy %0
     %18 = closure_call move %17("POST", "/b")
     %19 = string_join move %18, ","
     %20 = call @console_log(move %19) -> bb6
   bb6:
-    %21 = bind_this copy %0.field6, copy %0
+    %21 = bind_this copy %0.field9, copy %0
     %22 = closure_call move %21("GET", "/zz")
     %23 = len move %22
     %24 = call @console_log(move %23) -> bb7
@@ -360,22 +360,22 @@ fn main (FuncId(10)) -> None throws
     %1 = move %31
     %32 = call fn6(copy %1, "GET", "/x", "hx") -> bb12
   bb12:
-    %33 = bind_this copy %1.field6, copy %1
+    %33 = bind_this copy %1.field9, copy %1
     %34 = closure_call move %33("GET", "/x")
     %35 = string_join move %34, ","
     %36 = call @console_log(move %35) -> bb13
   bb13:
-    %37 = bind_this copy %1.field6, copy %1
+    %37 = bind_this copy %1.field9, copy %1
     %38 = closure_call move %37("GET", "/x")
     %39 = string_join move %38, ","
     %40 = call @console_log(move %39) -> bb14
   bb14:
-    %41 = bind_this copy %1.field6, copy %1
+    %41 = bind_this copy %1.field9, copy %1
     %42 = closure_call move %41("GET", "/y")
     %43 = len move %42
     %44 = call @console_log(move %43) -> bb15
   bb15:
-    %45 = call @console_log(copy %1.field10) -> bb16
+    %45 = call @console_log(copy %1.field7) -> bb16
   bb16:
     %46 = closure ClosureId(5) []
     %47 = {"prefix": "hi "}
@@ -400,11 +400,11 @@ fn main (FuncId(10)) -> None throws
     %59 = call fn7() -> bb19
   bb19:
     %8 = move %59
-    %60 = bind_this copy %8.field36, copy %8
+    %60 = bind_this copy %8.field15, copy %8
     %61 = closure_call move %60("/a")
-    %62 = bind_this copy %8.field37, copy %8
+    %62 = bind_this copy %8.field16, copy %8
     %63 = closure_call move %62("/b")
-    %64 = bind_this copy %8.field36, copy %8
+    %64 = bind_this copy %8.field15, copy %8
     %65 = closure_call move %64("/c")
     %66 = call @console_log(move %61, move %63, move %65) -> bb20
   bb20:
@@ -453,15 +453,15 @@ closure ClosureId(2) -> List<String> throws
     %9 temp: fn(String, String) -> List<String>
     %10 temp: String
   bb0:
-    %6 = copy %2.field29
+    %6 = copy %2.field34
     %3 = copy %6[0.0]
-    %4 = closure_call copy %3.field6(copy %0, copy %1)
-    %8 = bind_this copy %3.field6, copy %3
+    %4 = closure_call copy %3.field9(copy %0, copy %1)
+    %8 = bind_this copy %3.field9, copy %3
     %5 = copy %8
     %9 = closure ClosureId(3) [copy %5]
-    %2.field6 = copy %9
-    %10 = "SmartRouter + " + copy %3.field10
-    %2.field10 = copy %10
+    %2.field9 = copy %9
+    %10 = "SmartRouter + " + copy %3.field7
+    %2.field7 = copy %10
     return copy %4
 
 closure ClosureId(3) -> List<String>

@@ -32,9 +32,15 @@ impl LoweringCtx<'_> {
             ExprKind::Literal(literal) => Operand::Const(lower_literal(literal)),
             ExprKind::Local(local) => {
                 if self.volatile_locals.contains(self.body.id, *local) {
-                    // Not cached: each evaluation is its own read.
+                    // Not cached: each evaluation is its own read. The snapshot has
+                    // the type of what it reads, so a read at a narrowed type is
+                    // no conversion and forwarding can remove it.
                     let read = self.local_read(*local, &expr)?;
-                    return self.assign_temp(expr.ty, expr.span, Rvalue::Use(read));
+                    let ty = match read.local() {
+                        Some(read_local) => self.mir_local(read_local)?.ty,
+                        None => expr.ty,
+                    };
+                    return self.assign_temp(ty, expr.span, Rvalue::Use(read));
                 }
                 self.local_read(*local, &expr)?
             }

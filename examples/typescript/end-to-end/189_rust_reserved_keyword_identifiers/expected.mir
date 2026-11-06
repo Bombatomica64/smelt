@@ -32,7 +32,7 @@ fn read_fields (FuncId(2)) -> String
     %2 temp: String
     %3 temp: String
   bb0:
-    %1 = copy %0.field18 + copy %0.field1
+    %1 = copy %0.field18 + copy %0.field4
     switch copy %0.field19 ? bb1 : bb2
   bb1:
     %2 = "!"
@@ -65,8 +65,8 @@ fn new (FuncId(4)) -> Machine
     %1 param gen: Float
   bb0:
     %0 = struct0 {}
-    %0.field1 = copy %1
-    %0.field12 = "unit"
+    %0.field4 = copy %1
+    %0.field5 = "unit"
     return move %0
 
 fn match (FuncId(5)) -> Float
@@ -75,7 +75,7 @@ fn match (FuncId(5)) -> Float
     %1 param override: Float
     %2 temp: Float
   bb0:
-    %2 = copy %0.field1 + copy %1
+    %2 = copy %0.field4 + copy %1
     return move %2
 
 fn loop (FuncId(6)) -> String
@@ -84,8 +84,8 @@ fn loop (FuncId(6)) -> String
     %1 temp: String
     %2 temp: String
   bb0:
-    %1 = copy %0.field12 + ":"
-    %2 = move %1 + copy %0.field1
+    %1 = copy %0.field5 + ":"
+    %2 = move %1 + copy %0.field4
     return move %2
 
 fn main (FuncId(7)) -> None

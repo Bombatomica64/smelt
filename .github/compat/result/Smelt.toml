@@ -5,7 +5,7 @@ description = "result Smelt probe"
 
 [sources]
 roots = ["src", "tests"]
-test-prefix = ["**/test_*.py"]
+test-globs = ["**/test_*.py"]
 entries = ["src/result/__init__.py"]
 
 [output]

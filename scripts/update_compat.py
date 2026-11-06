@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import json
 import re
 from pathlib import Path
 
@@ -30,7 +31,7 @@ def main() -> None:
     compat_path = Path(args.compat)
     report_path = Path(args.report)
     compat = compat_path.read_text() if compat_path.exists() else default_compat()
-    report = report_path.read_text() if report_path.exists() else ""
+    report = json.loads(report_path.read_text()) if report_path.exists() else {}
 
     row = result_row(
         name=args.name,
@@ -53,12 +54,13 @@ def default_compat() -> str:
 
 
 def result_row(
-    *, name: str, url: str, rev: str, run_url: str, status: str, report: str
+    *, name: str, url: str, rev: str, run_url: str, status: str, report: dict
 ) -> str:
-    """Build one Markdown table row from a generated Rust test report."""
+    """Build one Markdown table row from a `rust-test-report` JSON report."""
     normalized_status = compat_status(status, report)
-    failing_tests = extract_value(report, r"- Failing tests: `([^`]+)`") or "unknown"
-    result = extract_value(report, r"- Result: `([^`]+)`") or "no report"
+    run = full_run(report)
+    failing_tests = str(len(run["failing_tests"])) if run else "unknown"
+    result = (run.get("summary") or "no test-result line") if run else "no report"
     updated = dt.datetime.now(dt.UTC).replace(microsecond=0).isoformat()
     short_ref = rev[:12]
     return (
@@ -67,19 +69,18 @@ def result_row(
     )
 
 
-def compat_status(step_status: str, report: str) -> str:
+def full_run(report: dict) -> dict | None:
+    """Return the report's full-suite run, if it has one."""
+    suite = report.get("full")
+    return suite["run"] if suite else None
+
+
+def compat_status(step_status: str, report: dict) -> str:
     """Return the compatibility status shown in COMPAT.md."""
-    if "- Status: `passed`" in report:
-        return "passed"
-    if "- Status: `failed`" in report:
-        return "failed"
-    return step_status
-
-
-def extract_value(text: str, pattern: str) -> str | None:
-    """Extract the first regex capture from text."""
-    match = re.search(pattern, text)
-    return match.group(1) if match else None
+    run = full_run(report)
+    if run is None:
+        return step_status
+    return "passed" if run["succeeded"] else "failed"
 
 
 def update_table(document: str, name: str, row: str) -> str:

@@ -118,7 +118,7 @@ fn build_writes_a_typedness_sidecar() -> TestResult {
     fs::write(dir.join("main.ts"), "const n: number = 2;\nconsole.log(n * 3);\n")?;
     fs::write(
         dir.join("Smelt.toml"),
-        "[project]\nname = \"typedness-cli\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"main.ts\"]\n\n[output]\ntarget = \"out\"\n\n[runtime]\nclone-strategy = \"always\"\n",
+        "[project]\nname = \"typedness-cli\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"main.ts\"]\n\n[output]\ntarget = \"out\"\n\n[runtime]\nclone-strategy = \"aggressive\"\n",
     )?;
     let (ok, _, stderr) = run(dir, &["build"])?;
     ensure(ok, stderr)?;

@@ -67,10 +67,10 @@ module examples/typescript/end-to-end/41_symbol_keyed_class_members/input.ts (Mo
     s10: #42
 
 interned types
-  t0 = Unknown
+  t0 = Float
   t1 = String
-  t2 = Holder
-  t3 = Float
+  t2 = Unknown
+  t3 = Holder
   t4 = None
   t5 = fn(Float) -> Float
   t6 = fn() -> String

@@ -12,11 +12,11 @@ fn render (FuncId(0)) -> String
     %1 = unknown_is String copy %0
     switch move %1 ? bb1 : bb2
   bb1:
-    %2 = unknown_cast copy %0 as t1
+    %2 = unknown_cast copy %0 as t0
     %3 = "s:" + move %2
     return move %3
   bb2:
-    %4 = unknown_cast copy %0 as t2
+    %4 = unknown_cast copy %0 as t4
     %5 = "b:" + move %4
     return move %5
 
@@ -25,8 +25,8 @@ fn new (FuncId(1)) -> Reply
     %0 user this: Reply
     %1 param status: Float
   bb0:
-    %0 = struct6 {}
-    %0.field9 = copy %1
+    %0 = struct0 {}
+    %0.field2 = copy %1
     return move %0
 
 fn describe (FuncId(2)) -> String
@@ -35,7 +35,7 @@ fn describe (FuncId(2)) -> String
     %1 temp: Float
     %2 temp: String
   bb0:
-    %1 = copy %0.field9 + 1.0
+    %1 = copy %0.field2 + 1.0
     %2 = "status=" + move %1
     return move %2
 

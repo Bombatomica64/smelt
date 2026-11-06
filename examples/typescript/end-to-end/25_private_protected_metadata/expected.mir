@@ -7,15 +7,15 @@ fn new (FuncId(0)) -> Secret
     %2 param count: Float
   bb0:
     %0 = struct0 {}
-    %0.field1 = copy %1
-    %0.field2 = copy %2
+    %0.field2 = copy %1
+    %0.field3 = copy %2
     return move %0
 
 fn reveal (FuncId(1)) -> String
   locals
     %0 param this: Secret
   bb0:
-    return copy %0.field1
+    return copy %0.field2
 
 fn main (FuncId(2)) -> None
   locals

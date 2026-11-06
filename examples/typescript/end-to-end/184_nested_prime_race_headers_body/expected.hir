@@ -1,7 +1,7 @@
 module examples/typescript/end-to-end/184_nested_prime_race_headers_body/input.ts (ModuleId(0))
   body BodyId(10)
   items
-    fn sleep__module_examples/typescript/end-to-end/184_nested_prime_race_headers_body/input.ts owner Module
+    fn sleep__module_main owner Module
     fn slow_handler owner Module
     fn layer1 owner Module
     fn layer2 owner Module

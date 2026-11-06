@@ -11,6 +11,20 @@ struct ListCallbackIterationParts {
     iter_text: String,
     /// Rendered callback arguments in JavaScript callback ABI order.
     call_args: Vec<String>,
+    /// Whether `iter_text` borrows a snapshot `prefix` binds in the block.
+    borrows_snapshot: bool,
+}
+
+/// A block of `prefix` then `tail`.
+///
+/// Before edition 2024 a tail expression's temporaries outlive the block's locals,
+/// so a borrow of a snapshot bound in `prefix` needs the value bound first.
+fn iteration_block(prefix: &str, tail: &str, borrows_snapshot: bool) -> String {
+    if borrows_snapshot {
+        format!("{{ {prefix}let smelt_value = {tail}; smelt_value }}")
+    } else {
+        format!("{{ {prefix}{tail} }}")
+    }
 }
 
 impl FunctionEmitter<'_> {
@@ -187,6 +201,7 @@ impl FunctionEmitter<'_> {
             prefix = list_iteration.prefix
         );
         let iter_text = list_iteration.iter_text;
+        let borrows_snapshot = list_iteration.borrows_snapshot;
         match op {
             smelt_hir::ListCallbackOp::Filter => {
                 if dest_ty != list_ty {
@@ -194,8 +209,10 @@ impl FunctionEmitter<'_> {
                         "array filter destination must match the receiver list type",
                     ));
                 }
-                Ok(format!(
-                    "{{ {prefix}{iter_text}.iter().enumerate().filter_map(|(index, item)| if {call_text} {{ Some(item.clone()) }} else {{ None }}).collect::<Vec<_>>() }}"
+                Ok(iteration_block(
+                    &prefix,
+                    &format!("{iter_text}.iter().enumerate().filter_map(|(index, item)| if {call_text} {{ Some(item.clone()) }} else {{ None }}).collect::<Vec<_>>()"),
+                    borrows_snapshot,
                 ))
             }
             smelt_hir::ListCallbackOp::Find | smelt_hir::ListCallbackOp::FindLast => {
@@ -209,8 +226,10 @@ impl FunctionEmitter<'_> {
                 } else {
                     ""
                 };
-                Ok(format!(
-                    "{{ {prefix}{iter_text}.iter().enumerate(){direction}.find_map(|(index, item)| if {call_text} {{ Some(item.clone()) }} else {{ None }}) }}"
+                Ok(iteration_block(
+                    &prefix,
+                    &format!("{iter_text}.iter().enumerate(){direction}.find_map(|(index, item)| if {call_text} {{ Some(item.clone()) }} else {{ None }})"),
+                    borrows_snapshot,
                 ))
             }
             smelt_hir::ListCallbackOp::FindIndex | smelt_hir::ListCallbackOp::FindLastIndex => {
@@ -224,8 +243,10 @@ impl FunctionEmitter<'_> {
                 } else {
                     ""
                 };
-                Ok(format!(
-                    "{{ {prefix}{iter_text}.iter().enumerate(){direction}.find_map(|(index, item)| if {call_text} {{ Some(index as f64) }} else {{ None }}).unwrap_or(-1.0) }}"
+                Ok(iteration_block(
+                    &prefix,
+                    &format!("{iter_text}.iter().enumerate(){direction}.find_map(|(index, item)| if {call_text} {{ Some(index as f64) }} else {{ None }}).unwrap_or(-1.0)"),
+                    borrows_snapshot,
                 ))
             }
             smelt_hir::ListCallbackOp::Some | smelt_hir::ListCallbackOp::Every => {
@@ -239,8 +260,10 @@ impl FunctionEmitter<'_> {
                 } else {
                     "all"
                 };
-                Ok(format!(
-                    "{{ {prefix}{iter_text}.iter().enumerate().{method}(|(index, item)| {call_text}) }}"
+                Ok(iteration_block(
+                    &prefix,
+                    &format!("{iter_text}.iter().enumerate().{method}(|(index, item)| {call_text})"),
+                    borrows_snapshot,
                 ))
             }
             smelt_hir::ListCallbackOp::Map
@@ -285,9 +308,10 @@ impl FunctionEmitter<'_> {
         };
         let value_text =
             self.value_at_type_text(&call_text, function_ty.return_ty, *dest_item_ty, &self.render_scope())?;
-        Ok(format!(
-            "{{ let smelt_callback = {closure_text}; {}{}.iter().enumerate().map(|(index, item)| {{ {value_text} }}).collect::<Vec<_>>() }}",
-            list_iteration.prefix, list_iteration.iter_text
+        Ok(iteration_block(
+            &format!("let smelt_callback = {closure_text}; {}", list_iteration.prefix),
+            &format!("{}.iter().enumerate().map(|(index, item)| {{ {value_text} }}).collect::<Vec<_>>()", list_iteration.iter_text),
+            list_iteration.borrows_snapshot,
         ))
     }
 
@@ -364,9 +388,13 @@ impl FunctionEmitter<'_> {
                 format!("vec![{value_text}]")
             }
         };
-        Ok(format!(
-            "{{ let smelt_callback = {closure_text}; {}{}.iter().enumerate().flat_map(|(index, item)| {{ let smelt_result = {call_text}; {flattened_text} }}).collect::<Vec<_>>() }}",
-            list_iteration.prefix, list_iteration.iter_text
+        Ok(iteration_block(
+            &format!("let smelt_callback = {closure_text}; {}", list_iteration.prefix),
+            &format!(
+                "{}.iter().enumerate().flat_map(|(index, item)| {{ let smelt_result = {call_text}; {flattened_text} }}).collect::<Vec<_>>()",
+                list_iteration.iter_text
+            ),
+            list_iteration.borrows_snapshot,
         ))
     }
 
@@ -449,6 +477,7 @@ impl FunctionEmitter<'_> {
                 call_args: vec![self.carrier_format(format_args!(
                     "SmeltList::from(vec![{item}, SmeltUnknown::Number(index as f64), {array}])"
                 ))],
+                borrows_snapshot: true,
             });
         }
         // A zero-parameter callback (`values.map(stubTrue)`) ignores every
@@ -536,6 +565,7 @@ impl FunctionEmitter<'_> {
             prefix,
             iter_text,
             call_args,
+            borrows_snapshot: needs_array_snapshot,
         })
     }
 

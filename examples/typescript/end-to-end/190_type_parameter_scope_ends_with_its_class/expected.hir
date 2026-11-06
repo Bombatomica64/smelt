@@ -1,7 +1,7 @@
 module examples/typescript/end-to-end/190_type_parameter_scope_ends_with_its_class/input.ts (ModuleId(0))
   body BodyId(4)
   items
-    class Holder fields [Public value: T, Public read: fn() -> T] constructor Some(ItemId(3)) methods [] implements []
+    class Holder fields [Public value: T, Public read: fn() -> T] constructor Some(ItemId(5)) methods [] implements []
     type T = Float
     fn twice owner Module
   exprs
@@ -12,23 +12,23 @@ module examples/typescript/end-to-end/190_type_parameter_scope_ends_with_its_cla
     #4: Holder<String> = new Holder(#3)
     #5: fn() -> String = bind_this #2, #1
     #6: String = closure_call #5()
-    #7: None = @6(console_log)
+    #7: None = @8(console_log)
     #8: None = call #7(#6)
     #9: Float = 21.0
-    #10: fn(Float) -> Float = @2(twice)
+    #10: fn(Float) -> Float = @4(twice)
     #11: Float = call #10(#9)
-    #12: None = @7(console_log)
+    #12: None = @9(console_log)
     #13: None = call #12(#11)
   stmts
     s0: #8
     s1: #13
 
 interned types
-  t0 = Float
-  t1 = T
-  t2 = fn(Float) -> Float
-  t3 = Holder<T>
-  t4 = fn() -> T
+  t0 = T
+  t1 = fn() -> T
+  t2 = Float
+  t3 = fn(Float) -> Float
+  t4 = Holder<T>
   t5 = fn() -> T
   t6 = Unknown
   t7 = None

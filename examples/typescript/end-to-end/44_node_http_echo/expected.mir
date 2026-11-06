@@ -177,14 +177,13 @@ closure ClosureId(2) -> None
   bb3:
     %10 = incoming_message_method copy %1
     %11 = incoming_message_url copy %1
-    %12 = copy %0
     %13 = server_response_status_code copy %2
     %14 = "" + copy %13
     %15 = server_response_get_header copy %2 "content-type"
     %16 = copy %15 ?? ""
     %17 = server_response_get_header copy %2 "x-set-first"
     %18 = copy %17 ?? ""
-    %19 = {"method": copy %10, "url": copy %11, "body": copy %12, "status": copy %14, "sentType": copy %16, "kept": copy %18}
+    %19 = {"method": copy %10, "url": copy %11, "body": copy %0, "status": copy %14, "sentType": copy %16, "kept": copy %18}
     %20 = json_stringify copy %19
     %21 = server_response_end copy %2 copy %20
     return none

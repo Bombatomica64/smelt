@@ -1,7 +1,7 @@
 module examples/typescript/end-to-end/162_alias_names_generic_class/input.ts (ModuleId(0))
   body BodyId(4)
   items
-    class GCtx fields [Public path: P] constructor Some(ItemId(6)) methods [ItemId(7)] implements []
+    class GCtx fields [Public path: P] constructor Some(ItemId(10)) methods [ItemId(11)] implements []
     type GAlias = GCtx<String>
     type IdAlias = GCtx<String>
     fn via_alias owner Module
@@ -9,25 +9,24 @@ module examples/typescript/end-to-end/162_alias_names_generic_class/input.ts (Mo
   exprs
     #0: String = "/b"
     #1: GCtx<String> = new GCtx(#0)
-    #2: fn(GCtx<String>) -> String = @4(via_alias)
+    #2: fn(GCtx<String>) -> String = @8(via_alias)
     #3: String = call #2(#1)
     #4: String = "/:id"
     #5: GCtx<String> = new GCtx(#4)
-    #6: fn(GCtx<String>) -> String = @5(via_id_alias)
+    #6: fn(GCtx<String>) -> String = @9(via_id_alias)
     #7: String = call #6(#5)
-    #8: None = @11(console_log)
+    #8: None = @15(console_log)
     #9: None = call #8(#3, #7)
   stmts
     s0: #9
 
 interned types
-  t0 = GCtx
+  t0 = P
   t1 = String
-  t2 = GCtx<String>
-  t3 = P
-  t4 = fn(GCtx) -> String
+  t2 = fn(String) -> String
+  t3 = GCtx
+  t4 = GCtx<String>
   t5 = fn(GCtx<String>) -> String
   t6 = GCtx<P>
   t7 = None
-  t8 = fn(String) -> String
-  t9 = fn(GCtx<String>) -> String
+  t8 = fn(GCtx<String>) -> String

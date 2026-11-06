@@ -9,7 +9,7 @@ entries = ["src/main.ts"]
 # Optional: extra roots searched during import resolution. `test/` holds the
 # vitest suite, which `test-prefix` turns into the generated crate's `cargo test`.
 roots = ["src", "test"]
-test-prefix = ["**/*.test.ts"]
+test-globs = ["**/*.test.ts"]
 
 # `hono` from npm ships compiled JavaScript only; Smelt lowers the TypeScript
 # source of the same release, the version package.json resolves to on Node.

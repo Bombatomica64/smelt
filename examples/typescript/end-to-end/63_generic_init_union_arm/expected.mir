@@ -28,7 +28,7 @@ fn header_of (FuncId(0)) -> String
     %3 = unknown_is Object copy %0
     switch move %3 ? bb1 : bb2
   bb1:
-    %5 = unknown_cast copy %0 as t17
+    %5 = unknown_cast copy %0 as t16
     %6 = instanceof copy %5, class7
     switch move %6 ? bb3 : bb4
   bb2:
@@ -49,7 +49,7 @@ fn header_of (FuncId(0)) -> String
   bb6:
     switch move %4 ? bb7 : bb8
   bb7:
-    %12 = unknown_cast copy %0 as t17
+    %12 = unknown_cast copy %0 as t16
     %13 = instanceof copy %12, class7
     switch move %13 ? bb9 : bb10
   bb8:
@@ -96,7 +96,7 @@ fn status_of (FuncId(1)) -> Float
     %1 = unknown_is Object copy %0
     switch move %1 ? bb1 : bb2
   bb1:
-    %3 = unknown_cast copy %0 as t17
+    %3 = unknown_cast copy %0 as t16
     %4 = instanceof move %3, class7
     %5 = !move %4
     %2 = move %5
@@ -107,7 +107,7 @@ fn status_of (FuncId(1)) -> Float
   bb3:
     switch move %2 ? bb4 : bb5
   bb4:
-    %7 = unknown_cast copy %0 as t17
+    %7 = unknown_cast copy %0 as t16
     %8 = instanceof copy %7, class7
     switch move %8 ? bb6 : bb7
   bb5:
@@ -128,7 +128,7 @@ fn status_of (FuncId(1)) -> Float
   bb9:
     switch move %6 ? bb10 : bb11
   bb10:
-    %14 = unknown_cast copy %0 as t17
+    %14 = unknown_cast copy %0 as t16
     %15 = instanceof copy %14, class7
     switch move %15 ? bb12 : bb13
   bb11:

@@ -7,8 +7,8 @@ fn new (FuncId(0)) -> Point
     %2 param y: Float
   bb0:
     %0 = struct0 {}
-    %0.field1 = copy %1
-    %0.field2 = copy %2
+    %0.field2 = copy %1
+    %0.field3 = copy %2
     return move %0
 
 fn sum (FuncId(1)) -> Float
@@ -16,7 +16,7 @@ fn sum (FuncId(1)) -> Float
     %0 param this: Point
     %1 temp: Float
   bb0:
-    %1 = copy %0.field1 + copy %0.field2
+    %1 = copy %0.field2 + copy %0.field3
     return move %1
 
 fn main (FuncId(2)) -> None

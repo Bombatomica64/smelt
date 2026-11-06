@@ -8,7 +8,7 @@ module examples/typescript/end-to-end/95_union_value_dispatch/input.ts (ModuleId
     fn retag owner Module
     fn run owner Module
   exprs
-    #0: async fn() -> Future<None> = @4(run)
+    #0: async fn() -> Future<None> = @6(run)
     #1: Future<None> = call #0()
     #2: None = await #1
     #3: Future<None> = async_exit_drain()

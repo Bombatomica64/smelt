@@ -80,7 +80,7 @@ async fn run (FuncId(2)) -> String
   bb4:
     %14 = move %13
     %3 = await move %14
-    %16 = copy %0.field5 + copy %1.field5
+    %16 = copy %0.field1 + copy %1.field1
     %17 = "" + move %16
     %18 = move %17 + "/"
     %19 = move %2 + move %3
@@ -93,7 +93,7 @@ fn new (FuncId(3)) -> Cell
     %1 param value: Float
   bb0:
     %0 = struct0 {}
-    %0.field5 = copy %1
+    %0.field1 = copy %1
     return move %0
 
 async fn main (FuncId(4)) -> None throws

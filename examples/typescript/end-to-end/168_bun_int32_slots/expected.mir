@@ -13,13 +13,13 @@ fn advance (FuncId(0)) -> i32
     %7 temp: Float
     %8 temp: i32
   bb0:
-    %2 = primitive_cast_float copy %0.field16
+    %2 = primitive_cast_float copy %0.field2
     %3 = primitive_cast_float copy %1
     %4 = move %2 + move %3
     %5 = move %4 | 0.0
     %6 = primitive_cast_int32 move %5
-    %0.field16 = move %6
-    %7 = primitive_cast_float copy %0.field16
+    %0.field2 = move %6
+    %7 = primitive_cast_float copy %0.field2
     %8 = primitive_cast_int32 move %7
     return move %8
 
@@ -188,11 +188,11 @@ fn new (FuncId(5)) -> Cursor
     %1 temp: i32
     %2 temp: i32
   bb0:
-    %0 = struct1 {}
+    %0 = struct0 {}
     %1 = primitive_cast_int32 0.0
-    %0.field15 = move %1
+    %0.field1 = move %1
     %2 = primitive_cast_int32 0.0
-    %0.field16 = move %2
+    %0.field2 = move %2
     return move %0
 
 fn main (FuncId(6)) -> None
@@ -277,15 +277,15 @@ fn main (FuncId(6)) -> None
     %8 = call fn0(copy %0, move %7) -> bb3
   bb3:
     %9 = primitive_cast_float move %8
-    %10 = primitive_cast_float copy %0.field16
-    %11 = primitive_cast_float copy %0.field15
+    %10 = primitive_cast_float copy %0.field2
+    %11 = primitive_cast_float copy %0.field1
     %12 = call @console_log(move %6, move %9, move %10, move %11) -> bb4
   bb4:
     %13 = primitive_cast_int32 2147483647.0
     %14 = call fn0(copy %0, move %13) -> bb5
   bb5:
     %15 = primitive_cast_float move %14
-    %16 = primitive_cast_float copy %0.field16
+    %16 = primitive_cast_float copy %0.field2
     %17 = call @console_log(move %15, move %16) -> bb6
   bb6:
     %18 = -4.0

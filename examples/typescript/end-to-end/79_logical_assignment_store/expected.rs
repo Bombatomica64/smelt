@@ -1521,7 +1521,7 @@ fn smelt_recorded_object_prototype(id: usize) -> Option<SmeltUnknown> { SMELT_OB
 
 /// Create a fresh erased object from a runtime prototype value (`Object.create`).
 fn smelt_object_from_prototype(prototype: SmeltUnknown) -> SmeltUnknown { let mut fields: Vec<(String, SmeltUnknown)> = Vec::new(); match &prototype { SmeltUnknown::String(sentinel) if &**sentinel == "__smelt_proto:class" => { fields.push(("__smelt_class".to_owned(), SmeltUnknown::Bool(true))); }, SmeltUnknown::Object(map) => { for (key, value) in map.iter() { if key == "__smelt_class" || key.starts_with("__smelt_proto:") { fields.push((key, value)); } else { fields.push((format!("__smelt_proto:{key}"), value)); } } }, _ => {} } let object = SmeltObject::new(fields); if smelt_prototype_slot_is_observable(&prototype) { smelt_register_object_prototype(object.id, prototype); } SmeltUnknown::Object(object) }
-fn smelt_prototype_sentinel(value: &SmeltUnknown) -> SmeltUnknown { if let SmeltUnknown::Object(map) = value && let Some(prototype) = smelt_recorded_object_prototype(map.id) { return prototype; } match value { SmeltUnknown::Null => SmeltUnknown::Null, SmeltUnknown::Array(_) => SmeltUnknown::String("__smelt_proto:array".into()), SmeltUnknown::Promise(_) => SmeltUnknown::String("__smelt_proto:promise".into()), SmeltUnknown::Object(map) if map.contains_key("__smelt_class") => SmeltUnknown::String("__smelt_proto:class".into()), SmeltUnknown::Object(map) => match smelt_reflected_marker_class(map) { Some(class) => smelt_reflected_prototype(class), None => SmeltUnknown::String("__smelt_proto:object".into()) }, SmeltUnknown::String(marker) if &**marker == "__smelt_proto:object" => SmeltUnknown::Null, SmeltUnknown::String(marker) if &**marker == "__smelt_proto:array" || &**marker == "__smelt_proto:promise" || &**marker == "__smelt_proto:class" => SmeltUnknown::String("__smelt_proto:object".into()), _ => SmeltUnknown::String("__smelt_proto:object".into()) } }
+fn smelt_prototype_sentinel(value: &SmeltUnknown) -> SmeltUnknown { if let SmeltUnknown::Object(map) = value { if let Some(prototype) = smelt_recorded_object_prototype(map.id) { return prototype; } } match value { SmeltUnknown::Null => SmeltUnknown::Null, SmeltUnknown::Array(_) => SmeltUnknown::String("__smelt_proto:array".into()), SmeltUnknown::Promise(_) => SmeltUnknown::String("__smelt_proto:promise".into()), SmeltUnknown::Object(map) if map.contains_key("__smelt_class") => SmeltUnknown::String("__smelt_proto:class".into()), SmeltUnknown::Object(map) => match smelt_reflected_marker_class(map) { Some(class) => smelt_reflected_prototype(class), None => SmeltUnknown::String("__smelt_proto:object".into()) }, SmeltUnknown::String(marker) if &**marker == "__smelt_proto:object" => SmeltUnknown::Null, SmeltUnknown::String(marker) if &**marker == "__smelt_proto:array" || &**marker == "__smelt_proto:promise" || &**marker == "__smelt_proto:class" => SmeltUnknown::String("__smelt_proto:object".into()), _ => SmeltUnknown::String("__smelt_proto:object".into()) } }
 /// Read the JavaScript `__proto__` accessor for an erased value.
 fn smelt_proto_accessor(value: &SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Object(map) if map.contains_key("__proto__") => smelt_get_object_field(map, "__proto__"), other => smelt_prototype_sentinel(other) } }
 
@@ -1870,7 +1870,7 @@ fn smelt_function_method(receiver: SmeltUnknown, method: &str) -> SmeltUnknown {
 /// Unwrap a boxed primitive wrapper (or a Date) to the primitive it holds.
 fn smelt_unbox_primitive(value: SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Object(map) => { if map.contains_key("__smelt_number") || map.contains_key("__smelt_boolean") || map.contains_key("__smelt_string") || map.contains_key("__smelt_symbol") { return map.get("value").unwrap_or(SmeltUnknown::Undefined); } if let Some(millis @ SmeltUnknown::Number(_)) = map.get("__smelt_date") { return millis; } SmeltUnknown::Object(map) }, other => other } }
 /// Bind `Object.prototype.valueOf` on an erased receiver.
-fn smelt_value_of_method(receiver: SmeltUnknown) -> SmeltUnknown { if let SmeltUnknown::Object(map) = &receiver && let own @ SmeltUnknown::Function(_) = smelt_get_object_field(map, "valueOf") { return own; } let unboxed = smelt_unbox_primitive(receiver); SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| Ok(unboxed.clone()))) }
+fn smelt_value_of_method(receiver: SmeltUnknown) -> SmeltUnknown { if let SmeltUnknown::Object(map) = &receiver { if let own @ SmeltUnknown::Function(_) = smelt_get_object_field(map, "valueOf") { return own; } } let unboxed = smelt_unbox_primitive(receiver); SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| Ok(unboxed.clone()))) }
 /// Box a primitive the way `Object(value)` does; objects and strings pass through.
 fn smelt_box_value(value: SmeltUnknown) -> SmeltUnknown { let (marker, boxed) = match value { SmeltUnknown::Number(_) => ("__smelt_number", value), SmeltUnknown::Bool(_) => ("__smelt_boolean", value), SmeltUnknown::Symbol(_) => ("__smelt_symbol", value), SmeltUnknown::Null | SmeltUnknown::Undefined => return SmeltUnknown::Object(SmeltObject::new(Vec::new())), other => return other }; let fields = Vec::from([(marker.to_owned(), SmeltUnknown::Bool(true)), ("value".to_owned(), boxed)]); SmeltUnknown::Object(SmeltObject::new(fields)) }
 
@@ -2069,16 +2069,16 @@ fn smelt_map_entry_key_is(entry: &SmeltUnknown, key: &SmeltUnknown) -> bool {
 #[allow(dead_code)]
 fn smelt_record_inherited(record: &SmeltRecord<String, SmeltUnknown>, key: &str) -> SmeltUnknown { record.get(&format!("__smelt_proto:{key}")).or_else(|| record.get(&format!("__smelt_method:{key}"))).unwrap_or(SmeltUnknown::Undefined) }
 fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
-    if field == "name" && !map.contains_key("name") && let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_error") { return SmeltUnknown::String(class_name); }
-    if field == "constructor" && !map.contains_key("constructor") && let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_class") { return smelt_class_constructor(class_name.to_string()); }
+    if field == "name" && !map.contains_key("name") { if let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_error") { return SmeltUnknown::String(class_name); } }
+    if field == "constructor" && !map.contains_key("constructor") { if let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_class") { return smelt_class_constructor(class_name.to_string()); } }
     if let Some(element) = smelt_host_buffer_element(map, field) { return element; }
-    if field == "constructor" && !map.contains_key("constructor") && let Some(class) = smelt_marker_constructor_class(map) { return smelt_builtin_namespace(class); }
+    if field == "constructor" && !map.contains_key("constructor") { if let Some(class) = smelt_marker_constructor_class(map) { return smelt_builtin_namespace(class); } }
     if map.contains_key("__smelt_global_object") && !map.contains_key(field) && smelt_builtin_construct_kind(field).is_some() { return smelt_builtin_namespace(field); }
-    if !map.contains_key(field) && let Some(SmeltUnknown::String(text)) = map.get("__smelt_string").and(map.get("value")) { if field == "length" { return SmeltUnknown::Number(text.chars().count() as f64); } if let Ok(index) = field.parse::<usize>() { return text.chars().nth(index).map_or(SmeltUnknown::Undefined, |character| SmeltUnknown::String(character.to_string().into())); } }
-    if !map.contains_key(field) && let Some(SmeltUnknown::String(class)) = map.get("__smelt_builtin_namespace").and(map.get("name")) { if field == "prototype" { return smelt_builtin_prototype_object(&class); } if let Some(member) = smelt_builtin_member_value(&class, "static", field) { return member; } }
-    if let Some(SmeltUnknown::String(class)) = map.get("__smelt_builtin_prototype") && let Some(member) = smelt_builtin_member_value(&class, "prototype", field) { return member; }
-    if field == "size" && let Some(SmeltUnknown::Array(pairs)) = map.get("__smelt_map") { return SmeltUnknown::Number(pairs.len() as f64); }
-    if field == "size" && let Some(SmeltUnknown::Array(members)) = map.get("__smelt_set") { return SmeltUnknown::Number(members.len() as f64); }
+    if !map.contains_key(field) { if let Some(SmeltUnknown::String(text)) = map.get("__smelt_string").and(map.get("value")) { if field == "length" { return SmeltUnknown::Number(text.chars().count() as f64); } if let Ok(index) = field.parse::<usize>() { return text.chars().nth(index).map_or(SmeltUnknown::Undefined, |character| SmeltUnknown::String(character.to_string().into())); } } }
+    if !map.contains_key(field) { if let Some(SmeltUnknown::String(class)) = map.get("__smelt_builtin_namespace").and(map.get("name")) { if field == "prototype" { return smelt_builtin_prototype_object(&class); } if let Some(member) = smelt_builtin_member_value(&class, "static", field) { return member; } } }
+    if let Some(SmeltUnknown::String(class)) = map.get("__smelt_builtin_prototype") { if let Some(member) = smelt_builtin_member_value(&class, "prototype", field) { return member; } }
+    if field == "size" { if let Some(SmeltUnknown::Array(pairs)) = map.get("__smelt_map") { return SmeltUnknown::Number(pairs.len() as f64); } }
+    if field == "size" { if let Some(SmeltUnknown::Array(members)) = map.get("__smelt_set") { return SmeltUnknown::Number(members.len() as f64); } }
     if let Some(SmeltUnknown::Array(pairs)) = map.get("__smelt_map") {
         let entry_store = pairs.clone();
         let pairs = pairs.into_vec();
@@ -3567,118 +3567,118 @@ fn main() {
     let __smelt_logical_value_30: f64;
     let mut truthy: f64;
     let __smelt_logical_value_32: f64;
+    let _smelt_tmp_40: String;
     let _smelt_tmp_41: String;
     let _smelt_tmp_42: String;
     let _smelt_tmp_43: String;
     let _smelt_tmp_44: String;
-    let _smelt_tmp_45: String;
+    let _smelt_tmp_47: String;
     let _smelt_tmp_48: String;
     let _smelt_tmp_49: String;
-    let _smelt_tmp_50: String;
-    let _smelt_tmp_51: SmeltList<String>;
+    let _smelt_tmp_50: SmeltList<String>;
+    let _smelt_tmp_51: String;
     let _smelt_tmp_52: String;
     let _smelt_tmp_53: String;
     let _smelt_tmp_54: String;
     let _smelt_tmp_55: String;
-    let _smelt_tmp_56: String;
+    let _smelt_tmp_57: bool;
     let _smelt_tmp_58: bool;
-    let _smelt_tmp_59: bool;
+    let _smelt_tmp_59: String;
     let _smelt_tmp_60: String;
     let _smelt_tmp_61: String;
     let _smelt_tmp_62: String;
     let _smelt_tmp_63: String;
-    let _smelt_tmp_64: String;
+    let _smelt_tmp_66: bool;
     let _smelt_tmp_67: bool;
-    let _smelt_tmp_68: bool;
+    let _smelt_tmp_68: String;
     let _smelt_tmp_69: String;
     let _smelt_tmp_70: String;
     let _smelt_tmp_71: String;
     let _smelt_tmp_72: String;
-    let _smelt_tmp_73: String;
-    let _smelt_tmp_76: Option<Leaf>;
+    let _smelt_tmp_75: Option<Leaf>;
+    let _smelt_tmp_76: bool;
     let _smelt_tmp_77: bool;
-    let _smelt_tmp_78: bool;
-    let _smelt_tmp_80: Option<Leaf>;
-    let _smelt_tmp_81: Option<String>;
+    let _smelt_tmp_79: Option<Leaf>;
+    let _smelt_tmp_80: Option<String>;
+    let _smelt_tmp_81: String;
     let _smelt_tmp_82: String;
-    let _smelt_tmp_83: String;
-    let _smelt_tmp_84: SmeltList<String>;
+    let _smelt_tmp_83: SmeltList<String>;
+    let _smelt_tmp_84: String;
     let _smelt_tmp_85: String;
-    let _smelt_tmp_86: String;
-    let _smelt_tmp_88: Option<Leaf>;
+    let _smelt_tmp_87: Option<Leaf>;
+    let _smelt_tmp_88: bool;
     let _smelt_tmp_89: bool;
-    let _smelt_tmp_90: bool;
-    let _smelt_tmp_92: Option<Leaf>;
-    let _smelt_tmp_93: Option<String>;
+    let _smelt_tmp_91: Option<Leaf>;
+    let _smelt_tmp_92: Option<String>;
+    let _smelt_tmp_93: String;
     let _smelt_tmp_94: String;
-    let _smelt_tmp_95: String;
-    let _smelt_tmp_96: SmeltList<String>;
+    let _smelt_tmp_95: SmeltList<String>;
+    let _smelt_tmp_96: String;
     let _smelt_tmp_97: String;
-    let _smelt_tmp_98: String;
-    let _smelt_tmp_101: Option<f64>;
-    let _smelt_tmp_102: bool;
-    let _smelt_tmp_103: SmeltList<String>;
+    let _smelt_tmp_100: Option<f64>;
+    let _smelt_tmp_101: bool;
+    let _smelt_tmp_102: SmeltList<String>;
+    let _smelt_tmp_103: String;
     let _smelt_tmp_104: String;
     let _smelt_tmp_105: String;
     let _smelt_tmp_106: String;
     let _smelt_tmp_107: String;
-    let _smelt_tmp_108: String;
-    let _smelt_tmp_111: Option<f64>;
-    let _smelt_tmp_112: bool;
-    let _smelt_tmp_113: SmeltList<String>;
-    let _smelt_tmp_114: f64;
+    let _smelt_tmp_110: Option<f64>;
+    let _smelt_tmp_111: bool;
+    let _smelt_tmp_112: SmeltList<String>;
+    let _smelt_tmp_113: f64;
+    let _smelt_tmp_114: String;
     let _smelt_tmp_115: String;
-    let _smelt_tmp_116: String;
-    let _smelt_tmp_119: Option<f64>;
-    let _smelt_tmp_120: bool;
+    let _smelt_tmp_118: Option<f64>;
+    let _smelt_tmp_119: bool;
+    let _smelt_tmp_120: String;
     let _smelt_tmp_121: String;
-    let _smelt_tmp_122: String;
-    let _smelt_tmp_124: bool;
+    let _smelt_tmp_123: bool;
+    let _smelt_tmp_124: String;
     let _smelt_tmp_125: String;
-    let _smelt_tmp_126: String;
-    let _smelt_tmp_129: bool;
+    let _smelt_tmp_128: bool;
+    let _smelt_tmp_129: String;
     let _smelt_tmp_130: String;
-    let _smelt_tmp_131: String;
+    let _smelt_tmp_132: bool;
     let _smelt_tmp_133: bool;
-    let _smelt_tmp_134: bool;
+    let _smelt_tmp_134: String;
     let _smelt_tmp_135: String;
-    let _smelt_tmp_136: String;
     let mut local: f64 = 0.0;
     local = 5.0;
     let local_value: f64 = 5.0;
     let _smelt_tmp_33: String = smelt_number_to_string(local_value);
     let _smelt_tmp_34: String = "local: ".to_owned() + &_smelt_tmp_33;
     let _smelt_tmp_35: String = _smelt_tmp_34 + &" ".to_owned();
-    let _smelt_tmp_37: String = smelt_number_to_string(local);
-    let _smelt_tmp_38: String = _smelt_tmp_35 + &_smelt_tmp_37;
-    let _ = { println!("{}", _smelt_tmp_38); };
+    let _smelt_tmp_36: String = smelt_number_to_string(local);
+    let _smelt_tmp_37: String = _smelt_tmp_35 + &_smelt_tmp_36;
+    let _ = { println!("{}", _smelt_tmp_37); };
     holder = SmeltRecord::from([("field".to_owned(), 0.0)]);
     holder.insert("field".to_owned(), 5.0);
     field_value = 5.0;
-    _smelt_tmp_41 = smelt_number_to_string(field_value);
-    _smelt_tmp_42 = "field: ".to_owned() + &_smelt_tmp_41;
-    _smelt_tmp_43 = _smelt_tmp_42 + &" ".to_owned();
-    _smelt_tmp_44 = smelt_number_to_string(holder.get(&"field".to_owned()).expect("missing field"));
-    _smelt_tmp_45 = _smelt_tmp_43 + &_smelt_tmp_44;
-    let _ = { println!("{}", _smelt_tmp_45); };
+    _smelt_tmp_40 = smelt_number_to_string(field_value);
+    _smelt_tmp_41 = "field: ".to_owned() + &_smelt_tmp_40;
+    _smelt_tmp_42 = _smelt_tmp_41 + &" ".to_owned();
+    _smelt_tmp_43 = smelt_number_to_string(holder.get(&"field".to_owned()).expect("missing field"));
+    _smelt_tmp_44 = _smelt_tmp_42 + &_smelt_tmp_43;
+    let _ = { println!("{}", _smelt_tmp_44); };
     numbers = SmeltRecord::from([]);
     numbers.insert("a".to_owned(), 5.0);
     element_value = 5.0;
-    _smelt_tmp_48 = smelt_number_to_string(element_value);
-    _smelt_tmp_49 = "element: ".to_owned() + &_smelt_tmp_48;
-    _smelt_tmp_50 = _smelt_tmp_49 + &" ".to_owned();
-    _smelt_tmp_51 = Into::<SmeltList<_>>::into(numbers.clone().keys().filter(|key| !key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&numbers.clone(), key)).collect::<Vec<_>>());
-    _smelt_tmp_52 = _smelt_tmp_51.borrow().join(&",".to_owned());
-    _smelt_tmp_53 = _smelt_tmp_50 + &_smelt_tmp_52;
-    _smelt_tmp_54 = _smelt_tmp_53 + &" ".to_owned();
-    _smelt_tmp_55 = smelt_number_to_string(numbers.get(&"a".to_owned().clone()).unwrap_or(0.0));
-    _smelt_tmp_56 = _smelt_tmp_54 + &_smelt_tmp_55;
-    let _ = { println!("{}", _smelt_tmp_56); };
+    _smelt_tmp_47 = smelt_number_to_string(element_value);
+    _smelt_tmp_48 = "element: ".to_owned() + &_smelt_tmp_47;
+    _smelt_tmp_49 = _smelt_tmp_48 + &" ".to_owned();
+    _smelt_tmp_50 = Into::<SmeltList<_>>::into(numbers.clone().keys().filter(|key| !key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&numbers.clone(), key)).collect::<Vec<_>>());
+    _smelt_tmp_51 = _smelt_tmp_50.borrow().join(&",".to_owned());
+    _smelt_tmp_52 = _smelt_tmp_49 + &_smelt_tmp_51;
+    _smelt_tmp_53 = _smelt_tmp_52 + &" ".to_owned();
+    _smelt_tmp_54 = smelt_number_to_string(numbers.get(&"a".to_owned().clone()).unwrap_or(0.0));
+    _smelt_tmp_55 = _smelt_tmp_53 + &_smelt_tmp_54;
+    let _ = { println!("{}", _smelt_tmp_55); };
     falsy_local = 0.0;
     __smelt_logical_7 = 0.0;
-    _smelt_tmp_58 = falsy_local != 0.0;
-    _smelt_tmp_59 = !(_smelt_tmp_58);
-    if _smelt_tmp_59 {
+    _smelt_tmp_57 = falsy_local != 0.0;
+    _smelt_tmp_58 = !(_smelt_tmp_57);
+    if _smelt_tmp_58 {
     __smelt_logical_value_8 = 7.0;
     falsy_local = __smelt_logical_value_8;
     __smelt_logical_7 = __smelt_logical_value_8;
@@ -3686,17 +3686,17 @@ fn main() {
     __smelt_logical_7 = falsy_local;
     }
     or_local = __smelt_logical_7;
-    _smelt_tmp_60 = smelt_number_to_string(or_local);
-    _smelt_tmp_61 = "or local: ".to_owned() + &_smelt_tmp_60;
-    _smelt_tmp_62 = _smelt_tmp_61 + &" ".to_owned();
-    _smelt_tmp_63 = smelt_number_to_string(falsy_local);
-    _smelt_tmp_64 = _smelt_tmp_62 + &_smelt_tmp_63;
-    let _ = { println!("{}", _smelt_tmp_64); };
+    _smelt_tmp_59 = smelt_number_to_string(or_local);
+    _smelt_tmp_60 = "or local: ".to_owned() + &_smelt_tmp_59;
+    _smelt_tmp_61 = _smelt_tmp_60 + &" ".to_owned();
+    _smelt_tmp_62 = smelt_number_to_string(falsy_local);
+    _smelt_tmp_63 = _smelt_tmp_61 + &_smelt_tmp_62;
+    let _ = { println!("{}", _smelt_tmp_63); };
     falsy_holder = SmeltRecord::from([("field".to_owned(), 0.0)]);
     __smelt_logical_11 = 0.0;
-    _smelt_tmp_67 = falsy_holder.get(&"field".to_owned()).expect("missing field") != 0.0;
-    _smelt_tmp_68 = !(_smelt_tmp_67);
-    if _smelt_tmp_68 {
+    _smelt_tmp_66 = falsy_holder.get(&"field".to_owned()).expect("missing field") != 0.0;
+    _smelt_tmp_67 = !(_smelt_tmp_66);
+    if _smelt_tmp_67 {
     __smelt_logical_value_12 = 7.0;
     falsy_holder.insert("field".to_owned(), __smelt_logical_value_12);
     __smelt_logical_11 = __smelt_logical_value_12;
@@ -3704,119 +3704,119 @@ fn main() {
     __smelt_logical_11 = falsy_holder.get(&"field".to_owned()).expect("missing field");
     }
     or_field = __smelt_logical_11;
-    _smelt_tmp_69 = smelt_number_to_string(or_field);
-    _smelt_tmp_70 = "or field: ".to_owned() + &_smelt_tmp_69;
-    _smelt_tmp_71 = _smelt_tmp_70 + &" ".to_owned();
-    _smelt_tmp_72 = smelt_number_to_string(falsy_holder.get(&"field".to_owned()).expect("missing field"));
-    _smelt_tmp_73 = _smelt_tmp_71 + &_smelt_tmp_72;
-    let _ = { println!("{}", _smelt_tmp_73); };
+    _smelt_tmp_68 = smelt_number_to_string(or_field);
+    _smelt_tmp_69 = "or field: ".to_owned() + &_smelt_tmp_68;
+    _smelt_tmp_70 = _smelt_tmp_69 + &" ".to_owned();
+    _smelt_tmp_71 = smelt_number_to_string(falsy_holder.get(&"field".to_owned()).expect("missing field"));
+    _smelt_tmp_72 = _smelt_tmp_70 + &_smelt_tmp_71;
+    let _ = { println!("{}", _smelt_tmp_72); };
     leaves = SmeltRecord::from([]);
     __smelt_logical_15 = None::<Leaf>;
-    _smelt_tmp_76 = leaves.clone().get(&"a".to_owned());
-    _smelt_tmp_77 = !(_smelt_tmp_76.is_none());
-    _smelt_tmp_78 = !(_smelt_tmp_77);
-    if _smelt_tmp_78 {
-    let _smelt_tmp_79: Leaf = Leaf::new("first".to_owned());
-    __smelt_logical_value_16 = _smelt_tmp_79;
+    _smelt_tmp_75 = leaves.clone().get(&"a".to_owned());
+    _smelt_tmp_76 = !(_smelt_tmp_75.is_none());
+    _smelt_tmp_77 = !(_smelt_tmp_76);
+    if _smelt_tmp_77 {
+    let _smelt_tmp_78: Leaf = Leaf::new("first".to_owned());
+    __smelt_logical_value_16 = _smelt_tmp_78;
     leaves.insert("a".to_owned(), __smelt_logical_value_16.clone());
     __smelt_logical_15 = Some(__smelt_logical_value_16);
     } else {
-    _smelt_tmp_80 = leaves.clone().get(&"a".to_owned());
-    __smelt_logical_15 = _smelt_tmp_80;
+    _smelt_tmp_79 = leaves.clone().get(&"a".to_owned());
+    __smelt_logical_15 = _smelt_tmp_79;
     }
     leaf = __smelt_logical_15;
-    _smelt_tmp_81 = leaf.as_ref().map(|_smelt_value| _smelt_value.tag.clone());
-    _smelt_tmp_82 = "or element: ".to_owned() + &_smelt_tmp_81.unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_83 = _smelt_tmp_82 + &" ".to_owned();
-    _smelt_tmp_84 = Into::<SmeltList<_>>::into(leaves.clone().keys().filter(|key| !key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&leaves.clone(), key)).collect::<Vec<_>>());
-    _smelt_tmp_85 = _smelt_tmp_84.borrow().join(&",".to_owned());
-    _smelt_tmp_86 = _smelt_tmp_83 + &_smelt_tmp_85;
-    let _ = { println!("{}", _smelt_tmp_86); };
+    _smelt_tmp_80 = leaf.as_ref().map(|_smelt_value| _smelt_value.tag.clone());
+    _smelt_tmp_81 = "or element: ".to_owned() + &_smelt_tmp_80.unwrap_or_else(|| "undefined".to_owned());
+    _smelt_tmp_82 = _smelt_tmp_81 + &" ".to_owned();
+    _smelt_tmp_83 = Into::<SmeltList<_>>::into(leaves.clone().keys().filter(|key| !key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&leaves.clone(), key)).collect::<Vec<_>>());
+    _smelt_tmp_84 = _smelt_tmp_83.borrow().join(&",".to_owned());
+    _smelt_tmp_85 = _smelt_tmp_82 + &_smelt_tmp_84;
+    let _ = { println!("{}", _smelt_tmp_85); };
     __smelt_logical_18 = None::<Leaf>;
-    _smelt_tmp_88 = leaves.clone().get(&"a".to_owned());
-    _smelt_tmp_89 = !(_smelt_tmp_88.is_none());
-    _smelt_tmp_90 = !(_smelt_tmp_89);
-    if _smelt_tmp_90 {
-    let _smelt_tmp_91: Leaf = Leaf::new("second".to_owned());
-    __smelt_logical_value_19 = _smelt_tmp_91;
+    _smelt_tmp_87 = leaves.clone().get(&"a".to_owned());
+    _smelt_tmp_88 = !(_smelt_tmp_87.is_none());
+    _smelt_tmp_89 = !(_smelt_tmp_88);
+    if _smelt_tmp_89 {
+    let _smelt_tmp_90: Leaf = Leaf::new("second".to_owned());
+    __smelt_logical_value_19 = _smelt_tmp_90;
     leaves.insert("a".to_owned(), __smelt_logical_value_19.clone());
     __smelt_logical_18 = Some(__smelt_logical_value_19);
     } else {
-    _smelt_tmp_92 = leaves.clone().get(&"a".to_owned());
-    __smelt_logical_18 = _smelt_tmp_92;
+    _smelt_tmp_91 = leaves.clone().get(&"a".to_owned());
+    __smelt_logical_18 = _smelt_tmp_91;
     }
     kept = __smelt_logical_18;
-    _smelt_tmp_93 = kept.as_ref().map(|_smelt_value| _smelt_value.tag.clone());
-    _smelt_tmp_94 = "or element again: ".to_owned() + &_smelt_tmp_93.unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_95 = _smelt_tmp_94 + &" ".to_owned();
-    _smelt_tmp_96 = Into::<SmeltList<_>>::into(leaves.keys().filter(|key| !key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&leaves, key)).collect::<Vec<_>>());
-    _smelt_tmp_97 = _smelt_tmp_96.borrow().join(&",".to_owned());
-    _smelt_tmp_98 = _smelt_tmp_95 + &_smelt_tmp_97;
-    let _ = { println!("{}", _smelt_tmp_98); };
+    _smelt_tmp_92 = kept.as_ref().map(|_smelt_value| _smelt_value.tag.clone());
+    _smelt_tmp_93 = "or element again: ".to_owned() + &_smelt_tmp_92.unwrap_or_else(|| "undefined".to_owned());
+    _smelt_tmp_94 = _smelt_tmp_93 + &" ".to_owned();
+    _smelt_tmp_95 = Into::<SmeltList<_>>::into(leaves.keys().filter(|key| !key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&leaves, key)).collect::<Vec<_>>());
+    _smelt_tmp_96 = _smelt_tmp_95.borrow().join(&",".to_owned());
+    _smelt_tmp_97 = _smelt_tmp_94 + &_smelt_tmp_96;
+    let _ = { println!("{}", _smelt_tmp_97); };
     nullish = SmeltRecord::from([]);
-    _smelt_tmp_101 = nullish.clone().get(&"a".to_owned());
-    _smelt_tmp_102 = _smelt_tmp_101.is_none();
-    if _smelt_tmp_102 {
+    _smelt_tmp_100 = nullish.clone().get(&"a".to_owned());
+    _smelt_tmp_101 = _smelt_tmp_100.is_none();
+    if _smelt_tmp_101 {
     __smelt_logical_value_22 = 2.0;
     nullish.insert("a".to_owned(), __smelt_logical_value_22);
     }
-    _smelt_tmp_103 = Into::<SmeltList<_>>::into(nullish.clone().keys().filter(|key| !key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&nullish.clone(), key)).collect::<Vec<_>>());
-    _smelt_tmp_104 = _smelt_tmp_103.borrow().join(&",".to_owned());
-    _smelt_tmp_105 = "nullish absent: ".to_owned() + &_smelt_tmp_104;
-    _smelt_tmp_106 = _smelt_tmp_105 + &" ".to_owned();
-    _smelt_tmp_107 = smelt_number_to_string(nullish.get(&"a".to_owned().clone()).unwrap_or(0.0));
-    _smelt_tmp_108 = _smelt_tmp_106 + &_smelt_tmp_107;
-    let _ = { println!("{}", _smelt_tmp_108); };
+    _smelt_tmp_102 = Into::<SmeltList<_>>::into(nullish.clone().keys().filter(|key| !key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&nullish.clone(), key)).collect::<Vec<_>>());
+    _smelt_tmp_103 = _smelt_tmp_102.borrow().join(&",".to_owned());
+    _smelt_tmp_104 = "nullish absent: ".to_owned() + &_smelt_tmp_103;
+    _smelt_tmp_105 = _smelt_tmp_104 + &" ".to_owned();
+    _smelt_tmp_106 = smelt_number_to_string(nullish.get(&"a".to_owned().clone()).unwrap_or(0.0));
+    _smelt_tmp_107 = _smelt_tmp_105 + &_smelt_tmp_106;
+    let _ = { println!("{}", _smelt_tmp_107); };
     conjunction = SmeltRecord::from([]);
-    _smelt_tmp_111 = conjunction.clone().get(&"a".to_owned());
-    _smelt_tmp_112 = _smelt_tmp_111.clone().is_some_and(|value| value != 0.0 && !value.is_nan());
-    if _smelt_tmp_112 {
+    _smelt_tmp_110 = conjunction.clone().get(&"a".to_owned());
+    _smelt_tmp_111 = _smelt_tmp_110.clone().is_some_and(|value| value != 0.0 && !value.is_nan());
+    if _smelt_tmp_111 {
     __smelt_logical_value_24 = 9.0;
     conjunction.insert("a".to_owned(), __smelt_logical_value_24);
     }
-    _smelt_tmp_113 = Into::<SmeltList<_>>::into(conjunction.keys().filter(|key| !key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&conjunction, key)).collect::<Vec<_>>());
-    _smelt_tmp_114 = _smelt_tmp_113.len() as f64;
-    _smelt_tmp_115 = smelt_number_to_string(_smelt_tmp_114);
-    _smelt_tmp_116 = "and absent: ".to_owned() + &_smelt_tmp_115;
-    let _ = { println!("{}", _smelt_tmp_116); };
+    _smelt_tmp_112 = Into::<SmeltList<_>>::into(conjunction.keys().filter(|key| !key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&conjunction, key)).collect::<Vec<_>>());
+    _smelt_tmp_113 = _smelt_tmp_112.len() as f64;
+    _smelt_tmp_114 = smelt_number_to_string(_smelt_tmp_113);
+    _smelt_tmp_115 = "and absent: ".to_owned() + &_smelt_tmp_114;
+    let _ = { println!("{}", _smelt_tmp_115); };
     present = SmeltRecord::from([("a".to_owned(), 3.0)]);
-    _smelt_tmp_119 = present.clone().get(&"a".to_owned());
-    _smelt_tmp_120 = _smelt_tmp_119.clone().is_some_and(|value| value != 0.0 && !value.is_nan());
-    if _smelt_tmp_120 {
+    _smelt_tmp_118 = present.clone().get(&"a".to_owned());
+    _smelt_tmp_119 = _smelt_tmp_118.clone().is_some_and(|value| value != 0.0 && !value.is_nan());
+    if _smelt_tmp_119 {
     __smelt_logical_value_26 = 9.0;
     present.insert("a".to_owned(), __smelt_logical_value_26);
     }
-    _smelt_tmp_121 = smelt_number_to_string(present.get(&"a".to_owned().clone()).unwrap_or(0.0));
-    _smelt_tmp_122 = "and present: ".to_owned() + &_smelt_tmp_121;
-    let _ = { println!("{}", _smelt_tmp_122); };
+    _smelt_tmp_120 = smelt_number_to_string(present.get(&"a".to_owned().clone()).unwrap_or(0.0));
+    _smelt_tmp_121 = "and present: ".to_owned() + &_smelt_tmp_120;
+    let _ = { println!("{}", _smelt_tmp_121); };
     absent_local = None::<f64>;
-    _smelt_tmp_124 = absent_local.clone().is_none();
-    if _smelt_tmp_124 {
+    _smelt_tmp_123 = absent_local.clone().is_none();
+    if _smelt_tmp_123 {
     __smelt_logical_value_28 = 4.0;
     absent_local = Some(__smelt_logical_value_28);
     }
-    _smelt_tmp_125 = absent_local.map_or_else(|| "undefined".to_owned(), |value| smelt_number_to_string(value));
-    _smelt_tmp_126 = "nullish local: ".to_owned() + &_smelt_tmp_125;
-    let _ = { println!("{}", _smelt_tmp_126); };
+    _smelt_tmp_124 = absent_local.map_or_else(|| "undefined".to_owned(), |value| smelt_number_to_string(value));
+    _smelt_tmp_125 = "nullish local: ".to_owned() + &_smelt_tmp_124;
+    let _ = { println!("{}", _smelt_tmp_125); };
     optional = SmeltRecord::from([]);
-    _smelt_tmp_129 = optional.get(&"field".to_owned()).flatten().clone().is_none();
-    if _smelt_tmp_129 {
+    _smelt_tmp_128 = optional.get(&"field".to_owned()).flatten().clone().is_none();
+    if _smelt_tmp_128 {
     __smelt_logical_value_30 = 4.0;
     optional.insert("field".to_owned(), Some(__smelt_logical_value_30));
     }
-    _smelt_tmp_130 = optional.get(&"field".to_owned()).flatten().clone().map_or_else(|| "undefined".to_owned(), |value| smelt_number_to_string(value));
-    _smelt_tmp_131 = "nullish field: ".to_owned() + &_smelt_tmp_130;
-    let _ = { println!("{}", _smelt_tmp_131); };
+    _smelt_tmp_129 = optional.get(&"field".to_owned()).flatten().clone().map_or_else(|| "undefined".to_owned(), |value| smelt_number_to_string(value));
+    _smelt_tmp_130 = "nullish field: ".to_owned() + &_smelt_tmp_129;
+    let _ = { println!("{}", _smelt_tmp_130); };
     truthy = 1.0;
-    _smelt_tmp_133 = truthy != 0.0;
-    _smelt_tmp_134 = !(_smelt_tmp_133);
-    if _smelt_tmp_134 {
+    _smelt_tmp_132 = truthy != 0.0;
+    _smelt_tmp_133 = !(_smelt_tmp_132);
+    if _smelt_tmp_133 {
     __smelt_logical_value_32 = 8.0;
     truthy = __smelt_logical_value_32;
     }
-    _smelt_tmp_135 = smelt_number_to_string(truthy);
-    _smelt_tmp_136 = "or truthy: ".to_owned() + &_smelt_tmp_135;
-    let _ = { println!("{}", _smelt_tmp_136); };
+    _smelt_tmp_134 = smelt_number_to_string(truthy);
+    _smelt_tmp_135 = "or truthy: ".to_owned() + &_smelt_tmp_134;
+    let _ = { println!("{}", _smelt_tmp_135); };
     return;
 }
 

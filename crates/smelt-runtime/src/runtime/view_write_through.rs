@@ -8,5 +8,5 @@ fn smelt_object_write_through(map: &SmeltObject, key: &str, value: &SmeltUnknown
 // @smelt:item smelt_live_member when reads_this & unknown
 /// Read `key` off an erased value, asking a class view's live callable-field getter first.
 #[allow(dead_code)]
-fn smelt_live_member(value: &SmeltUnknown, key: &str) -> SmeltUnknown { if let SmeltUnknown::Object(map) = value && let Some(SmeltUnknown::Function(getter)) = map.get("__smelt_method:__smelt_get_callable_field") && let Ok(live) = getter(vec![SmeltUnknown::String(key.into())]) && !matches!(live, SmeltUnknown::Undefined) { return live; } smelt_get_unknown_field(value, key) }
+fn smelt_live_member(value: &SmeltUnknown, key: &str) -> SmeltUnknown { if let SmeltUnknown::Object(map) = value { if let Some(SmeltUnknown::Function(getter)) = map.get("__smelt_method:__smelt_get_callable_field") { if let Ok(live) = getter(vec![SmeltUnknown::String(key.into())]) { if !matches!(live, SmeltUnknown::Undefined) { return live; } } } } smelt_get_unknown_field(value, key) }
 // @smelt:item-end

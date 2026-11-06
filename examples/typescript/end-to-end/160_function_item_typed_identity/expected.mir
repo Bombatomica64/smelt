@@ -11,7 +11,7 @@ fn named_handler (FuncId(0)) -> String
     %3 = move %2 + copy %0
     return move %3
 
-fn default_handler__module_examples/typescript/end-to-end/160_function_item_typed_identity/input.ts (FuncId(1)) -> String
+fn default_handler__module_main (FuncId(1)) -> String
   locals
     %0 param err: String
     %1 param tag: String
@@ -28,11 +28,11 @@ fn new (FuncId(2)) -> App
     %1 temp: fn(String, String) -> String
     %2 temp: fn(String, String) -> String
   bb0:
-    %0 = struct1 {}
+    %0 = struct0 {}
     %1 = closure ClosureId(0) []
-    %0.field6 = move %1
+    %0.field1 = move %1
     %2 = closure ClosureId(1) []
-    %0.field7 = move %2
+    %0.field3 = move %2
     return move %0
 
 fn main (FuncId(3)) -> None throws
@@ -61,22 +61,22 @@ fn main (FuncId(3)) -> None throws
   bb1:
     %0 = move %2
     %3 = closure ClosureId(2) []
-    %4 = copy %0.field6 == move %3
+    %4 = copy %0.field1 == move %3
     %5 = closure ClosureId(3) []
-    %6 = copy %0.field7 == move %5
+    %6 = copy %0.field3 == move %5
     %7 = closure ClosureId(4) []
-    %8 = copy %0.field6 == move %7
+    %8 = copy %0.field1 == move %7
     %9 = call @console_log(move %4, move %6, move %8) -> bb2
   bb2:
     %10 = call fn2() -> bb3
   bb3:
     %1 = move %10
     %11 = closure ClosureId(5) []
-    %1.field6 = move %11
+    %1.field1 = move %11
     %12 = closure ClosureId(6) []
-    %13 = copy %1.field6 == move %12
-    %15 = closure_call copy %1.field6("e", "t")
-    %17 = closure_call copy %0.field6("e", "t")
+    %13 = copy %1.field1 == move %12
+    %15 = closure_call copy %1.field1("e", "t")
+    %17 = closure_call copy %0.field1("e", "t")
     %18 = call @console_log(move %13, move %15, move %17) -> bb4
   bb4:
     return none

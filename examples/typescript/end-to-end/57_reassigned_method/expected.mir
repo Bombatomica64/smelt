@@ -26,15 +26,15 @@ fn route (FuncId(1)) -> String throws
     %10 temp: String
     %11 temp: String
   bb0:
-    %2 = closure_call copy %0.field3(copy %1)
+    %2 = closure_call copy %0.field2(copy %1)
     %5 = closure ClosureId(0) []
-    %0.field3 = move %5
-    %3 = closure_call copy %0.field3(copy %1)
-    %7 = copy %0.field2
+    %0.field2 = move %5
+    %3 = closure_call copy %0.field2(copy %1)
+    %7 = copy %0.field5
     %8 = call fn0(copy %0, copy %1) -> bb1
   bb1:
     %9 = move %7 + move %8
-    %0.field2 = move %9
+    %0.field5 = move %9
     %10 = move %2 + ","
     %11 = move %10 + move %3
     return move %11
@@ -45,9 +45,9 @@ fn new (FuncId(2)) -> Router
     %1 temp: fn(String) -> String
   bb0:
     %0 = struct0 {}
-    %0.field2 = ""
+    %0.field5 = ""
     %1 = closure ClosureId(1) []
-    %0.field3 = move %1
+    %0.field2 = move %1
     return move %0
 
 fn main (FuncId(3)) -> None throws
@@ -75,7 +75,7 @@ fn main (FuncId(3)) -> None throws
   bb4:
     %7 = call @console_log(move %2) -> bb5
   bb5:
-    %8 = call @console_log(copy %0.field2) -> bb6
+    %8 = call @console_log(copy %0.field5) -> bb6
   bb6:
     return none
 

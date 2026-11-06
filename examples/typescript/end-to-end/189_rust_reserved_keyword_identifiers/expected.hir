@@ -63,20 +63,20 @@ module examples/typescript/end-to-end/189_rust_reserved_keyword_identifiers/inpu
     s6: #42
 
 interned types
-  t0 = Unknown
+  t0 = Float
   t1 = String
-  t2 = Dict<String, Unknown>
-  t3 = Float
-  t4 = Machine
-  t5 = fn(Float) -> Float
-  t6 = fn(Float, Float) -> Float
-  t7 = Fields
-  t8 = fn(Fields) -> String
-  t9 = fn() -> Float
-  t10 = None
-  t11 = Bool
-  t12 = fn(Float) -> Float
-  t13 = fn(Float, Float) -> Float
-  t14 = fn() -> String
+  t2 = fn(Float) -> Float
+  t3 = fn() -> String
+  t4 = Unknown
+  t5 = Dict<String, Unknown>
+  t6 = Machine
+  t7 = fn(Float, Float) -> Float
+  t8 = Fields
+  t9 = fn(Fields) -> String
+  t10 = fn() -> Float
+  t11 = None
+  t12 = Bool
+  t13 = fn(Float) -> Float
+  t14 = fn(Float, Float) -> Float
   t15 = fn(Fields) -> String
   t16 = fn() -> Float

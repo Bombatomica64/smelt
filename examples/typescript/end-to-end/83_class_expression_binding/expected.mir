@@ -12,10 +12,10 @@ fn push (FuncId(0)) -> Float
     %3 temp: Float
     %4 temp: Float
   bb0:
-    %2 = copy %0.field6
+    %2 = copy %0.field10
     %3 = list_push copy %2, copy %1
-    %0.field6 = move %2
-    %4 = len copy %0.field6
+    %0.field10 = move %2
+    %4 = len copy %0.field10
     return move %4
 
 fn new (FuncId(1)) -> __smelt_anon_class_1394<T>
@@ -23,9 +23,9 @@ fn new (FuncId(1)) -> __smelt_anon_class_1394<T>
     %0 user this: __smelt_anon_class_1394<T>
     %1 temp: List<T>
   bb0:
-    %0 = struct4 {}
+    %0 = struct8 {}
     %1 = []
-    %0.field6 = move %1
+    %0.field10 = move %1
     return move %0
 
 fn add (FuncId(2)) -> None
@@ -35,9 +35,9 @@ fn add (FuncId(2)) -> None
     %2 temp: List<String>
     %3 temp: Float
   bb0:
-    %2 = copy %0.field13
+    %2 = copy %0.field17
     %3 = list_push copy %2, copy %1
-    %0.field13 = move %2
+    %0.field17 = move %2
     return none
 
 fn tally (FuncId(3)) -> String
@@ -45,7 +45,7 @@ fn tally (FuncId(3)) -> String
     %0 param this: Counter
     %1 temp: String
   bb0:
-    %1 = string_join copy %0.field13, ","
+    %1 = string_join copy %0.field17, ","
     return move %1
 
 fn new (FuncId(4)) -> Counter
@@ -53,9 +53,9 @@ fn new (FuncId(4)) -> Counter
     %0 user this: Counter
     %1 temp: List<String>
   bb0:
-    %0 = struct1 {}
+    %0 = struct0 {}
     %1 = []
-    %0.field13 = move %1
+    %0.field17 = move %1
     return move %0
 
 fn new (FuncId(5)) -> DeclaredReporting
@@ -63,7 +63,7 @@ fn new (FuncId(5)) -> DeclaredReporting
     %0 user this: DeclaredReporting
     %1 temp: DeclaredReporting
   bb0:
-    %0 = struct3 {}
+    %0 = struct4 {}
     %1 = call init fn4(move %0) -> bb1
   bb1:
     %0 = move %1
@@ -83,7 +83,7 @@ fn new (FuncId(7)) -> Reporting
     %0 user this: Reporting
     %1 temp: Reporting
   bb0:
-    %0 = struct2 {}
+    %0 = struct7 {}
     %1 = call init fn4(move %0) -> bb1
   bb1:
     %0 = move %1
@@ -106,10 +106,10 @@ fn push (FuncId(9)) -> Float
     %3 temp: Float
     %4 temp: Float
   bb0:
-    %2 = copy %0.field6
+    %2 = copy %0.field10
     %3 = list_push copy %2, copy %1
-    %0.field6 = move %2
-    %4 = len copy %0.field6
+    %0.field10 = move %2
+    %4 = len copy %0.field10
     return move %4
 
 fn new (FuncId(10)) -> Boxed<T>
@@ -117,9 +117,9 @@ fn new (FuncId(10)) -> Boxed<T>
     %0 user this: Boxed<T>
     %1 temp: List<T>
   bb0:
-    %0 = struct12 {}
+    %0 = struct16 {}
     %1 = []
-    %0.field6 = move %1
+    %0.field10 = move %1
     return move %0
 
 fn main (FuncId(11)) -> None
@@ -188,12 +188,12 @@ fn main (FuncId(11)) -> None
     %16 = primitive_cast_string move %15
     %17 = "generic: " + move %16
     %18 = move %17 + " "
-    %19 = copy %2.field6
+    %19 = copy %2.field10
     %20 = primitive_cast_string copy %19[0.0]
     %21 = move %18 + move %20
     %22 = call @console_log(move %21) -> bb12
   bb12:
-    %23 = instanceof move %2, class12
+    %23 = instanceof move %2, class16
     switch move %23 ? bb13 : bb14
   bb13:
     %24 = "yes"

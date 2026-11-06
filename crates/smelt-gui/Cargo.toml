@@ -32,8 +32,9 @@ python = ["dep:smelt-frontend-py"]
 [dependencies]
 gpui = "0.2.2"
 gpui-component = "0.5.1"
-# Published Smelt crates from crates.io (not path deps) — this is what keeps gui
-# out of the main workspace's build graph.
+# Smelt crates by version, so gui stays out of the main workspace's build graph.
+# `[patch.crates-io]` below resolves them to this repository: the published 0.1.1
+# predates `smelt_mir::compile`.
 smelt-frontend-ts = "0.1.1"
 smelt-frontend-py = { version = "0.1.1", optional = true }
 smelt-hir = "0.1.1"
@@ -43,8 +44,15 @@ smelt-codegen-rust = "0.1.1"
 # Transitive pin (not used directly): the ty Python stack pulls get-size2, and
 # the two must agree or `ruff_python_ast`'s `GetSize` derive sees two
 # `compact_str` versions and fails. The main workspace resolves get-size2 at
-# 0.10.3 since the Ruff/ty 0.0.10 bump; match it here.
+# 0.11.1 since the Ruff/ty 0.0.20 bump; match it here.
 #
 # NOTE: smelt-gui is excluded from the workspace and is not built by CI, so this
 # pin is kept in sync by inspection rather than by a build.
-get-size2 = "=0.10.3"
+get-size2 = "=0.11.1"
+
+[patch.crates-io]
+smelt-frontend-ts = { path = "../smelt-frontend-ts" }
+smelt-frontend-py = { path = "../smelt-frontend-py" }
+smelt-hir = { path = "../smelt-hir" }
+smelt-mir = { path = "../smelt-mir" }
+smelt-codegen-rust = { path = "../smelt-codegen-rust" }

@@ -48,7 +48,7 @@ fn label (FuncId(2)) -> String
     return move %3
   bb2:
     %4 = unknown_cast copy %0 as t1
-    %5 = "doc:" + copy %4.field8
+    %5 = "doc:" + copy %4.field1
     return move %5
 
 fn new (FuncId(3)) -> Doc
@@ -57,7 +57,7 @@ fn new (FuncId(3)) -> Doc
     %1 param name: String
   bb0:
     %0 = struct0 {}
-    %0.field8 = copy %1
+    %0.field1 = copy %1
     return move %0
 
 fn main (FuncId(4)) -> None

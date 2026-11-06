@@ -145,22 +145,22 @@ module examples/typescript/end-to-end/126_optional_presence_through_assertion/in
     s16: #112
 
 interned types
-  t0 = Table
-  t1 = HandlerSet
-  t2 = String
-  t3 = Dict<String, HandlerSet>
-  t4 = Float
-  t5 = Unknown
-  t6 = Dict<String, Unknown>
-  t7 = List<HandlerSet>
-  t8 = Optional<HandlerSet>
-  t9 = List<Unknown>
-  t10 = HandlerParamsSet
-  t11 = Dict<String, String>
-  t12 = List<Dict<String, HandlerSet>>
-  t13 = None
-  t14 = List<String>
-  t15 = Bool
-  t16 = Optional<HandlerParamsSet>
-  t17 = fn(String, String, Float) -> None
-  t18 = fn(String) -> List<String>
+  t0 = None
+  t1 = String
+  t2 = Float
+  t3 = List<String>
+  t4 = HandlerSet
+  t5 = Dict<String, HandlerSet>
+  t6 = List<Dict<String, HandlerSet>>
+  t7 = fn(String, String, Float) -> None
+  t8 = fn(String) -> List<String>
+  t9 = Table
+  t10 = Unknown
+  t11 = Dict<String, Unknown>
+  t12 = List<HandlerSet>
+  t13 = Optional<HandlerSet>
+  t14 = List<Unknown>
+  t15 = HandlerParamsSet
+  t16 = Dict<String, String>
+  t17 = Bool
+  t18 = Optional<HandlerParamsSet>

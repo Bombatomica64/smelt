@@ -16,8 +16,8 @@ fn with_defaults (FuncId(0)) -> String
     %3 = {"path": "/"}
     %4 = {"domain": "example.com"}
     %1 = dict_assign move %2, [move %3, copy %0, move %4]
-    %6 = copy %1.field14 + " "
-    %7 = move %6 + copy %1.field15
+    %6 = copy %1.field15 + " "
+    %7 = move %6 + copy %1.field16
     return move %7
 
 fn next_accept (FuncId(1)) -> (Float, Optional<Accept>)
@@ -37,7 +37,7 @@ fn next_accept (FuncId(1)) -> (Float, Optional<Accept>)
     %4 = (0.0, undefined)
     return move %4
   bb2:
-    %1.field16 = copy %0
+    %1.field17 = copy %0
     %5 = len copy %0
     %6 = (move %5, move %1)
     return move %6
@@ -114,7 +114,7 @@ async fn caught (FuncId(6)) -> String
   bb2:
     return move %0
   bb3:
-    %7 = instanceof copy %2, class1
+    %7 = instanceof copy %2, class0
     switch move %7 ? bb7 : bb8
   bb4:
     %1 = move %3
@@ -126,7 +126,7 @@ async fn caught (FuncId(6)) -> String
     %0 = move %6
     goto bb2
   bb7:
-    %9 = regex_search "multiple times", copy %2.field23
+    %9 = regex_search "multiple times", copy %2.field1
     %8 = move %9
     goto bb9
   bb8:
@@ -149,8 +149,8 @@ fn new (FuncId(7)) -> Failure
     %0 user this: Failure
     %1 param message: String
   bb0:
-    %0 = struct1 {}
-    %0.field23 = copy %1
+    %0 = struct0 {}
+    %0.field1 = copy %1
     return move %0
 
 async fn main (FuncId(8)) -> None throws
@@ -190,7 +190,7 @@ async fn main (FuncId(8)) -> None throws
   bb4:
     %0 = tuple_index copy %6, 0
     %1 = tuple_index move %6, 1
-    %9 = move %1?.field16
+    %9 = move %1?.field17
     %10 = call fn1("") -> bb5
   bb5:
     %11 = tuple_index move %10, 1

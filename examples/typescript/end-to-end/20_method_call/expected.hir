@@ -20,6 +20,6 @@ module examples/typescript/end-to-end/20_method_call/input.ts (ModuleId(0))
 
 interned types
   t0 = Float
-  t1 = Point
-  t2 = None
-  t3 = fn() -> Float
+  t1 = fn() -> Float
+  t2 = Point
+  t3 = None

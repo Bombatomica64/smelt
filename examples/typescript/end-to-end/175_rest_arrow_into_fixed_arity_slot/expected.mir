@@ -23,14 +23,14 @@ fn #respond (FuncId(0)) -> String
   bb1:
     %5 = "" + copy %1
     %6 = move %5 + ":"
-    %7 = unknown_cast copy %2 as t5
+    %7 = unknown_cast copy %2 as t1
     %8 = move %6 + move %7
     %4 = move %8
     goto bb3
   bb2:
     %9 = "" + copy %1
     %10 = move %9 + ":"
-    %11 = unknown_cast copy %2 as t1
+    %11 = unknown_cast copy %2 as t0
     %12 = string_upper move %11
     %13 = move %10 + move %12
     %4 = move %13
@@ -92,7 +92,7 @@ fn main (FuncId(4)) -> None
     %6 = call fn3() -> bb1
   bb1:
     %0 = move %6
-    %1 = copy %0.field1
+    %1 = copy %0.field6
     %7 = copy %1
     %8 = closure_call move %7("a", 301.0)
     %9 = move %1

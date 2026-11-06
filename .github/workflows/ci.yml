@@ -193,6 +193,11 @@ jobs:
             --baseline blocker-logs/smelt-unknown-baseline.json \
             --fail-on-regression
 
+      # `update-schema.yml` regenerates the schema only after a merge, so a PR that
+      # changes the manifest types could otherwise land with it stale.
+      - name: smelt-schema.json matches `dump-schema`
+        run: target/debug/smelt dump-schema | diff - smelt-schema.json
+
       # Blocking typedness ratchet over the end-to-end examples: each
       # `input.ts` is lowered in-process (no Rust build) and may never become
       # less typed than its record in the baseline (an erased count up for values,

@@ -12,7 +12,7 @@ fn relabel (FuncId(0)) -> Slot<Bool, String, Float>
     %4 temp: Float
     %5 temp: Slot<Bool, String, Float>
   bb0:
-    %2 = copy %0.field16
+    %2 = copy %0.field6
     %3 = call fn4(copy %0) -> bb1
   bb1:
     %4 = move %3 * 2.0
@@ -43,31 +43,31 @@ fn new (FuncId(2)) -> Slot<T, U, V>
     %2 param second: U
     %3 param third: V
   bb0:
-    %0 = struct1 {}
-    %0.field16 = copy %1
-    %0.field17 = copy %2
-    %0.field18 = copy %3
+    %0 = struct0 {}
+    %0.field6 = copy %1
+    %0.field7 = copy %2
+    %0.field8 = copy %3
     return move %0
 
 fn label (FuncId(3)) -> U
   locals
     %0 param this: Slot<T, U, V>
   bb0:
-    return copy %0.field17
+    return copy %0.field7
 
 fn count (FuncId(4)) -> V
   locals
     %0 param this: Slot<T, U, V>
   bb0:
-    return copy %0.field18
+    return copy %0.field8
 
 fn new (FuncId(5)) -> Holder
   locals
     %0 user this: Holder
     %1 param slot: Slot<Bool, String, Float>
   bb0:
-    %0 = struct0 {}
-    %0.field2 = copy %1
+    %0 = struct9 {}
+    %0.field11 = copy %1
     return move %0
 
 fn describe (FuncId(6)) -> String
@@ -82,13 +82,13 @@ fn describe (FuncId(6)) -> String
     %7 temp: Float
     %8 temp: String
   bb0:
-    %1 = copy %0.field2
-    %2 = call fn3(copy %0.field2) -> bb1
+    %1 = copy %0.field11
+    %2 = call fn3(copy %0.field11) -> bb1
   bb1:
     %3 = string_upper move %2
     %4 = move %3 + ":"
-    %5 = copy %0.field2
-    %6 = call fn4(copy %0.field2) -> bb2
+    %5 = copy %0.field11
+    %6 = call fn4(copy %0.field11) -> bb2
   bb2:
     %7 = move %6 + 1.0
     %8 = move %4 + move %7
@@ -100,22 +100,22 @@ fn new (FuncId(7)) -> Config<A, B>
     %1 param key: A
     %2 param value: B
   bb0:
-    %0 = struct3 {}
-    %0.field23 = copy %1
-    %0.field24 = copy %2
+    %0 = struct12 {}
+    %0.field17 = copy %1
+    %0.field18 = copy %2
     return move %0
 
 fn name (FuncId(8)) -> A
   locals
     %0 param this: Config<A, B>
   bb0:
-    return copy %0.field23
+    return copy %0.field17
 
 fn amount (FuncId(9)) -> B
   locals
     %0 param this: Config<A, B>
   bb0:
-    return copy %0.field24
+    return copy %0.field18
 
 fn new (FuncId(10)) -> Pair<A, B>
   locals
@@ -123,16 +123,16 @@ fn new (FuncId(10)) -> Pair<A, B>
     %1 param head: A
     %2 param rest: B
   bb0:
-    %0 = struct4 {}
-    %0.field27 = copy %1
-    %0.field28 = copy %2
+    %0 = struct19 {}
+    %0.field23 = copy %1
+    %0.field24 = copy %2
     return move %0
 
 fn tail (FuncId(11)) -> B
   locals
     %0 param this: Pair<A, B>
   bb0:
-    return copy %0.field28
+    return copy %0.field24
 
 fn main (FuncId(12)) -> None
   locals
@@ -170,17 +170,17 @@ fn main (FuncId(12)) -> None
     %0 = move %5
     %6 = call fn6(copy %0) -> bb3
   bb3:
-    %7 = copy %0.field2
-    %8 = call @console_log(move %6, copy %7.field16) -> bb4
+    %7 = copy %0.field11
+    %8 = call @console_log(move %6, copy %7.field6) -> bb4
   bb4:
-    %9 = call fn0(copy %0.field2, "two") -> bb5
+    %9 = call fn0(copy %0.field11, "two") -> bb5
   bb5:
     %1 = move %9
     %10 = call fn3(copy %1) -> bb6
   bb6:
     %11 = call fn4(copy %1) -> bb7
   bb7:
-    %12 = call @console_log(move %10, move %11, copy %1.field16) -> bb8
+    %12 = call @console_log(move %10, move %11, copy %1.field6) -> bb8
   bb8:
     %13 = call fn7("width", 42.0) -> bb9
   bb9:
@@ -199,7 +199,7 @@ fn main (FuncId(12)) -> None
     %20 = call fn10(true, move %19) -> bb15
   bb15:
     %3 = move %20
-    %21 = copy %3.field27
+    %21 = copy %3.field23
     %22 = call fn11(copy %3) -> bb16
   bb16:
     %23 = len move %22

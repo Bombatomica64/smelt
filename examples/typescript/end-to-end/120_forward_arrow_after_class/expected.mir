@@ -16,7 +16,7 @@ fn all (FuncId(1)) -> Dict<String, String>
     %2 temp: Dict<String, String>
   bb0:
     %1 = {}
-    %2 = dict_assign move %1, [copy %0.field3]
+    %2 = dict_assign move %1, [copy %0.field4]
     return move %2
 
 fn header (FuncId(2)) -> Optional<String>
@@ -25,7 +25,7 @@ fn header (FuncId(2)) -> Optional<String>
     %1 param name: String
     %2 temp: Optional<String>
   bb0:
-    %2 = copy %0.field3?.[copy %1]
+    %2 = copy %0.field4?.[copy %1]
     return move %2
 
 fn new (FuncId(3)) -> Request
@@ -35,7 +35,7 @@ fn new (FuncId(3)) -> Request
   bb0:
     %0 = struct0 {}
     %1 = {"content-length": "12", "accept": "json"}
-    %0.field3 = move %1
+    %0.field4 = move %1
     return move %0
 
 async fn without_length (FuncId(4)) -> Float

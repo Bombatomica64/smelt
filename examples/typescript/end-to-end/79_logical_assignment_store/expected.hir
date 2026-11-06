@@ -375,8 +375,8 @@ module examples/typescript/end-to-end/79_logical_assignment_store/input.ts (Modu
     s76: #257
 
 interned types
-  t0 = Float
-  t1 = String
+  t0 = String
+  t1 = Float
   t2 = Dict<String, Float>
   t3 = List<Float>
   t4 = Bool

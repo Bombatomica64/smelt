@@ -75,17 +75,17 @@ module examples/typescript/end-to-end/89_derived_default_constructor/input.ts (M
     s6: #51
 
 interned types
-  t0 = Derived
-  t1 = Float
-  t2 = Point3
-  t3 = Deeper
-  t4 = String
-  t5 = Base
-  t6 = None
-  t7 = Point
-  t8 = Tagged
-  t9 = Optional<String>
-  t10 = Labelled
-  t11 = Bool
-  t12 = fn() -> String
-  t13 = fn() -> Float
+  t0 = String
+  t1 = fn() -> String
+  t2 = Float
+  t3 = fn() -> Float
+  t4 = Bool
+  t5 = Derived
+  t6 = Point3
+  t7 = Deeper
+  t8 = Base
+  t9 = None
+  t10 = Point
+  t11 = Tagged
+  t12 = Optional<String>
+  t13 = Labelled

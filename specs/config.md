@@ -87,7 +87,7 @@ clone-strategy = "aggressive"
 
 ### `[rust.dependencies]`
 
-Same syntax as a Cargo `[dependencies]` table. These get copied verbatim into the generated `Cargo.toml`. smelt may *add* dependencies it knows are needed (e.g. `serde_json` if JSON literals appear), but will never override a user-specified version.
+Same syntax as a Cargo `[dependencies]` table. These get copied into the generated `Cargo.toml`. smelt may *add* dependencies it knows are needed (e.g. `serde_json` if JSON literals appear), but will never override a user-specified version: an entry here replaces smelt's for that crate, features included, so it has to carry what generated code needs (`tokio` needs `rt`, `macros`, `time`, `net` and `sync`).
 
 ### `[strict]`
 

@@ -1,12 +1,12 @@
 module examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts (ModuleId(0))
   body BodyId(9)
   items
-    fn get_key__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts owner Module
-    fn sign__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts owner Module
-    fn verify__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts owner Module
-    fn cleanup_after__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts owner Module
-    fn failing__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts owner Module
-    fn rethrow_through__module_examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts owner Module
+    fn get_key__module_main owner Module
+    fn sign__module_main owner Module
+    fn verify__module_main owner Module
+    fn cleanup_after__module_main owner Module
+    fn failing__module_main owner Module
+    fn rethrow_through__module_main owner Module
     fn run owner Module
   locals
     %0 const algorithm: Dict<String, String>

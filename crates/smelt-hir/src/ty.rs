@@ -137,7 +137,8 @@ impl Type {
     /// a new constructor is added here once.
     #[must_use]
     pub fn children(&self) -> TypeChildren<'_> {
-        let (list, slots): (&[TypeId], [Option<TypeId>; 3]) = match self {
+        type ChildParts<'a> = (&'a [TypeId], [Option<TypeId>; 3]);
+        let (list, slots): ChildParts<'_> = match self {
             Self::Bool
             | Self::Int
             | Self::Float

@@ -19,23 +19,23 @@ module examples/typescript/end-to-end/60_response_body_handle/input.ts (ModuleId
     suspend #4 on #3 -> state5
 
 interned types
-  t0 = Float
-  t1 = BoomOptions
-  t2 = Optional<BoomOptions>
-  t3 = None
-  t4 = Future<None>
-  t5 = async fn() -> Future<None>
-  t6 = Response
-  t7 = Optional<Response>
-  t8 = String
-  t9 = Optional<String>
-  t10 = Boom
-  t11 = Optional<Float>
-  t12 = Bool
-  t13 = ReadableStream
-  t14 = Optional<ReadableStream>
-  t15 = Headers
-  t16 = Dict<String, String>
-  t17 = fn() -> Response
+  t0 = Response
+  t1 = Float
+  t2 = String
+  t3 = fn() -> Response
+  t4 = BoomOptions
+  t5 = Optional<BoomOptions>
+  t6 = None
+  t7 = Future<None>
+  t8 = async fn() -> Future<None>
+  t9 = Optional<Response>
+  t10 = Optional<String>
+  t11 = Boom
+  t12 = Optional<Float>
+  t13 = Bool
+  t14 = ReadableStream
+  t15 = Optional<ReadableStream>
+  t16 = Headers
+  t17 = Dict<String, String>
   t18 = Future<String>
   t19 = async fn() -> Future<None>

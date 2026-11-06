@@ -168,13 +168,13 @@ module examples/typescript/end-to-end/168_bun_int32_slots/input.ts (ModuleId(0))
     s10: #133
 
 interned types
-  t0 = Cursor
-  t1 = Pixel
-  t2 = Float
-  t3 = String
-  t4 = Dict<String, Float>
-  t5 = List<Float>
-  t6 = i32
+  t0 = i32
+  t1 = Cursor
+  t2 = Pixel
+  t3 = Float
+  t4 = String
+  t5 = Dict<String, Float>
+  t6 = List<Float>
   t7 = fn(Cursor, i32) -> i32
   t8 = fn(i32, i32) -> i32
   t9 = fn(Float) -> i32

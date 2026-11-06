@@ -2,10 +2,10 @@ module examples/typescript/end-to-end/183_self_construction_types_its_arguments/
   body BodyId(6)
   items
     interface Router<T> fields [Public name: String, Public add: fn(String, String, T) -> None, Public match: fn(String, String) -> List<T>] methods [Public add(method: String, path: String, handler: T) -> None, Public match(method: String, path: String) -> List<T>]
-    class ListRouter fields [Public name: String, Public items: List<T>] constructor Some(ItemId(6)) methods [ItemId(4), ItemId(5)] implements [Router<T>]
+    class ListRouter fields [Public name: String, Public items: List<T>] constructor Some(ItemId(8)) methods [ItemId(6), ItemId(7)] implements [Router<T>]
     type GetPath = fn(String, Optional<Dict<String, Optional<E>>>) -> String
     interface Options<E> fields [Public strict?: Optional<Bool>, Public router?: Optional<Router<String>>, Public get_path?: Optional<fn(String, Optional<Dict<String, Optional<E>>>) -> String>] methods []
-    class App fields [Public router: Router<String>, Public get_path: fn(String, Optional<Dict<String, Optional<E>>>) -> String] constructor Some(ItemId(9)) methods [ItemId(10)] implements []
+    class App fields [Public router: Router<String>, Public get_path: fn(String, Optional<Dict<String, Optional<E>>>) -> String] constructor Some(ItemId(11)) methods [ItemId(12)] implements []
   locals
     %0 const a: App<String>
     %1 const b: App<String>
@@ -44,7 +44,7 @@ module examples/typescript/end-to-end/183_self_construction_types_its_arguments/
     #31: List<String> = closure_call #26(#29, #30)
     #32: String = ","
     #33: String = string_join #31, #32
-    #34: None = @12(console_log)
+    #34: None = @14(console_log)
     #35: None = call #34(#23, #33)
   stmts
     s0: let %0: App<String> = #0
@@ -53,52 +53,55 @@ module examples/typescript/end-to-end/183_self_construction_types_its_arguments/
     s3: #35
 
 interned types
-  t0 = E
-  t1 = String
-  t2 = Optional<E>
-  t3 = None
-  t4 = Dict<String, Optional<E>>
-  t5 = Optional<Dict<String, Optional<E>>>
-  t6 = fn(String, Optional<Dict<String, Optional<E>>>) -> String
-  t7 = E
-  t8 = Bool
-  t9 = Optional<Bool>
-  t10 = Router<String>
-  t11 = Optional<Router<String>>
+  t0 = T
+  t1 = None
+  t2 = String
+  t3 = List<T>
+  t4 = fn(String, String, T) -> None
+  t5 = fn(String, String) -> List<T>
+  t6 = E
+  t7 = App<E>
+  t8 = Router<String>
+  t9 = GetPath<E>
+  t10 = fn() -> App<E>
+  t11 = E
   t12 = Optional<E>
   t13 = Dict<String, Optional<E>>
   t14 = Optional<Dict<String, Optional<E>>>
   t15 = fn(String, Optional<Dict<String, Optional<E>>>) -> String
-  t16 = Optional<fn(String, Optional<Dict<String, Optional<E>>>) -> String>
-  t17 = App
-  t18 = Unknown
-  t19 = Dict<String, Unknown>
-  t20 = fn() -> Unknown
-  t21 = T
-  t22 = T
-  t23 = E
-  t24 = Options<E>
-  t25 = List<T>
-  t26 = fn(String, String, T) -> None
-  t27 = fn(String, String) -> List<T>
-  t28 = ListRouter<T>
-  t29 = List<T>
-  t30 = Float
-  t31 = fn(String, String, T) -> None
-  t32 = fn(String, String) -> List<T>
-  t33 = App<E>
-  t34 = Optional<E>
-  t35 = Dict<String, Optional<E>>
-  t36 = Optional<Dict<String, Optional<E>>>
-  t37 = fn(String, Optional<Dict<String, Optional<E>>>) -> String
-  t38 = ListRouter<String>
-  t39 = Optional<fn(String, Optional<Dict<String, Optional<E>>>) -> String>
-  t40 = fn(String) -> String
-  t41 = Options<String>
-  t42 = App<String>
-  t43 = fn() -> App<String>
-  t44 = fn(String, String, String) -> None
-  t45 = fn(String, String, String) -> None
-  t46 = List<String>
-  t47 = fn(String, String) -> List<String>
-  t48 = fn(String, String) -> List<String>
+  t16 = E
+  t17 = Bool
+  t18 = Optional<Bool>
+  t19 = Optional<Router<String>>
+  t20 = Optional<E>
+  t21 = Dict<String, Optional<E>>
+  t22 = Optional<Dict<String, Optional<E>>>
+  t23 = fn(String, Optional<Dict<String, Optional<E>>>) -> String
+  t24 = Optional<fn(String, Optional<Dict<String, Optional<E>>>) -> String>
+  t25 = T
+  t26 = Options<E>
+  t27 = Options<String>
+  t28 = App
+  t29 = Unknown
+  t30 = Dict<String, Unknown>
+  t31 = List<T>
+  t32 = fn(String, String, T) -> None
+  t33 = fn(String, String) -> List<T>
+  t34 = ListRouter<T>
+  t35 = Float
+  t36 = fn(String, String, T) -> None
+  t37 = fn(String, String) -> List<T>
+  t38 = Optional<E>
+  t39 = Dict<String, Optional<E>>
+  t40 = Optional<Dict<String, Optional<E>>>
+  t41 = fn(String, Optional<Dict<String, Optional<E>>>) -> String
+  t42 = ListRouter<String>
+  t43 = Optional<fn(String, Optional<Dict<String, Optional<E>>>) -> String>
+  t44 = fn(String) -> String
+  t45 = App<String>
+  t46 = fn() -> App<String>
+  t47 = fn(String, String, String) -> None
+  t48 = fn(String, String, String) -> None
+  t49 = List<String>
+  t50 = fn(String, String) -> List<String>
+  t51 = fn(String, String) -> List<String>

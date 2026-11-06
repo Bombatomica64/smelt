@@ -16,23 +16,23 @@ fn write (FuncId(0)) -> None
     %11 temp: Headers
     %12 temp: None
   bb0:
-    %6 = copy %0.field6 != none
+    %6 = copy %0.field11 != none
     switch move %6 ? bb1 : bb2
   bb1:
-    %8 = copy %0.field6
+    %8 = copy %0.field11
     %7 = move %8
     goto bb6
   bb2:
     %3 = undefined
-    %9 = copy %0.field5 == none
+    %9 = copy %0.field10 == none
     switch move %9 ? bb3 : bb4
   bb3:
     %4 = headers_new
-    %0.field5 = copy %4
+    %0.field10 = copy %4
     %3 = move %4
     goto bb5
   bb4:
-    %3 = copy %0.field5
+    %3 = copy %0.field10
     goto bb5
   bb5:
     %7 = move %3
@@ -56,13 +56,13 @@ fn peek (FuncId(1)) -> String
     %8 temp: Optional<String>
     %9 temp: String
   bb0:
-    %3 = copy %0.field6 != none
+    %3 = copy %0.field11 != none
     switch move %3 ? bb1 : bb2
   bb1:
-    %4 = copy %0.field6
+    %4 = copy %0.field11
     goto bb3
   bb2:
-    %4 = copy %0.field5
+    %4 = copy %0.field10
     goto bb3
   bb3:
     %2 = move %4
@@ -89,10 +89,10 @@ fn append_to (FuncId(2)) -> None
     %4 temp: Headers
     %5 temp: None
   bb0:
-    %3 = copy %0.field5 != none
+    %3 = copy %0.field10 != none
     switch move %3 ? bb1 : bb2
   bb1:
-    %4 = copy %0.field5
+    %4 = copy %0.field10
     %5 = headers_append move %4, copy %1, copy %2
     goto bb2
   bb2:
@@ -106,7 +106,7 @@ fn read (FuncId(3)) -> String
     %3 temp: Optional<String>
     %4 temp: String
   bb0:
-    %2 = copy %0.field5
+    %2 = copy %0.field10
     %3 = headers_get move %2, copy %1
     %4 = move %3 ?? "absent"
     return move %4
@@ -116,7 +116,7 @@ fn adopt (FuncId(4)) -> None
     %0 param this: Bag
     %1 param headers: Headers
   bb0:
-    %0.field6 = copy %1
+    %0.field11 = copy %1
     return none
 
 fn new (FuncId(5)) -> Bag

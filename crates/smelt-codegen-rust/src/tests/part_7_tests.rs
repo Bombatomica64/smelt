@@ -536,7 +536,7 @@ fn injects_url_dependency_for_url_mapping() {
         &EmitOptions::default().crate_name,
         &[GeneratedDep::Stdlib(BackendDependency::Url)],
         GeneratedAllocator::System,
-        ReleaseProfile::Optimized,
+        &EmitOptions::default().with_release_profile(ReleaseProfile::Optimized),
     );
 
     assert!(manifest.contains("url = \"2\""));
@@ -662,7 +662,7 @@ const context = tz("Pacific/Midway");
             GeneratedDep::Stdlib(BackendDependency::ChronoTz),
         ],
         GeneratedAllocator::System,
-        ReleaseProfile::Optimized,
+        &EmitOptions::default().with_release_profile(ReleaseProfile::Optimized),
     );
 
     assert!(source.contains("chrono_tz::Tz"), "{source}");

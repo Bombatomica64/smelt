@@ -4,7 +4,7 @@ module examples/typescript/end-to-end/61_tuple_spread_arguments/input.ts (Module
     global mut evaluations: Float
     type Route = (String, String, Float)
     fn record owner Module
-    class Sink fields [] constructor Some(ItemId(7)) methods [ItemId(6)] implements []
+    class Sink fields [] constructor Some(ItemId(9)) methods [ItemId(8)] implements []
     fn make_route owner Module
   locals
     %0 const routes: List<(String, String, Float)>
@@ -46,9 +46,9 @@ module examples/typescript/end-to-end/61_tuple_spread_arguments/input.ts (Module
     #23: (String, String, Float) = %2
     #24: Int = 2
     #25: Float = #23[#24]
-    #26: fn(String, String, Float) -> String = @3(record)
+    #26: fn(String, String, Float) -> String = @5(record)
     #27: String = call #26(#19, #22, #25)
-    #28: None = @9(console_log)
+    #28: None = @11(console_log)
     #29: None = call #28(#27)
     #30: Float = %1
     #31: Float = 1.0
@@ -64,9 +64,9 @@ module examples/typescript/end-to-end/61_tuple_spread_arguments/input.ts (Module
     #41: Int = 1
     #42: Float = #40[#41]
     #43: String = "DELETE"
-    #44: fn(String, String, Float) -> String = @3(record)
+    #44: fn(String, String, Float) -> String = @5(record)
     #45: String = call #44(#43, #39, #42)
-    #46: None = @10(console_log)
+    #46: None = @12(console_log)
     #47: None = call #46(#45)
     #48: fn(String, String, Float) -> String = closure BodyId(4) captures 0 -> String
     #49: fn(String, String, Float) -> String = %5
@@ -83,7 +83,7 @@ module examples/typescript/end-to-end/61_tuple_spread_arguments/input.ts (Module
     #60: Int = 2
     #61: Float = #59[#60]
     #62: String = closure_call #49(#55, #58, #61)
-    #63: None = @11(console_log)
+    #63: None = @13(console_log)
     #64: None = call #63(#62)
     #65: Sink = new Sink()
     #66: Sink = %7
@@ -102,9 +102,9 @@ module examples/typescript/end-to-end/61_tuple_spread_arguments/input.ts (Module
     #79: Int = 2
     #80: Float = #78[#79]
     #81: String = #68.take(#74, #77, #80)
-    #82: None = @12(console_log)
+    #82: None = @14(console_log)
     #83: None = call #82(#81)
-    #84: fn() -> (String, String, Float) = @4(make_route)
+    #84: fn() -> (String, String, Float) = @6(make_route)
     #85: (String, String, Float) = call #84()
     #86: (String, String, Float) = %9
     #87: Int = 0
@@ -115,14 +115,14 @@ module examples/typescript/end-to-end/61_tuple_spread_arguments/input.ts (Module
     #92: (String, String, Float) = %9
     #93: Int = 2
     #94: Float = #92[#93]
-    #95: fn(String, String, Float) -> String = @3(record)
+    #95: fn(String, String, Float) -> String = @5(record)
     #96: String = call #95(#88, #91, #94)
-    #97: None = @13(console_log)
+    #97: None = @15(console_log)
     #98: None = call #97(#96)
     #99: String = "evaluations: "
-    #100: Float = global_get @2(evaluations)
+    #100: Float = global_get @4(evaluations)
     #101: String = Add #99, #100
-    #102: None = @14(console_log)
+    #102: None = @16(console_log)
     #103: None = call #102(#101)
     #104: String = "PATCH"
     #105: String = "/maybe"
@@ -141,9 +141,9 @@ module examples/typescript/end-to-end/61_tuple_spread_arguments/input.ts (Module
     #118: (String, String, Float) = %11
     #119: Int = 2
     #120: Float = #118[#119]
-    #121: fn(String, String, Float) -> String = @3(record)
+    #121: fn(String, String, Float) -> String = @5(record)
     #122: String = call #121(#114, #117, #120)
-    #123: None = @15(console_log)
+    #123: None = @17(console_log)
     #124: None = call #123(#122)
   stmts
     s0: let %0: List<(String, String, Float)> = #8
@@ -171,12 +171,12 @@ module examples/typescript/end-to-end/61_tuple_spread_arguments/input.ts (Module
 interned types
   t0 = String
   t1 = Float
-  t2 = (String, String, Float)
-  t3 = List<(String, String, Float)>
-  t4 = (String, Float)
-  t5 = fn(String, String, Float) -> String
-  t6 = Sink
-  t7 = fn(String, String, Float) -> String
+  t2 = fn(String, String, Float) -> String
+  t3 = (String, String, Float)
+  t4 = List<(String, String, Float)>
+  t5 = (String, Float)
+  t6 = fn(String, String, Float) -> String
+  t7 = Sink
   t8 = fn() -> (String, String, Float)
   t9 = None
   t10 = Bool

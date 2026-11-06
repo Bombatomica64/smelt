@@ -11,7 +11,7 @@ use crate::{
     CliResult,
     cli_parser::{Args, Command, GateArgs, HirMode, MessageFormat, ReportArgs},
     config::Config,
-    config_parser, diagnostics, erasure, list_escape_report, lowering,
+    config_parser, diagnostics, erasure, list_escape_report,
     pipeline, probe,
     report::{self, ReportFormat, write_report},
     source_files::SourceLang,
@@ -19,6 +19,7 @@ use crate::{
 };
 #[cfg(feature = "ts7")]
 use crate::ts7_parity_report;
+use crate::lowering::ManifestLowering;
 
 /// CLI entry point: one dispatch over every subcommand.
 ///
@@ -47,29 +48,38 @@ pub fn run() -> CliResult<()> {
             baseline_report,
             diagnostics: include_diagnostics,
             suppress_warnings,
-            output,
+            report: ReportArgs { format, output },
+            json_output,
         } => {
             if let Some(source_manifest) = build_manifest {
                 let path = PathBuf::from(source_manifest);
                 let config = load_config(&path)?;
                 pipeline::build_rust_crate(&config, &path)?;
             }
-            let report =
-                test_report::rust_test_report_markdown(&test_report::RustTestReportOptions {
-                    cargo_manifest: &PathBuf::from(cargo_manifest),
-                    focus: &focus,
-                    guard: &guard,
-                    full,
-                    baseline_report: baseline_report.as_deref().map(PathBuf::from),
-                    include_diagnostics,
-                    suppress_warnings,
-                })?;
-            write_report(output.as_deref(), &report)?;
+            let report = test_report::rust_test_report(&test_report::RustTestReportOptions {
+                cargo_manifest: &PathBuf::from(cargo_manifest),
+                focus: &focus,
+                guard: &guard,
+                full,
+                baseline_report: baseline_report.as_deref().map(PathBuf::from),
+                include_diagnostics,
+                suppress_warnings,
+            })?;
+            let json = serde_json::to_string_pretty(&report)?;
+            if let Some(path) = json_output {
+                write_report(Some(&path), &json)?;
+            }
+            let rendered = match format {
+                ReportFormat::Markdown => test_report::render_markdown(&report),
+                ReportFormat::Json => json,
+            };
+            write_report(output.as_deref(), &rendered)?;
         }
-        Command::ListEscapeReport { manifest, report: ReportArgs { format, output }, function, top } => {
+        Command::ListEscapeReport { manifest, define, report: ReportArgs { format, output }, function, top } => {
             let report = list_escape_report::list_escape_report(
                 &list_escape_report::ListEscapeReportOptions {
                     manifest: &PathBuf::from(manifest),
+                    defines: &define.values,
                     format,
                     functions: &function,
                     top,
@@ -79,20 +89,22 @@ pub fn run() -> CliResult<()> {
         }
         Command::TypednessReport {
             paths,
+            define,
             gate: GateArgs { format, baseline, fail_on_regression, update_baseline, output },
         } => {
             let input_paths = paths.iter().map(PathBuf::from).collect::<Vec<_>>();
             let outcome =
                 typedness_report::typedness_report(&typedness_report::TypednessReportOptions {
                     paths: &input_paths,
+                    defines: &define.values,
                     format,
                     baseline: baseline.as_deref().map(PathBuf::from),
                     update_baseline,
                 })?;
             report::finish_gated(&outcome, output.as_deref(), fail_on_regression)?;
         }
-        Command::Ts7ParityReport { inputs, report: ReportArgs { format, output } } => {
-            run_ts7_parity_report(&inputs, format, output.as_deref())?;
+        Command::Ts7ParityReport { inputs, define, report: ReportArgs { format, output } } => {
+            run_ts7_parity_report(&inputs, &define.values, format, output.as_deref())?;
         }
         Command::SmeltUnknownReport {
             roots,
@@ -110,19 +122,17 @@ pub fn run() -> CliResult<()> {
             })?;
             report::finish_gated(&outcome, output.as_deref(), fail_on_regression)?;
         }
-        Command::Check { message_format, erasure } => {
-            let config = load_config(&manifest_path)?;
+        Command::Check { message_format, define, erasure } => {
+            let mut config = load_config(&manifest_path)?;
+            config.extend_defines(define.values);
             let settings = erasure::ErasureSettings::new(config.erasure(), &erasure)?;
             match message_format {
                 MessageFormat::Human => {
                     pipeline::check_manifest(&config, &manifest_path, &settings)?;
                 }
                 MessageFormat::Json => {
-                    let diagnostics = lowering::collect_manifest_diagnostics(
-                        &config,
-                        &manifest_path,
-                        Some(&settings),
-                    )?;
+                    let diagnostics = ManifestLowering::for_manifest(&config, &manifest_path)?
+                        .diagnostics(Some(&settings))?;
                     let mut stdout = io::stdout().lock();
                     writeln!(stdout, "{}", serde_json::to_string_pretty(&diagnostics)?)?;
                 }
@@ -130,9 +140,9 @@ pub fn run() -> CliResult<()> {
         }
         Command::Build { hir, define, erasure } => {
             let mut config = load_config(&manifest_path)?;
-            config.extend_defines(define);
+            config.extend_defines(define.values);
             if let Some(mode) = hir.mode() {
-                let (krate, modules) = lowering::lower_manifest_entries(&config, &manifest_path)?;
+                let (krate, modules) = ManifestLowering::for_manifest(&config, &manifest_path)?.lower()?;
                 pipeline::print_hir(&krate, &modules, mode);
             } else {
                 let settings = erasure::ErasureSettings::new(config.erasure(), &erasure)?;
@@ -146,12 +156,12 @@ pub fn run() -> CliResult<()> {
             .into());
         }
         Command::DumpHir { file, debug } => {
-            let (krate, modules) = lowering::lower_single_file(&file)?;
+            let (krate, modules) = ManifestLowering::for_file(&file)?.lower()?;
             let mode = if debug { HirMode::Debug } else { HirMode::Compact };
             pipeline::print_hir(&krate, &modules, mode);
         }
         Command::DumpMir { file } => {
-            let (krate, _) = lowering::lower_single_file(&file)?;
+            let (krate, _) = ManifestLowering::for_file(&file)?.lower()?;
             pipeline::print_mir(&krate)?;
         }
         Command::DumpAst { file } => match SourceLang::from_path(&file)? {
@@ -162,8 +172,9 @@ pub fn run() -> CliResult<()> {
                     .into());
             }
         },
-        Command::Probe { run_tests, report: ReportArgs { format, output } } => {
-            let config = load_config(&manifest_path)?;
+        Command::Probe { run_tests, define, report: ReportArgs { format, output } } => {
+            let mut config = load_config(&manifest_path)?;
+            config.extend_defines(define.values);
             let report = probe::probe_report(&probe::ProbeOptions {
                 config: &config,
                 manifest_path: &manifest_path,
@@ -184,10 +195,16 @@ fn load_config(path: &std::path::Path) -> CliResult<Config> {
 
 /// Runs `smelt ts7-parity-report`.
 #[cfg(feature = "ts7")]
-fn run_ts7_parity_report(inputs: &[String], format: ReportFormat, output: Option<&str>) -> CliResult<()> {
+fn run_ts7_parity_report(
+    inputs: &[String],
+    defines: &[(String, String)],
+    format: ReportFormat,
+    output: Option<&str>,
+) -> CliResult<()> {
     let input_paths: Vec<PathBuf> = inputs.iter().map(PathBuf::from).collect();
     let rendered = ts7_parity_report::ts7_parity_report(&ts7_parity_report::ParityReportOptions {
         inputs: &input_paths,
+        defines,
         format,
     })?;
     write_report(output, &rendered)
@@ -197,6 +214,7 @@ fn run_ts7_parity_report(inputs: &[String], format: ReportFormat, output: Option
 #[cfg(not(feature = "ts7"))]
 fn run_ts7_parity_report(
     _inputs: &[String],
+    _defines: &[(String, String)],
     _format: ReportFormat,
     _output: Option<&str>,
 ) -> CliResult<()> {

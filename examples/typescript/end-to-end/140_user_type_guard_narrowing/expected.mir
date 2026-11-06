@@ -7,7 +7,7 @@ fn is_raw (FuncId(0)) -> Bool
     %0 param r: Req | RawReq
     %1 temp: Bool
   bb0:
-    %1 = copy %0.field18 == "raw"
+    %1 = copy %0.field19 == "raw"
     return move %1
 
 fn describe (FuncId(1)) -> String
@@ -23,12 +23,12 @@ fn describe (FuncId(1)) -> String
   bb1:
     switch move %1 ? bb2 : bb3
   bb2:
-    %2 = unknown_cast copy %0 as t1
-    %3 = "raw " + copy %2.field21
+    %2 = unknown_cast copy %0 as t2
+    %3 = "raw " + copy %2.field22
     return move %3
   bb3:
-    %4 = unknown_cast copy %0 as t0
-    %5 = "req " + copy %4.field20
+    %4 = unknown_cast copy %0 as t1
+    %5 = "req " + copy %4.field21
     return move %5
   bb4:
     return none
@@ -46,12 +46,12 @@ fn describe_arrow (FuncId(2)) -> String
   bb1:
     switch move %1 ? bb2 : bb3
   bb2:
-    %2 = unknown_cast copy %0 as t0
-    %3 = "req " + copy %2.field20
+    %2 = unknown_cast copy %0 as t1
+    %3 = "req " + copy %2.field21
     return move %3
   bb3:
-    %4 = unknown_cast copy %0 as t1
-    %5 = "raw " + copy %4.field21
+    %4 = unknown_cast copy %0 as t2
+    %5 = "raw " + copy %4.field22
     return move %5
 
 fn early_return (FuncId(3)) -> String
@@ -70,12 +70,12 @@ fn early_return (FuncId(3)) -> String
     %2 = !move %1
     switch move %2 ? bb2 : bb3
   bb2:
-    %3 = unknown_cast copy %0 as t0
-    %4 = "req " + copy %3.field20
+    %3 = unknown_cast copy %0 as t1
+    %4 = "req " + copy %3.field21
     return move %4
   bb3:
-    %5 = unknown_cast copy %0 as t1
-    %6 = copy %5.field21 + 1.0
+    %5 = unknown_cast copy %0 as t2
+    %6 = copy %5.field22 + 1.0
     %7 = "raw " + move %6
     return move %7
 
@@ -116,7 +116,7 @@ fn length_or (FuncId(5)) -> Float
   bb4:
     switch move %3 ? bb5 : bb6
   bb5:
-    %5 = unknown_cast copy %0 as t5
+    %5 = unknown_cast copy %0 as t4
     %6 = len move %5
     %7 = move %6 > 2.0
     %4 = move %7
@@ -127,7 +127,7 @@ fn length_or (FuncId(5)) -> Float
   bb7:
     switch move %4 ? bb8 : bb9
   bb8:
-    %8 = unknown_cast copy %0 as t5
+    %8 = unknown_cast copy %0 as t4
     %9 = len move %8
     return move %9
   bb9:
@@ -136,7 +136,7 @@ fn length_or (FuncId(5)) -> Float
     %11 = !move %10
     switch move %11 ? bb11 : bb12
   bb11:
-    %12 = unknown_cast copy %0 as t8
+    %12 = unknown_cast copy %0 as t10
     %13 = move %12 * 10.0
     return move %13
   bb12:
@@ -156,12 +156,12 @@ fn describe_method (FuncId(6)) -> String
   bb1:
     switch move %2 ? bb2 : bb3
   bb2:
-    %3 = unknown_cast copy %1 as t1
-    %4 = "m-raw " + copy %3.field21
+    %3 = unknown_cast copy %1 as t2
+    %4 = "m-raw " + copy %3.field22
     return move %4
   bb3:
-    %5 = unknown_cast copy %1 as t0
-    %6 = "m-req " + copy %5.field20
+    %5 = unknown_cast copy %1 as t1
+    %6 = "m-req " + copy %5.field21
     return move %6
 
 fn describe_local (FuncId(7)) -> String
@@ -180,12 +180,12 @@ fn describe_local (FuncId(7)) -> String
     %3 = closure_call move %1(copy %0)
     switch move %3 ? bb1 : bb2
   bb1:
-    %4 = unknown_cast copy %0 as t1
-    %5 = "l-raw " + copy %4.field21
+    %4 = unknown_cast copy %0 as t2
+    %5 = "l-raw " + copy %4.field22
     return move %5
   bb2:
-    %6 = unknown_cast copy %0 as t0
-    %7 = "l-req " + copy %6.field20
+    %6 = unknown_cast copy %0 as t1
+    %7 = "l-req " + copy %6.field21
     return move %7
 
 fn assert_raw (FuncId(8)) -> None throws
@@ -195,11 +195,11 @@ fn assert_raw (FuncId(8)) -> None throws
     %2 temp: Dict<String, Unknown>
     %3 temp: Unknown
   bb0:
-    %1 = copy %0.field18 != "raw"
+    %1 = copy %0.field19 != "raw"
     switch move %1 ? bb1 : bb2
   bb1:
     %2 = {"__smelt_error": "Error", "message": "not raw", "stack": undefined, "cause": undefined}
-    %3 = unknown_cast move %2 as t9
+    %3 = unknown_cast move %2 as t11
     throw move %3
   bb2:
     return none
@@ -213,16 +213,16 @@ fn asserted (FuncId(9)) -> Float throws
   bb0:
     %1 = call fn8(copy %0) -> bb1
   bb1:
-    %2 = unknown_cast copy %0 as t1
-    %3 = copy %2.field21 * 2.0
+    %2 = unknown_cast copy %0 as t2
+    %3 = copy %2.field22 * 2.0
     return move %3
 
-fn is_req__module_examples/typescript/end-to-end/140_user_type_guard_narrowing/input.ts (FuncId(10)) -> Bool
+fn is_req__module_main (FuncId(10)) -> Bool
   locals
     %0 param r: Req | RawReq
     %1 temp: Bool
   bb0:
-    %1 = copy %0.field18 == "req"
+    %1 = copy %0.field19 == "req"
     return move %1
 
 fn is_raw (FuncId(11)) -> Bool
@@ -231,7 +231,7 @@ fn is_raw (FuncId(11)) -> Bool
     %1 param r: Req | RawReq
     %2 temp: Bool
   bb0:
-    %2 = copy %1.field18 == "raw"
+    %2 = copy %1.field19 == "raw"
     return move %2
 
 fn label (FuncId(12)) -> String
@@ -248,19 +248,19 @@ fn label (FuncId(12)) -> String
   bb1:
     switch move %2 ? bb2 : bb3
   bb2:
-    %3 = unknown_cast copy %1 as t1
-    %4 = "this-raw " + copy %3.field21
+    %3 = unknown_cast copy %1 as t2
+    %4 = "this-raw " + copy %3.field22
     return move %4
   bb3:
-    %5 = unknown_cast copy %1 as t0
-    %6 = "this-req " + copy %5.field20
+    %5 = unknown_cast copy %1 as t1
+    %6 = "this-req " + copy %5.field21
     return move %6
 
 fn new (FuncId(13)) -> Checker
   locals
     %0 user this: Checker
   bb0:
-    %0 = struct2 {}
+    %0 = struct0 {}
     return move %0
 
 fn main (FuncId(14)) -> None throws
@@ -380,6 +380,6 @@ closure ClosureId(0) -> Bool
     %0 param candidate: Req | RawReq
     %1 temp: Bool
   bb0:
-    %1 = copy %0.field18 == "raw"
+    %1 = copy %0.field19 == "raw"
     return copy %1
 

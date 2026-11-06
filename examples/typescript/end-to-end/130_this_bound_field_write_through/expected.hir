@@ -66,9 +66,9 @@ module examples/typescript/end-to-end/130_this_bound_field_write_through/input.t
 
 interned types
   t0 = String
-  t1 = Tally
+  t1 = Float
   t2 = fn(String) -> String
-  t3 = Float
+  t3 = Tally
   t4 = fn(String) -> String
   t5 = Unknown
   t6 = None

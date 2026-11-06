@@ -1318,7 +1318,7 @@ fn injects_reqwest_dependency_for_http_mapping() {
             GeneratedDep::Stdlib(BackendDependency::Reqwest),
         ],
         GeneratedAllocator::System,
-        ReleaseProfile::Optimized,
+        &EmitOptions::default().with_release_profile(ReleaseProfile::Optimized),
     );
 
     assert!(manifest.contains("tokio = { version = \"1\""));
@@ -1381,7 +1381,7 @@ fn injects_genawaiter_dependency_for_generator_emission() {
             &EmitOptions::default().crate_name,
             &generated_deps(&RuntimeDemand::of(&mir)),
             GeneratedAllocator::System,
-            ReleaseProfile::Optimized,
+            &EmitOptions::default().with_release_profile(ReleaseProfile::Optimized),
         );
     assert!(
         manifest.contains("genawaiter = \"0.99.1\""),
@@ -1486,7 +1486,7 @@ fn no_profile_sets_panic_abort_while_the_panic_route_exists() {
                 &EmitOptions::default().crate_name,
                 &[GeneratedDep::Tokio, GeneratedDep::Genawaiter],
                 allocator,
-                release_profile,
+                &EmitOptions::default().with_release_profile(release_profile),
             );
 
             assert!(
@@ -1507,7 +1507,7 @@ fn release_profiles_emit_their_lto_mode() {
             &EmitOptions::default().crate_name,
             &[GeneratedDep::Tokio],
             GeneratedAllocator::System,
-            release_profile,
+            &EmitOptions::default().with_release_profile(release_profile),
         )
     };
     let optimized = manifest(ReleaseProfile::Optimized);
@@ -1524,7 +1524,7 @@ fn injects_serde_json_dependency_for_json_mapping() {
         &EmitOptions::default().crate_name,
         &[GeneratedDep::Stdlib(BackendDependency::SerdeJson)],
         GeneratedAllocator::System,
-        ReleaseProfile::Optimized,
+        &EmitOptions::default().with_release_profile(ReleaseProfile::Optimized),
     );
 
     assert!(manifest.contains("serde_json = { version = \"1\", features = [\"preserve_order\"] }"));
@@ -1536,7 +1536,7 @@ fn injects_rand_dependency_for_random_mapping() {
         &EmitOptions::default().crate_name,
         &[GeneratedDep::Stdlib(BackendDependency::Rand)],
         GeneratedAllocator::System,
-        ReleaseProfile::Optimized,
+        &EmitOptions::default().with_release_profile(ReleaseProfile::Optimized),
     );
 
     assert!(manifest.contains("rand = \"0.9\""));
@@ -1548,7 +1548,7 @@ fn injects_regex_dependency_for_regex_mapping() {
         &EmitOptions::default().crate_name,
         &[GeneratedDep::Stdlib(BackendDependency::Regex)],
         GeneratedAllocator::System,
-        ReleaseProfile::Optimized,
+        &EmitOptions::default().with_release_profile(ReleaseProfile::Optimized),
     );
 
     assert!(manifest.contains("regex = \"1\""));
@@ -1560,7 +1560,7 @@ fn injects_chrono_dependency_for_date_mapping() {
         &EmitOptions::default().crate_name,
         &[GeneratedDep::Stdlib(BackendDependency::Chrono)],
         GeneratedAllocator::System,
-        ReleaseProfile::Optimized,
+        &EmitOptions::default().with_release_profile(ReleaseProfile::Optimized),
     );
 
     assert!(manifest.contains("chrono = \"0.4\""));

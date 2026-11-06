@@ -48,8 +48,9 @@ pub(crate) fn cargo_toml(
     crate_name: &str,
     deps_needed: &[GeneratedDep],
     allocator: crate::GeneratedAllocator,
-    release_profile: crate::ReleaseProfile,
+    options: &crate::EmitOptions,
 ) -> String {
+    let release_profile = options.release_profile;
     let mut deps = String::new();
     // First, so the manifest reads the way the crate root does: the allocator is
     // installed before anything else runs. `default-features = false` drops
@@ -98,7 +99,54 @@ pub(crate) fn cargo_toml(
         }
         crate::ReleaseProfile::Default => "",
     };
+    let crate::PackageMetadata { version, edition, description } = &options.package;
+    let description = description
+        .as_deref()
+        .map_or_else(String::new, |text| format!("description = {text}\n"));
+    let deps = with_declared_dependencies(&deps, &options.dependencies);
     format!(
-        "[workspace]\n\n[package]\nname = \"{crate_name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\n{deps}{profile}"
+        "[workspace]\n\n[package]\nname = \"{crate_name}\"\nversion = \"{version}\"\nedition = \"{edition}\"\n{description}\n[dependencies]\n{deps}{profile}"
     )
+}
+
+/// `detected`, one dependency per line, with the project's `declared` entries
+/// appended; a crate declared there loses its detected line, so a user-specified
+/// version is never overridden and no key appears twice.
+fn with_declared_dependencies(detected: &str, declared: &[(String, String)]) -> String {
+    let mut lines = detected
+        .lines()
+        .filter(|line| {
+            let name = line.split('=').next().unwrap_or("").trim();
+            !declared.iter().any(|(declared_name, _)| declared_name == name)
+        })
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    lines.extend(declared.iter().map(|(name, value)| format!("{name} = {value}")));
+    let mut text = lines.join("\n");
+    if !text.is_empty() {
+        text.push('\n');
+    }
+    text
+}
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for the project's dependencies in the generated manifest.
+
+    use super::with_declared_dependencies;
+
+    /// A declared crate replaces the detected line and keeps its place in the table.
+    #[test]
+    fn a_declared_crate_replaces_the_detected_one() {
+        let detected = "tokio = { version = \"1\", features = [\"rt\"] }\nregex = \"1\"\n";
+        let declared = vec![("tokio".to_owned(), "\"1.40\"".to_owned())];
+        assert_eq!(with_declared_dependencies(detected, &declared), "regex = \"1\"\ntokio = \"1.40\"\n");
+    }
+
+    /// With nothing declared the detected table is unchanged, byte for byte.
+    #[test]
+    fn nothing_declared_changes_nothing() {
+        assert_eq!(with_declared_dependencies("regex = \"1\"\n", &[]), "regex = \"1\"\n");
+        assert_eq!(with_declared_dependencies("", &[]), "");
+    }
 }

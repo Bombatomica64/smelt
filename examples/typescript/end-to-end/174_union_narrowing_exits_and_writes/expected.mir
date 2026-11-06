@@ -19,15 +19,15 @@ fn describe (FuncId(0)) -> String
     switch move %1 ? bb1 : bb2
   bb1:
     %2 = unknown_cast copy %0 as t1
-    %3 = "circle " + copy %2.field10
+    %3 = "circle " + copy %2.field1
     return move %3
   bb2:
     %4 = unknown_cast copy %0 as t15
-    %5 = instanceof move %4, class1
+    %5 = instanceof move %4, class2
     switch move %5 ? bb3 : bb4
   bb3:
     %6 = unknown_cast copy %0 as t2
-    %7 = "square " + copy %6.field13
+    %7 = "square " + copy %6.field3
     return move %7
   bb4:
     %8 = unknown_cast copy %0 as t3
@@ -58,10 +58,10 @@ fn area (FuncId(1)) -> Float
   bb1:
     %2 = copy %0
     %3 = unknown_cast move %2 as t1
-    %4 = 3.0 * copy %3.field10
+    %4 = 3.0 * copy %3.field1
     %5 = copy %0
     %6 = unknown_cast move %5 as t1
-    %7 = move %4 * copy %6.field10
+    %7 = move %4 * copy %6.field1
     return move %7
   bb2:
     %8 = copy %0 == undefined
@@ -74,7 +74,7 @@ fn area (FuncId(1)) -> Float
     %11 = unknown_cast move %10 as t2
     %12 = copy %0
     %13 = unknown_cast move %12 as t2
-    %14 = copy %11.field13 * copy %13.field13
+    %14 = copy %11.field3 * copy %13.field3
     %9 = move %14
     goto bb5
   bb5:
@@ -158,7 +158,7 @@ fn new (FuncId(4)) -> Circle
     %1 param radius: Float
   bb0:
     %0 = struct0 {}
-    %0.field10 = copy %1
+    %0.field1 = copy %1
     return move %0
 
 fn new (FuncId(5)) -> Square
@@ -166,8 +166,8 @@ fn new (FuncId(5)) -> Square
     %0 user this: Square
     %1 param side: Float
   bb0:
-    %0 = struct1 {}
-    %0.field13 = copy %1
+    %0 = struct2 {}
+    %0.field3 = copy %1
     return move %0
 
 fn main (FuncId(6)) -> None throws

@@ -5,8 +5,8 @@ fn new (FuncId(0)) -> Ex
     %0 user this: Ex
     %1 param code: Float
   bb0:
-    %0 = struct1 {}
-    %0.field2 = copy %1
+    %0 = struct0 {}
+    %0.field1 = copy %1
     return move %0
 
 fn main (FuncId(1)) -> None
@@ -78,17 +78,17 @@ closure ClosureId(0) -> Float
     %7 = unknown_is Function copy %2
     switch copy %7 ? bb5 : bb6
   bb5:
-    %9 = unknown_cast copy %2 as t2
+    %9 = unknown_cast copy %2 as t3
     %10 = closure_call copy %9("ctx")
     %8 = copy %10
     goto bb7
   bb6:
-    %11 = unknown_cast copy %2 as t1
+    %11 = unknown_cast copy %2 as t2
     %8 = copy %11
     goto bb7
   bb7:
     %3 = copy %8
-    %12 = copy %0 + copy %3.field2
+    %12 = copy %0 + copy %3.field1
     return copy %12
 
 closure ClosureId(1) -> Ex

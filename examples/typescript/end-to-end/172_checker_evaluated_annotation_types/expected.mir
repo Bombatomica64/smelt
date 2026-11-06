@@ -14,7 +14,7 @@ fn new (FuncId(1)) -> Store
   locals
     %0 user this: Store
   bb0:
-    %0 = struct3 {}
+    %0 = struct0 {}
     return move %0
 
 fn main (FuncId(2)) -> None

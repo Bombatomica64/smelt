@@ -32,6 +32,8 @@ use crate::{
 pub(crate) struct ListEscapeReportOptions<'a> {
     /// Smelt manifest to lower.
     pub manifest: &'a Path,
+    /// Command-line defines, over the manifest's.
+    pub defines: &'a [(String, String)],
     /// Rendering format.
     pub format: ReportFormat,
     /// Function names to expand into a per-local detail section. Matching is on
@@ -80,8 +82,9 @@ impl ClassCounts {
 pub(crate) fn list_escape_report(
     options: &ListEscapeReportOptions<'_>,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let config = crate::config_parser::parse_path(options.manifest)?;
-    let (krate, _modules) = lowering::lower_manifest_entries(&config, options.manifest)?;
+    let mut config = crate::config_parser::parse_path(options.manifest)?;
+    config.extend_defines(options.defines.iter().cloned());
+    let (krate, _modules) = lowering::ManifestLowering::for_manifest(&config, options.manifest)?.lower()?;
     let mir = pipeline::lower_to_optimized_mir(&krate)?;
     let bodies = smelt_mir::analyze_list_escapes(&mir);
 

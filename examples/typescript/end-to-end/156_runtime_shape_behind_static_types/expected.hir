@@ -1,7 +1,7 @@
 module examples/typescript/end-to-end/156_runtime_shape_behind_static_types/input.ts (ModuleId(0))
   body BodyId(11)
   items
-    class Reply fields [Public body: String] constructor Some(ItemId(7)) methods [] implements []
+    class Reply fields [Public body: String] constructor Some(ItemId(9)) methods [] implements []
     fn defer owner Module
     fn later owner Module
     fn counted owner Module
@@ -9,7 +9,7 @@ module examples/typescript/end-to-end/156_runtime_shape_behind_static_types/inpu
     type Greet = fn(String) -> String
     fn entry owner Module
   exprs
-    #0: async fn() -> Future<None> = @6(entry)
+    #0: async fn() -> Future<None> = @8(entry)
     #1: Future<None> = call #0()
     #2: None = async_spawn_local(#1)
     #3: Future<None> = async_exit_drain()

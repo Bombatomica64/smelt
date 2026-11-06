@@ -2,10 +2,10 @@ module examples/typescript/end-to-end/177_tuple_rest_parameters/input.ts (Module
   body BodyId(10)
   items
     fn pair owner Module
-    class Box fields [] constructor Some(ItemId(4)) methods [ItemId(3)] implements []
+    class Box fields [] constructor Some(ItemId(6)) methods [ItemId(5)] implements []
     type Handler = fn(String, Float) -> String
     interface Respond fields [Public __smelt_call: fn(String, Optional<Float>, Optional<String>) -> String] methods []
-    class Ctx fields [] constructor Some(ItemId(10)) methods [ItemId(8), ItemId(9)] implements []
+    class Ctx fields [] constructor Some(ItemId(12)) methods [ItemId(10), ItemId(11)] implements []
   locals
     %0 const triple: fn(String, Float, ...Bool) -> String
     %1 const handler: fn(String, ...Float) -> String
@@ -21,11 +21,11 @@ module examples/typescript/end-to-end/177_tuple_rest_parameters/input.ts (Module
     #4: Float = 2.0
     #5: (String, Float) = (#3, #4)
     #6: String = "a"
-    #7: fn(String, Optional<Float>) -> String = @2(pair)
+    #7: fn(String, Optional<Float>) -> String = @4(pair)
     #8: String = call #7(#6)
     #9: String = "b"
     #10: Float = 3.0
-    #11: fn(String, Optional<Float>) -> String = @2(pair)
+    #11: fn(String, Optional<Float>) -> String = @4(pair)
     #12: String = call #11(#9, #10)
     #13: fn(String, Float, ...Bool) -> String = %0
     #14: String = "x"
@@ -38,7 +38,7 @@ module examples/typescript/end-to-end/177_tuple_rest_parameters/input.ts (Module
     #21: String = "ab"
     #22: Float = 2.0
     #23: String = #20.put(#21, #22)
-    #24: None = @12(console_log)
+    #24: None = @14(console_log)
     #25: None = call #24(#8, #12, #17, #23)
     #26: fn(String, ...Float) -> String = %1
     #27: String = "h"
@@ -55,9 +55,9 @@ module examples/typescript/end-to-end/177_tuple_rest_parameters/input.ts (Module
     #38: (String, Float) = %4
     #39: Int = 1
     #40: Float = #38[#39]
-    #41: fn(String, Optional<Float>) -> String = @2(pair)
+    #41: fn(String, Optional<Float>) -> String = @4(pair)
     #42: String = call #41(#37, #40)
-    #43: None = @13(console_log)
+    #43: None = @15(console_log)
     #44: None = call #43(#29, #33, #42)
     #45: Ctx = new Ctx()
     #46: Ctx = %5
@@ -81,7 +81,7 @@ module examples/typescript/end-to-end/177_tuple_rest_parameters/input.ts (Module
     #64: String = "x"
     #65: fn(String, Optional<Float>, Optional<String>) -> String = assert_type #60
     #66: String = closure_call #65(#62, #63, #64)
-    #67: None = @14(console_log)
+    #67: None = @16(console_log)
     #68: None = call #67(#51, #58, #66)
   stmts
     s0: let %0: fn(String, Float, ...Bool) -> String = #0
@@ -97,28 +97,28 @@ module examples/typescript/end-to-end/177_tuple_rest_parameters/input.ts (Module
 interned types
   t0 = String
   t1 = Float
-  t2 = fn(String, Float) -> String
-  t3 = Bool
-  t4 = (String, Float, Bool)
-  t5 = fn(String, Float, Bool) -> String
-  t6 = (String, Float)
-  t7 = Ctx
-  t8 = Optional<Float>
-  t9 = (String, Optional<Float>)
-  t10 = fn(String, Optional<Float>) -> String
-  t11 = Box
-  t12 = None
-  t13 = Optional<String>
-  t14 = Unknown
-  t15 = fn(String, Optional<Float>, Optional<String>) -> String
-  t16 = Respond
-  t17 = (String, Optional<Float>, Optional<String>)
-  t18 = List<Unknown>
-  t19 = Int
-  t20 = fn(String, Float, String) -> String
-  t21 = fn(String, Optional<Float>, Optional<String>) -> String
-  t22 = fn(String, Float, ...Bool) -> String
-  t23 = fn(String, ...Float) -> String
-  t24 = fn(String, Optional<Float>) -> String
-  t25 = fn(String, Float) -> String
+  t2 = (String, Float)
+  t3 = fn(String, Float) -> String
+  t4 = Respond
+  t5 = fn(String, Float, String) -> String
+  t6 = fn(String, Float) -> String
+  t7 = Optional<Float>
+  t8 = Optional<String>
+  t9 = Bool
+  t10 = (String, Float, Bool)
+  t11 = fn(String, Float, Bool) -> String
+  t12 = Ctx
+  t13 = (String, Optional<Float>)
+  t14 = fn(String, Optional<Float>) -> String
+  t15 = Box
+  t16 = None
+  t17 = Unknown
+  t18 = fn(String, Optional<Float>, Optional<String>) -> String
+  t19 = (String, Optional<Float>, Optional<String>)
+  t20 = List<Unknown>
+  t21 = Int
+  t22 = fn(String, Optional<Float>, Optional<String>) -> String
+  t23 = fn(String, Float, ...Bool) -> String
+  t24 = fn(String, ...Float) -> String
+  t25 = fn(String, Optional<Float>) -> String
   t26 = fn(String, Float) -> String

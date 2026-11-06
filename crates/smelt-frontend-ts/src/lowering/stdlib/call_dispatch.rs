@@ -5854,7 +5854,10 @@ impl<'builder> ModuleBuilder<'builder> {
         if resolved.is_none() {
             self.widen_call_bindings(type_params, params, args, body, &mut substitutions);
         }
-        for (name, explicit) in self.explicit_call_type_bindings(type_params, call).unwrap_or_default() {
+        let mut explicit_bindings: Vec<_> =
+            self.explicit_call_type_bindings(type_params, call).unwrap_or_default().into_iter().collect();
+        explicit_bindings.sort_unstable_by_key(|(name, _)| name.0);
+        for (name, explicit) in explicit_bindings {
             if substitutions.get(&name).is_some_and(|bound| self.type_accepts_all_of(explicit, *bound)) {
                 substitutions.insert(name, explicit);
             }
@@ -6825,8 +6828,15 @@ impl<'builder> ModuleBuilder<'builder> {
                     fixed_index += 1;
                     continue;
                 };
-                let spread_list =
-                    self.rest_spread_list_expression(&spread.argument, rest_ty, spread.span, body)?;
+                // The fixed parameters read the list as written: only what lands in
+                // the rest takes the rest's element type, and `predicate` of
+                // `f(...args)` is not an element of `(n, predicate, ...rest: number[])`.
+                let written = self.expression(&spread.argument, body)?;
+                let spread_list = if matches!(self.ctx.krate.types.get(Self::expr_ty(body, written)), Some(Type::List(_))) {
+                    written
+                } else {
+                    self.rest_spread_list_value(written, rest_ty, spread.span, body)
+                };
                 let consumed = fixed_param_count - fixed_index;
                 for offset in 0..consumed {
                     let index = self.usize_float_literal(
@@ -6861,22 +6871,23 @@ impl<'builder> ModuleBuilder<'builder> {
                 }
                 fixed_index = fixed_param_count;
                 let spread_rest = if consumed == 0 {
-                    spread_list
+                    self.rest_spread_list_value(spread_list, rest_ty, spread.span, body)
                 } else {
                     let start = self.usize_float_literal(
                         consumed,
                         self.span(spread.span.start, spread.span.end),
                         body,
                     )?;
-                    body.push_expr(Expr {
+                    let tail = body.push_expr(Expr {
                         kind: ExprKind::ListSlice {
                             list: spread_list,
                             start: Some(start),
                             end: None,
                         },
-                        ty: rest_ty,
+                        ty: Self::expr_ty(body, spread_list),
                         span: self.span(spread.span.start, spread.span.end),
-                    })
+                    });
+                    self.rest_spread_list_value(tail, rest_ty, spread.span, body)
                 };
                 rest_list = Some(rest_list.map_or(spread_rest, |left| {
                     body.push_expr(Expr {
@@ -6952,9 +6963,20 @@ impl<'builder> ModuleBuilder<'builder> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let value = self.expression(expression, body)?;
+        Ok(self.rest_spread_list_value(value, rest_ty, span, body))
+    }
+
+    /// [`Self::rest_spread_list_expression`] for an already lowered `value`.
+    fn rest_spread_list_value(
+        &self,
+        value: smelt_hir::ExprId,
+        rest_ty: smelt_hir::TypeId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
         let value_ty = Self::expr_ty(body, value);
         if value_ty == rest_ty {
-            return Ok(value);
+            return value;
         }
         if self.type_contains_unknown(value_ty)
             || matches!(
@@ -6962,24 +6984,24 @@ impl<'builder> ModuleBuilder<'builder> {
                 Some(Type::TypeParam { .. } | Type::Union(_))
             )
         {
-            return Ok(body.push_expr(Expr {
+            return body.push_expr(Expr {
                 kind: ExprKind::UnknownCast {
                     value,
                     target: rest_ty,
                 },
                 ty: rest_ty,
                 span: self.span(span.start, span.end),
-            }));
+            });
         }
         // A concrete list converts element by element: `g(...numbers)` into
         // `(...args: any[])` is a `List<Float>` for a `List<Unknown>` slot, and
         // the emitter reads a lone operand of another type as one element of the
         // rest, not all of it.
-        Ok(body.push_expr(Expr {
+        body.push_expr(Expr {
             kind: ExprKind::TypeAssert { value },
             ty: rest_ty,
             span: self.span(span.start, span.end),
-        }))
+        })
     }
 
     /// Lower a small positional index as the numeric literal used by JS indexing.

@@ -1,8 +1,11 @@
-//! Markdown reports for focused and full generated Rust test investigations.
+//! Reports for focused and full generated Rust test investigations.
 //!
 //! This command surface keeps repetitive generated-crate execution out of an
 //! agent's reasoning context while preserving the facts needed to choose and
 //! validate general transpiler fixes.
+//!
+//! [`TestReport`] is what a run found. Markdown is its rendering for people and
+//! JSON its rendering for tools; nothing reads the Markdown back.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -10,7 +13,9 @@ use std::{
     process::Command,
 };
 
-use crate::{CliResult, diagnostics, report::push_fmt};
+use serde::{Deserialize, Serialize};
+
+use crate::{CliResult, diagnostics, report, report::push_fmt};
 
 /// Options for one generated Rust test investigation report.
 pub(crate) struct RustTestReportOptions<'a> {
@@ -22,7 +27,7 @@ pub(crate) struct RustTestReportOptions<'a> {
     pub(crate) guard: &'a [String],
     /// Whether to execute the complete generated test suite.
     pub(crate) full: bool,
-    /// Earlier Markdown report used for test-inventory comparison.
+    /// Earlier JSON report used for test-inventory comparison.
     pub(crate) baseline_report: Option<PathBuf>,
     /// Whether to append grouped Rust compiler diagnostics.
     pub(crate) include_diagnostics: bool,
@@ -30,12 +35,77 @@ pub(crate) struct RustTestReportOptions<'a> {
     pub(crate) suppress_warnings: bool,
 }
 
-/// Run requested generated Rust tests and render a compact Markdown report.
-pub(crate) fn rust_test_report_markdown(options: &RustTestReportOptions<'_>) -> CliResult<String> {
+/// What one investigation found.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct TestReport {
+    /// Generated Rust crate manifest.
+    pub(crate) cargo_manifest: PathBuf,
+    /// Focused runs.
+    pub(crate) focus: Vec<TestRun>,
+    /// Guard runs.
+    pub(crate) guards: Vec<TestRun>,
+    /// The whole suite, when it ran.
+    pub(crate) full: Option<FullSuite>,
+    /// Grouped compiler diagnostics as Markdown, when requested.
+    pub(crate) diagnostics: Option<String>,
+}
+
+/// The whole generated suite.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct FullSuite {
+    /// The run itself.
+    pub(crate) run: TestRun,
+    /// Failing test groups, largest first.
+    pub(crate) groups: Vec<(String, usize)>,
+    /// Comparison with the baseline report, when one was given.
+    pub(crate) delta: Option<Delta>,
+}
+
+/// How a full run differs from an earlier report.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct Delta {
+    /// The earlier report.
+    pub(crate) baseline: PathBuf,
+    /// Tests that failed there and do not now.
+    pub(crate) resolved: usize,
+    /// Tests that fail now and did not there.
+    pub(crate) newly_failing: usize,
+}
+
+/// One generated Cargo test invocation.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct TestRun {
+    /// User-supplied test filter or `full suite`.
+    pub(crate) label: String,
+    /// Whether Cargo returned successful test status.
+    pub(crate) succeeded: bool,
+    /// Last Cargo test result line, when tests executed.
+    pub(crate) summary: Option<String>,
+    /// `N passed; M failed` of that line.
+    pub(crate) counts: Option<TestCounts>,
+    /// Fully-qualified tests listed as failed by Cargo.
+    pub(crate) failing_tests: Vec<String>,
+    /// The end of the output, for a failed run.
+    pub(crate) excerpt: Vec<String>,
+}
+
+/// Pass and fail counts of a test run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct TestCounts {
+    /// Tests that passed.
+    pub(crate) passed: usize,
+    /// Tests that failed.
+    pub(crate) failed: usize,
+}
+
+/// How many trailing output lines a failed run keeps.
+const EXCERPT_LINES: usize = 30;
+
+/// Run the requested generated Rust tests.
+pub(crate) fn rust_test_report(options: &RustTestReportOptions<'_>) -> CliResult<TestReport> {
     if options.focus.is_empty() && options.guard.is_empty() && !options.full {
         return Err("rust-test-report requires --focus, --guard, or --full".into());
     }
-
     let focus = options
         .focus
         .iter()
@@ -46,42 +116,21 @@ pub(crate) fn rust_test_report_markdown(options: &RustTestReportOptions<'_>) -> 
         .iter()
         .map(|filter| run_test(options, Some(filter.as_str())))
         .collect::<Result<Vec<_>, _>>()?;
-    let full_run = options.full.then(|| run_test(options, None)).transpose()?;
-
-    let mut report = String::new();
-    push_fmt(
-        &mut report,
-        format_args!("# Generated Rust Test Report\n\n"),
-    );
-    push_fmt(
-        &mut report,
-        format_args!("- Cargo manifest: `{}`\n", options.cargo_manifest.display()),
-    );
-    push_fmt(
-        &mut report,
-        format_args!("- Focused runs: `{}`\n", focus.len()),
-    );
-    push_fmt(
-        &mut report,
-        format_args!("- Guard runs: `{}`\n", guards.len()),
-    );
-    push_fmt(
-        &mut report,
-        format_args!("- Full suite executed: `{}`\n", options.full),
-    );
-
-    render_runs(&mut report, "Focused Runs", &focus);
-    render_runs(&mut report, "Regression Guards", &guards);
-
-    if let Some(run) = &full_run {
-        render_full_suite(&mut report, run, options.baseline_report.as_deref())?;
-    }
-    if options.include_diagnostics {
-        report.push_str("\n## Compiler Diagnostics\n\n");
-        let diagnostics = diagnostics::rust_diagnostics_markdown(options.cargo_manifest)?;
-        report.push_str(&diagnostics.replacen("# Rust Diagnostics", "### Rust Diagnostics", 1));
-    }
-    Ok(report)
+    let full = options
+        .full
+        .then(|| full_suite(run_test(options, None)?, options.baseline_report.as_deref()))
+        .transpose()?;
+    let diagnostics = options
+        .include_diagnostics
+        .then(|| diagnostics::rust_diagnostics_markdown(options.cargo_manifest))
+        .transpose()?;
+    Ok(TestReport {
+        cargo_manifest: options.cargo_manifest.to_path_buf(),
+        focus,
+        guards,
+        full,
+        diagnostics,
+    })
 }
 
 /// Execute one Cargo test run, optionally restricted by one test filter.
@@ -99,68 +148,29 @@ fn run_test(options: &RustTestReportOptions<'_>, filter: Option<&str>) -> CliRes
     let output = command.output()?;
     let mut text = String::from_utf8(output.stdout)?;
     text.push_str(&String::from_utf8(output.stderr)?);
+    let succeeded = output.status.success();
+    let summary = final_test_summary(&text);
+    let excerpt = if succeeded {
+        Vec::new()
+    } else {
+        let lines = text.lines().collect::<Vec<_>>();
+        let start = lines.len().saturating_sub(EXCERPT_LINES);
+        lines.get(start..).unwrap_or_default().iter().map(|line| (*line).to_owned()).collect()
+    };
     Ok(TestRun {
         label: filter.map_or_else(|| "full suite".to_owned(), ToOwned::to_owned),
-        passed: output.status.success(),
-        summary: final_test_summary(&text),
-        failed_tests: failed_tests(&text),
-        text,
+        succeeded,
+        counts: summary.as_deref().and_then(parse_test_counts),
+        summary,
+        failing_tests: failed_tests(&text),
+        excerpt,
     })
 }
 
-/// Render focused or guarded test outcomes with failure excerpts only when needed.
-fn render_runs(report: &mut String, heading: &str, runs: &[TestRun]) {
-    if runs.is_empty() {
-        return;
-    }
-    push_fmt(report, format_args!("\n## {heading}\n\n"));
-    for run in runs {
-        push_fmt(
-            report,
-            format_args!(
-                "- `{}`: `{}` - `{}`\n",
-                run.label,
-                if run.passed { "passed" } else { "failed" },
-                run.summary.as_deref().unwrap_or("no test-result line")
-            ),
-        );
-        if !run.passed {
-            report.push_str("\n```text\n");
-            for line in run
-                .text
-                .lines()
-                .rev()
-                .take(30)
-                .collect::<Vec<_>>()
-                .iter()
-                .rev()
-            {
-                push_fmt(report, format_args!("{line}\n"));
-            }
-            report.push_str("```\n");
-        }
-    }
-}
-
-/// Render full-suite counts, high-frequency failing groups, and stable inventory.
-fn render_full_suite(
-    report: &mut String,
-    run: &TestRun,
-    baseline_report: Option<&Path>,
-) -> CliResult<()> {
-    report.push_str("\n## Full Suite\n\n");
-    push_fmt(
-        report,
-        format_args!(
-            "- Status: `{}`\n- Result: `{}`\n- Failing tests: `{}`\n",
-            if run.passed { "passed" } else { "failed" },
-            run.summary.as_deref().unwrap_or("no test-result line"),
-            run.failed_tests.len()
-        ),
-    );
-
+/// The full run with its failing groups and its comparison with `baseline`.
+fn full_suite(run: TestRun, baseline: Option<&Path>) -> CliResult<FullSuite> {
     let mut by_group = BTreeMap::<String, usize>::new();
-    for test in &run.failed_tests {
+    for test in &run.failing_tests {
         let group = test
             .rsplit_once("::")
             .map_or_else(|| test.clone(), |(module, _)| module.to_owned());
@@ -169,33 +179,108 @@ fn render_full_suite(
     }
     let mut groups = by_group.into_iter().collect::<Vec<_>>();
     groups.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
-    report.push_str("\n### Largest Failing Groups\n\n| Failures | Test group |\n| ---: | --- |\n");
-    for (group, count) in groups.iter().take(20) {
-        push_fmt(report, format_args!("| {count} | `{group}` |\n"));
-    }
+    let delta = baseline
+        .map(|path| -> CliResult<Delta> {
+            let earlier: TestReport = report::load_json(path, "baseline report ")?;
+            let prior = earlier
+                .full
+                .map(|suite| suite.run.failing_tests.into_iter().collect::<BTreeSet<_>>())
+                .unwrap_or_default();
+            let current = run.failing_tests.iter().cloned().collect::<BTreeSet<_>>();
+            Ok(Delta {
+                baseline: path.to_path_buf(),
+                resolved: prior.difference(&current).count(),
+                newly_failing: current.difference(&prior).count(),
+            })
+        })
+        .transpose()?;
+    Ok(FullSuite { run, groups, delta })
+}
 
-    if let Some(path) = baseline_report {
-        let baseline = std::fs::read_to_string(path)?;
-        let prior = inventory_from_report(&baseline);
-        let current = run.failed_tests.iter().cloned().collect::<BTreeSet<_>>();
-        report.push_str("\n### Delta From Baseline\n\n");
+/// Render `report` as Markdown.
+pub(crate) fn render_markdown(report: &TestReport) -> String {
+    let mut text = String::from("# Generated Rust Test Report\n\n");
+    push_fmt(&mut text, format_args!("- Cargo manifest: `{}`\n", report.cargo_manifest.display()));
+    push_fmt(&mut text, format_args!("- Focused runs: `{}`\n", report.focus.len()));
+    push_fmt(&mut text, format_args!("- Guard runs: `{}`\n", report.guards.len()));
+    push_fmt(&mut text, format_args!("- Full suite executed: `{}`\n", report.full.is_some()));
+    render_runs(&mut text, "Focused Runs", &report.focus);
+    render_runs(&mut text, "Guard Runs", &report.guards);
+    if let Some(full) = &report.full {
+        render_full_suite(&mut text, full);
+    }
+    if let Some(diagnostics) = &report.diagnostics {
+        text.push_str("\n## Compiler Diagnostics\n\n");
+        text.push_str(&diagnostics.replacen("# Rust Diagnostics", "### Rust Diagnostics", 1));
+    }
+    text
+}
+
+/// The status word of a run.
+const fn status(run: &TestRun) -> &'static str {
+    if run.succeeded { "passed" } else { "failed" }
+}
+
+/// Render focused or guarded test outcomes with failure excerpts only when needed.
+fn render_runs(text: &mut String, heading: &str, runs: &[TestRun]) {
+    if runs.is_empty() {
+        return;
+    }
+    push_fmt(text, format_args!("\n## {heading}\n\n"));
+    for run in runs {
         push_fmt(
-            report,
+            text,
+            format_args!(
+                "- `{}`: `{}` - `{}`\n",
+                run.label,
+                status(run),
+                run.summary.as_deref().unwrap_or("no test-result line")
+            ),
+        );
+        if !run.succeeded {
+            text.push_str("\n```text\n");
+            for line in &run.excerpt {
+                push_fmt(text, format_args!("{line}\n"));
+            }
+            text.push_str("```\n");
+        }
+    }
+}
+
+/// Render full-suite counts, high-frequency failing groups, and stable inventory.
+fn render_full_suite(text: &mut String, full: &FullSuite) {
+    let run = &full.run;
+    text.push_str("\n## Full Suite\n\n");
+    push_fmt(
+        text,
+        format_args!(
+            "- Status: `{}`\n- Result: `{}`\n- Failing tests: `{}`\n",
+            status(run),
+            run.summary.as_deref().unwrap_or("no test-result line"),
+            run.failing_tests.len()
+        ),
+    );
+    text.push_str("\n### Largest Failing Groups\n\n| Failures | Test group |\n| ---: | --- |\n");
+    for (group, count) in full.groups.iter().take(20) {
+        push_fmt(text, format_args!("| {count} | `{group}` |\n"));
+    }
+    if let Some(delta) = &full.delta {
+        text.push_str("\n### Delta From Baseline\n\n");
+        push_fmt(
+            text,
             format_args!(
                 "- Baseline report: `{}`\n- Resolved tests: `{}`\n- Newly failing tests: `{}`\n",
-                path.display(),
-                prior.difference(&current).count(),
-                current.difference(&prior).count()
+                delta.baseline.display(),
+                delta.resolved,
+                delta.newly_failing
             ),
         );
     }
-
-    report.push_str("\n<details>\n<summary>Failing test inventory</summary>\n\n");
-    for test in &run.failed_tests {
-        push_fmt(report, format_args!("- `{test}`\n"));
+    text.push_str("\n<details>\n<summary>Failing test inventory</summary>\n\n");
+    for test in &run.failing_tests {
+        push_fmt(text, format_args!("- `{test}`\n"));
     }
-    report.push_str("\n</details>\n");
-    Ok(())
+    text.push_str("\n</details>\n");
 }
 
 /// Extract Cargo's final summary line from one test execution.
@@ -204,6 +289,23 @@ fn final_test_summary(text: &str) -> Option<String> {
         .rfind(|line| line.contains("test result:"))
         .map(str::trim)
         .map(ToOwned::to_owned)
+}
+
+/// Extract `N passed; M failed` from Cargo's summary line.
+pub(crate) fn parse_test_counts(summary: &str) -> Option<TestCounts> {
+    let (before_passed, after_passed) = summary.split_once(" passed;")?;
+    let passed = trailing_number(before_passed)?;
+    let (before_failed, _) = after_passed.split_once(" failed")?;
+    let failed = trailing_number(before_failed)?;
+    Some(TestCounts { passed, failed })
+}
+
+/// Parse the last run of ASCII digits in `text`.
+fn trailing_number(text: &str) -> Option<usize> {
+    text.rsplit(|c: char| !c.is_ascii_digit())
+        .find(|run| !run.is_empty())?
+        .parse()
+        .ok()
 }
 
 /// Extract failed Rust test paths from Cargo's failed-test listing.
@@ -219,43 +321,6 @@ fn failed_tests(text: &str) -> Vec<String> {
         .collect::<Vec<_>>();
     tests.sort();
     tests
-}
-
-/// Extract the detailed test inventory from a previously emitted report.
-fn inventory_from_report(report: &str) -> BTreeSet<String> {
-    let mut inside_inventory = false;
-    let mut tests = BTreeSet::new();
-    for line in report.lines() {
-        if line == "<summary>Failing test inventory</summary>" {
-            inside_inventory = true;
-            continue;
-        }
-        if inside_inventory && line == "</details>" {
-            break;
-        }
-        if inside_inventory
-            && let Some(test) = line
-                .strip_prefix("- `")
-                .and_then(|inventory_line| inventory_line.strip_suffix('`'))
-        {
-            tests.insert(test.to_owned());
-        }
-    }
-    tests
-}
-
-/// Captured result of one generated Cargo test invocation.
-struct TestRun {
-    /// User-supplied test filter or `full suite`.
-    label: String,
-    /// Whether Cargo returned successful test status.
-    passed: bool,
-    /// Last Cargo test result line, when tests executed.
-    summary: Option<String>,
-    /// Fully-qualified tests listed as failed by Cargo.
-    failed_tests: Vec<String>,
-    /// Captured output retained for focused failure excerpts.
-    text: String,
 }
 
 #[cfg(test)]
@@ -274,17 +339,43 @@ mod tests {
         );
     }
 
+    /// A failing-tests fixture of one run, as a report would hold it.
+    fn failing(tests: &[&str]) -> TestRun {
+        TestRun {
+            label: "full suite".to_owned(),
+            succeeded: tests.is_empty(),
+            summary: None,
+            counts: None,
+            failing_tests: tests.iter().map(|test| (*test).to_owned()).collect(),
+            excerpt: Vec::new(),
+        }
+    }
+
+    /// The delta reads an earlier JSON report, the form `--json-output` writes.
     #[test]
-    fn reads_previous_report_inventory_for_delta_comparisons() {
-        let report = "<details>\n<summary>Failing test inventory</summary>\n\n- `a::fails`\n- `b::fails`\n\n</details>\n";
-        let tests = inventory_from_report(report);
-        assert!(
-            tests.contains("a::fails"),
-            "first prior failure should parse"
-        );
-        assert!(
-            tests.contains("b::fails"),
-            "second prior failure should parse"
-        );
+    fn a_baseline_report_is_read_as_json() {
+        let earlier = TestReport {
+            cargo_manifest: PathBuf::from("Cargo.toml"),
+            focus: Vec::new(),
+            guards: Vec::new(),
+            full: Some(full_suite(failing(&["a::fixed", "a::stays"]), None).expect("no baseline")),
+            diagnostics: None,
+        };
+        let directory = std::env::temp_dir().join(format!("smelt-test-report-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("scratch directory");
+        let path = directory.join("before.json");
+        std::fs::write(&path, serde_json::to_string(&earlier).expect("serializes")).expect("written");
+        let suite = full_suite(failing(&["a::stays", "b::new"]), Some(&path)).expect("reads the baseline");
+        std::fs::remove_dir_all(&directory).expect("scratch removed");
+        let delta = suite.delta.expect("a baseline gives a delta");
+        assert_eq!((delta.resolved, delta.newly_failing), (1, 1));
+    }
+
+    /// Counts come from Cargo's own line, and a run without one has none.
+    #[test]
+    fn counts_come_from_the_cargo_summary() {
+        let counts = parse_test_counts("test result: FAILED. 1768 passed; 21 failed; 0 ignored;");
+        assert_eq!(counts, Some(TestCounts { passed: 1768, failed: 21 }));
+        assert_eq!(parse_test_counts("no summary here"), None);
     }
 }

@@ -21,6 +21,6 @@ module examples/typescript/end-to-end/25_private_protected_metadata/input.ts (Mo
 interned types
   t0 = String
   t1 = Float
-  t2 = Secret
-  t3 = None
-  t4 = fn() -> String
+  t2 = fn() -> String
+  t3 = Secret
+  t4 = None

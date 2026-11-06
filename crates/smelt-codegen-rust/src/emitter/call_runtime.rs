@@ -2632,7 +2632,8 @@ impl FunctionEmitter<'_> {
     ///
     /// A `ClosureCall` carries one operand per source argument. `None` when the
     /// callee has no list-typed rest, when no operand reaches it (the padding fills
-    /// an empty list), or when a single operand there already has the list type.
+    /// an empty list), or when a single operand there already has the list's Rust
+    /// type, which is how a spread into the rest arrives.
     pub(super) fn packed_rest_arg_text(
         &self,
         args: &[Operand],
@@ -2656,10 +2657,13 @@ impl FunctionEmitter<'_> {
         let Some(rest_args) = args.get(index..).filter(|rest| !rest.is_empty()) else {
             return Ok(None);
         };
-        if let [single_arg] = rest_args
-            && self.operand_ty(single_arg)? == param
-        {
-            return Ok(None);
+        // Compared as rendered: `List<T>` and `List<unknown>` are one Rust type
+        // where `T` is erased, which is what a spread into the rest arrives as.
+        if let [single_arg] = rest_args {
+            let arg_ty = self.operand_ty(single_arg)?;
+            if arg_ty == param || self.type_text(arg_ty)? == self.type_text(param)? {
+                return Ok(None);
+            }
         }
         let items = rest_args
             .iter()

@@ -6,9 +6,9 @@ fn add (FuncId(0)) -> None
     %1 param key: String
     %2 temp: Dict<String, Bool>
   bb0:
-    %2 = copy %0.field1
+    %2 = copy %0.field7
     %2[copy %1] = true
-    %0.field1 = move %2
+    %0.field7 = move %2
     return none
 
 fn keep (FuncId(1)) -> List<String>
@@ -41,7 +41,7 @@ fn new (FuncId(3)) -> Index
   bb0:
     %0 = struct0 {}
     %1 = {}
-    %0.field1 = move %1
+    %0.field7 = move %1
     return move %0
 
 fn main (FuncId(4)) -> None
@@ -91,7 +91,7 @@ closure ClosureId(0) -> Bool
     %2 temp: Dict<String, Bool>
     %3 temp: Bool
   bb0:
-    %2 = copy %1.field1
+    %2 = copy %1.field7
     %3 = copy %2[copy %0] == true
     return copy %3
 
@@ -105,7 +105,7 @@ closure ClosureId(1) -> String
     %5 temp: String
     %6 temp: String
   bb0:
-    %3 = copy %2.field1
+    %3 = copy %2.field7
     %4 = copy %3[copy %0] == true
     switch copy %4 ? bb1 : bb2
   bb1:

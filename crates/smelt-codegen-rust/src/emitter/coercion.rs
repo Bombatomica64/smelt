@@ -2737,6 +2737,10 @@ impl FunctionEmitter<'_> {
                 .join(", ");
             return Ok(format!("match {reference} {{ {arms} }}"));
         }
+        if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+            let erased = self.erase(value)?;
+            return Ok(format!("smelt_typeof(&{erased})"));
+        }
         Ok(format!("smelt_typeof({reference})"))
     }
 

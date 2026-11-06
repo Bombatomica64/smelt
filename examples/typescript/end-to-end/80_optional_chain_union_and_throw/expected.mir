@@ -10,7 +10,7 @@ fn fill (FuncId(0)) -> String throws
     %5 temp: Registry
     %6 temp: String
   bb0:
-    %2 = copy %0?.method6(copy %1, true)
+    %2 = copy %0?.method3(copy %1, true)
     %3 = copy %0 == undefined
     switch move %3 ? bb1 : bb2
   bb1:
@@ -39,12 +39,12 @@ fn insert (FuncId(1)) -> None throws
     switch move %3 ? bb1 : bb2
   bb1:
     %4 = {"__smelt_error": "Error", "message": "empty key", "stack": undefined, "cause": undefined}
-    %5 = unknown_cast move %4 as t7
+    %5 = unknown_cast move %4 as t9
     throw move %5
   bb2:
-    %6 = copy %0.field4
+    %6 = copy %0.field7
     %6[copy %1] = copy %2
-    %0.field4 = move %6
+    %0.field7 = move %6
     return none
 
 fn has (FuncId(2)) -> String
@@ -55,7 +55,7 @@ fn has (FuncId(2)) -> String
     %3 temp: Bool
     %4 temp: String
   bb0:
-    %2 = copy %0.field4
+    %2 = copy %0.field7
     %3 = copy %2[copy %1] == undefined
     switch move %3 ? bb1 : bb2
   bb1:
@@ -72,9 +72,9 @@ fn new (FuncId(3)) -> Registry
     %0 user this: Registry
     %1 temp: Dict<String, Bool>
   bb0:
-    %0 = struct1 {}
+    %0 = struct0 {}
     %1 = {}
-    %0.field4 = move %1
+    %0.field7 = move %1
     return move %0
 
 fn main (FuncId(4)) -> None throws

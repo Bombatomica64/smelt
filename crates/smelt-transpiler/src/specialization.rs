@@ -60,6 +60,11 @@ pub(crate) struct PreparedSpecialization {
 }
 
 impl PreparedSpecialization {
+    /// Nothing to specialize: a run with no manifest to cache against.
+    pub(crate) const fn none() -> Self {
+        Self { python: Batch::NotNeeded, typescript: Batch::NotNeeded }
+    }
+
     /// The Python manifest, when the batch was needed.
     pub(crate) const fn python(&self) -> Option<&SpecializationManifest> {
         self.python.manifest()

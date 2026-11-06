@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use smelt_hir::{Crate, FileId, ItemId, ModuleId};
 
-use crate::lowering::{LoweredCrate, ManifestDiagnostic};
+use crate::lowering::ManifestDiagnostic;
 use crate::manifest::ManifestImport;
 
 /// Cross-file Python module/package namespaces threaded between manifest entries.
@@ -51,33 +51,6 @@ pub(crate) fn dump_ast(file: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut stdout = std::io::stdout().lock();
     writeln!(stdout, "{module:#?}")?;
     Ok(())
-}
-
-/// Lowers Python source files to HIR.
-#[cfg(feature = "python")]
-pub(crate) fn lower_files(files: &[String]) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
-    let mut ctx = smelt_frontend_py::HirCtx::new();
-    let mut modules = Vec::new();
-
-    for (idx, file) in files.iter().enumerate() {
-        let source = std::fs::read_to_string(file)?;
-        let file_id = u32::try_from(idx).map_err(|error| {
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!("too many source files: {error}"),
-            )
-        })?;
-        let module = smelt_frontend_py::to_hir_with_path(&source, FileId(file_id), file, &mut ctx)
-            .map_err(|errors| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    format!("{}:\n{errors:#?}", std::path::Path::new(file).display()),
-                )
-            })?;
-        modules.push((file.clone(), module));
-    }
-
-    Ok((ctx.krate, modules))
 }
 
 /// Lowers one Python manifest entry, threading cross-file Python state through.
@@ -208,12 +181,6 @@ pub(crate) fn scan_imports(source: &str) -> Result<Vec<ManifestImport>, String> 
 /// Reports that Python support was not compiled into this build.
 #[cfg(not(feature = "python"))]
 pub(crate) fn dump_ast(_file: &str) -> Result<(), Box<dyn std::error::Error>> {
-    Err(PYTHON_NOT_COMPILED_MESSAGE.into())
-}
-
-/// Reports that Python support was not compiled into this build.
-#[cfg(not(feature = "python"))]
-pub(crate) fn lower_files(_files: &[String]) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
     Err(PYTHON_NOT_COMPILED_MESSAGE.into())
 }
 

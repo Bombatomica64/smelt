@@ -84,6 +84,24 @@ export const b = probe(1);
     Ok(())
 }
 
+/// A mock keeps its implementation's signature, so a callback typed through
+/// `Parameters<F>` of that mock gets the implementation's parameter type.
+#[test]
+fn test_framework_mock_keeps_its_implementation_signature() -> Result<(), String> {
+    let source = r#"
+import { vi } from "vitest";
+declare function memo<F extends (...args: any) => any>(
+  fn: F,
+  options: { key?: (args: Parameters<F>[0]) => unknown },
+): void;
+const sum = vi.fn(function sum(arr: number[]) { return arr.length; });
+memo(sum, { key: probe => probe.join(",") });
+"#;
+    let facts = facts(source)?;
+    assert_eq!(type_of(&facts, source, "probe", 0)?.display, "number[]");
+    Ok(())
+}
+
 #[test]
 fn callback_inference_instantiates_map_result() -> Result<(), String> {
     let source = "export const labels = [1, 2].map((n) => String(n));\n";

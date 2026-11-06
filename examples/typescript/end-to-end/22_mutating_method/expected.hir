@@ -20,6 +20,6 @@ module examples/typescript/end-to-end/22_mutating_method/input.ts (ModuleId(0))
 
 interned types
   t0 = Float
-  t1 = Counter
-  t2 = None
-  t3 = fn(Float) -> Float
+  t1 = fn(Float) -> Float
+  t2 = Counter
+  t3 = None

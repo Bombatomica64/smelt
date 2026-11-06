@@ -4,9 +4,9 @@ module examples/typescript/end-to-end/103_exclude_over_a_literal_union/input.ts 
     type StatusCode = Float
     type ContentlessStatusCode = Float
     type ContentfulStatusCode = Float
-    type Named = Float | String | Bool
+    type Named = String | Float | Bool
     type WithoutNumber = String | Bool
-    class Reply fields [Public status: Float] constructor Some(ItemId(16)) methods [ItemId(17)] implements []
+    class Reply fields [Public status: Float] constructor Some(ItemId(26)) methods [ItemId(27)] implements []
     fn render owner Module
   locals
     %0 const reply: Reply
@@ -17,17 +17,17 @@ module examples/typescript/end-to-end/103_exclude_over_a_literal_union/input.ts 
     #3: fn() -> String = #2.describe
     #4: Reply = %0
     #5: String = #4.describe()
-    #6: None = @19(console_log)
+    #6: None = @29(console_log)
     #7: None = call #6(#5)
     #8: String = "hi"
-    #9: fn(String | Bool) -> String = @10(render)
+    #9: fn(String | Bool) -> String = @20(render)
     #10: String = call #9(#8)
-    #11: None = @20(console_log)
+    #11: None = @30(console_log)
     #12: None = call #11(#10)
     #13: Bool = true
-    #14: fn(String | Bool) -> String = @10(render)
+    #14: fn(String | Bool) -> String = @20(render)
     #15: String = call #14(#13)
-    #16: None = @21(console_log)
+    #16: None = @31(console_log)
     #17: None = call #16(#15)
   stmts
     s0: let %0: Reply = #1
@@ -36,14 +36,15 @@ module examples/typescript/end-to-end/103_exclude_over_a_literal_union/input.ts 
     s3: #17
 
 interned types
-  t0 = Float
-  t1 = String
-  t2 = Bool
-  t3 = Float | String | Bool
-  t4 = Unknown
-  t5 = String | Bool
-  t6 = Reply
-  t7 = fn(String | Bool) -> String
-  t8 = None
-  t9 = fn() -> String
-  t10 = fn(String | Bool) -> String
+  t0 = String
+  t1 = ContentfulStatusCode
+  t2 = fn() -> String
+  t3 = Float
+  t4 = Bool
+  t5 = String | Float | Bool
+  t6 = Unknown
+  t7 = String | Bool
+  t8 = Reply
+  t9 = fn(String | Bool) -> String
+  t10 = None
+  t11 = fn(String | Bool) -> String

@@ -1015,11 +1015,10 @@ impl FunctionEmitter<'_> {
                         out.push_str(&format!("    {};\n", self.operand_text(operand)?));
                     }
                     if self.function.can_throw || self.function.is_async {
+                        self.binding_uses.record_early_return();
                         if self.function.is_generator {
-                            self.binding_uses.record_early_return();
                             out.push_str(&format!("    return Ok::<(), {ERROR_BOX}>(());\n"));
                         } else {
-                            self.binding_uses.record_early_return();
                             out.push_str("    return Ok(());\n");
                         }
                     } else {

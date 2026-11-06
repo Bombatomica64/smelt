@@ -37,7 +37,7 @@ async fn run (FuncId(0)) -> None
   bb3:
     %5 = call @console_log(move %3, move %4) -> bb4
   bb4:
-    %6 = call @console_log(copy %0.field32) -> bb5
+    %6 = call @console_log(copy %0.field4) -> bb5
   bb5:
     %7 = call fn8(move %0) -> bb6
   bb6:
@@ -69,7 +69,7 @@ async fn run (FuncId(0)) -> None
   bb16:
     return none
 
-fn respond__module_examples/typescript/end-to-end/143_module_arrows_are_items/input.ts (FuncId(1)) -> Response
+fn respond__module_main (FuncId(1)) -> Response
   locals
     %0 param text: String
     %1 param status: Optional<Float>
@@ -80,7 +80,7 @@ fn respond__module_examples/typescript/end-to-end/143_module_arrows_are_items/in
     %3 = response_new body=copy %0 status=move %2
     return move %3
 
-fn add__module_examples/typescript/end-to-end/143_module_arrows_are_items/input.ts (FuncId(2)) -> Float
+fn add__module_main (FuncId(2)) -> Float
   locals
     %0 param a: Float
     %1 param b: Optional<Float>
@@ -91,7 +91,7 @@ fn add__module_examples/typescript/end-to-end/143_module_arrows_are_items/input.
     %3 = copy %0 + move %2
     return move %3
 
-fn fact__module_examples/typescript/end-to-end/143_module_arrows_are_items/input.ts (FuncId(3)) -> Float
+fn fact__module_main (FuncId(3)) -> Float
   locals
     %0 param n: Float
     %1 temp: Bool
@@ -146,7 +146,7 @@ fn join (FuncId(4)) -> String
   bb4:
     return move %4
 
-fn scan__module_examples/typescript/end-to-end/143_module_arrows_are_items/input.ts (FuncId(5)) -> Optional<String>
+fn scan__module_main (FuncId(5)) -> Optional<String>
   locals
     %0 param url: String
     %1 param key: Optional<String>
@@ -308,10 +308,10 @@ fn bump (FuncId(6)) -> Float
     %1 temp: Float
     %2 temp: Float
   bb0:
-    %1 = call fn2(copy %0.field28, 2.0) -> bb1
+    %1 = call fn2(copy %0.field31, 2.0) -> bb1
   bb1:
-    %0.field28 = move %1
-    %2 = call fn2(copy %0.field28) -> bb2
+    %0.field31 = move %1
+    %2 = call fn2(copy %0.field31) -> bb2
   bb2:
     return move %2
 
@@ -324,7 +324,7 @@ fn __smelt_get_label (FuncId(7)) -> String
     %4 temp: List<String>
     %5 temp: String
   bb0:
-    %1 = primitive_cast_string copy %0.field28
+    %1 = primitive_cast_string copy %0.field31
     %2 = call fn3(4.0) -> bb1
   bb1:
     %3 = primitive_cast_string move %2
@@ -339,7 +339,7 @@ fn reply (FuncId(8)) -> Response | Future<Response>
     %1 temp: String
     %2 temp: Response
   bb0:
-    %1 = "ok:" + copy %0.field28
+    %1 = "ok:" + copy %0.field31
     %2 = call fn1(move %1, 201.0) -> bb1
   bb1:
     return move %2
@@ -348,8 +348,8 @@ fn new (FuncId(9)) -> Counter
   locals
     %0 user this: Counter
   bb0:
-    %0 = struct27 {}
-    %0.field28 = 0.0
+    %0 = struct0 {}
+    %0.field31 = 0.0
     return move %0
 
 async fn main (FuncId(10)) -> None throws
