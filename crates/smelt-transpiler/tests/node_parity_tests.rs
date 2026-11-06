@@ -124,6 +124,12 @@ fn assignment_argument() -> TestResult {
     verify_node_parity("assignment_argument")
 }
 
+/// A nested closure writes the enclosing closure's parameter.
+#[test]
+fn closure_param_written_by_closure() -> TestResult {
+    verify_node_parity("closure_param_written_by_closure")
+}
+
 /// Array-valued ternary arms join instead of one adopting the other's type.
 #[test]
 fn conditional_list_arms() -> TestResult {
