@@ -160,3 +160,15 @@ fn namespace_generic_calls() -> TestResult {
 fn spread_into_rest() -> TestResult {
     verify_node_parity("spread_into_rest")
 }
+
+/// An uppercasing replacer is an ordinary callback, for each kind of match.
+#[test]
+fn regex_replace_uppercase_callback() -> TestResult {
+    verify_node_parity("regex_replace_uppercase_callback")
+}
+
+/// A push through a dict entry appends in place and inserts a missing key.
+#[test]
+fn dict_entry_push_in_place() -> TestResult {
+    verify_node_parity("dict_entry_push_in_place")
+}

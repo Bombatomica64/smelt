@@ -581,7 +581,7 @@ impl FunctionEmitter<'_> {
                 // The closure body's own source language, carried from MIR: a
                 // callback that stringifies an absent value has to spell it the
                 // way its own file's language does.
-                absent: closure.absent,
+                language: closure.language,
             };
             // The closure is emitted inline inside the enclosing function, so
             // the enclosing function's in-scope type parameters (and an

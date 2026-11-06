@@ -1178,6 +1178,9 @@ macro_rules! define_list_facts {
             match value {
                 // Plain propagation: the destination names the source's buffer.
                 Rvalue::Use(operand) => vec![(operand, ALIAS)],
+                Rvalue::DictEntryPush { entry, item } => {
+                    vec![(entry, RECV_MUT), (item, STORED)]
+                }
                 // Scalar-producing inspections of arbitrary values.
                 Rvalue::Binary { lhs, rhs, .. } => vec![(lhs, READ), (rhs, READ)],
                 Rvalue::Unary { operand, .. } => vec![(operand, READ)],

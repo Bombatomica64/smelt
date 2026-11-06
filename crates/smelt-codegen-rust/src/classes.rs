@@ -478,6 +478,7 @@ fn rvalue_preserves_opacity(rvalue: &Rvalue) -> bool {
         Rvalue::List(_)
             | Rvalue::Tuple(_)
             | Rvalue::ListPush { .. }
+            | Rvalue::DictEntryPush { .. }
             | Rvalue::ListExtend { .. }
             // Capturing into a closure environment.
             | Rvalue::Closure { .. }

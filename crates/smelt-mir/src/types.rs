@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use smelt_hir::{BodyId, Span, Symbol, TypeId, Visibility};
+use smelt_hir::{BodyId, Language, Span, Symbol, TypeId, Visibility};
 
 /// Unique identifier for a function in MIR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -199,11 +199,11 @@ pub struct MirClosure {
     /// identity (`===`). The `ItemId` index is crate-unique, so it is a safe
     /// accessor key across all references.
     pub function_item_key: Option<usize>,
-    /// How this closure body's source language spells an absent value.
+    /// The language this closure body came from.
     ///
-    /// See `MirFunction::absent`. A closure body is emitted through its own
-    /// synthesized `MirFunction`, so the spelling has to travel with it.
-    pub absent: AbsentSpelling,
+    /// See `MirFunction::language`. A closure body is emitted through its own
+    /// synthesized `MirFunction`, so the language has to travel with it.
+    pub language: Language,
 }
 
 /// One explicit MIR closure capture.
@@ -371,19 +371,25 @@ pub struct MirFunction {
     pub blocks: Vec<BasicBlock>,
     /// Entry block ID.
     pub entry: BlockId,
-    /// How this body's SOURCE LANGUAGE spells an absent value.
+    /// The language this body came from, which decides what the source meant
+    /// wherever the operand and its type do not say: how an absent value is
+    /// spelled (`undefined` in JavaScript, `None` in Python) and whether a
+    /// number is a JavaScript double.
     ///
-    /// Same rule, and the same reason, as `BuiltinFn::ConsoleLog`'s own field:
-    /// stringifying an `Optional` that holds nothing is `undefined` in
-    /// JavaScript and `None` in Python, and the disagreement is not observable
-    /// from the operand or its type. It is carried per BODY rather than per
-    /// node because a body comes from exactly one source file while the sites
-    /// that need the answer -- `String(x)`, a template interpolation, a `+`
-    /// concatenation -- are ordinary rvalues that no one would widen for it.
-    pub absent: AbsentSpelling,
+    /// Carried per BODY rather than per node because a body comes from exactly
+    /// one source file while the sites that need the answer -- `String(x)`, a
+    /// template interpolation, a `+` concatenation -- are ordinary rvalues that
+    /// no one would widen for it.
+    pub language: Language,
 }
 
 impl MirFunction {
+    /// How this body's language spells an absent value.
+    #[must_use]
+    pub const fn absent(&self) -> AbsentSpelling {
+        AbsentSpelling::of(self.language)
+    }
+
     /// Creates a new MIR function with an empty entry block.
     pub(crate) fn new(
         id: FuncId,
@@ -415,7 +421,7 @@ impl MirFunction {
             // Overwritten by lowering from the body's own file; the default is
             // the TypeScript-shaped answer, matching `absent_spelling`'s own
             // fallback for a synthesized span with no source module.
-            absent: AbsentSpelling::Undefined,
+            language: Language::TypeScript,
         }
     }
 
@@ -608,6 +614,15 @@ pub enum AbsentSpelling {
 }
 
 impl AbsentSpelling {
+    /// How `language` spells an absent value.
+    #[must_use]
+    pub const fn of(language: Language) -> Self {
+        match language {
+            Language::TypeScript => Self::Undefined,
+            Language::Python => Self::None,
+        }
+    }
+
     /// The word this language prints for an absent value.
     #[must_use]
     pub const fn text(self) -> &'static str {
@@ -701,6 +716,19 @@ macro_rules! define_rvalue {
         pub enum Rvalue {
             /// Use an existing operand directly.
             Use(Operand),
+            /// `dict[key].push(item)` through the entry, in place.
+            ///
+            /// Neither the old nor the new group is copied, and a key that is
+            /// absent is inserted with the value type's default first, so this
+            /// is `groups.entry(key).or_default().push(item)`. `entry` always
+            /// reads a [`Place::Index`] into a dict; it is an operand so that a
+            /// walk sees the base and key like any other projected read.
+            DictEntryPush {
+                /// The dict entry to append to.
+                entry: Operand,
+                /// Item to append.
+                item: Operand,
+            },
             /// Suspend the current generator and expose a value to its caller.
             GeneratorYield {
                 /// Value exposed by the suspension point.

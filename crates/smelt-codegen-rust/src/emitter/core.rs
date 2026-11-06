@@ -6112,7 +6112,7 @@ impl<'mir> FunctionEmitter<'mir> {
     /// an absent or null value as text asks here rather than hard-coding a
     /// word.
     pub(super) fn absent_spelling(&self) -> AbsentSpelling {
-        self.function.absent
+        self.function.absent()
     }
 
     /// Gets the Rust-facing rendering of a symbol.

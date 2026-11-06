@@ -2,40 +2,11 @@
 //! callback expressions and the list search/entries/`at` collection calls.
 
 use crate::lowering::{
-    BindingPattern, Body, Expr, ExprKind, Expression, ListSearchOp, ModuleBuilder,
+    Body, Expr, ExprKind, Expression, ListSearchOp, ModuleBuilder,
     PrimitiveCastOp, SmeltError, Type, };
 use oxc::span::GetSpan;
 
 impl ModuleBuilder<'_> {
-    /// Return whether a replacement callback is `(m) => m.toUpperCase()`.
-    pub(in crate::lowering) fn arrow_callback_returns_param_uppercase(
-        &self,
-        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
-    ) -> Result<bool, SmeltError> {
-        if arrow.params.items.len() != 1 || arrow.params.rest.is_some() {
-            return Ok(false);
-        }
-        let Some(param) = arrow.params.items.first() else {
-            return Ok(false);
-        };
-        let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
-            return Ok(false);
-        };
-        let returned = self.arrow_return_expression(arrow)?;
-        let Expression::CallExpression(call) = returned else {
-            return Ok(false);
-        };
-        let Expression::StaticMemberExpression(member) = &call.callee else {
-            return Ok(false);
-        };
-        let Expression::Identifier(receiver) = &member.object else {
-            return Ok(false);
-        };
-        Ok(receiver.name == binding.name
-            && member.property.name == "toUpperCase"
-            && call.arguments.is_empty())
-    }
-
     /// Lower direct TypeScript `Array.prototype.indexOf` and `lastIndexOf`.
     pub(in crate::lowering) fn list_search_call(
         &mut self,

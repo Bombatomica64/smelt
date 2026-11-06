@@ -91,6 +91,10 @@ macro_rules! walk_rvalue_operands {
     )*) => {
     match $rvalue {
         Self::Use(operand) => $visit(operand),
+        Self::DictEntryPush { entry, item } => {
+            $visit(entry);
+            $visit(item);
+        }
         Self::GeneratorYield { value, .. } => $visit(value),
         Self::List(items) | Self::Set(items) | Self::Tuple(items) => {
             for item in items {
@@ -221,6 +225,7 @@ macro_rules! define_rvalue_mutated_receiver {
                             smelt_hir::op_mutates!($($fact $fact_value)*)
                         }
                     )*
+                    Self::DictEntryPush { entry, .. } => Some(entry),
                     _ => None,
                 }
             }
@@ -721,6 +726,20 @@ mod tests {
     }
 
     /// `splice` mutates its receiver; a non-mutating splice is a copy.
+    #[test]
+    fn a_dict_entry_push_mutates_through_its_entry_and_reads_it_first() {
+        let entry = Operand::Copy(Place::Index {
+            base: A,
+            index: Box::new(copy(B)),
+            negative: crate::NegativeIndex::OutOfRange,
+        });
+        let push = Rvalue::DictEntryPush { entry: entry.clone(), item: copy(C) };
+        assert_eq!(push.mutated_receiver(), Some(&entry));
+        let mut read = Vec::new();
+        push.read_locals(|local| read.push(local));
+        assert_eq!(read, [A, B, C]);
+    }
+
     #[test]
     fn fallibility_is_stated_per_op_not_per_family() {
         use smelt_hir::{UriTranscodeOp, UrlField, UrlOp};

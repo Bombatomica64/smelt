@@ -802,7 +802,7 @@ mod tests {
                 })
                 .collect(),
             origin: HirOrigin::Body(smelt_hir::BodyId(id)),
-            absent: smelt_mir::AbsentSpelling::Undefined,
+            language: smelt_hir::Language::TypeScript,
             is_async: false,
             is_generator: false,
             is_test: false,

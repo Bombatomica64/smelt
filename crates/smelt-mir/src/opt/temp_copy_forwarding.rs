@@ -403,7 +403,7 @@ mod tests {
             can_throw: false,
             is_generator: false,
             function_item_key: None,
-            absent: crate::AbsentSpelling::Undefined,
+            language: smelt_hir::Language::TypeScript,
         };
         closure.blocks[0].statements = vec![Statement::Assign {
             dest: LocalId(0),

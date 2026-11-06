@@ -566,15 +566,6 @@ macro_rules! op_group_transcribed {
                     hir: format!("regex_{} {pattern}, {haystack}, {callback} [{}]", op.callback_text(), regex_replace_args_text(args)),
                     mir: format!("regex_{} {pattern}, {haystack}, {callback} [{}]", op.mir_callback_text(), regex_replace_args_text(args)),
                 );
-            /// Replace the first regex match with its uppercase text.
-            RegexReplaceFirstMatchUppercase {
-                /// Regex pattern text.
-                pattern: one,
-                /// String value to transform.
-                haystack: one,
-            }
-                needs(DepRegex)
-                => (format!("regex_replace_first_upper {pattern}, {haystack}"));
             /// Split a string with a regex pattern.
             RegexSplit {
                 /// Regex pattern text.

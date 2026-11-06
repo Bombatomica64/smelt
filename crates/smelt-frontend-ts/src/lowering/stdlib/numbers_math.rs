@@ -171,17 +171,6 @@ impl ModuleBuilder<'_> {
         if let Some(pattern_op) = pattern_op {
             op = pattern_op;
         }
-        if op == StringReplaceOp::First
-            && let Argument::ArrowFunctionExpression(replacement) = replacement_arg
-            && self.arrow_callback_returns_param_uppercase(replacement)?
-        {
-            let ty = self.ctx.krate.types.intern(Type::String);
-            return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::RegexReplaceFirstMatchUppercase { pattern, haystack },
-                ty,
-                span: self.span(call.span.start, call.span.end),
-            })));
-        }
         if matches!(
             replacement_arg,
             Argument::ArrowFunctionExpression(_) | Argument::FunctionExpression(_)

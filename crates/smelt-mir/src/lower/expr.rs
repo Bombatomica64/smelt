@@ -18,6 +18,7 @@ use crate::{
 };
 
 use super::context::LoweringCtx;
+use crate::AbsentSpelling;
 use super::transcribe::transcribed_op_pattern;
 use super::{LoweredMutationReceiver, LowerError, MutationWriteback, lower_literal};
 
@@ -763,7 +764,7 @@ impl LoweringCtx<'_> {
         };
         if name == smelt_hir::CONSOLE_LOG_SYMBOL {
             Ok(Callee::Builtin(BuiltinFn::ConsoleLog {
-                absent: self.absent_spelling(expr.span),
+                absent: AbsentSpelling::of(self.source_language(expr.span)),
             }))
         } else if name == smelt_hir::CONSOLE_WRITE_SYMBOL {
             Ok(Callee::Builtin(BuiltinFn::ConsoleWrite))

@@ -354,7 +354,7 @@ impl RuntimeDemand {
             if !function.type_params.is_empty() {
                 self.add(Need::Unknown);
             }
-            if function.absent == smelt_mir::AbsentSpelling::None {
+            if function.language == smelt_hir::Language::Python {
                 self.add(Need::PythonNumberFormat);
             }
             if function.is_generator {

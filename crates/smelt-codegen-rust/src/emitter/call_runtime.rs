@@ -1669,9 +1669,6 @@ impl FunctionEmitter<'_> {
                 callback,
                 args,
             } => self.regex_replace_callback_text(*op, pattern, haystack, callback, args),
-            Rvalue::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
-                self.regex_replace_first_match_uppercase_text(pattern, haystack)
-            }
             Rvalue::RegexSplit { pattern, haystack } => self.regex_split_text(pattern, haystack),
             Rvalue::RegexFind { pattern, haystack } => {
                 self.regex_find_text(pattern, haystack, dest_ty)
@@ -2230,6 +2227,9 @@ impl FunctionEmitter<'_> {
             } => self.list_with_text(list, index, replacement, dest_ty),
             Rvalue::ListFlat { list, depth } => self.list_flat_text(list, depth.as_ref(), dest_ty),
             Rvalue::ListProjection { op, list } => self.list_projection_text(*op, list, dest_ty),
+            Rvalue::DictEntryPush { entry, item } => {
+                self.dict_entry_push_text(entry, item, dest_ty)
+            }
             Rvalue::ListPush { list, item } => self.list_push_text(list, item, dest_ty),
             Rvalue::ListExtend { list, other } => self.list_extend_text(list, other, dest_ty),
             Rvalue::ListInsert { list, index, item } => {

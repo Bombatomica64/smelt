@@ -22,6 +22,90 @@ enum ListAliasOrigin {
 }
 
 impl FunctionEmitter<'_> {
+    /// Converts `dict[key].push(item)` through the entry to Rust text: the stored
+    /// list is mutated through the container's entry accessor, which is what a
+    /// hand-written Rust port does (`groups.entry(key).or_default().push(x)`) and
+    /// which copies neither the old nor the new group.
+    pub(super) fn dict_entry_push_text(
+        &self,
+        entry: &Operand,
+        item: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let (Operand::Copy(Place::Index { base, index, .. })
+        | Operand::Move(Place::Index { base, index, .. })) = entry
+        else {
+            return Err(EmitError::new("a dict entry push reads a dict entry"));
+        };
+        let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(self.local_decl(*base)?.ty)
+        else {
+            return Err(EmitError::new("a dict entry push needs a dict base"));
+        };
+        let Some(Type::List(item_ty)) = self.mir.types.get(*value_ty) else {
+            return Err(EmitError::new("a dict entry push needs list entries"));
+        };
+        let returns_length = match self.mir.types.get(dest_ty) {
+            Some(Type::Float) => true,
+            Some(Type::None) => false,
+            _ => {
+                return Err(EmitError::new(
+                    "list push destination must be number or None",
+                ));
+            }
+        };
+        let entry_key_ty = *key_ty;
+        let entry_ty = *value_ty;
+        let base_text = self.local_mut_value_text(*base)?;
+        let key_text = if self.mir.types.get(entry_key_ty) == Some(&Type::String) {
+            let source_key = self.operand_ty(index.as_ref())?;
+            let index_text = self.operand_text(index.as_ref())?;
+            self.property_key_to_string_text(&index_text, source_key)?
+        } else {
+            self.value_at_type(index.as_ref(), entry_key_ty)?
+        };
+        let default_value = self.default_value(entry_ty)?;
+        let item_text = self.value_at_type(item, *item_ty)?;
+        let result = if returns_length {
+            "smelt_slot.len() as f64"
+        } else {
+            "()"
+        };
+        // The pushed item is materialized BEFORE the entry accessor runs.
+        // The item expression may read the same container (for example
+        // `groups[key].push(groups[key].length)`), and an object-keyed or
+        // record-backed entry handle is a live `RefCell` borrow that such a
+        // read would panic on ("already borrowed"). Evaluating the item
+        // first also keeps the key and default expressions outside the
+        // borrow, since both are arguments of the accessor call.
+        //
+        // `SmeltJsMap`/`SmeltRecord` hand back a `RefMut<SmeltList<..>>`
+        // guard; a plain `HashMap` entry is already a `&mut SmeltList<..>`.
+        // Either way the slot derefs to the list, never to its backing
+        // `Vec` — `SmeltList` owns its values behind an `Rc<RefCell<..>>`
+        // and so implements no `DerefMut` — so the push goes through
+        // `list_write_text`, the same borrow every other list write uses
+        // (`smelt_slot.push(..)` does not resolve: E0599).
+        let accessor = if self.dict_uses_js_key_map(entry_key_ty)
+            || self.dict_uses_smelt_record(entry_key_ty)
+        {
+            // The default is passed as a CLOSURE so it is built only when the
+            // key is absent. A JavaScript accumulator loop reaches this once
+            // per element with the key already present for all but the first,
+            // and an eagerly built empty list is two heap allocations thrown
+            // away each time. `HashMap::or_insert_with` is the same rule for
+            // the plain-map backing.
+            format!("{base_text}.entry_or_insert({key_text}, || {default_value})")
+        } else {
+            format!("{base_text}.entry({key_text}).or_insert_with(|| {default_value})")
+        };
+        // The write guard is a statement-local temporary, so it is released
+        // before `{result}` reads the length back through the slot.
+        let push_text = list_write_text("smelt_slot");
+        return Ok(format!(
+            "{{ let smelt_push_item = {item_text}; let smelt_slot = {accessor}; {push_text}.push(smelt_push_item); {result} }}"
+        ));
+    }
+
     /// Converts a list push operation to Rust text.
     pub(super) fn list_push_text(
         &self,
@@ -42,70 +126,6 @@ impl FunctionEmitter<'_> {
                 ));
             }
         };
-        // `base[key].push(item)` reaches codegen with the dict ENTRY as the push
-        // receiver once `smelt_mir::opt::DictEntryInPlaceMutation` has fused the
-        // copy-out/mutate/copy-back triple that HIR lowering emits. Mutate the
-        // stored list through the container's entry accessor, which is what a
-        // hand-written Rust port does (`groups.entry(key).or_default().push(x)`)
-        // and which copies neither the old nor the new group.
-        if let Operand::Copy(Place::Index { base, index, .. })
-        | Operand::Move(Place::Index { base, index, .. }) = list
-            && let Some(Type::Dict(key_ty, value_ty)) =
-                self.mir.types.get(self.local_decl(*base)?.ty)
-            && *value_ty == list_ty
-        {
-            let entry_key_ty = *key_ty;
-            let entry_ty = *value_ty;
-            let base_text = self.local_mut_value_text(*base)?;
-            let key_text = if self.mir.types.get(entry_key_ty) == Some(&Type::String) {
-                let source_key = self.operand_ty(index.as_ref())?;
-                let index_text = self.operand_text(index.as_ref())?;
-                self.property_key_to_string_text(&index_text, source_key)?
-            } else {
-                self.value_at_type(index.as_ref(), entry_key_ty)?
-            };
-            let default_value = self.default_value(entry_ty)?;
-            let item_text = self.value_at_type(item, *item_ty)?;
-            let result = if returns_length {
-                "smelt_slot.len() as f64"
-            } else {
-                "()"
-            };
-            // The pushed item is materialized BEFORE the entry accessor runs.
-            // The item expression may read the same container (for example
-            // `groups[key].push(groups[key].length)`), and an object-keyed or
-            // record-backed entry handle is a live `RefCell` borrow that such a
-            // read would panic on ("already borrowed"). Evaluating the item
-            // first also keeps the key and default expressions outside the
-            // borrow, since both are arguments of the accessor call.
-            //
-            // `SmeltJsMap`/`SmeltRecord` hand back a `RefMut<SmeltList<..>>`
-            // guard; a plain `HashMap` entry is already a `&mut SmeltList<..>`.
-            // Either way the slot derefs to the list, never to its backing
-            // `Vec` — `SmeltList` owns its values behind an `Rc<RefCell<..>>`
-            // and so implements no `DerefMut` — so the push goes through
-            // `list_write_text`, the same borrow every other list write uses
-            // (`smelt_slot.push(..)` does not resolve: E0599).
-            let accessor = if self.dict_uses_js_key_map(entry_key_ty)
-                || self.dict_uses_smelt_record(entry_key_ty)
-            {
-                // The default is passed as a CLOSURE so it is built only when the
-                // key is absent. A JavaScript accumulator loop reaches this once
-                // per element with the key already present for all but the first,
-                // and an eagerly built empty list is two heap allocations thrown
-                // away each time. `HashMap::or_insert_with` is the same rule for
-                // the plain-map backing.
-                format!("{base_text}.entry_or_insert({key_text}, || {default_value})")
-            } else {
-                format!("{base_text}.entry({key_text}).or_insert_with(|| {default_value})")
-            };
-            // The write guard is a statement-local temporary, so it is released
-            // before `{result}` reads the length back through the slot.
-            let push_text = list_write_text("smelt_slot");
-            return Ok(format!(
-                "{{ let smelt_push_item = {item_text}; let smelt_slot = {accessor}; {push_text}.push(smelt_push_item); {result} }}"
-            ));
-        }
         if let Operand::Copy(Place::Field { base, field })
         | Operand::Move(Place::Field { base, field }) = list
             && matches!(

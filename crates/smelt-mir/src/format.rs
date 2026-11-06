@@ -229,6 +229,9 @@ macro_rules! define_rvalue_text {
         fn rvalue_text(rvalue: &Rvalue) -> String {
             match rvalue {
                 Rvalue::Use(operand) => operand_text(operand),
+                Rvalue::DictEntryPush { entry, item } => {
+                    format!("dict_entry_push {}, {}", operand_text(entry), operand_text(item))
+                }
                 Rvalue::GeneratorYield {
                     value,
                     unwind,

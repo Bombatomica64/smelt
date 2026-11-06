@@ -42,10 +42,10 @@
 
 use std::collections::{HashMap, HashSet};
 
-use smelt_hir::{BinOp, IntWidth, PrimitiveCastOp, Type, TypeId, TypeInterner, UnaryOp};
+use smelt_hir::{BinOp, IntWidth, Language, PrimitiveCastOp, Type, TypeId, TypeInterner, UnaryOp};
 
 use crate::{
-    AbsentSpelling, BasicBlock, BlockId, Constant, GlobalProjection, LocalDecl, LocalId,
+    BasicBlock, BlockId, Constant, GlobalProjection, LocalDecl, LocalId,
     LocalKind, Mir, Operand, Place, Rvalue, Statement, Terminator,
 };
 
@@ -87,7 +87,7 @@ impl IntegerRange {
         } = mir;
         let mut changed = false;
         for function in functions.iter_mut() {
-            if function.is_generator || function.absent != AbsentSpelling::Undefined {
+            if function.is_generator || function.language != Language::TypeScript {
                 continue;
             }
             let excluded = function.params.iter().copied().collect();
@@ -100,7 +100,7 @@ impl IntegerRange {
             );
         }
         for closure in closures.iter_mut() {
-            if closure.is_generator || closure.absent != AbsentSpelling::Undefined {
+            if closure.is_generator || closure.language != Language::TypeScript {
                 continue;
             }
             let mut excluded: HashSet<LocalId> = closure.params.iter().copied().collect();
