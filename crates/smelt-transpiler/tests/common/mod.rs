@@ -86,10 +86,14 @@ pub(crate) struct TempProject {
 impl TempProject {
     /// Creates a unique temporary project path.
     pub(crate) fn new() -> Result<Self, std::time::SystemTimeError> {
+        // The clock alone can repeat across parallel tests, and two tests sharing
+        // a directory run each other's sources.
+        static SEQUENCE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let sequence = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
         Ok(Self {
             path: std::env::temp_dir()
-                .join(format!("smelt-cli-test-{}-{nonce}", std::process::id())),
+                .join(format!("smelt-cli-test-{}-{sequence}-{nonce}", std::process::id())),
         })
     }
 
