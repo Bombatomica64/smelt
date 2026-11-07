@@ -136,6 +136,12 @@ fn construct_through_constructor() -> TestResult {
     verify_node_parity("construct_through_constructor")
 }
 
+/// A generic called through a namespace import types as a direct call does.
+#[test]
+fn namespace_generic_call() -> TestResult {
+    verify_node_parity_with("namespace_generic_call", &["lib.ts"])
+}
+
 /// A parameter does not hide a module constant from other functions.
 #[test]
 fn parameter_shadows_module_const() -> TestResult {
