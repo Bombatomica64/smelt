@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3776,7 +3779,7 @@ struct Registry(::std::rc::Rc<::std::cell::RefCell<RegistryInner>>);
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct RegistryInner {
-    slots: SmeltList<String>,
+    slots: SmeltList<JsString>,
 }
 impl Clone for Registry {
     fn clone(&self) -> Self {
@@ -3824,36 +3827,36 @@ impl SmeltFromUnknown for Registry {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let registry: Registry;
-    let mut caught: String;
-    let _smelt_tmp_10: SmeltList<String>;
-    let _smelt_tmp_12: String;
+    let mut caught: JsString;
+    let _smelt_tmp_10: SmeltList<JsString>;
+    let _smelt_tmp_12: JsString;
     let _smelt_tmp_2: Registry = Registry::new();
     registry = _smelt_tmp_2;
-    let _ = registry.add("alpha".to_owned());
-    let _ = registry.add("beta".to_owned());
+    let _ = registry.add(JsString::from("alpha"));
+    let _ = registry.add(JsString::from("beta"));
     let _ = { println!("{}", registry.__smelt_get_first()?.clone()); };
-    let _smelt_tmp_6: String = registry.describe()?;
+    let _smelt_tmp_6: JsString = registry.describe()?;
     let _ = { println!("{}", _smelt_tmp_6); };
-    let _smelt_tmp_8: String = registry.label();
+    let _smelt_tmp_8: JsString = registry.label();
     let _ = { println!("{}", _smelt_tmp_8); };
-    _smelt_tmp_10 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "b".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_11: SmeltList<String> = registry.tagged(_smelt_tmp_10);
-    _smelt_tmp_12 = _smelt_tmp_11.borrow().join(&",".to_owned());
+    _smelt_tmp_10 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a"), JsString::from("b")]; smelt_list_items }));
+    let _smelt_tmp_11: SmeltList<JsString> = registry.tagged(_smelt_tmp_10);
+    _smelt_tmp_12 = _smelt_tmp_11.borrow().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_12); };
-    let _ = registry.add("gamma".to_owned());
-    let _ = registry.add("delta".to_owned());
-    caught = "none".to_owned();
+    let _ = registry.add(JsString::from("gamma"));
+    let _ = registry.add(JsString::from("delta"));
+    caught = JsString::from("none");
     match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| registry.describe())) {
         Ok(Ok(__smelt_value)) => {
-            let _smelt_tmp_16: String = __smelt_value;
-    caught = "no throw".to_owned();
+            let _smelt_tmp_16: JsString = __smelt_value;
+    caught = JsString::from("no throw");
         }
         Ok(Err(__smelt_error)) => {
-    caught = "threw".to_owned();
+    caught = JsString::from("threw");
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
-    caught = "threw".to_owned();
+    caught = JsString::from("threw");
         }
     }
     let _ = { println!("{}", caught); };
@@ -3862,58 +3865,58 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 impl Registry {
     fn new() -> Self {
-    let mut this: Self = Registry(::std::rc::Rc::new(::std::cell::RefCell::new(RegistryInner { slots: SmeltList::new(Vec::<String>::new()) })));
-    let _smelt_tmp_1: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    let mut this: Self = Registry(::std::rc::Rc::new(::std::cell::RefCell::new(RegistryInner { slots: SmeltList::new(Vec::<JsString>::new()) })));
+    let _smelt_tmp_1: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
     this.0.borrow_mut().slots = Into::<SmeltList<_>>::into(_smelt_tmp_1);
     return this;
     }
-    fn __smelt_get_first(&self) -> Result<String, Box<dyn std::error::Error>> {
-    let _smelt_tmp_5: SmeltList<String>;
+    fn __smelt_get_first(&self) -> Result<JsString, Box<dyn std::error::Error>> {
+    let _smelt_tmp_5: SmeltList<JsString>;
     let _smelt_tmp_1: f64 = self.0.borrow().slots.clone().len() as f64;
     let _smelt_tmp_2: bool = _smelt_tmp_1 == 0.0;
     if _smelt_tmp_2 {
-    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([("__smelt_error".to_owned(), SmeltUnknown::String("Error".into())), ("message".to_owned(), SmeltUnknown::String("registry is empty".into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])).clone()))));
+    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String("registry is empty".into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
     } else {
     _smelt_tmp_5 = Into::<SmeltList<_>>::into(self.0.borrow().slots.clone());
     return Ok(_smelt_tmp_5.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()));
     }
     }
-    fn add(&self, name: String) -> () {
-    let mut _smelt_tmp_2: SmeltList<String> = Into::<SmeltList<_>>::into(self.0.borrow().slots.clone());
+    fn add(&self, name: JsString) -> () {
+    let mut _smelt_tmp_2: SmeltList<JsString> = Into::<SmeltList<_>>::into(self.0.borrow().slots.clone());
     let _smelt_tmp_3: f64 = { let smelt_push_item = name.clone(); _smelt_tmp_2.borrow_mut().push(smelt_push_item); _smelt_tmp_2.len() as f64 };
     self.0.borrow_mut().slots = Into::<SmeltList<_>>::into(_smelt_tmp_2);
     return;
     }
-    fn describe(&self) -> Result<String, Box<dyn std::error::Error>> {
-    let _smelt_tmp_5: String;
+    fn describe(&self) -> Result<JsString, Box<dyn std::error::Error>> {
+    let _smelt_tmp_5: JsString;
     let _smelt_tmp_1: f64 = self.0.borrow().slots.clone().len() as f64;
     let _smelt_tmp_2: bool = _smelt_tmp_1 > 3.0;
     if _smelt_tmp_2 {
-    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([("__smelt_error".to_owned(), SmeltUnknown::String("Error".into())), ("message".to_owned(), SmeltUnknown::String("too many".into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])).clone()))));
+    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String("too many".into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
     } else {
-    _smelt_tmp_5 = "first=".to_owned() + &self.__smelt_get_first()?.clone();
+    _smelt_tmp_5 = JsString::from("first=") + &self.__smelt_get_first()?.clone();
     return Ok(_smelt_tmp_5);
     }
     }
-    fn label(&self) -> String {
-    let _smelt_tmp_1: String = "[".to_owned() + &self.__smelt_get_first().unwrap_or_else(|error| smelt_panic_throw(error)).clone();
-    let _smelt_tmp_2: String = _smelt_tmp_1 + &"]".to_owned();
+    fn label(&self) -> JsString {
+    let _smelt_tmp_1: JsString = JsString::from("[") + &self.__smelt_get_first().unwrap_or_else(|error| smelt_panic_throw(error)).clone();
+    let _smelt_tmp_2: JsString = _smelt_tmp_1 + &JsString::from("]");
     return _smelt_tmp_2;
     }
-    fn tagged(&self, prefix: SmeltList<String>) -> SmeltList<String> {
+    fn tagged(&self, prefix: SmeltList<JsString>) -> SmeltList<JsString> {
     let _smelt_tmp_2 = ::std::rc::Rc::new({
     let smelt_self = self.clone();
-    move |closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let _smelt_tmp_2: String = closure_arg_0.clone() + &":".to_owned();
-    let _smelt_tmp_3: String = _smelt_tmp_2.clone() + &smelt_self.__smelt_get_first().unwrap_or_else(|error| smelt_panic_throw(error)).clone();
+    move |closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
+    let _smelt_tmp_2: JsString = closure_arg_0.clone() + &JsString::from(":");
+    let _smelt_tmp_3: JsString = _smelt_tmp_2.clone() + &smelt_self.__smelt_get_first().unwrap_or_else(|error| smelt_panic_throw(error)).clone();
     _smelt_tmp_3.clone()
     }
 });
-    let _smelt_tmp_3: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new({
+    let _smelt_tmp_3: SmeltList<JsString> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new({
     let smelt_self = self.clone();
-    move |closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let _smelt_tmp_2: String = closure_arg_0.clone() + &":".to_owned();
-    let _smelt_tmp_3: String = _smelt_tmp_2.clone() + &smelt_self.__smelt_get_first().unwrap_or_else(|error| smelt_panic_throw(error)).clone();
+    move |closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
+    let _smelt_tmp_2: JsString = closure_arg_0.clone() + &JsString::from(":");
+    let _smelt_tmp_3: JsString = _smelt_tmp_2.clone() + &smelt_self.__smelt_get_first().unwrap_or_else(|error| smelt_panic_throw(error)).clone();
     _smelt_tmp_3.clone()
     }
 }); let smelt_array = prefix.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });

@@ -66,16 +66,19 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 // @smelt:prelude-end — generated program below
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Base {
-    label: String,
+    label: JsString,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Derived {
-    label: String,
+    label: JsString,
     extra: f64,
 }
 
@@ -94,12 +97,12 @@ struct Point3 {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Tagged {
-    tag: String,
+    tag: JsString,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Labelled {
-    tag: String,
+    tag: JsString,
     seen: bool,
 }
 
@@ -115,25 +118,25 @@ fn main() {
     let derived: Derived;
     let point: Point3;
     let deeper: Deeper;
-    let _smelt_tmp_10: String;
-    let _smelt_tmp_12: String;
+    let _smelt_tmp_10: JsString;
+    let _smelt_tmp_12: JsString;
     let _smelt_tmp_16: f64;
     let _smelt_tmp_17: f64;
     let _smelt_tmp_18: f64;
     let _smelt_tmp_19: f64;
     let _smelt_tmp_3: Derived = Derived::new();
     derived = _smelt_tmp_3;
-    let _smelt_tmp_4: String = derived.describe();
+    let _smelt_tmp_4: JsString = derived.describe();
     let _ = { println!("{} {} {}", _smelt_tmp_4, derived.label.clone(), smelt_console_number(derived.extra)); };
     let _smelt_tmp_6: Point3 = Point3::new(1.0, 2.0);
     point = _smelt_tmp_6;
     let _smelt_tmp_7: f64 = point.sum();
     let _ = { println!("{} {} {} {}", smelt_console_number(_smelt_tmp_7), smelt_console_number(point.x), smelt_console_number(point.y), smelt_console_number(point.z)); };
-    let _smelt_tmp_9: Labelled = Labelled::new(None::<String>);
+    let _smelt_tmp_9: Labelled = Labelled::new(None::<JsString>);
     _smelt_tmp_10 = _smelt_tmp_9.tag.clone();
-    let _smelt_tmp_11: Labelled = Labelled::new(Some("here".to_owned()));
+    let _smelt_tmp_11: Labelled = Labelled::new(Some(JsString::from("here")));
     _smelt_tmp_12 = _smelt_tmp_11.tag.clone();
-    let _smelt_tmp_13: Labelled = Labelled::new(None::<String>);
+    let _smelt_tmp_13: Labelled = Labelled::new(None::<JsString>);
     let _ = { println!("{} {} {}", _smelt_tmp_10, _smelt_tmp_12, _smelt_tmp_13.seen); };
     let _smelt_tmp_15: Deeper = Deeper::new(5.0, 6.0);
     deeper = _smelt_tmp_15;
@@ -149,12 +152,12 @@ fn main() {
 impl Base {
     fn new() -> Self {
     let mut this: Self = Base { label: String::new() };
-    this.label = "base".to_owned();
+    this.label = JsString::from("base");
     return this;
     }
-    fn describe(&self) -> String {
-    let _smelt_tmp_1: String = "Base(".to_owned() + &self.label.clone();
-    let _smelt_tmp_2: String = _smelt_tmp_1 + &")".to_owned();
+    fn describe(&self) -> JsString {
+    let _smelt_tmp_1: JsString = JsString::from("Base(") + &self.label.clone();
+    let _smelt_tmp_2: JsString = _smelt_tmp_1 + &JsString::from(")");
     return _smelt_tmp_2;
     }
 }
@@ -169,12 +172,12 @@ impl Derived {
     }
     fn __smelt_init_Base(smelt_receiver: Self) -> Self {
     let mut this: Self = smelt_receiver;
-    this.label = "base".to_owned();
+    this.label = JsString::from("base");
     return this;
     }
-    fn describe(&self) -> String {
-    let _smelt_tmp_1: String = "Base(".to_owned() + &self.label.clone();
-    let _smelt_tmp_2: String = _smelt_tmp_1 + &")".to_owned();
+    fn describe(&self) -> JsString {
+    let _smelt_tmp_1: JsString = JsString::from("Base(") + &self.label.clone();
+    let _smelt_tmp_2: JsString = _smelt_tmp_1 + &JsString::from(")");
     return _smelt_tmp_2;
     }
 }
@@ -213,25 +216,25 @@ impl Point3 {
 }
 
 impl Tagged {
-    fn new(tag: Option<String>) -> Self {
+    fn new(tag: Option<JsString>) -> Self {
     let mut this: Self = Tagged { tag: String::new() };
-    let tag_1: String = tag.clone().unwrap_or("none".to_owned());
+    let tag_1: JsString = tag.clone().unwrap_or(JsString::from("none"));
     this.tag = tag_1;
     return this;
     }
 }
 
 impl Labelled {
-    fn new(tag: Option<String>) -> Self {
+    fn new(tag: Option<JsString>) -> Self {
     let mut this: Self = Labelled { tag: String::new(), seen: false };
     let _smelt_tmp_2: Self = Self::__smelt_init_Tagged(this, tag.clone());
     this = _smelt_tmp_2;
     this.seen = true;
     return this;
     }
-    fn __smelt_init_Tagged(smelt_receiver: Self, tag: Option<String>) -> Self {
+    fn __smelt_init_Tagged(smelt_receiver: Self, tag: Option<JsString>) -> Self {
     let mut this: Self = smelt_receiver;
-    let tag_1: String = tag.clone().unwrap_or("none".to_owned());
+    let tag_1: JsString = tag.clone().unwrap_or(JsString::from("none"));
     this.tag = tag_1;
     return this;
     }

@@ -66,19 +66,22 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 // @smelt:prelude-end — generated program below
 
 #[derive(Clone)]
 #[allow(dead_code)]
 struct Named {
-    name: String,
-    label: ::std::rc::Rc<dyn Fn(String) -> String>,
+    name: JsString,
+    label: ::std::rc::Rc<dyn Fn(JsString) -> JsString>,
 }
 impl Default for Named {
     fn default() -> Self {
         Self {
             name: String::new(),
-            label: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback },
+            label: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { String::new() }); smelt_default_callback },
         }
     }
 }
@@ -90,26 +93,26 @@ impl ::std::fmt::Debug for Named {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct User {
-    name: String,
+    name: JsString,
 }
 
 fn main() {
     let user: User;
-    let _smelt_tmp_1: User = User::new("Ada".to_owned());
+    let _smelt_tmp_1: User = User::new(JsString::from("Ada"));
     user = _smelt_tmp_1;
-    let _smelt_tmp_2: String = user.label("Hi ".to_owned());
+    let _smelt_tmp_2: JsString = user.label(JsString::from("Hi "));
     let _ = { println!("{}", _smelt_tmp_2); };
     return;
 }
 
 impl User {
-    fn new(name: String) -> Self {
+    fn new(name: JsString) -> Self {
     let mut this: Self = User { name: String::new() };
     this.name = name.clone();
     return this;
     }
-    fn label(&self, prefix: String) -> String {
-    let _smelt_tmp_2: String = prefix.clone() + &self.name.clone();
+    fn label(&self, prefix: JsString) -> JsString {
+    let _smelt_tmp_2: JsString = prefix.clone() + &self.name.clone();
     return _smelt_tmp_2;
     }
 }

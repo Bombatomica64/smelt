@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3896,12 +3899,12 @@ fn smelt_keep_receiver_alive<H: SmeltReferenceHandle>(erased: SmeltUnknown, rece
 #[derive(Clone)]
 #[allow(dead_code)]
 struct Get {
-    __smelt_call: ::std::rc::Rc<dyn Fn(String) -> f64>,
+    __smelt_call: ::std::rc::Rc<dyn Fn(JsString) -> f64>,
 }
 impl Default for Get {
     fn default() -> Self {
         Self {
-            __smelt_call: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback },
+            __smelt_call: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |arg0: JsString| -> f64 { 0.0 }); smelt_default_callback },
         }
     }
 }
@@ -3913,7 +3916,7 @@ impl ::std::fmt::Debug for Get {
 impl IntoSmeltUnknown for Get {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("__smelt_call".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(String) -> f64> = self.__smelt_call.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
+        ("__smelt_call".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(JsString) -> f64> = self.__smelt_call.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
         ])))
     }
 }
@@ -3923,7 +3926,7 @@ impl SmeltFromUnknown for Get {
         if let SmeltUnknown::Object(object) = value {
             if let Some(field) = object.get("__smelt_call") {
                 let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
-                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String) -> f64>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
+                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(JsString) -> f64>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
             }
         }
         result
@@ -3933,12 +3936,12 @@ impl SmeltFromUnknown for Get {
 #[derive(Clone)]
 #[allow(dead_code)]
 struct Set {
-    __smelt_call: ::std::rc::Rc<dyn Fn(String, SmeltUnion15) -> ()>,
+    __smelt_call: ::std::rc::Rc<dyn Fn(JsString, SmeltUnion15) -> ()>,
 }
 impl Default for Set {
     fn default() -> Self {
         Self {
-            __smelt_call: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, SmeltUnion15) -> ()> = ::std::rc::Rc::new(move |arg0: String, arg1: SmeltUnion15| -> () { () }); smelt_default_callback },
+            __smelt_call: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString, SmeltUnion15) -> ()> = ::std::rc::Rc::new(move |arg0: JsString, arg1: SmeltUnion15| -> () { () }); smelt_default_callback },
         }
     }
 }
@@ -3950,7 +3953,7 @@ impl ::std::fmt::Debug for Set {
 impl IntoSmeltUnknown for Set {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("__smelt_call".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(String, SmeltUnion15) -> ()> = self.__smelt_call.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
+        ("__smelt_call".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(JsString, SmeltUnion15) -> ()> = self.__smelt_call.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
         ])))
     }
 }
@@ -3960,7 +3963,7 @@ impl SmeltFromUnknown for Set {
         if let SmeltUnknown::Object(object) = value {
             if let Some(field) = object.get("__smelt_call") {
                 let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
-                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String, SmeltUnion15) -> ()>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
+                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(JsString, SmeltUnion15) -> ()>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
             }
         }
         result
@@ -3994,12 +3997,12 @@ impl SmeltFromUnknown for SetHeaderOptions {
 #[derive(Clone)]
 #[allow(dead_code)]
 struct SetHeader {
-    __smelt_call: ::std::rc::Rc<dyn Fn(String, Option<String>, Option<SetHeaderOptions>) -> ()>,
+    __smelt_call: ::std::rc::Rc<dyn Fn(JsString, Option<JsString>, Option<SetHeaderOptions>) -> ()>,
 }
 impl Default for SetHeader {
     fn default() -> Self {
         Self {
-            __smelt_call: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, Option<String>, Option<SetHeaderOptions>) -> ()> = ::std::rc::Rc::new(move |arg0: String, arg1: Option<String>, arg2: Option<SetHeaderOptions>| -> () { () }); smelt_default_callback },
+            __smelt_call: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString, Option<JsString>, Option<SetHeaderOptions>) -> ()> = ::std::rc::Rc::new(move |arg0: JsString, arg1: Option<JsString>, arg2: Option<SetHeaderOptions>| -> () { () }); smelt_default_callback },
         }
     }
 }
@@ -4011,7 +4014,7 @@ impl ::std::fmt::Debug for SetHeader {
 impl IntoSmeltUnknown for SetHeader {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("__smelt_call".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(String, Option<String>, Option<SetHeaderOptions>) -> ()> = self.__smelt_call.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(2).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
+        ("__smelt_call".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(JsString, Option<JsString>, Option<SetHeaderOptions>) -> ()> = self.__smelt_call.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(2).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
         ])))
     }
 }
@@ -4021,7 +4024,7 @@ impl SmeltFromUnknown for SetHeader {
         if let SmeltUnknown::Object(object) = value {
             if let Some(field) = object.get("__smelt_call") {
                 let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
-                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String, Option<String>, Option<SetHeaderOptions>) -> ()>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
+                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(JsString, Option<JsString>, Option<SetHeaderOptions>) -> ()>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
             }
         }
         result
@@ -4031,12 +4034,12 @@ impl SmeltFromUnknown for SetHeader {
 #[derive(Clone)]
 #[allow(dead_code)]
 struct Echo {
-    __smelt_call: ::std::rc::Rc<dyn Fn(String) -> String>,
+    __smelt_call: ::std::rc::Rc<dyn Fn(JsString) -> JsString>,
 }
 impl Default for Echo {
     fn default() -> Self {
         Self {
-            __smelt_call: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback },
+            __smelt_call: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { String::new() }); smelt_default_callback },
         }
     }
 }
@@ -4048,7 +4051,7 @@ impl ::std::fmt::Debug for Echo {
 impl IntoSmeltUnknown for Echo {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("__smelt_call".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(String) -> String> = self.__smelt_call.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
+        ("__smelt_call".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = self.__smelt_call.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
         ])))
     }
 }
@@ -4058,7 +4061,7 @@ impl SmeltFromUnknown for Echo {
         if let SmeltUnknown::Object(object) = value {
             if let Some(field) = object.get("__smelt_call") {
                 let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
-                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String) -> String>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
+                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(JsString) -> JsString>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
             }
         }
         result
@@ -4073,8 +4076,8 @@ struct Context(::std::rc::Rc<::std::cell::RefCell<ContextInner>>);
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct ContextInner {
-    store: SmeltJsMap<String, String>,
-    headers: SmeltJsMap<String, String>,
+    store: SmeltJsMap<JsString, JsString>,
+    headers: SmeltJsMap<JsString, JsString>,
     reads: f64,
     get: Get,
     set: Set,
@@ -4140,7 +4143,7 @@ impl SmeltFromUnknown for Context {
 #[derive(Clone)]
 pub enum SmeltUnion15 {
     M0(f64),
-    M1(String),
+    M1(JsString),
 }
 impl IntoSmeltUnknown for SmeltUnion15 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -4182,65 +4185,65 @@ impl Default for SmeltUnion15 {
 fn main() {
     let c: Context;
     let read: Get;
-    let _smelt_tmp_3: ::std::rc::Rc<dyn Fn(String, SmeltUnion15) -> ()>;
+    let _smelt_tmp_3: ::std::rc::Rc<dyn Fn(JsString, SmeltUnion15) -> ()>;
     let _smelt_tmp_4: ();
-    let _smelt_tmp_5: ::std::rc::Rc<dyn Fn(String, SmeltUnion15) -> ()>;
+    let _smelt_tmp_5: ::std::rc::Rc<dyn Fn(JsString, SmeltUnion15) -> ()>;
     let _smelt_tmp_6: ();
-    let _smelt_tmp_7: ::std::rc::Rc<dyn Fn(String) -> f64>;
+    let _smelt_tmp_7: ::std::rc::Rc<dyn Fn(JsString) -> f64>;
     let _smelt_tmp_8: f64;
-    let _smelt_tmp_10: ::std::rc::Rc<dyn Fn(String) -> f64>;
+    let _smelt_tmp_10: ::std::rc::Rc<dyn Fn(JsString) -> f64>;
     let _smelt_tmp_11: f64;
-    let _smelt_tmp_15: ::std::rc::Rc<dyn Fn(String) -> String>;
-    let _smelt_tmp_16: String;
-    let _smelt_tmp_18: ::std::rc::Rc<dyn Fn(String, Option<String>, Option<SetHeaderOptions>) -> ()>;
+    let _smelt_tmp_15: ::std::rc::Rc<dyn Fn(JsString) -> JsString>;
+    let _smelt_tmp_16: JsString;
+    let _smelt_tmp_18: ::std::rc::Rc<dyn Fn(JsString, Option<JsString>, Option<SetHeaderOptions>) -> ()>;
     let _smelt_tmp_19: ();
-    let _smelt_tmp_20: ::std::rc::Rc<dyn Fn(String, Option<String>, Option<SetHeaderOptions>) -> ()>;
+    let _smelt_tmp_20: ::std::rc::Rc<dyn Fn(JsString, Option<JsString>, Option<SetHeaderOptions>) -> ()>;
     let _smelt_tmp_21: SmeltRecord<String, bool>;
     let _smelt_tmp_22: ();
-    let _smelt_tmp_23: ::std::rc::Rc<dyn Fn(String, Option<String>, Option<SetHeaderOptions>) -> ()>;
+    let _smelt_tmp_23: ::std::rc::Rc<dyn Fn(JsString, Option<JsString>, Option<SetHeaderOptions>) -> ()>;
     let _smelt_tmp_24: ();
-    let _smelt_tmp_25: ::std::rc::Rc<dyn Fn(String, Option<String>, Option<SetHeaderOptions>) -> ()>;
+    let _smelt_tmp_25: ::std::rc::Rc<dyn Fn(JsString, Option<JsString>, Option<SetHeaderOptions>) -> ()>;
     let _smelt_tmp_26: ();
-    let _smelt_tmp_27: Option<String>;
+    let _smelt_tmp_27: Option<JsString>;
     let _smelt_tmp_29: bool;
-    let _smelt_tmp_31: Option<String>;
-    let _smelt_tmp_33: ::std::rc::Rc<dyn Fn(String) -> f64>;
+    let _smelt_tmp_31: Option<JsString>;
+    let _smelt_tmp_33: ::std::rc::Rc<dyn Fn(JsString) -> f64>;
     let _smelt_tmp_34: f64;
     let _smelt_tmp_2: Context = Context::new();
     c = _smelt_tmp_2;
     _smelt_tmp_3 = c.0.borrow().set.clone().__smelt_call.clone();
-    _smelt_tmp_4 = (_smelt_tmp_3)("a".to_owned(), SmeltUnion15::M1("hello".to_owned()));
+    _smelt_tmp_4 = (_smelt_tmp_3)(JsString::from("a"), SmeltUnion15::M1(JsString::from("hello")));
     _smelt_tmp_5 = c.0.borrow().set.clone().__smelt_call.clone();
-    _smelt_tmp_6 = (_smelt_tmp_5)("b".to_owned(), SmeltUnion15::M0(7.0));
+    _smelt_tmp_6 = (_smelt_tmp_5)(JsString::from("b"), SmeltUnion15::M0(7.0));
     _smelt_tmp_7 = c.0.borrow().get.clone().__smelt_call.clone();
-    _smelt_tmp_8 = (_smelt_tmp_7)("a".to_owned());
+    _smelt_tmp_8 = (_smelt_tmp_7)(JsString::from("a"));
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_8)); };
     _smelt_tmp_10 = c.0.borrow().get.clone().__smelt_call.clone();
-    _smelt_tmp_11 = (_smelt_tmp_10)("b".to_owned());
+    _smelt_tmp_11 = (_smelt_tmp_10)(JsString::from("b"));
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_11)); };
     let _smelt_tmp_13: f64 = c.touch();
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_13)); };
     _smelt_tmp_15 = c.0.borrow().echo.clone().__smelt_call.clone();
-    _smelt_tmp_16 = (_smelt_tmp_15)("zz".to_owned());
+    _smelt_tmp_16 = (_smelt_tmp_15)(JsString::from("zz"));
     let _ = { println!("{}", _smelt_tmp_16); };
     _smelt_tmp_18 = c.0.borrow().header.clone().__smelt_call.clone();
-    _smelt_tmp_19 = (_smelt_tmp_18)("x-one".to_owned(), Some("1".to_owned()), None);
+    _smelt_tmp_19 = (_smelt_tmp_18)(JsString::from("x-one"), Some(JsString::from("1")), None);
     _smelt_tmp_20 = c.0.borrow().header.clone().__smelt_call.clone();
-    _smelt_tmp_21 = SmeltRecord::from([("append".to_owned(), true)]);
-    _smelt_tmp_22 = (_smelt_tmp_20)("x-one".to_owned(), Some("2".to_owned()), Some({ let smelt_record_map = _smelt_tmp_21.clone(); SetHeaderOptions { append: smelt_record_map.get("append").cloned().map(|value| value) } }));
+    _smelt_tmp_21 = SmeltRecord::from([(JsString::from("append"), true)]);
+    _smelt_tmp_22 = (_smelt_tmp_20)(JsString::from("x-one"), Some(JsString::from("2")), Some({ let smelt_record_map = _smelt_tmp_21.clone(); SetHeaderOptions { append: smelt_record_map.get("append").cloned().map(|value| value) } }));
     _smelt_tmp_23 = c.0.borrow().header.clone().__smelt_call.clone();
-    _smelt_tmp_24 = (_smelt_tmp_23)("x-two".to_owned(), Some("2".to_owned()), None);
+    _smelt_tmp_24 = (_smelt_tmp_23)(JsString::from("x-two"), Some(JsString::from("2")), None);
     _smelt_tmp_25 = c.0.borrow().header.clone().__smelt_call.clone();
-    _smelt_tmp_26 = (_smelt_tmp_25)("x-two".to_owned(), None, None);
-    _smelt_tmp_27 = c.0.borrow().headers.clone().get(&"x-one".to_owned());
+    _smelt_tmp_26 = (_smelt_tmp_25)(JsString::from("x-two"), None, None);
+    _smelt_tmp_27 = c.0.borrow().headers.clone().get(&JsString::from("x-one"));
     let _ = { println!("{}", match &_smelt_tmp_27 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    _smelt_tmp_29 = c.0.borrow().headers.clone().contains_key(&"x-two".to_owned());
+    _smelt_tmp_29 = c.0.borrow().headers.clone().contains_key(&JsString::from("x-two"));
     let _ = { println!("{}", _smelt_tmp_29); };
-    _smelt_tmp_31 = c.0.borrow().headers.clone().get(&"x-inner".to_owned());
+    _smelt_tmp_31 = c.0.borrow().headers.clone().get(&JsString::from("x-inner"));
     let _ = { println!("{}", match &_smelt_tmp_31 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
     read = c.0.borrow().get.clone();
     _smelt_tmp_33 = read.__smelt_call.clone();
-    _smelt_tmp_34 = (_smelt_tmp_33)("a".to_owned());
+    _smelt_tmp_34 = (_smelt_tmp_33)(JsString::from("a"));
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_34)); };
     let _ = { println!("{}", smelt_console_number(c.0.borrow().reads.clone())); };
     return;
@@ -4249,18 +4252,18 @@ fn main() {
 impl Context {
     fn new() -> Self {
     let smelt_capture_this: ::std::rc::Rc<::std::cell::RefCell<Context>> = ::std::rc::Rc::new(::std::cell::RefCell::new(Context(::std::rc::Rc::new(::std::cell::RefCell::new(ContextInner { store: SmeltJsMap::new(), headers: SmeltJsMap::new(), reads: 0.0, get: Default::default(), set: Default::default(), header: Default::default(), echo: Default::default() })))));
-    let _smelt_tmp_1: SmeltJsMap<String, String> = SmeltJsMap::from([]);
+    let _smelt_tmp_1: SmeltJsMap<JsString, JsString> = SmeltJsMap::from([]);
     (*smelt_capture_this.borrow()).0.borrow_mut().store = _smelt_tmp_1;
-    let _smelt_tmp_2: SmeltJsMap<String, String> = SmeltJsMap::from([]);
+    let _smelt_tmp_2: SmeltJsMap<JsString, JsString> = SmeltJsMap::from([]);
     (*smelt_capture_this.borrow()).0.borrow_mut().headers = _smelt_tmp_2;
     (*smelt_capture_this.borrow()).0.borrow_mut().reads = 0.0;
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let smelt_capture_this = SmeltWeakReceiver::new(&*smelt_capture_this.borrow());
-    move |closure_arg_0: String| {
+    move |closure_arg_0: JsString| {
     let _smelt_tmp_2: f64 = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().reads.clone() + 1.0;
     (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow_mut().reads = _smelt_tmp_2;
-    let _smelt_tmp_3: Option<String> = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().store.clone().get(&closure_arg_0);
-    let _smelt_tmp_4: String = _smelt_tmp_3.clone().unwrap_or("".to_owned());
+    let _smelt_tmp_3: Option<JsString> = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().store.clone().get(&closure_arg_0);
+    let _smelt_tmp_4: JsString = _smelt_tmp_3.clone().unwrap_or(JsString::new());
     let _smelt_tmp_5: f64 = smelt_utf16_len(&_smelt_tmp_4) as f64;
     _smelt_tmp_5
     }
@@ -4268,29 +4271,29 @@ impl Context {
     (*smelt_capture_this.borrow()).0.borrow_mut().get = Get { __smelt_call: _smelt_tmp_3.clone() };
     let _smelt_tmp_4 = ::std::rc::Rc::new({
     let smelt_capture_this = SmeltWeakReceiver::new(&*smelt_capture_this.borrow());
-    move |closure_arg_0: String, closure_arg_1: SmeltUnion15| {
-    let _smelt_tmp_3: String = match &closure_arg_1 { SmeltUnion15::M0(smelt_union_arm) => smelt_number_to_string(*smelt_union_arm), SmeltUnion15::M1(smelt_union_arm) => smelt_union_arm.clone() };
-    let _smelt_tmp_4: SmeltJsMap<String, String> = { (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow_mut().store.insert(closure_arg_0.clone(), _smelt_tmp_3.clone()); (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow_mut().store.clone() };
+    move |closure_arg_0: JsString, closure_arg_1: SmeltUnion15| {
+    let _smelt_tmp_3: JsString = match &closure_arg_1 { SmeltUnion15::M0(smelt_union_arm) => smelt_number_to_string(*smelt_union_arm), SmeltUnion15::M1(smelt_union_arm) => smelt_union_arm.clone() };
+    let _smelt_tmp_4: SmeltJsMap<JsString, JsString> = { (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow_mut().store.insert(closure_arg_0.clone(), _smelt_tmp_3.clone()); (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow_mut().store.clone() };
     ()
     }
 });
     (*smelt_capture_this.borrow()).0.borrow_mut().set = Set { __smelt_call: _smelt_tmp_4.clone() };
     let _smelt_tmp_5 = ::std::rc::Rc::new({
     let smelt_capture_this = SmeltWeakReceiver::new(&*smelt_capture_this.borrow());
-    move |closure_arg_0: String, closure_arg_1: Option<String>, closure_arg_2: Option<SetHeaderOptions>| {
-    let previous: Option<String>;
+    move |closure_arg_0: JsString, closure_arg_1: Option<JsString>, closure_arg_2: Option<SetHeaderOptions>| {
+    let previous: Option<JsString>;
     let _smelt_tmp_6: bool;
     let _smelt_tmp_8: Option<bool>;
     let _smelt_tmp_9: bool;
     let mut _smelt_tmp_10: bool;
     let _smelt_tmp_11: bool;
-    let _smelt_tmp_12: String;
-    let _smelt_tmp_13: String;
-    let _smelt_tmp_14: String;
-    let _smelt_tmp_15: String;
-    let _smelt_tmp_16: SmeltJsMap<String, String>;
-    let _smelt_tmp_17: String;
-    let _smelt_tmp_18: SmeltJsMap<String, String>;
+    let _smelt_tmp_12: JsString;
+    let _smelt_tmp_13: JsString;
+    let _smelt_tmp_14: JsString;
+    let _smelt_tmp_15: JsString;
+    let _smelt_tmp_16: SmeltJsMap<JsString, JsString>;
+    let _smelt_tmp_17: JsString;
+    let _smelt_tmp_18: SmeltJsMap<JsString, JsString>;
     let _smelt_tmp_5: bool = closure_arg_1.clone().is_none();
     if _smelt_tmp_5 {
     _smelt_tmp_6 = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow_mut().headers.remove(&closure_arg_0).is_some();
@@ -4307,7 +4310,7 @@ impl Context {
     }
     if _smelt_tmp_10 {
     _smelt_tmp_12 = previous.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_13 = _smelt_tmp_12.clone() + &", ".to_owned();
+    _smelt_tmp_13 = _smelt_tmp_12.clone() + &JsString::from(", ");
     _smelt_tmp_14 = closure_arg_1.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_15 = _smelt_tmp_13.clone() + &_smelt_tmp_14.clone();
     _smelt_tmp_16 = { (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow_mut().headers.insert(closure_arg_0.clone(), _smelt_tmp_15.clone()); (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow_mut().headers.clone() };
@@ -4321,7 +4324,7 @@ impl Context {
     }
 });
     (*smelt_capture_this.borrow()).0.borrow_mut().header = SetHeader { __smelt_call: _smelt_tmp_5.clone() };
-    let _smelt_tmp_6 = ::std::rc::Rc::new(|closure_arg_0: String| {
+    let _smelt_tmp_6 = ::std::rc::Rc::new(|closure_arg_0: JsString| {
     closure_arg_0.clone()
     });
     (*smelt_capture_this.borrow()).0.borrow_mut().echo = Echo { __smelt_call: _smelt_tmp_6.clone() };
@@ -4329,11 +4332,11 @@ impl Context {
     }
     fn touch(&self) -> f64 {
     let _smelt_tmp_1 = self.0.borrow().set.clone().__smelt_call.clone();
-    let _smelt_tmp_2: () = (_smelt_tmp_1)("inner".to_owned(), SmeltUnion15::M0(42.0));
+    let _smelt_tmp_2: () = (_smelt_tmp_1)(JsString::from("inner"), SmeltUnion15::M0(42.0));
     let _smelt_tmp_3 = self.0.borrow().header.clone().__smelt_call.clone();
-    let _smelt_tmp_4: () = (_smelt_tmp_3)("x-inner".to_owned(), Some("yes".to_owned()), None);
+    let _smelt_tmp_4: () = (_smelt_tmp_3)(JsString::from("x-inner"), Some(JsString::from("yes")), None);
     let _smelt_tmp_5 = self.0.borrow().get.clone().__smelt_call.clone();
-    let _smelt_tmp_6: f64 = (_smelt_tmp_5)("inner".to_owned());
+    let _smelt_tmp_6: f64 = (_smelt_tmp_5)(JsString::from("inner"));
     return _smelt_tmp_6;
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.

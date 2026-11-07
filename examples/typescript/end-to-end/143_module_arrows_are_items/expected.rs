@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -4392,7 +4395,7 @@ impl SmeltFromUnknown for SmeltResponse {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Brand {
-    _brand: String,
+    _brand: JsString,
 }
 impl IntoSmeltUnknown for Brand {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -4532,18 +4535,18 @@ impl Counter {
     let _smelt_tmp_2: f64 = add__module_main(self.0.borrow().total.clone(), None::<f64>);
     return _smelt_tmp_2;
     }
-    fn __smelt_get_label(&self) -> String {
-    let _smelt_tmp_3: String;
-    let _smelt_tmp_4: SmeltList<String>;
-    let _smelt_tmp_1: String = smelt_number_to_string(self.0.borrow().total.clone());
+    fn __smelt_get_label(&self) -> JsString {
+    let _smelt_tmp_3: JsString;
+    let _smelt_tmp_4: SmeltList<JsString>;
+    let _smelt_tmp_1: JsString = smelt_number_to_string(self.0.borrow().total.clone());
     let _smelt_tmp_2: f64 = fact__module_main(4.0);
     _smelt_tmp_3 = smelt_number_to_string(_smelt_tmp_2);
-    _smelt_tmp_4 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![_smelt_tmp_1.clone(), _smelt_tmp_3.clone()]; smelt_list_items }));
-    let _smelt_tmp_5: String = join("c".to_owned(), _smelt_tmp_4);
+    _smelt_tmp_4 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![_smelt_tmp_1.clone(), _smelt_tmp_3.clone()]; smelt_list_items }));
+    let _smelt_tmp_5: JsString = join(JsString::from("c"), _smelt_tmp_4);
     return _smelt_tmp_5;
     }
     fn reply(&self) -> SmeltUnion3 {
-    let _smelt_tmp_1: String = "ok:".to_owned() + &smelt_number_to_string(self.0.borrow().total.clone());
+    let _smelt_tmp_1: JsString = JsString::from("ok:") + &smelt_number_to_string(self.0.borrow().total.clone());
     let _smelt_tmp_2: SmeltResponse = respond__module_main(_smelt_tmp_1, Some(201.0));
     return SmeltUnion3::M0(_smelt_tmp_2);
     }
@@ -4572,8 +4575,8 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let counter: Counter;
     let reply: SmeltResponse;
     let _smelt_tmp_10: f64;
-    let _smelt_tmp_12: String;
-    let _smelt_tmp_15: SmeltList<String>;
+    let _smelt_tmp_12: JsString;
+    let _smelt_tmp_15: SmeltList<JsString>;
     let _smelt_tmp_2: Counter = Counter::new();
     counter = _smelt_tmp_2;
     let _smelt_tmp_3: f64 = counter.bump();
@@ -4584,23 +4587,23 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_8: SmeltFuture<SmeltResponse> = match _smelt_tmp_7 { SmeltUnion3::M0(value) => SmeltFuture::<SmeltResponse>::resolved(value), SmeltUnion3::M1(value) => value };
     reply = _smelt_tmp_8.await?;
     _smelt_tmp_10 = reply.clone().status();
-    let _smelt_tmp_11: SmeltFuture<String> = { let smelt_response = reply.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) })) };
+    let _smelt_tmp_11: SmeltFuture<JsString> = { let smelt_response = reply.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) })) };
     _smelt_tmp_12 = _smelt_tmp_11.await?;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_10), _smelt_tmp_12); };
     let _smelt_tmp_14: f64 = fact__module_main(5.0);
-    _smelt_tmp_15 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["b".to_owned(), "c".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_16: String = join("a".to_owned(), _smelt_tmp_15);
+    _smelt_tmp_15 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("b"), JsString::from("c")]; smelt_list_items }));
+    let _smelt_tmp_16: JsString = join(JsString::from("a"), _smelt_tmp_15);
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_14), _smelt_tmp_16); };
-    let _smelt_tmp_18: Option<String> = scan__module_main("http://x/?a=1&b".to_owned(), Some("a".to_owned()), None::<bool>);
+    let _smelt_tmp_18: Option<JsString> = scan__module_main(JsString::from("http://x/?a=1&b"), Some(JsString::from("a")), None::<bool>);
     let _ = { println!("{}", match &_smelt_tmp_18 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    let _smelt_tmp_20: Option<String> = scan__module_main("http://x/".to_owned(), Some("a".to_owned()), None::<bool>);
+    let _smelt_tmp_20: Option<JsString> = scan__module_main(JsString::from("http://x/"), Some(JsString::from("a")), None::<bool>);
     let _ = { println!("{}", match &_smelt_tmp_20 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    let _smelt_tmp_22: Option<String> = scan__module_main("http://x/?z=1&y".to_owned(), None::<String>, Some(true));
+    let _smelt_tmp_22: Option<JsString> = scan__module_main(JsString::from("http://x/?z=1&y"), None::<JsString>, Some(true));
     let _ = { println!("{}", match &_smelt_tmp_22 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
     return Ok(());
 }
 
-pub(crate) fn respond__module_main(text: String, status: Option<f64>) -> SmeltResponse {
+pub(crate) fn respond__module_main(text: JsString, status: Option<f64>) -> SmeltResponse {
     let _smelt_tmp_2: f64 = status.clone().unwrap_or(200.0);
     let _smelt_tmp_3: SmeltResponse = SmeltResponse::from_parts(_smelt_tmp_2, String::new(), SmeltHeaders::new(), SmeltBody::from_text(&text.clone()));
     return _smelt_tmp_3;
@@ -4628,19 +4631,19 @@ pub(crate) fn fact__module_main(n: f64) -> f64 {
     return _smelt_tmp_2;
 }
 
-pub(crate) fn join(head: String, rest: SmeltList<String>) -> String {
-    let mut _smelt_tmp_4: String;
-    let _smelt_tmp_5: String;
-    let _smelt_tmp_6: String;
-    let _smelt_tmp_7: SmeltList<String>;
-    let _smelt_tmp_9: String;
+pub(crate) fn join(head: JsString, rest: SmeltList<JsString>) -> JsString {
+    let mut _smelt_tmp_4: JsString;
+    let _smelt_tmp_5: JsString;
+    let _smelt_tmp_6: JsString;
+    let _smelt_tmp_7: SmeltList<JsString>;
+    let _smelt_tmp_9: JsString;
     let _smelt_tmp_2: f64 = rest.len() as f64;
     let _smelt_tmp_3: bool = _smelt_tmp_2 != 0.0;
     if _smelt_tmp_3 {
-    _smelt_tmp_5 = "".to_owned() + &head.clone();
-    _smelt_tmp_6 = _smelt_tmp_5 + &"/".to_owned();
+    _smelt_tmp_5 = JsString::new() + &head.clone();
+    _smelt_tmp_6 = _smelt_tmp_5 + &JsString::from("/");
     _smelt_tmp_7 = Into::<SmeltList<_>>::into(rest.borrow().iter().skip({ let smelt_len = rest.len() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take(rest.len().saturating_sub({ let smelt_len = rest.len() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).cloned().collect::<Vec<_>>());
-    let _smelt_tmp_8: String = join(rest.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()), _smelt_tmp_7);
+    let _smelt_tmp_8: JsString = join(rest.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()), _smelt_tmp_7);
     _smelt_tmp_9 = _smelt_tmp_6 + &_smelt_tmp_8;
     _smelt_tmp_4 = _smelt_tmp_9;
     } else {
@@ -4649,14 +4652,14 @@ pub(crate) fn join(head: String, rest: SmeltList<String>) -> String {
     return _smelt_tmp_4;
 }
 
-pub(crate) fn scan__module_main(url: String, key: Option<String>, multiple: Option<bool>) -> Option<String> {
+pub(crate) fn scan__module_main(url: JsString, key: Option<JsString>, multiple: Option<bool>) -> Option<JsString> {
     let mut index: f64;
-    let mut out: String;
+    let mut out: JsString;
     let mut next: f64;
     let mut eq: f64;
     let mut _smelt_tmp_12: bool;
     let mut _smelt_tmp_13: bool;
-    let _smelt_tmp_14: String;
+    let _smelt_tmp_14: JsString;
     let _smelt_tmp_15: f64;
     let _smelt_tmp_16: f64;
     let _smelt_tmp_17: bool;
@@ -4671,20 +4674,20 @@ pub(crate) fn scan__module_main(url: String, key: Option<String>, multiple: Opti
     let mut _smelt_tmp_29: f64;
     let mut _smelt_tmp_30: bool;
     let mut _smelt_tmp_31: f64;
-    let mut _smelt_tmp_32: String;
+    let mut _smelt_tmp_32: JsString;
     let mut _smelt_tmp_33: f64;
     let mut _smelt_tmp_34: bool;
-    let mut _smelt_tmp_35: String;
+    let mut _smelt_tmp_35: JsString;
     let mut _smelt_tmp_36: bool;
-    let mut _smelt_tmp_37: String;
+    let mut _smelt_tmp_37: JsString;
     let mut _smelt_tmp_38: f64;
     let mut _smelt_tmp_39: f64;
     let mut _smelt_tmp_40: bool;
     let mut _smelt_tmp_41: Option<f64>;
-    let mut _smelt_tmp_42: String;
-    let mut _smelt_tmp_43: String;
-    let mut _smelt_tmp_44: String;
-    let _smelt_tmp_8: f64 = { let smelt_haystack = &&url; smelt_haystack.find(&"%".to_owned()).map_or(-1.0, |idx| smelt_utf16_index_of_byte(&smelt_haystack, idx) as f64) };
+    let mut _smelt_tmp_42: JsString;
+    let mut _smelt_tmp_43: JsString;
+    let mut _smelt_tmp_44: JsString;
+    let _smelt_tmp_8: f64 = { let smelt_haystack = &&url; smelt_haystack.find(&JsString::from("%")).map_or(-1.0, |idx| smelt_utf16_index_of_byte(&smelt_haystack, idx) as f64) };
     let _smelt_tmp_9: f64 = -1.0;
     let encoded: bool = _smelt_tmp_8 != _smelt_tmp_9;
     let _smelt_tmp_11: bool = !(multiple.clone().clone().unwrap_or(false));
@@ -4692,7 +4695,7 @@ pub(crate) fn scan__module_main(url: String, key: Option<String>, multiple: Opti
     let mut _smelt_tmp_13: bool = false;
     if _smelt_tmp_12 {
     _smelt_tmp_14 = key.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_15 = { let smelt_haystack = &&_smelt_tmp_14; smelt_haystack.find(&"%".to_owned()).map_or(-1.0, |idx| smelt_utf16_index_of_byte(&smelt_haystack, idx) as f64) };
+    _smelt_tmp_15 = { let smelt_haystack = &&_smelt_tmp_14; smelt_haystack.find(&JsString::from("%")).map_or(-1.0, |idx| smelt_utf16_index_of_byte(&smelt_haystack, idx) as f64) };
     _smelt_tmp_16 = -1.0;
     _smelt_tmp_17 = _smelt_tmp_15 == _smelt_tmp_16;
     _smelt_tmp_13 = _smelt_tmp_17;
@@ -4700,22 +4703,22 @@ pub(crate) fn scan__module_main(url: String, key: Option<String>, multiple: Opti
     _smelt_tmp_13 = false;
     }
     if _smelt_tmp_13 {
-    _smelt_tmp_18 = { let smelt_haystack = &&url; smelt_haystack.find(&"?".to_owned()).map_or(-1.0, |idx| smelt_utf16_index_of_byte(&smelt_haystack, idx) as f64) };
+    _smelt_tmp_18 = { let smelt_haystack = &&url; smelt_haystack.find(&JsString::from("?")).map_or(-1.0, |idx| smelt_utf16_index_of_byte(&smelt_haystack, idx) as f64) };
     _smelt_tmp_19 = -1.0;
     _smelt_tmp_20 = _smelt_tmp_18 == _smelt_tmp_19;
     if _smelt_tmp_20 {
-    return None::<String>;
+    return None::<JsString>;
     }
     }
-    index = { let smelt_haystack = &&url; smelt_haystack.find(&"?".to_owned()).map_or(-1.0, |idx| smelt_utf16_index_of_byte(&smelt_haystack, idx) as f64) };
-    out = "".to_owned();
+    index = { let smelt_haystack = &&url; smelt_haystack.find(&JsString::from("?")).map_or(-1.0, |idx| smelt_utf16_index_of_byte(&smelt_haystack, idx) as f64) };
+    out = JsString::new();
     loop {
     _smelt_tmp_22 = -1.0;
     _smelt_tmp_23 = index != _smelt_tmp_22;
     if !(_smelt_tmp_23) { break; }
     _smelt_tmp_24 = index + 1.0;
-    next = { let smelt_haystack = &url; let smelt_needle = "&".to_owned(); let smelt_from = (_smelt_tmp_24 as i64).max(0) as usize; let (smelt_prefix_bytes, smelt_prefix_index) = match smelt_utf16_byte_of(&smelt_haystack, smelt_from) { Ok(smelt_byte) if smelt_byte < smelt_haystack.len() => (smelt_byte, smelt_from), Ok(smelt_byte) => (smelt_byte, smelt_utf16_len(&smelt_haystack)), Err(smelt_byte) => (smelt_byte + 4, smelt_from + 1) }; smelt_haystack.get(smelt_prefix_bytes..).and_then(|suffix| suffix.find(&smelt_needle).map(|index| (smelt_prefix_index + smelt_utf16_index_of_byte(&suffix, index)) as f64)).unwrap_or(-1.0) };
-    eq = { let smelt_haystack = &url; let smelt_needle = "=".to_owned(); let smelt_from = (index as i64).max(0) as usize; let (smelt_prefix_bytes, smelt_prefix_index) = match smelt_utf16_byte_of(&smelt_haystack, smelt_from) { Ok(smelt_byte) if smelt_byte < smelt_haystack.len() => (smelt_byte, smelt_from), Ok(smelt_byte) => (smelt_byte, smelt_utf16_len(&smelt_haystack)), Err(smelt_byte) => (smelt_byte + 4, smelt_from + 1) }; smelt_haystack.get(smelt_prefix_bytes..).and_then(|suffix| suffix.find(&smelt_needle).map(|index| (smelt_prefix_index + smelt_utf16_index_of_byte(&suffix, index)) as f64)).unwrap_or(-1.0) };
+    next = { let smelt_haystack = &url; let smelt_needle = JsString::from("&"); let smelt_from = (_smelt_tmp_24 as i64).max(0) as usize; let (smelt_prefix_bytes, smelt_prefix_index) = match smelt_utf16_byte_of(&smelt_haystack, smelt_from) { Ok(smelt_byte) if smelt_byte < smelt_haystack.len() => (smelt_byte, smelt_from), Ok(smelt_byte) => (smelt_byte, smelt_utf16_len(&smelt_haystack)), Err(smelt_byte) => (smelt_byte + 4, smelt_from + 1) }; smelt_haystack.get(smelt_prefix_bytes..).and_then(|suffix| suffix.find(&smelt_needle).map(|index| (smelt_prefix_index + smelt_utf16_index_of_byte(&suffix, index)) as f64)).unwrap_or(-1.0) };
+    eq = { let smelt_haystack = &url; let smelt_needle = JsString::from("="); let smelt_from = (index as i64).max(0) as usize; let (smelt_prefix_bytes, smelt_prefix_index) = match smelt_utf16_byte_of(&smelt_haystack, smelt_from) { Ok(smelt_byte) if smelt_byte < smelt_haystack.len() => (smelt_byte, smelt_from), Ok(smelt_byte) => (smelt_byte, smelt_utf16_len(&smelt_haystack)), Err(smelt_byte) => (smelt_byte + 4, smelt_from + 1) }; smelt_haystack.get(smelt_prefix_bytes..).and_then(|suffix| suffix.find(&smelt_needle).map(|index| (smelt_prefix_index + smelt_utf16_index_of_byte(&suffix, index)) as f64)).unwrap_or(-1.0) };
     _smelt_tmp_27 = eq > next;
     if _smelt_tmp_27 {
     _smelt_tmp_29 = -1.0;
@@ -4727,7 +4730,7 @@ pub(crate) fn scan__module_main(url: String, key: Option<String>, multiple: Opti
     } else {
     }
     if encoded {
-    _smelt_tmp_32 = out + &"%".to_owned();
+    _smelt_tmp_32 = out + &JsString::from("%");
     out = _smelt_tmp_32;
     } else {
     }
@@ -4735,7 +4738,7 @@ pub(crate) fn scan__module_main(url: String, key: Option<String>, multiple: Opti
     _smelt_tmp_34 = eq == _smelt_tmp_33;
     if _smelt_tmp_34 {
     if encoded {
-    _smelt_tmp_35 = out + &"?".to_owned();
+    _smelt_tmp_35 = out + &JsString::from("?");
     out = _smelt_tmp_35;
     } else {
     }
@@ -4743,7 +4746,7 @@ pub(crate) fn scan__module_main(url: String, key: Option<String>, multiple: Opti
     }
     _smelt_tmp_36 = multiple.clone().clone().unwrap_or(false);
     if _smelt_tmp_36 {
-    _smelt_tmp_37 = out + &"m".to_owned();
+    _smelt_tmp_37 = out + &JsString::from("m");
     out = _smelt_tmp_37;
     } else {
     }
@@ -4756,7 +4759,7 @@ pub(crate) fn scan__module_main(url: String, key: Option<String>, multiple: Opti
     _smelt_tmp_41 = Some(next);
     }
     _smelt_tmp_42 = { let smelt_len_units = smelt_utf16_len(&url); { let smelt_start = { let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_38 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }; smelt_utf16_slice(&url, smelt_start, smelt_start.saturating_add({ let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_41.unwrap_or(smelt_len_units as f64) as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_38 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }))) } };
-    _smelt_tmp_43 = _smelt_tmp_42 + &";".to_owned();
+    _smelt_tmp_43 = _smelt_tmp_42 + &JsString::from(";");
     _smelt_tmp_44 = out + &_smelt_tmp_43;
     out = _smelt_tmp_44;
     index = next;
@@ -4769,7 +4772,7 @@ pub(crate) fn scan__module_main(url: String, key: Option<String>, multiple: Opti
     } else {
     }
     if encoded {
-    _smelt_tmp_32 = out + &"%".to_owned();
+    _smelt_tmp_32 = out + &JsString::from("%");
     out = _smelt_tmp_32;
     } else {
     }
@@ -4777,7 +4780,7 @@ pub(crate) fn scan__module_main(url: String, key: Option<String>, multiple: Opti
     _smelt_tmp_34 = eq == _smelt_tmp_33;
     if _smelt_tmp_34 {
     if encoded {
-    _smelt_tmp_35 = out + &"?".to_owned();
+    _smelt_tmp_35 = out + &JsString::from("?");
     out = _smelt_tmp_35;
     } else {
     }
@@ -4785,7 +4788,7 @@ pub(crate) fn scan__module_main(url: String, key: Option<String>, multiple: Opti
     }
     _smelt_tmp_36 = multiple.clone().clone().unwrap_or(false);
     if _smelt_tmp_36 {
-    _smelt_tmp_37 = out + &"m".to_owned();
+    _smelt_tmp_37 = out + &JsString::from("m");
     out = _smelt_tmp_37;
     } else {
     }
@@ -4798,7 +4801,7 @@ pub(crate) fn scan__module_main(url: String, key: Option<String>, multiple: Opti
     _smelt_tmp_41 = Some(next);
     }
     _smelt_tmp_42 = { let smelt_len_units = smelt_utf16_len(&url); { let smelt_start = { let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_38 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }; smelt_utf16_slice(&url, smelt_start, smelt_start.saturating_add({ let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_41.unwrap_or(smelt_len_units as f64) as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_38 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }))) } };
-    _smelt_tmp_43 = _smelt_tmp_42 + &";".to_owned();
+    _smelt_tmp_43 = _smelt_tmp_42 + &JsString::from(";");
     _smelt_tmp_44 = out + &_smelt_tmp_43;
     out = _smelt_tmp_44;
     index = next;

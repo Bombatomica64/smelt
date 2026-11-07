@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3725,98 +3728,98 @@ impl SmeltFromUnknown for Checker {
 fn main() {
     let lengths: SmeltList<f64>;
     let checker: Checker;
-    let _smelt_tmp_8: ::std::rc::Rc<dyn Fn(String, i64, &SmeltList<String>) -> bool>;
-    let _smelt_tmp_9: SmeltList<String>;
-    let _smelt_tmp_10: String;
-    let _smelt_tmp_12: ::std::rc::Rc<dyn Fn(String, i64, &SmeltList<String>) -> bool>;
-    let _smelt_tmp_13: SmeltList<String>;
-    let _smelt_tmp_14: String;
-    let _smelt_tmp_16: ::std::rc::Rc<dyn Fn(String, i64, &SmeltList<String>) -> bool>;
-    let _smelt_tmp_17: SmeltList<String>;
-    let _smelt_tmp_18: String;
-    let _smelt_tmp_20: ::std::rc::Rc<dyn Fn(String) -> bool>;
-    let _smelt_tmp_21: SmeltList<String>;
-    let _smelt_tmp_22: String;
-    let _smelt_tmp_24: ::std::rc::Rc<dyn Fn(String, i64, &SmeltList<String>) -> f64>;
-    let _smelt_tmp_26: String;
-    let _smelt_tmp_29: ::std::rc::Rc<dyn Fn(String, i64, &SmeltList<String>) -> bool>;
-    let _smelt_tmp_30: SmeltList<String>;
-    let _smelt_tmp_31: String;
-    let words: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "abc".to_owned(), "ab".to_owned(), "abcd".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_4 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: &SmeltList<String>| {
+    let _smelt_tmp_8: ::std::rc::Rc<dyn Fn(JsString, i64, &SmeltList<JsString>) -> bool>;
+    let _smelt_tmp_9: SmeltList<JsString>;
+    let _smelt_tmp_10: JsString;
+    let _smelt_tmp_12: ::std::rc::Rc<dyn Fn(JsString, i64, &SmeltList<JsString>) -> bool>;
+    let _smelt_tmp_13: SmeltList<JsString>;
+    let _smelt_tmp_14: JsString;
+    let _smelt_tmp_16: ::std::rc::Rc<dyn Fn(JsString, i64, &SmeltList<JsString>) -> bool>;
+    let _smelt_tmp_17: SmeltList<JsString>;
+    let _smelt_tmp_18: JsString;
+    let _smelt_tmp_20: ::std::rc::Rc<dyn Fn(JsString) -> bool>;
+    let _smelt_tmp_21: SmeltList<JsString>;
+    let _smelt_tmp_22: JsString;
+    let _smelt_tmp_24: ::std::rc::Rc<dyn Fn(JsString, i64, &SmeltList<JsString>) -> f64>;
+    let _smelt_tmp_26: JsString;
+    let _smelt_tmp_29: ::std::rc::Rc<dyn Fn(JsString, i64, &SmeltList<JsString>) -> bool>;
+    let _smelt_tmp_30: SmeltList<JsString>;
+    let _smelt_tmp_31: JsString;
+    let words: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a"), JsString::from("abc"), JsString::from("ab"), JsString::from("abcd")]; smelt_list_items }));
+    let _smelt_tmp_4 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: i64, closure_arg_2: &SmeltList<JsString>| {
     let _smelt_tmp_3: bool = is_long(closure_arg_0.clone());
     _smelt_tmp_3
     });
-    let _smelt_tmp_5: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: &SmeltList<String>| {
+    let _smelt_tmp_5: SmeltList<JsString> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: i64, closure_arg_2: &SmeltList<JsString>| {
     let _smelt_tmp_3: bool = is_long(closure_arg_0.clone());
     _smelt_tmp_3
     }); let smelt_array = words.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value });
-    let _smelt_tmp_6: String = _smelt_tmp_5.borrow().join(&",".to_owned());
+    let _smelt_tmp_6: JsString = _smelt_tmp_5.borrow().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_6); };
-    _smelt_tmp_8 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: &SmeltList<String>| {
+    _smelt_tmp_8 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: i64, closure_arg_2: &SmeltList<JsString>| {
     let _smelt_tmp_3: bool = is_long(closure_arg_0.clone());
     _smelt_tmp_3
     });
-    _smelt_tmp_9 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: &SmeltList<String>| {
+    _smelt_tmp_9 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: i64, closure_arg_2: &SmeltList<JsString>| {
     let _smelt_tmp_3: bool = is_long(closure_arg_0.clone());
     _smelt_tmp_3
     }); let smelt_array = words.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value });
-    _smelt_tmp_10 = _smelt_tmp_9.borrow().join(&",".to_owned());
+    _smelt_tmp_10 = _smelt_tmp_9.borrow().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_10); };
-    _smelt_tmp_12 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: &SmeltList<String>| {
+    _smelt_tmp_12 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: i64, closure_arg_2: &SmeltList<JsString>| {
     let _smelt_tmp_3: bool = is_long(closure_arg_0.clone());
     _smelt_tmp_3
     });
-    _smelt_tmp_13 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: &SmeltList<String>| {
+    _smelt_tmp_13 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: i64, closure_arg_2: &SmeltList<JsString>| {
     let _smelt_tmp_3: bool = is_long(closure_arg_0.clone());
     _smelt_tmp_3
     }); let smelt_array = words.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value });
-    _smelt_tmp_14 = _smelt_tmp_13.borrow().join(&",".to_owned());
+    _smelt_tmp_14 = _smelt_tmp_13.borrow().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_14); };
-    _smelt_tmp_16 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: &SmeltList<String>| {
+    _smelt_tmp_16 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: i64, closure_arg_2: &SmeltList<JsString>| {
     let _smelt_tmp_3: bool = is_long(closure_arg_0.clone());
     _smelt_tmp_3
     });
-    _smelt_tmp_17 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: &SmeltList<String>| {
+    _smelt_tmp_17 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: i64, closure_arg_2: &SmeltList<JsString>| {
     let _smelt_tmp_3: bool = is_long(closure_arg_0.clone());
     _smelt_tmp_3
     }); let smelt_array = words.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value });
-    _smelt_tmp_18 = _smelt_tmp_17.borrow().join(&",".to_owned());
+    _smelt_tmp_18 = _smelt_tmp_17.borrow().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_18); };
     _smelt_tmp_20 = __smelt_fn_typed_4_0();
-    _smelt_tmp_21 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String| {
+    _smelt_tmp_21 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString| {
     let _smelt_tmp_1: bool = is_long(closure_arg_0.clone());
     _smelt_tmp_1
     }); words.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone()) { Some(item.clone()) } else { None }).collect::<Vec<_>>() });
-    _smelt_tmp_22 = _smelt_tmp_21.borrow().join(&",".to_owned());
+    _smelt_tmp_22 = _smelt_tmp_21.borrow().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_22); };
-    _smelt_tmp_24 = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    _smelt_tmp_24 = ::std::rc::Rc::new(|closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
     let _smelt_tmp_1: f64 = smelt_utf16_len(&closure_arg_0) as f64;
     _smelt_tmp_1
     });
-    lengths = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    lengths = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
     let _smelt_tmp_1: f64 = smelt_utf16_len(&closure_arg_0) as f64;
     _smelt_tmp_1
     }); let smelt_array = words.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
-    _smelt_tmp_26 = lengths.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&",".to_owned());
+    _smelt_tmp_26 = lengths.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_26); };
     let _smelt_tmp_28: Checker = Checker::new();
     checker = _smelt_tmp_28;
     _smelt_tmp_29 = ::std::rc::Rc::new({
     let checker = checker.clone();
-    move |closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    move |closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
     let _smelt_tmp_2: bool = checker.matches(closure_arg_0.clone());
     _smelt_tmp_2
     }
 });
     _smelt_tmp_30 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new({
     let checker = checker.clone();
-    move |closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    move |closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
     let _smelt_tmp_2: bool = checker.matches(closure_arg_0.clone());
     _smelt_tmp_2
     }
 }); let smelt_array = words; let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value });
-    _smelt_tmp_31 = _smelt_tmp_30.borrow().join(&",".to_owned());
+    _smelt_tmp_31 = _smelt_tmp_30.borrow().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_31); };
     return;
 }
@@ -3826,9 +3829,9 @@ impl Checker {
     let this: Self = Checker {  };
     return this;
     }
-    fn matches(&self, value: String) -> bool {
-    let _smelt_tmp_2: String = value.clone();
-    let _smelt_tmp_3: String = "ab".to_owned();
+    fn matches(&self, value: JsString) -> bool {
+    let _smelt_tmp_2: JsString = value.clone();
+    let _smelt_tmp_3: JsString = JsString::from("ab");
     let _smelt_tmp_4: bool = value.clone().starts_with(&_smelt_tmp_3);
     return _smelt_tmp_4;
     }
@@ -3845,10 +3848,10 @@ impl Checker {
     }
 }
 
-type SmeltFnTyped4_0 = ::std::rc::Rc<dyn Fn(String) -> bool>;
+type SmeltFnTyped4_0 = ::std::rc::Rc<dyn Fn(JsString) -> bool>;
 fn __smelt_fn_typed_4_0() -> SmeltFnTyped4_0 {
     thread_local! { static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped4_0> = ::std::cell::OnceCell::new(); }
-    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| { let smelt_function: SmeltFnTyped4_0 = ::std::rc::Rc::new(|closure_arg_0: String| {
+    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| { let smelt_function: SmeltFnTyped4_0 = ::std::rc::Rc::new(|closure_arg_0: JsString| {
     let _smelt_tmp_1: bool = is_long(closure_arg_0.clone());
     _smelt_tmp_1
     }); smelt_function }).clone())
@@ -3861,7 +3864,7 @@ fn __smelt_fn_typed_4_0() -> SmeltFnTyped4_0 {
 
 use super::*;
 
-pub(crate) fn is_long(value: String) -> bool {
+pub(crate) fn is_long(value: JsString) -> bool {
     let _smelt_tmp_1: f64 = smelt_utf16_len(&value) as f64;
     let _smelt_tmp_2: bool = _smelt_tmp_1 > 2.0;
     return _smelt_tmp_2;

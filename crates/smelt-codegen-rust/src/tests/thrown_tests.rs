@@ -212,8 +212,8 @@ const caught = run();
         "a thrown record must keep its object identity:\n{source}"
     );
     assert!(
-        source.contains(r#"("code".to_owned(), SmeltUnknown::Number(42.0 as f64))"#)
-            && source.contains(r#"("tag".to_owned(), SmeltUnknown::String("record".into()))"#),
+        source.contains(r#"(JsString::from("code"), SmeltUnknown::Number(42.0 as f64))"#)
+            && source.contains(r#"(JsString::from("tag"), SmeltUnknown::String("record".into()))"#),
         "a thrown record must keep its fields:\n{source}"
     );
     // And the single catch recovers whichever one arrived, without a discriminant
@@ -252,11 +252,11 @@ boom();
         "throw must not collapse an Error to its message string:\n{source}"
     );
     assert!(
-        source.contains(r#"("__smelt_error".to_owned(), SmeltUnknown::String("RangeError".into()))"#),
+        source.contains(r#"(JsString::from("__smelt_error"), SmeltUnknown::String("RangeError".into()))"#),
         "the thrown record must carry the spelled error class:\n{source}"
     );
     assert!(
-        source.contains(r#"("message".to_owned(), SmeltUnknown::String("out of range".into()))"#),
+        source.contains(r#"(JsString::from("message"), SmeltUnknown::String("out of range".into()))"#),
         "the thrown record must carry the message:\n{source}"
     );
 }
@@ -289,11 +289,11 @@ run();
         "a callback throw must not collapse an Error to its message string:\n{source}"
     );
     assert!(
-        source.contains(r#"("__smelt_error".to_owned(), SmeltUnknown::String("Error".into()))"#),
+        source.contains(r#"(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into()))"#),
         "a callback-thrown Error must carry the class marker:\n{source}"
     );
     assert!(
-        source.contains(r#"("message".to_owned(), SmeltUnknown::String("callback boom".into()))"#),
+        source.contains(r#"(JsString::from("message"), SmeltUnknown::String("callback boom".into()))"#),
         "a callback-thrown Error must carry the message:\n{source}"
     );
 }
@@ -471,12 +471,12 @@ export function reject(flag: boolean): number {
         "a thrown string must stay a string payload:\n{source}"
     );
     assert!(
-        source.contains("\"code\".to_owned()"),
+        source.contains("JsString::from(\"code\")"),
         "a thrown object literal must keep its own fields:\n{source}"
     );
     for line in source.lines() {
         assert!(
-            !(line.contains("_smelt_tmp") && line.contains("\"code\".to_owned()")),
+            !(line.contains("_smelt_tmp") && line.contains("JsString::from(\"code\")")),
             "the object payload should be built at the throw site:\n{source}"
         );
     }

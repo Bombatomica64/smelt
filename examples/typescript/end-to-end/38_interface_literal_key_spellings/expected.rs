@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3684,8 +3687,8 @@ impl SmeltFromUnknown for SmeltMatch {
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Shape {
     plain: Option<f64>,
-    camel_case: Option<String>,
-    snake_case: Option<String>,
+    camel_case: Option<JsString>,
+    snake_case: Option<JsString>,
     a_very_long_camel_name: Option<f64>,
 }
 impl IntoSmeltUnknown for Shape {
@@ -3746,43 +3749,43 @@ impl SmeltFromUnknown for Wrapper {
 fn main() {
     let inner: Option<Shape>;
     let _smelt_tmp_20: bool;
-    let mut _smelt_tmp_21: String;
+    let mut _smelt_tmp_21: JsString;
     let _smelt_tmp_22: Shape;
     let _smelt_tmp_25: bool;
-    let mut _smelt_tmp_26: String;
+    let mut _smelt_tmp_26: JsString;
     let _smelt_tmp_27: Shape;
-    let full: Shape = Shape { plain: Some(1.0), camel_case: Some("a".to_owned()), snake_case: Some("b".to_owned()), a_very_long_camel_name: Some(41.0) };
-    let partial: Shape = Shape { plain: None::<f64>, camel_case: Some("only".to_owned()), snake_case: None::<String>, a_very_long_camel_name: None::<f64> };
-    let _smelt_tmp_6: Shape = Shape { plain: Some(2.0), camel_case: Some("deep".to_owned()), snake_case: None::<String>, a_very_long_camel_name: None::<f64> };
+    let full: Shape = Shape { plain: Some(1.0), camel_case: Some(JsString::from("a")), snake_case: Some(JsString::from("b")), a_very_long_camel_name: Some(41.0) };
+    let partial: Shape = Shape { plain: None::<f64>, camel_case: Some(JsString::from("only")), snake_case: None::<JsString>, a_very_long_camel_name: None::<f64> };
+    let _smelt_tmp_6: Shape = Shape { plain: Some(2.0), camel_case: Some(JsString::from("deep")), snake_case: None::<JsString>, a_very_long_camel_name: None::<f64> };
     let nested: Wrapper = Wrapper { inner_shape: Some(_smelt_tmp_6) };
-    let _smelt_tmp_8: String = number_of(full.plain.clone());
+    let _smelt_tmp_8: JsString = number_of(full.plain.clone());
     let _ = { println!("{}", _smelt_tmp_8); };
-    let _smelt_tmp_10: String = text_of(full.camel_case.clone());
+    let _smelt_tmp_10: JsString = text_of(full.camel_case.clone());
     let _ = { println!("{}", _smelt_tmp_10); };
-    let _smelt_tmp_12: String = text_of(full.snake_case.clone());
+    let _smelt_tmp_12: JsString = text_of(full.snake_case.clone());
     let _ = { println!("{}", _smelt_tmp_12); };
-    let _smelt_tmp_14: String = number_of(full.a_very_long_camel_name.clone());
+    let _smelt_tmp_14: JsString = number_of(full.a_very_long_camel_name.clone());
     let _ = { println!("{}", _smelt_tmp_14); };
-    let _smelt_tmp_16: String = text_of(partial.camel_case.clone());
+    let _smelt_tmp_16: JsString = text_of(partial.camel_case.clone());
     let _ = { println!("{}", _smelt_tmp_16); };
-    let _smelt_tmp_18: String = text_of(partial.snake_case.clone());
+    let _smelt_tmp_18: JsString = text_of(partial.snake_case.clone());
     let _ = { println!("{}", _smelt_tmp_18); };
     inner = nested.inner_shape.clone();
     _smelt_tmp_20 = inner.clone().is_none();
     if _smelt_tmp_20 {
-    _smelt_tmp_21 = "no inner".to_owned();
+    _smelt_tmp_21 = JsString::from("no inner");
     } else {
     _smelt_tmp_22 = inner.clone().expect("optional value was absent after narrowing");
-    let _smelt_tmp_23: String = text_of(_smelt_tmp_22.camel_case.clone());
+    let _smelt_tmp_23: JsString = text_of(_smelt_tmp_22.camel_case.clone());
     _smelt_tmp_21 = _smelt_tmp_23;
     }
     let _ = { println!("{}", _smelt_tmp_21); };
     _smelt_tmp_25 = inner.clone().is_none();
     if _smelt_tmp_25 {
-    _smelt_tmp_26 = "no inner".to_owned();
+    _smelt_tmp_26 = JsString::from("no inner");
     } else {
     _smelt_tmp_27 = inner.clone().expect("optional value was absent after narrowing");
-    let _smelt_tmp_28: String = number_of(_smelt_tmp_27.plain.clone());
+    let _smelt_tmp_28: JsString = number_of(_smelt_tmp_27.plain.clone());
     _smelt_tmp_26 = _smelt_tmp_28;
     }
     let _ = { println!("{}", _smelt_tmp_26); };
@@ -3796,13 +3799,13 @@ fn main() {
 
 use super::*;
 
-pub(crate) fn text_of(value: Option<String>) -> String {
-    let mut _smelt_tmp_2: String;
-    let _smelt_tmp_3: String;
+pub(crate) fn text_of(value: Option<JsString>) -> JsString {
+    let mut _smelt_tmp_2: JsString;
+    let _smelt_tmp_3: JsString;
     let _smelt_tmp_1: bool = value.clone().is_none();
-    let mut _smelt_tmp_2: String = String::new();
+    let mut _smelt_tmp_2: JsString = String::new();
     if _smelt_tmp_1 {
-    _smelt_tmp_2 = "undefined".to_owned();
+    _smelt_tmp_2 = JsString::from("undefined");
     } else {
     _smelt_tmp_3 = value.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_2 = _smelt_tmp_3;
@@ -3810,19 +3813,19 @@ pub(crate) fn text_of(value: Option<String>) -> String {
     return _smelt_tmp_2;
 }
 
-pub(crate) fn number_of(value: Option<f64>) -> String {
-    let mut _smelt_tmp_2: String;
+pub(crate) fn number_of(value: Option<f64>) -> JsString {
+    let mut _smelt_tmp_2: JsString;
     let _smelt_tmp_3: f64;
     let _smelt_tmp_4: f64;
-    let _smelt_tmp_5: String;
+    let _smelt_tmp_5: JsString;
     let _smelt_tmp_1: bool = value.clone().is_none();
-    let mut _smelt_tmp_2: String = String::new();
+    let mut _smelt_tmp_2: JsString = String::new();
     if _smelt_tmp_1 {
-    _smelt_tmp_2 = "undefined".to_owned();
+    _smelt_tmp_2 = JsString::from("undefined");
     } else {
     _smelt_tmp_3 = value.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_4 = _smelt_tmp_3 + 1.0;
-    _smelt_tmp_5 = "".to_owned() + &smelt_number_to_string(_smelt_tmp_4);
+    _smelt_tmp_5 = JsString::new() + &smelt_number_to_string(_smelt_tmp_4);
     _smelt_tmp_2 = _smelt_tmp_5;
     }
     return _smelt_tmp_2;

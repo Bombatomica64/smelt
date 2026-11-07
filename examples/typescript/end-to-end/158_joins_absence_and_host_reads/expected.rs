@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -4393,25 +4396,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 let smelt_local = tokio::task::LocalSet::new();
 smelt_local.block_on(&smelt_runtime, async move {
-    let _smelt_tmp_5: SmeltList<String>;
-    let _smelt_tmp_7: SmeltList<String>;
-    let _smelt_tmp_9: SmeltList<String>;
+    let _smelt_tmp_5: SmeltList<JsString>;
+    let _smelt_tmp_7: SmeltList<JsString>;
+    let _smelt_tmp_9: SmeltList<JsString>;
     let _smelt_tmp_12: SmeltList<f64>;
     let _smelt_tmp_14: SmeltList<f64>;
     let _smelt_tmp_16: SmeltList<f64>;
     let _smelt_tmp_20: ();
     let _smelt_tmp_22: ();
-    let _smelt_tmp_0: String = pick("*".to_owned(), "/x".to_owned(), "/".to_owned());
-    let _smelt_tmp_1: String = pick("*".to_owned(), "/x".to_owned(), "a".to_owned());
-    let _smelt_tmp_2: String = pick("*".to_owned(), "x".to_owned(), "/".to_owned());
-    let _smelt_tmp_3: String = pick("x".to_owned(), "".to_owned(), "".to_owned());
+    let _smelt_tmp_0: JsString = pick(JsString::from("*"), JsString::from("/x"), JsString::from("/"));
+    let _smelt_tmp_1: JsString = pick(JsString::from("*"), JsString::from("/x"), JsString::from("a"));
+    let _smelt_tmp_2: JsString = pick(JsString::from("*"), JsString::from("x"), JsString::from("/"));
+    let _smelt_tmp_3: JsString = pick(JsString::from("x"), JsString::new(), JsString::new());
     let _ = { println!("{} {} {} {}", _smelt_tmp_0, _smelt_tmp_1, _smelt_tmp_2, _smelt_tmp_3); };
-    _smelt_tmp_5 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "".to_owned(), "c".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_6: String = label_of(_smelt_tmp_5, 0.0);
-    _smelt_tmp_7 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "".to_owned(), "c".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_8: String = label_of(_smelt_tmp_7, 1.0);
-    _smelt_tmp_9 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_10: String = label_of(_smelt_tmp_9, 5.0);
+    _smelt_tmp_5 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a"), JsString::new(), JsString::from("c")]; smelt_list_items }));
+    let _smelt_tmp_6: JsString = label_of(_smelt_tmp_5, 0.0);
+    _smelt_tmp_7 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a"), JsString::new(), JsString::from("c")]; smelt_list_items }));
+    let _smelt_tmp_8: JsString = label_of(_smelt_tmp_7, 1.0);
+    _smelt_tmp_9 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a")]; smelt_list_items }));
+    let _smelt_tmp_10: JsString = label_of(_smelt_tmp_9, 5.0);
     let _ = { println!("{} {} {}", _smelt_tmp_6, _smelt_tmp_8, _smelt_tmp_10); };
     _smelt_tmp_12 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![8080.0]; smelt_list_items }));
     let _smelt_tmp_13: f64 = port_of(_smelt_tmp_12);
@@ -4435,80 +4438,80 @@ smelt_local.block_on(&smelt_runtime, async move {
 
 use super::*;
 
-pub(crate) fn pick(token: String, next: String, prev: String) -> String {
-    let pattern: Option<SmeltList<String>>;
-    let mut _smelt_tmp_5: Option<SmeltList<String>>;
+pub(crate) fn pick(token: JsString, next: JsString, prev: JsString) -> JsString {
+    let pattern: Option<SmeltList<JsString>>;
+    let mut _smelt_tmp_5: Option<SmeltList<JsString>>;
     let _smelt_tmp_6: bool;
-    let mut _smelt_tmp_7: Option<SmeltList<String>>;
+    let mut _smelt_tmp_7: Option<SmeltList<JsString>>;
     let _smelt_tmp_8: bool;
-    let mut _smelt_tmp_9: SmeltList<String>;
-    let _smelt_tmp_10: SmeltList<String>;
-    let _smelt_tmp_11: SmeltList<String>;
+    let mut _smelt_tmp_9: SmeltList<JsString>;
+    let _smelt_tmp_10: SmeltList<JsString>;
+    let _smelt_tmp_11: SmeltList<JsString>;
     let _smelt_tmp_12: bool;
-    let mut _smelt_tmp_13: Option<String>;
-    let _smelt_tmp_14: Option<SmeltList<String>>;
-    let _smelt_tmp_15: Option<String>;
-    let _smelt_tmp_4: bool = token.clone() == "*".to_owned();
+    let mut _smelt_tmp_13: Option<JsString>;
+    let _smelt_tmp_14: Option<SmeltList<JsString>>;
+    let _smelt_tmp_15: Option<JsString>;
+    let _smelt_tmp_4: bool = token.clone() == JsString::from("*");
     if _smelt_tmp_4 {
-    _smelt_tmp_6 = smelt_utf16_char_at(&next, { let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).unwrap_or_default() != "/".to_owned();
+    _smelt_tmp_6 = smelt_utf16_char_at(&next, { let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).unwrap_or_default() != JsString::from("/");
     if _smelt_tmp_6 {
-    _smelt_tmp_7 = None::<SmeltList<String>>;
+    _smelt_tmp_7 = None::<SmeltList<JsString>>;
     _smelt_tmp_5 = _smelt_tmp_7;
     pattern = _smelt_tmp_5;
     _smelt_tmp_12 = pattern.clone().is_some();
-    let mut _smelt_tmp_13: Option<String> = None::<String>;
+    let mut _smelt_tmp_13: Option<JsString> = None::<JsString>;
     if _smelt_tmp_12 {
     _smelt_tmp_14 = pattern.clone();
     _smelt_tmp_15 = pattern.as_ref().and_then(|_smelt_value| ({ let smelt_len = _smelt_value.len() as i64; let smelt_index = 2.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| _smelt_value.borrow().get(index).cloned()));
     _smelt_tmp_13 = _smelt_tmp_15;
     } else {
-    _smelt_tmp_13 = Some("none".to_owned());
+    _smelt_tmp_13 = Some(JsString::from("none"));
     }
     return _smelt_tmp_13.clone().unwrap_or_else(|| String::new());
     } else {
-    _smelt_tmp_8 = prev.clone() == "/".to_owned();
-    let mut _smelt_tmp_9: SmeltList<String> = SmeltList::new(Vec::<String>::new());
+    _smelt_tmp_8 = prev.clone() == JsString::from("/");
+    let mut _smelt_tmp_9: SmeltList<JsString> = SmeltList::new(Vec::<JsString>::new());
     if _smelt_tmp_8 {
-    _smelt_tmp_10 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["".to_owned(), "".to_owned(), "label".to_owned()]; smelt_list_items }));
+    _smelt_tmp_10 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::new(), JsString::new(), JsString::from("label")]; smelt_list_items }));
     _smelt_tmp_9 = Into::<SmeltList<_>>::into(_smelt_tmp_10);
     } else {
-    _smelt_tmp_11 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["".to_owned(), "".to_owned(), "prefixed".to_owned()]; smelt_list_items }));
+    _smelt_tmp_11 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::new(), JsString::new(), JsString::from("prefixed")]; smelt_list_items }));
     _smelt_tmp_9 = Into::<SmeltList<_>>::into(_smelt_tmp_11);
     }
     _smelt_tmp_7 = Some(_smelt_tmp_9);
     _smelt_tmp_5 = _smelt_tmp_7;
     pattern = _smelt_tmp_5;
     _smelt_tmp_12 = pattern.clone().is_some();
-    let mut _smelt_tmp_13: Option<String> = None::<String>;
+    let mut _smelt_tmp_13: Option<JsString> = None::<JsString>;
     if _smelt_tmp_12 {
     _smelt_tmp_14 = pattern.clone();
     _smelt_tmp_15 = pattern.as_ref().and_then(|_smelt_value| ({ let smelt_len = _smelt_value.len() as i64; let smelt_index = 2.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| _smelt_value.borrow().get(index).cloned()));
     _smelt_tmp_13 = _smelt_tmp_15;
     } else {
-    _smelt_tmp_13 = Some("none".to_owned());
+    _smelt_tmp_13 = Some(JsString::from("none"));
     }
     return _smelt_tmp_13.clone().unwrap_or_else(|| String::new());
     }
     } else {
-    _smelt_tmp_5 = None::<SmeltList<String>>;
+    _smelt_tmp_5 = None::<SmeltList<JsString>>;
     pattern = _smelt_tmp_5;
     _smelt_tmp_12 = pattern.clone().is_some();
-    let mut _smelt_tmp_13: Option<String> = None::<String>;
+    let mut _smelt_tmp_13: Option<JsString> = None::<JsString>;
     if _smelt_tmp_12 {
     _smelt_tmp_14 = pattern.clone();
     _smelt_tmp_15 = pattern.as_ref().and_then(|_smelt_value| ({ let smelt_len = _smelt_value.len() as i64; let smelt_index = 2.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| _smelt_value.borrow().get(index).cloned()));
     _smelt_tmp_13 = _smelt_tmp_15;
     } else {
-    _smelt_tmp_13 = Some("none".to_owned());
+    _smelt_tmp_13 = Some(JsString::from("none"));
     }
     return _smelt_tmp_13.clone().unwrap_or_else(|| String::new());
     }
 }
 
-pub(crate) fn label_of(parts: SmeltList<String>, index: f64) -> String {
-    let mut _smelt_tmp_3: String;
-    let _smelt_tmp_2: bool = parts.borrow().get({ let smelt_normalized = index as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()) != "".to_owned();
-    let _smelt_tmp_3: String = if _smelt_tmp_2 { parts.borrow().get({ let smelt_normalized = index as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()) } else { "fallback".to_owned() };
+pub(crate) fn label_of(parts: SmeltList<JsString>, index: f64) -> JsString {
+    let mut _smelt_tmp_3: JsString;
+    let _smelt_tmp_2: bool = parts.borrow().get({ let smelt_normalized = index as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()) != JsString::new();
+    let _smelt_tmp_3: JsString = if _smelt_tmp_2 { parts.borrow().get({ let smelt_normalized = index as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()) } else { JsString::from("fallback") };
     return _smelt_tmp_3;
 }
 
@@ -4527,18 +4530,18 @@ pub(crate) async fn response_facts() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_13: SmeltResponse;
     let _smelt_tmp_14: bool;
     let _smelt_tmp_16: SmeltResponse;
-    let _smelt_tmp_18: String;
+    let _smelt_tmp_18: JsString;
     let _smelt_tmp_19: SmeltResponse;
     let _smelt_tmp_20: Option<SmeltBody>;
     let _smelt_tmp_21: Option<bool>;
     let _smelt_tmp_22: SmeltResponse;
     let _smelt_tmp_23: bool;
-    let _smelt_tmp_3: SmeltResponse = SmeltResponse::from_parts(201.0, "Made".to_owned(), SmeltHeaders::new(), SmeltBody::from_text(&"hi".to_owned()));
+    let _smelt_tmp_3: SmeltResponse = SmeltResponse::from_parts(201.0, JsString::from("Made"), SmeltHeaders::new(), SmeltBody::from_text(&JsString::from("hi")));
     let maybe: Option<SmeltResponse> = Some(_smelt_tmp_3);
     let missing: Option<SmeltResponse> = None::<SmeltResponse>;
     let status: Option<f64> = maybe.clone().as_ref().map(|_smelt_value| _smelt_value.status());
     let _smelt_tmp_5: Option<bool> = maybe.clone().as_ref().map(|_smelt_value| _smelt_value.ok());
-    let _smelt_tmp_6: Option<String> = maybe.clone().as_ref().map(|_smelt_value| _smelt_value.status_text());
+    let _smelt_tmp_6: Option<JsString> = maybe.clone().as_ref().map(|_smelt_value| _smelt_value.status_text());
     let _smelt_tmp_7: Option<f64> = missing.as_ref().map(|_smelt_value| _smelt_value.status());
     let _ = { println!("{} {} {} {}", match &status { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_5 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_6 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_7 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
     _smelt_tmp_9 = !(maybe.clone().is_none());
@@ -4548,16 +4551,16 @@ pub(crate) async fn response_facts() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_12 = _smelt_tmp_11.as_ref().map(|_smelt_value| _smelt_value.locked());
     _smelt_tmp_13 = maybe.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_14 = _smelt_tmp_13.body_used();
-    let _ = { println!("{} {} {}", "locked before".to_owned(), match &_smelt_tmp_12 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, _smelt_tmp_14); };
+    let _ = { println!("{} {} {}", JsString::from("locked before"), match &_smelt_tmp_12 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, _smelt_tmp_14); };
     _smelt_tmp_16 = maybe.clone().expect("optional value was absent after narrowing");
-    let _smelt_tmp_17: SmeltFuture<String> = { let smelt_response = _smelt_tmp_16.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) })) };
+    let _smelt_tmp_17: SmeltFuture<JsString> = { let smelt_response = _smelt_tmp_16.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) })) };
     _smelt_tmp_18 = _smelt_tmp_17.await?;
     _smelt_tmp_19 = maybe.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_20 = { let smelt_body = _smelt_tmp_19.body(); if smelt_body.is_empty() { None } else { Some(smelt_body) } };
     _smelt_tmp_21 = _smelt_tmp_20.as_ref().map(|_smelt_value| _smelt_value.locked());
     _smelt_tmp_22 = maybe.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_23 = _smelt_tmp_22.body_used();
-    let _ = { println!("{} {} {}", "locked after".to_owned(), match &_smelt_tmp_21 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, _smelt_tmp_23); };
+    let _ = { println!("{} {} {}", JsString::from("locked after"), match &_smelt_tmp_21 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, _smelt_tmp_23); };
     }
     return Ok(());
 }

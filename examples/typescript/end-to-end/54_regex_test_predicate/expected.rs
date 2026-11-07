@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3681,7 +3684,7 @@ fn main() {
     let built: SmeltRegExp;
     let mut matched: f64;
     let mut index: usize;
-    let mut words: SmeltList<String>;
+    let mut words: SmeltList<JsString>;
     let _smelt_tmp_8: bool;
     let _smelt_tmp_10: bool;
     let _smelt_tmp_12: bool;
@@ -3704,52 +3707,52 @@ fn main() {
     let mut _smelt_tmp_40: bool;
     let mut _smelt_tmp_41: f64;
     let mut _smelt_tmp_42: usize;
-    let mut _smelt_tmp_45: ::std::rc::Rc<dyn Fn(String, i64, &SmeltList<String>) -> bool>;
-    let mut _smelt_tmp_46: SmeltList<String>;
-    let mut _smelt_tmp_47: String;
-    let mut _smelt_tmp_49: ::std::rc::Rc<dyn Fn(String, i64, &SmeltList<String>) -> bool>;
+    let mut _smelt_tmp_45: ::std::rc::Rc<dyn Fn(JsString, i64, &SmeltList<JsString>) -> bool>;
+    let mut _smelt_tmp_46: SmeltList<JsString>;
+    let mut _smelt_tmp_47: JsString;
+    let mut _smelt_tmp_49: ::std::rc::Rc<dyn Fn(JsString, i64, &SmeltList<JsString>) -> bool>;
     let mut _smelt_tmp_50: bool;
-    let mut _smelt_tmp_52: ::std::rc::Rc<dyn Fn(String, i64, &SmeltList<String>) -> bool>;
+    let mut _smelt_tmp_52: ::std::rc::Rc<dyn Fn(JsString, i64, &SmeltList<JsString>) -> bool>;
     let mut _smelt_tmp_53: bool;
-    let _smelt_tmp_6: bool = fancy_regex::Regex::new(&"^[0-9a-f]{4}$".to_owned()).expect("regex compile failed").is_match(&"0a1b".to_owned()).unwrap_or(false);
+    let _smelt_tmp_6: bool = fancy_regex::Regex::new(&JsString::from("^[0-9a-f]{4}$")).expect("regex compile failed").is_match(&JsString::from("0a1b")).unwrap_or(false);
     let _ = { println!("{}", _smelt_tmp_6); };
-    _smelt_tmp_8 = fancy_regex::Regex::new(&"^[0-9a-f]{4}$".to_owned()).expect("regex compile failed").is_match(&"zzzz".to_owned()).unwrap_or(false);
+    _smelt_tmp_8 = fancy_regex::Regex::new(&JsString::from("^[0-9a-f]{4}$")).expect("regex compile failed").is_match(&JsString::from("zzzz")).unwrap_or(false);
     let _ = { println!("{}", _smelt_tmp_8); };
-    _smelt_tmp_10 = fancy_regex::Regex::new(&"(?i)ab".to_owned()).expect("regex compile failed").is_match(&"AB".to_owned()).unwrap_or(false);
+    _smelt_tmp_10 = fancy_regex::Regex::new(&JsString::from("(?i)ab")).expect("regex compile failed").is_match(&JsString::from("AB")).unwrap_or(false);
     let _ = { println!("{}", _smelt_tmp_10); };
-    _smelt_tmp_12 = fancy_regex::Regex::new(&"(?s)^a.c$".to_owned()).expect("regex compile failed").is_match(&"a\nc".to_owned()).unwrap_or(false);
+    _smelt_tmp_12 = fancy_regex::Regex::new(&JsString::from("(?s)^a.c$")).expect("regex compile failed").is_match(&JsString::from("a\nc")).unwrap_or(false);
     let _ = { println!("{}", _smelt_tmp_12); };
-    _smelt_tmp_14 = fancy_regex::Regex::new(&"^a+$".to_owned()).expect("regex compile failed").is_match(&"aaa".to_owned()).unwrap_or(false);
+    _smelt_tmp_14 = fancy_regex::Regex::new(&JsString::from("^a+$")).expect("regex compile failed").is_match(&JsString::from("aaa")).unwrap_or(false);
     let _ = { println!("{}", _smelt_tmp_14); };
-    _smelt_tmp_16 = fancy_regex::Regex::new(&"b".to_owned()).expect("regex compile failed").is_match(&"abc".to_owned()).unwrap_or(false);
+    _smelt_tmp_16 = fancy_regex::Regex::new(&JsString::from("b")).expect("regex compile failed").is_match(&JsString::from("abc")).unwrap_or(false);
     let _ = { println!("{}", _smelt_tmp_16); };
-    _smelt_tmp_18 = SmeltRegExp::new("^a+$".to_owned(), "i".to_owned());
-    _smelt_tmp_19 = _smelt_tmp_18.test(&"AAA".to_owned());
+    _smelt_tmp_18 = SmeltRegExp::new(JsString::from("^a+$"), JsString::from("i"));
+    _smelt_tmp_19 = _smelt_tmp_18.test(&JsString::from("AAA"));
     let _ = { println!("{}", _smelt_tmp_19); };
-    global_re = SmeltRegExp::new("a".to_owned(), "g".to_owned());
-    _smelt_tmp_22 = global_re.clone().test(&"aa".to_owned());
-    _smelt_tmp_23 = global_re.clone().test(&"aa".to_owned());
-    _smelt_tmp_24 = global_re.clone().test(&"aa".to_owned());
+    global_re = SmeltRegExp::new(JsString::from("a"), JsString::from("g"));
+    _smelt_tmp_22 = global_re.clone().test(&JsString::from("aa"));
+    _smelt_tmp_23 = global_re.clone().test(&JsString::from("aa"));
+    _smelt_tmp_24 = global_re.clone().test(&JsString::from("aa"));
     let _ = { println!("{} {} {}", _smelt_tmp_22, _smelt_tmp_23, _smelt_tmp_24); };
-    _smelt_tmp_26 = global_re.test(&"aa".to_owned());
+    _smelt_tmp_26 = global_re.test(&JsString::from("aa"));
     let _ = { println!("{}", _smelt_tmp_26); };
-    sticky = SmeltRegExp::new("a".to_owned(), "y".to_owned());
-    _smelt_tmp_29 = sticky.clone().test(&"aa".to_owned());
-    _smelt_tmp_30 = sticky.clone().test(&"aa".to_owned());
-    _smelt_tmp_31 = sticky.test(&"aa".to_owned());
+    sticky = SmeltRegExp::new(JsString::from("a"), JsString::from("y"));
+    _smelt_tmp_29 = sticky.clone().test(&JsString::from("aa"));
+    _smelt_tmp_30 = sticky.clone().test(&JsString::from("aa"));
+    _smelt_tmp_31 = sticky.test(&JsString::from("aa"));
     let _ = { println!("{} {} {}", _smelt_tmp_29, _smelt_tmp_30, _smelt_tmp_31); };
-    built = SmeltRegExp::new("a".to_owned(), "g".to_owned());
-    _smelt_tmp_34 = built.clone().test(&"aa".to_owned());
-    _smelt_tmp_35 = built.clone().test(&"aa".to_owned());
-    _smelt_tmp_36 = built.test(&"aa".to_owned());
+    built = SmeltRegExp::new(JsString::from("a"), JsString::from("g"));
+    _smelt_tmp_34 = built.clone().test(&JsString::from("aa"));
+    _smelt_tmp_35 = built.clone().test(&JsString::from("aa"));
+    _smelt_tmp_36 = built.test(&JsString::from("aa"));
     let _ = { println!("{} {} {}", _smelt_tmp_34, _smelt_tmp_35, _smelt_tmp_36); };
     matched = 0.0;
     index = 0;
     loop {
     _smelt_tmp_38 = index < 3;
     if !(_smelt_tmp_38) { break; }
-    _smelt_tmp_39 = SmeltRegExp::new("a".to_owned(), "g".to_owned());
-    _smelt_tmp_40 = _smelt_tmp_39.test(&"aa".to_owned());
+    _smelt_tmp_39 = SmeltRegExp::new(JsString::from("a"), JsString::from("g"));
+    _smelt_tmp_40 = _smelt_tmp_39.test(&JsString::from("aa"));
     if _smelt_tmp_40 {
     _smelt_tmp_41 = matched + 1.0;
     matched = _smelt_tmp_41;
@@ -3763,32 +3766,32 @@ fn main() {
     }
     }
     let _ = { println!("{}", smelt_console_number(matched)); };
-    words = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["alpha".to_owned(), "beta".to_owned(), "gamma".to_owned(), "delta".to_owned()]; smelt_list_items }));
-    _smelt_tmp_45 = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let _smelt_tmp_1: bool = fancy_regex::Regex::new(&"^[ad]".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
+    words = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("alpha"), JsString::from("beta"), JsString::from("gamma"), JsString::from("delta")]; smelt_list_items }));
+    _smelt_tmp_45 = ::std::rc::Rc::new(|closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
+    let _smelt_tmp_1: bool = fancy_regex::Regex::new(&JsString::from("^[ad]")).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
     _smelt_tmp_1
     });
-    _smelt_tmp_46 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let _smelt_tmp_1: bool = fancy_regex::Regex::new(&"^[ad]".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
+    _smelt_tmp_46 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
+    let _smelt_tmp_1: bool = fancy_regex::Regex::new(&JsString::from("^[ad]")).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
     _smelt_tmp_1
     }); let smelt_array = words.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value });
-    _smelt_tmp_47 = _smelt_tmp_46.borrow().join(&",".to_owned());
+    _smelt_tmp_47 = _smelt_tmp_46.borrow().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_47); };
-    _smelt_tmp_49 = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let _smelt_tmp_1: bool = fancy_regex::Regex::new(&"a".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
+    _smelt_tmp_49 = ::std::rc::Rc::new(|closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
+    let _smelt_tmp_1: bool = fancy_regex::Regex::new(&JsString::from("a")).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
     _smelt_tmp_1
     });
-    _smelt_tmp_50 = { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let _smelt_tmp_1: bool = fancy_regex::Regex::new(&"a".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
+    _smelt_tmp_50 = { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
+    let _smelt_tmp_1: bool = fancy_regex::Regex::new(&JsString::from("a")).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
     _smelt_tmp_1
     }); let smelt_array = words.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().all(|(index, item)| (smelt_callback)(item.clone(), index as i64, &smelt_array)); smelt_value };
     let _ = { println!("{}", _smelt_tmp_50); };
-    _smelt_tmp_52 = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let _smelt_tmp_1: bool = fancy_regex::Regex::new(&"^z".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
+    _smelt_tmp_52 = ::std::rc::Rc::new(|closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
+    let _smelt_tmp_1: bool = fancy_regex::Regex::new(&JsString::from("^z")).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
     _smelt_tmp_1
     });
-    _smelt_tmp_53 = { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let _smelt_tmp_1: bool = fancy_regex::Regex::new(&"^z".to_owned()).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
+    _smelt_tmp_53 = { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
+    let _smelt_tmp_1: bool = fancy_regex::Regex::new(&JsString::from("^z")).expect("regex compile failed").is_match(&closure_arg_0.clone()).unwrap_or(false);
     _smelt_tmp_1
     }); let smelt_array = words; let smelt_value = smelt_array.borrow().iter().enumerate().any(|(index, item)| (smelt_callback)(item.clone(), index as i64, &smelt_array)); smelt_value };
     let _ = { println!("{}", _smelt_tmp_53); };

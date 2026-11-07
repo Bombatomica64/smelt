@@ -30,6 +30,7 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("smelt_parse_int"),
     Entry::Item("smelt_utf16_len"),
     Entry::Item("JsString"),
+    Entry::Item("JsStringAlias"),
     Entry::Item("SmeltPanic"),
     Entry::Item("SMELT_DATE_NOW"),
     Entry::Item("SMELT_DATE_TIMEZONE_OFFSET"),

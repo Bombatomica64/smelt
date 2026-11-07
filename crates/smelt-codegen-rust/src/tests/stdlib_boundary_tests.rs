@@ -73,7 +73,7 @@ export function parseIt(value: string): unknown {
     );
 
     assert!(
-        source.contains("fn parse_it(value: String) -> Result<"),
+        source.contains("fn parse_it(value: JsString) -> Result<"),
         "an uncaught fallible builtin must make its function throw:\n{source}"
     );
 }

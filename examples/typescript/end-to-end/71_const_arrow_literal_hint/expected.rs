@@ -71,6 +71,9 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
@@ -144,17 +147,17 @@ impl<T: Clone> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Se
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Opts {
     status: Option<f64>,
-    label: Option<String>,
+    label: Option<JsString>,
 }
 fn main() {
     let total: ::std::rc::Rc<dyn Fn(&SmeltList<Opts>) -> f64>;
     let _smelt_tmp_8: Opts;
-    let _smelt_tmp_9: String;
+    let _smelt_tmp_9: JsString;
     let _smelt_tmp_11: Opts;
-    let _smelt_tmp_12: String;
+    let _smelt_tmp_12: JsString;
     let _smelt_tmp_14: Opts;
-    let _smelt_tmp_15: String;
-    let _smelt_tmp_17: String;
+    let _smelt_tmp_15: JsString;
+    let _smelt_tmp_17: JsString;
     let _smelt_tmp_19: ::std::rc::Rc<dyn Fn(&SmeltList<Opts>) -> f64>;
     let _smelt_tmp_20: Opts;
     let _smelt_tmp_21: Opts;
@@ -163,33 +166,33 @@ fn main() {
     let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: Option<Opts>| {
     let _smelt_tmp_1: Option<f64> = closure_arg_0.clone().as_ref().and_then(|_smelt_value| _smelt_value.status.clone());
     let _smelt_tmp_2: f64 = _smelt_tmp_1.clone().unwrap_or(0.0);
-    let _smelt_tmp_3: String = "optional ".to_owned() + &smelt_number_to_string(_smelt_tmp_2);
-    let _smelt_tmp_4: String = _smelt_tmp_3.clone() + &" ".to_owned();
-    let _smelt_tmp_5: Option<String> = closure_arg_0.clone().as_ref().and_then(|_smelt_value| _smelt_value.label.clone());
-    let _smelt_tmp_6: String = _smelt_tmp_5.clone().unwrap_or("-".to_owned());
-    let _smelt_tmp_7: String = _smelt_tmp_4.clone() + &_smelt_tmp_6.clone();
+    let _smelt_tmp_3: JsString = JsString::from("optional ") + &smelt_number_to_string(_smelt_tmp_2);
+    let _smelt_tmp_4: JsString = _smelt_tmp_3.clone() + &JsString::from(" ");
+    let _smelt_tmp_5: Option<JsString> = closure_arg_0.clone().as_ref().and_then(|_smelt_value| _smelt_value.label.clone());
+    let _smelt_tmp_6: JsString = _smelt_tmp_5.clone().unwrap_or(JsString::from("-"));
+    let _smelt_tmp_7: JsString = _smelt_tmp_4.clone() + &_smelt_tmp_6.clone();
     _smelt_tmp_7.clone()
     });
     let show_optional = _smelt_tmp_3.clone();
     let _smelt_tmp_4 = ::std::rc::Rc::new(|closure_arg_0: Opts| {
     let _smelt_tmp_1: f64 = closure_arg_0.status.clone().unwrap_or(0.0);
-    let _smelt_tmp_2: String = "required ".to_owned() + &smelt_number_to_string(_smelt_tmp_1);
-    let _smelt_tmp_3: String = _smelt_tmp_2.clone() + &" ".to_owned();
-    let _smelt_tmp_4: String = closure_arg_0.label.clone().unwrap_or("-".to_owned());
-    let _smelt_tmp_5: String = _smelt_tmp_3.clone() + &_smelt_tmp_4.clone();
+    let _smelt_tmp_2: JsString = JsString::from("required ") + &smelt_number_to_string(_smelt_tmp_1);
+    let _smelt_tmp_3: JsString = _smelt_tmp_2.clone() + &JsString::from(" ");
+    let _smelt_tmp_4: JsString = closure_arg_0.label.clone().unwrap_or(JsString::from("-"));
+    let _smelt_tmp_5: JsString = _smelt_tmp_3.clone() + &_smelt_tmp_4.clone();
     _smelt_tmp_5.clone()
     });
     let show_required = _smelt_tmp_4.clone();
-    let _smelt_tmp_5: Opts = Opts { status: Some(8.0), label: Some("fn".to_owned()) };
-    let _smelt_tmp_6: String = show_fn(_smelt_tmp_5);
+    let _smelt_tmp_5: Opts = Opts { status: Some(8.0), label: Some(JsString::from("fn")) };
+    let _smelt_tmp_6: JsString = show_fn(_smelt_tmp_5);
     let _ = { println!("{}", _smelt_tmp_6); };
-    _smelt_tmp_8 = Opts { status: Some(7.0), label: Some("opt".to_owned()) };
+    _smelt_tmp_8 = Opts { status: Some(7.0), label: Some(JsString::from("opt")) };
     _smelt_tmp_9 = (show_optional)(Some(_smelt_tmp_8));
     let _ = { println!("{}", _smelt_tmp_9); };
-    _smelt_tmp_11 = Opts { status: Some(9.0), label: Some("req".to_owned()) };
+    _smelt_tmp_11 = Opts { status: Some(9.0), label: Some(JsString::from("req")) };
     _smelt_tmp_12 = (show_required)(_smelt_tmp_11);
     let _ = { println!("{}", _smelt_tmp_12); };
-    _smelt_tmp_14 = Opts { status: None::<f64>, label: Some("partial".to_owned()) };
+    _smelt_tmp_14 = Opts { status: None::<f64>, label: Some(JsString::from("partial")) };
     _smelt_tmp_15 = (show_required)(_smelt_tmp_14);
     let _ = { println!("{}", _smelt_tmp_15); };
     _smelt_tmp_17 = (show_optional)(None);
@@ -217,8 +220,8 @@ fn main() {
     }
     });
     total = _smelt_tmp_19.clone();
-    _smelt_tmp_20 = Opts { status: Some(1.0), label: None::<String> };
-    _smelt_tmp_21 = Opts { status: Some(2.0), label: Some("two".to_owned()) };
+    _smelt_tmp_20 = Opts { status: Some(1.0), label: None::<JsString> };
+    _smelt_tmp_21 = Opts { status: Some(2.0), label: Some(JsString::from("two")) };
     _smelt_tmp_22 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Opts> = vec![_smelt_tmp_20.clone(), _smelt_tmp_21.clone()]; smelt_list_items }));
     _smelt_tmp_23 = (total)(&_smelt_tmp_22);
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_23)); };
@@ -232,11 +235,11 @@ fn main() {
 
 use super::*;
 
-pub(crate) fn show_fn(opts: Opts) -> String {
+pub(crate) fn show_fn(opts: Opts) -> JsString {
     let _smelt_tmp_1: f64 = opts.status.clone().unwrap_or(0.0);
-    let _smelt_tmp_2: String = "fn ".to_owned() + &smelt_number_to_string(_smelt_tmp_1);
-    let _smelt_tmp_3: String = _smelt_tmp_2 + &" ".to_owned();
-    let _smelt_tmp_4: String = opts.label.clone().unwrap_or("-".to_owned());
-    let _smelt_tmp_5: String = _smelt_tmp_3 + &_smelt_tmp_4;
+    let _smelt_tmp_2: JsString = JsString::from("fn ") + &smelt_number_to_string(_smelt_tmp_1);
+    let _smelt_tmp_3: JsString = _smelt_tmp_2 + &JsString::from(" ");
+    let _smelt_tmp_4: JsString = opts.label.clone().unwrap_or(JsString::from("-"));
+    let _smelt_tmp_5: JsString = _smelt_tmp_3 + &_smelt_tmp_4;
     return _smelt_tmp_5;
 }

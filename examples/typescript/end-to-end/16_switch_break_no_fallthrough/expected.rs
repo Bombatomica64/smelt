@@ -66,19 +66,22 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 // @smelt:prelude-end — generated program below
 fn main() {
     let code: f64 = 2.0;
-    let mut label: String = "".to_owned();
+    let mut label: JsString = JsString::new();
     match code {
         1.0 => {
-    label = "one".to_owned();
+    label = JsString::from("one");
         }
         2.0 => {
-    label = "two".to_owned();
+    label = JsString::from("two");
         }
         _ => {
-    label = "other".to_owned();
+    label = JsString::from("other");
         }
     }
     let _ = { println!("{}", label); };

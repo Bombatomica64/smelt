@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3967,8 +3970,8 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFr
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let _smelt_tmp_2: String;
-    let _smelt_tmp_0: Holder<String> = Holder::new("x".to_owned());
+    let _smelt_tmp_2: JsString;
+    let _smelt_tmp_0: Holder<JsString> = Holder::new(JsString::from("x"));
     _smelt_tmp_2 = { let smelt_callable = ::std::clone::Clone::clone(&_smelt_tmp_0.0.borrow().read.clone()); (smelt_callable)() };
     let _ = { println!("{}", _smelt_tmp_2); };
     let _smelt_tmp_4: f64 = twice(21.0);

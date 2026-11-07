@@ -135,7 +135,7 @@ impl FunctionEmitter<'_> {
                 }
                 self.place_expr(place)
             }
-            Operand::Const(constant) => Ok(constant_expr(constant)),
+            Operand::Const(constant) => Ok(constant_expr(constant, self.indexes_utf16())),
         }
     }
 
@@ -252,7 +252,7 @@ impl FunctionEmitter<'_> {
         }
         match operand {
             Operand::Copy(place) | Operand::Move(place) => self.place_expr(place),
-            Operand::Const(constant) => Ok(constant_expr(constant)),
+            Operand::Const(constant) => Ok(constant_expr(constant, self.indexes_utf16())),
         }
     }
 

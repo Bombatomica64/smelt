@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -4393,7 +4396,7 @@ impl SmeltFromUnknown for SmeltResponse {
 #[derive(Clone, Debug, Default, PartialEq)]
 struct BoomOptions {
     res: Option<SmeltResponse>,
-    message: Option<String>,
+    message: Option<JsString>,
 }
 impl IntoSmeltUnknown for BoomOptions {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -4420,7 +4423,7 @@ impl SmeltFromUnknown for BoomOptions {
 struct Boom {
     res: Option<SmeltResponse>,
     status: f64,
-    message: String,
+    message: JsString,
 }
 impl IntoSmeltUnknown for Boom {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -4464,8 +4467,8 @@ impl Boom {
     fn new(status: Option<f64>, options: Option<BoomOptions>) -> Self {
     let mut this: Self = Boom { res: None::<SmeltResponse>, status: 0.0, message: String::new() };
     let status_1: f64 = status.clone().unwrap_or(500.0);
-    let _smelt_tmp_5: Option<String> = options.clone().as_ref().and_then(|_smelt_value| _smelt_value.message.clone());
-    let _smelt_tmp_6: String = _smelt_tmp_5.clone().unwrap_or("".to_owned());
+    let _smelt_tmp_5: Option<JsString> = options.clone().as_ref().and_then(|_smelt_value| _smelt_value.message.clone());
+    let _smelt_tmp_6: JsString = _smelt_tmp_5.clone().unwrap_or(JsString::new());
     this.message = _smelt_tmp_6;
     let _smelt_tmp_7: Option<SmeltResponse> = options.clone().as_ref().and_then(|_smelt_value| _smelt_value.res.clone());
     this.res = _smelt_tmp_7;
@@ -4519,21 +4522,21 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let from_message: SmeltResponse;
     let _smelt_tmp_9: f64;
     let _smelt_tmp_11: SmeltHeaders;
-    let _smelt_tmp_12: Option<String>;
-    let _smelt_tmp_13: String;
-    let _smelt_tmp_16: String;
+    let _smelt_tmp_12: Option<JsString>;
+    let _smelt_tmp_13: JsString;
+    let _smelt_tmp_16: JsString;
     let _smelt_tmp_18: BoomOptions;
     let _smelt_tmp_21: f64;
-    let _smelt_tmp_24: String;
+    let _smelt_tmp_24: JsString;
     let _smelt_tmp_26: SmeltResponse;
     let _smelt_tmp_27: Option<SmeltBody>;
     let _smelt_tmp_28: bool;
     let _smelt_tmp_30: SmeltResponse;
     let _smelt_tmp_31: Option<SmeltBody>;
     let _smelt_tmp_32: bool;
-    let _smelt_tmp_4: SmeltRecord<String, String> = SmeltRecord::from([("x-a".to_owned(), "1".to_owned())]);
-    let _smelt_tmp_5: SmeltResponse = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::from_pairs(_smelt_tmp_4.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"teapot".to_owned()));
-    let _smelt_tmp_6: BoomOptions = BoomOptions { res: Some(_smelt_tmp_5), message: Some("teapot".to_owned()) };
+    let _smelt_tmp_4: SmeltRecord<String, JsString> = SmeltRecord::from([(JsString::from("x-a"), JsString::from("1"))]);
+    let _smelt_tmp_5: SmeltResponse = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::from_pairs(_smelt_tmp_4.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&JsString::from("teapot")));
+    let _smelt_tmp_6: BoomOptions = BoomOptions { res: Some(_smelt_tmp_5), message: Some(JsString::from("teapot")) };
     let _smelt_tmp_7: Boom = Boom::new(Some(418.0), Some(_smelt_tmp_6));
     with_res = _smelt_tmp_7;
     let _smelt_tmp_8: SmeltResponse = with_res.get_response();
@@ -4541,27 +4544,27 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_9 = rewrapped.clone().status();
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_9)); };
     _smelt_tmp_11 = rewrapped.clone().headers();
-    _smelt_tmp_12 = _smelt_tmp_11.get(&"x-a".to_owned());
-    _smelt_tmp_13 = _smelt_tmp_12.clone().unwrap_or("none".to_owned());
+    _smelt_tmp_12 = _smelt_tmp_11.get(&JsString::from("x-a"));
+    _smelt_tmp_13 = _smelt_tmp_12.clone().unwrap_or(JsString::from("none"));
     let _ = { println!("{}", _smelt_tmp_13); };
-    let _smelt_tmp_15: SmeltFuture<String> = { let smelt_response = rewrapped.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) })) };
+    let _smelt_tmp_15: SmeltFuture<JsString> = { let smelt_response = rewrapped.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) })) };
     _smelt_tmp_16 = _smelt_tmp_15.await?;
     let _ = { println!("{}", _smelt_tmp_16); };
-    _smelt_tmp_18 = BoomOptions { res: None::<SmeltResponse>, message: Some("missing".to_owned()) };
+    _smelt_tmp_18 = BoomOptions { res: None::<SmeltResponse>, message: Some(JsString::from("missing")) };
     let _smelt_tmp_19: Boom = Boom::new(Some(404.0), Some(_smelt_tmp_18));
     bare = _smelt_tmp_19;
     let _smelt_tmp_20: SmeltResponse = bare.get_response();
     from_message = _smelt_tmp_20;
     _smelt_tmp_21 = from_message.clone().status();
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_21)); };
-    let _smelt_tmp_23: SmeltFuture<String> = { let smelt_response = from_message.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) })) };
+    let _smelt_tmp_23: SmeltFuture<JsString> = { let smelt_response = from_message.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) })) };
     _smelt_tmp_24 = _smelt_tmp_23.await?;
     let _ = { println!("{}", _smelt_tmp_24); };
     _smelt_tmp_26 = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::new(), SmeltBody::empty());
     _smelt_tmp_27 = { let smelt_body = _smelt_tmp_26.body(); if smelt_body.is_empty() { None } else { Some(smelt_body) } };
     _smelt_tmp_28 = _smelt_tmp_27.is_none();
     let _ = { println!("{}", _smelt_tmp_28); };
-    _smelt_tmp_30 = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::new(), SmeltBody::from_text(&"".to_owned()));
+    _smelt_tmp_30 = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::new(), SmeltBody::from_text(&JsString::new()));
     _smelt_tmp_31 = { let smelt_body = _smelt_tmp_30.body(); if smelt_body.is_empty() { None } else { Some(smelt_body) } };
     _smelt_tmp_32 = _smelt_tmp_31.is_none();
     let _ = { println!("{}", _smelt_tmp_32); };

@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -4807,7 +4810,7 @@ impl Default for SmeltUnion6 {
 
 #[derive(Clone)]
 pub enum SmeltUnion7 {
-    M0(String),
+    M0(JsString),
     M1(SmeltTypedArray),
     M2(SmeltDataView),
     M3(SmeltArrayBuffer),
@@ -4861,7 +4864,7 @@ let smelt_local = tokio::task::LocalSet::new();
 smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_3: ();
     let _smelt_tmp_5: ();
-    let algorithm: SmeltRecord<String, String> = SmeltRecord::from([("name".to_owned(), "HMAC".to_owned()), ("hash".to_owned(), "SHA-256".to_owned())]);
+    let algorithm: SmeltRecord<String, JsString> = SmeltRecord::from([(JsString::from("name"), JsString::from("HMAC")), (JsString::from("hash"), JsString::from("SHA-256"))]);
     let _smelt_tmp_2 = SmeltFuture::from_future(Box::pin(run()));
     _smelt_tmp_3 = { smelt_spawn_promise_task(Box::pin(async move { let _ = _smelt_tmp_2.await; })); () };
     let _smelt_tmp_4: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
@@ -4890,40 +4893,40 @@ fn __smelt_fn_typed_5_0() -> SmeltFnTyped5_0 {
 use super::*;
 
 pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let tag: String;
+    let tag: JsString;
     let key: SmeltCryptoKey;
     let _smelt_tmp_8: bool;
     let _smelt_tmp_10: bool;
     let _smelt_tmp_12: SmeltList<f64>;
     let _smelt_tmp_13: SmeltTypedArray;
-    let _smelt_tmp_15: String;
+    let _smelt_tmp_15: JsString;
     let _smelt_tmp_17: SmeltList<f64>;
-    let _smelt_tmp_18: String;
+    let _smelt_tmp_18: JsString;
     let _smelt_tmp_20: SmeltList<f64>;
     let _smelt_tmp_21: SmeltList<f64>;
     let _smelt_tmp_22: SmeltRecord<String, SmeltList<f64>>;
-    let _smelt_tmp_23: String;
-    let _smelt_tmp_24: String;
-    let _smelt_tmp_26: SmeltList<String>;
-    let _smelt_tmp_27: String;
-    let _smelt_tmp_28: String;
+    let _smelt_tmp_23: JsString;
+    let _smelt_tmp_24: JsString;
+    let _smelt_tmp_26: SmeltList<JsString>;
+    let _smelt_tmp_27: JsString;
+    let _smelt_tmp_28: JsString;
     let _smelt_tmp_30: ::std::rc::Rc<dyn Fn() -> SmeltFuture<()>>;
-    let _smelt_tmp_32: String;
+    let _smelt_tmp_32: JsString;
     let _smelt_tmp_34: ::std::rc::Rc<dyn Fn() -> SmeltFuture<()>>;
-    let _smelt_tmp_36: String;
-    let _smelt_tmp_2 = SmeltFuture::from_future(Box::pin(sign__module_main("macha".to_owned(), SmeltUnion7::M0("secret lucky charm".to_owned()))));
+    let _smelt_tmp_36: JsString;
+    let _smelt_tmp_2 = SmeltFuture::from_future(Box::pin(sign__module_main(JsString::from("macha"), SmeltUnion7::M0(JsString::from("secret lucky charm")))));
     tag = _smelt_tmp_2.await?;
     let _ = { println!("{}", tag); };
-    let _smelt_tmp_5 = SmeltFuture::from_future(Box::pin(get_key__module_main(SmeltUnion7::M0("secret lucky charm".to_owned()))));
+    let _smelt_tmp_5 = SmeltFuture::from_future(Box::pin(get_key__module_main(SmeltUnion7::M0(JsString::from("secret lucky charm")))));
     key = _smelt_tmp_5.await?;
-    let _smelt_tmp_7 = SmeltFuture::from_future(Box::pin(verify__module_main("macha".to_owned(), "macha".to_owned(), key.clone())));
+    let _smelt_tmp_7 = SmeltFuture::from_future(Box::pin(verify__module_main(JsString::from("macha"), JsString::from("macha"), key.clone())));
     _smelt_tmp_8 = _smelt_tmp_7.await?;
-    let _smelt_tmp_9 = SmeltFuture::from_future(Box::pin(verify__module_main("macha".to_owned(), "other".to_owned(), key)));
+    let _smelt_tmp_9 = SmeltFuture::from_future(Box::pin(verify__module_main(JsString::from("macha"), JsString::from("other"), key)));
     _smelt_tmp_10 = _smelt_tmp_9.await?;
     let _ = { println!("{} {}", _smelt_tmp_8, _smelt_tmp_10); };
     _smelt_tmp_12 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
     _smelt_tmp_13 = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8, &_smelt_tmp_12.to_vec());
-    let _smelt_tmp_14 = SmeltFuture::from_future(Box::pin(sign__module_main("macha".to_owned(), SmeltUnion7::M1(_smelt_tmp_13))));
+    let _smelt_tmp_14 = SmeltFuture::from_future(Box::pin(sign__module_main(JsString::from("macha"), SmeltUnion7::M1(_smelt_tmp_13))));
     _smelt_tmp_15 = _smelt_tmp_14.await?;
     let _ = { println!("{}", _smelt_tmp_15); };
     _smelt_tmp_17 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![72.0, 105.0]; smelt_list_items }));
@@ -4931,13 +4934,13 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _ = { println!("{}", _smelt_tmp_18); };
     _smelt_tmp_20 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0]; smelt_list_items }));
     _smelt_tmp_21 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![3.0]; smelt_list_items }));
-    _smelt_tmp_22 = SmeltRecord::from([("first".to_owned(), _smelt_tmp_20), ("second".to_owned(), _smelt_tmp_21)]);
+    _smelt_tmp_22 = SmeltRecord::from([(JsString::from("first"), _smelt_tmp_20), (JsString::from("second"), _smelt_tmp_21)]);
     _smelt_tmp_23 = serde_json::to_string(&{ let smelt_record = _smelt_tmp_22.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, { let smelt_l = value; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::Number(value as f64)).collect::<Vec<_>>())) })).collect())) }).expect("JSON serialization failed");
     _smelt_tmp_24 = smelt_json_indent(&_smelt_tmp_23, &{ let smelt_width = (2.0) as f64; if smelt_width >= 1.0 { " ".repeat(smelt_width.min(10.0) as usize) } else { String::new() } });
     let _ = { println!("{}", _smelt_tmp_24); };
-    _smelt_tmp_26 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "b".to_owned()]; smelt_list_items }));
+    _smelt_tmp_26 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a"), JsString::from("b")]; smelt_list_items }));
     _smelt_tmp_27 = serde_json::to_string(&{ let smelt_l = _smelt_tmp_26; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>())) }).expect("JSON serialization failed");
-    _smelt_tmp_28 = smelt_json_indent(&_smelt_tmp_27, &("--".to_owned()).chars().take(10).collect::<String>());
+    _smelt_tmp_28 = smelt_json_indent(&_smelt_tmp_27, &(JsString::from("--")).chars().take(10).collect::<String>());
     let _ = { println!("{}", _smelt_tmp_28); };
     _smelt_tmp_30 = __smelt_fn_typed_5_0();
     let _smelt_tmp_31 = SmeltFuture::from_future(Box::pin(cleanup_after__module_main(::std::rc::Rc::new({ let _smelt_adapted_callback = _smelt_tmp_30.clone(); move || { let smelt_async_callback = _smelt_adapted_callback.clone(); { let smelt_async_source = (smelt_async_callback)(); SmeltFuture::from_future(Box::pin(async move { let smelt_async_output = smelt_async_source.await?; Ok::<_, Box<dyn std::error::Error>>(smelt_async_output) })) } } }))));
@@ -4952,9 +4955,9 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_35 = SmeltFuture::from_future(Box::pin(cleanup_after__module_main(_smelt_tmp_34.clone())));
     _smelt_tmp_36 = _smelt_tmp_35.await?;
     let _ = { println!("{}", _smelt_tmp_36); };
-    let _smelt_tmp_38: String = rethrow_through__module_main(0.0);
+    let _smelt_tmp_38: JsString = rethrow_through__module_main(0.0);
     let _ = { println!("{}", _smelt_tmp_38); };
-    let _smelt_tmp_40: String = rethrow_through__module_main(1.0);
+    let _smelt_tmp_40: JsString = rethrow_through__module_main(1.0);
     let _ = { println!("{}", _smelt_tmp_40); };
     return Ok(());
 }
@@ -4963,11 +4966,11 @@ pub(crate) async fn get_key__module_main(secret: SmeltUnion7) -> Result<SmeltCry
     let bytes: SmeltUnion6;
     let mut _smelt_tmp_3: SmeltUnion6;
     let _smelt_tmp_4: SmeltTextEncoder;
-    let _smelt_tmp_5: String;
+    let _smelt_tmp_5: JsString;
     let _smelt_tmp_6: SmeltTypedArray;
     let _smelt_tmp_7: SmeltUnion6;
-    let _smelt_tmp_8: SmeltRecord<String, String>;
-    let _smelt_tmp_9: SmeltList<String>;
+    let _smelt_tmp_8: SmeltRecord<String, JsString>;
+    let _smelt_tmp_9: SmeltList<JsString>;
     let _smelt_tmp_11: SmeltCryptoKey;
     let _smelt_tmp_2: bool = matches!(secret.clone(), SmeltUnion7::M0(_));
     let mut _smelt_tmp_3: SmeltUnion6 = SmeltUnion6::M0(SmeltTypedArray::new());
@@ -4981,41 +4984,41 @@ pub(crate) async fn get_key__module_main(secret: SmeltUnion7) -> Result<SmeltCry
     _smelt_tmp_3 = _smelt_tmp_7;
     }
     bytes = _smelt_tmp_3;
-    _smelt_tmp_8 = SmeltRecord::from([("name".to_owned(), "HMAC".to_owned()), ("hash".to_owned(), "SHA-256".to_owned())]);
-    _smelt_tmp_9 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["sign".to_owned(), "verify".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_10: SmeltFuture<SmeltCryptoKey> = { let smelt_format = ("raw".to_owned()).clone(); let smelt_key = match &(bytes) { SmeltUnion6::M0(value) => value.to_bytes(), SmeltUnion6::M1(value) => value.to_bytes(), SmeltUnion6::M2(value) => value.to_bytes() }; let smelt_name = (_smelt_tmp_8.get(&"name".to_owned()).expect("missing field").clone()).clone(); let smelt_hash = (_smelt_tmp_8.get(&"hash".to_owned()).expect("missing field").clone()).clone(); let smelt_extractable = false; let smelt_usages = (_smelt_tmp_9).borrow().clone(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_import_key(&smelt_format, smelt_key, &smelt_name, &smelt_hash, smelt_extractable, smelt_usages) })) };
+    _smelt_tmp_8 = SmeltRecord::from([(JsString::from("name"), JsString::from("HMAC")), (JsString::from("hash"), JsString::from("SHA-256"))]);
+    _smelt_tmp_9 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("sign"), JsString::from("verify")]; smelt_list_items }));
+    let _smelt_tmp_10: SmeltFuture<SmeltCryptoKey> = { let smelt_format = (JsString::from("raw")).clone(); let smelt_key = match &(bytes) { SmeltUnion6::M0(value) => value.to_bytes(), SmeltUnion6::M1(value) => value.to_bytes(), SmeltUnion6::M2(value) => value.to_bytes() }; let smelt_name = (_smelt_tmp_8.get(&"name".to_owned()).expect("missing field").clone()).clone(); let smelt_hash = (_smelt_tmp_8.get(&"hash".to_owned()).expect("missing field").clone()).clone(); let smelt_extractable = false; let smelt_usages = (_smelt_tmp_9).borrow().clone(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_import_key(&smelt_format, smelt_key, &smelt_name, &smelt_hash, smelt_extractable, smelt_usages) })) };
     _smelt_tmp_11 = _smelt_tmp_10.await?;
     return Ok(_smelt_tmp_11);
 }
 
-pub(crate) async fn sign__module_main(value: String, secret: SmeltUnion7) -> Result<String, Box<dyn std::error::Error>> {
+pub(crate) async fn sign__module_main(value: JsString, secret: SmeltUnion7) -> Result<JsString, Box<dyn std::error::Error>> {
     let key: SmeltCryptoKey;
     let tag: SmeltArrayBuffer;
-    let _smelt_tmp_6: SmeltRecord<String, String>;
+    let _smelt_tmp_6: SmeltRecord<String, JsString>;
     let _smelt_tmp_7: SmeltTextEncoder;
     let _smelt_tmp_8: SmeltTypedArray;
     let _smelt_tmp_11: SmeltTypedArray;
-    let _smelt_tmp_12: String;
+    let _smelt_tmp_12: JsString;
     let _smelt_tmp_4 = SmeltFuture::from_future(Box::pin(get_key__module_main(secret.clone())));
     key = _smelt_tmp_4.await?;
-    _smelt_tmp_6 = SmeltRecord::from([("name".to_owned(), "HMAC".to_owned()), ("hash".to_owned(), "SHA-256".to_owned())]);
+    _smelt_tmp_6 = SmeltRecord::from([(JsString::from("name"), JsString::from("HMAC")), (JsString::from("hash"), JsString::from("SHA-256"))]);
     _smelt_tmp_7 = SmeltTextEncoder::new();
     _smelt_tmp_8 = _smelt_tmp_7.encode(&value.clone());
     let _smelt_tmp_9: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = (_smelt_tmp_6.get(&"name".to_owned()).expect("missing field").clone()).clone(); let smelt_key = (key).clone(); let smelt_data = (_smelt_tmp_8).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_sign(&smelt_algorithm, &smelt_key, &smelt_data) })) };
     tag = _smelt_tmp_9.await?;
     _smelt_tmp_11 = SmeltTypedArray::over_buffer(SmeltTypedArrayKind::Uint8, &tag, 0, None);
     _smelt_tmp_12 = { let smelt_units: Vec<u16> = SmeltList::from(_smelt_tmp_11.to_elements()).borrow().iter().map(|smelt_code| { let smelt_code = *smelt_code; if smelt_code.is_finite() { smelt_code.trunc().rem_euclid(65536.0) as u16 } else { 0 } }).collect(); String::from_utf16_lossy(&smelt_units) };
-    let _smelt_tmp_13: String = smelt_btoa_throwing(_smelt_tmp_12.as_str())?;
+    let _smelt_tmp_13: JsString = smelt_btoa_throwing(_smelt_tmp_12.as_str())?;
     return Ok(_smelt_tmp_13);
 }
 
-pub(crate) async fn verify__module_main(value: String, claimed: String, key: SmeltCryptoKey) -> Result<bool, Box<dyn std::error::Error>> {
-    let _smelt_tmp_4: SmeltRecord<String, String> = SmeltRecord::from([("name".to_owned(), "HMAC".to_owned()), ("hash".to_owned(), "SHA-256".to_owned())]);
+pub(crate) async fn verify__module_main(value: JsString, claimed: JsString, key: SmeltCryptoKey) -> Result<bool, Box<dyn std::error::Error>> {
+    let _smelt_tmp_4: SmeltRecord<String, JsString> = SmeltRecord::from([(JsString::from("name"), JsString::from("HMAC")), (JsString::from("hash"), JsString::from("SHA-256"))]);
     let _smelt_tmp_5: SmeltTextEncoder = SmeltTextEncoder::new();
     let _smelt_tmp_6: SmeltTypedArray = _smelt_tmp_5.encode(&claimed.clone());
     let _smelt_tmp_7: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = (_smelt_tmp_4.get(&"name".to_owned()).expect("missing field").clone()).clone(); let smelt_key = (key.clone()).clone(); let smelt_data = (_smelt_tmp_6).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_sign(&smelt_algorithm, &smelt_key, &smelt_data) })) };
     let tag: SmeltArrayBuffer = _smelt_tmp_7.await?;
-    let _smelt_tmp_9: SmeltRecord<String, String> = SmeltRecord::from([("name".to_owned(), "HMAC".to_owned()), ("hash".to_owned(), "SHA-256".to_owned())]);
+    let _smelt_tmp_9: SmeltRecord<String, JsString> = SmeltRecord::from([(JsString::from("name"), JsString::from("HMAC")), (JsString::from("hash"), JsString::from("SHA-256"))]);
     let _smelt_tmp_10: SmeltTypedArray = SmeltTypedArray::over_buffer(SmeltTypedArrayKind::Uint8, &tag, 0, None);
     let _smelt_tmp_11: SmeltTextEncoder = SmeltTextEncoder::new();
     let _smelt_tmp_12: SmeltTypedArray = _smelt_tmp_11.encode(&value.clone());
@@ -5024,12 +5027,12 @@ pub(crate) async fn verify__module_main(value: String, claimed: String, key: Sme
     return Ok(_smelt_tmp_14);
 }
 
-pub(crate) async fn cleanup_after__module_main(work: ::std::rc::Rc<dyn Fn() -> SmeltFuture<()>>) -> Result<String, Box<dyn std::error::Error>> {
+pub(crate) async fn cleanup_after__module_main(work: ::std::rc::Rc<dyn Fn() -> SmeltFuture<()>>) -> Result<JsString, Box<dyn std::error::Error>> {
     let mut smelt_pending_thrown: SmeltUnknown;
     let mut _smelt_tmp_3: bool;
-    let _smelt_tmp_6: String;
-    let _smelt_tmp_7: String;
-    let mut cleaned: String = "no".to_owned();
+    let _smelt_tmp_6: JsString;
+    let _smelt_tmp_7: JsString;
+    let mut cleaned: JsString = JsString::from("no");
     smelt_pending_thrown = SmeltUnknown::Undefined;
     _smelt_tmp_3 = false;
     let _smelt_tmp_4: SmeltFuture<()> = (work)();
@@ -5042,15 +5045,15 @@ pub(crate) async fn cleanup_after__module_main(work: ::std::rc::Rc<dyn Fn() -> S
     _smelt_tmp_3 = true;
         }
     }
-    cleaned = "yes".to_owned();
-    'smelt_branch_6_9_5_627: {
+    cleaned = JsString::from("yes");
+    'smelt_branch_6_9_5_643: {
     if _smelt_tmp_3 {
-    break 'smelt_branch_6_9_5_627;
+    break 'smelt_branch_6_9_5_643;
     }
-    _smelt_tmp_7 = "resolved, cleaned up: ".to_owned() + &cleaned;
+    _smelt_tmp_7 = JsString::from("resolved, cleaned up: ") + &cleaned;
     return Ok(_smelt_tmp_7);
     };
-    _smelt_tmp_6 = "rejected, cleaned up: ".to_owned() + &cleaned;
+    _smelt_tmp_6 = JsString::from("rejected, cleaned up: ") + &cleaned;
     return Ok(_smelt_tmp_6);
 }
 
@@ -5058,14 +5061,14 @@ pub(crate) async fn failing__module_main() -> Result<(), Box<dyn std::error::Err
     return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("boom".into())));
 }
 
-pub(crate) fn rethrow_through__module_main(kind: f64) -> String {
+pub(crate) fn rethrow_through__module_main(kind: f64) -> JsString {
     let mut smelt_pending_thrown: SmeltUnknown;
     let mut _smelt_tmp_3: bool;
     let _smelt_tmp_4: bool;
     let _smelt_tmp_5: usize;
-    let _smelt_tmp_6: String;
-    let _smelt_tmp_7: String;
-    let _smelt_tmp_8: String;
+    let _smelt_tmp_6: JsString;
+    let _smelt_tmp_7: JsString;
+    let _smelt_tmp_8: JsString;
     let _smelt_tmp_9: f64;
     let mut ran: usize = 0;
     smelt_pending_thrown = SmeltUnknown::Undefined;
@@ -5075,14 +5078,14 @@ pub(crate) fn rethrow_through__module_main(kind: f64) -> String {
     _smelt_tmp_3 = true;
     _smelt_tmp_5 = ran + 1;
     ran = _smelt_tmp_5;
-    'smelt_branch_6_10_5_619: {
+    'smelt_branch_6_10_5_625: {
     if _smelt_tmp_3 {
-    break 'smelt_branch_6_10_5_619;
+    break 'smelt_branch_6_10_5_625;
     }
     return String::new();
     };
-    _smelt_tmp_6 = "kind ".to_owned() + &smelt_number_to_string(kind);
-    _smelt_tmp_7 = _smelt_tmp_6 + &" caught, finally ran ".to_owned();
+    _smelt_tmp_6 = JsString::from("kind ") + &smelt_number_to_string(kind);
+    _smelt_tmp_7 = _smelt_tmp_6 + &JsString::from(" caught, finally ran ");
     _smelt_tmp_9 = ran as f64;
     _smelt_tmp_8 = _smelt_tmp_7 + &smelt_number_to_string(_smelt_tmp_9);
     return _smelt_tmp_8;

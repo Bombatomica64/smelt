@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3684,23 +3687,23 @@ fn main() {
     let _smelt_tmp_12: SmeltRegExp;
     let _smelt_tmp_14: SmeltRegExp;
     let _smelt_tmp_16: SmeltRegExp;
-    let routes: SmeltRegExp = SmeltRegExp::new("^\\/a(?:\\/b()|\\/c())$".to_owned(), "".to_owned());
-    let _smelt_tmp_2: String = pick("/a/b".to_owned());
-    let _smelt_tmp_3: String = pick("/a/c".to_owned());
-    let _smelt_tmp_4: String = pick("/x".to_owned());
+    let routes: SmeltRegExp = SmeltRegExp::new(JsString::from("^\\/a(?:\\/b()|\\/c())$"), JsString::new());
+    let _smelt_tmp_2: JsString = pick(JsString::from("/a/b"));
+    let _smelt_tmp_3: JsString = pick(JsString::from("/a/c"));
+    let _smelt_tmp_4: JsString = pick(JsString::from("/x"));
     let _ = { println!("{} {} {}", _smelt_tmp_2, _smelt_tmp_3, _smelt_tmp_4); };
-    let _ = describe("12-".to_owned());
-    let _ = describe("3-4".to_owned());
-    let _ = describe("x".to_owned());
-    let _smelt_tmp_9: String = digits("a1b22".to_owned());
-    let _smelt_tmp_10: String = digits("ab".to_owned());
+    let _ = describe(JsString::from("12-"));
+    let _ = describe(JsString::from("3-4"));
+    let _ = describe(JsString::from("x"));
+    let _smelt_tmp_9: JsString = digits(JsString::from("a1b22"));
+    let _smelt_tmp_10: JsString = digits(JsString::from("ab"));
     let _ = { println!("{} {}", _smelt_tmp_9, _smelt_tmp_10); };
-    _smelt_tmp_12 = SmeltRegExp::new("([a-z])(\\d)?".to_owned(), "".to_owned());
-    let _smelt_tmp_13: String = first_two("a1".to_owned(), _smelt_tmp_12);
-    _smelt_tmp_14 = SmeltRegExp::new("([a-z])(\\d)?".to_owned(), "".to_owned());
-    let _smelt_tmp_15: String = first_two("b".to_owned(), _smelt_tmp_14);
-    _smelt_tmp_16 = SmeltRegExp::new("z".to_owned(), "".to_owned());
-    let _smelt_tmp_17: String = first_two("b".to_owned(), _smelt_tmp_16);
+    _smelt_tmp_12 = SmeltRegExp::new(JsString::from("([a-z])(\\d)?"), JsString::new());
+    let _smelt_tmp_13: JsString = first_two(JsString::from("a1"), _smelt_tmp_12);
+    _smelt_tmp_14 = SmeltRegExp::new(JsString::from("([a-z])(\\d)?"), JsString::new());
+    let _smelt_tmp_15: JsString = first_two(JsString::from("b"), _smelt_tmp_14);
+    _smelt_tmp_16 = SmeltRegExp::new(JsString::from("z"), JsString::new());
+    let _smelt_tmp_17: JsString = first_two(JsString::from("b"), _smelt_tmp_16);
     let _ = { println!("{} {} {}", _smelt_tmp_13, _smelt_tmp_15, _smelt_tmp_17); };
     return;
 }
@@ -3712,83 +3715,83 @@ fn main() {
 
 use super::*;
 
-pub(crate) fn pick(path: String) -> String {
+pub(crate) fn pick(path: JsString) -> JsString {
     let index: f64;
     let _smelt_tmp_6: SmeltMatch;
-    let _smelt_tmp_7: SmeltList<Option<String>>;
-    let _smelt_tmp_9: String;
-    let _smelt_tmp_10: String;
+    let _smelt_tmp_7: SmeltList<Option<JsString>>;
+    let _smelt_tmp_9: JsString;
+    let _smelt_tmp_10: JsString;
     let _smelt_tmp_11: SmeltMatch;
     let _smelt_tmp_12: f64;
-    let _smelt_tmp_13: String;
-    let _smelt_tmp_14: String;
+    let _smelt_tmp_13: JsString;
+    let _smelt_tmp_14: JsString;
     let _smelt_tmp_15: SmeltMatch;
-    let _smelt_tmp_16: Option<String>;
+    let _smelt_tmp_16: Option<JsString>;
     let _smelt_tmp_17: bool;
-    let mut _smelt_tmp_18: String;
-    let _smelt_tmp_19: String;
-    let _smelt_tmp_3: SmeltRegExp = SmeltRegExp::new("^\\/a(?:\\/b()|\\/c())$".to_owned(), "".to_owned());
+    let mut _smelt_tmp_18: JsString;
+    let _smelt_tmp_19: JsString;
+    let _smelt_tmp_3: SmeltRegExp = SmeltRegExp::new(JsString::from("^\\/a(?:\\/b()|\\/c())$"), JsString::new());
     let m: Option<SmeltMatch> = _smelt_tmp_3.match_string(&path.clone());
     let _smelt_tmp_5: bool = !(m.clone().is_some());
     if _smelt_tmp_5 {
-    return "none".to_owned();
+    return JsString::from("none");
     } else {
     _smelt_tmp_6 = m.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_7 = Into::<SmeltList<_>>::into((_smelt_tmp_6).to_array_view());
-    index = { let smelt_needle = Some("".to_owned()); let smelt_predicate = |item: &Option<String>| *item == smelt_needle; let smelt_list = &_smelt_tmp_7.borrow(); let smelt_len = smelt_list.len() as i64; let smelt_raw = 1.0 as i64; let smelt_start = if smelt_raw < 0 { (smelt_len + smelt_raw).max(0) } else { smelt_raw } as usize; smelt_list.iter().enumerate().skip(smelt_start).find(|(_, item)| smelt_predicate(*item)).map_or(-1.0, |(idx, _)| idx as f64) };
-    _smelt_tmp_9 = "".to_owned() + &smelt_number_to_string(index);
-    _smelt_tmp_10 = _smelt_tmp_9 + &":".to_owned();
+    index = { let smelt_needle = Some(JsString::new()); let smelt_predicate = |item: &Option<JsString>| *item == smelt_needle; let smelt_list = &_smelt_tmp_7.borrow(); let smelt_len = smelt_list.len() as i64; let smelt_raw = 1.0 as i64; let smelt_start = if smelt_raw < 0 { (smelt_len + smelt_raw).max(0) } else { smelt_raw } as usize; smelt_list.iter().enumerate().skip(smelt_start).find(|(_, item)| smelt_predicate(*item)).map_or(-1.0, |(idx, _)| idx as f64) };
+    _smelt_tmp_9 = JsString::new() + &smelt_number_to_string(index);
+    _smelt_tmp_10 = _smelt_tmp_9 + &JsString::from(":");
     _smelt_tmp_11 = m.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_12 = _smelt_tmp_11.len() as f64;
     _smelt_tmp_13 = _smelt_tmp_10 + &smelt_number_to_string(_smelt_tmp_12);
-    _smelt_tmp_14 = _smelt_tmp_13 + &":".to_owned();
+    _smelt_tmp_14 = _smelt_tmp_13 + &JsString::from(":");
     _smelt_tmp_15 = m.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_16 = _smelt_tmp_15.group_owned(1.0 as usize);
     _smelt_tmp_17 = _smelt_tmp_16.is_none();
-    let _smelt_tmp_18: String = if _smelt_tmp_17 { "u".to_owned() } else { "e".to_owned() };
+    let _smelt_tmp_18: JsString = if _smelt_tmp_17 { JsString::from("u") } else { JsString::from("e") };
     _smelt_tmp_19 = _smelt_tmp_14 + &_smelt_tmp_18;
     return _smelt_tmp_19;
     }
 }
 
-pub(crate) fn describe(text: String) -> () {
-    let rest: SmeltList<Option<String>>;
-    let mut group: Option<String>;
-    let mut first: Option<String>;
-    let mut second: Option<String>;
+pub(crate) fn describe(text: JsString) -> () {
+    let rest: SmeltList<Option<JsString>>;
+    let mut group: Option<JsString>;
+    let mut first: Option<JsString>;
+    let mut second: Option<JsString>;
     let _smelt_tmp_10: SmeltMatch;
-    let _smelt_tmp_11: SmeltList<Option<String>>;
+    let _smelt_tmp_11: SmeltList<Option<JsString>>;
     let _smelt_tmp_13: f64;
     let _smelt_tmp_14: SmeltMatch;
-    let _smelt_tmp_15: SmeltList<Option<String>>;
-    let _smelt_tmp_16: String;
+    let _smelt_tmp_15: SmeltList<Option<JsString>>;
+    let _smelt_tmp_16: JsString;
     let _smelt_tmp_17: SmeltMatch;
-    let _smelt_tmp_18: SmeltList<Option<String>>;
-    let _smelt_tmp_19: ::std::rc::Rc<dyn Fn(Option<String>, i64, &SmeltList<Option<String>>) -> String>;
-    let _smelt_tmp_20: SmeltList<String>;
-    let _smelt_tmp_21: String;
+    let _smelt_tmp_18: SmeltList<Option<JsString>>;
+    let _smelt_tmp_19: ::std::rc::Rc<dyn Fn(Option<JsString>, i64, &SmeltList<Option<JsString>>) -> JsString>;
+    let _smelt_tmp_20: SmeltList<JsString>;
+    let _smelt_tmp_21: JsString;
     let _smelt_tmp_23: SmeltMatch;
-    let _smelt_tmp_24: SmeltList<Option<String>>;
+    let _smelt_tmp_24: SmeltList<Option<JsString>>;
     let mut _smelt_tmp_25: usize;
     let mut _smelt_tmp_26: usize;
     let mut _smelt_tmp_27: bool;
     let mut _smelt_tmp_28: bool;
-    let mut _smelt_tmp_29: String;
-    let mut _smelt_tmp_30: String;
+    let mut _smelt_tmp_29: JsString;
+    let mut _smelt_tmp_30: JsString;
     let mut _smelt_tmp_32: SmeltMatch;
     let mut _smelt_tmp_35: SmeltMatch;
-    let mut _smelt_tmp_36: SmeltList<Option<String>>;
-    let mut _smelt_tmp_37: SmeltList<Option<String>>;
-    let mut _smelt_tmp_38: SmeltList<Option<String>>;
+    let mut _smelt_tmp_36: SmeltList<Option<JsString>>;
+    let mut _smelt_tmp_37: SmeltList<Option<JsString>>;
+    let mut _smelt_tmp_38: SmeltList<Option<JsString>>;
     let mut _smelt_tmp_39: f64;
     let mut _smelt_tmp_40: SmeltMatch;
     let mut _smelt_tmp_41: SmeltMatch;
     let mut _smelt_tmp_42: bool;
-    let _smelt_tmp_6: SmeltRegExp = SmeltRegExp::new("(\\d+)-(\\d+)?".to_owned(), "".to_owned());
+    let _smelt_tmp_6: SmeltRegExp = SmeltRegExp::new(JsString::from("(\\d+)-(\\d+)?"), JsString::new());
     let m: Option<SmeltMatch> = _smelt_tmp_6.match_string(&text.clone());
     let _smelt_tmp_8: bool = !(m.clone().is_some());
     if _smelt_tmp_8 {
-    let _ = { println!("{}", "no match".to_owned()); };
+    let _ = { println!("{}", JsString::from("no match")); };
     return;
     }
     _smelt_tmp_10 = m.clone().expect("optional value was absent after narrowing");
@@ -3797,18 +3800,18 @@ pub(crate) fn describe(text: String) -> () {
     _smelt_tmp_13 = rest.len() as f64;
     _smelt_tmp_14 = m.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_15 = Into::<SmeltList<_>>::into((_smelt_tmp_14).to_array_view());
-    _smelt_tmp_16 = _smelt_tmp_15.borrow().iter().map(|item| { item.as_ref().map_or_else(String::new, Clone::clone) }).collect::<Vec<_>>().join(&"|".to_owned());
+    _smelt_tmp_16 = _smelt_tmp_15.borrow().iter().map(|item| { item.as_ref().map_or_else(String::new, Clone::clone) }).collect::<Vec<_>>().join(&JsString::from("|"));
     _smelt_tmp_17 = m.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_18 = Into::<SmeltList<_>>::into((_smelt_tmp_17).to_array_view());
-    _smelt_tmp_19 = ::std::rc::Rc::new(|closure_arg_0: Option<String>, _arg0: i64, _arg1: &SmeltList<Option<String>>| {
-    let _smelt_tmp_1: String = closure_arg_0.clone().unwrap_or("U".to_owned());
+    _smelt_tmp_19 = ::std::rc::Rc::new(|closure_arg_0: Option<JsString>, _arg0: i64, _arg1: &SmeltList<Option<JsString>>| {
+    let _smelt_tmp_1: JsString = closure_arg_0.clone().unwrap_or(JsString::from("U"));
     _smelt_tmp_1.clone()
     });
-    _smelt_tmp_20 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: Option<String>, _arg0: i64, _arg1: &SmeltList<Option<String>>| {
-    let _smelt_tmp_1: String = closure_arg_0.clone().unwrap_or("U".to_owned());
+    _smelt_tmp_20 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: Option<JsString>, _arg0: i64, _arg1: &SmeltList<Option<JsString>>| {
+    let _smelt_tmp_1: JsString = closure_arg_0.clone().unwrap_or(JsString::from("U"));
     _smelt_tmp_1.clone()
     }); let smelt_array = _smelt_tmp_18; let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
-    _smelt_tmp_21 = _smelt_tmp_20.borrow().join(&",".to_owned());
+    _smelt_tmp_21 = _smelt_tmp_20.borrow().join(&JsString::from(","));
     let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_13), _smelt_tmp_16, _smelt_tmp_21); };
     _smelt_tmp_23 = m.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_24 = Into::<SmeltList<_>>::into((_smelt_tmp_23).to_array_view());
@@ -3817,10 +3820,10 @@ pub(crate) fn describe(text: String) -> () {
     _smelt_tmp_26 = _smelt_tmp_24.len();
     _smelt_tmp_27 = _smelt_tmp_25 < _smelt_tmp_26;
     if !(_smelt_tmp_27) { break; }
-    group = _smelt_tmp_24.borrow().get(_smelt_tmp_25).cloned().unwrap_or_else(|| None::<String>);
+    group = _smelt_tmp_24.borrow().get(_smelt_tmp_25).cloned().unwrap_or_else(|| None::<JsString>);
     _smelt_tmp_28 = group.clone().is_none();
     if _smelt_tmp_28 {
-    _smelt_tmp_29 = "undefined".to_owned();
+    _smelt_tmp_29 = JsString::from("undefined");
     let _ = { println!("{}", _smelt_tmp_29); };
     _smelt_tmp_25 = _smelt_tmp_25 + 1;
     continue;
@@ -3837,7 +3840,7 @@ pub(crate) fn describe(text: String) -> () {
     second = _smelt_tmp_32.group_owned(2.0 as usize);
     _smelt_tmp_35 = m.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_36 = Into::<SmeltList<_>>::into((_smelt_tmp_35).to_array_view());
-    _smelt_tmp_37 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Option<String>> = vec![]; smelt_list_items }));
+    _smelt_tmp_37 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Option<JsString>> = vec![]; smelt_list_items }));
     _smelt_tmp_38 = Into::<SmeltList<_>>::into(_smelt_tmp_36.borrow().iter().cloned().chain(_smelt_tmp_37.borrow().iter().cloned()).collect::<Vec<_>>());
     _smelt_tmp_39 = _smelt_tmp_38.len() as f64;
     _smelt_tmp_40 = m.clone().expect("optional value was absent after narrowing");
@@ -3847,56 +3850,56 @@ pub(crate) fn describe(text: String) -> () {
     return;
 }
 
-pub(crate) fn digits(text: String) -> String {
-    let joined: String;
-    let tagged: String;
-    let mut _smelt_tmp_7: String;
-    let _smelt_tmp_8: SmeltList<String>;
-    let _smelt_tmp_9: String;
+pub(crate) fn digits(text: JsString) -> JsString {
+    let joined: JsString;
+    let tagged: JsString;
+    let mut _smelt_tmp_7: JsString;
+    let _smelt_tmp_8: SmeltList<JsString>;
+    let _smelt_tmp_9: JsString;
     let _smelt_tmp_10: SmeltRegExp;
-    let _smelt_tmp_11: Option<SmeltList<String>>;
-    let _smelt_tmp_12: SmeltList<String>;
-    let _smelt_tmp_13: SmeltList<String>;
-    let _smelt_tmp_14: ::std::rc::Rc<dyn Fn(String, i64, &SmeltList<String>) -> String>;
-    let _smelt_tmp_15: SmeltList<String>;
+    let _smelt_tmp_11: Option<SmeltList<JsString>>;
+    let _smelt_tmp_12: SmeltList<JsString>;
+    let _smelt_tmp_13: SmeltList<JsString>;
+    let _smelt_tmp_14: ::std::rc::Rc<dyn Fn(JsString, i64, &SmeltList<JsString>) -> JsString>;
+    let _smelt_tmp_15: SmeltList<JsString>;
     let _smelt_tmp_17: bool;
     let _smelt_tmp_18: bool;
     let mut _smelt_tmp_19: Option<f64>;
-    let _smelt_tmp_20: SmeltList<String>;
+    let _smelt_tmp_20: SmeltList<JsString>;
     let _smelt_tmp_21: f64;
     let _smelt_tmp_22: f64;
-    let _smelt_tmp_23: String;
-    let _smelt_tmp_24: String;
-    let _smelt_tmp_25: String;
-    let _smelt_tmp_26: String;
-    let _smelt_tmp_27: String;
-    let _smelt_tmp_4: SmeltRegExp = SmeltRegExp::new("\\d".to_owned(), "g".to_owned());
-    let all: Option<SmeltList<String>> = _smelt_tmp_4.match_all_strings(&text.clone()).map(SmeltList::from);
+    let _smelt_tmp_23: JsString;
+    let _smelt_tmp_24: JsString;
+    let _smelt_tmp_25: JsString;
+    let _smelt_tmp_26: JsString;
+    let _smelt_tmp_27: JsString;
+    let _smelt_tmp_4: SmeltRegExp = SmeltRegExp::new(JsString::from("\\d"), JsString::from("g"));
+    let all: Option<SmeltList<JsString>> = _smelt_tmp_4.match_all_strings(&text.clone()).map(SmeltList::from);
     let _smelt_tmp_6: bool = !(all.clone().is_none());
-    let mut _smelt_tmp_7: String = String::new();
+    let mut _smelt_tmp_7: JsString = String::new();
     if _smelt_tmp_6 {
     _smelt_tmp_8 = Into::<SmeltList<_>>::into(all.clone().expect("optional value was absent after narrowing"));
-    _smelt_tmp_9 = _smelt_tmp_8.borrow().join(&"+".to_owned());
+    _smelt_tmp_9 = _smelt_tmp_8.borrow().join(&JsString::from("+"));
     _smelt_tmp_7 = _smelt_tmp_9;
     } else {
-    _smelt_tmp_7 = "none".to_owned();
+    _smelt_tmp_7 = JsString::from("none");
     }
     joined = _smelt_tmp_7;
-    _smelt_tmp_10 = SmeltRegExp::new("\\d".to_owned(), "g".to_owned());
+    _smelt_tmp_10 = SmeltRegExp::new(JsString::from("\\d"), JsString::from("g"));
     _smelt_tmp_11 = _smelt_tmp_10.match_all_strings(&text.clone()).map(SmeltList::from);
-    _smelt_tmp_12 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    _smelt_tmp_12 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
     _smelt_tmp_13 = Into::<SmeltList<_>>::into(_smelt_tmp_11.clone().unwrap_or(_smelt_tmp_12));
-    _smelt_tmp_14 = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let _smelt_tmp_1: String = "<".to_owned() + &closure_arg_0.clone();
-    let _smelt_tmp_2: String = _smelt_tmp_1.clone() + &">".to_owned();
+    _smelt_tmp_14 = ::std::rc::Rc::new(|closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
+    let _smelt_tmp_1: JsString = JsString::from("<") + &closure_arg_0.clone();
+    let _smelt_tmp_2: JsString = _smelt_tmp_1.clone() + &JsString::from(">");
     _smelt_tmp_2.clone()
     });
-    _smelt_tmp_15 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let _smelt_tmp_1: String = "<".to_owned() + &closure_arg_0.clone();
-    let _smelt_tmp_2: String = _smelt_tmp_1.clone() + &">".to_owned();
+    _smelt_tmp_15 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
+    let _smelt_tmp_1: JsString = JsString::from("<") + &closure_arg_0.clone();
+    let _smelt_tmp_2: JsString = _smelt_tmp_1.clone() + &JsString::from(">");
     _smelt_tmp_2.clone()
     }); let smelt_array = _smelt_tmp_13; let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
-    tagged = _smelt_tmp_15.borrow().join(&"".to_owned());
+    tagged = _smelt_tmp_15.borrow().join(&JsString::new());
     _smelt_tmp_17 = all.clone().is_none();
     _smelt_tmp_18 = !(_smelt_tmp_17);
     let mut _smelt_tmp_19: Option<f64> = None::<f64>;
@@ -3908,28 +3911,28 @@ pub(crate) fn digits(text: String) -> String {
     _smelt_tmp_19 = None::<f64>;
     }
     _smelt_tmp_22 = _smelt_tmp_19.clone().unwrap_or(0.0);
-    _smelt_tmp_23 = "".to_owned() + &smelt_number_to_string(_smelt_tmp_22);
-    _smelt_tmp_24 = _smelt_tmp_23 + &" ".to_owned();
+    _smelt_tmp_23 = JsString::new() + &smelt_number_to_string(_smelt_tmp_22);
+    _smelt_tmp_24 = _smelt_tmp_23 + &JsString::from(" ");
     _smelt_tmp_25 = _smelt_tmp_24 + &joined;
-    _smelt_tmp_26 = _smelt_tmp_25 + &" ".to_owned();
+    _smelt_tmp_26 = _smelt_tmp_25 + &JsString::from(" ");
     _smelt_tmp_27 = _smelt_tmp_26 + &tagged;
     return _smelt_tmp_27;
 }
 
-pub(crate) fn first_two(text: String, pattern: SmeltRegExp) -> String {
+pub(crate) fn first_two(text: JsString, pattern: SmeltRegExp) -> JsString {
     let _smelt_tmp_3: Option<SmeltMatch> = pattern.clone().match_string(&text.clone());
-    let _smelt_tmp_4: Option<SmeltList<Option<String>>> = _smelt_tmp_3.map(|value| (value).to_array_view());
-    let _smelt_tmp_5: SmeltList<Option<String>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Option<String>> = vec![]; smelt_list_items }));
-    let groups: SmeltList<Option<String>> = Into::<SmeltList<_>>::into(_smelt_tmp_4.clone().unwrap_or(_smelt_tmp_5));
-    let _smelt_tmp_7: SmeltList<Option<String>> = Into::<SmeltList<_>>::into(groups.borrow().iter().skip({ let smelt_len = groups.len() as i64; let smelt_index = 0.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take({ let smelt_len = groups.len() as i64; let smelt_index = 2.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = groups.len() as i64; let smelt_index = 0.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).cloned().collect::<Vec<_>>());
-    let _smelt_tmp_8 = ::std::rc::Rc::new(|closure_arg_0: Option<String>, _arg0: i64, _arg1: &SmeltList<Option<String>>| {
-    let _smelt_tmp_1: String = closure_arg_0.clone().unwrap_or("-".to_owned());
+    let _smelt_tmp_4: Option<SmeltList<Option<JsString>>> = _smelt_tmp_3.map(|value| (value).to_array_view());
+    let _smelt_tmp_5: SmeltList<Option<JsString>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Option<JsString>> = vec![]; smelt_list_items }));
+    let groups: SmeltList<Option<JsString>> = Into::<SmeltList<_>>::into(_smelt_tmp_4.clone().unwrap_or(_smelt_tmp_5));
+    let _smelt_tmp_7: SmeltList<Option<JsString>> = Into::<SmeltList<_>>::into(groups.borrow().iter().skip({ let smelt_len = groups.len() as i64; let smelt_index = 0.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take({ let smelt_len = groups.len() as i64; let smelt_index = 2.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = groups.len() as i64; let smelt_index = 0.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).cloned().collect::<Vec<_>>());
+    let _smelt_tmp_8 = ::std::rc::Rc::new(|closure_arg_0: Option<JsString>, _arg0: i64, _arg1: &SmeltList<Option<JsString>>| {
+    let _smelt_tmp_1: JsString = closure_arg_0.clone().unwrap_or(JsString::from("-"));
     _smelt_tmp_1.clone()
     });
-    let _smelt_tmp_9: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: Option<String>, _arg0: i64, _arg1: &SmeltList<Option<String>>| {
-    let _smelt_tmp_1: String = closure_arg_0.clone().unwrap_or("-".to_owned());
+    let _smelt_tmp_9: SmeltList<JsString> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: Option<JsString>, _arg0: i64, _arg1: &SmeltList<Option<JsString>>| {
+    let _smelt_tmp_1: JsString = closure_arg_0.clone().unwrap_or(JsString::from("-"));
     _smelt_tmp_1.clone()
     }); let smelt_array = _smelt_tmp_7; let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
-    let _smelt_tmp_10: String = _smelt_tmp_9.borrow().join(&"|".to_owned());
+    let _smelt_tmp_10: JsString = _smelt_tmp_9.borrow().join(&JsString::from("|"));
     return _smelt_tmp_10;
 }

@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -4944,50 +4947,50 @@ impl SmeltInspect for SmeltUnknown {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let url: SmeltUrl;
     let relative: SmeltUrl;
-    let _smelt_tmp_5: String;
-    let _smelt_tmp_7: String;
-    let _smelt_tmp_8: String;
-    let _smelt_tmp_9: String;
-    let _smelt_tmp_10: String;
-    let _smelt_tmp_12: String;
-    let _smelt_tmp_13: String;
-    let _smelt_tmp_14: String;
-    let _smelt_tmp_15: String;
-    let _smelt_tmp_16: String;
-    let _smelt_tmp_17: String;
-    let _smelt_tmp_20: String;
+    let _smelt_tmp_5: JsString;
+    let _smelt_tmp_7: JsString;
+    let _smelt_tmp_8: JsString;
+    let _smelt_tmp_9: JsString;
+    let _smelt_tmp_10: JsString;
+    let _smelt_tmp_12: JsString;
+    let _smelt_tmp_13: JsString;
+    let _smelt_tmp_14: JsString;
+    let _smelt_tmp_15: JsString;
+    let _smelt_tmp_16: JsString;
+    let _smelt_tmp_17: JsString;
+    let _smelt_tmp_20: JsString;
     let _smelt_tmp_22: SmeltUrlSearchParams;
     let _smelt_tmp_23: ();
     let _smelt_tmp_24: SmeltUrlSearchParams;
     let _smelt_tmp_25: ();
-    let _smelt_tmp_26: String;
+    let _smelt_tmp_26: JsString;
     let _smelt_tmp_27: SmeltUrlSearchParams;
-    let _smelt_tmp_28: Option<String>;
-    let _smelt_tmp_29: String;
-    let _smelt_tmp_31: String;
+    let _smelt_tmp_28: Option<JsString>;
+    let _smelt_tmp_29: JsString;
+    let _smelt_tmp_31: JsString;
     let _smelt_tmp_32: SmeltUrlSearchParams;
-    let _smelt_tmp_33: Option<String>;
-    let _smelt_tmp_34: String;
+    let _smelt_tmp_33: Option<JsString>;
+    let _smelt_tmp_34: JsString;
     let _smelt_tmp_35: SmeltUrlSearchParams;
     let _smelt_tmp_36: bool;
-    let _smelt_tmp_38: String;
-    let _smelt_tmp_39: String;
-    let _smelt_tmp_40: String;
-    let _smelt_tmp_42: String;
-    let _smelt_tmp_43: SmeltRecord<String, String>;
-    let _smelt_tmp_44: String;
-    let _smelt_tmp_50: String;
-    let _smelt_tmp_53: String;
-    let _smelt_tmp_55: String;
-    let _smelt_tmp_57: String;
-    let _smelt_tmp_59: String;
+    let _smelt_tmp_38: JsString;
+    let _smelt_tmp_39: JsString;
+    let _smelt_tmp_40: JsString;
+    let _smelt_tmp_42: JsString;
+    let _smelt_tmp_43: SmeltRecord<String, JsString>;
+    let _smelt_tmp_44: JsString;
+    let _smelt_tmp_50: JsString;
+    let _smelt_tmp_53: JsString;
+    let _smelt_tmp_55: JsString;
+    let _smelt_tmp_57: JsString;
+    let _smelt_tmp_59: JsString;
     let _smelt_tmp_60: SmeltRequest;
-    let _smelt_tmp_61: String;
-    let _smelt_tmp_63: String;
+    let _smelt_tmp_61: JsString;
+    let _smelt_tmp_63: JsString;
     let _smelt_tmp_67: bool;
     let _smelt_tmp_71: bool;
-    let _smelt_tmp_72: String;
-    let _smelt_tmp_4: SmeltUrl = smelt_url_new_throwing("https://user:pw@example.com:8080/a/b/?x=1&y=2#frag".to_owned().as_str(), None)?;
+    let _smelt_tmp_72: JsString;
+    let _smelt_tmp_4: SmeltUrl = smelt_url_new_throwing(JsString::from("https://user:pw@example.com:8080/a/b/?x=1&y=2#frag").as_str(), None)?;
     url = _smelt_tmp_4;
     _smelt_tmp_5 = url.href();
     let _ = { println!("{}", _smelt_tmp_5); };
@@ -5007,36 +5010,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_20 = url.href();
     let _ = { println!("{}", _smelt_tmp_20); };
     _smelt_tmp_22 = url.search_params();
-    _smelt_tmp_23 = _smelt_tmp_22.append(&"z".to_owned(), &"3".to_owned());
+    _smelt_tmp_23 = _smelt_tmp_22.append(&JsString::from("z"), &JsString::from("3"));
     _smelt_tmp_24 = url.search_params();
-    _smelt_tmp_25 = _smelt_tmp_24.delete(&"x".to_owned());
+    _smelt_tmp_25 = _smelt_tmp_24.delete(&JsString::from("x"));
     _smelt_tmp_26 = url.search();
     _smelt_tmp_27 = url.search_params();
-    _smelt_tmp_28 = _smelt_tmp_27.get(&"y".to_owned());
-    _smelt_tmp_29 = _smelt_tmp_28.clone().unwrap_or("null".to_owned());
+    _smelt_tmp_28 = _smelt_tmp_27.get(&JsString::from("y"));
+    _smelt_tmp_29 = _smelt_tmp_28.clone().unwrap_or(JsString::from("null"));
     let _ = { println!("{} {}", _smelt_tmp_26, _smelt_tmp_29); };
-    _smelt_tmp_31 = { let smelt_url_value: String = "?q=hello+world".to_owned(); url.set_search(&smelt_url_value); smelt_url_value };
+    _smelt_tmp_31 = { let smelt_url_value: String = JsString::from("?q=hello+world"); url.set_search(&smelt_url_value); smelt_url_value };
     _smelt_tmp_32 = url.search_params();
-    _smelt_tmp_33 = _smelt_tmp_32.get(&"q".to_owned());
-    _smelt_tmp_34 = _smelt_tmp_33.clone().unwrap_or("null".to_owned());
+    _smelt_tmp_33 = _smelt_tmp_32.get(&JsString::from("q"));
+    _smelt_tmp_34 = _smelt_tmp_33.clone().unwrap_or(JsString::from("null"));
     _smelt_tmp_35 = url.search_params();
-    _smelt_tmp_36 = _smelt_tmp_35.has(&"y".to_owned());
+    _smelt_tmp_36 = _smelt_tmp_35.has(&JsString::from("y"));
     let _ = { println!("{} {}", _smelt_tmp_34, _smelt_tmp_36); };
-    _smelt_tmp_38 = { let smelt_url_value: String = "443".to_owned(); url.set_port(&smelt_url_value); smelt_url_value };
-    _smelt_tmp_39 = { let smelt_url_value: String = "http:".to_owned(); url.set_protocol(&smelt_url_value); smelt_url_value };
+    _smelt_tmp_38 = { let smelt_url_value: String = JsString::from("443"); url.set_port(&smelt_url_value); smelt_url_value };
+    _smelt_tmp_39 = { let smelt_url_value: String = JsString::from("http:"); url.set_protocol(&smelt_url_value); smelt_url_value };
     _smelt_tmp_40 = url.href();
     let _ = { println!("{}", _smelt_tmp_40); };
     _smelt_tmp_42 = url.href();
-    _smelt_tmp_43 = SmeltRecord::from([("location".to_owned(), _smelt_tmp_42)]);
+    _smelt_tmp_43 = SmeltRecord::from([(JsString::from("location"), _smelt_tmp_42)]);
     _smelt_tmp_44 = serde_json::to_string(&{ let smelt_record = _smelt_tmp_43.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect())) }).expect("JSON serialization failed");
     let _ = { println!("{}", _smelt_tmp_44); };
-    let _smelt_tmp_46: String = trim_trailing_slash("https://example.com/the/endpoint/?k=v".to_owned())?;
+    let _smelt_tmp_46: JsString = trim_trailing_slash(JsString::from("https://example.com/the/endpoint/?k=v"))?;
     let _ = { println!("{}", _smelt_tmp_46); };
-    let _smelt_tmp_48: SmeltUrl = smelt_url_new_throwing("https://example.com/dir".to_owned().as_str(), None)?;
+    let _smelt_tmp_48: SmeltUrl = smelt_url_new_throwing(JsString::from("https://example.com/dir").as_str(), None)?;
     let _smelt_tmp_49: SmeltUrl = append_slash(_smelt_tmp_48);
     _smelt_tmp_50 = _smelt_tmp_49.pathname();
     let _ = { println!("{}", _smelt_tmp_50); };
-    let _smelt_tmp_52: SmeltUrl = smelt_url_new_throwing("../c?d=1".to_owned().as_str(), Some("https://example.com/a/b/".to_owned().as_str()))?;
+    let _smelt_tmp_52: SmeltUrl = smelt_url_new_throwing(JsString::from("../c?d=1").as_str(), Some(JsString::from("https://example.com/a/b/").as_str()))?;
     relative = _smelt_tmp_52;
     _smelt_tmp_53 = relative.href();
     let _ = { println!("{}", _smelt_tmp_53); };
@@ -5048,12 +5051,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_60 = SmeltRequest::from_parts_with_init(&_smelt_tmp_59, "GET".to_owned(), SmeltHeaders::new(), SmeltBody::empty(), SmeltRequestInit::default());
     _smelt_tmp_61 = _smelt_tmp_60.url();
     let _ = { println!("{}", _smelt_tmp_61); };
-    _smelt_tmp_63 = "".to_owned() + &relative.href();
+    _smelt_tmp_63 = JsString::new() + &relative.href();
     let _ = { println!("{}", _smelt_tmp_63); };
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_url_new_throwing("not a url".to_owned().as_str(), None))) {
+    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_url_new_throwing(JsString::from("not a url").as_str(), None))) {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_65: SmeltUrl = __smelt_value;
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| { println!("{}", "parsed".to_owned()); })) {
+    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| { println!("{}", JsString::from("parsed")); })) {
         Ok(__smelt_value) => {
             let _smelt_tmp_66: () = __smelt_value;
         }
@@ -5062,7 +5065,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let error = smelt_panic_error_value(&*__smelt_panic);
     _smelt_tmp_67 = matches!(error.clone().clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
     if _smelt_tmp_67 {
-    let _ = { println!("{} {}", "TypeError".to_owned(), SmeltInspect::smelt_console_text(&smelt_get_unknown_field(&error.clone(), "message").clone())); };
+    let _ = { println!("{} {}", JsString::from("TypeError"), SmeltInspect::smelt_console_text(&smelt_get_unknown_field(&error.clone(), "message").clone())); };
     }
         }
     }
@@ -5071,7 +5074,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let error = smelt_thrown_value(&*__smelt_error);
     _smelt_tmp_67 = matches!(error.clone().clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
     if _smelt_tmp_67 {
-    let _ = { println!("{} {}", "TypeError".to_owned(), SmeltInspect::smelt_console_text(&smelt_get_unknown_field(&error.clone(), "message").clone())); };
+    let _ = { println!("{} {}", JsString::from("TypeError"), SmeltInspect::smelt_console_text(&smelt_get_unknown_field(&error.clone(), "message").clone())); };
     }
         }
         Err(__smelt_panic) => {
@@ -5079,14 +5082,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let error = smelt_panic_error_value(&*__smelt_panic);
     _smelt_tmp_67 = matches!(error.clone().clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
     if _smelt_tmp_67 {
-    let _ = { println!("{} {}", "TypeError".to_owned(), SmeltInspect::smelt_console_text(&smelt_get_unknown_field(&error.clone(), "message").clone())); };
+    let _ = { println!("{} {}", JsString::from("TypeError"), SmeltInspect::smelt_console_text(&smelt_get_unknown_field(&error.clone(), "message").clone())); };
     }
         }
     }
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_url_set_href_throwing(&url, "::".to_owned()))) {
+    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_url_set_href_throwing(&url, JsString::from("::")))) {
         Ok(Ok(__smelt_value)) => {
-            let _smelt_tmp_69: String = __smelt_value;
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| { println!("{}", "assigned".to_owned()); })) {
+            let _smelt_tmp_69: JsString = __smelt_value;
+    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| { println!("{}", JsString::from("assigned")); })) {
         Ok(__smelt_value) => {
             let _smelt_tmp_70: () = __smelt_value;
         }
@@ -5123,15 +5126,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 use super::*;
 
-pub(crate) fn trim_trailing_slash(input: String) -> Result<String, Box<dyn std::error::Error>> {
+pub(crate) fn trim_trailing_slash(input: JsString) -> Result<JsString, Box<dyn std::error::Error>> {
     let url: SmeltUrl;
-    let _smelt_tmp_3: String;
-    let _smelt_tmp_4: String;
+    let _smelt_tmp_3: JsString;
+    let _smelt_tmp_4: JsString;
     let _smelt_tmp_5: f64;
     let _smelt_tmp_6: f64;
-    let _smelt_tmp_7: String;
-    let _smelt_tmp_8: String;
-    let _smelt_tmp_9: String;
+    let _smelt_tmp_7: JsString;
+    let _smelt_tmp_8: JsString;
+    let _smelt_tmp_9: JsString;
     let _smelt_tmp_2: SmeltUrl = smelt_url_new_throwing(input.clone().as_str(), None)?;
     url = _smelt_tmp_2;
     _smelt_tmp_3 = url.pathname();
@@ -5145,15 +5148,15 @@ pub(crate) fn trim_trailing_slash(input: String) -> Result<String, Box<dyn std::
 }
 
 pub(crate) fn append_slash(url: SmeltUrl) -> SmeltUrl {
-    let _smelt_tmp_1: String = url.pathname();
-    let _smelt_tmp_2: String = _smelt_tmp_1 + &"/".to_owned();
-    let _smelt_tmp_3: String = { let smelt_url_value: String = _smelt_tmp_2; url.set_pathname(&smelt_url_value); smelt_url_value };
+    let _smelt_tmp_1: JsString = url.pathname();
+    let _smelt_tmp_2: JsString = _smelt_tmp_1 + &JsString::from("/");
+    let _smelt_tmp_3: JsString = { let smelt_url_value: String = _smelt_tmp_2; url.set_pathname(&smelt_url_value); smelt_url_value };
     return url.clone();
 }
 
 pub(crate) fn move_through_alias(target: SmeltUrl) -> () {
     let alias: SmeltUrl = target.clone();
-    let _smelt_tmp_2: String = { let smelt_url_value: String = "/moved".to_owned(); target.set_pathname(&smelt_url_value); smelt_url_value };
-    let _smelt_tmp_3: String = { let smelt_url_value: String = "".to_owned(); target.set_hash(&smelt_url_value); smelt_url_value };
+    let _smelt_tmp_2: JsString = { let smelt_url_value: String = JsString::from("/moved"); target.set_pathname(&smelt_url_value); smelt_url_value };
+    let _smelt_tmp_3: JsString = { let smelt_url_value: String = JsString::new(); target.set_hash(&smelt_url_value); smelt_url_value };
     return;
 }

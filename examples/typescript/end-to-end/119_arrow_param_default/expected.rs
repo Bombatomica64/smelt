@@ -71,6 +71,9 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
@@ -144,15 +147,15 @@ fn main() {
     let _smelt_tmp_6: f64;
     let _smelt_tmp_8: SmeltList<f64>;
     let _smelt_tmp_10: f64;
-    let _smelt_tmp_12: String;
-    let _smelt_tmp_14: String;
+    let _smelt_tmp_12: JsString;
+    let _smelt_tmp_14: JsString;
     let _smelt_tmp_16: f64;
     let _smelt_tmp_18: f64;
-    let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: Option<String>| {
-    let greeting_1: String = closure_arg_1.clone().unwrap_or("hello".to_owned());
-    let _smelt_tmp_4: String = "".to_owned() + &greeting_1.clone();
-    let _smelt_tmp_5: String = _smelt_tmp_4.clone() + &", ".to_owned();
-    let _smelt_tmp_6: String = _smelt_tmp_5.clone() + &closure_arg_0.clone();
+    let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: Option<JsString>| {
+    let greeting_1: JsString = closure_arg_1.clone().unwrap_or(JsString::from("hello"));
+    let _smelt_tmp_4: JsString = JsString::new() + &greeting_1.clone();
+    let _smelt_tmp_5: JsString = _smelt_tmp_4.clone() + &JsString::from(", ");
+    let _smelt_tmp_6: JsString = _smelt_tmp_5.clone() + &closure_arg_0.clone();
     _smelt_tmp_6.clone()
     });
     let greet = _smelt_tmp_2.clone();
@@ -171,9 +174,9 @@ fn main() {
     let _smelt_tmp_9: SmeltList<SmeltList<f64>> = cluster(_smelt_tmp_8, Some(5.0));
     _smelt_tmp_10 = _smelt_tmp_9.len() as f64;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_10)); };
-    _smelt_tmp_12 = (greet)("ada".to_owned(), None);
+    _smelt_tmp_12 = (greet)(JsString::from("ada"), None);
     let _ = { println!("{}", _smelt_tmp_12); };
-    _smelt_tmp_14 = (greet)("ada".to_owned(), Some("hi".to_owned()));
+    _smelt_tmp_14 = (greet)(JsString::from("ada"), Some(JsString::from("hi")));
     let _ = { println!("{}", _smelt_tmp_14); };
     _smelt_tmp_16 = (scaled)(3.0, None);
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_16)); };

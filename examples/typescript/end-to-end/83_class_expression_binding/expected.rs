@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3823,7 +3826,7 @@ struct Counter(::std::rc::Rc<::std::cell::RefCell<CounterInner>>);
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct CounterInner {
-    _hits: SmeltList<String>,
+    _hits: SmeltList<JsString>,
 }
 impl Clone for Counter {
     fn clone(&self) -> Self {
@@ -3872,7 +3875,7 @@ struct DeclaredReporting(::std::rc::Rc<::std::cell::RefCell<DeclaredReportingInn
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct DeclaredReportingInner {
-    _hits: SmeltList<String>,
+    _hits: SmeltList<JsString>,
 }
 impl Clone for DeclaredReporting {
     fn clone(&self) -> Self {
@@ -3921,7 +3924,7 @@ struct Reporting(::std::rc::Rc<::std::cell::RefCell<ReportingInner>>);
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct ReportingInner {
-    _hits: SmeltList<String>,
+    _hits: SmeltList<JsString>,
 }
 impl Clone for Reporting {
     fn clone(&self) -> Self {
@@ -4033,52 +4036,52 @@ fn main() {
     let reporting: Reporting;
     let declared: DeclaredReporting;
     let numbers: Boxed<f64>;
-    let _smelt_tmp_7: String;
-    let _smelt_tmp_12: String;
-    let _smelt_tmp_16: String;
-    let _smelt_tmp_17: String;
-    let _smelt_tmp_18: String;
+    let _smelt_tmp_7: JsString;
+    let _smelt_tmp_12: JsString;
+    let _smelt_tmp_16: JsString;
+    let _smelt_tmp_17: JsString;
+    let _smelt_tmp_18: JsString;
     let _smelt_tmp_19: SmeltList<f64>;
-    let _smelt_tmp_20: String;
-    let _smelt_tmp_21: String;
+    let _smelt_tmp_20: JsString;
+    let _smelt_tmp_21: JsString;
     let _smelt_tmp_23: bool;
-    let mut _smelt_tmp_24: String;
-    let _smelt_tmp_25: String;
-    let _smelt_tmp_27: String;
-    let _smelt_tmp_29: String;
-    let _smelt_tmp_31: String;
+    let mut _smelt_tmp_24: JsString;
+    let _smelt_tmp_25: JsString;
+    let _smelt_tmp_27: JsString;
+    let _smelt_tmp_29: JsString;
+    let _smelt_tmp_31: JsString;
     let _smelt_tmp_3: Reporting = Reporting::new();
     reporting = _smelt_tmp_3;
-    let _ = reporting.add("a".to_owned());
-    let _ = reporting.add("b".to_owned());
-    let _smelt_tmp_6: String = reporting.report();
-    _smelt_tmp_7 = "expression subclass: ".to_owned() + &_smelt_tmp_6;
+    let _ = reporting.add(JsString::from("a"));
+    let _ = reporting.add(JsString::from("b"));
+    let _smelt_tmp_6: JsString = reporting.report();
+    _smelt_tmp_7 = JsString::from("expression subclass: ") + &_smelt_tmp_6;
     let _ = { println!("{}", _smelt_tmp_7); };
     let _smelt_tmp_9: DeclaredReporting = DeclaredReporting::new();
     declared = _smelt_tmp_9;
-    let _ = declared.add("c".to_owned());
-    let _smelt_tmp_11: String = declared.report();
-    _smelt_tmp_12 = "declared subclass: ".to_owned() + &_smelt_tmp_11;
+    let _ = declared.add(JsString::from("c"));
+    let _smelt_tmp_11: JsString = declared.report();
+    _smelt_tmp_12 = JsString::from("declared subclass: ") + &_smelt_tmp_11;
     let _ = { println!("{}", _smelt_tmp_12); };
     let _smelt_tmp_14: Boxed<f64> = Boxed::new();
     numbers = _smelt_tmp_14;
     let _smelt_tmp_15: f64 = numbers.push(7.0);
     _smelt_tmp_16 = smelt_number_to_string(_smelt_tmp_15);
-    _smelt_tmp_17 = "generic: ".to_owned() + &_smelt_tmp_16;
-    _smelt_tmp_18 = _smelt_tmp_17 + &" ".to_owned();
+    _smelt_tmp_17 = JsString::from("generic: ") + &_smelt_tmp_16;
+    _smelt_tmp_18 = _smelt_tmp_17 + &JsString::from(" ");
     _smelt_tmp_19 = Into::<SmeltList<_>>::into(numbers.0.borrow().items.clone());
     _smelt_tmp_20 = smelt_number_to_string(_smelt_tmp_19.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0));
     _smelt_tmp_21 = _smelt_tmp_18 + &_smelt_tmp_20;
     let _ = { println!("{}", _smelt_tmp_21); };
     _smelt_tmp_23 = true;
-    let _smelt_tmp_24: String = if _smelt_tmp_23 { "yes".to_owned() } else { "no".to_owned() };
-    _smelt_tmp_25 = "instanceof: ".to_owned() + &_smelt_tmp_24;
+    let _smelt_tmp_24: JsString = if _smelt_tmp_23 { JsString::from("yes") } else { JsString::from("no") };
+    _smelt_tmp_25 = JsString::from("instanceof: ") + &_smelt_tmp_24;
     let _ = { println!("{}", _smelt_tmp_25); };
-    _smelt_tmp_27 = "typeof expression class: ".to_owned() + &"function".to_owned();
+    _smelt_tmp_27 = JsString::from("typeof expression class: ") + &JsString::from("function");
     let _ = { println!("{}", _smelt_tmp_27); };
-    _smelt_tmp_29 = "typeof declared class: ".to_owned() + &"function".to_owned();
+    _smelt_tmp_29 = JsString::from("typeof declared class: ") + &JsString::from("function");
     let _ = { println!("{}", _smelt_tmp_29); };
-    _smelt_tmp_31 = "typeof instance: ".to_owned() + &"object".to_owned();
+    _smelt_tmp_31 = JsString::from("typeof instance: ") + &JsString::from("object");
     let _ = { println!("{}", _smelt_tmp_31); };
     return;
 }
@@ -4112,19 +4115,19 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> __smelt
 
 impl Counter {
     fn new() -> Self {
-    let mut this: Self = Counter(::std::rc::Rc::new(::std::cell::RefCell::new(CounterInner { _hits: SmeltList::new(Vec::<String>::new()) })));
-    let _smelt_tmp_1: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    let mut this: Self = Counter(::std::rc::Rc::new(::std::cell::RefCell::new(CounterInner { _hits: SmeltList::new(Vec::<JsString>::new()) })));
+    let _smelt_tmp_1: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
     this.0.borrow_mut()._hits = Into::<SmeltList<_>>::into(_smelt_tmp_1);
     return this;
     }
-    fn add(&self, key: String) -> () {
-    let mut _smelt_tmp_2: SmeltList<String> = Into::<SmeltList<_>>::into(self.0.borrow()._hits.clone());
+    fn add(&self, key: JsString) -> () {
+    let mut _smelt_tmp_2: SmeltList<JsString> = Into::<SmeltList<_>>::into(self.0.borrow()._hits.clone());
     let _smelt_tmp_3: f64 = { let smelt_push_item = key.clone(); _smelt_tmp_2.borrow_mut().push(smelt_push_item); _smelt_tmp_2.len() as f64 };
     self.0.borrow_mut()._hits = Into::<SmeltList<_>>::into(_smelt_tmp_2);
     return;
     }
-    fn tally(&self) -> String {
-    let _smelt_tmp_1: String = self.0.borrow()._hits.clone().borrow().join(&",".to_owned());
+    fn tally(&self) -> JsString {
+    let _smelt_tmp_1: JsString = self.0.borrow()._hits.clone().borrow().join(&JsString::from(","));
     return _smelt_tmp_1;
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
@@ -4143,29 +4146,29 @@ impl Counter {
 
 impl DeclaredReporting {
     fn new() -> Self {
-    let mut this: Self = DeclaredReporting(::std::rc::Rc::new(::std::cell::RefCell::new(DeclaredReportingInner { _hits: SmeltList::new(Vec::<String>::new()) })));
+    let mut this: Self = DeclaredReporting(::std::rc::Rc::new(::std::cell::RefCell::new(DeclaredReportingInner { _hits: SmeltList::new(Vec::<JsString>::new()) })));
     let _smelt_tmp_1: Self = Self::__smelt_init_Counter(this);
     this = _smelt_tmp_1;
     return this;
     }
     fn __smelt_init_Counter(smelt_receiver: Self) -> Self {
     let mut this: Self = smelt_receiver;
-    let _smelt_tmp_1: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    let _smelt_tmp_1: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
     this.0.borrow_mut()._hits = Into::<SmeltList<_>>::into(_smelt_tmp_1);
     return this;
     }
-    fn add(&self, key: String) -> () {
-    let mut _smelt_tmp_2: SmeltList<String> = Into::<SmeltList<_>>::into(self.0.borrow()._hits.clone());
+    fn add(&self, key: JsString) -> () {
+    let mut _smelt_tmp_2: SmeltList<JsString> = Into::<SmeltList<_>>::into(self.0.borrow()._hits.clone());
     let _smelt_tmp_3: f64 = { let smelt_push_item = key.clone(); _smelt_tmp_2.borrow_mut().push(smelt_push_item); _smelt_tmp_2.len() as f64 };
     self.0.borrow_mut()._hits = Into::<SmeltList<_>>::into(_smelt_tmp_2);
     return;
     }
-    fn tally(&self) -> String {
-    let _smelt_tmp_1: String = self.0.borrow()._hits.clone().borrow().join(&",".to_owned());
+    fn tally(&self) -> JsString {
+    let _smelt_tmp_1: JsString = self.0.borrow()._hits.clone().borrow().join(&JsString::from(","));
     return _smelt_tmp_1;
     }
-    fn report(&self) -> String {
-    let _smelt_tmp_1: String = self.tally();
+    fn report(&self) -> JsString {
+    let _smelt_tmp_1: JsString = self.tally();
     return _smelt_tmp_1;
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
@@ -4185,29 +4188,29 @@ impl DeclaredReporting {
 
 impl Reporting {
     fn new() -> Self {
-    let mut this: Self = Reporting(::std::rc::Rc::new(::std::cell::RefCell::new(ReportingInner { _hits: SmeltList::new(Vec::<String>::new()) })));
+    let mut this: Self = Reporting(::std::rc::Rc::new(::std::cell::RefCell::new(ReportingInner { _hits: SmeltList::new(Vec::<JsString>::new()) })));
     let _smelt_tmp_1: Self = Self::__smelt_init_Counter(this);
     this = _smelt_tmp_1;
     return this;
     }
     fn __smelt_init_Counter(smelt_receiver: Self) -> Self {
     let mut this: Self = smelt_receiver;
-    let _smelt_tmp_1: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    let _smelt_tmp_1: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
     this.0.borrow_mut()._hits = Into::<SmeltList<_>>::into(_smelt_tmp_1);
     return this;
     }
-    fn add(&self, key: String) -> () {
-    let mut _smelt_tmp_2: SmeltList<String> = Into::<SmeltList<_>>::into(self.0.borrow()._hits.clone());
+    fn add(&self, key: JsString) -> () {
+    let mut _smelt_tmp_2: SmeltList<JsString> = Into::<SmeltList<_>>::into(self.0.borrow()._hits.clone());
     let _smelt_tmp_3: f64 = { let smelt_push_item = key.clone(); _smelt_tmp_2.borrow_mut().push(smelt_push_item); _smelt_tmp_2.len() as f64 };
     self.0.borrow_mut()._hits = Into::<SmeltList<_>>::into(_smelt_tmp_2);
     return;
     }
-    fn tally(&self) -> String {
-    let _smelt_tmp_1: String = self.0.borrow()._hits.clone().borrow().join(&",".to_owned());
+    fn tally(&self) -> JsString {
+    let _smelt_tmp_1: JsString = self.0.borrow()._hits.clone().borrow().join(&JsString::from(","));
     return _smelt_tmp_1;
     }
-    fn report(&self) -> String {
-    let _smelt_tmp_1: String = self.tally();
+    fn report(&self) -> JsString {
+    let _smelt_tmp_1: JsString = self.tally();
     return _smelt_tmp_1;
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.

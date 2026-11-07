@@ -66,6 +66,9 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
@@ -136,7 +139,7 @@ impl<T: Clone> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Se
 
 // @smelt:prelude-end — generated program below
 fn main() {
-    let scores: ::std::collections::HashMap<String, f64> = ::std::collections::HashMap::from([("ada".to_owned(), 10.0), ("grace".to_owned(), 20.0)]);
+    let scores: ::std::collections::HashMap<JsString, f64> = ::std::collections::HashMap::from([(JsString::from("ada"), 10.0), (JsString::from("grace"), 20.0)]);
     let _ = { println!("{}", smelt_console_number(scores.get(&"ada".to_owned()).cloned().expect("missing field"))); };
     return;
 }

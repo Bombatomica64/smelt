@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3747,8 +3750,8 @@ impl SmeltFromUnknown for SmeltMatch {
 
 #[derive(Clone)]
 pub enum SmeltUnion9 {
-    M0(String),
-    M1(SmeltList<String>),
+    M0(JsString),
+    M1(SmeltList<JsString>),
 }
 impl IntoSmeltUnknown for SmeltUnion9 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -3788,71 +3791,71 @@ impl Default for SmeltUnion9 {
 }
 
 thread_local! {
-    static SMELT_GLOBAL_CACHE_0: ::std::cell::RefCell<SmeltRecord<String, (String, String, bool)>> = ::std::cell::RefCell::new(smelt_global_init__cache__4());
-    static SMELT_GLOBAL_SEEN_1: ::std::cell::RefCell<SmeltList<String>> = ::std::cell::RefCell::new(smelt_global_init__seen__5());
+    static SMELT_GLOBAL_CACHE_0: ::std::cell::RefCell<SmeltRecord<String, (JsString, JsString, bool)>> = ::std::cell::RefCell::new(smelt_global_init__cache__4());
+    static SMELT_GLOBAL_SEEN_1: ::std::cell::RefCell<SmeltList<JsString>> = ::std::cell::RefCell::new(smelt_global_init__seen__5());
 }
-fn smelt_global_init__cache__4() -> SmeltRecord<String, (String, String, bool)> {
-    let _smelt_tmp_0: SmeltRecord<String, (String, String, bool)> = SmeltRecord::from([]);
+fn smelt_global_init__cache__4() -> SmeltRecord<String, (JsString, JsString, bool)> {
+    let _smelt_tmp_0: SmeltRecord<String, (JsString, JsString, bool)> = SmeltRecord::from([]);
     return _smelt_tmp_0;
 }
 
-fn smelt_global_init__seen__5() -> SmeltList<String> {
-    let _smelt_tmp_0: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+fn smelt_global_init__seen__5() -> SmeltList<JsString> {
+    let _smelt_tmp_0: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
     return _smelt_tmp_0;
 }
 
 fn main() {
-    let a: (String, String, bool);
-    let b: (String, String, bool);
+    let a: (JsString, JsString, bool);
+    let b: (JsString, JsString, bool);
     let collect: ::std::rc::Rc<dyn Fn(bool) -> SmeltRecord<String, SmeltUnion9>>;
-    let _smelt_tmp_8: String;
-    let _smelt_tmp_9: String;
-    let _smelt_tmp_10: SmeltList<String>;
-    let _smelt_tmp_11: String;
+    let _smelt_tmp_8: JsString;
+    let _smelt_tmp_9: JsString;
+    let _smelt_tmp_10: SmeltList<JsString>;
+    let _smelt_tmp_11: JsString;
     let _smelt_tmp_13: ::std::rc::Rc<dyn Fn(bool) -> SmeltRecord<String, SmeltUnion9>>;
     let _smelt_tmp_14: SmeltRecord<String, SmeltUnion9>;
-    let _smelt_tmp_15: String;
+    let _smelt_tmp_15: JsString;
     let _smelt_tmp_16: SmeltRecord<String, SmeltUnion9>;
-    let _smelt_tmp_17: String;
+    let _smelt_tmp_17: JsString;
     SMELT_GLOBAL_CACHE_0.with(|_| ());
     SMELT_GLOBAL_SEEN_1.with(|_| ());
-    let _smelt_tmp_5: (String, String, bool) = get_pattern(":id".to_owned());
+    let _smelt_tmp_5: (JsString, JsString, bool) = get_pattern(JsString::from(":id"));
     a = _smelt_tmp_5;
-    let _smelt_tmp_6: (String, String, bool) = get_pattern(":id".to_owned());
+    let _smelt_tmp_6: (JsString, JsString, bool) = get_pattern(JsString::from(":id"));
     b = _smelt_tmp_6;
-    let _smelt_tmp_7: (String, String, bool) = get_pattern(":name".to_owned());
+    let _smelt_tmp_7: (JsString, JsString, bool) = get_pattern(JsString::from(":name"));
     _smelt_tmp_8 = a.1.clone();
     _smelt_tmp_9 = b.0.clone();
     _smelt_tmp_10 = Into::<SmeltList<_>>::into(SMELT_GLOBAL_SEEN_1.with(|value| value.borrow().clone()));
-    _smelt_tmp_11 = _smelt_tmp_10.borrow().join(&"|".to_owned());
+    _smelt_tmp_11 = _smelt_tmp_10.borrow().join(&JsString::from("|"));
     let _ = { println!("{} {} {}", _smelt_tmp_8, _smelt_tmp_9, _smelt_tmp_11); };
     _smelt_tmp_13 = ::std::rc::Rc::new(|closure_arg_0: bool| {
-    let mut __smelt_for_item: SmeltList<String>;
-    let mut name: Option<String>;
-    let mut value: Option<String>;
-    let mut __smelt_logical_value_6: Option<String>;
+    let mut __smelt_for_item: SmeltList<JsString>;
+    let mut name: Option<JsString>;
+    let mut value: Option<JsString>;
+    let mut __smelt_logical_value_6: Option<JsString>;
     let mut _smelt_tmp_13: usize;
     let mut _smelt_tmp_14: bool;
     let mut _smelt_tmp_17: bool;
     let mut _smelt_tmp_18: bool;
     let mut _smelt_tmp_19: bool;
     let mut _smelt_tmp_20: bool;
-    let mut _smelt_tmp_21: SmeltList<String>;
-    let mut _smelt_tmp_22: SmeltList<String>;
+    let mut _smelt_tmp_21: SmeltList<JsString>;
+    let mut _smelt_tmp_22: SmeltList<JsString>;
     let mut _smelt_tmp_23: f64;
     let mut _smelt_tmp_24: Option<SmeltUnion9>;
     let mut _smelt_tmp_25: bool;
     let mut results: SmeltRecord<String, SmeltUnion9> = SmeltRecord::from([]);
-    let _smelt_tmp_8: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["name".to_owned(), "hey".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_9: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["name".to_owned(), "ho".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_10: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["x".to_owned(), "1".to_owned()]; smelt_list_items }));
-    let pairs: SmeltList<SmeltList<String>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<String>> = vec![_smelt_tmp_8.clone(), _smelt_tmp_9.clone(), _smelt_tmp_10.clone()]; smelt_list_items }));
+    let _smelt_tmp_8: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("name"), JsString::from("hey")]; smelt_list_items }));
+    let _smelt_tmp_9: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("name"), JsString::from("ho")]; smelt_list_items }));
+    let _smelt_tmp_10: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("x"), JsString::from("1")]; smelt_list_items }));
+    let pairs: SmeltList<SmeltList<JsString>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<JsString>> = vec![_smelt_tmp_8.clone(), _smelt_tmp_9.clone(), _smelt_tmp_10.clone()]; smelt_list_items }));
     let mut _smelt_tmp_12: usize = 0;
     loop {
     _smelt_tmp_13 = pairs.len();
     _smelt_tmp_14 = _smelt_tmp_12 < _smelt_tmp_13;
     if _smelt_tmp_14 {
-    __smelt_for_item = Into::<SmeltList<_>>::into(pairs.borrow().get(_smelt_tmp_12).cloned().unwrap_or_else(|| SmeltList::new(Vec::<String>::new())));
+    __smelt_for_item = Into::<SmeltList<_>>::into(pairs.borrow().get(_smelt_tmp_12).cloned().unwrap_or_else(|| SmeltList::new(Vec::<JsString>::new())));
     name = ({ let smelt_len = __smelt_for_item.clone().len() as i64; let smelt_index = 0.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| __smelt_for_item.clone().borrow().get(index).cloned());
     value = ({ let smelt_len = __smelt_for_item.clone().len() as i64; let smelt_index = 1.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| __smelt_for_item.clone().borrow().get(index).cloned());
     if closure_arg_0 {
@@ -3865,7 +3868,7 @@ fn main() {
     }
     _smelt_tmp_20 = !(_smelt_tmp_18);
     if _smelt_tmp_20 {
-    _smelt_tmp_21 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    _smelt_tmp_21 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
     results.insert(name.clone().map_or(String::new(), |value| value.clone()), SmeltUnion9::M1(_smelt_tmp_21.clone()));
     } else {
     }
@@ -3903,15 +3906,15 @@ fn main() {
 
 use super::*;
 
-pub(crate) fn get_pattern(label: String) -> (String, String, bool) {
-    let _smelt_tmp_4: String;
-    let _smelt_tmp_5: Option<(String, String, bool)>;
-    let mut _smelt_tmp_6: SmeltList<String>;
+pub(crate) fn get_pattern(label: JsString) -> (JsString, JsString, bool) {
+    let _smelt_tmp_4: JsString;
+    let _smelt_tmp_5: Option<(JsString, JsString, bool)>;
+    let mut _smelt_tmp_6: SmeltList<JsString>;
     let _smelt_tmp_7: f64;
-    let _smelt_tmp_8: SmeltRecord<String, (String, String, bool)>;
-    let _smelt_tmp_9: Option<(String, String, bool)>;
-    let _smelt_tmp_1: SmeltRecord<String, (String, String, bool)> = SMELT_GLOBAL_CACHE_0.with(|value| value.borrow().clone());
-    let _smelt_tmp_2: Option<(String, String, bool)> = _smelt_tmp_1.get(&label.clone());
+    let _smelt_tmp_8: SmeltRecord<String, (JsString, JsString, bool)>;
+    let _smelt_tmp_9: Option<(JsString, JsString, bool)>;
+    let _smelt_tmp_1: SmeltRecord<String, (JsString, JsString, bool)> = SMELT_GLOBAL_CACHE_0.with(|value| value.borrow().clone());
+    let _smelt_tmp_2: Option<(JsString, JsString, bool)> = _smelt_tmp_1.get(&label.clone());
     let _smelt_tmp_3: bool = !(_smelt_tmp_2.is_some());
     if _smelt_tmp_3 {
     _smelt_tmp_4 = { let smelt_len_units = smelt_utf16_len(&label); { let smelt_start = { let smelt_len = smelt_len_units as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }; smelt_utf16_slice(&label, smelt_start, smelt_start.saturating_add(smelt_len_units.saturating_sub({ let smelt_len = smelt_len_units as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }))) } };

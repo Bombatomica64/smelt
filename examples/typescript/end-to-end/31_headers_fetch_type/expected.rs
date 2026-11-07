@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3909,59 +3912,59 @@ impl SmeltFromUnknown for SmeltHeaders {
 
 // @smelt:prelude-end — generated program below
 fn main() {
-    let mut __smelt_for_item: (String, String);
-    let mut name: String;
-    let mut value: String;
-    let _smelt_tmp_18: Option<String>;
-    let _smelt_tmp_19: String;
-    let _smelt_tmp_21: Option<String>;
-    let _smelt_tmp_22: String;
-    let _smelt_tmp_24: Option<String>;
-    let _smelt_tmp_25: String;
+    let mut __smelt_for_item: (JsString, JsString);
+    let mut name: JsString;
+    let mut value: JsString;
+    let _smelt_tmp_18: Option<JsString>;
+    let _smelt_tmp_19: JsString;
+    let _smelt_tmp_21: Option<JsString>;
+    let _smelt_tmp_22: JsString;
+    let _smelt_tmp_24: Option<JsString>;
+    let _smelt_tmp_25: JsString;
     let _smelt_tmp_27: bool;
     let _smelt_tmp_28: bool;
-    let _smelt_tmp_30: SmeltList<String>;
-    let _smelt_tmp_31: String;
-    let _smelt_tmp_33: SmeltList<String>;
-    let _smelt_tmp_34: SmeltList<String>;
-    let _smelt_tmp_35: SmeltList<String>;
-    let _smelt_tmp_36: String;
-    let _smelt_tmp_38: SmeltList<(String, String)>;
+    let _smelt_tmp_30: SmeltList<JsString>;
+    let _smelt_tmp_31: JsString;
+    let _smelt_tmp_33: SmeltList<JsString>;
+    let _smelt_tmp_34: SmeltList<JsString>;
+    let _smelt_tmp_35: SmeltList<JsString>;
+    let _smelt_tmp_36: JsString;
+    let _smelt_tmp_38: SmeltList<(JsString, JsString)>;
     let mut _smelt_tmp_39: usize;
     let mut _smelt_tmp_40: usize;
     let mut _smelt_tmp_41: bool;
-    let _smelt_tmp_5: SmeltRecord<String, String> = SmeltRecord::from([("Content-Type".to_owned(), "text/plain".to_owned())]);
+    let _smelt_tmp_5: SmeltRecord<String, JsString> = SmeltRecord::from([(JsString::from("Content-Type"), JsString::from("text/plain"))]);
     let request: SmeltHeaders = SmeltHeaders::from_pairs(_smelt_tmp_5.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>());
-    let _smelt_tmp_7: () = request.clone().append(&"Accept".to_owned(), &"text/html".to_owned());
-    let _smelt_tmp_8: () = request.clone().append(&"accept".to_owned(), &"application/json".to_owned());
+    let _smelt_tmp_7: () = request.clone().append(&JsString::from("Accept"), &JsString::from("text/html"));
+    let _smelt_tmp_8: () = request.clone().append(&JsString::from("accept"), &JsString::from("application/json"));
     let response: SmeltHeaders = SmeltHeaders::from_pairs(request.clone().entries_sorted());
-    let _smelt_tmp_10: () = response.clone().set(&"X-Trace".to_owned(), &"first".to_owned());
-    let _smelt_tmp_11: () = response.clone().set(&"x-trace".to_owned(), &"second".to_owned());
-    let _smelt_tmp_12: () = response.clone().append(&"Set-Cookie".to_owned(), &"a=1".to_owned());
-    let _smelt_tmp_13: () = response.clone().append(&"set-cookie".to_owned(), &"b=2".to_owned());
-    let _smelt_tmp_14: () = response.clone().delete(&"content-type".to_owned());
-    let _smelt_tmp_15: Option<String> = request.clone().get(&"content-type".to_owned());
-    let _smelt_tmp_16: String = _smelt_tmp_15.clone().unwrap_or("null".to_owned());
+    let _smelt_tmp_10: () = response.clone().set(&JsString::from("X-Trace"), &JsString::from("first"));
+    let _smelt_tmp_11: () = response.clone().set(&JsString::from("x-trace"), &JsString::from("second"));
+    let _smelt_tmp_12: () = response.clone().append(&JsString::from("Set-Cookie"), &JsString::from("a=1"));
+    let _smelt_tmp_13: () = response.clone().append(&JsString::from("set-cookie"), &JsString::from("b=2"));
+    let _smelt_tmp_14: () = response.clone().delete(&JsString::from("content-type"));
+    let _smelt_tmp_15: Option<JsString> = request.clone().get(&JsString::from("content-type"));
+    let _smelt_tmp_16: JsString = _smelt_tmp_15.clone().unwrap_or(JsString::from("null"));
     let _ = { println!("{}", _smelt_tmp_16); };
-    _smelt_tmp_18 = request.get(&"accept".to_owned());
-    _smelt_tmp_19 = _smelt_tmp_18.clone().unwrap_or("null".to_owned());
+    _smelt_tmp_18 = request.get(&JsString::from("accept"));
+    _smelt_tmp_19 = _smelt_tmp_18.clone().unwrap_or(JsString::from("null"));
     let _ = { println!("{}", _smelt_tmp_19); };
-    _smelt_tmp_21 = response.clone().get(&"x-trace".to_owned());
-    _smelt_tmp_22 = _smelt_tmp_21.clone().unwrap_or("null".to_owned());
+    _smelt_tmp_21 = response.clone().get(&JsString::from("x-trace"));
+    _smelt_tmp_22 = _smelt_tmp_21.clone().unwrap_or(JsString::from("null"));
     let _ = { println!("{}", _smelt_tmp_22); };
-    _smelt_tmp_24 = response.clone().get(&"content-type".to_owned());
-    _smelt_tmp_25 = _smelt_tmp_24.clone().unwrap_or("null".to_owned());
+    _smelt_tmp_24 = response.clone().get(&JsString::from("content-type"));
+    _smelt_tmp_25 = _smelt_tmp_24.clone().unwrap_or(JsString::from("null"));
     let _ = { println!("{}", _smelt_tmp_25); };
-    _smelt_tmp_27 = response.clone().has(&"set-cookie".to_owned());
-    _smelt_tmp_28 = response.clone().has(&"content-type".to_owned());
+    _smelt_tmp_27 = response.clone().has(&JsString::from("set-cookie"));
+    _smelt_tmp_28 = response.clone().has(&JsString::from("content-type"));
     let _ = { println!("{} {}", _smelt_tmp_27, _smelt_tmp_28); };
     _smelt_tmp_30 = Into::<SmeltList<_>>::into(SmeltList::new(response.clone().get_set_cookie()));
-    _smelt_tmp_31 = _smelt_tmp_30.borrow().join(&"|".to_owned());
+    _smelt_tmp_31 = _smelt_tmp_30.borrow().join(&JsString::from("|"));
     let _ = { println!("{}", _smelt_tmp_31); };
     _smelt_tmp_33 = Into::<SmeltList<_>>::into(SmeltList::new(response.clone().keys()));
-    _smelt_tmp_34 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    _smelt_tmp_34 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
     _smelt_tmp_35 = Into::<SmeltList<_>>::into(_smelt_tmp_33.borrow().iter().cloned().chain(_smelt_tmp_34.borrow().iter().cloned()).collect::<Vec<_>>());
-    _smelt_tmp_36 = _smelt_tmp_35.borrow().join(&",".to_owned());
+    _smelt_tmp_36 = _smelt_tmp_35.borrow().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_36); };
     _smelt_tmp_38 = Into::<SmeltList<_>>::into(SmeltList::new(response.entries_sorted()));
     _smelt_tmp_39 = 0;

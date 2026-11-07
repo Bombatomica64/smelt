@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3721,11 +3724,11 @@ impl SmeltFromUnknown for SmeltMatch {
 fn main() {
     let from_range: SmeltList<f64>;
     let spread_range: SmeltList<f64>;
-    let names: SmeltList<String>;
+    let names: SmeltList<JsString>;
     let again: SmeltList<f64>;
     let _smelt_tmp_6: f64;
-    let _smelt_tmp_10: String;
-    let _smelt_tmp_14: String;
+    let _smelt_tmp_10: JsString;
+    let _smelt_tmp_14: JsString;
     let _smelt_tmp_18: f64;
     let _smelt_tmp_19: f64;
     let _smelt_tmp_4: SmeltGenerator<f64, (), ()> = range(1.0, 5.0, None::<f64>);
@@ -3734,11 +3737,11 @@ fn main() {
     let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_6), smelt_console_number(from_range.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0)), smelt_console_number(from_range.borrow().get({ let smelt_normalized = 4.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0))); };
     let _smelt_tmp_8: SmeltGenerator<f64, (), ()> = range(0.0, 10.0, Some(5.0));
     spread_range = Into::<SmeltList<_>>::into(SmeltList::new((_smelt_tmp_8).collect_yields()));
-    _smelt_tmp_10 = spread_range.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&",".to_owned());
+    _smelt_tmp_10 = spread_range.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_10); };
-    let _smelt_tmp_12: SmeltGenerator<String, (), ()> = labels(3.0);
+    let _smelt_tmp_12: SmeltGenerator<JsString, (), ()> = labels(3.0);
     names = Into::<SmeltList<_>>::into(SmeltList::new((_smelt_tmp_12).collect_yields()));
-    _smelt_tmp_14 = names.borrow().join(&" ".to_owned());
+    _smelt_tmp_14 = names.borrow().join(&JsString::from(" "));
     let _ = { println!("{}", _smelt_tmp_14); };
     let _smelt_tmp_16: SmeltGenerator<f64, (), ()> = range(2.0, 3.0, None::<f64>);
     again = Into::<SmeltList<_>>::into(SmeltList::new((_smelt_tmp_16).collect_yields()));
@@ -3777,19 +3780,19 @@ pub(crate) fn range(start: f64, end: f64, step: Option<f64>) -> SmeltGenerator<f
     SmeltGenerator::new(move |value| { *smelt_generator_input.borrow_mut() = Some(value); match smelt_generator.resume() { genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value) } })
 }
 
-pub(crate) fn labels(count: f64) -> SmeltGenerator<String, (), ()> {
+pub(crate) fn labels(count: f64) -> SmeltGenerator<JsString, (), ()> {
     let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None));
     let smelt_generator_producer_input = smelt_generator_input.clone();
     let smelt_generator = genawaiter::rc::Gen::new(move |co| { let smelt_generator_input = smelt_generator_producer_input; async move {
     let mut _smelt_tmp_2: bool;
-    let mut _smelt_tmp_4: String;
+    let mut _smelt_tmp_4: JsString;
     let mut _smelt_tmp_5: ();
     let mut _smelt_tmp_6: f64;
     let mut i: f64 = 0.0;
     loop {
     _smelt_tmp_2 = i < count;
     if !(_smelt_tmp_2) { break; }
-    _smelt_tmp_4 = "item-".to_owned() + &smelt_number_to_string(i);
+    _smelt_tmp_4 = JsString::from("item-") + &smelt_number_to_string(i);
     _smelt_tmp_5 = { co.yield_(_smelt_tmp_4).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command { SmeltGeneratorCommand::Next(value) => value, SmeltGeneratorCommand::Return(value) => return value, SmeltGeneratorCommand::Throw(error) => smelt_panic_throw(smelt_throw(error)) } };
     _smelt_tmp_6 = i + 1.0;
     i = _smelt_tmp_6;

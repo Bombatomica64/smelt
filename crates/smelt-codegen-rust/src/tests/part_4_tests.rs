@@ -805,7 +805,7 @@ const has = word.includes("mel");
 "#,
     );
 
-    assert!(source.contains(".contains(&\"mel\".to_owned());"));
+    assert!(source.contains(".contains(&JsString::from(\"mel\"));"));
 }
 
 #[test]
@@ -868,7 +868,7 @@ const fromSource = new Set(source);
     // membership, and a `Set<string>` uses `SmeltPrimSet`, which hashes the
     // values directly and so does not drag in the erased-value carrier.
     assert!(source.contains("let values: SmeltJsSet<f64>"), "{source}");
-    assert!(source.contains("let empty: SmeltPrimSet<String>"), "{source}");
+    assert!(source.contains("let empty: SmeltPrimSet<JsString>"), "{source}");
     assert!(source.contains(".contains(&2.0)"));
     assert!(source.contains("SmeltPrimSet::new();"));
     assert!(source.contains(".iter().cloned().collect::<SmeltJsSet<_>>()"));
@@ -1115,7 +1115,7 @@ export function several(): number[] {
     );
 
     assert!(
-        source.contains(r#"vec!["a".to_owned()]"#),
+        source.contains(r#"vec![JsString::from("a")]"#),
         "a single non-numeric argument is one element: {source}"
     );
     assert!(

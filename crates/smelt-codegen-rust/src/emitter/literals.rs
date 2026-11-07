@@ -4,7 +4,10 @@ use super::*;
 use crate::rust::RustExpr;
 
 /// Converts a MIR constant to Rust source text.
-pub(crate) fn constant_expr(constant: &Constant) -> RustExpr {
+///
+/// `js_text` says whether a string constant is a JavaScript string
+/// (`JsString`) rather than a Python `str` (`String`).
+pub(crate) fn constant_expr(constant: &Constant, js_text: bool) -> RustExpr {
     match constant {
         Constant::Bool(value) => RustExpr::path(value.to_string()),
         Constant::Int(value) => number_literal(value.to_string(), *value < 0),
@@ -26,6 +29,7 @@ pub(crate) fn constant_expr(constant: &Constant) -> RustExpr {
                 number_literal(value.to_string(), value.is_sign_negative())
             }
         }
+        Constant::String(value) if js_text => RustExpr::js_string_literal(value),
         Constant::String(value) => RustExpr::string_literal(value),
         Constant::Symbol(value) => {
             RustExpr::atom(format!(

@@ -28,7 +28,7 @@ const item = values.shift();
     );
 
     assert!(source.contains("let mut"));
-    assert!(source.contains("Option<String>"));
+    assert!(source.contains("Option<JsString>"));
     assert!(source.contains(".is_empty()"));
     assert!(source.contains("Some("));
     assert!(source.contains(".remove(0)"));
@@ -184,7 +184,7 @@ const rebuilt = Object.fromEntries([["a", 1], ["b", 2]]);
         "{source}"
     );
     assert!(
-        source.contains("SmeltRecord::from([(\"a\".to_owned(), 1.0), (\"b\".to_owned(), 2.0)])"),
+        source.contains("SmeltRecord::from([(JsString::from(\"a\"), 1.0), (JsString::from(\"b\"), 2.0)])"),
         "{source}"
     );
 }
@@ -1028,7 +1028,7 @@ console.log(result);
 
     assert!(source.contains("match status.as_str() {"));
     assert!(source.contains("\"pending\" => {"));
-    assert!(source.contains("return \"Waiting\".to_owned();"));
+    assert!(source.contains("return JsString::from(\"Waiting\");"));
     assert!(source.contains("_ => {"));
 }
 
@@ -1049,12 +1049,12 @@ console.log(result);
     );
 
     assert!(
-        source.contains("_smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: String| {"),
+        source.contains("_smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: JsString| {"),
         "{source}"
     );
     assert!(source.contains("match closure_arg_0.as_str() {"));
     assert!(source.contains("\"pending\" => {"));
-    assert!(source.contains("\"Waiting\".to_owned()"));
+    assert!(source.contains("JsString::from(\"Waiting\")"));
     assert!(source.contains("_ => {"));
 }
 
@@ -1238,7 +1238,7 @@ fn emits_fetch_as_a_response_assembling_future() {
     );
 
     assert!(
-        source.contains("reqwest::get(\"https://example.com\".to_owned())"),
+        source.contains("reqwest::get(JsString::from(\"https://example.com\"))"),
         "{source}"
     );
     assert!(source.contains("SmeltResponse::from_parts"), "{source}");
@@ -2127,13 +2127,13 @@ export function unescape(str: string): string {
          string-to-string type, never read as an erased `null`:\n{body}"
     );
     assert!(
-        body.contains(r#"("&amp;".to_owned(), "&".to_owned())"#)
-            && body.contains(r#"("&lt;".to_owned(), "<".to_owned())"#),
+        body.contains(r#"(JsString::from("&amp;"), JsString::from("&"))"#)
+            && body.contains(r#"(JsString::from("&lt;"), JsString::from("<"))"#),
         "every entry of the object constant must be materialized inside the \
          callback:\n{body}"
     );
     assert!(
-        body.contains("SmeltRecord<String, String>"),
+        body.contains("SmeltRecord<String, JsString>"),
         "the rebuilt constant must keep the source's concrete string-to-string \
          type:\n{body}"
     );
@@ -2157,11 +2157,11 @@ export function values(items: string[]): number[] {
     let body = function_body(&source, "values");
 
     assert!(
-        body.contains(r#"("b".to_owned(), 2.0)"#),
+        body.contains(r#"(JsString::from("b"), 2.0)"#),
         "the selected entry must be present with its own value:\n{body}"
     );
     assert!(
-        body.contains(r#"get(&"b".to_owned()"#),
+        body.contains(r#"get(&JsString::from("b")"#),
         "the statically-keyed read must look that key up in the rebuilt \
          constant:\n{body}"
     );

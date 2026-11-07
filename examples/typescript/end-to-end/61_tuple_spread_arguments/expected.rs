@@ -71,6 +71,9 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
@@ -150,46 +153,46 @@ thread_local! {
 }
 
 fn main() {
-    let mut __smelt_spread: (String, String, f64);
-    let mut tail: (String, f64);
-    let mut __smelt_spread_1: (String, f64);
-    let mut via_closure: ::std::rc::Rc<dyn Fn(String, String, f64) -> String>;
-    let mut __smelt_spread_2: (String, String, f64);
+    let mut __smelt_spread: (JsString, JsString, f64);
+    let mut tail: (JsString, f64);
+    let mut __smelt_spread_1: (JsString, f64);
+    let mut via_closure: ::std::rc::Rc<dyn Fn(JsString, JsString, f64) -> JsString>;
+    let mut __smelt_spread_2: (JsString, JsString, f64);
     let mut sink: Sink;
-    let mut __smelt_spread_3: (String, String, f64);
-    let mut __smelt_spread_4: (String, String, f64);
-    let mut one_route: SmeltList<(String, String, f64)>;
-    let mut __smelt_spread_5: (String, String, f64);
+    let mut __smelt_spread_3: (JsString, JsString, f64);
+    let mut __smelt_spread_4: (JsString, JsString, f64);
+    let mut one_route: SmeltList<(JsString, JsString, f64)>;
+    let mut __smelt_spread_5: (JsString, JsString, f64);
     let mut _smelt_tmp_15: usize;
     let mut _smelt_tmp_16: bool;
     let mut _smelt_tmp_19: usize;
-    let mut _smelt_tmp_23: ::std::rc::Rc<dyn Fn(String, String, f64) -> String>;
-    let mut _smelt_tmp_24: String;
+    let mut _smelt_tmp_23: ::std::rc::Rc<dyn Fn(JsString, JsString, f64) -> JsString>;
+    let mut _smelt_tmp_24: JsString;
     let mut _smelt_tmp_32: f64;
-    let mut _smelt_tmp_33: String;
-    let mut _smelt_tmp_35: (String, String, f64);
-    let _smelt_tmp_12: (String, String, f64) = ("GET".to_owned(), "/a".to_owned(), 1.0);
-    let _smelt_tmp_13: (String, String, f64) = ("POST".to_owned(), "/b".to_owned(), 2.0);
-    let routes: SmeltList<(String, String, f64)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, String, f64)> = vec![_smelt_tmp_12.clone(), _smelt_tmp_13.clone()]; smelt_list_items }));
+    let mut _smelt_tmp_33: JsString;
+    let mut _smelt_tmp_35: (JsString, JsString, f64);
+    let _smelt_tmp_12: (JsString, JsString, f64) = (JsString::from("GET"), JsString::from("/a"), 1.0);
+    let _smelt_tmp_13: (JsString, JsString, f64) = (JsString::from("POST"), JsString::from("/b"), 2.0);
+    let routes: SmeltList<(JsString, JsString, f64)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(JsString, JsString, f64)> = vec![_smelt_tmp_12.clone(), _smelt_tmp_13.clone()]; smelt_list_items }));
     let mut i: usize = 0;
     loop {
     _smelt_tmp_15 = routes.len();
     _smelt_tmp_16 = i < _smelt_tmp_15;
     if !(_smelt_tmp_16) { break; }
     __smelt_spread = routes.borrow().get(i).cloned().unwrap_or_else(|| (String::new(), String::new(), 0.0));
-    let _smelt_tmp_17: String = record(__smelt_spread.0.clone(), __smelt_spread.1.clone(), __smelt_spread.2);
+    let _smelt_tmp_17: JsString = record(__smelt_spread.0.clone(), __smelt_spread.1.clone(), __smelt_spread.2);
     let _ = { println!("{}", _smelt_tmp_17); };
     _smelt_tmp_19 = i + 1;
     i = _smelt_tmp_19;
     }
-    tail = ("/c".to_owned(), 7.0);
+    tail = (JsString::from("/c"), 7.0);
     __smelt_spread_1 = tail;
-    let _smelt_tmp_21: String = record("DELETE".to_owned(), __smelt_spread_1.0.clone(), __smelt_spread_1.1);
+    let _smelt_tmp_21: JsString = record(JsString::from("DELETE"), __smelt_spread_1.0.clone(), __smelt_spread_1.1);
     let _ = { println!("{}", _smelt_tmp_21); };
-    _smelt_tmp_23 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: String, closure_arg_2: f64| {
-    let _smelt_tmp_4: String;
-    let _smelt_tmp_3: String = record(closure_arg_0.clone(), closure_arg_1.clone(), closure_arg_2);
-    _smelt_tmp_4 = "closure ".to_owned() + &_smelt_tmp_3.clone();
+    _smelt_tmp_23 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: JsString, closure_arg_2: f64| {
+    let _smelt_tmp_4: JsString;
+    let _smelt_tmp_3: JsString = record(closure_arg_0.clone(), closure_arg_1.clone(), closure_arg_2);
+    _smelt_tmp_4 = JsString::from("closure ") + &_smelt_tmp_3.clone();
     _smelt_tmp_4.clone()
     });
     via_closure = _smelt_tmp_23.clone();
@@ -199,19 +202,19 @@ fn main() {
     let _smelt_tmp_26: Sink = Sink::new();
     sink = _smelt_tmp_26;
     __smelt_spread_3 = routes.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), String::new(), 0.0));
-    let _smelt_tmp_27: String = sink.take(__smelt_spread_3.0.clone(), __smelt_spread_3.1.clone(), __smelt_spread_3.2);
+    let _smelt_tmp_27: JsString = sink.take(__smelt_spread_3.0.clone(), __smelt_spread_3.1.clone(), __smelt_spread_3.2);
     let _ = { println!("{}", _smelt_tmp_27); };
-    let _smelt_tmp_29: (String, String, f64) = make_route();
+    let _smelt_tmp_29: (JsString, JsString, f64) = make_route();
     __smelt_spread_4 = _smelt_tmp_29;
-    let _smelt_tmp_30: String = record(__smelt_spread_4.0.clone(), __smelt_spread_4.1.clone(), __smelt_spread_4.2);
+    let _smelt_tmp_30: JsString = record(__smelt_spread_4.0.clone(), __smelt_spread_4.1.clone(), __smelt_spread_4.2);
     let _ = { println!("{}", _smelt_tmp_30); };
     _smelt_tmp_32 = SMELT_GLOBAL_EVALUATIONS_0.with(::std::cell::Cell::get);
-    _smelt_tmp_33 = "evaluations: ".to_owned() + &smelt_number_to_string(_smelt_tmp_32);
+    _smelt_tmp_33 = JsString::from("evaluations: ") + &smelt_number_to_string(_smelt_tmp_32);
     let _ = { println!("{}", _smelt_tmp_33); };
-    _smelt_tmp_35 = ("PATCH".to_owned(), "/maybe".to_owned(), 4.0);
-    one_route = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, String, f64)> = vec![_smelt_tmp_35.clone()]; smelt_list_items }));
+    _smelt_tmp_35 = (JsString::from("PATCH"), JsString::from("/maybe"), 4.0);
+    one_route = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(JsString, JsString, f64)> = vec![_smelt_tmp_35.clone()]; smelt_list_items }));
     __smelt_spread_5 = one_route.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), String::new(), 0.0));
-    let _smelt_tmp_37: String = record(__smelt_spread_5.0.clone(), __smelt_spread_5.1.clone(), __smelt_spread_5.2);
+    let _smelt_tmp_37: JsString = record(__smelt_spread_5.0.clone(), __smelt_spread_5.1.clone(), __smelt_spread_5.2);
     let _ = { println!("{}", _smelt_tmp_37); };
     return;
 }
@@ -221,10 +224,10 @@ impl Sink {
     let this: Self = Sink {  };
     return this;
     }
-    fn take(&self, method: String, path: String, weight: f64) -> String {
-    let _smelt_tmp_5: String;
-    let _smelt_tmp_4: String = record(method.clone(), path.clone(), weight);
-    _smelt_tmp_5 = "method ".to_owned() + &_smelt_tmp_4;
+    fn take(&self, method: JsString, path: JsString, weight: f64) -> JsString {
+    let _smelt_tmp_5: JsString;
+    let _smelt_tmp_4: JsString = record(method.clone(), path.clone(), weight);
+    _smelt_tmp_5 = JsString::from("method ") + &_smelt_tmp_4;
     return _smelt_tmp_5;
     }
 }
@@ -236,18 +239,18 @@ impl Sink {
 
 use super::*;
 
-pub(crate) fn record(method: String, path: String, weight: f64) -> String {
-    let _smelt_tmp_3: String = method.clone() + &" ".to_owned();
-    let _smelt_tmp_4: String = _smelt_tmp_3 + &path.clone();
-    let _smelt_tmp_5: String = _smelt_tmp_4 + &" @".to_owned();
-    let _smelt_tmp_6: String = _smelt_tmp_5 + &smelt_number_to_string(weight);
+pub(crate) fn record(method: JsString, path: JsString, weight: f64) -> JsString {
+    let _smelt_tmp_3: JsString = method.clone() + &JsString::from(" ");
+    let _smelt_tmp_4: JsString = _smelt_tmp_3 + &path.clone();
+    let _smelt_tmp_5: JsString = _smelt_tmp_4 + &JsString::from(" @");
+    let _smelt_tmp_6: JsString = _smelt_tmp_5 + &smelt_number_to_string(weight);
     return _smelt_tmp_6;
 }
 
-pub(crate) fn make_route() -> (String, String, f64) {
+pub(crate) fn make_route() -> (JsString, JsString, f64) {
     let _smelt_tmp_0: f64 = SMELT_GLOBAL_EVALUATIONS_0.with(::std::cell::Cell::get);
     let _smelt_tmp_1: f64 = _smelt_tmp_0 + 1.0;
     let _smelt_tmp_2: f64 = { let smelt_global_value = _smelt_tmp_1; SMELT_GLOBAL_EVALUATIONS_0.with(|value| value.set(smelt_global_value)); smelt_global_value };
-    let _smelt_tmp_3: (String, String, f64) = ("PUT".to_owned(), "/once".to_owned(), 3.0);
+    let _smelt_tmp_3: (JsString, JsString, f64) = (JsString::from("PUT"), JsString::from("/once"), 3.0);
     return _smelt_tmp_3;
 }

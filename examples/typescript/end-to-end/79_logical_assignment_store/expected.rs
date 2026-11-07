@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3678,7 +3681,7 @@ impl SmeltFromUnknown for SmeltMatch {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Leaf {
-    tag: String,
+    tag: JsString,
 }
 impl IntoSmeltUnknown for Leaf {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -3731,111 +3734,111 @@ fn main() {
     let __smelt_logical_value_30: f64;
     let mut truthy: f64;
     let __smelt_logical_value_32: f64;
-    let _smelt_tmp_40: String;
-    let _smelt_tmp_41: String;
-    let _smelt_tmp_42: String;
-    let _smelt_tmp_43: String;
-    let _smelt_tmp_44: String;
-    let _smelt_tmp_47: String;
-    let _smelt_tmp_48: String;
-    let _smelt_tmp_49: String;
-    let _smelt_tmp_50: SmeltList<String>;
-    let _smelt_tmp_51: String;
-    let _smelt_tmp_52: String;
-    let _smelt_tmp_53: String;
-    let _smelt_tmp_54: String;
-    let _smelt_tmp_55: String;
+    let _smelt_tmp_40: JsString;
+    let _smelt_tmp_41: JsString;
+    let _smelt_tmp_42: JsString;
+    let _smelt_tmp_43: JsString;
+    let _smelt_tmp_44: JsString;
+    let _smelt_tmp_47: JsString;
+    let _smelt_tmp_48: JsString;
+    let _smelt_tmp_49: JsString;
+    let _smelt_tmp_50: SmeltList<JsString>;
+    let _smelt_tmp_51: JsString;
+    let _smelt_tmp_52: JsString;
+    let _smelt_tmp_53: JsString;
+    let _smelt_tmp_54: JsString;
+    let _smelt_tmp_55: JsString;
     let _smelt_tmp_57: bool;
     let _smelt_tmp_58: bool;
-    let _smelt_tmp_59: String;
-    let _smelt_tmp_60: String;
-    let _smelt_tmp_61: String;
-    let _smelt_tmp_62: String;
-    let _smelt_tmp_63: String;
+    let _smelt_tmp_59: JsString;
+    let _smelt_tmp_60: JsString;
+    let _smelt_tmp_61: JsString;
+    let _smelt_tmp_62: JsString;
+    let _smelt_tmp_63: JsString;
     let _smelt_tmp_66: bool;
     let _smelt_tmp_67: bool;
-    let _smelt_tmp_68: String;
-    let _smelt_tmp_69: String;
-    let _smelt_tmp_70: String;
-    let _smelt_tmp_71: String;
-    let _smelt_tmp_72: String;
+    let _smelt_tmp_68: JsString;
+    let _smelt_tmp_69: JsString;
+    let _smelt_tmp_70: JsString;
+    let _smelt_tmp_71: JsString;
+    let _smelt_tmp_72: JsString;
     let _smelt_tmp_75: Option<Leaf>;
     let _smelt_tmp_76: bool;
     let _smelt_tmp_77: bool;
     let _smelt_tmp_79: Option<Leaf>;
-    let _smelt_tmp_80: Option<String>;
-    let _smelt_tmp_81: String;
-    let _smelt_tmp_82: String;
-    let _smelt_tmp_83: SmeltList<String>;
-    let _smelt_tmp_84: String;
-    let _smelt_tmp_85: String;
+    let _smelt_tmp_80: Option<JsString>;
+    let _smelt_tmp_81: JsString;
+    let _smelt_tmp_82: JsString;
+    let _smelt_tmp_83: SmeltList<JsString>;
+    let _smelt_tmp_84: JsString;
+    let _smelt_tmp_85: JsString;
     let _smelt_tmp_87: Option<Leaf>;
     let _smelt_tmp_88: bool;
     let _smelt_tmp_89: bool;
     let _smelt_tmp_91: Option<Leaf>;
-    let _smelt_tmp_92: Option<String>;
-    let _smelt_tmp_93: String;
-    let _smelt_tmp_94: String;
-    let _smelt_tmp_95: SmeltList<String>;
-    let _smelt_tmp_96: String;
-    let _smelt_tmp_97: String;
+    let _smelt_tmp_92: Option<JsString>;
+    let _smelt_tmp_93: JsString;
+    let _smelt_tmp_94: JsString;
+    let _smelt_tmp_95: SmeltList<JsString>;
+    let _smelt_tmp_96: JsString;
+    let _smelt_tmp_97: JsString;
     let _smelt_tmp_100: Option<f64>;
     let _smelt_tmp_101: bool;
-    let _smelt_tmp_102: SmeltList<String>;
-    let _smelt_tmp_103: String;
-    let _smelt_tmp_104: String;
-    let _smelt_tmp_105: String;
-    let _smelt_tmp_106: String;
-    let _smelt_tmp_107: String;
+    let _smelt_tmp_102: SmeltList<JsString>;
+    let _smelt_tmp_103: JsString;
+    let _smelt_tmp_104: JsString;
+    let _smelt_tmp_105: JsString;
+    let _smelt_tmp_106: JsString;
+    let _smelt_tmp_107: JsString;
     let _smelt_tmp_110: Option<f64>;
     let _smelt_tmp_111: bool;
-    let _smelt_tmp_112: SmeltList<String>;
+    let _smelt_tmp_112: SmeltList<JsString>;
     let _smelt_tmp_113: f64;
-    let _smelt_tmp_114: String;
-    let _smelt_tmp_115: String;
+    let _smelt_tmp_114: JsString;
+    let _smelt_tmp_115: JsString;
     let _smelt_tmp_118: Option<f64>;
     let _smelt_tmp_119: bool;
-    let _smelt_tmp_120: String;
-    let _smelt_tmp_121: String;
+    let _smelt_tmp_120: JsString;
+    let _smelt_tmp_121: JsString;
     let _smelt_tmp_123: bool;
-    let _smelt_tmp_124: String;
-    let _smelt_tmp_125: String;
+    let _smelt_tmp_124: JsString;
+    let _smelt_tmp_125: JsString;
     let _smelt_tmp_128: bool;
-    let _smelt_tmp_129: String;
-    let _smelt_tmp_130: String;
+    let _smelt_tmp_129: JsString;
+    let _smelt_tmp_130: JsString;
     let _smelt_tmp_132: bool;
     let _smelt_tmp_133: bool;
-    let _smelt_tmp_134: String;
-    let _smelt_tmp_135: String;
+    let _smelt_tmp_134: JsString;
+    let _smelt_tmp_135: JsString;
     let mut local: f64 = 0.0;
     local = 5.0;
     let local_value: f64 = 5.0;
-    let _smelt_tmp_33: String = smelt_number_to_string(local_value);
-    let _smelt_tmp_34: String = "local: ".to_owned() + &_smelt_tmp_33;
-    let _smelt_tmp_35: String = _smelt_tmp_34 + &" ".to_owned();
-    let _smelt_tmp_36: String = smelt_number_to_string(local);
-    let _smelt_tmp_37: String = _smelt_tmp_35 + &_smelt_tmp_36;
+    let _smelt_tmp_33: JsString = smelt_number_to_string(local_value);
+    let _smelt_tmp_34: JsString = JsString::from("local: ") + &_smelt_tmp_33;
+    let _smelt_tmp_35: JsString = _smelt_tmp_34 + &JsString::from(" ");
+    let _smelt_tmp_36: JsString = smelt_number_to_string(local);
+    let _smelt_tmp_37: JsString = _smelt_tmp_35 + &_smelt_tmp_36;
     let _ = { println!("{}", _smelt_tmp_37); };
-    holder = SmeltRecord::from([("field".to_owned(), 0.0)]);
+    holder = SmeltRecord::from([(JsString::from("field"), 0.0)]);
     holder.insert("field".to_owned(), 5.0);
     field_value = 5.0;
     _smelt_tmp_40 = smelt_number_to_string(field_value);
-    _smelt_tmp_41 = "field: ".to_owned() + &_smelt_tmp_40;
-    _smelt_tmp_42 = _smelt_tmp_41 + &" ".to_owned();
+    _smelt_tmp_41 = JsString::from("field: ") + &_smelt_tmp_40;
+    _smelt_tmp_42 = _smelt_tmp_41 + &JsString::from(" ");
     _smelt_tmp_43 = smelt_number_to_string(holder.get(&"field".to_owned()).expect("missing field"));
     _smelt_tmp_44 = _smelt_tmp_42 + &_smelt_tmp_43;
     let _ = { println!("{}", _smelt_tmp_44); };
     numbers = SmeltRecord::from([]);
-    numbers.insert("a".to_owned(), 5.0);
+    numbers.insert(JsString::from("a"), 5.0);
     element_value = 5.0;
     _smelt_tmp_47 = smelt_number_to_string(element_value);
-    _smelt_tmp_48 = "element: ".to_owned() + &_smelt_tmp_47;
-    _smelt_tmp_49 = _smelt_tmp_48 + &" ".to_owned();
+    _smelt_tmp_48 = JsString::from("element: ") + &_smelt_tmp_47;
+    _smelt_tmp_49 = _smelt_tmp_48 + &JsString::from(" ");
     _smelt_tmp_50 = Into::<SmeltList<_>>::into(numbers.clone().keys().filter(|key| !key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&numbers.clone(), key)).collect::<Vec<_>>());
-    _smelt_tmp_51 = _smelt_tmp_50.borrow().join(&",".to_owned());
+    _smelt_tmp_51 = _smelt_tmp_50.borrow().join(&JsString::from(","));
     _smelt_tmp_52 = _smelt_tmp_49 + &_smelt_tmp_51;
-    _smelt_tmp_53 = _smelt_tmp_52 + &" ".to_owned();
-    _smelt_tmp_54 = smelt_number_to_string(numbers.get(&"a".to_owned().clone()).unwrap_or(0.0));
+    _smelt_tmp_53 = _smelt_tmp_52 + &JsString::from(" ");
+    _smelt_tmp_54 = smelt_number_to_string(numbers.get(&JsString::from("a").clone()).unwrap_or(0.0));
     _smelt_tmp_55 = _smelt_tmp_53 + &_smelt_tmp_54;
     let _ = { println!("{}", _smelt_tmp_55); };
     falsy_local = 0.0;
@@ -3851,12 +3854,12 @@ fn main() {
     }
     or_local = __smelt_logical_7;
     _smelt_tmp_59 = smelt_number_to_string(or_local);
-    _smelt_tmp_60 = "or local: ".to_owned() + &_smelt_tmp_59;
-    _smelt_tmp_61 = _smelt_tmp_60 + &" ".to_owned();
+    _smelt_tmp_60 = JsString::from("or local: ") + &_smelt_tmp_59;
+    _smelt_tmp_61 = _smelt_tmp_60 + &JsString::from(" ");
     _smelt_tmp_62 = smelt_number_to_string(falsy_local);
     _smelt_tmp_63 = _smelt_tmp_61 + &_smelt_tmp_62;
     let _ = { println!("{}", _smelt_tmp_63); };
-    falsy_holder = SmeltRecord::from([("field".to_owned(), 0.0)]);
+    falsy_holder = SmeltRecord::from([(JsString::from("field"), 0.0)]);
     __smelt_logical_11 = 0.0;
     _smelt_tmp_66 = falsy_holder.get(&"field".to_owned()).expect("missing field") != 0.0;
     _smelt_tmp_67 = !(_smelt_tmp_66);
@@ -3869,89 +3872,89 @@ fn main() {
     }
     or_field = __smelt_logical_11;
     _smelt_tmp_68 = smelt_number_to_string(or_field);
-    _smelt_tmp_69 = "or field: ".to_owned() + &_smelt_tmp_68;
-    _smelt_tmp_70 = _smelt_tmp_69 + &" ".to_owned();
+    _smelt_tmp_69 = JsString::from("or field: ") + &_smelt_tmp_68;
+    _smelt_tmp_70 = _smelt_tmp_69 + &JsString::from(" ");
     _smelt_tmp_71 = smelt_number_to_string(falsy_holder.get(&"field".to_owned()).expect("missing field"));
     _smelt_tmp_72 = _smelt_tmp_70 + &_smelt_tmp_71;
     let _ = { println!("{}", _smelt_tmp_72); };
     leaves = SmeltRecord::from([]);
     __smelt_logical_15 = None::<Leaf>;
-    _smelt_tmp_75 = leaves.clone().get(&"a".to_owned());
+    _smelt_tmp_75 = leaves.clone().get(&JsString::from("a"));
     _smelt_tmp_76 = !(_smelt_tmp_75.is_none());
     _smelt_tmp_77 = !(_smelt_tmp_76);
     if _smelt_tmp_77 {
-    let _smelt_tmp_78: Leaf = Leaf::new("first".to_owned());
+    let _smelt_tmp_78: Leaf = Leaf::new(JsString::from("first"));
     __smelt_logical_value_16 = _smelt_tmp_78;
-    leaves.insert("a".to_owned(), __smelt_logical_value_16.clone());
+    leaves.insert(JsString::from("a"), __smelt_logical_value_16.clone());
     __smelt_logical_15 = Some(__smelt_logical_value_16);
     } else {
-    _smelt_tmp_79 = leaves.clone().get(&"a".to_owned());
+    _smelt_tmp_79 = leaves.clone().get(&JsString::from("a"));
     __smelt_logical_15 = _smelt_tmp_79;
     }
     leaf = __smelt_logical_15;
     _smelt_tmp_80 = leaf.as_ref().map(|_smelt_value| _smelt_value.tag.clone());
-    _smelt_tmp_81 = "or element: ".to_owned() + &_smelt_tmp_80.unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_82 = _smelt_tmp_81 + &" ".to_owned();
+    _smelt_tmp_81 = JsString::from("or element: ") + &_smelt_tmp_80.unwrap_or_else(|| "undefined".to_owned());
+    _smelt_tmp_82 = _smelt_tmp_81 + &JsString::from(" ");
     _smelt_tmp_83 = Into::<SmeltList<_>>::into(leaves.clone().keys().filter(|key| !key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&leaves.clone(), key)).collect::<Vec<_>>());
-    _smelt_tmp_84 = _smelt_tmp_83.borrow().join(&",".to_owned());
+    _smelt_tmp_84 = _smelt_tmp_83.borrow().join(&JsString::from(","));
     _smelt_tmp_85 = _smelt_tmp_82 + &_smelt_tmp_84;
     let _ = { println!("{}", _smelt_tmp_85); };
     __smelt_logical_18 = None::<Leaf>;
-    _smelt_tmp_87 = leaves.clone().get(&"a".to_owned());
+    _smelt_tmp_87 = leaves.clone().get(&JsString::from("a"));
     _smelt_tmp_88 = !(_smelt_tmp_87.is_none());
     _smelt_tmp_89 = !(_smelt_tmp_88);
     if _smelt_tmp_89 {
-    let _smelt_tmp_90: Leaf = Leaf::new("second".to_owned());
+    let _smelt_tmp_90: Leaf = Leaf::new(JsString::from("second"));
     __smelt_logical_value_19 = _smelt_tmp_90;
-    leaves.insert("a".to_owned(), __smelt_logical_value_19.clone());
+    leaves.insert(JsString::from("a"), __smelt_logical_value_19.clone());
     __smelt_logical_18 = Some(__smelt_logical_value_19);
     } else {
-    _smelt_tmp_91 = leaves.clone().get(&"a".to_owned());
+    _smelt_tmp_91 = leaves.clone().get(&JsString::from("a"));
     __smelt_logical_18 = _smelt_tmp_91;
     }
     kept = __smelt_logical_18;
     _smelt_tmp_92 = kept.as_ref().map(|_smelt_value| _smelt_value.tag.clone());
-    _smelt_tmp_93 = "or element again: ".to_owned() + &_smelt_tmp_92.unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_94 = _smelt_tmp_93 + &" ".to_owned();
+    _smelt_tmp_93 = JsString::from("or element again: ") + &_smelt_tmp_92.unwrap_or_else(|| "undefined".to_owned());
+    _smelt_tmp_94 = _smelt_tmp_93 + &JsString::from(" ");
     _smelt_tmp_95 = Into::<SmeltList<_>>::into(leaves.keys().filter(|key| !key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&leaves, key)).collect::<Vec<_>>());
-    _smelt_tmp_96 = _smelt_tmp_95.borrow().join(&",".to_owned());
+    _smelt_tmp_96 = _smelt_tmp_95.borrow().join(&JsString::from(","));
     _smelt_tmp_97 = _smelt_tmp_94 + &_smelt_tmp_96;
     let _ = { println!("{}", _smelt_tmp_97); };
     nullish = SmeltRecord::from([]);
-    _smelt_tmp_100 = nullish.clone().get(&"a".to_owned());
+    _smelt_tmp_100 = nullish.clone().get(&JsString::from("a"));
     _smelt_tmp_101 = _smelt_tmp_100.is_none();
     if _smelt_tmp_101 {
     __smelt_logical_value_22 = 2.0;
-    nullish.insert("a".to_owned(), __smelt_logical_value_22);
+    nullish.insert(JsString::from("a"), __smelt_logical_value_22);
     }
     _smelt_tmp_102 = Into::<SmeltList<_>>::into(nullish.clone().keys().filter(|key| !key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&nullish.clone(), key)).collect::<Vec<_>>());
-    _smelt_tmp_103 = _smelt_tmp_102.borrow().join(&",".to_owned());
-    _smelt_tmp_104 = "nullish absent: ".to_owned() + &_smelt_tmp_103;
-    _smelt_tmp_105 = _smelt_tmp_104 + &" ".to_owned();
-    _smelt_tmp_106 = smelt_number_to_string(nullish.get(&"a".to_owned().clone()).unwrap_or(0.0));
+    _smelt_tmp_103 = _smelt_tmp_102.borrow().join(&JsString::from(","));
+    _smelt_tmp_104 = JsString::from("nullish absent: ") + &_smelt_tmp_103;
+    _smelt_tmp_105 = _smelt_tmp_104 + &JsString::from(" ");
+    _smelt_tmp_106 = smelt_number_to_string(nullish.get(&JsString::from("a").clone()).unwrap_or(0.0));
     _smelt_tmp_107 = _smelt_tmp_105 + &_smelt_tmp_106;
     let _ = { println!("{}", _smelt_tmp_107); };
     conjunction = SmeltRecord::from([]);
-    _smelt_tmp_110 = conjunction.clone().get(&"a".to_owned());
+    _smelt_tmp_110 = conjunction.clone().get(&JsString::from("a"));
     _smelt_tmp_111 = _smelt_tmp_110.clone().is_some_and(|value| value != 0.0 && !value.is_nan());
     if _smelt_tmp_111 {
     __smelt_logical_value_24 = 9.0;
-    conjunction.insert("a".to_owned(), __smelt_logical_value_24);
+    conjunction.insert(JsString::from("a"), __smelt_logical_value_24);
     }
     _smelt_tmp_112 = Into::<SmeltList<_>>::into(conjunction.keys().filter(|key| !key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&conjunction, key)).collect::<Vec<_>>());
     _smelt_tmp_113 = _smelt_tmp_112.len() as f64;
     _smelt_tmp_114 = smelt_number_to_string(_smelt_tmp_113);
-    _smelt_tmp_115 = "and absent: ".to_owned() + &_smelt_tmp_114;
+    _smelt_tmp_115 = JsString::from("and absent: ") + &_smelt_tmp_114;
     let _ = { println!("{}", _smelt_tmp_115); };
-    present = SmeltRecord::from([("a".to_owned(), 3.0)]);
-    _smelt_tmp_118 = present.clone().get(&"a".to_owned());
+    present = SmeltRecord::from([(JsString::from("a"), 3.0)]);
+    _smelt_tmp_118 = present.clone().get(&JsString::from("a"));
     _smelt_tmp_119 = _smelt_tmp_118.clone().is_some_and(|value| value != 0.0 && !value.is_nan());
     if _smelt_tmp_119 {
     __smelt_logical_value_26 = 9.0;
-    present.insert("a".to_owned(), __smelt_logical_value_26);
+    present.insert(JsString::from("a"), __smelt_logical_value_26);
     }
-    _smelt_tmp_120 = smelt_number_to_string(present.get(&"a".to_owned().clone()).unwrap_or(0.0));
-    _smelt_tmp_121 = "and present: ".to_owned() + &_smelt_tmp_120;
+    _smelt_tmp_120 = smelt_number_to_string(present.get(&JsString::from("a").clone()).unwrap_or(0.0));
+    _smelt_tmp_121 = JsString::from("and present: ") + &_smelt_tmp_120;
     let _ = { println!("{}", _smelt_tmp_121); };
     absent_local = None::<f64>;
     _smelt_tmp_123 = absent_local.clone().is_none();
@@ -3960,7 +3963,7 @@ fn main() {
     absent_local = Some(__smelt_logical_value_28);
     }
     _smelt_tmp_124 = absent_local.map_or_else(|| "undefined".to_owned(), |value| smelt_number_to_string(value));
-    _smelt_tmp_125 = "nullish local: ".to_owned() + &_smelt_tmp_124;
+    _smelt_tmp_125 = JsString::from("nullish local: ") + &_smelt_tmp_124;
     let _ = { println!("{}", _smelt_tmp_125); };
     optional = SmeltRecord::from([]);
     _smelt_tmp_128 = optional.get(&"field".to_owned()).flatten().clone().is_none();
@@ -3969,7 +3972,7 @@ fn main() {
     optional.insert("field".to_owned(), Some(__smelt_logical_value_30));
     }
     _smelt_tmp_129 = optional.get(&"field".to_owned()).flatten().clone().map_or_else(|| "undefined".to_owned(), |value| smelt_number_to_string(value));
-    _smelt_tmp_130 = "nullish field: ".to_owned() + &_smelt_tmp_129;
+    _smelt_tmp_130 = JsString::from("nullish field: ") + &_smelt_tmp_129;
     let _ = { println!("{}", _smelt_tmp_130); };
     truthy = 1.0;
     _smelt_tmp_132 = truthy != 0.0;
@@ -3979,13 +3982,13 @@ fn main() {
     truthy = __smelt_logical_value_32;
     }
     _smelt_tmp_134 = smelt_number_to_string(truthy);
-    _smelt_tmp_135 = "or truthy: ".to_owned() + &_smelt_tmp_134;
+    _smelt_tmp_135 = JsString::from("or truthy: ") + &_smelt_tmp_134;
     let _ = { println!("{}", _smelt_tmp_135); };
     return;
 }
 
 impl Leaf {
-    fn new(tag: String) -> Self {
+    fn new(tag: JsString) -> Self {
     let mut this: Self = Leaf { tag: String::new() };
     this.tag = tag.clone();
     return this;

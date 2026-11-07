@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -4372,59 +4375,59 @@ fn main() {
     let _smelt_tmp_67: bool;
     let _smelt_tmp_68: bool;
     let _smelt_tmp_70: bool;
-    let _smelt_tmp_73: String;
-    let _smelt_tmp_75: String;
-    let _smelt_tmp_77: String;
-    let _smelt_tmp_79: String;
+    let _smelt_tmp_73: JsString;
+    let _smelt_tmp_75: JsString;
+    let _smelt_tmp_77: JsString;
+    let _smelt_tmp_79: JsString;
     let _smelt_tmp_82: SmeltList<f64>;
     let mut _smelt_tmp_83: usize;
     let mut _smelt_tmp_84: usize;
     let mut _smelt_tmp_85: bool;
     let mut _smelt_tmp_86: f64;
-    let mut _smelt_tmp_87: String;
+    let mut _smelt_tmp_87: JsString;
     let mut _smelt_tmp_89: SmeltList<f64>;
-    let mut _smelt_tmp_90: String;
+    let mut _smelt_tmp_90: JsString;
     let mut _smelt_tmp_92: SmeltList<f64>;
-    let mut _smelt_tmp_93: String;
-    let mut _smelt_tmp_95: String;
-    let mut _smelt_tmp_97: String;
-    let mut _smelt_tmp_99: SmeltList<String>;
-    let mut _smelt_tmp_100: String;
+    let mut _smelt_tmp_93: JsString;
+    let mut _smelt_tmp_95: JsString;
+    let mut _smelt_tmp_97: JsString;
+    let mut _smelt_tmp_99: SmeltList<JsString>;
+    let mut _smelt_tmp_100: JsString;
     let mut _smelt_tmp_102: SmeltList<f64>;
-    let mut _smelt_tmp_103: String;
-    let mut _smelt_tmp_105: SmeltList<(String, f64)>;
-    let mut _smelt_tmp_106: ::std::rc::Rc<dyn Fn((String, f64), i64, &SmeltList<(String, f64)>) -> String>;
-    let mut _smelt_tmp_107: SmeltList<String>;
-    let mut _smelt_tmp_108: String;
-    let mut _smelt_tmp_110: SmeltList<String>;
-    let mut _smelt_tmp_111: String;
-    let mut _smelt_tmp_113: SmeltList<String>;
-    let mut _smelt_tmp_114: String;
+    let mut _smelt_tmp_103: JsString;
+    let mut _smelt_tmp_105: SmeltList<(JsString, f64)>;
+    let mut _smelt_tmp_106: ::std::rc::Rc<dyn Fn((JsString, f64), i64, &SmeltList<(JsString, f64)>) -> JsString>;
+    let mut _smelt_tmp_107: SmeltList<JsString>;
+    let mut _smelt_tmp_108: JsString;
+    let mut _smelt_tmp_110: SmeltList<JsString>;
+    let mut _smelt_tmp_111: JsString;
+    let mut _smelt_tmp_113: SmeltList<JsString>;
+    let mut _smelt_tmp_114: JsString;
     let mut _smelt_tmp_116: SmeltList<f64>;
-    let mut _smelt_tmp_117: String;
-    let mut _smelt_tmp_119: SmeltList<(String, f64)>;
-    let mut _smelt_tmp_120: String;
-    let mut _smelt_tmp_122: SmeltList<String>;
-    let mut _smelt_tmp_123: String;
-    let mut _smelt_tmp_125: SmeltList<String>;
-    let mut _smelt_tmp_126: String;
+    let mut _smelt_tmp_117: JsString;
+    let mut _smelt_tmp_119: SmeltList<(JsString, f64)>;
+    let mut _smelt_tmp_120: JsString;
+    let mut _smelt_tmp_122: SmeltList<JsString>;
+    let mut _smelt_tmp_123: JsString;
+    let mut _smelt_tmp_125: SmeltList<JsString>;
+    let mut _smelt_tmp_126: JsString;
     let mut _smelt_tmp_128: SmeltList<f64>;
-    let mut _smelt_tmp_129: String;
+    let mut _smelt_tmp_129: JsString;
     let mut _smelt_tmp_131: f64;
     let mut _smelt_tmp_132: SmeltList<f64>;
     let mut _smelt_tmp_133: SmeltTypedArray;
-    let mut _smelt_tmp_134: String;
+    let mut _smelt_tmp_134: JsString;
     let mut _smelt_tmp_136: SmeltList<f64>;
     let mut _smelt_tmp_137: SmeltTypedArray;
     let mut _smelt_tmp_138: SmeltRecord<String, SmeltTypedArray>;
-    let mut _smelt_tmp_139: String;
+    let mut _smelt_tmp_139: JsString;
     let mut _smelt_tmp_143: bool;
     let mut _smelt_tmp_144: f64;
     let mut _smelt_tmp_145: f64;
-    let mut _smelt_tmp_147: String;
-    let mut _smelt_tmp_149: String;
+    let mut _smelt_tmp_147: JsString;
+    let mut _smelt_tmp_149: JsString;
     let mut _smelt_tmp_151: SmeltTextDecoder;
-    let mut _smelt_tmp_152: String;
+    let mut _smelt_tmp_152: JsString;
     let mut _smelt_tmp_154: SmeltTypedArray;
     let mut _smelt_tmp_155: f64;
     let _smelt_tmp_14: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0, 250.0]; smelt_list_items }));
@@ -4495,7 +4498,7 @@ fn main() {
     let _ = { println!("{}", _smelt_tmp_75); };
     _smelt_tmp_77 = from_elements.clone().to_js_string();
     let _ = { println!("{}", _smelt_tmp_77); };
-    _smelt_tmp_79 = "".to_owned() + &wide.clone().to_js_string();
+    _smelt_tmp_79 = JsString::new() + &wide.clone().to_js_string();
     let _ = { println!("{}", _smelt_tmp_79); };
     collected = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![]; smelt_list_items }));
     _smelt_tmp_82 = Into::<SmeltList<_>>::into(SmeltList::new(wide.clone().to_elements()));
@@ -4508,56 +4511,56 @@ fn main() {
     _smelt_tmp_86 = { let smelt_push_item = element; collected.borrow_mut().push(smelt_push_item); collected.len() as f64 };
     _smelt_tmp_83 = _smelt_tmp_83 + 1;
     }
-    _smelt_tmp_87 = collected.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&"-".to_owned());
+    _smelt_tmp_87 = collected.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&JsString::from("-"));
     let _ = { println!("{}", _smelt_tmp_87); };
     _smelt_tmp_89 = Into::<SmeltList<_>>::into(SmeltList::new(wide.clone().to_elements()));
-    _smelt_tmp_90 = _smelt_tmp_89.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&"-".to_owned());
+    _smelt_tmp_90 = _smelt_tmp_89.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&JsString::from("-"));
     let _ = { println!("{}", _smelt_tmp_90); };
     _smelt_tmp_92 = Into::<SmeltList<_>>::into(SmeltList::new(wide.clone().to_elements()));
-    _smelt_tmp_93 = _smelt_tmp_92.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&"-".to_owned());
+    _smelt_tmp_93 = _smelt_tmp_92.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&JsString::from("-"));
     let _ = { println!("{}", _smelt_tmp_93); };
     _smelt_tmp_95 = serde_json::to_string(&from_elements.clone().into_smelt_unknown()).expect("JSON serialization failed");
     let _ = { println!("{}", _smelt_tmp_95); };
     _smelt_tmp_97 = serde_json::to_string(&buffer.clone().into_smelt_unknown()).expect("JSON serialization failed");
     let _ = { println!("{}", _smelt_tmp_97); };
     _smelt_tmp_99 = Into::<SmeltList<_>>::into(SmeltList::new((0..from_elements.clone().length() as usize).map(|index| index.to_string()).collect::<Vec<_>>()));
-    _smelt_tmp_100 = _smelt_tmp_99.borrow().join(&",".to_owned());
+    _smelt_tmp_100 = _smelt_tmp_99.borrow().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_100); };
     _smelt_tmp_102 = Into::<SmeltList<_>>::into(SmeltList::new(from_elements.to_elements()));
-    _smelt_tmp_103 = _smelt_tmp_102.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&",".to_owned());
+    _smelt_tmp_103 = _smelt_tmp_102.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_103); };
     _smelt_tmp_105 = Into::<SmeltList<_>>::into(SmeltList::new(wide.clone().to_elements().into_iter().enumerate().map(|(index, element)| (index.to_string(), element)).collect::<Vec<_>>()));
-    _smelt_tmp_106 = ::std::rc::Rc::new(|closure_arg_0: (String, f64), _arg0: i64, _arg1: &SmeltList<(String, f64)>| {
-    let key: String = closure_arg_0.clone().0.clone();
+    _smelt_tmp_106 = ::std::rc::Rc::new(|closure_arg_0: (JsString, f64), _arg0: i64, _arg1: &SmeltList<(JsString, f64)>| {
+    let key: JsString = closure_arg_0.clone().0.clone();
     let value: f64 = closure_arg_0.clone().1.clone();
-    let _smelt_tmp_5: String = "".to_owned() + &key.clone();
-    let _smelt_tmp_6: String = _smelt_tmp_5.clone() + &"=".to_owned();
-    let _smelt_tmp_7: String = _smelt_tmp_6.clone() + &smelt_number_to_string(value);
+    let _smelt_tmp_5: JsString = JsString::new() + &key.clone();
+    let _smelt_tmp_6: JsString = _smelt_tmp_5.clone() + &JsString::from("=");
+    let _smelt_tmp_7: JsString = _smelt_tmp_6.clone() + &smelt_number_to_string(value);
     _smelt_tmp_7.clone()
     });
-    _smelt_tmp_107 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: (String, f64), _arg0: i64, _arg1: &SmeltList<(String, f64)>| {
-    let key: String = closure_arg_0.clone().0.clone();
+    _smelt_tmp_107 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: (JsString, f64), _arg0: i64, _arg1: &SmeltList<(JsString, f64)>| {
+    let key: JsString = closure_arg_0.clone().0.clone();
     let value: f64 = closure_arg_0.clone().1.clone();
-    let _smelt_tmp_5: String = "".to_owned() + &key.clone();
-    let _smelt_tmp_6: String = _smelt_tmp_5.clone() + &"=".to_owned();
-    let _smelt_tmp_7: String = _smelt_tmp_6.clone() + &smelt_number_to_string(value);
+    let _smelt_tmp_5: JsString = JsString::new() + &key.clone();
+    let _smelt_tmp_6: JsString = _smelt_tmp_5.clone() + &JsString::from("=");
+    let _smelt_tmp_7: JsString = _smelt_tmp_6.clone() + &smelt_number_to_string(value);
     _smelt_tmp_7.clone()
     }); let smelt_array = _smelt_tmp_105; let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
-    _smelt_tmp_108 = _smelt_tmp_107.borrow().join(&",".to_owned());
+    _smelt_tmp_108 = _smelt_tmp_107.borrow().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_108); };
     _smelt_tmp_110 = Into::<SmeltList<_>>::into(SmeltList::new((0..wide.clone().length() as usize).map(|index| index.to_string()).collect::<Vec<_>>()));
-    _smelt_tmp_111 = _smelt_tmp_110.borrow().join(&",".to_owned());
+    _smelt_tmp_111 = _smelt_tmp_110.borrow().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_111); };
-    _smelt_tmp_113 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    _smelt_tmp_113 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
     _smelt_tmp_114 = serde_json::to_string(&{ let smelt_l = _smelt_tmp_113; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>())) }).expect("JSON serialization failed");
     let _ = { println!("{}", _smelt_tmp_114); };
     _smelt_tmp_116 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![]; smelt_list_items }));
     _smelt_tmp_117 = serde_json::to_string(&{ let smelt_l = _smelt_tmp_116; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::Number(value as f64)).collect::<Vec<_>>())) }).expect("JSON serialization failed");
     let _ = { println!("{}", _smelt_tmp_117); };
-    _smelt_tmp_119 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, f64)> = vec![]; smelt_list_items }));
+    _smelt_tmp_119 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(JsString, f64)> = vec![]; smelt_list_items }));
     _smelt_tmp_120 = serde_json::to_string(&{ let smelt_l = _smelt_tmp_119; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::Array(vec![SmeltUnknown::String((value.0.clone()).into()), SmeltUnknown::Number(value.1.clone() as f64)].into())).collect::<Vec<_>>())) }).expect("JSON serialization failed");
     let _ = { println!("{}", _smelt_tmp_120); };
-    _smelt_tmp_122 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    _smelt_tmp_122 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
     _smelt_tmp_123 = serde_json::to_string(&{ let smelt_l = _smelt_tmp_122; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>())) }).expect("JSON serialization failed");
     let _ = { println!("{}", _smelt_tmp_123); };
     _smelt_tmp_125 = Into::<SmeltList<_>>::into(SmeltList::new((0..wide.clone().length() as usize).map(|index| index.to_string()).collect::<Vec<_>>()));
@@ -4573,11 +4576,11 @@ fn main() {
     let _ = { println!("{}", _smelt_tmp_134); };
     _smelt_tmp_136 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![9.0]; smelt_list_items }));
     _smelt_tmp_137 = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8, &_smelt_tmp_136.to_vec());
-    _smelt_tmp_138 = SmeltRecord::from([("payload".to_owned(), _smelt_tmp_137)]);
+    _smelt_tmp_138 = SmeltRecord::from([(JsString::from("payload"), _smelt_tmp_137)]);
     _smelt_tmp_139 = serde_json::to_string(&{ let smelt_record = _smelt_tmp_138.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, value.clone().into_smelt_unknown())).collect())) }).expect("JSON serialization failed");
     let _ = { println!("{}", _smelt_tmp_139); };
     encoder = SmeltTextEncoder::new();
-    encoded = encoder.encode(&"hi".to_owned());
+    encoded = encoder.encode(&JsString::from("hi"));
     _smelt_tmp_143 = encoded.clone().class_name() == "Uint8Array";
     _smelt_tmp_144 = encoded.clone().length();
     _smelt_tmp_145 = encoded.clone().byte_length();

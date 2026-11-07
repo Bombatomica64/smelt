@@ -35,7 +35,7 @@ async fn test_rejects() -> Result<(), Box<dyn std::error::Error>> {
         Err(__smelt_error) => {
             let error = __smelt_error.to_string();
     did_throw = true;
-    _smelt_tmp_4 = error.contains(&"boom".to_owned());
+    _smelt_tmp_4 = error.contains(&JsString::from("boom"));
     _smelt_tmp_5 = !(_smelt_tmp_4);
     if _smelt_tmp_5 {
     return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).rejects.toThrow(...) message failed".into())));
@@ -55,7 +55,7 @@ async fn test_rejects() -> Result<(), Box<dyn std::error::Error>> {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
             let error = __smelt_error;
     did_throw = true;
-    _smelt_tmp_4 = error.contains(&"boom".to_owned());
+    _smelt_tmp_4 = error.contains(&JsString::from("boom"));
     _smelt_tmp_5 = !(_smelt_tmp_4);
     if _smelt_tmp_5 {
     return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).rejects.toThrow(...) message failed".into())));

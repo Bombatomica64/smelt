@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3921,7 +3924,7 @@ impl SmeltFromUnknown for SmeltMatch {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Wrapper {
-    label: String,
+    label: JsString,
 }
 impl IntoSmeltUnknown for Wrapper {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -3946,13 +3949,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 let smelt_local = tokio::task::LocalSet::new();
 smelt_local.block_on(&smelt_runtime, async move {
-    let _smelt_tmp_2: String;
+    let _smelt_tmp_2: JsString;
     let _smelt_tmp_7: ();
-    let _smelt_tmp_0: SmeltFuture<String> = SmeltFuture::from_future(Box::pin(async move { smelt_sleep_ms(0.0 as f64).await; Ok::<_, Box<dyn std::error::Error>>("a".to_owned()) }));
+    let _smelt_tmp_0: SmeltFuture<JsString> = SmeltFuture::from_future(Box::pin(async move { smelt_sleep_ms(0.0 as f64).await; Ok::<_, Box<dyn std::error::Error>>(JsString::from("a")) }));
     let _smelt_tmp_1 = SmeltFuture::from_future(Box::pin(boxed(_smelt_tmp_0)));
     _smelt_tmp_2 = _smelt_tmp_1.await?;
     let _ = { println!("{}", _smelt_tmp_2); };
-    let _smelt_tmp_4: String = direct("b".to_owned());
+    let _smelt_tmp_4: JsString = direct(JsString::from("b"));
     let _ = { println!("{}", _smelt_tmp_4); };
     let _smelt_tmp_6: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
     _smelt_tmp_7 = _smelt_tmp_6.await?;
@@ -3961,7 +3964,7 @@ smelt_local.block_on(&smelt_runtime, async move {
 }
 
 impl Wrapper {
-    fn new(label: String) -> Self {
+    fn new(label: JsString) -> Self {
     let mut this: Self = Wrapper { label: String::new() };
     this.label = label.clone();
     return this;
@@ -3975,10 +3978,10 @@ impl Wrapper {
 
 use super::*;
 
-pub(crate) async fn boxed(text: SmeltFuture<String>) -> Result<String, Box<dyn std::error::Error>> {
-    let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: String| {
-    let _smelt_tmp_1: String = "[".to_owned() + &closure_arg_0.clone();
-    let _smelt_tmp_2: String = _smelt_tmp_1.clone() + &"]".to_owned();
+pub(crate) async fn boxed(text: SmeltFuture<JsString>) -> Result<JsString, Box<dyn std::error::Error>> {
+    let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: JsString| {
+    let _smelt_tmp_1: JsString = JsString::from("[") + &closure_arg_0.clone();
+    let _smelt_tmp_2: JsString = _smelt_tmp_1.clone() + &JsString::from("]");
     let _smelt_tmp_3: Wrapper = Wrapper::new(_smelt_tmp_2.clone());
     _smelt_tmp_3.clone()
     });
@@ -3988,9 +3991,9 @@ pub(crate) async fn boxed(text: SmeltFuture<String>) -> Result<String, Box<dyn s
     return Ok(box_.label.clone());
 }
 
-pub(crate) fn direct(value: String) -> String {
-    let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: String| {
-    let _smelt_tmp_1: String = closure_arg_0.clone() + &closure_arg_0.clone();
+pub(crate) fn direct(value: JsString) -> JsString {
+    let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: JsString| {
+    let _smelt_tmp_1: JsString = closure_arg_0.clone() + &closure_arg_0.clone();
     let _smelt_tmp_2: Wrapper = Wrapper::new(_smelt_tmp_1.clone());
     _smelt_tmp_2.clone()
     });

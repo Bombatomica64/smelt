@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3678,7 +3681,7 @@ impl SmeltFromUnknown for SmeltMatch {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct User {
-    name: String,
+    name: JsString,
     scores: SmeltList<f64>,
 }
 impl IntoSmeltUnknown for User {
@@ -3707,13 +3710,13 @@ impl SmeltFromUnknown for User {
 fn main() {
     let present: Option<User>;
     let missing: Option<User>;
-    let name: Option<String>;
-    let absent_name: Option<String>;
+    let name: Option<JsString>;
+    let absent_name: Option<JsString>;
     let score: Option<f64>;
-    let label: Option<String>;
+    let label: Option<JsString>;
     let _smelt_tmp_10: Option<SmeltList<f64>>;
     let _smelt_tmp_6: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![3.0]; smelt_list_items }));
-    let _smelt_tmp_7: User = User::new("Ada".to_owned(), _smelt_tmp_6);
+    let _smelt_tmp_7: User = User::new(JsString::from("Ada"), _smelt_tmp_6);
     present = Some(_smelt_tmp_7);
     missing = None::<User>;
     name = present.clone().as_ref().map(|_smelt_value| _smelt_value.name.clone());
@@ -3729,14 +3732,14 @@ fn main() {
 }
 
 impl User {
-    fn new(name: String, scores: SmeltList<f64>) -> Self {
+    fn new(name: JsString, scores: SmeltList<f64>) -> Self {
     let mut this: Self = User { name: String::new(), scores: SmeltList::new(Vec::<f64>::new()) };
     this.name = name.clone();
     this.scores = Into::<SmeltList<_>>::into(scores.clone());
     return this;
     }
-    fn label(&self) -> String {
-    return "user".to_owned();
+    fn label(&self) -> JsString {
+    return JsString::from("user");
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
     ///

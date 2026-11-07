@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3822,9 +3825,9 @@ struct UnsupportedPathError(::std::rc::Rc<::std::cell::RefCell<UnsupportedPathEr
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct UnsupportedPathErrorInner {
-    name: String,
-    message: String,
-    stack: Option<String>,
+    name: JsString,
+    message: JsString,
+    stack: Option<JsString>,
     cause: SmeltUnknown,
 }
 impl Clone for UnsupportedPathError {
@@ -3934,8 +3937,8 @@ struct Router(::std::rc::Rc<::std::cell::RefCell<RouterInner>>);
 #[allow(dead_code)]
 struct RouterInner {
     tries: SmeltRecord<String, TrieNode>,
-    routes: SmeltRecord<String, SmeltRecord<String, SmeltList<String>>>,
-    log: SmeltList<String>,
+    routes: SmeltRecord<String, SmeltRecord<String, SmeltList<JsString>>>,
+    log: SmeltList<JsString>,
 }
 impl Clone for Router {
     fn clone(&self) -> Self {
@@ -3986,17 +3989,17 @@ impl SmeltFromUnknown for Router {
 
 fn main() {
     let router: Router;
-    let _smelt_tmp_8: String;
-    let _smelt_tmp_10: String;
+    let _smelt_tmp_8: JsString;
+    let _smelt_tmp_10: JsString;
     let path_error: SmeltUnknown = SmeltUnknown::Symbol("Symbol()@237".to_owned().into());
     let _smelt_tmp_2: Router = Router::new();
     router = _smelt_tmp_2;
-    let _ = try_add(router.clone(), "GET".to_owned(), "/posts/:id".to_owned());
-    let _ = try_add(router.clone(), "GET".to_owned(), "/posts/:id".to_owned());
-    let _ = try_add(router.clone(), "GET".to_owned(), "/posts/new".to_owned());
-    let _ = try_add(router.clone(), "POST".to_owned(), "/posts".to_owned());
-    let _ = try_add(router.clone(), "GET".to_owned(), "/users/(a|b)".to_owned());
-    _smelt_tmp_8 = router.0.borrow().log.clone().borrow().join(&", ".to_owned());
+    let _ = try_add(router.clone(), JsString::from("GET"), JsString::from("/posts/:id"));
+    let _ = try_add(router.clone(), JsString::from("GET"), JsString::from("/posts/:id"));
+    let _ = try_add(router.clone(), JsString::from("GET"), JsString::from("/posts/new"));
+    let _ = try_add(router.clone(), JsString::from("POST"), JsString::from("/posts"));
+    let _ = try_add(router.clone(), JsString::from("GET"), JsString::from("/users/(a|b)"));
+    _smelt_tmp_8 = router.0.borrow().log.clone().borrow().join(&JsString::from(", "));
     let _ = { println!("{}", _smelt_tmp_8); };
     _smelt_tmp_10 = serde_json::to_string(&{ let smelt_record = router.0.borrow().routes.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, { let smelt_record = value.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, { let smelt_l = value; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>())) })).collect())) })).collect())) }).expect("JSON serialization failed");
     let _ = { println!("{}", _smelt_tmp_10); };
@@ -4004,12 +4007,12 @@ fn main() {
 }
 
 impl UnsupportedPathError {
-    fn new(message: Option<String>) -> Self {
-    let mut this: Self = UnsupportedPathError(::std::rc::Rc::new(::std::cell::RefCell::new(UnsupportedPathErrorInner { name: String::new(), message: String::new(), stack: None::<String>, cause: SmeltUnknown::Null })));
-    this.0.borrow_mut().name = "Error".to_owned();
-    let _smelt_tmp_2: String = message.clone().unwrap_or("".to_owned());
+    fn new(message: Option<JsString>) -> Self {
+    let mut this: Self = UnsupportedPathError(::std::rc::Rc::new(::std::cell::RefCell::new(UnsupportedPathErrorInner { name: String::new(), message: String::new(), stack: None::<JsString>, cause: SmeltUnknown::Null })));
+    this.0.borrow_mut().name = JsString::from("Error");
+    let _smelt_tmp_2: JsString = message.clone().unwrap_or(JsString::new());
     this.0.borrow_mut().message = _smelt_tmp_2;
-    this.0.borrow_mut().stack = Some("".to_owned());
+    this.0.borrow_mut().stack = Some(JsString::new());
     return this;
     }
 }
@@ -4022,23 +4025,23 @@ impl TrieNode {
     this.0.borrow_mut().terminal = false;
     return this;
     }
-    fn insert(&self, tokens: SmeltList<String>) -> Result<(), Box<dyn std::error::Error>> {
-    let mut token: String;
+    fn insert(&self, tokens: SmeltList<JsString>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut token: JsString;
     let mut next: Option<TrieNode>;
-    let mut key: String;
+    let mut key: JsString;
     let mut _smelt_tmp_7: usize;
     let mut _smelt_tmp_8: bool;
     let mut _smelt_tmp_9: Option<TrieNode>;
     let mut _smelt_tmp_10: bool;
-    let mut _smelt_tmp_11: SmeltList<String>;
+    let mut _smelt_tmp_11: SmeltList<JsString>;
     let mut _smelt_tmp_12: usize;
     let mut _smelt_tmp_13: usize;
     let mut _smelt_tmp_14: bool;
-    let mut _smelt_tmp_15: String;
-    let mut _smelt_tmp_16: String;
+    let mut _smelt_tmp_15: JsString;
+    let mut _smelt_tmp_16: JsString;
     let mut _smelt_tmp_17: bool;
-    let mut _smelt_tmp_18: String;
-    let mut _smelt_tmp_19: String;
+    let mut _smelt_tmp_18: JsString;
+    let mut _smelt_tmp_19: JsString;
     let mut _smelt_tmp_20: bool;
     let mut _smelt_tmp_21: bool;
     let mut _smelt_tmp_22: SmeltRecord<String, TrieNode>;
@@ -4062,10 +4065,10 @@ impl TrieNode {
     if !(_smelt_tmp_14) { break; }
     key = _smelt_tmp_11.borrow().get(_smelt_tmp_12).cloned().unwrap_or_else(|| String::new());
     _smelt_tmp_15 = key.clone();
-    _smelt_tmp_16 = ":".to_owned();
+    _smelt_tmp_16 = JsString::from(":");
     _smelt_tmp_17 = key.starts_with(&_smelt_tmp_16);
     _smelt_tmp_18 = token.clone();
-    _smelt_tmp_19 = ":".to_owned();
+    _smelt_tmp_19 = JsString::from(":");
     _smelt_tmp_20 = token.clone().starts_with(&_smelt_tmp_19);
     _smelt_tmp_21 = _smelt_tmp_17 != _smelt_tmp_20;
     if _smelt_tmp_21 {
@@ -4111,43 +4114,43 @@ impl TrieNode {
 impl Router {
     fn new() -> Self {
     let _smelt_tmp_2: SmeltRecord<String, TrieNode>;
-    let _smelt_tmp_3: SmeltRecord<String, SmeltList<String>>;
-    let _smelt_tmp_4: SmeltRecord<String, SmeltRecord<String, SmeltList<String>>>;
-    let _smelt_tmp_5: SmeltList<String>;
-    let mut this: Self = Router(::std::rc::Rc::new(::std::cell::RefCell::new(RouterInner { tries: SmeltRecord::new(), routes: SmeltRecord::new(), log: SmeltList::new(Vec::<String>::new()) })));
+    let _smelt_tmp_3: SmeltRecord<String, SmeltList<JsString>>;
+    let _smelt_tmp_4: SmeltRecord<String, SmeltRecord<String, SmeltList<JsString>>>;
+    let _smelt_tmp_5: SmeltList<JsString>;
+    let mut this: Self = Router(::std::rc::Rc::new(::std::cell::RefCell::new(RouterInner { tries: SmeltRecord::new(), routes: SmeltRecord::new(), log: SmeltList::new(Vec::<JsString>::new()) })));
     let _smelt_tmp_1: TrieNode = TrieNode::new();
-    _smelt_tmp_2 = SmeltRecord::from([("ALL".to_owned(), _smelt_tmp_1)]);
+    _smelt_tmp_2 = SmeltRecord::from([(JsString::from("ALL"), _smelt_tmp_1)]);
     this.0.borrow_mut().tries = _smelt_tmp_2;
     _smelt_tmp_3 = SmeltRecord::from([]);
-    _smelt_tmp_4 = SmeltRecord::from([("ALL".to_owned(), _smelt_tmp_3)]);
+    _smelt_tmp_4 = SmeltRecord::from([(JsString::from("ALL"), _smelt_tmp_3)]);
     this.0.borrow_mut().routes = _smelt_tmp_4;
-    _smelt_tmp_5 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    _smelt_tmp_5 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
     this.0.borrow_mut().log = Into::<SmeltList<_>>::into(_smelt_tmp_5);
     return this;
     }
-    fn _insert_path(&self, method: String, path: String) -> Result<(), Box<dyn std::error::Error>> {
+    fn _insert_path(&self, method: JsString, path: JsString) -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_4: Option<TrieNode>;
     let _smelt_tmp_5: bool;
     let mut _smelt_tmp_6: Option<()>;
     let _smelt_tmp_7: TrieNode;
-    let _smelt_tmp_8: SmeltList<String>;
-    let _smelt_tmp_9: ::std::rc::Rc<dyn Fn(String, i64, &SmeltList<String>) -> bool>;
+    let _smelt_tmp_8: SmeltList<JsString>;
+    let _smelt_tmp_9: ::std::rc::Rc<dyn Fn(JsString, i64, &SmeltList<JsString>) -> bool>;
     let _smelt_tmp_12: bool;
     _smelt_tmp_4 = self.0.borrow().tries.clone().get(&method.clone());
     _smelt_tmp_5 = !(_smelt_tmp_4.clone().is_none());
     if _smelt_tmp_5 {
     _smelt_tmp_7 = _smelt_tmp_4.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_8 = Into::<SmeltList<_>>::into({ let smelt_haystack = path.clone(); let smelt_separator = "/".to_owned(); if smelt_separator.is_empty() { if smelt_haystack.is_empty() { Vec::new() } else { smelt_utf16_units(&smelt_haystack) } } else { smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() } });
-    _smelt_tmp_9 = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let _smelt_tmp_1: bool = closure_arg_0.clone() != "".to_owned();
+    _smelt_tmp_8 = Into::<SmeltList<_>>::into({ let smelt_haystack = path.clone(); let smelt_separator = JsString::from("/"); if smelt_separator.is_empty() { if smelt_haystack.is_empty() { Vec::new() } else { smelt_utf16_units(&smelt_haystack) } } else { smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() } });
+    _smelt_tmp_9 = ::std::rc::Rc::new(|closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
+    let _smelt_tmp_1: bool = closure_arg_0.clone() != JsString::new();
     _smelt_tmp_1
     });
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let _smelt_tmp_1: bool = closure_arg_0.clone() != "".to_owned();
+    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
+    let _smelt_tmp_1: bool = closure_arg_0.clone() != JsString::new();
     _smelt_tmp_1
     }); let smelt_array = _smelt_tmp_8; let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value }))) {
         Ok(__smelt_value) => {
-            let _smelt_tmp_10: SmeltList<String> = __smelt_value;
+            let _smelt_tmp_10: SmeltList<JsString> = __smelt_value;
     match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| _smelt_tmp_7.insert(_smelt_tmp_10))) {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_11: () = __smelt_value;
@@ -4193,36 +4196,36 @@ impl Router {
     }
     return Ok(());
     }
-    fn add(&self, method: String, path: String, handler: String) -> Result<(), Box<dyn std::error::Error>> {
-    let mut p: String;
+    fn add(&self, method: JsString, path: JsString, handler: JsString) -> Result<(), Box<dyn std::error::Error>> {
+    let mut p: JsString;
     let mut _smelt_tmp_7: SmeltRecord<String, TrieNode>;
-    let mut _smelt_tmp_9: SmeltRecord<String, SmeltRecord<String, SmeltList<String>>>;
-    let _smelt_tmp_10: SmeltRecord<String, SmeltList<String>>;
-    let _smelt_tmp_11: SmeltRecord<String, SmeltRecord<String, SmeltList<String>>>;
-    let _smelt_tmp_12: SmeltList<String>;
+    let mut _smelt_tmp_9: SmeltRecord<String, SmeltRecord<String, SmeltList<JsString>>>;
+    let _smelt_tmp_10: SmeltRecord<String, SmeltList<JsString>>;
+    let _smelt_tmp_11: SmeltRecord<String, SmeltRecord<String, SmeltList<JsString>>>;
+    let _smelt_tmp_12: SmeltList<JsString>;
     let mut _smelt_tmp_13: usize;
     let mut _smelt_tmp_14: usize;
     let mut _smelt_tmp_15: bool;
-    let mut _smelt_tmp_16: SmeltRecord<String, SmeltRecord<String, SmeltList<String>>>;
-    let mut _smelt_tmp_17: SmeltRecord<String, SmeltList<String>>;
-    let mut _smelt_tmp_18: SmeltRecord<String, SmeltRecord<String, SmeltList<String>>>;
-    let mut _smelt_tmp_19: SmeltRecord<String, SmeltList<String>>;
-    let mut _smelt_tmp_20: SmeltList<String>;
-    let mut _smelt_tmp_21: SmeltList<String>;
+    let mut _smelt_tmp_16: SmeltRecord<String, SmeltRecord<String, SmeltList<JsString>>>;
+    let mut _smelt_tmp_17: SmeltRecord<String, SmeltList<JsString>>;
+    let mut _smelt_tmp_18: SmeltRecord<String, SmeltRecord<String, SmeltList<JsString>>>;
+    let mut _smelt_tmp_19: SmeltRecord<String, SmeltList<JsString>>;
+    let mut _smelt_tmp_20: SmeltList<JsString>;
+    let mut _smelt_tmp_21: SmeltList<JsString>;
     let mut _smelt_tmp_23: bool;
-    let mut _smelt_tmp_25: SmeltRecord<String, SmeltRecord<String, SmeltList<String>>>;
+    let mut _smelt_tmp_25: SmeltRecord<String, SmeltRecord<String, SmeltList<JsString>>>;
     let mut _smelt_tmp_26: bool;
     let mut _smelt_tmp_27: bool;
-    let mut _smelt_tmp_29: SmeltRecord<String, SmeltRecord<String, SmeltList<String>>>;
-    let mut _smelt_tmp_30: SmeltRecord<String, SmeltList<String>>;
-    let mut _smelt_tmp_31: SmeltList<String>;
-    let mut _smelt_tmp_32: SmeltRecord<String, SmeltRecord<String, SmeltList<String>>>;
-    let mut _smelt_tmp_33: SmeltRecord<String, SmeltList<String>>;
-    let mut _smelt_tmp_34: SmeltList<String>;
+    let mut _smelt_tmp_29: SmeltRecord<String, SmeltRecord<String, SmeltList<JsString>>>;
+    let mut _smelt_tmp_30: SmeltRecord<String, SmeltList<JsString>>;
+    let mut _smelt_tmp_31: SmeltList<JsString>;
+    let mut _smelt_tmp_32: SmeltRecord<String, SmeltRecord<String, SmeltList<JsString>>>;
+    let mut _smelt_tmp_33: SmeltRecord<String, SmeltList<JsString>>;
+    let mut _smelt_tmp_34: SmeltList<JsString>;
     let mut _smelt_tmp_35: f64;
-    let mut _smelt_tmp_36: SmeltList<String>;
-    let mut _smelt_tmp_37: String;
-    let mut _smelt_tmp_38: String;
+    let mut _smelt_tmp_36: SmeltList<JsString>;
+    let mut _smelt_tmp_37: JsString;
+    let mut _smelt_tmp_38: JsString;
     let mut _smelt_tmp_39: f64;
     let _smelt_tmp_5: bool = self.0.borrow().routes.clone().contains_key(&method);
     let _smelt_tmp_6: bool = !(_smelt_tmp_5);
@@ -4236,7 +4239,7 @@ impl Router {
     _smelt_tmp_9.insert(method.clone(), _smelt_tmp_10);
     self.0.borrow_mut().routes = _smelt_tmp_9;
     _smelt_tmp_11 = self.0.borrow().routes.clone();
-    _smelt_tmp_12 = Into::<SmeltList<_>>::into(smelt_for_in_record_keys(&_smelt_tmp_11.get(&"ALL".to_owned().clone()).unwrap_or(SmeltRecord::new())));
+    _smelt_tmp_12 = Into::<SmeltList<_>>::into(smelt_for_in_record_keys(&_smelt_tmp_11.get(&JsString::from("ALL").clone()).unwrap_or(SmeltRecord::new())));
     _smelt_tmp_13 = 0;
     loop {
     _smelt_tmp_14 = _smelt_tmp_12.len();
@@ -4246,9 +4249,9 @@ impl Router {
     _smelt_tmp_16 = self.0.borrow().routes.clone();
     _smelt_tmp_17 = _smelt_tmp_16.get(&method.clone()).unwrap_or(SmeltRecord::new());
     _smelt_tmp_18 = self.0.borrow().routes.clone();
-    _smelt_tmp_19 = _smelt_tmp_18.get(&"ALL".to_owned().clone()).unwrap_or(SmeltRecord::new());
-    _smelt_tmp_20 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
-    _smelt_tmp_21 = Into::<SmeltList<_>>::into(_smelt_tmp_19.get(&p.clone()).unwrap_or(SmeltList::new(Vec::<String>::new())).borrow().iter().cloned().chain(_smelt_tmp_20.borrow().iter().cloned()).collect::<Vec<_>>());
+    _smelt_tmp_19 = _smelt_tmp_18.get(&JsString::from("ALL").clone()).unwrap_or(SmeltRecord::new());
+    _smelt_tmp_20 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
+    _smelt_tmp_21 = Into::<SmeltList<_>>::into(_smelt_tmp_19.get(&p.clone()).unwrap_or(SmeltList::new(Vec::<JsString>::new())).borrow().iter().cloned().chain(_smelt_tmp_20.borrow().iter().cloned()).collect::<Vec<_>>());
     _smelt_tmp_17.insert(p.clone(), Into::<SmeltList<_>>::into(_smelt_tmp_21));
     _smelt_tmp_16.insert(method.clone(), _smelt_tmp_17);
     self.0.borrow_mut().routes = _smelt_tmp_16;
@@ -4256,7 +4259,7 @@ impl Router {
     _smelt_tmp_13 = _smelt_tmp_13 + 1;
     }
     }
-    _smelt_tmp_23 = fancy_regex::Regex::new(&"\\((?!\\?:)".to_owned()).expect("regex compile failed").is_match(&path.clone()).unwrap_or(false);
+    _smelt_tmp_23 = fancy_regex::Regex::new(&JsString::from("\\((?!\\?:)")).expect("regex compile failed").is_match(&path.clone()).unwrap_or(false);
     if _smelt_tmp_23 {
     let _smelt_tmp_24: UnsupportedPathError = UnsupportedPathError::new(Some(path.clone()));
     return Err::<_, Box<dyn std::error::Error>>(smelt_throw({ let smelt_object_value = _smelt_tmp_24; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_reference_object_identity(&smelt_struct_value.0), { let smelt_lazy_handle = smelt_struct_value.clone(); move || { let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("name".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().name.clone()).into()))); smelt_object_entries.push(("message".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().message.clone()).into()))); if let Some(value) = smelt_object_value.0.borrow().stack.clone() { smelt_object_entries.push(("stack".to_owned(), SmeltUnknown::String(value.into()))); } smelt_object_entries.push(("cause".to_owned(), smelt_object_value.0.borrow().cause.clone())); smelt_object_entries.push(("__smelt_error".to_owned(), SmeltUnknown::String("Error".into()))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("UnsupportedPathError".into()))); smelt_object_entries } }).smelt_with_origin(smelt_struct_value.clone())) }));
@@ -4268,20 +4271,20 @@ impl Router {
     let _ = self._insert_path(method.clone(), path.clone())?;
     _smelt_tmp_29 = self.0.borrow().routes.clone();
     _smelt_tmp_30 = _smelt_tmp_29.get(&method.clone()).unwrap_or(SmeltRecord::new());
-    _smelt_tmp_31 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    _smelt_tmp_31 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
     _smelt_tmp_30.insert(path.clone(), Into::<SmeltList<_>>::into(_smelt_tmp_31));
     _smelt_tmp_29.insert(method.clone(), _smelt_tmp_30);
     self.0.borrow_mut().routes = _smelt_tmp_29;
     }
     _smelt_tmp_32 = self.0.borrow().routes.clone();
     _smelt_tmp_33 = _smelt_tmp_32.get(&method.clone()).unwrap_or(SmeltRecord::new());
-    _smelt_tmp_34 = Into::<SmeltList<_>>::into(_smelt_tmp_33.get(&path.clone()).unwrap_or(SmeltList::new(Vec::<String>::new())));
+    _smelt_tmp_34 = Into::<SmeltList<_>>::into(_smelt_tmp_33.get(&path.clone()).unwrap_or(SmeltList::new(Vec::<JsString>::new())));
     _smelt_tmp_32.insert(method.clone(), _smelt_tmp_33.clone());
     self.0.borrow_mut().routes = _smelt_tmp_32;
     _smelt_tmp_35 = { let smelt_push_item = handler.clone(); _smelt_tmp_34.borrow_mut().push(smelt_push_item); let smelt_result = _smelt_tmp_34.len() as f64; _smelt_tmp_33.insert(path.clone(), _smelt_tmp_34.clone()); smelt_result };
     _smelt_tmp_33.insert(path.clone(), Into::<SmeltList<_>>::into(_smelt_tmp_34));
     _smelt_tmp_36 = Into::<SmeltList<_>>::into(self.0.borrow().log.clone());
-    _smelt_tmp_37 = method.clone() + &" ".to_owned();
+    _smelt_tmp_37 = method.clone() + &JsString::from(" ");
     _smelt_tmp_38 = _smelt_tmp_37 + &path.clone();
     _smelt_tmp_39 = { let smelt_push_item = _smelt_tmp_38; _smelt_tmp_36.borrow_mut().push(smelt_push_item); _smelt_tmp_36.len() as f64 };
     self.0.borrow_mut().log = Into::<SmeltList<_>>::into(_smelt_tmp_36);
@@ -4309,18 +4312,18 @@ impl Router {
 
 use super::*;
 
-pub(crate) fn try_add(router: Router, method: String, path: String) -> () {
-    let _smelt_tmp_4: String;
+pub(crate) fn try_add(router: Router, method: JsString, path: JsString) -> () {
+    let _smelt_tmp_4: JsString;
     let _smelt_tmp_7: bool;
     let _smelt_tmp_8: bool;
-    let _smelt_tmp_9: String;
-    let _smelt_tmp_10: String;
-    let _smelt_tmp_11: String;
-    _smelt_tmp_4 = "h:".to_owned() + &path.clone();
+    let _smelt_tmp_9: JsString;
+    let _smelt_tmp_10: JsString;
+    let _smelt_tmp_11: JsString;
+    _smelt_tmp_4 = JsString::from("h:") + &path.clone();
     match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| router.add(method.clone(), path.clone(), _smelt_tmp_4))) {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_5: () = __smelt_value;
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| { println!("{} {} {}", "added".to_owned(), method.clone(), path.clone()); })) {
+    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| { println!("{} {} {}", JsString::from("added"), method.clone(), path.clone()); })) {
         Ok(__smelt_value) => {
             let _smelt_tmp_6: () = __smelt_value;
         }
@@ -4330,12 +4333,12 @@ pub(crate) fn try_add(router: Router, method: String, path: String) -> () {
     _smelt_tmp_7 = matches!(e.clone().clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_class"), Some(SmeltUnknown::String(smelt_class_name)) if matches!(&*smelt_class_name, "UnsupportedPathError")));
     if _smelt_tmp_7 {
     _smelt_tmp_8 = matches!(e.clone().clone(), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") || value.contains_key("__smelt_domexception"));
-    _smelt_tmp_9 = "".to_owned() + &match smelt_get_unknown_field(&e.clone(), "name").clone() {   SmeltUnknown::Object(value) if smelt_host_buffer_is_view(&SmeltUnknown::Object(value.clone())) => smelt_host_buffer_elements(&SmeltUnknown::Object(value)).unwrap_or_default().into_iter().map(|element| match element { SmeltUnknown::Number(element) => element.to_string(), _ => String::new() }).collect::<Vec<_>>().join(","), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key("__smelt_regexp") => smelt_regexp_literal(&value), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") => { let smelt_error_name = match value.get("name") { Some(SmeltUnknown::String(name)) => name.to_string(), _ => match value.get("__smelt_error") { Some(SmeltUnknown::String(class)) => class.to_string(), _ => "Error".to_owned() } }; let smelt_error_message = match value.get("message") { Some(SmeltUnknown::String(message)) => message.to_string(), _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!("{smelt_error_name}: {smelt_error_message}") } }, SmeltUnknown::Array(values) => smelt_erased_to_js_string(&SmeltUnknown::Array(values)), SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() };
-    _smelt_tmp_10 = _smelt_tmp_9 + &":".to_owned();
+    _smelt_tmp_9 = JsString::new() + &match smelt_get_unknown_field(&e.clone(), "name").clone() {   SmeltUnknown::Object(value) if smelt_host_buffer_is_view(&SmeltUnknown::Object(value.clone())) => smelt_host_buffer_elements(&SmeltUnknown::Object(value)).unwrap_or_default().into_iter().map(|element| match element { SmeltUnknown::Number(element) => element.to_string(), _ => String::new() }).collect::<Vec<_>>().join(","), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key("__smelt_regexp") => smelt_regexp_literal(&value), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") => { let smelt_error_name = match value.get("name") { Some(SmeltUnknown::String(name)) => name.to_string(), _ => match value.get("__smelt_error") { Some(SmeltUnknown::String(class)) => class.to_string(), _ => "Error".to_owned() } }; let smelt_error_message = match value.get("message") { Some(SmeltUnknown::String(message)) => message.to_string(), _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!("{smelt_error_name}: {smelt_error_message}") } }, SmeltUnknown::Array(values) => smelt_erased_to_js_string(&SmeltUnknown::Array(values)), SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() };
+    _smelt_tmp_10 = _smelt_tmp_9 + &JsString::from(":");
     _smelt_tmp_11 = _smelt_tmp_10 + &match smelt_get_unknown_field(&e.clone(), "message").clone() {   SmeltUnknown::Object(value) if smelt_host_buffer_is_view(&SmeltUnknown::Object(value.clone())) => smelt_host_buffer_elements(&SmeltUnknown::Object(value)).unwrap_or_default().into_iter().map(|element| match element { SmeltUnknown::Number(element) => element.to_string(), _ => String::new() }).collect::<Vec<_>>().join(","), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key("__smelt_regexp") => smelt_regexp_literal(&value), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") => { let smelt_error_name = match value.get("name") { Some(SmeltUnknown::String(name)) => name.to_string(), _ => match value.get("__smelt_error") { Some(SmeltUnknown::String(class)) => class.to_string(), _ => "Error".to_owned() } }; let smelt_error_message = match value.get("message") { Some(SmeltUnknown::String(message)) => message.to_string(), _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!("{smelt_error_name}: {smelt_error_message}") } }, SmeltUnknown::Array(values) => smelt_erased_to_js_string(&SmeltUnknown::Array(values)), SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() };
-    let _ = { println!("{} {} {} {}", "rejected".to_owned(), path.clone(), _smelt_tmp_8, _smelt_tmp_11); };
+    let _ = { println!("{} {} {} {}", JsString::from("rejected"), path.clone(), _smelt_tmp_8, _smelt_tmp_11); };
     } else {
-    let _ = { println!("{} {}", "unexpected".to_owned(), path.clone()); };
+    let _ = { println!("{} {}", JsString::from("unexpected"), path.clone()); };
     }
         }
     }
@@ -4345,12 +4348,12 @@ pub(crate) fn try_add(router: Router, method: String, path: String) -> () {
     _smelt_tmp_7 = matches!(e.clone().clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_class"), Some(SmeltUnknown::String(smelt_class_name)) if matches!(&*smelt_class_name, "UnsupportedPathError")));
     if _smelt_tmp_7 {
     _smelt_tmp_8 = matches!(e.clone().clone(), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") || value.contains_key("__smelt_domexception"));
-    _smelt_tmp_9 = "".to_owned() + &match smelt_get_unknown_field(&e.clone(), "name").clone() {   SmeltUnknown::Object(value) if smelt_host_buffer_is_view(&SmeltUnknown::Object(value.clone())) => smelt_host_buffer_elements(&SmeltUnknown::Object(value)).unwrap_or_default().into_iter().map(|element| match element { SmeltUnknown::Number(element) => element.to_string(), _ => String::new() }).collect::<Vec<_>>().join(","), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key("__smelt_regexp") => smelt_regexp_literal(&value), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") => { let smelt_error_name = match value.get("name") { Some(SmeltUnknown::String(name)) => name.to_string(), _ => match value.get("__smelt_error") { Some(SmeltUnknown::String(class)) => class.to_string(), _ => "Error".to_owned() } }; let smelt_error_message = match value.get("message") { Some(SmeltUnknown::String(message)) => message.to_string(), _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!("{smelt_error_name}: {smelt_error_message}") } }, SmeltUnknown::Array(values) => smelt_erased_to_js_string(&SmeltUnknown::Array(values)), SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() };
-    _smelt_tmp_10 = _smelt_tmp_9 + &":".to_owned();
+    _smelt_tmp_9 = JsString::new() + &match smelt_get_unknown_field(&e.clone(), "name").clone() {   SmeltUnknown::Object(value) if smelt_host_buffer_is_view(&SmeltUnknown::Object(value.clone())) => smelt_host_buffer_elements(&SmeltUnknown::Object(value)).unwrap_or_default().into_iter().map(|element| match element { SmeltUnknown::Number(element) => element.to_string(), _ => String::new() }).collect::<Vec<_>>().join(","), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key("__smelt_regexp") => smelt_regexp_literal(&value), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") => { let smelt_error_name = match value.get("name") { Some(SmeltUnknown::String(name)) => name.to_string(), _ => match value.get("__smelt_error") { Some(SmeltUnknown::String(class)) => class.to_string(), _ => "Error".to_owned() } }; let smelt_error_message = match value.get("message") { Some(SmeltUnknown::String(message)) => message.to_string(), _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!("{smelt_error_name}: {smelt_error_message}") } }, SmeltUnknown::Array(values) => smelt_erased_to_js_string(&SmeltUnknown::Array(values)), SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() };
+    _smelt_tmp_10 = _smelt_tmp_9 + &JsString::from(":");
     _smelt_tmp_11 = _smelt_tmp_10 + &match smelt_get_unknown_field(&e.clone(), "message").clone() {   SmeltUnknown::Object(value) if smelt_host_buffer_is_view(&SmeltUnknown::Object(value.clone())) => smelt_host_buffer_elements(&SmeltUnknown::Object(value)).unwrap_or_default().into_iter().map(|element| match element { SmeltUnknown::Number(element) => element.to_string(), _ => String::new() }).collect::<Vec<_>>().join(","), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key("__smelt_regexp") => smelt_regexp_literal(&value), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") => { let smelt_error_name = match value.get("name") { Some(SmeltUnknown::String(name)) => name.to_string(), _ => match value.get("__smelt_error") { Some(SmeltUnknown::String(class)) => class.to_string(), _ => "Error".to_owned() } }; let smelt_error_message = match value.get("message") { Some(SmeltUnknown::String(message)) => message.to_string(), _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!("{smelt_error_name}: {smelt_error_message}") } }, SmeltUnknown::Array(values) => smelt_erased_to_js_string(&SmeltUnknown::Array(values)), SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() };
-    let _ = { println!("{} {} {} {}", "rejected".to_owned(), path.clone(), _smelt_tmp_8, _smelt_tmp_11); };
+    let _ = { println!("{} {} {} {}", JsString::from("rejected"), path.clone(), _smelt_tmp_8, _smelt_tmp_11); };
     } else {
-    let _ = { println!("{} {}", "unexpected".to_owned(), path.clone()); };
+    let _ = { println!("{} {}", JsString::from("unexpected"), path.clone()); };
     }
         }
         Err(__smelt_panic) => {
@@ -4359,12 +4362,12 @@ pub(crate) fn try_add(router: Router, method: String, path: String) -> () {
     _smelt_tmp_7 = matches!(e.clone().clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_class"), Some(SmeltUnknown::String(smelt_class_name)) if matches!(&*smelt_class_name, "UnsupportedPathError")));
     if _smelt_tmp_7 {
     _smelt_tmp_8 = matches!(e.clone().clone(), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") || value.contains_key("__smelt_domexception"));
-    _smelt_tmp_9 = "".to_owned() + &match smelt_get_unknown_field(&e.clone(), "name").clone() {   SmeltUnknown::Object(value) if smelt_host_buffer_is_view(&SmeltUnknown::Object(value.clone())) => smelt_host_buffer_elements(&SmeltUnknown::Object(value)).unwrap_or_default().into_iter().map(|element| match element { SmeltUnknown::Number(element) => element.to_string(), _ => String::new() }).collect::<Vec<_>>().join(","), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key("__smelt_regexp") => smelt_regexp_literal(&value), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") => { let smelt_error_name = match value.get("name") { Some(SmeltUnknown::String(name)) => name.to_string(), _ => match value.get("__smelt_error") { Some(SmeltUnknown::String(class)) => class.to_string(), _ => "Error".to_owned() } }; let smelt_error_message = match value.get("message") { Some(SmeltUnknown::String(message)) => message.to_string(), _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!("{smelt_error_name}: {smelt_error_message}") } }, SmeltUnknown::Array(values) => smelt_erased_to_js_string(&SmeltUnknown::Array(values)), SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() };
-    _smelt_tmp_10 = _smelt_tmp_9 + &":".to_owned();
+    _smelt_tmp_9 = JsString::new() + &match smelt_get_unknown_field(&e.clone(), "name").clone() {   SmeltUnknown::Object(value) if smelt_host_buffer_is_view(&SmeltUnknown::Object(value.clone())) => smelt_host_buffer_elements(&SmeltUnknown::Object(value)).unwrap_or_default().into_iter().map(|element| match element { SmeltUnknown::Number(element) => element.to_string(), _ => String::new() }).collect::<Vec<_>>().join(","), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key("__smelt_regexp") => smelt_regexp_literal(&value), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") => { let smelt_error_name = match value.get("name") { Some(SmeltUnknown::String(name)) => name.to_string(), _ => match value.get("__smelt_error") { Some(SmeltUnknown::String(class)) => class.to_string(), _ => "Error".to_owned() } }; let smelt_error_message = match value.get("message") { Some(SmeltUnknown::String(message)) => message.to_string(), _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!("{smelt_error_name}: {smelt_error_message}") } }, SmeltUnknown::Array(values) => smelt_erased_to_js_string(&SmeltUnknown::Array(values)), SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() };
+    _smelt_tmp_10 = _smelt_tmp_9 + &JsString::from(":");
     _smelt_tmp_11 = _smelt_tmp_10 + &match smelt_get_unknown_field(&e.clone(), "message").clone() {   SmeltUnknown::Object(value) if smelt_host_buffer_is_view(&SmeltUnknown::Object(value.clone())) => smelt_host_buffer_elements(&SmeltUnknown::Object(value)).unwrap_or_default().into_iter().map(|element| match element { SmeltUnknown::Number(element) => element.to_string(), _ => String::new() }).collect::<Vec<_>>().join(","), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key("__smelt_regexp") => smelt_regexp_literal(&value), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") => { let smelt_error_name = match value.get("name") { Some(SmeltUnknown::String(name)) => name.to_string(), _ => match value.get("__smelt_error") { Some(SmeltUnknown::String(class)) => class.to_string(), _ => "Error".to_owned() } }; let smelt_error_message = match value.get("message") { Some(SmeltUnknown::String(message)) => message.to_string(), _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!("{smelt_error_name}: {smelt_error_message}") } }, SmeltUnknown::Array(values) => smelt_erased_to_js_string(&SmeltUnknown::Array(values)), SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() };
-    let _ = { println!("{} {} {} {}", "rejected".to_owned(), path.clone(), _smelt_tmp_8, _smelt_tmp_11); };
+    let _ = { println!("{} {} {} {}", JsString::from("rejected"), path.clone(), _smelt_tmp_8, _smelt_tmp_11); };
     } else {
-    let _ = { println!("{} {}", "unexpected".to_owned(), path.clone()); };
+    let _ = { println!("{} {}", JsString::from("unexpected"), path.clone()); };
     }
         }
     }

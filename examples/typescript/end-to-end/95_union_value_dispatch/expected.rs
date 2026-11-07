@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -4804,8 +4807,8 @@ fn smelt_typed_array_write_origin(record: &SmeltObject, offset: usize, encoded: 
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Keyed {
-    tag: String,
-    kind: String,
+    tag: JsString,
+    kind: JsString,
 }
 impl IntoSmeltUnknown for Keyed {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -4832,8 +4835,8 @@ impl SmeltFromUnknown for Keyed {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Noted {
-    tag: String,
-    note: String,
+    tag: JsString,
+    note: JsString,
 }
 impl IntoSmeltUnknown for Noted {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -4902,7 +4905,7 @@ impl Default for SmeltUnion2 {
 
 #[derive(Clone)]
 pub enum SmeltUnion5 {
-    M0(String),
+    M0(JsString),
     M1(SmeltTypedArray),
 }
 impl IntoSmeltUnknown for SmeltUnion5 {
@@ -4962,14 +4965,14 @@ smelt_local.block_on(&smelt_runtime, async move {
 
 use super::*;
 
-pub(crate) async fn body_text(init: SmeltUnion5) -> Result<String, Box<dyn std::error::Error>> {
+pub(crate) async fn body_text(init: SmeltUnion5) -> Result<JsString, Box<dyn std::error::Error>> {
     let _smelt_tmp_1: SmeltResponse = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::new(), match init.clone() { SmeltUnion5::M0(smelt_body_arm) => SmeltBody::from_text(&smelt_body_arm), SmeltUnion5::M1(smelt_body_arm) => SmeltBody::from_bytes(smelt_body_arm.to_bytes()) });
-    let _smelt_tmp_2: SmeltFuture<String> = { let smelt_response = _smelt_tmp_1.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) })) };
-    let _smelt_tmp_3: String = _smelt_tmp_2.await?;
+    let _smelt_tmp_2: SmeltFuture<JsString> = { let smelt_response = _smelt_tmp_1.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) })) };
+    let _smelt_tmp_3: JsString = _smelt_tmp_2.await?;
     return Ok(_smelt_tmp_3);
 }
 
-pub(crate) fn retag(mut value: SmeltUnion2, next: String) -> String {
+pub(crate) fn retag(mut value: SmeltUnion2, next: JsString) -> JsString {
     match &mut value { SmeltUnion2::M0(smelt_union_arm) => { smelt_union_arm.tag = next.clone(); }, SmeltUnion2::M1(smelt_union_arm) => { smelt_union_arm.tag = next.clone(); } }
     return match &value { SmeltUnion2::M0(smelt_union_arm) => smelt_union_arm.tag.clone(), SmeltUnion2::M1(smelt_union_arm) => smelt_union_arm.tag.clone() }.clone();
 }
@@ -4977,11 +4980,11 @@ pub(crate) fn retag(mut value: SmeltUnion2, next: String) -> String {
 pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let counted: Keyed;
     let noted: Noted;
-    let _smelt_tmp_3: String;
+    let _smelt_tmp_3: JsString;
     let _smelt_tmp_5: SmeltList<f64>;
     let _smelt_tmp_6: SmeltTypedArray;
-    let _smelt_tmp_8: String;
-    let _smelt_tmp_2 = SmeltFuture::from_future(Box::pin(body_text(SmeltUnion5::M0("hello".to_owned()))));
+    let _smelt_tmp_8: JsString;
+    let _smelt_tmp_2 = SmeltFuture::from_future(Box::pin(body_text(SmeltUnion5::M0(JsString::from("hello")))));
     _smelt_tmp_3 = _smelt_tmp_2.await?;
     let _ = { println!("{}", _smelt_tmp_3); };
     _smelt_tmp_5 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![104.0, 105.0, 33.0]; smelt_list_items }));
@@ -4989,11 +4992,11 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_7 = SmeltFuture::from_future(Box::pin(body_text(SmeltUnion5::M1(_smelt_tmp_6))));
     _smelt_tmp_8 = _smelt_tmp_7.await?;
     let _ = { println!("{}", _smelt_tmp_8); };
-    counted = Keyed { tag: "first".to_owned(), kind: "k".to_owned() };
-    noted = Noted { tag: "third".to_owned(), note: "n".to_owned() };
-    let _smelt_tmp_12: String = retag(SmeltUnion2::M0(counted), "second".to_owned());
+    counted = Keyed { tag: JsString::from("first"), kind: JsString::from("k") };
+    noted = Noted { tag: JsString::from("third"), note: JsString::from("n") };
+    let _smelt_tmp_12: JsString = retag(SmeltUnion2::M0(counted), JsString::from("second"));
     let _ = { println!("{}", _smelt_tmp_12); };
-    let _smelt_tmp_14: String = retag(SmeltUnion2::M1(noted), "fourth".to_owned());
+    let _smelt_tmp_14: JsString = retag(SmeltUnion2::M1(noted), JsString::from("fourth"));
     let _ = { println!("{}", _smelt_tmp_14); };
     return Ok(());
 }

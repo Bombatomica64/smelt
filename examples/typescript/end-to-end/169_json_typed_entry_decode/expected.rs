@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -4671,7 +4674,7 @@ impl SmeltFromUnknown for SmeltRequest {
 
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Circle {
-    kind: String,
+    kind: JsString,
     radius: f64,
 }
 impl IntoSmeltUnknown for Circle {
@@ -4699,7 +4702,7 @@ impl SmeltFromUnknown for Circle {
 
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Square {
-    kind: String,
+    kind: JsString,
     side: f64,
 }
 impl IntoSmeltUnknown for Square {
@@ -4727,7 +4730,7 @@ impl SmeltFromUnknown for Square {
 
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Tree {
-    label: String,
+    label: JsString,
     children: SmeltList<Tree>,
 }
 impl IntoSmeltUnknown for Tree {
@@ -4756,8 +4759,8 @@ impl SmeltFromUnknown for Tree {
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Order {
     id: f64,
-    note: Option<String>,
-    priority: String,
+    note: Option<JsString>,
+    priority: JsString,
     shapes: SmeltList<SmeltUnion2>,
     totals: SmeltRecord<String, f64>,
     range: (f64, f64),
@@ -4982,7 +4985,7 @@ fn smelt_json_decode_5(text: &str) -> Result<Order, Box<dyn ::std::error::Error>
 }
 
 /// `JSON.parse` into `[string, boolean]`: parse, then decode strictly, throwing a catchable `TypeError` on a mismatch.
-fn smelt_json_decode_7(text: &str) -> Result<(String, bool), Box<dyn ::std::error::Error>> {
+fn smelt_json_decode_7(text: &str) -> Result<(JsString, bool), Box<dyn ::std::error::Error>> {
     let value = smelt_json_parse(text)?;
     let path = &mut String::new();
     smelt_decode_7(&value, path).map_err(smelt_decode_throw)
@@ -5065,7 +5068,7 @@ fn smelt_decode_5(value: &SmeltUnknown, path: &mut String) -> Result<Order, Smel
 }
 
 /// Strict JSON decoder for `[string, boolean]`.
-fn smelt_decode_7(value: &SmeltUnknown, path: &mut String) -> Result<(String, bool), SmeltDecodeIssue> {
+fn smelt_decode_7(value: &SmeltUnknown, path: &mut String) -> Result<(JsString, bool), SmeltDecodeIssue> {
     let SmeltUnknown::Array(items) = value else { return smelt_decode_fail(path, "[string, boolean]", value); };
     if items.len() != 2 { return smelt_decode_arity_fail(path, "[string, boolean]", items.len()); }
     let item_0 = items.get(0).unwrap_or(SmeltUnknown::Undefined);
@@ -5146,29 +5149,29 @@ let smelt_local = tokio::task::LocalSet::new();
 smelt_local.block_on(&smelt_runtime, async move {
     let order: Order;
     let noted: Order;
-    let pair: (String, bool);
+    let pair: (JsString, bool);
     let counts: SmeltList<f64>;
     let _smelt_tmp_9: bool;
     let _smelt_tmp_11: ::std::rc::Rc<dyn Fn(SmeltUnion2) -> f64>;
     let _smelt_tmp_12: SmeltList<f64>;
-    let _smelt_tmp_13: String;
-    let _smelt_tmp_15: SmeltList<String>;
-    let _smelt_tmp_16: String;
+    let _smelt_tmp_13: JsString;
+    let _smelt_tmp_15: SmeltList<JsString>;
+    let _smelt_tmp_16: JsString;
     let _smelt_tmp_17: SmeltRecord<String, f64>;
     let _smelt_tmp_18: SmeltRecord<String, f64>;
     let _smelt_tmp_19: f64;
     let _smelt_tmp_21: f64;
     let _smelt_tmp_22: f64;
     let _smelt_tmp_23: f64;
-    let _smelt_tmp_26: String;
-    let _smelt_tmp_33: String;
+    let _smelt_tmp_26: JsString;
+    let _smelt_tmp_33: JsString;
     let _smelt_tmp_34: bool;
     let _smelt_tmp_37: f64;
     let _smelt_tmp_40: ();
     let _smelt_tmp_42: ();
-    let _smelt_tmp_5: String = "{\"id\":42,\"priority\":\"high\",\"shapes\":[{\"kind\":\"circle\",\"radius\":2},{\"kind\":\"square\",\"side\":3}],".to_owned() + &"\"totals\":{\"net\":10,\"tax\":2},\"range\":[1,5],".to_owned();
-    let _smelt_tmp_6: String = _smelt_tmp_5 + &"\"tree\":{\"label\":\"root\",\"children\":[{\"label\":\"a\",\"children\":[]},{\"label\":\"b\",\"children\":[{\"label\":\"c\",\"children\":[]}]}]},".to_owned();
-    let text: String = _smelt_tmp_6 + &"\"ignored\":\"undeclared properties are dropped\"}".to_owned();
+    let _smelt_tmp_5: JsString = JsString::from("{\"id\":42,\"priority\":\"high\",\"shapes\":[{\"kind\":\"circle\",\"radius\":2},{\"kind\":\"square\",\"side\":3}],") + &JsString::from("\"totals\":{\"net\":10,\"tax\":2},\"range\":[1,5],");
+    let _smelt_tmp_6: JsString = _smelt_tmp_5 + &JsString::from("\"tree\":{\"label\":\"root\",\"children\":[{\"label\":\"a\",\"children\":[]},{\"label\":\"b\",\"children\":[{\"label\":\"c\",\"children\":[]}]}]},");
+    let text: JsString = _smelt_tmp_6 + &JsString::from("\"ignored\":\"undeclared properties are dropped\"}");
     let _smelt_tmp_8: Order = load_order(text.clone())?;
     order = _smelt_tmp_8;
     _smelt_tmp_9 = order.note.clone().is_none();
@@ -5178,32 +5181,32 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_1: f64 = area(closure_arg_0.clone());
     _smelt_tmp_1
     }); order.shapes.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone()) }).collect::<Vec<_>>() });
-    _smelt_tmp_13 = _smelt_tmp_12.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&",".to_owned());
+    _smelt_tmp_13 = _smelt_tmp_12.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_13); };
     _smelt_tmp_15 = Into::<SmeltList<_>>::into(order.totals.clone().keys().filter(|key| !key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&order.totals.clone(), key)).collect::<Vec<_>>());
-    _smelt_tmp_16 = _smelt_tmp_15.borrow().join(&"+".to_owned());
+    _smelt_tmp_16 = _smelt_tmp_15.borrow().join(&JsString::from("+"));
     _smelt_tmp_17 = order.totals.clone();
     _smelt_tmp_18 = order.totals.clone();
-    _smelt_tmp_19 = _smelt_tmp_17.get(&"net".to_owned().clone()).unwrap_or(0.0) + _smelt_tmp_18.get(&"tax".to_owned().clone()).unwrap_or(0.0);
+    _smelt_tmp_19 = _smelt_tmp_17.get(&JsString::from("net").clone()).unwrap_or(0.0) + _smelt_tmp_18.get(&JsString::from("tax").clone()).unwrap_or(0.0);
     let _ = { println!("{} {}", _smelt_tmp_16, smelt_console_number(_smelt_tmp_19)); };
     _smelt_tmp_21 = order.range.clone().1.clone();
     _smelt_tmp_22 = order.range.clone().0.clone();
     _smelt_tmp_23 = _smelt_tmp_21 - _smelt_tmp_22;
     let _smelt_tmp_24: f64 = count_nodes(order.tree.clone());
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_23), smelt_console_number(_smelt_tmp_24)); };
-    _smelt_tmp_26 = text.replacen(&"\"id\":42".to_owned(), &"\"id\":7,\"note\":\"rush\"".to_owned(), 1);
+    _smelt_tmp_26 = text.replacen(&JsString::from("\"id\":42"), &JsString::from("\"id\":7,\"note\":\"rush\""), 1);
     let _smelt_tmp_27: Order = smelt_json_decode_5(&_smelt_tmp_26)?;
     noted = _smelt_tmp_27;
     let _ = { println!("{} {}", smelt_console_number(noted.id), match &noted.note.clone() { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    let _smelt_tmp_29: f64 = smelt_json_decode_8(&"21".to_owned())?;
+    let _smelt_tmp_29: f64 = smelt_json_decode_8(&JsString::from("21"))?;
     let _smelt_tmp_30: f64 = double(_smelt_tmp_29);
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_30)); };
-    let _smelt_tmp_32: (String, bool) = smelt_json_decode_7(&"[\"left\",true]".to_owned())?;
+    let _smelt_tmp_32: (JsString, bool) = smelt_json_decode_7(&JsString::from("[\"left\",true]"))?;
     pair = _smelt_tmp_32;
     _smelt_tmp_33 = pair.clone().0.clone();
     _smelt_tmp_34 = pair.1.clone();
     let _ = { println!("{} {}", _smelt_tmp_33, _smelt_tmp_34); };
-    let _smelt_tmp_36: SmeltList<f64> = smelt_json_decode_9(&"[3,1,2]".to_owned())?;
+    let _smelt_tmp_36: SmeltList<f64> = smelt_json_decode_9(&JsString::from("[3,1,2]"))?;
     counts = Into::<SmeltList<_>>::into(_smelt_tmp_36);
     _smelt_tmp_37 = counts.len() as f64;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_37), smelt_console_number(counts.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0))); };
@@ -5244,7 +5247,7 @@ pub(crate) fn area(shape: SmeltUnion2) -> f64 {
     let _smelt_tmp_3: f64;
     let _smelt_tmp_4: f64;
     let _smelt_tmp_5: f64;
-    let _smelt_tmp_1: bool = match &shape { SmeltUnion2::M0(smelt_union_arm) => smelt_union_arm.kind.clone(), SmeltUnion2::M1(smelt_union_arm) => smelt_union_arm.kind.clone() }.clone() == "circle".to_owned();
+    let _smelt_tmp_1: bool = match &shape { SmeltUnion2::M0(smelt_union_arm) => smelt_union_arm.kind.clone(), SmeltUnion2::M1(smelt_union_arm) => smelt_union_arm.kind.clone() }.clone() == JsString::from("circle");
     if _smelt_tmp_1 {
     _smelt_tmp_2 = 3.141592653589793 * match smelt_get_unknown_field(&shape.clone().into_smelt_unknown(), "radius").clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN };
     _smelt_tmp_3 = _smelt_tmp_2 * match smelt_get_unknown_field(&shape.clone().into_smelt_unknown(), "radius").clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN };
@@ -5277,7 +5280,7 @@ pub(crate) fn count_nodes(tree: Tree) -> f64 {
     return total;
 }
 
-pub(crate) fn load_order(text: String) -> Result<Order, Box<dyn std::error::Error>> {
+pub(crate) fn load_order(text: JsString) -> Result<Order, Box<dyn std::error::Error>> {
     let _smelt_tmp_1: Order = smelt_json_decode_5(&text.clone())?;
     return Ok(_smelt_tmp_1);
 }
@@ -5290,11 +5293,11 @@ pub(crate) fn double(value: f64) -> f64 {
 pub(crate) async fn read_bodies() -> Result<(), Box<dyn std::error::Error>> {
     let request: SmeltRequest;
     let from_request: Square;
-    let _smelt_tmp_3: SmeltResponse = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::new(), SmeltBody::from_text(&"{\"kind\":\"circle\",\"radius\":1}".to_owned()));
+    let _smelt_tmp_3: SmeltResponse = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::new(), SmeltBody::from_text(&JsString::from("{\"kind\":\"circle\",\"radius\":1}")));
     let _smelt_tmp_4: SmeltFuture<Circle> = { let smelt_body_owner = _smelt_tmp_3.clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_text = smelt_body_owner.take_text()?; smelt_json_decode_0(&smelt_text) })) };
     let from_response: Circle = _smelt_tmp_4.await?;
     let _ = { println!("{} {}", from_response.kind.clone(), smelt_console_number(from_response.radius)); };
-    request = SmeltRequest::from_parts_with_init(&"http://example.test/".to_owned(), "POST".to_owned(), SmeltHeaders::new(), SmeltBody::from_text(&"{\"kind\":\"square\",\"side\":4}".to_owned()), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
+    request = SmeltRequest::from_parts_with_init(&JsString::from("http://example.test/"), JsString::from("POST"), SmeltHeaders::new(), SmeltBody::from_text(&JsString::from("{\"kind\":\"square\",\"side\":4}")), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
     let _smelt_tmp_8: SmeltFuture<Square> = { let smelt_body_owner = request.clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_text = smelt_body_owner.take_text()?; smelt_json_decode_1(&smelt_text) })) };
     from_request = _smelt_tmp_8.await?;
     let _smelt_tmp_10: f64 = area(SmeltUnion2::M1(from_request));

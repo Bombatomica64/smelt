@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -4022,27 +4025,27 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFr
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let numbers: Chain<f64>;
-    let words: Track<String>;
-    let _smelt_tmp_6: String;
+    let words: Track<JsString>;
+    let _smelt_tmp_6: JsString;
     let _smelt_tmp_9: Chain<f64>;
-    let _smelt_tmp_13: Chain<String>;
-    let _smelt_tmp_17: Chain<String>;
-    let _smelt_tmp_19: Chain<String>;
+    let _smelt_tmp_13: Chain<JsString>;
+    let _smelt_tmp_17: Chain<JsString>;
+    let _smelt_tmp_19: Chain<JsString>;
     let _smelt_tmp_2: Chain<f64> = Chain::new(1.0);
     numbers = _smelt_tmp_2;
     let _smelt_tmp_3: Chain<f64> = numbers.push(2.0);
     let _smelt_tmp_4: Chain<f64> = numbers.push(3.0);
     let _ = { println!("{}", smelt_console_number(numbers.0.borrow().value.clone())); };
-    _smelt_tmp_6 = numbers.0.borrow().history.clone().borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&",".to_owned());
+    _smelt_tmp_6 = numbers.0.borrow().history.clone().borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_6); };
     _smelt_tmp_9 = { let smelt_callable = ::std::clone::Clone::clone(&numbers.0.borrow().rewind.clone()); (smelt_callable)() };
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_9.0.borrow().value.clone())); };
-    let _smelt_tmp_11: Chain<String> = Chain::new("a".to_owned());
-    let _smelt_tmp_12: Track<String> = Track::new(_smelt_tmp_11);
+    let _smelt_tmp_11: Chain<JsString> = Chain::new(JsString::from("a"));
+    let _smelt_tmp_12: Track<JsString> = Track::new(_smelt_tmp_11);
     words = _smelt_tmp_12;
     _smelt_tmp_13 = words.chain.clone();
-    let _smelt_tmp_14: Chain<String> = words.chain.push("b".to_owned());
-    let _smelt_tmp_15: String = words.latest();
+    let _smelt_tmp_14: Chain<JsString> = words.chain.push(JsString::from("b"));
+    let _smelt_tmp_15: JsString = words.latest();
     let _ = { println!("{}", _smelt_tmp_15); };
     _smelt_tmp_17 = words.chain.clone();
     _smelt_tmp_19 = { let smelt_callable = ::std::clone::Clone::clone(&_smelt_tmp_17.0.borrow().rewind.clone()); (smelt_callable)() };

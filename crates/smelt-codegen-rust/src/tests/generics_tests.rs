@@ -89,10 +89,10 @@ function usePair(): string {
     assert!(source.contains("struct Pair<A, B>"));
     assert!(source.contains("impl<A: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, B: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Pair<A, B>"));
     // Both concrete arguments are passed through; the receiver is `Pair<f64, String>`.
-    assert!(source.contains("Pair<f64, String>"));
-    assert!(source.contains(r#"Pair::new(1.0, "x".to_owned())"#));
+    assert!(source.contains("Pair<f64, JsString>"));
+    assert!(source.contains(r#"Pair::new(1.0, JsString::from("x"))"#));
     // `getSecond(): B` on `Pair<f64, String>` returns `String`, not `SmeltUnknown`.
-    assert!(source.contains("let _smelt_tmp_2: String = p.get_second();"));
+    assert!(source.contains("let _smelt_tmp_2: JsString = p.get_second();"));
 }
 
 #[test]
@@ -203,7 +203,7 @@ export function flags<R extends RegExp>(value: R): string {
     );
     assert!(source.contains(".smelt_date().get_time()"), "{source}");
     assert!(!source.contains("fn flags<R"), "{source}");
-    assert!(source.contains("fn flags(value: SmeltUnknown) -> String"), "{source}");
+    assert!(source.contains("fn flags(value: SmeltUnknown) -> JsString"), "{source}");
 }
 
 #[test]
@@ -239,7 +239,7 @@ export function main(): void {
         "the class-bounded parameter must lift with its trait:\n{source}"
     );
     assert!(source.contains("trait AnimalLike {"), "{source}");
-    assert!(source.contains("fn speak(&self) -> String;"), "{source}");
+    assert!(source.contains("fn speak(&self) -> JsString;"), "{source}");
     assert!(source.contains("fn legs(&self) -> f64;"), "{source}");
     assert!(source.contains("impl AnimalLike for Animal {"), "{source}");
     assert!(source.contains("impl AnimalLike for Dog {"), "{source}");
@@ -337,7 +337,7 @@ function makeOk(v: number): Outcome<number, string> {
     // The interface storage keeps its generic parameters and instantiates
     // concretely at the return position.
     assert!(source.contains("struct Outcome<T, E>"));
-    assert!(source.contains("-> Outcome<f64, String>"));
+    assert!(source.contains("-> Outcome<f64, JsString>"));
 }
 
 #[test]
@@ -985,7 +985,7 @@ export function pinned(xs: number[], ys: number[]): number[] {
 ",
     );
 
-    assert!(source.contains("move |arg0: &f64| -> String {"));
+    assert!(source.contains("move |arg0: &f64| -> JsString {"));
 }
 
 #[test]
@@ -1538,7 +1538,7 @@ export function fill(store: Store<[string, number]>): number {
     );
 
     assert!(
-        source.contains("(store.add.clone())(\"first\".to_owned(), &("),
+        source.contains("(store.add.clone())(JsString::from(\"first\"), &("),
         "the declared `&T` slot must be called by reference: {source}"
     );
 }
@@ -1573,7 +1573,7 @@ export function fill(raw: unknown): number {
     );
 
     assert!(
-        source.contains("smelt_slot_adapted: ::std::rc::Rc<dyn Fn(String, &(String, f64)) -> ()>"),
+        source.contains("smelt_slot_adapted: ::std::rc::Rc<dyn Fn(JsString, &(JsString, f64)) -> ()>"),
         "the rebuilt slot must be adapted to the declared `&T` ABI: {source}"
     );
 }
@@ -1676,7 +1676,7 @@ export function useCell(): string { return new Cell<string>('hi').get(); }
         "a stored parameter stays declared: {source}"
     );
     assert!(
-        source.contains("Cell<String>"),
+        source.contains("Cell<JsString>"),
         "and the instantiation stays concrete: {source}"
     );
 }

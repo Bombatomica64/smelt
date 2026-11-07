@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3714,9 +3717,9 @@ fn main() {
     let mut m: i64;
     let _smelt_tmp_6: SmeltList<f64>;
     let _smelt_tmp_8: SmeltList<f64>;
-    let _smelt_tmp_11: SmeltList<String>;
-    let _smelt_tmp_13: SmeltList<String>;
-    let _smelt_tmp_15: SmeltList<String>;
+    let _smelt_tmp_11: SmeltList<JsString>;
+    let _smelt_tmp_13: SmeltList<JsString>;
+    let _smelt_tmp_15: SmeltList<JsString>;
     let _smelt_tmp_18: SmeltList<f64>;
     let _smelt_tmp_20: SmeltList<f64>;
     let _smelt_tmp_22: SmeltList<f64>;
@@ -3729,10 +3732,10 @@ fn main() {
     let _smelt_tmp_42: SmeltList<f64>;
     let _smelt_tmp_45: f64;
     let mut _smelt_tmp_48: bool;
-    let mut _smelt_tmp_49: String;
-    let mut _smelt_tmp_50: String;
+    let mut _smelt_tmp_49: JsString;
+    let mut _smelt_tmp_50: JsString;
     let mut _smelt_tmp_51: i64;
-    let mut _smelt_tmp_52: String;
+    let mut _smelt_tmp_52: JsString;
     let mut _smelt_tmp_53: f64;
     let mut _smelt_tmp_55: i64;
     let mut _smelt_tmp_56: f64;
@@ -3759,22 +3762,22 @@ fn main() {
     _smelt_tmp_8 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![5.0]; smelt_list_items }));
     let _smelt_tmp_9: f64 = sum_pairs(_smelt_tmp_8);
     let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_5), smelt_console_number(_smelt_tmp_7), smelt_console_number(_smelt_tmp_9)); };
-    _smelt_tmp_11 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "stop".to_owned(), "b".to_owned()]; smelt_list_items }));
+    _smelt_tmp_11 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a"), JsString::from("stop"), JsString::from("b")]; smelt_list_items }));
     let _smelt_tmp_12: f64 = last_index_down(_smelt_tmp_11);
-    _smelt_tmp_13 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    _smelt_tmp_13 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
     let _smelt_tmp_14: f64 = last_index_down(_smelt_tmp_13);
-    _smelt_tmp_15 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["x".to_owned()]; smelt_list_items }));
+    _smelt_tmp_15 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("x")]; smelt_list_items }));
     let _smelt_tmp_16: f64 = last_index_down(_smelt_tmp_15);
     let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_12), smelt_console_number(_smelt_tmp_14), smelt_console_number(_smelt_tmp_16)); };
     _smelt_tmp_18 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![10.0, 20.0, 30.0]; smelt_list_items }));
-    let _smelt_tmp_19: String = step_two(_smelt_tmp_18);
+    let _smelt_tmp_19: JsString = step_two(_smelt_tmp_18);
     _smelt_tmp_20 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![]; smelt_list_items }));
-    let _smelt_tmp_21: String = step_two(_smelt_tmp_20);
+    let _smelt_tmp_21: JsString = step_two(_smelt_tmp_20);
     _smelt_tmp_22 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0]; smelt_list_items }));
-    let _smelt_tmp_23: String = step_two(_smelt_tmp_22);
+    let _smelt_tmp_23: JsString = step_two(_smelt_tmp_22);
     let _ = { println!("{} {} {}", _smelt_tmp_19, _smelt_tmp_21, _smelt_tmp_23); };
-    let _smelt_tmp_25: String = chars("hello".to_owned());
-    let _smelt_tmp_26: String = chars("".to_owned());
+    let _smelt_tmp_25: JsString = chars(JsString::from("hello"));
+    let _smelt_tmp_26: JsString = chars(JsString::new());
     let _ = { println!("{} {}", _smelt_tmp_25, _smelt_tmp_26); };
     _smelt_tmp_28 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0]; smelt_list_items }));
     _smelt_tmp_29 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![3.0]; smelt_list_items }));
@@ -3801,9 +3804,9 @@ fn main() {
     _smelt_tmp_48 = i < 3;
     if !(_smelt_tmp_48) { break; }
     _smelt_tmp_68 = i as f64;
-    _smelt_tmp_49 = "i=".to_owned() + &smelt_number_to_string(_smelt_tmp_68);
+    _smelt_tmp_49 = JsString::from("i=") + &smelt_number_to_string(_smelt_tmp_68);
     _smelt_tmp_69 = i as f64;
-    _smelt_tmp_50 = "t".to_owned() + &smelt_number_to_string(_smelt_tmp_69);
+    _smelt_tmp_50 = JsString::from("t") + &smelt_number_to_string(_smelt_tmp_69);
     _smelt_tmp_51 = i - 1;
     _smelt_tmp_70 = i as f64;
     _smelt_tmp_52 = smelt_number_to_string(_smelt_tmp_70);
@@ -3874,7 +3877,7 @@ pub(crate) fn sum_pairs(xs: SmeltList<f64>) -> f64 {
     return total;
 }
 
-pub(crate) fn last_index_down(xs: SmeltList<String>) -> f64 {
+pub(crate) fn last_index_down(xs: SmeltList<JsString>) -> f64 {
     let mut _smelt_tmp_4: bool;
     let mut _smelt_tmp_5: bool;
     let mut _smelt_tmp_6: i64;
@@ -3884,7 +3887,7 @@ pub(crate) fn last_index_down(xs: SmeltList<String>) -> f64 {
     loop {
     _smelt_tmp_4 = i >= 0;
     if !(_smelt_tmp_4) { break; }
-    _smelt_tmp_5 = xs.borrow().get({ let smelt_normalized = i; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()) == "stop".to_owned();
+    _smelt_tmp_5 = xs.borrow().get({ let smelt_normalized = i; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()) == JsString::from("stop");
     if _smelt_tmp_5 {
     break;
     } else {
@@ -3897,50 +3900,50 @@ pub(crate) fn last_index_down(xs: SmeltList<String>) -> f64 {
     return _smelt_tmp_7;
 }
 
-pub(crate) fn step_two(xs: SmeltList<f64>) -> String {
+pub(crate) fn step_two(xs: SmeltList<f64>) -> JsString {
     let mut _smelt_tmp_3: usize;
     let mut _smelt_tmp_4: bool;
-    let mut _smelt_tmp_5: String;
-    let mut _smelt_tmp_6: String;
-    let mut _smelt_tmp_7: String;
-    let mut _smelt_tmp_8: String;
-    let mut _smelt_tmp_9: String;
+    let mut _smelt_tmp_5: JsString;
+    let mut _smelt_tmp_6: JsString;
+    let mut _smelt_tmp_7: JsString;
+    let mut _smelt_tmp_8: JsString;
+    let mut _smelt_tmp_9: JsString;
     let mut _smelt_tmp_10: usize;
-    let mut _smelt_tmp_11: String;
-    let mut _smelt_tmp_12: String;
+    let mut _smelt_tmp_11: JsString;
+    let mut _smelt_tmp_12: JsString;
     let mut _smelt_tmp_13: f64;
     let mut _smelt_tmp_14: f64;
     let mut i: usize = 0;
-    let mut out: String = "".to_owned();
+    let mut out: JsString = JsString::new();
     loop {
     _smelt_tmp_3 = xs.len();
     _smelt_tmp_4 = i < _smelt_tmp_3;
     if !(_smelt_tmp_4) { break; }
     _smelt_tmp_13 = i as f64;
-    _smelt_tmp_5 = "".to_owned() + &smelt_number_to_string(_smelt_tmp_13);
-    _smelt_tmp_6 = _smelt_tmp_5 + &":".to_owned();
+    _smelt_tmp_5 = JsString::new() + &smelt_number_to_string(_smelt_tmp_13);
+    _smelt_tmp_6 = _smelt_tmp_5 + &JsString::from(":");
     _smelt_tmp_7 = _smelt_tmp_6 + &smelt_number_to_string(xs.borrow().get(i).cloned().unwrap_or_else(|| 0.0));
-    _smelt_tmp_8 = _smelt_tmp_7 + &" ".to_owned();
+    _smelt_tmp_8 = _smelt_tmp_7 + &JsString::from(" ");
     _smelt_tmp_9 = out + &_smelt_tmp_8;
     out = _smelt_tmp_9;
     _smelt_tmp_10 = i + 2;
     i = _smelt_tmp_10;
     }
-    _smelt_tmp_11 = out + &"end=".to_owned();
+    _smelt_tmp_11 = out + &JsString::from("end=");
     _smelt_tmp_14 = i as f64;
     _smelt_tmp_12 = _smelt_tmp_11 + &smelt_number_to_string(_smelt_tmp_14);
     return _smelt_tmp_12;
 }
 
-pub(crate) fn chars(s: String) -> String {
+pub(crate) fn chars(s: JsString) -> JsString {
     let mut _smelt_tmp_3: usize;
     let mut _smelt_tmp_4: bool;
-    let mut _smelt_tmp_5: String;
-    let mut _smelt_tmp_6: String;
+    let mut _smelt_tmp_5: JsString;
+    let mut _smelt_tmp_6: JsString;
     let mut _smelt_tmp_7: usize;
     let mut _smelt_tmp_8: f64;
     let mut _smelt_tmp_9: f64;
-    let mut out: String = "".to_owned();
+    let mut out: JsString = JsString::new();
     let mut i: usize = 0;
     loop {
     _smelt_tmp_3 = smelt_utf16_len(&s);

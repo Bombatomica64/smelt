@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3778,7 +3781,7 @@ impl SmeltFromUnknown for SmeltMatch {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Request {
-    headers: SmeltJsMap<String, String>,
+    headers: SmeltJsMap<JsString, JsString>,
 }
 impl IntoSmeltUnknown for Request {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -3806,7 +3809,7 @@ struct Context(::std::rc::Rc<::std::cell::RefCell<ContextInner>>);
 struct ContextInner {
     reads: f64,
     _req: Option<Request>,
-    _raw: SmeltJsMap<String, String>,
+    _raw: SmeltJsMap<JsString, JsString>,
 }
 impl Clone for Context {
     fn clone(&self) -> Self {
@@ -3854,69 +3857,69 @@ impl SmeltFromUnknown for Context {
 
 fn main() {
     let ctx: Context;
-    let _smelt_tmp_8: String;
-    let _smelt_tmp_11: SmeltList<String>;
-    let _smelt_tmp_13: String;
+    let _smelt_tmp_8: JsString;
+    let _smelt_tmp_11: SmeltList<JsString>;
+    let _smelt_tmp_13: JsString;
     let _smelt_tmp_16: Request;
-    let _smelt_tmp_18: String;
+    let _smelt_tmp_18: JsString;
     let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: Context| {
-    let accept: String;
+    let accept: JsString;
     let _smelt_tmp_4: bool;
-    let mut _smelt_tmp_5: String;
-    let _smelt_tmp_6: String;
+    let mut _smelt_tmp_5: JsString;
+    let _smelt_tmp_6: JsString;
     let _smelt_tmp_2: Request = closure_arg_0.__smelt_get_req().clone();
-    let _smelt_tmp_3: Option<String> = _smelt_tmp_2.header("accept".to_owned());
+    let _smelt_tmp_3: Option<JsString> = _smelt_tmp_2.header(JsString::from("accept"));
     _smelt_tmp_4 = _smelt_tmp_3.clone().clone().is_some_and(|value| !value.is_empty());
     if _smelt_tmp_4 {
     _smelt_tmp_6 = _smelt_tmp_3.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_5 = _smelt_tmp_6.clone();
     } else {
-    _smelt_tmp_5 = "".to_owned();
+    _smelt_tmp_5 = JsString::new();
     }
     accept = _smelt_tmp_5.clone();
-    let _smelt_tmp_7: String = closure_arg_0.text(accept.clone());
+    let _smelt_tmp_7: JsString = closure_arg_0.text(accept.clone());
     _smelt_tmp_7.clone()
     });
     let handler = _smelt_tmp_2.clone();
-    let _smelt_tmp_3: SmeltJsMap<String, String> = SmeltJsMap::from([("content-type".to_owned(), "text/plain".to_owned()), ("accept".to_owned(), "*/*".to_owned())]);
+    let _smelt_tmp_3: SmeltJsMap<JsString, JsString> = SmeltJsMap::from([(JsString::from("content-type"), JsString::from("text/plain")), (JsString::from("accept"), JsString::from("*/*"))]);
     let _smelt_tmp_4: Context = Context::new(_smelt_tmp_3);
     ctx = _smelt_tmp_4;
-    let _smelt_tmp_5: String = content_type(ctx.clone());
+    let _smelt_tmp_5: JsString = content_type(ctx.clone());
     let _ = { println!("{}", _smelt_tmp_5); };
     let _ = { println!("{}", smelt_console_number(ctx.0.borrow().reads.clone())); };
     _smelt_tmp_8 = (handler)(ctx.clone());
     let _ = { println!("{}", _smelt_tmp_8); };
     let _ = { println!("{}", smelt_console_number(ctx.0.borrow().reads.clone())); };
-    _smelt_tmp_11 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["accept".to_owned(), "x-missing".to_owned(), "content-type".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_12: SmeltList<String> = present(ctx.clone(), _smelt_tmp_11);
-    _smelt_tmp_13 = _smelt_tmp_12.borrow().join(&",".to_owned());
+    _smelt_tmp_11 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("accept"), JsString::from("x-missing"), JsString::from("content-type")]; smelt_list_items }));
+    let _smelt_tmp_12: SmeltList<JsString> = present(ctx.clone(), _smelt_tmp_11);
+    _smelt_tmp_13 = _smelt_tmp_12.borrow().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_13); };
     let _ = { println!("{}", smelt_console_number(ctx.0.borrow().reads.clone())); };
     _smelt_tmp_16 = ctx.__smelt_get_req().clone();
-    let _smelt_tmp_17: SmeltList<String> = _smelt_tmp_16.names();
-    _smelt_tmp_18 = _smelt_tmp_17.borrow().join(&",".to_owned());
+    let _smelt_tmp_17: SmeltList<JsString> = _smelt_tmp_16.names();
+    _smelt_tmp_18 = _smelt_tmp_17.borrow().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_18); };
     let _ = { println!("{}", smelt_console_number(ctx.0.borrow().reads.clone())); };
     return;
 }
 
 impl Request {
-    fn new(headers: SmeltJsMap<String, String>) -> Self {
+    fn new(headers: SmeltJsMap<JsString, JsString>) -> Self {
     let mut this: Self = Request { headers: SmeltJsMap::new() };
     this.headers = headers.clone();
     return this;
     }
-    fn header(&self, name: String) -> Option<String> {
-    let _smelt_tmp_2: Option<String> = self.headers.get(&name);
+    fn header(&self, name: JsString) -> Option<JsString> {
+    let _smelt_tmp_2: Option<JsString> = self.headers.get(&name);
     return _smelt_tmp_2;
     }
-    fn names(&self) -> SmeltList<String> {
-    let _smelt_tmp_1: SmeltList<String> = Into::<SmeltList<_>>::into(self.headers.clone().keys().filter(|key| !key.starts_with("__smelt_symbol")).collect::<Vec<_>>());
-    let _smelt_tmp_2: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
-    let _smelt_tmp_3: SmeltList<String> = Into::<SmeltList<_>>::into(_smelt_tmp_1.borrow().iter().cloned().chain(_smelt_tmp_2.borrow().iter().cloned()).collect::<Vec<_>>());
+    fn names(&self) -> SmeltList<JsString> {
+    let _smelt_tmp_1: SmeltList<JsString> = Into::<SmeltList<_>>::into(self.headers.clone().keys().filter(|key| !key.starts_with("__smelt_symbol")).collect::<Vec<_>>());
+    let _smelt_tmp_2: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
+    let _smelt_tmp_3: SmeltList<JsString> = Into::<SmeltList<_>>::into(_smelt_tmp_1.borrow().iter().cloned().chain(_smelt_tmp_2.borrow().iter().cloned()).collect::<Vec<_>>());
     return _smelt_tmp_3;
     }
-    fn has(&self, name: String) -> bool {
+    fn has(&self, name: JsString) -> bool {
     let _smelt_tmp_2: bool = self.headers.contains_key(&name);
     return _smelt_tmp_2;
     }
@@ -3936,7 +3939,7 @@ impl Request {
 }
 
 impl Context {
-    fn new(raw: SmeltJsMap<String, String>) -> Self {
+    fn new(raw: SmeltJsMap<JsString, JsString>) -> Self {
     let mut this: Self = Context(::std::rc::Rc::new(::std::cell::RefCell::new(ContextInner { reads: 0.0, _req: None::<Request>, _raw: SmeltJsMap::new() })));
     this.0.borrow_mut().reads = 0.0;
     this.0.borrow_mut()._raw = raw.clone();
@@ -3954,8 +3957,8 @@ impl Context {
     }
     return self.0.borrow()._req.clone().clone().unwrap_or_else(|| Default::default());
     }
-    fn text(&self, body: String) -> String {
-    let _smelt_tmp_2: String = "text:".to_owned() + &body.clone();
+    fn text(&self, body: JsString) -> JsString {
+    let _smelt_tmp_2: JsString = JsString::from("text:") + &body.clone();
     return _smelt_tmp_2;
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
@@ -3978,18 +3981,18 @@ impl Context {
 
 use super::*;
 
-pub(crate) fn content_type(c: Context) -> String {
-    let _smelt_tmp_3: String;
+pub(crate) fn content_type(c: Context) -> JsString {
+    let _smelt_tmp_3: JsString;
     let _smelt_tmp_1: Request = c.__smelt_get_req().clone();
-    let _smelt_tmp_2: Option<String> = _smelt_tmp_1.header("content-type".to_owned());
-    _smelt_tmp_3 = _smelt_tmp_2.clone().unwrap_or("none".to_owned());
+    let _smelt_tmp_2: Option<JsString> = _smelt_tmp_1.header(JsString::from("content-type"));
+    _smelt_tmp_3 = _smelt_tmp_2.clone().unwrap_or(JsString::from("none"));
     return _smelt_tmp_3;
 }
 
-pub(crate) fn present(c: Context, names: SmeltList<String>) -> SmeltList<String> {
+pub(crate) fn present(c: Context, names: SmeltList<JsString>) -> SmeltList<JsString> {
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let c = c.clone();
-    move |closure_arg_0: String| {
+    move |closure_arg_0: JsString| {
     let _smelt_tmp_2: Request = c.__smelt_get_req().clone();
     let _smelt_tmp_3: bool = _smelt_tmp_2.has(closure_arg_0.clone());
     _smelt_tmp_3
@@ -3999,7 +4002,7 @@ pub(crate) fn present(c: Context, names: SmeltList<String>) -> SmeltList<String>
     let _smelt_tmp_4 = ::std::rc::Rc::new({
     let c = c.clone();
     let known = known.clone();
-    move |closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    move |closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
     let mut _smelt_tmp_5: bool;
     let _smelt_tmp_6: bool;
     let _smelt_tmp_3: Request = c.__smelt_get_req().clone();
@@ -4013,10 +4016,10 @@ pub(crate) fn present(c: Context, names: SmeltList<String>) -> SmeltList<String>
     _smelt_tmp_5
     }
 });
-    let _smelt_tmp_5: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new({
+    let _smelt_tmp_5: SmeltList<JsString> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new({
     let c = c.clone();
     let known = known.clone();
-    move |closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    move |closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
     let mut _smelt_tmp_5: bool;
     let _smelt_tmp_6: bool;
     let _smelt_tmp_3: Request = c.__smelt_get_req().clone();

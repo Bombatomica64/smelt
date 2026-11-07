@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -4433,95 +4436,95 @@ smelt_local.block_on(&smelt_runtime, async move {
 
 use super::*;
 
-pub(crate) async fn slow_handler() -> Result<String, Box<dyn std::error::Error>> {
+pub(crate) async fn slow_handler() -> Result<JsString, Box<dyn std::error::Error>> {
     let _smelt_tmp_1: ();
     let _smelt_tmp_0 = sleep__module_main(1100.0);
     _smelt_tmp_1 = _smelt_tmp_0.await?;
-    return Ok("handler finished".to_owned());
+    return Ok(JsString::from("handler finished"));
 }
 
-pub(crate) async fn layer1() -> Result<String, Box<dyn std::error::Error>> {
-    let _smelt_tmp_1: String;
+pub(crate) async fn layer1() -> Result<JsString, Box<dyn std::error::Error>> {
+    let _smelt_tmp_1: JsString;
     let _smelt_tmp_0 = SmeltFuture::from_future(Box::pin(slow_handler()));
     _smelt_tmp_1 = _smelt_tmp_0.await?;
     return Ok(_smelt_tmp_1);
 }
 
-pub(crate) async fn layer2() -> Result<String, Box<dyn std::error::Error>> {
-    let _smelt_tmp_1: String;
+pub(crate) async fn layer2() -> Result<JsString, Box<dyn std::error::Error>> {
+    let _smelt_tmp_1: JsString;
     let _smelt_tmp_0 = SmeltFuture::from_future(Box::pin(layer1()));
     _smelt_tmp_1 = _smelt_tmp_0.await?;
     return Ok(_smelt_tmp_1);
 }
 
-pub(crate) async fn layer3() -> Result<String, Box<dyn std::error::Error>> {
-    let _smelt_tmp_1: String;
+pub(crate) async fn layer3() -> Result<JsString, Box<dyn std::error::Error>> {
+    let _smelt_tmp_1: JsString;
     let _smelt_tmp_0 = SmeltFuture::from_future(Box::pin(layer2()));
     _smelt_tmp_1 = _smelt_tmp_0.await?;
     return Ok(_smelt_tmp_1);
 }
 
-pub(crate) async fn layer4() -> Result<String, Box<dyn std::error::Error>> {
-    let _smelt_tmp_1: String;
+pub(crate) async fn layer4() -> Result<JsString, Box<dyn std::error::Error>> {
+    let _smelt_tmp_1: JsString;
     let _smelt_tmp_0 = SmeltFuture::from_future(Box::pin(layer3()));
     _smelt_tmp_1 = _smelt_tmp_0.await?;
     return Ok(_smelt_tmp_1);
 }
 
-pub(crate) async fn dispatch_outer() -> Result<String, Box<dyn std::error::Error>> {
-    let _smelt_tmp_1: String;
+pub(crate) async fn dispatch_outer() -> Result<JsString, Box<dyn std::error::Error>> {
+    let _smelt_tmp_1: JsString;
     let _smelt_tmp_0 = SmeltFuture::from_future(Box::pin(layer4()));
     _smelt_tmp_1 = _smelt_tmp_0.await?;
     return Ok(_smelt_tmp_1);
 }
 
-pub(crate) async fn with_deadline(ms: f64) -> Result<String, Box<dyn std::error::Error>> {
-    let _smelt_tmp_3: ::std::rc::Rc<dyn Fn() -> String>;
-    let _smelt_tmp_7: String;
+pub(crate) async fn with_deadline(ms: f64) -> Result<JsString, Box<dyn std::error::Error>> {
+    let _smelt_tmp_3: ::std::rc::Rc<dyn Fn() -> JsString>;
+    let _smelt_tmp_7: JsString;
     let _smelt_tmp_2 = sleep__module_main(ms);
     _smelt_tmp_3 = ::std::rc::Rc::new({
     let ms = ms.clone();
     move || {
-    let _smelt_tmp_1: String = "deadline ".to_owned() + &smelt_number_to_string(ms);
-    let _smelt_tmp_2: String = _smelt_tmp_1.clone() + &" won".to_owned();
+    let _smelt_tmp_1: JsString = JsString::from("deadline ") + &smelt_number_to_string(ms);
+    let _smelt_tmp_2: JsString = _smelt_tmp_1.clone() + &JsString::from(" won");
     _smelt_tmp_2.clone()
     }
 });
-    let deadline: SmeltFuture<String> = { let smelt_promise_callback = (_smelt_tmp_3).clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_value = _smelt_tmp_2.await?; let smelt_callback_value = ({ let _ = smelt_value; (smelt_promise_callback)() }); Ok::<_, Box<dyn std::error::Error>>(smelt_callback_value) })) };
+    let deadline: SmeltFuture<JsString> = { let smelt_promise_callback = (_smelt_tmp_3).clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_value = _smelt_tmp_2.await?; let smelt_callback_value = ({ let _ = smelt_value; (smelt_promise_callback)() }); Ok::<_, Box<dyn std::error::Error>>(smelt_callback_value) })) };
     let _smelt_tmp_5 = SmeltFuture::from_future(Box::pin(dispatch_outer()));
-    let _smelt_tmp_6: SmeltFuture<String> = SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>({ let mut smelt_racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<_, Box<dyn std::error::Error>>>>>> = Vec::new(); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(_smelt_tmp_5))); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(deadline))); smelt_promise_race(smelt_racers).await? }) }));
+    let _smelt_tmp_6: SmeltFuture<JsString> = SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>({ let mut smelt_racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<_, Box<dyn std::error::Error>>>>>> = Vec::new(); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(_smelt_tmp_5))); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(deadline))); smelt_promise_race(smelt_racers).await? }) }));
     _smelt_tmp_7 = _smelt_tmp_6.await?;
     return Ok(_smelt_tmp_7);
 }
 
 pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let headers: SmeltHeaders;
-    let mut __smelt_for_item: (String, String);
-    let mut name: String;
-    let mut value: String;
+    let mut __smelt_for_item: (JsString, JsString);
+    let mut name: JsString;
+    let mut value: JsString;
     let mut original: SmeltResponse;
     let mut copy: SmeltResponse;
-    let _smelt_tmp_7: String;
-    let _smelt_tmp_10: String;
-    let _smelt_tmp_12: SmeltRecord<String, String>;
-    let _smelt_tmp_14: SmeltList<(String, String)>;
+    let _smelt_tmp_7: JsString;
+    let _smelt_tmp_10: JsString;
+    let _smelt_tmp_12: SmeltRecord<String, JsString>;
+    let _smelt_tmp_14: SmeltList<(JsString, JsString)>;
     let mut _smelt_tmp_15: usize;
     let mut _smelt_tmp_16: usize;
     let mut _smelt_tmp_17: bool;
-    let mut _smelt_tmp_20: String;
-    let mut _smelt_tmp_21: String;
-    let mut _smelt_tmp_22: String;
+    let mut _smelt_tmp_20: JsString;
+    let mut _smelt_tmp_21: JsString;
+    let mut _smelt_tmp_22: JsString;
     let mut _smelt_tmp_25: Option<SmeltBody>;
     let mut _smelt_tmp_26: f64;
     let mut _smelt_tmp_28: f64;
-    let mut _smelt_tmp_30: String;
+    let mut _smelt_tmp_30: JsString;
     let _smelt_tmp_6 = SmeltFuture::from_future(Box::pin(with_deadline(1000.0)));
     _smelt_tmp_7 = _smelt_tmp_6.await?;
     let _ = { println!("{}", _smelt_tmp_7); };
     let _smelt_tmp_9 = SmeltFuture::from_future(Box::pin(with_deadline(1500.0)));
     _smelt_tmp_10 = _smelt_tmp_9.await?;
     let _ = { println!("{}", _smelt_tmp_10); };
-    _smelt_tmp_12 = SmeltRecord::from([("X-One".to_owned(), "1".to_owned()), ("x-two".to_owned(), "2".to_owned())]);
+    _smelt_tmp_12 = SmeltRecord::from([(JsString::from("X-One"), JsString::from("1")), (JsString::from("x-two"), JsString::from("2"))]);
     headers = SmeltHeaders::from_pairs(_smelt_tmp_12.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>());
     _smelt_tmp_14 = Into::<SmeltList<_>>::into(SmeltList::new(headers.entries_sorted()));
     _smelt_tmp_15 = 0;
@@ -4532,18 +4535,18 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     __smelt_for_item = _smelt_tmp_14.borrow().get(_smelt_tmp_15).cloned().unwrap_or_else(|| (String::new(), String::new()));
     name = __smelt_for_item.clone().0.clone();
     value = __smelt_for_item.1.clone();
-    _smelt_tmp_20 = "".to_owned() + &name;
-    _smelt_tmp_21 = _smelt_tmp_20 + &"=".to_owned();
+    _smelt_tmp_20 = JsString::new() + &name;
+    _smelt_tmp_21 = _smelt_tmp_20 + &JsString::from("=");
     _smelt_tmp_22 = _smelt_tmp_21 + &value;
     let _ = { println!("{}", _smelt_tmp_22); };
     _smelt_tmp_15 = _smelt_tmp_15 + 1;
     }
-    original = SmeltResponse::from_parts(504.0, String::new(), SmeltHeaders::new(), SmeltBody::from_text(&"payload text".to_owned()));
+    original = SmeltResponse::from_parts(504.0, String::new(), SmeltHeaders::new(), SmeltBody::from_text(&JsString::from("payload text")));
     _smelt_tmp_25 = { let smelt_body = original.clone().body(); if smelt_body.is_empty() { None } else { Some(smelt_body) } };
     _smelt_tmp_26 = original.status();
     copy = SmeltResponse::from_parts(_smelt_tmp_26, String::new(), SmeltHeaders::new(), match _smelt_tmp_25 { Some(smelt_init_body) => smelt_init_body, None => SmeltBody::empty() });
     _smelt_tmp_28 = copy.clone().status();
-    let mut _smelt_tmp_29: SmeltFuture<String> = { let smelt_response = copy.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) })) };
+    let mut _smelt_tmp_29: SmeltFuture<JsString> = { let smelt_response = copy.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) })) };
     _smelt_tmp_30 = _smelt_tmp_29.await?;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_28), _smelt_tmp_30); };
     return Ok(());

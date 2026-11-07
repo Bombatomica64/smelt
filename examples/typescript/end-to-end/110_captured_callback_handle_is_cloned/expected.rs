@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3704,28 +3707,28 @@ impl SmeltFromUnknown for SmeltMatch {
 
 // @smelt:prelude-end — generated program below
 fn main() {
-    let wrapped: ::std::rc::Rc<dyn Fn(String, ::std::rc::Rc<dyn Fn() -> String>) -> String>;
-    let _smelt_tmp_3: ::std::rc::Rc<dyn Fn() -> String>;
-    let _smelt_tmp_4: String;
-    let _smelt_tmp_6: ::std::rc::Rc<dyn Fn() -> String>;
-    let _smelt_tmp_7: String;
-    let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: ::std::rc::Rc<dyn Fn() -> String>| {
-    let _smelt_tmp_2: String = closure_arg_0.clone() + &"/".to_owned();
-    let _smelt_tmp_3: String = (closure_arg_1)();
-    let _smelt_tmp_4: String = _smelt_tmp_2.clone() + &_smelt_tmp_3.clone();
+    let wrapped: ::std::rc::Rc<dyn Fn(JsString, ::std::rc::Rc<dyn Fn() -> JsString>) -> JsString>;
+    let _smelt_tmp_3: ::std::rc::Rc<dyn Fn() -> JsString>;
+    let _smelt_tmp_4: JsString;
+    let _smelt_tmp_6: ::std::rc::Rc<dyn Fn() -> JsString>;
+    let _smelt_tmp_7: JsString;
+    let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: ::std::rc::Rc<dyn Fn() -> JsString>| {
+    let _smelt_tmp_2: JsString = closure_arg_0.clone() + &JsString::from("/");
+    let _smelt_tmp_3: JsString = (closure_arg_1)();
+    let _smelt_tmp_4: JsString = _smelt_tmp_2.clone() + &_smelt_tmp_3.clone();
     _smelt_tmp_4.clone()
     });
     let _smelt_tmp_2 = wrap(_smelt_tmp_1.clone()).clone();
     wrapped = _smelt_tmp_2.clone();
     _smelt_tmp_3 = ::std::rc::Rc::new(|| {
-    "z".to_owned()
+    JsString::from("z")
     });
-    _smelt_tmp_4 = (wrapped)("a".to_owned(), _smelt_tmp_3.clone());
+    _smelt_tmp_4 = (wrapped)(JsString::from("a"), _smelt_tmp_3.clone());
     let _ = { println!("{}", _smelt_tmp_4); };
     _smelt_tmp_6 = ::std::rc::Rc::new(|| {
-    "y".to_owned()
+    JsString::from("y")
     });
-    _smelt_tmp_7 = (wrapped)("b".to_owned(), _smelt_tmp_6.clone());
+    _smelt_tmp_7 = (wrapped)(JsString::from("b"), _smelt_tmp_6.clone());
     let _ = { println!("{}", _smelt_tmp_7); };
     return;
 }
@@ -3737,23 +3740,23 @@ fn main() {
 
 use super::*;
 
-pub(crate) fn wrap(call: ::std::rc::Rc<dyn Fn(String, ::std::rc::Rc<dyn Fn() -> String>) -> String>) -> ::std::rc::Rc<dyn Fn(String, ::std::rc::Rc<dyn Fn() -> String>) -> String> {
+pub(crate) fn wrap(call: ::std::rc::Rc<dyn Fn(JsString, ::std::rc::Rc<dyn Fn() -> JsString>) -> JsString>) -> ::std::rc::Rc<dyn Fn(JsString, ::std::rc::Rc<dyn Fn() -> JsString>) -> JsString> {
     let _smelt_tmp_1 = ::std::rc::Rc::new({
     let call = call.clone();
-    move |closure_arg_0: String, closure_arg_1: ::std::rc::Rc<dyn Fn() -> String>| {
+    move |closure_arg_0: JsString, closure_arg_1: ::std::rc::Rc<dyn Fn() -> JsString>| {
     let _smelt_tmp_4 = ::std::rc::Rc::new({
     let call = call.clone();
     let closure_arg_0 = closure_arg_0.clone();
     move || {
-    let _smelt_tmp_3: String = (call)(closure_arg_0.clone(), { let smelt_handle_callback = closure_arg_1.clone(); ::std::rc::Rc::new(move || (smelt_handle_callback)()) });
+    let _smelt_tmp_3: JsString = (call)(closure_arg_0.clone(), { let smelt_handle_callback = closure_arg_1.clone(); ::std::rc::Rc::new(move || (smelt_handle_callback)()) });
     _smelt_tmp_3.clone()
     }
 });
     let again = _smelt_tmp_4.clone();
-    let _smelt_tmp_5: String = (again)();
-    let _smelt_tmp_6: String = _smelt_tmp_5.clone() + &"|".to_owned();
-    let _smelt_tmp_7: String = (again)();
-    let _smelt_tmp_8: String = _smelt_tmp_6.clone() + &_smelt_tmp_7.clone();
+    let _smelt_tmp_5: JsString = (again)();
+    let _smelt_tmp_6: JsString = _smelt_tmp_5.clone() + &JsString::from("|");
+    let _smelt_tmp_7: JsString = (again)();
+    let _smelt_tmp_8: JsString = _smelt_tmp_6.clone() + &_smelt_tmp_7.clone();
     _smelt_tmp_8.clone()
     }
 });

@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3804,7 +3807,7 @@ struct Stack(::std::rc::Rc<::std::cell::RefCell<StackInner>>);
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct StackInner {
-    items: SmeltList<String>,
+    items: SmeltList<JsString>,
 }
 impl Clone for Stack {
     fn clone(&self) -> Self {
@@ -3904,12 +3907,12 @@ fn main() {
     let _smelt_tmp_55: Stack;
     let _smelt_tmp_57: Stack;
     let _smelt_tmp_65: Stack;
-    let _smelt_tmp_66: String;
+    let _smelt_tmp_66: JsString;
     let _smelt_tmp_69: ::std::rc::Rc<dyn Fn(f64, f64, i64, &SmeltList<f64>) -> f64>;
     let _smelt_tmp_70: f64;
     let _smelt_tmp_71: ::std::rc::Rc<dyn Fn(f64, i64, &SmeltList<f64>) -> f64>;
     let _smelt_tmp_72: SmeltList<f64>;
-    let _smelt_tmp_73: String;
+    let _smelt_tmp_73: JsString;
     let _smelt_tmp_3: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
     let _smelt_tmp_4: Bag = Bag::new(_smelt_tmp_3);
     b = _smelt_tmp_4;
@@ -3925,14 +3928,14 @@ fn main() {
     });
     let _smelt_tmp_9: f64 = b.reduce_right(&*_smelt_tmp_8, 5.0);
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_9)); };
-    let _smelt_tmp_11: String = b.map("m".to_owned());
+    let _smelt_tmp_11: JsString = b.map(JsString::from("m"));
     let _smelt_tmp_12: SmeltList<f64> = b.filter(1.0);
     _smelt_tmp_13 = _smelt_tmp_12.len() as f64;
-    let _smelt_tmp_14: String = b.find("get".to_owned());
-    let _smelt_tmp_15: String = b.some(true);
+    let _smelt_tmp_14: JsString = b.find(JsString::from("get"));
+    let _smelt_tmp_15: JsString = b.some(true);
     let _ = { println!("{} {} {} {}", _smelt_tmp_11, smelt_console_number(_smelt_tmp_13), _smelt_tmp_14, _smelt_tmp_15); };
     let _smelt_tmp_17: f64 = b.every();
-    let _smelt_tmp_18: String = b.for_each("p".to_owned());
+    let _smelt_tmp_18: JsString = b.for_each(JsString::from("p"));
     let _smelt_tmp_19: f64 = b.find_index(2.0);
     let _smelt_tmp_20: f64 = b.total();
     let _ = { println!("{} {} {} {}", smelt_console_number(_smelt_tmp_17), _smelt_tmp_18, smelt_console_number(_smelt_tmp_19), smelt_console_number(_smelt_tmp_20)); };
@@ -3946,45 +3949,45 @@ fn main() {
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_25)); };
     SMELT_GLOBAL_S_0.with(|_| ());
     _smelt_tmp_28 = SMELT_GLOBAL_S_0.with(|value| value.borrow().clone());
-    let _smelt_tmp_29: f64 = _smelt_tmp_28.push("a".to_owned(), "b".to_owned());
+    let _smelt_tmp_29: f64 = _smelt_tmp_28.push(JsString::from("a"), JsString::from("b"));
     _smelt_tmp_30 = SMELT_GLOBAL_S_0.with(|value| value.borrow().clone());
-    let _smelt_tmp_31: String = _smelt_tmp_30.pop(1.0);
+    let _smelt_tmp_31: JsString = _smelt_tmp_30.pop(1.0);
     _smelt_tmp_32 = SMELT_GLOBAL_S_0.with(|value| value.borrow().clone());
-    let _smelt_tmp_33: String = _smelt_tmp_32.shift(2.0);
+    let _smelt_tmp_33: JsString = _smelt_tmp_32.shift(2.0);
     _smelt_tmp_34 = SMELT_GLOBAL_S_0.with(|value| value.borrow().clone());
-    let _smelt_tmp_35: String = _smelt_tmp_34.index_of("i".to_owned());
+    let _smelt_tmp_35: JsString = _smelt_tmp_34.index_of(JsString::from("i"));
     _smelt_tmp_36 = SMELT_GLOBAL_S_0.with(|value| value.borrow().clone());
-    let _smelt_tmp_37: String = _smelt_tmp_36.includes("c".to_owned());
+    let _smelt_tmp_37: JsString = _smelt_tmp_36.includes(JsString::from("c"));
     let _ = { println!("{} {} {} {} {}", smelt_console_number(_smelt_tmp_29), _smelt_tmp_31, _smelt_tmp_33, _smelt_tmp_35, _smelt_tmp_37); };
     _smelt_tmp_39 = SMELT_GLOBAL_S_0.with(|value| value.borrow().clone());
-    let _smelt_tmp_40: String = _smelt_tmp_39.at(3.0);
+    let _smelt_tmp_40: JsString = _smelt_tmp_39.at(3.0);
     _smelt_tmp_41 = SMELT_GLOBAL_S_0.with(|value| value.borrow().clone());
-    let _smelt_tmp_42: String = _smelt_tmp_41.slice(4.0);
+    let _smelt_tmp_42: JsString = _smelt_tmp_41.slice(4.0);
     _smelt_tmp_43 = SMELT_GLOBAL_S_0.with(|value| value.borrow().clone());
-    let _smelt_tmp_44: String = _smelt_tmp_43.join(5.0);
+    let _smelt_tmp_44: JsString = _smelt_tmp_43.join(5.0);
     _smelt_tmp_45 = SMELT_GLOBAL_S_0.with(|value| value.borrow().clone());
-    let _smelt_tmp_46: String = _smelt_tmp_45.concat(6.0);
+    let _smelt_tmp_46: JsString = _smelt_tmp_45.concat(6.0);
     _smelt_tmp_47 = SMELT_GLOBAL_S_0.with(|value| value.borrow().clone());
-    let _smelt_tmp_48: String = _smelt_tmp_47.reverse(7.0);
+    let _smelt_tmp_48: JsString = _smelt_tmp_47.reverse(7.0);
     _smelt_tmp_49 = SMELT_GLOBAL_S_0.with(|value| value.borrow().clone());
-    let _smelt_tmp_50: String = _smelt_tmp_49.sort(8.0);
+    let _smelt_tmp_50: JsString = _smelt_tmp_49.sort(8.0);
     _smelt_tmp_51 = SMELT_GLOBAL_S_0.with(|value| value.borrow().clone());
-    let _smelt_tmp_52: String = _smelt_tmp_51.entries(9.0);
+    let _smelt_tmp_52: JsString = _smelt_tmp_51.entries(9.0);
     let _ = { println!("{} {} {} {} {} {} {}", _smelt_tmp_40, _smelt_tmp_42, _smelt_tmp_44, _smelt_tmp_46, _smelt_tmp_48, _smelt_tmp_50, _smelt_tmp_52); };
     let _smelt_tmp_54: Holder = Holder::new();
     h = _smelt_tmp_54;
     _smelt_tmp_55 = h.stack.clone();
-    let _smelt_tmp_56: String = h.stack.join(20.0);
+    let _smelt_tmp_56: JsString = h.stack.join(20.0);
     _smelt_tmp_57 = h.stack.clone();
-    let _smelt_tmp_58: String = h.stack.reverse(21.0);
+    let _smelt_tmp_58: JsString = h.stack.reverse(21.0);
     let _smelt_tmp_59: Stack = make();
-    let _smelt_tmp_60: String = _smelt_tmp_59.pop(22.0);
+    let _smelt_tmp_60: JsString = _smelt_tmp_59.pop(22.0);
     let _smelt_tmp_61: Stack = make();
-    let _smelt_tmp_62: String = _smelt_tmp_61.at(23.0);
+    let _smelt_tmp_62: JsString = _smelt_tmp_61.at(23.0);
     let _ = { println!("{} {} {} {}", _smelt_tmp_56, _smelt_tmp_58, _smelt_tmp_60, _smelt_tmp_62); };
-    let _smelt_tmp_64: String = via_global();
+    let _smelt_tmp_64: JsString = via_global();
     _smelt_tmp_65 = SMELT_GLOBAL_S_0.with(|value| value.borrow().clone());
-    _smelt_tmp_66 = _smelt_tmp_65.0.borrow().items.clone().borrow().join(&"|".to_owned());
+    _smelt_tmp_66 = _smelt_tmp_65.0.borrow().items.clone().borrow().join(&JsString::from("|"));
     let _ = { println!("{} {}", _smelt_tmp_64, _smelt_tmp_66); };
     arr = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
     _smelt_tmp_70 = arr.borrow().iter().enumerate().fold(0.0, |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = &arr; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
@@ -3999,7 +4002,7 @@ fn main() {
     let _smelt_tmp_1: f64 = closure_arg_0 * 2.0;
     _smelt_tmp_1
     }); let smelt_array = arr; let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
-    _smelt_tmp_73 = _smelt_tmp_72.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&"-".to_owned());
+    _smelt_tmp_73 = _smelt_tmp_72.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&JsString::from("-"));
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_70), _smelt_tmp_73); };
     return;
 }
@@ -4036,11 +4039,11 @@ impl Bag {
     let _smelt_tmp_4: f64 = cb(_smelt_tmp_3, 1.0);
     return _smelt_tmp_4;
     }
-    fn map(&self, label: String) -> String {
-    let _smelt_tmp_2: String = "".to_owned() + &label.clone();
-    let _smelt_tmp_3: String = _smelt_tmp_2 + &":".to_owned();
+    fn map(&self, label: JsString) -> JsString {
+    let _smelt_tmp_2: JsString = JsString::new() + &label.clone();
+    let _smelt_tmp_3: JsString = _smelt_tmp_2 + &JsString::from(":");
     let _smelt_tmp_4: f64 = self.items.len() as f64;
-    let _smelt_tmp_5: String = _smelt_tmp_3 + &smelt_number_to_string(_smelt_tmp_4);
+    let _smelt_tmp_5: JsString = _smelt_tmp_3 + &smelt_number_to_string(_smelt_tmp_4);
     return _smelt_tmp_5;
     }
     fn filter(&self, n: f64) -> SmeltList<f64> {
@@ -4060,13 +4063,13 @@ impl Bag {
 }); let smelt_array = self.items.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value });
     return _smelt_tmp_3;
     }
-    fn find(&self, name: String) -> String {
-    let _smelt_tmp_2: String = "found ".to_owned() + &name.clone();
+    fn find(&self, name: JsString) -> JsString {
+    let _smelt_tmp_2: JsString = JsString::from("found ") + &name.clone();
     return _smelt_tmp_2;
     }
-    fn some(&self, flag: bool) -> String {
-    let mut _smelt_tmp_2: String;
-    let _smelt_tmp_2: String = if flag { "some-yes".to_owned() } else { "some-no".to_owned() };
+    fn some(&self, flag: bool) -> JsString {
+    let mut _smelt_tmp_2: JsString;
+    let _smelt_tmp_2: JsString = if flag { JsString::from("some-yes") } else { JsString::from("some-no") };
     return _smelt_tmp_2;
     }
     fn every(&self) -> f64 {
@@ -4074,22 +4077,22 @@ impl Bag {
     let _smelt_tmp_2: f64 = _smelt_tmp_1 * 2.0;
     return _smelt_tmp_2;
     }
-    fn for_each(&self, prefix: String) -> String {
+    fn for_each(&self, prefix: JsString) -> JsString {
     let _smelt_tmp_2 = ::std::rc::Rc::new({
     let prefix = prefix.clone();
     move |closure_arg_0: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
-    let _smelt_tmp_2: String = prefix.clone() + &smelt_number_to_string(closure_arg_0);
+    let _smelt_tmp_2: JsString = prefix.clone() + &smelt_number_to_string(closure_arg_0);
     _smelt_tmp_2.clone()
     }
 });
-    let _smelt_tmp_3: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new({
+    let _smelt_tmp_3: SmeltList<JsString> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new({
     let prefix = prefix.clone();
     move |closure_arg_0: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
-    let _smelt_tmp_2: String = prefix.clone() + &smelt_number_to_string(closure_arg_0);
+    let _smelt_tmp_2: JsString = prefix.clone() + &smelt_number_to_string(closure_arg_0);
     _smelt_tmp_2.clone()
     }
 }); let smelt_array = self.items.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
-    let _smelt_tmp_4: String = _smelt_tmp_3.borrow().join(&",".to_owned());
+    let _smelt_tmp_4: JsString = _smelt_tmp_3.borrow().join(&JsString::from(","));
     return _smelt_tmp_4;
     }
     fn find_index(&self, x: f64) -> f64 {
@@ -4127,62 +4130,62 @@ impl Bag {
 
 impl Stack {
     fn new() -> Self {
-    let mut this: Self = Stack(::std::rc::Rc::new(::std::cell::RefCell::new(StackInner { items: SmeltList::new(Vec::<String>::new()) })));
-    let _smelt_tmp_1: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    let mut this: Self = Stack(::std::rc::Rc::new(::std::cell::RefCell::new(StackInner { items: SmeltList::new(Vec::<JsString>::new()) })));
+    let _smelt_tmp_1: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
     this.0.borrow_mut().items = Into::<SmeltList<_>>::into(_smelt_tmp_1);
     return this;
     }
-    fn push(&self, x: String, y: String) -> f64 {
-    let mut _smelt_tmp_3: SmeltList<String> = Into::<SmeltList<_>>::into(self.0.borrow().items.clone());
-    let _smelt_tmp_4: String = x.clone() + &y.clone();
+    fn push(&self, x: JsString, y: JsString) -> f64 {
+    let mut _smelt_tmp_3: SmeltList<JsString> = Into::<SmeltList<_>>::into(self.0.borrow().items.clone());
+    let _smelt_tmp_4: JsString = x.clone() + &y.clone();
     let _smelt_tmp_5: f64 = { let smelt_push_item = _smelt_tmp_4; _smelt_tmp_3.borrow_mut().push(smelt_push_item); _smelt_tmp_3.len() as f64 };
     self.0.borrow_mut().items = Into::<SmeltList<_>>::into(_smelt_tmp_3);
     let _smelt_tmp_6: f64 = self.0.borrow().items.clone().len() as f64;
     let _smelt_tmp_7: f64 = 100.0 + _smelt_tmp_6;
     return _smelt_tmp_7;
     }
-    fn pop(&self, n: f64) -> String {
-    let _smelt_tmp_2: String = "pop".to_owned() + &smelt_number_to_string(n);
+    fn pop(&self, n: f64) -> JsString {
+    let _smelt_tmp_2: JsString = JsString::from("pop") + &smelt_number_to_string(n);
     return _smelt_tmp_2;
     }
-    fn shift(&self, n: f64) -> String {
-    let _smelt_tmp_2: String = "shift".to_owned() + &smelt_number_to_string(n);
+    fn shift(&self, n: f64) -> JsString {
+    let _smelt_tmp_2: JsString = JsString::from("shift") + &smelt_number_to_string(n);
     return _smelt_tmp_2;
     }
-    fn index_of(&self, x: String) -> String {
-    let _smelt_tmp_2: String = "indexOf".to_owned() + &x.clone();
+    fn index_of(&self, x: JsString) -> JsString {
+    let _smelt_tmp_2: JsString = JsString::from("indexOf") + &x.clone();
     return _smelt_tmp_2;
     }
-    fn includes(&self, x: String) -> String {
-    let _smelt_tmp_2: String = "includes".to_owned() + &x.clone();
+    fn includes(&self, x: JsString) -> JsString {
+    let _smelt_tmp_2: JsString = JsString::from("includes") + &x.clone();
     return _smelt_tmp_2;
     }
-    fn at(&self, i: f64) -> String {
-    let _smelt_tmp_2: String = "at".to_owned() + &smelt_number_to_string(i);
+    fn at(&self, i: f64) -> JsString {
+    let _smelt_tmp_2: JsString = JsString::from("at") + &smelt_number_to_string(i);
     return _smelt_tmp_2;
     }
-    fn slice(&self, a: f64) -> String {
-    let _smelt_tmp_2: String = "slice".to_owned() + &smelt_number_to_string(a);
+    fn slice(&self, a: f64) -> JsString {
+    let _smelt_tmp_2: JsString = JsString::from("slice") + &smelt_number_to_string(a);
     return _smelt_tmp_2;
     }
-    fn join(&self, a: f64) -> String {
-    let _smelt_tmp_2: String = "join".to_owned() + &smelt_number_to_string(a);
+    fn join(&self, a: f64) -> JsString {
+    let _smelt_tmp_2: JsString = JsString::from("join") + &smelt_number_to_string(a);
     return _smelt_tmp_2;
     }
-    fn concat(&self, a: f64) -> String {
-    let _smelt_tmp_2: String = "concat".to_owned() + &smelt_number_to_string(a);
+    fn concat(&self, a: f64) -> JsString {
+    let _smelt_tmp_2: JsString = JsString::from("concat") + &smelt_number_to_string(a);
     return _smelt_tmp_2;
     }
-    fn reverse(&self, a: f64) -> String {
-    let _smelt_tmp_2: String = "reverse".to_owned() + &smelt_number_to_string(a);
+    fn reverse(&self, a: f64) -> JsString {
+    let _smelt_tmp_2: JsString = JsString::from("reverse") + &smelt_number_to_string(a);
     return _smelt_tmp_2;
     }
-    fn sort(&self, a: f64) -> String {
-    let _smelt_tmp_2: String = "sort".to_owned() + &smelt_number_to_string(a);
+    fn sort(&self, a: f64) -> JsString {
+    let _smelt_tmp_2: JsString = JsString::from("sort") + &smelt_number_to_string(a);
     return _smelt_tmp_2;
     }
-    fn entries(&self, a: f64) -> String {
-    let _smelt_tmp_2: String = "entries".to_owned() + &smelt_number_to_string(a);
+    fn entries(&self, a: f64) -> JsString {
+    let _smelt_tmp_2: JsString = JsString::from("entries") + &smelt_number_to_string(a);
     return _smelt_tmp_2;
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
@@ -4230,16 +4233,16 @@ pub(crate) fn make() -> Stack {
     return _smelt_tmp_0;
 }
 
-pub(crate) fn via_global() -> String {
+pub(crate) fn via_global() -> JsString {
     let _smelt_tmp_2: Stack;
-    let _smelt_tmp_4: String;
+    let _smelt_tmp_4: JsString;
     let _smelt_tmp_5: Stack;
     let _smelt_tmp_6: f64;
-    let _smelt_tmp_7: String;
+    let _smelt_tmp_7: JsString;
     let _smelt_tmp_0: Stack = SMELT_GLOBAL_S_0.with(|value| value.borrow().clone());
-    let _smelt_tmp_1: String = _smelt_tmp_0.join(24.0);
+    let _smelt_tmp_1: JsString = _smelt_tmp_0.join(24.0);
     _smelt_tmp_2 = SMELT_GLOBAL_S_0.with(|value| value.borrow().clone());
-    let _smelt_tmp_3: String = _smelt_tmp_2.slice(25.0);
+    let _smelt_tmp_3: JsString = _smelt_tmp_2.slice(25.0);
     _smelt_tmp_4 = _smelt_tmp_1 + &_smelt_tmp_3;
     _smelt_tmp_5 = SMELT_GLOBAL_S_0.with(|value| value.borrow().clone());
     _smelt_tmp_6 = _smelt_tmp_5.0.borrow().items.clone().len() as f64;

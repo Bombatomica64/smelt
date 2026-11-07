@@ -18,7 +18,7 @@
 // Text leaves through `Display`, which writes UTF-8 and replaces a lone
 // surrogate with U+FFFD, as Node does on stdout.
 
-// @smelt:item JsString when js_string
+// @smelt:item JsString when js_string & utf16_strings
 /// A JavaScript string: immutable UTF-16 code units, shared by reference count.
 ///
 /// Lone surrogates are representable. Equality, hashing and ordering are by
@@ -549,3 +549,11 @@ impl ::std::fmt::Debug for JsString {
 
 // @smelt:item-end
 
+// @smelt:item JsStringAlias when js_string & !utf16_strings
+//~ The spelling stage of the migration: generated code names `JsString`
+//~ while a JavaScript string is still a UTF-8 `String`. The compiled crate
+//~ holds the real type above, so these lines are alternate text.
+//= /// A JavaScript string, held as UTF-8 `String` text.
+//= type JsString = String;
+
+// @smelt:item-end

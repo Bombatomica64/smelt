@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3927,10 +3930,10 @@ let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().b
 let smelt_local = tokio::task::LocalSet::new();
 smelt_local.block_on(&smelt_runtime, async move {
     let discarded: ();
-    let mut label: String;
+    let mut label: JsString;
     let _smelt_tmp_4: f64;
     let _smelt_tmp_5: bool;
-    let _smelt_tmp_7: SmeltList<String>;
+    let _smelt_tmp_7: SmeltList<JsString>;
     let mut _smelt_tmp_8: usize;
     let mut _smelt_tmp_9: usize;
     let mut _smelt_tmp_10: bool;
@@ -3943,7 +3946,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_4 = SMELT_GLOBAL_COUNT_0.with(::std::cell::Cell::get);
     _smelt_tmp_5 = true;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_4), _smelt_tmp_5); };
-    _smelt_tmp_7 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["from callback".to_owned()]; smelt_list_items }));
+    _smelt_tmp_7 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("from callback")]; smelt_list_items }));
     _smelt_tmp_8 = 0;
     loop {
     _smelt_tmp_9 = _smelt_tmp_7.len();
@@ -3954,7 +3957,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_12 = { smelt_spawn_promise_task(Box::pin(async move { let _ = _smelt_tmp_11.await; })); () };
     _smelt_tmp_8 = _smelt_tmp_8 + 1;
     }
-    let _smelt_tmp_13 = SmeltFuture::from_future(Box::pin(later("top".to_owned())));
+    let _smelt_tmp_13 = SmeltFuture::from_future(Box::pin(later(JsString::from("top"))));
     _smelt_tmp_14 = { smelt_spawn_promise_task(Box::pin(async move { let _ = _smelt_tmp_13.await; })); () };
     let mut _smelt_tmp_15: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
     _smelt_tmp_16 = _smelt_tmp_15.await?;
@@ -3977,9 +3980,9 @@ pub(crate) fn bump() -> f64 {
     return _smelt_tmp_3;
 }
 
-pub(crate) async fn later(label: String) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) async fn later(label: JsString) -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_1: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_sleep_ms(0.0 as f64).await; Ok::<_, Box<dyn std::error::Error>>(()) }));
     let _smelt_tmp_2: () = _smelt_tmp_1.await?;
-    let _ = { println!("{} {}", "async ran".to_owned(), label.clone()); };
+    let _ = { println!("{} {}", JsString::from("async ran"), label.clone()); };
     return Ok(());
 }

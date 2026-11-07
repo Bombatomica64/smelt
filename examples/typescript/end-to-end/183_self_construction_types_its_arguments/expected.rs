@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3758,16 +3761,16 @@ impl SmeltFromUnknown for SmeltMatch {
 #[allow(dead_code)]
 struct Options<E> {
     strict: Option<bool>,
-    router: Option<Router<String>>,
-    get_path: Option<::std::rc::Rc<dyn Fn(String, Option<SmeltRecord<String, Option<E>>>) -> String>>,
+    router: Option<Router<JsString>>,
+    get_path: Option<::std::rc::Rc<dyn Fn(JsString, Option<SmeltRecord<String, Option<E>>>) -> JsString>>,
     _smelt_phantom: ::std::marker::PhantomData<(E)>,
 }
 impl<E: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for Options<E> {
     fn default() -> Self {
         Self {
             strict: None::<bool>,
-            router: None::<Router<String>>,
-            get_path: None::<::std::rc::Rc<dyn Fn(String, Option<SmeltRecord<String, Option<E>>>) -> String>>,
+            router: None::<Router<JsString>>,
+            get_path: None::<::std::rc::Rc<dyn Fn(JsString, Option<SmeltRecord<String, Option<E>>>) -> JsString>>,
             _smelt_phantom: ::std::marker::PhantomData,
         }
     }
@@ -3783,7 +3786,7 @@ impl<E: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSme
         SmeltUnknown::Object(SmeltObject::new(Vec::from([
         ("strict".to_owned(), self.strict.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Bool(value))),
         ("router".to_owned(), self.router.map_or(SmeltUnknown::Undefined, |value| (value).into_smelt_unknown())),
-        ("getPath".to_owned(), self.get_path.map_or(SmeltUnknown::Undefined, |smelt_present| { let smelt_function_value: ::std::rc::Rc<dyn Fn(String, Option<SmeltRecord<String, Option<E>>>) -> String> = smelt_present; let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) })),
+        ("getPath".to_owned(), self.get_path.map_or(SmeltUnknown::Undefined, |smelt_present| { let smelt_function_value: ::std::rc::Rc<dyn Fn(JsString, Option<SmeltRecord<String, Option<E>>>) -> JsString> = smelt_present; let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) })),
         ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
     }
 }
@@ -3805,17 +3808,17 @@ impl<E: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFr
 #[derive(Clone)]
 #[allow(dead_code)]
 struct Router<T> {
-    name: String,
-    add: ::std::rc::Rc<dyn Fn(String, String, &T) -> ()>,
-    match_: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<T>>,
+    name: JsString,
+    add: ::std::rc::Rc<dyn Fn(JsString, JsString, &T) -> ()>,
+    match_: ::std::rc::Rc<dyn Fn(JsString, JsString) -> SmeltList<T>>,
     _smelt_phantom: ::std::marker::PhantomData<(T)>,
 }
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for Router<T> {
     fn default() -> Self {
         Self {
             name: String::new(),
-            add: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, String, &T) -> ()> = ::std::rc::Rc::new(move |arg0: String, arg1: String, arg2: &T| -> () { () }); smelt_default_callback },
-            match_: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<T>> = ::std::rc::Rc::new(move |arg0: String, arg1: String| -> SmeltList<T> { SmeltList::new(Vec::<T>::new()) }); smelt_default_callback },
+            add: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString, JsString, &T) -> ()> = ::std::rc::Rc::new(move |arg0: JsString, arg1: JsString, arg2: &T| -> () { () }); smelt_default_callback },
+            match_: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString, JsString) -> SmeltList<T>> = ::std::rc::Rc::new(move |arg0: JsString, arg1: JsString| -> SmeltList<T> { SmeltList::new(Vec::<T>::new()) }); smelt_default_callback },
             _smelt_phantom: ::std::marker::PhantomData,
         }
     }
@@ -3829,8 +3832,8 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSme
     fn into_smelt_unknown(self) -> SmeltUnknown {
         SmeltUnknown::Object(SmeltObject::new(Vec::from([
         ("name".to_owned(), SmeltUnknown::String(self.name.into())),
-        ("add".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(String, String, &T) -> ()> = self.add.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)), &SmeltFromUnknown::smelt_from_unknown(smelt_args.get(2).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
-        ("match".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<T>> = self.match_.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
+        ("add".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(JsString, JsString, &T) -> ()> = self.add.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)), &SmeltFromUnknown::smelt_from_unknown(smelt_args.get(2).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
+        ("match".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(JsString, JsString) -> SmeltList<T>> = self.match_.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
         ])))
     }
 }
@@ -3843,11 +3846,11 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFr
             }
             if let Some(field) = object.get("add") {
                 let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
-                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String, String, &T) -> ()>>(&smelt_function)) { result.add = smelt_origin; }
+                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(JsString, JsString, &T) -> ()>>(&smelt_function)) { result.add = smelt_origin; }
             }
             if let Some(field) = object.get("match") {
                 let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
-                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String, String) -> SmeltList<T>>>(&smelt_function)) { result.match_ = smelt_origin; }
+                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(JsString, JsString) -> SmeltList<T>>>(&smelt_function)) { result.match_ = smelt_origin; }
             }
         }
         result
@@ -3858,7 +3861,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFr
 struct ListRouter<T>(::std::rc::Rc<::std::cell::RefCell<ListRouterInner<T>>>);
 #[allow(dead_code)]
 struct ListRouterInner<T> {
-    name: String,
+    name: JsString,
     items: SmeltList<T>,
     _smelt_phantom: ::std::marker::PhantomData<(T)>,
 }
@@ -3925,15 +3928,15 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFr
 #[derive(Clone)]
 #[allow(dead_code)]
 struct App<E> {
-    router: Router<String>,
-    get_path: ::std::rc::Rc<dyn Fn(String, Option<SmeltRecord<String, Option<E>>>) -> String>,
+    router: Router<JsString>,
+    get_path: ::std::rc::Rc<dyn Fn(JsString, Option<SmeltRecord<String, Option<E>>>) -> JsString>,
     _smelt_phantom: ::std::marker::PhantomData<(E)>,
 }
 impl<E: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for App<E> {
     fn default() -> Self {
         Self {
             router: Default::default(),
-            get_path: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, Option<SmeltRecord<String, Option<E>>>) -> String> = ::std::rc::Rc::new(move |arg0: String, arg1: Option<SmeltRecord<String, Option<E>>>| -> String { String::new() }); smelt_default_callback },
+            get_path: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString, Option<SmeltRecord<String, Option<E>>>) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString, arg1: Option<SmeltRecord<String, Option<E>>>| -> JsString { String::new() }); smelt_default_callback },
             _smelt_phantom: ::std::marker::PhantomData,
         }
     }
@@ -3947,7 +3950,7 @@ impl<E: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSme
     fn into_smelt_unknown(self) -> SmeltUnknown {
         SmeltUnknown::Object(SmeltObject::new(Vec::from([
         ("router".to_owned(), (self.router).into_smelt_unknown()),
-        ("getPath".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(String, Option<SmeltRecord<String, Option<E>>>) -> String> = self.get_path.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
+        ("getPath".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(JsString, Option<SmeltRecord<String, Option<E>>>) -> JsString> = self.get_path.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
         ])))
     }
 }
@@ -3960,7 +3963,7 @@ impl<E: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFr
             }
             if let Some(field) = object.get("getPath") {
                 let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
-                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String, Option<SmeltRecord<String, Option<E>>>) -> String>>(&smelt_function)) { result.get_path = smelt_origin; }
+                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(JsString, Option<SmeltRecord<String, Option<E>>>) -> JsString>>(&smelt_function)) { result.get_path = smelt_origin; }
             }
         }
         result
@@ -3968,28 +3971,28 @@ impl<E: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFr
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let a: App<String>;
-    let b: App<String>;
-    let _smelt_tmp_4: Router<String>;
+    let a: App<JsString>;
+    let b: App<JsString>;
+    let _smelt_tmp_4: Router<JsString>;
     let _smelt_tmp_5: ();
-    let _smelt_tmp_6: Router<String>;
-    let _smelt_tmp_7: SmeltList<String>;
-    let _smelt_tmp_8: String;
-    let _smelt_tmp_9: Router<String>;
-    let _smelt_tmp_10: SmeltList<String>;
-    let _smelt_tmp_11: String;
-    let _smelt_tmp_2: App<String> = App::new(Default::default());
+    let _smelt_tmp_6: Router<JsString>;
+    let _smelt_tmp_7: SmeltList<JsString>;
+    let _smelt_tmp_8: JsString;
+    let _smelt_tmp_9: Router<JsString>;
+    let _smelt_tmp_10: SmeltList<JsString>;
+    let _smelt_tmp_11: JsString;
+    let _smelt_tmp_2: App<JsString> = App::new(Default::default());
     a = _smelt_tmp_2;
-    let _smelt_tmp_3: App<String> = a.clone();
+    let _smelt_tmp_3: App<JsString> = a.clone();
     b = _smelt_tmp_3;
     _smelt_tmp_4 = b.router.clone();
-    _smelt_tmp_5 = (_smelt_tmp_4.add.clone())("GET".to_owned(), "/x".to_owned(), &"h".to_owned());
+    _smelt_tmp_5 = (_smelt_tmp_4.add.clone())(JsString::from("GET"), JsString::from("/x"), &JsString::from("h"));
     _smelt_tmp_6 = b.router.clone();
-    _smelt_tmp_7 = Into::<SmeltList<_>>::into((_smelt_tmp_6.match_.clone())("GET".to_owned(), "/x".to_owned()));
-    _smelt_tmp_8 = _smelt_tmp_7.borrow().join(&",".to_owned());
+    _smelt_tmp_7 = Into::<SmeltList<_>>::into((_smelt_tmp_6.match_.clone())(JsString::from("GET"), JsString::from("/x")));
+    _smelt_tmp_8 = _smelt_tmp_7.borrow().join(&JsString::from(","));
     _smelt_tmp_9 = a.router.clone();
-    _smelt_tmp_10 = Into::<SmeltList<_>>::into((_smelt_tmp_9.match_.clone())("GET".to_owned(), "/x".to_owned()));
-    _smelt_tmp_11 = _smelt_tmp_10.borrow().join(&",".to_owned());
+    _smelt_tmp_10 = Into::<SmeltList<_>>::into((_smelt_tmp_9.match_.clone())(JsString::from("GET"), JsString::from("/x")));
+    _smelt_tmp_11 = _smelt_tmp_10.borrow().join(&JsString::from(","));
     let _ = { println!("{} {}", _smelt_tmp_8, _smelt_tmp_11); };
     return Ok(());
 }
@@ -3997,18 +4000,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> ListRouter<T> {
     fn new() -> Self {
     let mut this: Self = ListRouter(::std::rc::Rc::new(::std::cell::RefCell::new(ListRouterInner { name: String::new(), items: SmeltList::new(Vec::<T>::new()), _smelt_phantom: ::std::marker::PhantomData })));
-    this.0.borrow_mut().name = "list".to_owned();
+    this.0.borrow_mut().name = JsString::from("list");
     let _smelt_tmp_1: SmeltList<T> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<T> = vec![]; smelt_list_items }));
     this.0.borrow_mut().items = Into::<SmeltList<_>>::into(_smelt_tmp_1);
     return this;
     }
-    fn add(&self, method: String, path: String, handler: T) -> () {
+    fn add(&self, method: JsString, path: JsString, handler: T) -> () {
     let mut _smelt_tmp_4: SmeltList<T> = Into::<SmeltList<_>>::into(self.0.borrow().items.clone());
     let _smelt_tmp_5: f64 = { let smelt_push_item = handler.clone(); _smelt_tmp_4.borrow_mut().push(smelt_push_item); _smelt_tmp_4.len() as f64 };
     self.0.borrow_mut().items = Into::<SmeltList<_>>::into(_smelt_tmp_4);
     return;
     }
-    fn match_(&self, method: String, path: String) -> SmeltList<T> {
+    fn match_(&self, method: JsString, path: JsString) -> SmeltList<T> {
     return self.0.borrow().items.clone();
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
@@ -4027,18 +4030,18 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> ListRou
 
 impl<E: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> App<E> {
     fn new(options: Options<E>) -> Self {
-    let _smelt_tmp_4: Option<Router<String>>;
-    let _smelt_tmp_5: ::std::rc::Rc<dyn Fn(String) -> String>;
-    let _smelt_tmp_6: ::std::rc::Rc<dyn Fn(String, Option<SmeltRecord<String, Option<E>>>) -> String>;
-    let mut this: Self = App { router: Default::default(), get_path: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, Option<SmeltRecord<String, Option<E>>>) -> String> = ::std::rc::Rc::new(move |arg0: String, arg1: Option<SmeltRecord<String, Option<E>>>| -> String { String::new() }); smelt_default_callback }, _smelt_phantom: ::std::marker::PhantomData };
-    let _smelt_tmp_2: Option<Router<String>> = options.router.clone();
-    let _smelt_tmp_3: ListRouter<String> = ListRouter::new();
-    _smelt_tmp_4 = Some(_smelt_tmp_2.clone().unwrap_or({ let smelt_struct_value = _smelt_tmp_3.clone(); Router { name: smelt_struct_value.0.borrow().name.clone(), add: { let smelt_slot_callback = { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(String, String, String) -> ()> = ::std::rc::Rc::new(move |arg0: String, arg1: String, arg2: String| -> () { let mut smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.add(arg0.clone(), arg1.clone(), arg2.clone()) }); smelt_virtual_method }; let smelt_slot_adapted: ::std::rc::Rc<dyn Fn(String, String, &String) -> ()> = ::std::rc::Rc::new(move |arg0: String, arg1: String, arg2: &String| (smelt_slot_callback)(arg0, arg1, arg2.clone())); smelt_slot_adapted }, match_: { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(String, String) -> SmeltList<String>> = ::std::rc::Rc::new(move |arg0: String, arg1: String| -> SmeltList<String> { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.match_(arg0.clone(), arg1.clone()) }); smelt_virtual_method }, _smelt_phantom: ::std::marker::PhantomData } }));
+    let _smelt_tmp_4: Option<Router<JsString>>;
+    let _smelt_tmp_5: ::std::rc::Rc<dyn Fn(JsString) -> JsString>;
+    let _smelt_tmp_6: ::std::rc::Rc<dyn Fn(JsString, Option<SmeltRecord<String, Option<E>>>) -> JsString>;
+    let mut this: Self = App { router: Default::default(), get_path: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString, Option<SmeltRecord<String, Option<E>>>) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString, arg1: Option<SmeltRecord<String, Option<E>>>| -> JsString { String::new() }); smelt_default_callback }, _smelt_phantom: ::std::marker::PhantomData };
+    let _smelt_tmp_2: Option<Router<JsString>> = options.router.clone();
+    let _smelt_tmp_3: ListRouter<JsString> = ListRouter::new();
+    _smelt_tmp_4 = Some(_smelt_tmp_2.clone().unwrap_or({ let smelt_struct_value = _smelt_tmp_3.clone(); Router { name: smelt_struct_value.0.borrow().name.clone(), add: { let smelt_slot_callback = { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(JsString, JsString, JsString) -> ()> = ::std::rc::Rc::new(move |arg0: JsString, arg1: JsString, arg2: JsString| -> () { let mut smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.add(arg0.clone(), arg1.clone(), arg2.clone()) }); smelt_virtual_method }; let smelt_slot_adapted: ::std::rc::Rc<dyn Fn(JsString, JsString, &JsString) -> ()> = ::std::rc::Rc::new(move |arg0: JsString, arg1: JsString, arg2: &JsString| (smelt_slot_callback)(arg0, arg1, arg2.clone())); smelt_slot_adapted }, match_: { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(JsString, JsString) -> SmeltList<JsString>> = ::std::rc::Rc::new(move |arg0: JsString, arg1: JsString| -> SmeltList<JsString> { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.match_(arg0.clone(), arg1.clone()) }); smelt_virtual_method }, _smelt_phantom: ::std::marker::PhantomData } }));
     this.router = _smelt_tmp_4.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_5 = ::std::rc::Rc::new(|closure_arg_0: String| {
+    _smelt_tmp_5 = ::std::rc::Rc::new(|closure_arg_0: JsString| {
     closure_arg_0.clone()
     });
-    _smelt_tmp_6 = options.get_path.clone().unwrap_or(::std::rc::Rc::new({ let _smelt_adapted_callback = _smelt_tmp_5.clone(); move |arg0: String, arg1: Option<SmeltRecord<String, Option<E>>>| (_smelt_adapted_callback)(arg0) }));
+    _smelt_tmp_6 = options.get_path.clone().unwrap_or(::std::rc::Rc::new({ let _smelt_adapted_callback = _smelt_tmp_5.clone(); move |arg0: JsString, arg1: Option<SmeltRecord<String, Option<E>>>| (_smelt_adapted_callback)(arg0) }));
     this.get_path = _smelt_tmp_6.clone();
     return this;
     }

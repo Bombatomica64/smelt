@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3944,7 +3947,7 @@ impl SmeltFromUnknown for SmeltMatch {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Reply {
-    body: String,
+    body: JsString,
 }
 impl IntoSmeltUnknown for Reply {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -3980,7 +3983,7 @@ smelt_local.block_on(&smelt_runtime, async move {
 }
 
 impl Reply {
-    fn new(body: String) -> Self {
+    fn new(body: JsString) -> Self {
     let mut this: Self = Reply { body: String::new() };
     this.body = body.clone();
     return this;
@@ -4003,7 +4006,7 @@ pub(crate) fn later() -> SmeltFuture<Reply> {
     let _smelt_tmp_0 = ::std::rc::Rc::new(|closure_arg_0: ::std::rc::Rc<dyn Fn(Reply) -> ()>| {
     let _smelt_tmp_1 = ::std::rc::Rc::new(move || {
     let _smelt_tmp_2: ();
-    let _smelt_tmp_1: Reply = Reply::new("late reply".to_owned());
+    let _smelt_tmp_1: Reply = Reply::new(JsString::from("late reply"));
     _smelt_tmp_2 = closure_arg_0(_smelt_tmp_1.clone());
     ()
     });
@@ -4057,13 +4060,13 @@ pub(crate) async fn entry() -> Result<(), Box<dyn std::error::Error>> {
     let reply: Reply;
     let present: Option<f64>;
     let absent: Option<f64>;
-    let greet: ::std::rc::Rc<dyn Fn(String) -> String>;
+    let greet: ::std::rc::Rc<dyn Fn(JsString) -> JsString>;
     let _smelt_tmp_8: f64;
     let _smelt_tmp_10: f64;
     let _smelt_tmp_16: bool;
-    let _smelt_tmp_18: ::std::rc::Rc<dyn Fn(String, Option<String>) -> String>;
-    let _smelt_tmp_19: ::std::rc::Rc<dyn Fn(String) -> String>;
-    let _smelt_tmp_20: String;
+    let _smelt_tmp_18: ::std::rc::Rc<dyn Fn(JsString, Option<JsString>) -> JsString>;
+    let _smelt_tmp_19: ::std::rc::Rc<dyn Fn(JsString) -> JsString>;
+    let _smelt_tmp_20: JsString;
     let _smelt_tmp_4 = later();
     reply = _smelt_tmp_4.await?;
     let _ = { println!("{}", reply.body.clone()); };
@@ -4078,15 +4081,15 @@ pub(crate) async fn entry() -> Result<(), Box<dyn std::error::Error>> {
     absent = _smelt_tmp_14.await?;
     _smelt_tmp_16 = absent.is_none();
     let _ = { println!("{} {}", match &present { Some(value) => format!("{}", value), None => "undefined".to_owned() }, _smelt_tmp_16); };
-    _smelt_tmp_18 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: Option<String>| {
-    let _smelt_tmp_2: String = "hello ".to_owned() + &closure_arg_0.clone();
-    let _smelt_tmp_3: String = closure_arg_1.clone().unwrap_or("!".to_owned());
-    let _smelt_tmp_4: String = _smelt_tmp_2.clone() + &_smelt_tmp_3.clone();
+    _smelt_tmp_18 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: Option<JsString>| {
+    let _smelt_tmp_2: JsString = JsString::from("hello ") + &closure_arg_0.clone();
+    let _smelt_tmp_3: JsString = closure_arg_1.clone().unwrap_or(JsString::from("!"));
+    let _smelt_tmp_4: JsString = _smelt_tmp_2.clone() + &_smelt_tmp_3.clone();
     _smelt_tmp_4.clone()
     });
-    _smelt_tmp_19 = { let smelt_narrowed_callable = ::std::rc::Rc::new({ let _smelt_adapted_callback = _smelt_tmp_18.clone(); move |arg0: String| (_smelt_adapted_callback)(arg0, None::<String>) }); smelt_register_narrowed_callable(&smelt_narrowed_callable, { let smelt_function_value = _smelt_tmp_18.clone(); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::String(((smelt_function_value)(match smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }, if smelt_args.get(1).is_some() { { let smelt_optional_source = smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Null); if smelt_unknown_is_nullish(&smelt_optional_source) { None } else { Some(match smelt_optional_source.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) } } } else { None::<String> })).into()))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) } }); smelt_narrowed_callable };
+    _smelt_tmp_19 = { let smelt_narrowed_callable = ::std::rc::Rc::new({ let _smelt_adapted_callback = _smelt_tmp_18.clone(); move |arg0: JsString| (_smelt_adapted_callback)(arg0, None::<JsString>) }); smelt_register_narrowed_callable(&smelt_narrowed_callable, { let smelt_function_value = _smelt_tmp_18.clone(); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::String(((smelt_function_value)(match smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }, if smelt_args.get(1).is_some() { { let smelt_optional_source = smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Null); if smelt_unknown_is_nullish(&smelt_optional_source) { None } else { Some(match smelt_optional_source.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) } } } else { None::<JsString> })).into()))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) } }); smelt_narrowed_callable };
     greet = _smelt_tmp_19.clone();
-    _smelt_tmp_20 = (greet)("smelt".to_owned());
+    _smelt_tmp_20 = (greet)(JsString::from("smelt"));
     let _ = { println!("{}", _smelt_tmp_20); };
     return Ok(());
 }

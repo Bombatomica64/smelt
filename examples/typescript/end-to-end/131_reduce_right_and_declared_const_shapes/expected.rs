@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3768,39 +3771,39 @@ impl SmeltFromUnknown for SmeltMatch {
 
 // @smelt:prelude-end — generated program below
 fn main() {
-    let _smelt_tmp_12: String;
-    let _smelt_tmp_15: String;
-    let _smelt_tmp_17: SmeltList<String>;
-    let _smelt_tmp_20: SmeltList<String>;
+    let _smelt_tmp_12: JsString;
+    let _smelt_tmp_15: JsString;
+    let _smelt_tmp_17: SmeltList<JsString>;
+    let _smelt_tmp_20: SmeltList<JsString>;
     let _smelt_tmp_23: SmeltList<f64>;
     let _smelt_tmp_28: ::std::rc::Rc<dyn Fn(f64, i64, &SmeltList<f64>) -> f64>;
     let _smelt_tmp_29: SmeltList<f64>;
-    let _smelt_tmp_30: String;
-    let _smelt_tmp_2: (String, f64) = ("id".to_owned(), 0.0);
-    let _smelt_tmp_3: (String, f64) = ("post".to_owned(), 1.0);
-    let _smelt_tmp_4: SmeltList<(String, f64)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, f64)> = vec![_smelt_tmp_2.clone(), _smelt_tmp_3.clone()]; smelt_list_items }));
-    let _smelt_tmp_5: (f64, SmeltList<(String, f64)>) = (0.0, _smelt_tmp_4);
-    let _smelt_tmp_6: (String, f64) = ("tag".to_owned(), 2.0);
-    let _smelt_tmp_7: SmeltList<(String, f64)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, f64)> = vec![_smelt_tmp_6.clone()]; smelt_list_items }));
-    let _smelt_tmp_8: (f64, SmeltList<(String, f64)>) = (1.0, _smelt_tmp_7);
-    let paths: SmeltRecord<String, (f64, SmeltList<(String, f64)>)> = SmeltRecord::from([("/users/:id/posts/:post".to_owned(), _smelt_tmp_5), ("/tags/:tag".to_owned(), _smelt_tmp_8)]);
+    let _smelt_tmp_30: JsString;
+    let _smelt_tmp_2: (JsString, f64) = (JsString::from("id"), 0.0);
+    let _smelt_tmp_3: (JsString, f64) = (JsString::from("post"), 1.0);
+    let _smelt_tmp_4: SmeltList<(JsString, f64)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(JsString, f64)> = vec![_smelt_tmp_2.clone(), _smelt_tmp_3.clone()]; smelt_list_items }));
+    let _smelt_tmp_5: (f64, SmeltList<(JsString, f64)>) = (0.0, _smelt_tmp_4);
+    let _smelt_tmp_6: (JsString, f64) = (JsString::from("tag"), 2.0);
+    let _smelt_tmp_7: SmeltList<(JsString, f64)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(JsString, f64)> = vec![_smelt_tmp_6.clone()]; smelt_list_items }));
+    let _smelt_tmp_8: (f64, SmeltList<(JsString, f64)>) = (1.0, _smelt_tmp_7);
+    let paths: SmeltRecord<String, (f64, SmeltList<(JsString, f64)>)> = SmeltRecord::from([(JsString::from("/users/:id/posts/:post"), _smelt_tmp_5), (JsString::from("/tags/:tag"), _smelt_tmp_8)]);
     let replacement: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![3.0, 1.0, 2.0]; smelt_list_items }));
-    let _smelt_tmp_11: SmeltRecord<String, f64> = param_index_map("/users/:id/posts/:post".to_owned());
+    let _smelt_tmp_11: SmeltRecord<String, f64> = param_index_map(JsString::from("/users/:id/posts/:post"));
     _smelt_tmp_12 = serde_json::to_string(&{ let smelt_record = _smelt_tmp_11.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::Number(value as f64))).collect())) }).expect("JSON serialization failed");
     let _ = { println!("{}", _smelt_tmp_12); };
-    let _smelt_tmp_14: SmeltRecord<String, f64> = param_index_map("/tags/:tag".to_owned());
+    let _smelt_tmp_14: SmeltRecord<String, f64> = param_index_map(JsString::from("/tags/:tag"));
     _smelt_tmp_15 = serde_json::to_string(&{ let smelt_record = _smelt_tmp_14.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::Number(value as f64))).collect())) }).expect("JSON serialization failed");
     let _ = { println!("{}", _smelt_tmp_15); };
-    _smelt_tmp_17 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "b".to_owned(), "c".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_18: String = visit_order(_smelt_tmp_17);
+    _smelt_tmp_17 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a"), JsString::from("b"), JsString::from("c")]; smelt_list_items }));
+    let _smelt_tmp_18: JsString = visit_order(_smelt_tmp_17);
     let _ = { println!("{}", _smelt_tmp_18); };
-    _smelt_tmp_20 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "b".to_owned(), "c".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_21: String = forward_order(_smelt_tmp_20);
+    _smelt_tmp_20 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a"), JsString::from("b"), JsString::from("c")]; smelt_list_items }));
+    let _smelt_tmp_21: JsString = forward_order(_smelt_tmp_20);
     let _ = { println!("{}", _smelt_tmp_21); };
     _smelt_tmp_23 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 10.0]; smelt_list_items }));
     let _smelt_tmp_24: f64 = last_minus_rest(_smelt_tmp_23);
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_24)); };
-    let _smelt_tmp_26: f64 = handler_index("/tags/:tag".to_owned());
+    let _smelt_tmp_26: f64 = handler_index(JsString::from("/tags/:tag"));
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_26)); };
     _smelt_tmp_28 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, _arg0: &SmeltList<f64>| {
     let _smelt_tmp_2: f64 = closure_arg_0 + closure_arg_1 as f64;
@@ -3810,7 +3813,7 @@ fn main() {
     let _smelt_tmp_2: f64 = closure_arg_0 + closure_arg_1 as f64;
     _smelt_tmp_2
     }); let smelt_array = replacement; let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
-    _smelt_tmp_30 = _smelt_tmp_29.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&",".to_owned());
+    _smelt_tmp_30 = _smelt_tmp_29.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_30); };
     return;
 }
@@ -3822,26 +3825,26 @@ fn main() {
 
 use super::*;
 
-pub(crate) fn param_index_map(path: String) -> SmeltRecord<String, f64> {
-    let _smelt_tmp_3: (String, f64) = ("id".to_owned(), 0.0);
-    let _smelt_tmp_4: (String, f64) = ("post".to_owned(), 1.0);
-    let _smelt_tmp_5: SmeltList<(String, f64)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, f64)> = vec![_smelt_tmp_3.clone(), _smelt_tmp_4.clone()]; smelt_list_items }));
-    let _smelt_tmp_6: (f64, SmeltList<(String, f64)>) = (0.0, _smelt_tmp_5);
-    let _smelt_tmp_7: (String, f64) = ("tag".to_owned(), 2.0);
-    let _smelt_tmp_8: SmeltList<(String, f64)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, f64)> = vec![_smelt_tmp_7.clone()]; smelt_list_items }));
-    let _smelt_tmp_9: (f64, SmeltList<(String, f64)>) = (1.0, _smelt_tmp_8);
-    let _smelt_tmp_10: SmeltRecord<String, (f64, SmeltList<(String, f64)>)> = SmeltRecord::from([("/users/:id/posts/:post".to_owned(), _smelt_tmp_6), ("/tags/:tag".to_owned(), _smelt_tmp_9)]);
-    let path_data: Option<(f64, SmeltList<(String, f64)>)> = _smelt_tmp_10.get(&path.clone());
+pub(crate) fn param_index_map(path: JsString) -> SmeltRecord<String, f64> {
+    let _smelt_tmp_3: (JsString, f64) = (JsString::from("id"), 0.0);
+    let _smelt_tmp_4: (JsString, f64) = (JsString::from("post"), 1.0);
+    let _smelt_tmp_5: SmeltList<(JsString, f64)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(JsString, f64)> = vec![_smelt_tmp_3.clone(), _smelt_tmp_4.clone()]; smelt_list_items }));
+    let _smelt_tmp_6: (f64, SmeltList<(JsString, f64)>) = (0.0, _smelt_tmp_5);
+    let _smelt_tmp_7: (JsString, f64) = (JsString::from("tag"), 2.0);
+    let _smelt_tmp_8: SmeltList<(JsString, f64)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(JsString, f64)> = vec![_smelt_tmp_7.clone()]; smelt_list_items }));
+    let _smelt_tmp_9: (f64, SmeltList<(JsString, f64)>) = (1.0, _smelt_tmp_8);
+    let _smelt_tmp_10: SmeltRecord<String, (f64, SmeltList<(JsString, f64)>)> = SmeltRecord::from([(JsString::from("/users/:id/posts/:post"), _smelt_tmp_6), (JsString::from("/tags/:tag"), _smelt_tmp_9)]);
+    let path_data: Option<(f64, SmeltList<(JsString, f64)>)> = _smelt_tmp_10.get(&path.clone());
     let seed: SmeltRecord<String, f64> = SmeltRecord::from([]);
-    let _smelt_tmp_13: (f64, SmeltList<(String, f64)>) = path_data.clone().expect("optional value was absent after narrowing");
-    let _smelt_tmp_14: SmeltList<(String, f64)> = Into::<SmeltList<_>>::into(_smelt_tmp_13.1.clone());
+    let _smelt_tmp_13: (f64, SmeltList<(JsString, f64)>) = path_data.clone().expect("optional value was absent after narrowing");
+    let _smelt_tmp_14: SmeltList<(JsString, f64)> = Into::<SmeltList<_>>::into(_smelt_tmp_13.1.clone());
     let _smelt_tmp_16: SmeltRecord<String, f64> = _smelt_tmp_14.borrow().iter().enumerate().rev().fold(seed, |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = &_smelt_tmp_14; { let smelt_callback = ::std::rc::Rc::new({
     let path_data = path_data.clone();
-    move |mut closure_arg_0: SmeltRecord<String, f64>, closure_arg_1: (String, f64), closure_arg_2: i64, _arg0: &SmeltList<(String, f64)>| {
-    let key: String = closure_arg_1.clone().0.clone();
+    move |mut closure_arg_0: SmeltRecord<String, f64>, closure_arg_1: (JsString, f64), closure_arg_2: i64, _arg0: &SmeltList<(JsString, f64)>| {
+    let key: JsString = closure_arg_1.clone().0.clone();
     let _smelt_tmp_6: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![3.0, 1.0, 2.0]; smelt_list_items }));
-    let _smelt_tmp_7: (f64, SmeltList<(String, f64)>) = path_data.clone().expect("optional value was absent after narrowing");
-    let _smelt_tmp_8: SmeltList<(String, f64)> = Into::<SmeltList<_>>::into(_smelt_tmp_7.clone().1.clone());
+    let _smelt_tmp_7: (f64, SmeltList<(JsString, f64)>) = path_data.clone().expect("optional value was absent after narrowing");
+    let _smelt_tmp_8: SmeltList<(JsString, f64)> = Into::<SmeltList<_>>::into(_smelt_tmp_7.clone().1.clone());
     let _smelt_tmp_9: f64 = _smelt_tmp_8.borrow().get({ let smelt_normalized = closure_arg_2 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), 0.0)).1.clone();
     let _smelt_tmp_10: f64 = _smelt_tmp_6.borrow().get({ let smelt_normalized = _smelt_tmp_9 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0) * 10.0;
     let _smelt_tmp_11: f64 = _smelt_tmp_10 + closure_arg_2 as f64;
@@ -3852,19 +3855,19 @@ pub(crate) fn param_index_map(path: String) -> SmeltRecord<String, f64> {
     return _smelt_tmp_16;
 }
 
-pub(crate) fn visit_order(items: SmeltList<String>) -> String {
-    let _smelt_tmp_2: String = items.borrow().iter().enumerate().rev().fold("".to_owned(), |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = &items; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: String, closure_arg_2: i64, _arg0: &SmeltList<String>| {
-    let _smelt_tmp_3: String = closure_arg_0.clone() + &closure_arg_1.clone();
-    let _smelt_tmp_4: String = _smelt_tmp_3.clone() + &smelt_number_to_string(closure_arg_2 as f64);
+pub(crate) fn visit_order(items: SmeltList<JsString>) -> JsString {
+    let _smelt_tmp_2: JsString = items.borrow().iter().enumerate().rev().fold(JsString::new(), |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = &items; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: JsString, closure_arg_2: i64, _arg0: &SmeltList<JsString>| {
+    let _smelt_tmp_3: JsString = closure_arg_0.clone() + &closure_arg_1.clone();
+    let _smelt_tmp_4: JsString = _smelt_tmp_3.clone() + &smelt_number_to_string(closure_arg_2 as f64);
     _smelt_tmp_4.clone()
     }); (smelt_callback)(acc, item, ((index as f64).trunc() as i64), array) } });
     return _smelt_tmp_2;
 }
 
-pub(crate) fn forward_order(items: SmeltList<String>) -> String {
-    let _smelt_tmp_2: String = items.borrow().iter().enumerate().fold("".to_owned(), |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = &items; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: String, closure_arg_2: i64, _arg0: &SmeltList<String>| {
-    let _smelt_tmp_3: String = closure_arg_0.clone() + &closure_arg_1.clone();
-    let _smelt_tmp_4: String = _smelt_tmp_3.clone() + &smelt_number_to_string(closure_arg_2 as f64);
+pub(crate) fn forward_order(items: SmeltList<JsString>) -> JsString {
+    let _smelt_tmp_2: JsString = items.borrow().iter().enumerate().fold(JsString::new(), |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = &items; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: JsString, closure_arg_2: i64, _arg0: &SmeltList<JsString>| {
+    let _smelt_tmp_3: JsString = closure_arg_0.clone() + &closure_arg_1.clone();
+    let _smelt_tmp_4: JsString = _smelt_tmp_3.clone() + &smelt_number_to_string(closure_arg_2 as f64);
     _smelt_tmp_4.clone()
     }); (smelt_callback)(acc, item, ((index as f64).trunc() as i64), array) } });
     return _smelt_tmp_2;
@@ -3878,17 +3881,17 @@ pub(crate) fn last_minus_rest(values: SmeltList<f64>) -> f64 {
     return _smelt_tmp_2;
 }
 
-pub(crate) fn handler_index(path: String) -> f64 {
-    let _smelt_tmp_1: (String, f64) = ("id".to_owned(), 0.0);
-    let _smelt_tmp_2: (String, f64) = ("post".to_owned(), 1.0);
-    let _smelt_tmp_3: SmeltList<(String, f64)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, f64)> = vec![_smelt_tmp_1.clone(), _smelt_tmp_2.clone()]; smelt_list_items }));
-    let _smelt_tmp_4: (f64, SmeltList<(String, f64)>) = (0.0, _smelt_tmp_3);
-    let _smelt_tmp_5: (String, f64) = ("tag".to_owned(), 2.0);
-    let _smelt_tmp_6: SmeltList<(String, f64)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, f64)> = vec![_smelt_tmp_5.clone()]; smelt_list_items }));
-    let _smelt_tmp_7: (f64, SmeltList<(String, f64)>) = (1.0, _smelt_tmp_6);
-    let _smelt_tmp_8: SmeltRecord<String, (f64, SmeltList<(String, f64)>)> = SmeltRecord::from([("/users/:id/posts/:post".to_owned(), _smelt_tmp_4), ("/tags/:tag".to_owned(), _smelt_tmp_7)]);
-    let _smelt_tmp_9: Option<(f64, SmeltList<(String, f64)>)> = _smelt_tmp_8.get(&path.clone());
-    let _smelt_tmp_10: (f64, SmeltList<(String, f64)>) = _smelt_tmp_9.clone().expect("optional value was absent after narrowing");
+pub(crate) fn handler_index(path: JsString) -> f64 {
+    let _smelt_tmp_1: (JsString, f64) = (JsString::from("id"), 0.0);
+    let _smelt_tmp_2: (JsString, f64) = (JsString::from("post"), 1.0);
+    let _smelt_tmp_3: SmeltList<(JsString, f64)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(JsString, f64)> = vec![_smelt_tmp_1.clone(), _smelt_tmp_2.clone()]; smelt_list_items }));
+    let _smelt_tmp_4: (f64, SmeltList<(JsString, f64)>) = (0.0, _smelt_tmp_3);
+    let _smelt_tmp_5: (JsString, f64) = (JsString::from("tag"), 2.0);
+    let _smelt_tmp_6: SmeltList<(JsString, f64)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(JsString, f64)> = vec![_smelt_tmp_5.clone()]; smelt_list_items }));
+    let _smelt_tmp_7: (f64, SmeltList<(JsString, f64)>) = (1.0, _smelt_tmp_6);
+    let _smelt_tmp_8: SmeltRecord<String, (f64, SmeltList<(JsString, f64)>)> = SmeltRecord::from([(JsString::from("/users/:id/posts/:post"), _smelt_tmp_4), (JsString::from("/tags/:tag"), _smelt_tmp_7)]);
+    let _smelt_tmp_9: Option<(f64, SmeltList<(JsString, f64)>)> = _smelt_tmp_8.get(&path.clone());
+    let _smelt_tmp_10: (f64, SmeltList<(JsString, f64)>) = _smelt_tmp_9.clone().expect("optional value was absent after narrowing");
     let _smelt_tmp_11: f64 = _smelt_tmp_10.0.clone();
     return _smelt_tmp_11;
 }

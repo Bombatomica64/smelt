@@ -87,7 +87,7 @@ fn exact_console_write_renders_lists_like_the_console() {
 fn emits_owned_string_literals() {
     let source = source_for("const message = \"hello smelt\";\nconsole.log(message);\n");
 
-    assert!(source.contains("let message: String = \"hello smelt\".to_owned();"));
+    assert!(source.contains("let message: JsString = JsString::from(\"hello smelt\");"));
 }
 
 #[test]
@@ -166,7 +166,7 @@ function collect(): string[] {
         "{source}"
     );
     assert!(
-        source.contains("(*smelt_capture_current.borrow_mut()) = \"y\".to_owned();"),
+        source.contains("(*smelt_capture_current.borrow_mut()) = JsString::from(\"y\");"),
         "{source}"
     );
     assert!(
@@ -1309,7 +1309,7 @@ const asBool = Boolean("");
     // special case; the helper's values are pinned by
     // `js_value_semantics_runtime`.
     assert!(source.contains("smelt_string_to_number(&(digits))"), "{source}");
-    assert!(source.contains("smelt_string_to_number(&(\"\".to_owned()))"), "{source}");
+    assert!(source.contains("smelt_string_to_number(&(JsString::new()))"), "{source}");
     assert!(source.contains("fn smelt_string_to_number(text: &str) -> f64"), "{source}");
     assert!(!source.contains("float() parse failed"));
     assert!(source.contains(".is_empty()"));
@@ -1342,7 +1342,7 @@ export function lexicalRelational(a: string, b: string): boolean {
     );
     // A raw, non-coerced `String >= 0.0` must never be emitted.
     assert!(
-        !source.contains("\"\".to_owned() >= 0.0"),
+        !source.contains("\"\".to_owned() >= 0.0") && !source.contains("JsString::new() >= 0.0"),
         "raw String relational must not be emitted"
     );
     // String-vs-string comparison stays lexical (no ToNumber coercion applied).

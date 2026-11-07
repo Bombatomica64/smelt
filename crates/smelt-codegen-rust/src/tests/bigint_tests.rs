@@ -143,7 +143,7 @@ export function plainJson(owner: string): string {
     );
     let ledger = emitted_function_body(&source, "fn ledger_json(");
     assert!(
-        ledger.contains("-> Result<String, Box<dyn std::error::Error>>"),
+        ledger.contains("-> Result<JsString, Box<dyn std::error::Error>>"),
         "{ledger}"
     );
     assert!(
@@ -151,6 +151,6 @@ export function plainJson(owner: string): string {
         "{ledger}"
     );
     let plain = emitted_function_body(&source, "fn plain_json(");
-    assert!(plain.contains("fn plain_json(owner: String) -> String"), "{plain}");
+    assert!(plain.contains("fn plain_json(owner: JsString) -> JsString"), "{plain}");
     assert!(plain.contains(".expect(\"JSON serialization failed\")"), "{plain}");
 }

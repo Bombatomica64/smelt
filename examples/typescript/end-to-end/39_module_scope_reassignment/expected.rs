@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 thread_local! {
     static SMELT_NEXT_CAPTURE_SCOPE: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
     static SMELT_SHARED_CAPTURES: ::std::cell::RefCell<::std::collections::HashMap<(usize, usize), ::std::rc::Weak<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
@@ -215,49 +218,49 @@ fn smelt_shared_capture<T: Clone + 'static>(scope: usize, slot: *mut T, initial:
 
 // @smelt:prelude-end — generated program below
 fn main() {
-    let __smelt_logical_value_4: ::std::rc::Rc<dyn Fn(String) -> f64>;
-    let mut via_nullish_assign: Option<::std::rc::Rc<dyn Fn(String) -> f64>>;
-    let __smelt_logical_value_6: ::std::rc::Rc<dyn Fn(String) -> f64>;
-    let direct: ::std::rc::Rc<dyn Fn(String) -> f64>;
-    let _smelt_tmp_12: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn(String) -> f64>>;
-    let _smelt_tmp_13: ::std::rc::Rc<dyn Fn(String) -> f64>;
+    let __smelt_logical_value_4: ::std::rc::Rc<dyn Fn(JsString) -> f64>;
+    let mut via_nullish_assign: Option<::std::rc::Rc<dyn Fn(JsString) -> f64>>;
+    let __smelt_logical_value_6: ::std::rc::Rc<dyn Fn(JsString) -> f64>;
+    let direct: ::std::rc::Rc<dyn Fn(JsString) -> f64>;
+    let _smelt_tmp_12: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn(JsString) -> f64>>;
+    let _smelt_tmp_13: ::std::rc::Rc<dyn Fn(JsString) -> f64>;
     let _smelt_tmp_14: bool;
-    let _smelt_tmp_15: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn(String) -> f64>>;
-    let _smelt_tmp_16: ::std::rc::Rc<dyn Fn(String) -> f64>;
-    let _smelt_tmp_17: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn(String) -> f64>>;
-    let _smelt_tmp_18: ::std::rc::Rc<dyn Fn(String) -> f64>;
+    let _smelt_tmp_15: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn(JsString) -> f64>>;
+    let _smelt_tmp_16: ::std::rc::Rc<dyn Fn(JsString) -> f64>;
+    let _smelt_tmp_17: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn(JsString) -> f64>>;
+    let _smelt_tmp_18: ::std::rc::Rc<dyn Fn(JsString) -> f64>;
     let _smelt_tmp_19: f64;
     let _smelt_tmp_20: bool;
     let mut _smelt_tmp_21: f64;
     let _smelt_tmp_22: f64;
     let _smelt_tmp_23: f64;
-    let _smelt_tmp_26: ::std::rc::Rc<dyn Fn(String) -> f64>;
+    let _smelt_tmp_26: ::std::rc::Rc<dyn Fn(JsString) -> f64>;
     let _smelt_tmp_27: bool;
     let mut _smelt_tmp_28: f64;
     let _smelt_tmp_29: f64;
-    let _smelt_tmp_30: ::std::rc::Rc<dyn Fn(String) -> f64>;
+    let _smelt_tmp_30: ::std::rc::Rc<dyn Fn(JsString) -> f64>;
     let _smelt_tmp_31: f64;
     let _smelt_tmp_33: bool;
     let mut _smelt_tmp_34: f64;
     let _smelt_tmp_35: f64;
-    let _smelt_tmp_36: ::std::rc::Rc<dyn Fn(String) -> f64>;
+    let _smelt_tmp_36: ::std::rc::Rc<dyn Fn(JsString) -> f64>;
     let _smelt_tmp_37: f64;
     let _smelt_tmp_39: bool;
     let mut _smelt_tmp_40: f64;
     let _smelt_tmp_41: f64;
-    let _smelt_tmp_42: ::std::rc::Rc<dyn Fn(String) -> f64>;
+    let _smelt_tmp_42: ::std::rc::Rc<dyn Fn(JsString) -> f64>;
     let _smelt_tmp_43: f64;
     let _smelt_tmp_45: f64;
     let mut annotated: Option<f64> = None::<f64>;
     annotated = Some(5.0);
     let mut initialized: f64 = 1.0;
     initialized = 6.0;
-    let mut via_iife: Option<::std::rc::Rc<dyn Fn(String) -> f64>> = None::<::std::rc::Rc<dyn Fn(String) -> f64>>;
-    let _smelt_tmp_8 = ::std::rc::Rc::new(|| -> ::std::rc::Rc<dyn Fn(String) -> f64> {
+    let mut via_iife: Option<::std::rc::Rc<dyn Fn(JsString) -> f64>> = None::<::std::rc::Rc<dyn Fn(JsString) -> f64>>;
+    let _smelt_tmp_8 = ::std::rc::Rc::new(|| -> ::std::rc::Rc<dyn Fn(JsString) -> f64> {
     let offset: f64 = 10.0;
     let _smelt_tmp_1 = ::std::rc::Rc::new({
     let offset = offset.clone();
-    move |closure_arg_0: String| {
+    move |closure_arg_0: JsString| {
     let _smelt_tmp_2: f64 = smelt_utf16_len(&closure_arg_0) as f64;
     let _smelt_tmp_3: f64 = _smelt_tmp_2 + offset;
     _smelt_tmp_3
@@ -267,15 +270,15 @@ fn main() {
     });
     let _smelt_tmp_9 = ((_smelt_tmp_8)()).clone();
     via_iife = Some(_smelt_tmp_9.clone());
-    let mut via_or_assign: Option<::std::rc::Rc<dyn Fn(String) -> f64>> = None::<::std::rc::Rc<dyn Fn(String) -> f64>>;
+    let mut via_or_assign: Option<::std::rc::Rc<dyn Fn(JsString) -> f64>> = None::<::std::rc::Rc<dyn Fn(JsString) -> f64>>;
     let _smelt_tmp_10: bool = !(via_or_assign.clone().is_none());
     let _smelt_tmp_11: bool = !(_smelt_tmp_10);
     if _smelt_tmp_11 {
-    _smelt_tmp_12 = ::std::rc::Rc::new(|| -> ::std::rc::Rc<dyn Fn(String) -> f64> {
+    _smelt_tmp_12 = ::std::rc::Rc::new(|| -> ::std::rc::Rc<dyn Fn(JsString) -> f64> {
     let offset: f64 = 20.0;
     let _smelt_tmp_1 = ::std::rc::Rc::new({
     let offset = offset.clone();
-    move |closure_arg_0: String| {
+    move |closure_arg_0: JsString| {
     let _smelt_tmp_2: f64 = smelt_utf16_len(&closure_arg_0) as f64;
     let _smelt_tmp_3: f64 = _smelt_tmp_2 + offset;
     _smelt_tmp_3
@@ -287,14 +290,14 @@ fn main() {
     __smelt_logical_value_4 = _smelt_tmp_13.clone();
     via_or_assign = Some(__smelt_logical_value_4.clone());
     }
-    via_nullish_assign = None::<::std::rc::Rc<dyn Fn(String) -> f64>>;
+    via_nullish_assign = None::<::std::rc::Rc<dyn Fn(JsString) -> f64>>;
     _smelt_tmp_14 = via_nullish_assign.clone().is_none();
     if _smelt_tmp_14 {
-    _smelt_tmp_15 = ::std::rc::Rc::new(|| -> ::std::rc::Rc<dyn Fn(String) -> f64> {
+    _smelt_tmp_15 = ::std::rc::Rc::new(|| -> ::std::rc::Rc<dyn Fn(JsString) -> f64> {
     let offset: f64 = 30.0;
     let _smelt_tmp_1 = ::std::rc::Rc::new({
     let offset = offset.clone();
-    move |closure_arg_0: String| {
+    move |closure_arg_0: JsString| {
     let _smelt_tmp_2: f64 = smelt_utf16_len(&closure_arg_0) as f64;
     let _smelt_tmp_3: f64 = _smelt_tmp_2 + offset;
     _smelt_tmp_3
@@ -306,11 +309,11 @@ fn main() {
     __smelt_logical_value_6 = _smelt_tmp_16.clone();
     via_nullish_assign = Some(__smelt_logical_value_6.clone());
     }
-    _smelt_tmp_17 = ::std::rc::Rc::new(|| -> ::std::rc::Rc<dyn Fn(String) -> f64> {
+    _smelt_tmp_17 = ::std::rc::Rc::new(|| -> ::std::rc::Rc<dyn Fn(JsString) -> f64> {
     let offset: f64 = 40.0;
     let _smelt_tmp_1 = ::std::rc::Rc::new({
     let offset = offset.clone();
-    move |closure_arg_0: String| {
+    move |closure_arg_0: JsString| {
     let _smelt_tmp_2: f64 = smelt_utf16_len(&closure_arg_0) as f64;
     let _smelt_tmp_3: f64 = _smelt_tmp_2 + offset;
     _smelt_tmp_3
@@ -332,15 +335,15 @@ fn main() {
     }
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_21)); };
     let _ = { println!("{}", smelt_console_number(initialized)); };
-    _smelt_tmp_26 = via_iife.clone().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback });
+    _smelt_tmp_26 = via_iife.clone().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |arg0: JsString| -> f64 { 0.0 }); smelt_default_callback });
     _smelt_tmp_27 = false;
     let mut _smelt_tmp_28: f64 = 0.0;
     if _smelt_tmp_27 {
     _smelt_tmp_29 = -1.0;
     _smelt_tmp_28 = _smelt_tmp_29;
     } else {
-    _smelt_tmp_30 = via_iife.clone().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback });
-    _smelt_tmp_31 = (_smelt_tmp_30)("ab".to_owned());
+    _smelt_tmp_30 = via_iife.clone().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |arg0: JsString| -> f64 { 0.0 }); smelt_default_callback });
+    _smelt_tmp_31 = (_smelt_tmp_30)(JsString::from("ab"));
     _smelt_tmp_28 = _smelt_tmp_31;
     }
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_28)); };
@@ -350,8 +353,8 @@ fn main() {
     _smelt_tmp_35 = -1.0;
     _smelt_tmp_34 = _smelt_tmp_35;
     } else {
-    _smelt_tmp_36 = via_or_assign.clone().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback });
-    _smelt_tmp_37 = (_smelt_tmp_36)("ab".to_owned());
+    _smelt_tmp_36 = via_or_assign.clone().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |arg0: JsString| -> f64 { 0.0 }); smelt_default_callback });
+    _smelt_tmp_37 = (_smelt_tmp_36)(JsString::from("ab"));
     _smelt_tmp_34 = _smelt_tmp_37;
     }
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_34)); };
@@ -361,14 +364,14 @@ fn main() {
     _smelt_tmp_41 = -1.0;
     _smelt_tmp_40 = _smelt_tmp_41;
     } else {
-    _smelt_tmp_42 = via_nullish_assign.clone().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback });
-    _smelt_tmp_43 = (_smelt_tmp_42)("ab".to_owned());
+    _smelt_tmp_42 = via_nullish_assign.clone().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |arg0: JsString| -> f64 { 0.0 }); smelt_default_callback });
+    _smelt_tmp_43 = (_smelt_tmp_42)(JsString::from("ab"));
     _smelt_tmp_40 = _smelt_tmp_43;
     }
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_40)); };
-    _smelt_tmp_45 = (direct)("ab".to_owned());
+    _smelt_tmp_45 = (direct)(JsString::from("ab"));
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_45)); };
-    let _smelt_tmp_47: String = inside_a_function();
+    let _smelt_tmp_47: JsString = inside_a_function();
     let _ = { println!("{}", _smelt_tmp_47); };
     return;
 }
@@ -380,13 +383,13 @@ fn main() {
 
 use super::*;
 
-pub(crate) fn inside_a_function() -> String {
+pub(crate) fn inside_a_function() -> JsString {
     let mut _smelt_tmp_4: f64;
     let _smelt_tmp_5: f64;
     let _smelt_tmp_6: f64;
-    let _smelt_tmp_7: String;
-    let _smelt_tmp_8: String;
-    let _smelt_tmp_9: String;
+    let _smelt_tmp_7: JsString;
+    let _smelt_tmp_8: JsString;
+    let _smelt_tmp_9: JsString;
     let mut local: Option<f64> = None::<f64>;
     local = Some(7.0);
     let mut seeded: f64 = 2.0;
@@ -401,8 +404,8 @@ pub(crate) fn inside_a_function() -> String {
     _smelt_tmp_6 = local.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_4 = _smelt_tmp_6;
     }
-    _smelt_tmp_7 = "".to_owned() + &smelt_number_to_string(_smelt_tmp_4);
-    _smelt_tmp_8 = _smelt_tmp_7 + &"/".to_owned();
+    _smelt_tmp_7 = JsString::new() + &smelt_number_to_string(_smelt_tmp_4);
+    _smelt_tmp_8 = _smelt_tmp_7 + &JsString::from("/");
     _smelt_tmp_9 = _smelt_tmp_8 + &smelt_number_to_string(seeded);
     return _smelt_tmp_9;
 }

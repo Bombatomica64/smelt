@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3679,8 +3682,8 @@ impl SmeltFromUnknown for SmeltMatch {
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Config {
     port: f64,
-    host: String,
-    tags: SmeltList<String>,
+    host: JsString,
+    tags: SmeltList<JsString>,
 }
 impl IntoSmeltUnknown for Config {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -3730,22 +3733,22 @@ impl SmeltFromUnknown for Store {
 fn main() {
     let got: f64;
     let _smelt_tmp_8: f64;
-    let _smelt_tmp_9: String;
+    let _smelt_tmp_9: JsString;
     let _smelt_tmp_11: f64;
-    let _smelt_tmp_12: String;
+    let _smelt_tmp_12: JsString;
     let _smelt_tmp_13: f64;
     let _smelt_tmp_15: f64;
-    let words: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["x".to_owned(), "y".to_owned()]; smelt_list_items }));
+    let words: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("x"), JsString::from("y")]; smelt_list_items }));
     let port: f64 = 8080.0;
-    let tags: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "b".to_owned(), "c".to_owned()]; smelt_list_items }));
+    let tags: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a"), JsString::from("b"), JsString::from("c")]; smelt_list_items }));
     let _smelt_tmp_6: Store = Store::new();
-    let _smelt_tmp_7: f64 = _smelt_tmp_6.get("abcd".to_owned());
+    let _smelt_tmp_7: f64 = _smelt_tmp_6.get(JsString::from("abcd"));
     got = _smelt_tmp_7;
     _smelt_tmp_8 = words.len() as f64;
-    _smelt_tmp_9 = words.borrow().join(&"+".to_owned());
+    _smelt_tmp_9 = words.borrow().join(&JsString::from("+"));
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_8), _smelt_tmp_9); };
     _smelt_tmp_11 = port + 1.0;
-    _smelt_tmp_12 = tags.clone().borrow().join(&",".to_owned());
+    _smelt_tmp_12 = tags.clone().borrow().join(&JsString::from(","));
     _smelt_tmp_13 = tags.len() as f64;
     let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_11), _smelt_tmp_12, smelt_console_number(_smelt_tmp_13)); };
     _smelt_tmp_15 = got * 2.0;
@@ -3758,7 +3761,7 @@ impl Store {
     let this: Self = Store {  };
     return this;
     }
-    fn get(&self, key: String) -> f64 {
+    fn get(&self, key: JsString) -> f64 {
     let _smelt_tmp_2: f64 = smelt_utf16_len(&key) as f64;
     return _smelt_tmp_2;
     }

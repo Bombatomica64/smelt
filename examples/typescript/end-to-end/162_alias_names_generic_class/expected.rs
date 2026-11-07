@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3732,10 +3735,10 @@ impl<P: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFr
 }
 
 fn main() {
-    let _smelt_tmp_0: GCtx<String> = GCtx::new("/b".to_owned());
-    let _smelt_tmp_1: String = via_alias(_smelt_tmp_0);
-    let _smelt_tmp_2: GCtx<String> = GCtx::new("/:id".to_owned());
-    let _smelt_tmp_3: String = via_id_alias(_smelt_tmp_2);
+    let _smelt_tmp_0: GCtx<JsString> = GCtx::new(JsString::from("/b"));
+    let _smelt_tmp_1: JsString = via_alias(_smelt_tmp_0);
+    let _smelt_tmp_2: GCtx<JsString> = GCtx::new(JsString::from("/:id"));
+    let _smelt_tmp_3: JsString = via_id_alias(_smelt_tmp_2);
     let _ = { println!("{} {}", _smelt_tmp_1, _smelt_tmp_3); };
     return;
 }
@@ -3746,8 +3749,8 @@ impl<P: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> GCtx<P>
     this.path = path.clone();
     return this;
     }
-    fn text(&self, value: String) -> String {
-    let _smelt_tmp_2: String = value.clone() + &"!".to_owned();
+    fn text(&self, value: JsString) -> JsString {
+    let _smelt_tmp_2: JsString = value.clone() + &JsString::from("!");
     return _smelt_tmp_2;
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
@@ -3770,12 +3773,12 @@ impl<P: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> GCtx<P>
 
 use super::*;
 
-pub(crate) fn via_alias(c: GCtx<String>) -> String {
-    let _smelt_tmp_1: String = c.text("alias".to_owned());
+pub(crate) fn via_alias(c: GCtx<JsString>) -> JsString {
+    let _smelt_tmp_1: JsString = c.text(JsString::from("alias"));
     return _smelt_tmp_1;
 }
 
-pub(crate) fn via_id_alias(c: GCtx<String>) -> String {
-    let _smelt_tmp_1: String = c.text("id".to_owned());
+pub(crate) fn via_id_alias(c: GCtx<JsString>) -> JsString {
+    let _smelt_tmp_1: JsString = c.text(JsString::from("id"));
     return _smelt_tmp_1;
 }

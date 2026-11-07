@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3926,7 +3929,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_4: ();
     let _smelt_tmp_0 = SmeltFuture::from_future(Box::pin(later()));
     _smelt_tmp_1 = { smelt_spawn_promise_task(Box::pin(async move { let _ = _smelt_tmp_0.await; })); () };
-    let _ = { println!("{}", "sync tail".to_owned()); };
+    let _ = { println!("{}", JsString::from("sync tail")); };
     let _smelt_tmp_3: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
     _smelt_tmp_4 = _smelt_tmp_3.await?;
     return Ok(());
@@ -3940,14 +3943,14 @@ smelt_local.block_on(&smelt_runtime, async move {
 
 use super::*;
 
-pub(crate) async fn greet(name: String) -> Result<String, Box<dyn std::error::Error>> {
-    let _smelt_tmp_1: String = "hello ".to_owned() + &name.clone();
+pub(crate) async fn greet(name: JsString) -> Result<JsString, Box<dyn std::error::Error>> {
+    let _smelt_tmp_1: JsString = JsString::from("hello ") + &name.clone();
     return Ok(_smelt_tmp_1);
 }
 
 pub(crate) async fn later() -> Result<(), Box<dyn std::error::Error>> {
-    let message: String;
-    let _smelt_tmp_1 = SmeltFuture::from_future(Box::pin(greet("queued".to_owned())));
+    let message: JsString;
+    let _smelt_tmp_1 = SmeltFuture::from_future(Box::pin(greet(JsString::from("queued"))));
     message = _smelt_tmp_1.await?;
     let _ = { println!("{}", message); };
     return Ok(());

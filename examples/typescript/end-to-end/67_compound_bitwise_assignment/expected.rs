@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
@@ -320,11 +323,11 @@ fn main() {
     _smelt_tmp_28 = _smelt_tmp_28 + 1;
     }
     let _ = { println!("{}", smelt_console_number(hash)); };
-    let _smelt_tmp_33: bool = constant_time_equal_string("abc".to_owned(), "abc".to_owned());
+    let _smelt_tmp_33: bool = constant_time_equal_string(JsString::from("abc"), JsString::from("abc"));
     let _ = { println!("{}", _smelt_tmp_33); };
-    let _smelt_tmp_35: bool = constant_time_equal_string("abc".to_owned(), "abd".to_owned());
+    let _smelt_tmp_35: bool = constant_time_equal_string(JsString::from("abc"), JsString::from("abd"));
     let _ = { println!("{}", _smelt_tmp_35); };
-    let _smelt_tmp_37: bool = constant_time_equal_string("abc".to_owned(), "abcd".to_owned());
+    let _smelt_tmp_37: bool = constant_time_equal_string(JsString::from("abc"), JsString::from("abcd"));
     let _ = { println!("{}", _smelt_tmp_37); };
     return;
 }
@@ -336,7 +339,7 @@ fn main() {
 
 use super::*;
 
-pub(crate) fn constant_time_equal_string(a: String, b: String) -> bool {
+pub(crate) fn constant_time_equal_string(a: JsString, b: JsString) -> bool {
     let mut a_char: f64;
     let mut b_char: f64;
     let mut _smelt_tmp_13: bool;

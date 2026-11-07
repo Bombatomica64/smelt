@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3748,7 +3751,7 @@ impl SmeltFromUnknown for SmeltMatch {
 #[derive(Clone)]
 pub enum SmeltUnion3 {
     M0(f64),
-    M1(String),
+    M1(JsString),
     M2(SmeltRecord<String, f64>),
 }
 impl IntoSmeltUnknown for SmeltUnion3 {
@@ -3793,27 +3796,27 @@ fn main() {
     let counts: SmeltRecord<String, f64>;
     let ratios: SmeltList<f64>;
     let _smelt_tmp_6: SmeltRecord<String, f64>;
-    let _smelt_tmp_10: String;
-    let _smelt_tmp_12: String;
+    let _smelt_tmp_10: JsString;
+    let _smelt_tmp_12: JsString;
     let _smelt_tmp_14: f64;
-    let _smelt_tmp_15: String;
+    let _smelt_tmp_15: JsString;
     let _smelt_tmp_17: f64;
-    let _smelt_tmp_18: String;
-    let _smelt_tmp_20: String;
+    let _smelt_tmp_18: JsString;
+    let _smelt_tmp_20: JsString;
     let _smelt_tmp_22: f64;
-    let _smelt_tmp_23: String;
-    let _smelt_tmp_26: String;
-    let _smelt_tmp_28: String;
-    let _smelt_tmp_30: String;
-    let _smelt_tmp_32: String;
-    let _smelt_tmp_2: String = encode(SmeltUnion3::M0(7.0));
+    let _smelt_tmp_23: JsString;
+    let _smelt_tmp_26: JsString;
+    let _smelt_tmp_28: JsString;
+    let _smelt_tmp_30: JsString;
+    let _smelt_tmp_32: JsString;
+    let _smelt_tmp_2: JsString = encode(SmeltUnion3::M0(7.0));
     let _ = { println!("{}", _smelt_tmp_2); };
-    let _smelt_tmp_4: String = encode(SmeltUnion3::M1("seven".to_owned()));
+    let _smelt_tmp_4: JsString = encode(SmeltUnion3::M1(JsString::from("seven")));
     let _ = { println!("{}", _smelt_tmp_4); };
-    _smelt_tmp_6 = SmeltRecord::from([("a".to_owned(), 1.0), ("b".to_owned(), 2.5)]);
-    let _smelt_tmp_7: String = encode(SmeltUnion3::M2(_smelt_tmp_6));
+    _smelt_tmp_6 = SmeltRecord::from([(JsString::from("a"), 1.0), (JsString::from("b"), 2.5)]);
+    let _smelt_tmp_7: JsString = encode(SmeltUnion3::M2(_smelt_tmp_6));
     let _ = { println!("{}", _smelt_tmp_7); };
-    counts = SmeltRecord::from([("hits".to_owned(), 3.0), ("ratio".to_owned(), 0.5)]);
+    counts = SmeltRecord::from([(JsString::from("hits"), 3.0), (JsString::from("ratio"), 0.5)]);
     _smelt_tmp_10 = serde_json::to_string(&{ let smelt_record = counts.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::Number(value as f64))).collect())) }).expect("JSON serialization failed");
     let _ = { println!("{}", _smelt_tmp_10); };
     _smelt_tmp_12 = serde_json::to_string(&SmeltUnknown::Number(4.0 as f64)).expect("JSON serialization failed");
@@ -3848,7 +3851,7 @@ fn main() {
 
 use super::*;
 
-pub(crate) fn encode(value: SmeltUnion3) -> String {
-    let _smelt_tmp_1: String = serde_json::to_string(&value.clone().into_smelt_unknown()).expect("JSON serialization failed");
+pub(crate) fn encode(value: SmeltUnion3) -> JsString {
+    let _smelt_tmp_1: JsString = serde_json::to_string(&value.clone().into_smelt_unknown()).expect("JSON serialization failed");
     return _smelt_tmp_1;
 }

@@ -315,6 +315,12 @@ impl RuntimeDemand {
         let mut demand = Self::default();
         demand.scan_declarations(mir);
         demand.scan_types(mir);
+        // A TypeScript body spells its strings `JsString`.
+        if mir.functions.iter().any(|function| function.language == smelt_hir::Language::TypeScript)
+            || mir.closures.iter().any(|closure| closure.language == smelt_hir::Language::TypeScript)
+        {
+            demand.add(Need::JsString);
+        }
         for function in &mir.functions {
             demand.scan_body(mir, &function.locals, &function.blocks, function.return_ty);
             if function.language == smelt_hir::Language::TypeScript {

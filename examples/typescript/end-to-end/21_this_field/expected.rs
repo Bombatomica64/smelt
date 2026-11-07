@@ -66,32 +66,35 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 // @smelt:prelude-end — generated program below
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct User {
-    first: String,
-    last: String,
+    first: JsString,
+    last: JsString,
 }
 
 fn main() {
     let user: User;
-    let _smelt_tmp_1: User = User::new("Ada".to_owned(), "Lovelace".to_owned());
+    let _smelt_tmp_1: User = User::new(JsString::from("Ada"), JsString::from("Lovelace"));
     user = _smelt_tmp_1;
-    let _smelt_tmp_2: String = user.label();
+    let _smelt_tmp_2: JsString = user.label();
     let _ = { println!("{}", _smelt_tmp_2); };
     return;
 }
 
 impl User {
-    fn new(first: String, last: String) -> Self {
+    fn new(first: JsString, last: JsString) -> Self {
     let mut this: Self = User { first: String::new(), last: String::new() };
     this.first = first.clone();
     this.last = last.clone();
     return this;
     }
-    fn label(&self) -> String {
-    let _smelt_tmp_1: String = self.first.clone() + &self.last.clone();
+    fn label(&self) -> JsString {
+    let _smelt_tmp_1: JsString = self.first.clone() + &self.last.clone();
     return _smelt_tmp_1;
     }
 }

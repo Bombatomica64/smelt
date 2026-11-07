@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 thread_local! {
     static SMELT_NEXT_CAPTURE_SCOPE: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
     static SMELT_SHARED_CAPTURES: ::std::cell::RefCell<::std::collections::HashMap<(usize, usize), ::std::rc::Weak<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
@@ -273,10 +276,10 @@ pub(crate) fn body_level(n: f64) -> f64 {
 }
 
 pub(crate) fn hoisted_call(n: f64) -> f64 {
-    let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: Option<String>, closure_arg_2: Option<bool>| {
+    let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: Option<JsString>, closure_arg_2: Option<bool>| {
     let mut _smelt_tmp_8: f64;
     let _smelt_tmp_9: f64;
-    let label_1: String = closure_arg_1.clone().unwrap_or("x".to_owned());
+    let label_1: JsString = closure_arg_1.clone().unwrap_or(JsString::from("x"));
     let _smelt_tmp_5: f64 = smelt_utf16_len(&label_1) as f64;
     let _smelt_tmp_6: f64 = closure_arg_0 + _smelt_tmp_5;
     let _smelt_tmp_7: bool = closure_arg_2.clone().is_none();
@@ -290,7 +293,7 @@ pub(crate) fn hoisted_call(n: f64) -> f64 {
     });
     let combine = _smelt_tmp_3.clone();
     let early: f64 = (combine)(n, None, None);
-    let _smelt_tmp_5: f64 = (combine)(n, Some("abc".to_owned()), Some(true));
+    let _smelt_tmp_5: f64 = (combine)(n, Some(JsString::from("abc")), Some(true));
     let _smelt_tmp_6: f64 = early + _smelt_tmp_5;
     return _smelt_tmp_6;
 }

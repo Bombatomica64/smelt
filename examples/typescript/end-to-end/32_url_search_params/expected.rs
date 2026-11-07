@@ -66,6 +66,9 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
@@ -229,53 +232,53 @@ impl SmeltUrlSearchParams {
 
 // @smelt:prelude-end — generated program below
 fn main() {
-    let mut __smelt_for_item: (String, String);
-    let mut name: String;
-    let mut value: String;
-    let _smelt_tmp_10: SmeltList<String>;
-    let _smelt_tmp_11: String;
-    let _smelt_tmp_13: Option<String>;
-    let _smelt_tmp_14: String;
+    let mut __smelt_for_item: (JsString, JsString);
+    let mut name: JsString;
+    let mut value: JsString;
+    let _smelt_tmp_10: SmeltList<JsString>;
+    let _smelt_tmp_11: JsString;
+    let _smelt_tmp_13: Option<JsString>;
+    let _smelt_tmp_14: JsString;
     let _smelt_tmp_16: bool;
     let _smelt_tmp_17: bool;
-    let _smelt_tmp_20: String;
+    let _smelt_tmp_20: JsString;
     let _smelt_tmp_22: ();
     let _smelt_tmp_23: ();
-    let _smelt_tmp_24: String;
-    let _smelt_tmp_26: SmeltList<String>;
-    let _smelt_tmp_27: SmeltList<String>;
-    let _smelt_tmp_28: SmeltList<String>;
-    let _smelt_tmp_29: String;
-    let _smelt_tmp_31: SmeltList<(String, String)>;
+    let _smelt_tmp_24: JsString;
+    let _smelt_tmp_26: SmeltList<JsString>;
+    let _smelt_tmp_27: SmeltList<JsString>;
+    let _smelt_tmp_28: SmeltList<JsString>;
+    let _smelt_tmp_29: JsString;
+    let _smelt_tmp_31: SmeltList<(JsString, JsString)>;
     let mut _smelt_tmp_32: usize;
     let mut _smelt_tmp_33: usize;
     let mut _smelt_tmp_34: bool;
-    let query: SmeltUrlSearchParams = SmeltUrlSearchParams::from_query(&"?a=1&b=two&a=3".to_owned());
-    let _smelt_tmp_5: () = query.clone().append(&"greeting".to_owned(), &"hello world".to_owned());
-    let _smelt_tmp_6: () = query.clone().set(&"b".to_owned(), &"TWO".to_owned());
-    let _smelt_tmp_7: Option<String> = query.clone().get(&"a".to_owned());
-    let _smelt_tmp_8: String = _smelt_tmp_7.clone().unwrap_or("null".to_owned());
+    let query: SmeltUrlSearchParams = SmeltUrlSearchParams::from_query(&JsString::from("?a=1&b=two&a=3"));
+    let _smelt_tmp_5: () = query.clone().append(&JsString::from("greeting"), &JsString::from("hello world"));
+    let _smelt_tmp_6: () = query.clone().set(&JsString::from("b"), &JsString::from("TWO"));
+    let _smelt_tmp_7: Option<JsString> = query.clone().get(&JsString::from("a"));
+    let _smelt_tmp_8: JsString = _smelt_tmp_7.clone().unwrap_or(JsString::from("null"));
     let _ = { println!("{}", _smelt_tmp_8); };
-    _smelt_tmp_10 = Into::<SmeltList<_>>::into(SmeltList::new(query.clone().get_all(&"a".to_owned())));
-    _smelt_tmp_11 = _smelt_tmp_10.borrow().join(&"|".to_owned());
+    _smelt_tmp_10 = Into::<SmeltList<_>>::into(SmeltList::new(query.clone().get_all(&JsString::from("a"))));
+    _smelt_tmp_11 = _smelt_tmp_10.borrow().join(&JsString::from("|"));
     let _ = { println!("{}", _smelt_tmp_11); };
-    _smelt_tmp_13 = query.clone().get(&"A".to_owned());
-    _smelt_tmp_14 = _smelt_tmp_13.clone().unwrap_or("null".to_owned());
+    _smelt_tmp_13 = query.clone().get(&JsString::from("A"));
+    _smelt_tmp_14 = _smelt_tmp_13.clone().unwrap_or(JsString::from("null"));
     let _ = { println!("{}", _smelt_tmp_14); };
-    _smelt_tmp_16 = query.clone().has(&"greeting".to_owned());
-    _smelt_tmp_17 = query.clone().has(&"missing".to_owned());
+    _smelt_tmp_16 = query.clone().has(&JsString::from("greeting"));
+    _smelt_tmp_17 = query.clone().has(&JsString::from("missing"));
     let _ = { println!("{} {}", _smelt_tmp_16, _smelt_tmp_17); };
     let _ = { println!("{}", smelt_console_number(query.size())); };
     _smelt_tmp_20 = query.clone().to_text();
     let _ = { println!("{}", _smelt_tmp_20); };
-    _smelt_tmp_22 = query.clone().delete(&"a".to_owned());
+    _smelt_tmp_22 = query.clone().delete(&JsString::from("a"));
     _smelt_tmp_23 = query.clone().sort();
     _smelt_tmp_24 = query.clone().to_text();
     let _ = { println!("{}", _smelt_tmp_24); };
     _smelt_tmp_26 = Into::<SmeltList<_>>::into(SmeltList::new(query.clone().keys()));
-    _smelt_tmp_27 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    _smelt_tmp_27 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
     _smelt_tmp_28 = Into::<SmeltList<_>>::into(_smelt_tmp_26.borrow().iter().cloned().chain(_smelt_tmp_27.borrow().iter().cloned()).collect::<Vec<_>>());
-    _smelt_tmp_29 = _smelt_tmp_28.borrow().join(&",".to_owned());
+    _smelt_tmp_29 = _smelt_tmp_28.borrow().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_29); };
     _smelt_tmp_31 = Into::<SmeltList<_>>::into(SmeltList::new(query.entries_in_order()));
     _smelt_tmp_32 = 0;

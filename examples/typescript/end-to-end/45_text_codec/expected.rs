@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -4276,44 +4279,44 @@ fn main() {
     let decoder: SmeltTextDecoder;
     let emoji: SmeltTypedArray;
     let _smelt_tmp_8: f64;
-    let _smelt_tmp_10: String;
-    let _smelt_tmp_13: String;
-    let _smelt_tmp_15: String;
+    let _smelt_tmp_10: JsString;
+    let _smelt_tmp_13: JsString;
+    let _smelt_tmp_15: JsString;
     let _smelt_tmp_17: SmeltTextEncoder;
     let _smelt_tmp_18: SmeltTypedArray;
     let _smelt_tmp_19: f64;
     let _smelt_tmp_21: SmeltTextDecoder;
     let _smelt_tmp_22: SmeltTextEncoder;
     let _smelt_tmp_23: SmeltTypedArray;
-    let _smelt_tmp_24: String;
+    let _smelt_tmp_24: JsString;
     let _smelt_tmp_26: SmeltTextEncoder;
     let _smelt_tmp_28: f64;
     let _smelt_tmp_30: SmeltTextDecoder;
-    let _smelt_tmp_31: String;
+    let _smelt_tmp_31: JsString;
     let encoder: SmeltTextEncoder = SmeltTextEncoder::new();
-    let bytes: SmeltTypedArray = encoder.clone().encode(&"héllo".to_owned());
+    let bytes: SmeltTypedArray = encoder.clone().encode(&JsString::from("héllo"));
     let _smelt_tmp_6: f64 = bytes.clone().length();
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_6)); };
     _smelt_tmp_8 = bytes.clone().byte_length();
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_8)); };
     _smelt_tmp_10 = encoder.encoding();
     let _ = { println!("{}", _smelt_tmp_10); };
-    decoder = SmeltTextDecoder::from_label(&"UTF8".to_owned());
+    decoder = SmeltTextDecoder::from_label(&JsString::from("UTF8"));
     _smelt_tmp_13 = decoder.clone().decode(&bytes);
     let _ = { println!("{}", _smelt_tmp_13); };
     _smelt_tmp_15 = decoder.encoding();
     let _ = { println!("{}", _smelt_tmp_15); };
     _smelt_tmp_17 = SmeltTextEncoder::new();
-    _smelt_tmp_18 = _smelt_tmp_17.encode(&"".to_owned());
+    _smelt_tmp_18 = _smelt_tmp_17.encode(&JsString::new());
     _smelt_tmp_19 = _smelt_tmp_18.length();
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_19)); };
     _smelt_tmp_21 = SmeltTextDecoder::new();
     _smelt_tmp_22 = SmeltTextEncoder::new();
-    _smelt_tmp_23 = _smelt_tmp_22.encode(&"round trip".to_owned());
+    _smelt_tmp_23 = _smelt_tmp_22.encode(&JsString::from("round trip"));
     _smelt_tmp_24 = _smelt_tmp_21.decode(&_smelt_tmp_23);
     let _ = { println!("{}", _smelt_tmp_24); };
     _smelt_tmp_26 = SmeltTextEncoder::new();
-    emoji = _smelt_tmp_26.encode(&"😀".to_owned());
+    emoji = _smelt_tmp_26.encode(&JsString::from("😀"));
     _smelt_tmp_28 = emoji.clone().length();
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_28)); };
     _smelt_tmp_30 = SmeltTextDecoder::new();

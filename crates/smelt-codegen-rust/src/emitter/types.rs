@@ -288,7 +288,8 @@ impl FunctionEmitter<'_> {
             Type::FixedInt(width) => Ok(RustType::raw(width.rust_name())),
             Type::BigInt => Ok(RustType::raw(crate::bigint_prelude::BIGINT_TYPE)),
             Type::Float => Ok(RustType::raw("f64")),
-            Type::String | Type::PyStr => Ok(RustType::raw("String")),
+            Type::String => Ok(RustType::raw("JsString")),
+            Type::PyStr => Ok(RustType::raw("String")),
             Type::Unknown => Ok(RustType::erased()),
             Type::Never => {
                 self.note_backend_erasure(ErasureReason::NeverValue, String::new());

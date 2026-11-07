@@ -70,6 +70,9 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
@@ -125,8 +128,8 @@ impl<T: Clone + ::std::cmp::Eq + ::std::hash::Hash> PartialEq for SmeltPrimSet<T
 
 // @smelt:prelude-end — generated program below
 fn contains() -> bool {
-    let values: SmeltPrimSet<String> = SmeltPrimSet::from(["a".to_owned(), "b".to_owned()]);
-    let _smelt_tmp_2: bool = values.contains(&"b".to_owned());
+    let values: SmeltPrimSet<JsString> = SmeltPrimSet::from([JsString::from("a"), JsString::from("b")]);
+    let _smelt_tmp_2: bool = values.contains(&JsString::from("b"));
     return _smelt_tmp_2;
 }
 

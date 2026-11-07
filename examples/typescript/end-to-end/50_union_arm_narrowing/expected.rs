@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -4555,7 +4558,7 @@ impl SmeltFromUnknown for SmeltBlob {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Doc {
-    name: String,
+    name: JsString,
 }
 impl IntoSmeltUnknown for Doc {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -4578,7 +4581,7 @@ impl SmeltFromUnknown for Doc {
 
 #[derive(Clone)]
 pub enum SmeltUnion2 {
-    M0(String),
+    M0(JsString),
     M1(Doc),
 }
 impl IntoSmeltUnknown for SmeltUnion2 {
@@ -4620,7 +4623,7 @@ impl Default for SmeltUnion2 {
 
 #[derive(Clone)]
 pub enum SmeltUnion14 {
-    M0(String),
+    M0(JsString),
     M1(SmeltBlob),
 }
 impl IntoSmeltUnknown for SmeltUnion14 {
@@ -4667,17 +4670,17 @@ fn main() {
     let text: Option<SmeltUnion14>;
     let missing: Option<SmeltUnion14>;
     let mut value: SmeltUnion14;
-    let _smelt_tmp_20: SmeltList<String>;
+    let _smelt_tmp_20: SmeltList<JsString>;
     let _smelt_tmp_21: SmeltBlob;
     let _smelt_tmp_22: ();
     let _smelt_tmp_23: ();
     let _smelt_tmp_25: bool;
     let _smelt_tmp_26: SmeltUnion14;
     let _smelt_tmp_27: SmeltBlob;
-    let _smelt_tmp_28: String;
+    let _smelt_tmp_28: JsString;
     let _smelt_tmp_29: SmeltUnion14;
     let _smelt_tmp_30: SmeltBlob;
-    let _smelt_tmp_31: String;
+    let _smelt_tmp_31: JsString;
     let _smelt_tmp_32: SmeltUnion14;
     let _smelt_tmp_33: SmeltBlob;
     let _smelt_tmp_34: f64;
@@ -4689,28 +4692,28 @@ fn main() {
     let mut _smelt_tmp_48: bool;
     let mut _smelt_tmp_49: bool;
     let mut _smelt_tmp_50: SmeltBlob;
-    let mut _smelt_tmp_51: String;
-    let mut _smelt_tmp_53: String;
+    let mut _smelt_tmp_51: JsString;
+    let mut _smelt_tmp_53: JsString;
     let _smelt_tmp_6: SmeltUnion2 = pick(true);
-    let _smelt_tmp_7: String = label(_smelt_tmp_6);
+    let _smelt_tmp_7: JsString = label(_smelt_tmp_6);
     let _smelt_tmp_8: SmeltUnion2 = pick(false);
-    let _smelt_tmp_9: String = label(_smelt_tmp_8);
+    let _smelt_tmp_9: JsString = label(_smelt_tmp_8);
     let _ = { println!("{} {}", _smelt_tmp_7, _smelt_tmp_9); };
     let _smelt_tmp_11: SmeltUnion2 = branches(true);
-    let _smelt_tmp_12: String = label(_smelt_tmp_11);
+    let _smelt_tmp_12: JsString = label(_smelt_tmp_11);
     let _smelt_tmp_13: SmeltUnion2 = branches(false);
-    let _smelt_tmp_14: String = label(_smelt_tmp_13);
+    let _smelt_tmp_14: JsString = label(_smelt_tmp_13);
     let _ = { println!("{} {}", _smelt_tmp_12, _smelt_tmp_14); };
     let _smelt_tmp_16: SmeltUnion2 = pick(true);
     chosen = _smelt_tmp_16;
-    let _smelt_tmp_17: String = label(chosen);
+    let _smelt_tmp_17: JsString = label(chosen);
     let _ = { println!("{}", _smelt_tmp_17); };
     form = SmeltFormData::new();
-    _smelt_tmp_20 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["hi".to_owned()]; smelt_list_items }));
-    _smelt_tmp_21 = SmeltBlob::from_string_parts((_smelt_tmp_20).clone().into(), ("text/plain".to_owned()).clone(), Some(("note.txt".to_owned()).clone()), None);
-    _smelt_tmp_22 = form.clone().append(&"doc".to_owned(), smelt_form_data_file_value((_smelt_tmp_21).clone(), None));
-    _smelt_tmp_23 = form.clone().append(&"text".to_owned(), SmeltFormDataValue::Text(("plain".to_owned()).clone()));
-    entry = form.clone().get(&"doc".to_owned()).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion14::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion14::M1(smelt_file) });
+    _smelt_tmp_20 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("hi")]; smelt_list_items }));
+    _smelt_tmp_21 = SmeltBlob::from_string_parts((_smelt_tmp_20).clone().into(), (JsString::from("text/plain")).clone(), Some((JsString::from("note.txt")).clone()), None);
+    _smelt_tmp_22 = form.clone().append(&JsString::from("doc"), smelt_form_data_file_value((_smelt_tmp_21).clone(), None));
+    _smelt_tmp_23 = form.clone().append(&JsString::from("text"), SmeltFormDataValue::Text((JsString::from("plain")).clone()));
+    entry = form.clone().get(&JsString::from("doc")).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion14::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion14::M1(smelt_file) });
     _smelt_tmp_25 = matches!(entry.clone(), Some(SmeltUnion14::M1(_)));
     if _smelt_tmp_25 {
     _smelt_tmp_26 = entry.clone().expect("optional value was absent after narrowing");
@@ -4724,21 +4727,21 @@ fn main() {
     _smelt_tmp_34 = _smelt_tmp_33.size();
     let _ = { println!("{} {} {}", _smelt_tmp_28, _smelt_tmp_31, smelt_console_number(_smelt_tmp_34)); };
     } else {
-    let _ = { println!("{}", "not a file".to_owned()); };
+    let _ = { println!("{}", JsString::from("not a file")); };
     }
-    text = form.clone().get(&"text".to_owned()).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion14::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion14::M1(smelt_file) });
+    text = form.clone().get(&JsString::from("text")).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion14::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion14::M1(smelt_file) });
     _smelt_tmp_38 = matches!(text, Some(SmeltUnion14::M1(_)));
     if _smelt_tmp_38 {
-    let _ = { println!("{}", "unexpectedly a file".to_owned()); };
+    let _ = { println!("{}", JsString::from("unexpectedly a file")); };
     } else {
-    let _ = { println!("{}", "not a file".to_owned()); };
+    let _ = { println!("{}", JsString::from("not a file")); };
     }
-    missing = form.clone().get(&"absent".to_owned()).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion14::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion14::M1(smelt_file) });
+    missing = form.clone().get(&JsString::from("absent")).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion14::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion14::M1(smelt_file) });
     _smelt_tmp_42 = matches!(missing, Some(SmeltUnion14::M1(_)));
     if _smelt_tmp_42 {
-    let _ = { println!("{}", "unexpectedly a file".to_owned()); };
+    let _ = { println!("{}", JsString::from("unexpectedly a file")); };
     } else {
-    let _ = { println!("{}", "absent is not a file".to_owned()); };
+    let _ = { println!("{}", JsString::from("absent is not a file")); };
     }
     _smelt_tmp_45 = Into::<SmeltList<_>>::into(SmeltList::new(form.values().into_iter().map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion14::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion14::M1(smelt_file) }).collect::<Vec<_>>()));
     _smelt_tmp_46 = 0;
@@ -4751,12 +4754,12 @@ fn main() {
     if _smelt_tmp_49 {
     _smelt_tmp_50 = match value { SmeltUnion14::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_51 = _smelt_tmp_50.file_name();
-    let _ = { println!("{} {}", "file".to_owned(), _smelt_tmp_51); };
+    let _ = { println!("{} {}", JsString::from("file"), _smelt_tmp_51); };
     _smelt_tmp_46 = _smelt_tmp_46 + 1;
     continue;
     } else {
     _smelt_tmp_53 = match value { SmeltUnion14::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    let _ = { println!("{} {}", "text".to_owned(), _smelt_tmp_53); };
+    let _ = { println!("{} {}", JsString::from("text"), _smelt_tmp_53); };
     _smelt_tmp_46 = _smelt_tmp_46 + 1;
     continue;
     }
@@ -4765,7 +4768,7 @@ fn main() {
 }
 
 impl Doc {
-    fn new(name: String) -> Self {
+    fn new(name: JsString) -> Self {
     let mut this: Self = Doc { name: String::new() };
     this.name = name.clone();
     return this;
@@ -4786,36 +4789,36 @@ use super::*;
 pub(crate) fn pick(flag: bool) -> SmeltUnion2 {
     let mut _smelt_tmp_1: SmeltUnion2;
     if flag {
-    let _smelt_tmp_2: Doc = Doc::new("doc".to_owned());
+    let _smelt_tmp_2: Doc = Doc::new(JsString::from("doc"));
     _smelt_tmp_1 = SmeltUnion2::M1(_smelt_tmp_2);
     } else {
-    _smelt_tmp_1 = SmeltUnion2::M0("text".to_owned());
+    _smelt_tmp_1 = SmeltUnion2::M0(JsString::from("text"));
     }
     return _smelt_tmp_1;
 }
 
 pub(crate) fn branches(flag: bool) -> SmeltUnion2 {
     if flag {
-    let _smelt_tmp_1: Doc = Doc::new("doc".to_owned());
+    let _smelt_tmp_1: Doc = Doc::new(JsString::from("doc"));
     return SmeltUnion2::M1(_smelt_tmp_1);
     } else {
-    return SmeltUnion2::M0("text".to_owned());
+    return SmeltUnion2::M0(JsString::from("text"));
     }
 }
 
-pub(crate) fn label(value: SmeltUnion2) -> String {
-    let _smelt_tmp_2: String;
-    let _smelt_tmp_3: String;
+pub(crate) fn label(value: SmeltUnion2) -> JsString {
+    let _smelt_tmp_2: JsString;
+    let _smelt_tmp_3: JsString;
     let _smelt_tmp_4: Doc;
-    let _smelt_tmp_5: String;
+    let _smelt_tmp_5: JsString;
     let _smelt_tmp_1: bool = matches!(value.clone(), SmeltUnion2::M0(_));
     if _smelt_tmp_1 {
     _smelt_tmp_2 = match value.clone() { SmeltUnion2::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_3 = "text:".to_owned() + &_smelt_tmp_2;
+    _smelt_tmp_3 = JsString::from("text:") + &_smelt_tmp_2;
     return _smelt_tmp_3;
     } else {
     _smelt_tmp_4 = match value.clone() { SmeltUnion2::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_5 = "doc:".to_owned() + &_smelt_tmp_4.name.clone();
+    _smelt_tmp_5 = JsString::from("doc:") + &_smelt_tmp_4.name.clone();
     return _smelt_tmp_5;
     }
 }

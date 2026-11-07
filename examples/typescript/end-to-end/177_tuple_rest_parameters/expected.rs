@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3779,12 +3782,12 @@ impl SmeltFromUnknown for SmeltMatch {
 #[derive(Clone)]
 #[allow(dead_code)]
 struct Respond {
-    __smelt_call: ::std::rc::Rc<dyn Fn(String, Option<f64>, Option<String>) -> String>,
+    __smelt_call: ::std::rc::Rc<dyn Fn(JsString, Option<f64>, Option<JsString>) -> JsString>,
 }
 impl Default for Respond {
     fn default() -> Self {
         Self {
-            __smelt_call: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, Option<f64>, Option<String>) -> String> = ::std::rc::Rc::new(move |arg0: String, arg1: Option<f64>, arg2: Option<String>| -> String { String::new() }); smelt_default_callback },
+            __smelt_call: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString, Option<f64>, Option<JsString>) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString, arg1: Option<f64>, arg2: Option<JsString>| -> JsString { String::new() }); smelt_default_callback },
         }
     }
 }
@@ -3796,7 +3799,7 @@ impl ::std::fmt::Debug for Respond {
 impl IntoSmeltUnknown for Respond {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("__smelt_call".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(String, Option<f64>, Option<String>) -> String> = self.__smelt_call.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(2).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
+        ("__smelt_call".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(JsString, Option<f64>, Option<JsString>) -> JsString> = self.__smelt_call.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(2).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
         ])))
     }
 }
@@ -3806,7 +3809,7 @@ impl SmeltFromUnknown for Respond {
         if let SmeltUnknown::Object(object) = value {
             if let Some(field) = object.get("__smelt_call") {
                 let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
-                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String, Option<f64>, Option<String>) -> String>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
+                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(JsString, Option<f64>, Option<JsString>) -> JsString>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
             }
         }
         result
@@ -3880,65 +3883,65 @@ impl SmeltFromUnknown for Ctx {
 }
 
 fn main() {
-    let __smelt_spread: (String, f64);
+    let __smelt_spread: (JsString, f64);
     let ctx: Ctx;
-    let _smelt_tmp_12: String;
-    let _smelt_tmp_16: String;
-    let _smelt_tmp_17: String;
-    let _smelt_tmp_21: ::std::rc::Rc<dyn Fn(String, Option<f64>, Option<String>) -> String>;
-    let _smelt_tmp_22: String;
-    let _smelt_tmp_23: ::std::rc::Rc<dyn Fn(String, Option<f64>, Option<String>) -> String>;
-    let _smelt_tmp_24: String;
-    let _smelt_tmp_25: ::std::rc::Rc<dyn Fn(String, Option<f64>, Option<String>) -> String>;
-    let _smelt_tmp_26: String;
-    let _smelt_tmp_6 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: f64, closure_arg_2: bool| {
-    let args: (String, f64, bool) = (closure_arg_0.clone(), closure_arg_1, closure_arg_2);
-    let _smelt_tmp_5: String = args.clone().0.clone();
-    let _smelt_tmp_6: String = "".to_owned() + &_smelt_tmp_5.clone();
+    let _smelt_tmp_12: JsString;
+    let _smelt_tmp_16: JsString;
+    let _smelt_tmp_17: JsString;
+    let _smelt_tmp_21: ::std::rc::Rc<dyn Fn(JsString, Option<f64>, Option<JsString>) -> JsString>;
+    let _smelt_tmp_22: JsString;
+    let _smelt_tmp_23: ::std::rc::Rc<dyn Fn(JsString, Option<f64>, Option<JsString>) -> JsString>;
+    let _smelt_tmp_24: JsString;
+    let _smelt_tmp_25: ::std::rc::Rc<dyn Fn(JsString, Option<f64>, Option<JsString>) -> JsString>;
+    let _smelt_tmp_26: JsString;
+    let _smelt_tmp_6 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: f64, closure_arg_2: bool| {
+    let args: (JsString, f64, bool) = (closure_arg_0.clone(), closure_arg_1, closure_arg_2);
+    let _smelt_tmp_5: JsString = args.clone().0.clone();
+    let _smelt_tmp_6: JsString = JsString::new() + &_smelt_tmp_5.clone();
     let _smelt_tmp_7: f64 = args.clone().1.clone();
-    let _smelt_tmp_8: String = _smelt_tmp_6.clone() + &smelt_number_to_string(_smelt_tmp_7);
+    let _smelt_tmp_8: JsString = _smelt_tmp_6.clone() + &smelt_number_to_string(_smelt_tmp_7);
     let _smelt_tmp_9: bool = args.clone().2.clone();
-    let _smelt_tmp_10: String = _smelt_tmp_8.clone() + &_smelt_tmp_9.to_string();
+    let _smelt_tmp_10: JsString = _smelt_tmp_8.clone() + &_smelt_tmp_9.to_string();
     _smelt_tmp_10.clone()
     });
     let triple = _smelt_tmp_6.clone();
-    let _smelt_tmp_7 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: f64| {
-    let args: (String, f64) = (closure_arg_0.clone(), closure_arg_1);
-    let __smelt_spread: (String, f64) = args.clone();
-    let _smelt_tmp_5: String = pair(__smelt_spread.0.clone(), Some(__smelt_spread.1));
+    let _smelt_tmp_7 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: f64| {
+    let args: (JsString, f64) = (closure_arg_0.clone(), closure_arg_1);
+    let __smelt_spread: (JsString, f64) = args.clone();
+    let _smelt_tmp_5: JsString = pair(__smelt_spread.0.clone(), Some(__smelt_spread.1));
     _smelt_tmp_5.clone()
     });
     let handler = _smelt_tmp_7.clone();
-    let _smelt_tmp_8 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: f64| {
-    let args: (String, f64) = (closure_arg_0.clone(), closure_arg_1);
+    let _smelt_tmp_8 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: f64| {
+    let args: (JsString, f64) = (closure_arg_0.clone(), closure_arg_1);
     let _smelt_tmp_4: f64 = 2 as f64;
-    let _smelt_tmp_5: String = "".to_owned() + &smelt_number_to_string(_smelt_tmp_4);
-    let _smelt_tmp_6: String = _smelt_tmp_5.clone() + &":".to_owned();
-    let _smelt_tmp_7: String = args.clone().0.clone();
-    let _smelt_tmp_8: String = _smelt_tmp_6.clone() + &_smelt_tmp_7.clone();
+    let _smelt_tmp_5: JsString = JsString::new() + &smelt_number_to_string(_smelt_tmp_4);
+    let _smelt_tmp_6: JsString = _smelt_tmp_5.clone() + &JsString::from(":");
+    let _smelt_tmp_7: JsString = args.clone().0.clone();
+    let _smelt_tmp_8: JsString = _smelt_tmp_6.clone() + &_smelt_tmp_7.clone();
     _smelt_tmp_8.clone()
     });
     let forward = _smelt_tmp_8.clone();
-    let values: (String, f64) = ("z".to_owned(), 2.0);
-    let _smelt_tmp_10: String = pair("a".to_owned(), None::<f64>);
-    let _smelt_tmp_11: String = pair("b".to_owned(), Some(3.0));
-    _smelt_tmp_12 = (triple)("x".to_owned(), 1.0, true);
+    let values: (JsString, f64) = (JsString::from("z"), 2.0);
+    let _smelt_tmp_10: JsString = pair(JsString::from("a"), None::<f64>);
+    let _smelt_tmp_11: JsString = pair(JsString::from("b"), Some(3.0));
+    _smelt_tmp_12 = (triple)(JsString::from("x"), 1.0, true);
     let _smelt_tmp_13: Box_ = Box_::new();
-    let _smelt_tmp_14: String = _smelt_tmp_13.put("ab".to_owned(), 2.0);
+    let _smelt_tmp_14: JsString = _smelt_tmp_13.put(JsString::from("ab"), 2.0);
     let _ = { println!("{} {} {} {}", _smelt_tmp_10, _smelt_tmp_11, _smelt_tmp_12, _smelt_tmp_14); };
     __smelt_spread = values;
-    _smelt_tmp_16 = (handler)("h".to_owned(), 4.0);
-    _smelt_tmp_17 = (forward)("f".to_owned(), 1.0);
-    let _smelt_tmp_18: String = pair(__smelt_spread.0.clone(), Some(__smelt_spread.1));
+    _smelt_tmp_16 = (handler)(JsString::from("h"), 4.0);
+    _smelt_tmp_17 = (forward)(JsString::from("f"), 1.0);
+    let _smelt_tmp_18: JsString = pair(__smelt_spread.0.clone(), Some(__smelt_spread.1));
     let _ = { println!("{} {} {}", _smelt_tmp_16, _smelt_tmp_17, _smelt_tmp_18); };
     let _smelt_tmp_20: Ctx = Ctx::new();
     ctx = _smelt_tmp_20;
     _smelt_tmp_21 = ctx.__smelt_get_respond().clone().__smelt_call.clone();
-    _smelt_tmp_22 = (_smelt_tmp_21)("a".to_owned(), None, None);
+    _smelt_tmp_22 = (_smelt_tmp_21)(JsString::from("a"), None, None);
     _smelt_tmp_23 = ctx.__smelt_get_respond().clone().__smelt_call.clone();
-    _smelt_tmp_24 = (_smelt_tmp_23)("b".to_owned(), Some(301.0), None);
+    _smelt_tmp_24 = (_smelt_tmp_23)(JsString::from("b"), Some(301.0), None);
     _smelt_tmp_25 = ctx.__smelt_get_respond().clone().__smelt_call.clone();
-    _smelt_tmp_26 = (_smelt_tmp_25)("c".to_owned(), Some(302.0), Some("x".to_owned()));
+    _smelt_tmp_26 = (_smelt_tmp_25)(JsString::from("c"), Some(302.0), Some(JsString::from("x")));
     let _ = { println!("{} {} {}", _smelt_tmp_22, _smelt_tmp_24, _smelt_tmp_26); };
     return;
 }
@@ -3948,11 +3951,11 @@ impl Box_ {
     let this: Self = Box_ {  };
     return this;
     }
-    fn put(&self, args__0: String, args__1: f64) -> String {
-    let args: (String, f64) = (args__0.clone(), args__1);
-    let _smelt_tmp_5: String = args.clone().0.clone();
+    fn put(&self, args__0: JsString, args__1: f64) -> JsString {
+    let args: (JsString, f64) = (args__0.clone(), args__1);
+    let _smelt_tmp_5: JsString = args.clone().0.clone();
     let _smelt_tmp_6: f64 = args.1.clone();
-    let _smelt_tmp_7: String = _smelt_tmp_5.repeat(_smelt_tmp_6 as usize);
+    let _smelt_tmp_7: JsString = _smelt_tmp_5.repeat(_smelt_tmp_6 as usize);
     return _smelt_tmp_7;
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
@@ -3973,29 +3976,29 @@ impl Ctx {
     let this: Self = Ctx(::std::rc::Rc::new(::std::cell::RefCell::new(CtxInner {  })));
     return this;
     }
-    fn _respond(&self, data: String, status: Option<f64>, note: Option<String>) -> String {
-    let _smelt_tmp_4: String = "".to_owned() + &data.clone();
-    let _smelt_tmp_5: String = _smelt_tmp_4 + &":".to_owned();
+    fn _respond(&self, data: JsString, status: Option<f64>, note: Option<JsString>) -> JsString {
+    let _smelt_tmp_4: JsString = JsString::new() + &data.clone();
+    let _smelt_tmp_5: JsString = _smelt_tmp_4 + &JsString::from(":");
     let _smelt_tmp_6: f64 = status.clone().unwrap_or(200.0);
-    let _smelt_tmp_7: String = _smelt_tmp_5 + &smelt_number_to_string(_smelt_tmp_6);
-    let _smelt_tmp_8: String = _smelt_tmp_7 + &":".to_owned();
-    let _smelt_tmp_9: String = note.clone().unwrap_or("-".to_owned());
-    let _smelt_tmp_10: String = _smelt_tmp_8 + &_smelt_tmp_9;
+    let _smelt_tmp_7: JsString = _smelt_tmp_5 + &smelt_number_to_string(_smelt_tmp_6);
+    let _smelt_tmp_8: JsString = _smelt_tmp_7 + &JsString::from(":");
+    let _smelt_tmp_9: JsString = note.clone().unwrap_or(JsString::from("-"));
+    let _smelt_tmp_10: JsString = _smelt_tmp_8 + &_smelt_tmp_9;
     return _smelt_tmp_10;
     }
     fn __smelt_get_respond(&self) -> Respond {
     let _smelt_tmp_1 = ::std::rc::Rc::new({
     let smelt_self = self.clone();
-    move |closure_arg_0: String, closure_arg_1: Option<f64>, closure_arg_2: Option<String>| {
-    let args: (String, Option<f64>, Option<String>) = (closure_arg_0.clone(), closure_arg_1.clone(), closure_arg_2.clone());
-    let __smelt_spread: (String, Option<f64>, Option<String>) = args.clone();
+    move |closure_arg_0: JsString, closure_arg_1: Option<f64>, closure_arg_2: Option<JsString>| {
+    let args: (JsString, Option<f64>, Option<JsString>) = (closure_arg_0.clone(), closure_arg_1.clone(), closure_arg_2.clone());
+    let __smelt_spread: (JsString, Option<f64>, Option<JsString>) = args.clone();
     let _smelt_tmp_7: Option<f64> = __smelt_spread.clone().1.clone();
-    let _smelt_tmp_8: Option<String> = __smelt_spread.clone().2.clone();
-    let _smelt_tmp_9: String = smelt_self._respond(__smelt_spread.0.clone(), _smelt_tmp_7.clone(), _smelt_tmp_8.clone());
+    let _smelt_tmp_8: Option<JsString> = __smelt_spread.clone().2.clone();
+    let _smelt_tmp_9: JsString = smelt_self._respond(__smelt_spread.0.clone(), _smelt_tmp_7.clone(), _smelt_tmp_8.clone());
     _smelt_tmp_9.clone()
     }
 });
-    return Respond { __smelt_call: { let smelt_callback = _smelt_tmp_1.clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(String, Option<f64>, Option<String>) -> String> = ::std::rc::Rc::new(move |arg0: String, arg1: Option<f64>, arg2: Option<String>| (smelt_callback)(arg0, arg1, arg2)); smelt_adapted } };
+    return Respond { __smelt_call: { let smelt_callback = _smelt_tmp_1.clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(JsString, Option<f64>, Option<JsString>) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString, arg1: Option<f64>, arg2: Option<JsString>| (smelt_callback)(arg0, arg1, arg2)); smelt_adapted } };
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
     ///
@@ -4017,13 +4020,13 @@ impl Ctx {
 
 use super::*;
 
-pub(crate) fn pair(args__0: String, args__1: Option<f64>) -> String {
-    let args: (String, Option<f64>) = (args__0.clone(), args__1.clone());
-    let _smelt_tmp_4: String = args.clone().0.clone();
-    let _smelt_tmp_5: String = "".to_owned() + &_smelt_tmp_4;
-    let _smelt_tmp_6: String = _smelt_tmp_5 + &":".to_owned();
+pub(crate) fn pair(args__0: JsString, args__1: Option<f64>) -> JsString {
+    let args: (JsString, Option<f64>) = (args__0.clone(), args__1.clone());
+    let _smelt_tmp_4: JsString = args.clone().0.clone();
+    let _smelt_tmp_5: JsString = JsString::new() + &_smelt_tmp_4;
+    let _smelt_tmp_6: JsString = _smelt_tmp_5 + &JsString::from(":");
     let _smelt_tmp_7: Option<f64> = args.1.clone();
     let _smelt_tmp_8: f64 = _smelt_tmp_7.clone().unwrap_or(0.0);
-    let _smelt_tmp_9: String = _smelt_tmp_6 + &smelt_number_to_string(_smelt_tmp_8);
+    let _smelt_tmp_9: JsString = _smelt_tmp_6 + &smelt_number_to_string(_smelt_tmp_8);
     return _smelt_tmp_9;
 }

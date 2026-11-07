@@ -66,6 +66,9 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// `util.inspect` state for one `console.log` argument (Node's `ctx`).
 #[derive(Default)]
 struct SmeltInspectContext {
@@ -387,7 +390,7 @@ smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10, L 1
 
 // @smelt:prelude-end — generated program below
 fn main() {
-    let pair: (String, f64) = ("age".to_owned(), 42.0);
+    let pair: (JsString, f64) = (JsString::from("age"), 42.0);
     let _ = { println!("{}", SmeltInspect::smelt_console_text(&pair)); };
     return;
 }

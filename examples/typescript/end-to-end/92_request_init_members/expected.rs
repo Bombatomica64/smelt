@@ -71,6 +71,9 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
@@ -536,25 +539,25 @@ impl SmeltRequest {
 // @smelt:prelude-end — generated program below
 fn main() {
     let full: SmeltRequest;
-    let _smelt_tmp_8: String;
-    let _smelt_tmp_9: String;
-    let _smelt_tmp_10: String;
+    let _smelt_tmp_8: JsString;
+    let _smelt_tmp_9: JsString;
+    let _smelt_tmp_10: JsString;
     let _smelt_tmp_12: bool;
-    let _smelt_tmp_13: String;
-    let _smelt_tmp_14: String;
-    let _smelt_tmp_16: String;
-    let _smelt_tmp_17: String;
+    let _smelt_tmp_13: JsString;
+    let _smelt_tmp_14: JsString;
+    let _smelt_tmp_16: JsString;
+    let _smelt_tmp_17: JsString;
     let _smelt_tmp_19: SmeltRequest;
     let _smelt_tmp_22: SmeltRequest;
     let _smelt_tmp_25: SmeltRequest;
     let _smelt_tmp_28: SmeltRequest;
     let _smelt_tmp_31: SmeltRequest;
     let _smelt_tmp_34: SmeltRequest;
-    let plain: SmeltRequest = SmeltRequest::from_parts_with_init(&"https://a.test/one".to_owned(), "GET".to_owned(), SmeltHeaders::new(), SmeltBody::empty(), SmeltRequestInit::default());
-    let _smelt_tmp_3: String = describe(plain);
+    let plain: SmeltRequest = SmeltRequest::from_parts_with_init(&JsString::from("https://a.test/one"), "GET".to_owned(), SmeltHeaders::new(), SmeltBody::empty(), SmeltRequestInit::default());
+    let _smelt_tmp_3: JsString = describe(plain);
     let _ = { println!("{}", _smelt_tmp_3); };
-    full = SmeltRequest::from_parts_with_init(&"https://a.test/two".to_owned(), "GET".to_owned(), SmeltHeaders::new(), SmeltBody::empty(), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init.cache = "no-store".to_owned(); smelt_request_init.credentials = "include".to_owned(); smelt_request_init.integrity = "sha256-abc".to_owned(); smelt_request_init.keepalive = true; smelt_request_init.mode = "same-origin".to_owned(); smelt_request_init.redirect = "manual".to_owned(); smelt_request_init.referrer = SmeltRequestInit::serialize_referrer(&"https://c.test".to_owned()); smelt_request_init.referrer_policy = "no-referrer".to_owned(); smelt_request_init });
-    let _smelt_tmp_6: String = describe(full.clone());
+    full = SmeltRequest::from_parts_with_init(&JsString::from("https://a.test/two"), "GET".to_owned(), SmeltHeaders::new(), SmeltBody::empty(), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init.cache = JsString::from("no-store"); smelt_request_init.credentials = JsString::from("include"); smelt_request_init.integrity = JsString::from("sha256-abc"); smelt_request_init.keepalive = true; smelt_request_init.mode = JsString::from("same-origin"); smelt_request_init.redirect = JsString::from("manual"); smelt_request_init.referrer = SmeltRequestInit::serialize_referrer(&JsString::from("https://c.test")); smelt_request_init.referrer_policy = JsString::from("no-referrer"); smelt_request_init });
+    let _smelt_tmp_6: JsString = describe(full.clone());
     let _ = { println!("{}", _smelt_tmp_6); };
     _smelt_tmp_8 = full.clone().cache();
     _smelt_tmp_9 = full.clone().credentials();
@@ -568,22 +571,22 @@ fn main() {
     _smelt_tmp_17 = full.clone().referrer_policy();
     let _ = { println!("{} {}", _smelt_tmp_16, _smelt_tmp_17); };
     _smelt_tmp_19 = SmeltRequest::from_parts_with_init(&full.clone().url(), full.clone().method(), full.clone().headers(), SmeltBody::take_from_source(&full.clone().body()), { let mut smelt_request_init = full.clone().init(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
-    let _smelt_tmp_20: String = describe(_smelt_tmp_19);
+    let _smelt_tmp_20: JsString = describe(_smelt_tmp_19);
     let _ = { println!("{}", _smelt_tmp_20); };
     _smelt_tmp_22 = SmeltRequest::from_parts_with_init(&full.clone().url(), full.clone().method(), full.clone().headers(), SmeltBody::take_from_source(&full.clone().body()), { let mut smelt_request_init = full.clone().init(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
-    let _smelt_tmp_23: String = describe(_smelt_tmp_22);
+    let _smelt_tmp_23: JsString = describe(_smelt_tmp_22);
     let _ = { println!("{}", _smelt_tmp_23); };
-    _smelt_tmp_25 = SmeltRequest::from_parts_with_init(&full.clone().url(), "POST".to_owned(), full.clone().headers(), SmeltBody::take_from_source(&full.clone().body()), { let mut smelt_request_init = full.clone().init(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
-    let _smelt_tmp_26: String = describe(_smelt_tmp_25);
+    _smelt_tmp_25 = SmeltRequest::from_parts_with_init(&full.clone().url(), JsString::from("POST"), full.clone().headers(), SmeltBody::take_from_source(&full.clone().body()), { let mut smelt_request_init = full.clone().init(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
+    let _smelt_tmp_26: JsString = describe(_smelt_tmp_25);
     let _ = { println!("{}", _smelt_tmp_26); };
-    _smelt_tmp_28 = SmeltRequest::from_parts_with_init(&full.clone().url(), full.clone().method(), full.clone().headers(), SmeltBody::take_from_source(&full.clone().body()), { let mut smelt_request_init = full.clone().init(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init.referrer = SmeltRequestInit::serialize_referrer(&"https://d.test/here".to_owned()); smelt_request_init });
-    let _smelt_tmp_29: String = describe(_smelt_tmp_28);
+    _smelt_tmp_28 = SmeltRequest::from_parts_with_init(&full.clone().url(), full.clone().method(), full.clone().headers(), SmeltBody::take_from_source(&full.clone().body()), { let mut smelt_request_init = full.clone().init(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init.referrer = SmeltRequestInit::serialize_referrer(&JsString::from("https://d.test/here")); smelt_request_init });
+    let _smelt_tmp_29: JsString = describe(_smelt_tmp_28);
     let _ = { println!("{}", _smelt_tmp_29); };
     _smelt_tmp_31 = full.tee();
-    let _smelt_tmp_32: String = describe(_smelt_tmp_31);
+    let _smelt_tmp_32: JsString = describe(_smelt_tmp_31);
     let _ = { println!("{}", _smelt_tmp_32); };
-    _smelt_tmp_34 = SmeltRequest::from_parts_with_init(&"https://a.test/three".to_owned(), "PUT".to_owned(), SmeltHeaders::new(), SmeltBody::empty(), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
-    let _smelt_tmp_35: String = describe(_smelt_tmp_34);
+    _smelt_tmp_34 = SmeltRequest::from_parts_with_init(&JsString::from("https://a.test/three"), JsString::from("PUT"), SmeltHeaders::new(), SmeltBody::empty(), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
+    let _smelt_tmp_35: JsString = describe(_smelt_tmp_34);
     let _ = { println!("{}", _smelt_tmp_35); };
     return;
 }
@@ -595,17 +598,17 @@ fn main() {
 
 use super::*;
 
-pub(crate) fn describe(request: SmeltRequest) -> String {
-    let _smelt_tmp_1: String = request.clone().cache();
-    let _smelt_tmp_2: String = request.clone().credentials();
-    let _smelt_tmp_3: String = request.clone().integrity();
+pub(crate) fn describe(request: SmeltRequest) -> JsString {
+    let _smelt_tmp_1: JsString = request.clone().cache();
+    let _smelt_tmp_2: JsString = request.clone().credentials();
+    let _smelt_tmp_3: JsString = request.clone().integrity();
     let _smelt_tmp_4: bool = request.clone().keepalive();
-    let _smelt_tmp_5: String = "".to_owned() + &_smelt_tmp_4.to_string();
-    let _smelt_tmp_6: String = request.clone().mode();
-    let _smelt_tmp_7: String = request.clone().redirect();
-    let _smelt_tmp_8: String = request.clone().referrer();
-    let _smelt_tmp_9: String = request.clone().referrer_policy();
-    let _smelt_tmp_10: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![_smelt_tmp_1.clone(), _smelt_tmp_2.clone(), _smelt_tmp_3.clone(), _smelt_tmp_5.clone(), _smelt_tmp_6.clone(), _smelt_tmp_7.clone(), _smelt_tmp_8.clone(), _smelt_tmp_9.clone()]; smelt_list_items }));
-    let _smelt_tmp_11: String = _smelt_tmp_10.borrow().join(&"|".to_owned());
+    let _smelt_tmp_5: JsString = JsString::new() + &_smelt_tmp_4.to_string();
+    let _smelt_tmp_6: JsString = request.clone().mode();
+    let _smelt_tmp_7: JsString = request.clone().redirect();
+    let _smelt_tmp_8: JsString = request.clone().referrer();
+    let _smelt_tmp_9: JsString = request.clone().referrer_policy();
+    let _smelt_tmp_10: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![_smelt_tmp_1.clone(), _smelt_tmp_2.clone(), _smelt_tmp_3.clone(), _smelt_tmp_5.clone(), _smelt_tmp_6.clone(), _smelt_tmp_7.clone(), _smelt_tmp_8.clone(), _smelt_tmp_9.clone()]; smelt_list_items }));
+    let _smelt_tmp_11: JsString = _smelt_tmp_10.borrow().join(&JsString::from("|"));
     return _smelt_tmp_11;
 }

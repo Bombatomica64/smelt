@@ -11,9 +11,9 @@ fn box_string() -> SmeltUnknown {
     return SmeltUnknown::String("ready".into());
 }
 
-fn read_string(value: SmeltUnknown) -> String {
-    let _smelt_tmp_2: String;
-    let _smelt_tmp_3: String;
+fn read_string(value: SmeltUnknown) -> JsString {
+    let _smelt_tmp_2: JsString;
+    let _smelt_tmp_3: JsString;
     let _smelt_tmp_1: bool = matches!(value.clone(), SmeltUnknown::String(_));
     if _smelt_tmp_1 {
     _smelt_tmp_2 = match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() };

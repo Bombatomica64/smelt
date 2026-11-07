@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3707,7 +3710,7 @@ impl SmeltFromUnknown for SmeltMatch {
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Fields {
     gen_: f64,
-    dyn_: String,
+    dyn_: JsString,
     priv_: bool,
 }
 impl IntoSmeltUnknown for Fields {
@@ -3740,7 +3743,7 @@ impl SmeltFromUnknown for Fields {
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Machine {
     gen_: f64,
-    type_: String,
+    type_: JsString,
 }
 impl IntoSmeltUnknown for Machine {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -3777,10 +3780,10 @@ fn main() {
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_5)); };
     let _smelt_tmp_7: f64 = machine.match_(7.0);
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_7)); };
-    let _smelt_tmp_9: String = machine.loop_();
+    let _smelt_tmp_9: JsString = machine.loop_();
     let _ = { println!("{}", _smelt_tmp_9); };
-    _smelt_tmp_11 = Fields { gen_: 9.0, dyn_: "d".to_owned(), priv_: true };
-    let _smelt_tmp_12: String = read_fields(_smelt_tmp_11);
+    _smelt_tmp_11 = Fields { gen_: 9.0, dyn_: JsString::from("d"), priv_: true };
+    let _smelt_tmp_12: JsString = read_fields(_smelt_tmp_11);
     let _ = { println!("{}", _smelt_tmp_12); };
     let _smelt_tmp_14: f64 = shadowed();
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_14)); };
@@ -3791,16 +3794,16 @@ impl Machine {
     fn new(gen_: f64) -> Self {
     let mut this: Self = Machine { gen_: 0.0, type_: String::new() };
     this.gen_ = gen_;
-    this.type_ = "unit".to_owned();
+    this.type_ = JsString::from("unit");
     return this;
     }
     fn match_(&self, override_: f64) -> f64 {
     let _smelt_tmp_2: f64 = self.gen_ + override_;
     return _smelt_tmp_2;
     }
-    fn loop_(&self) -> String {
-    let _smelt_tmp_1: String = self.type_.clone() + &":".to_owned();
-    let _smelt_tmp_2: String = _smelt_tmp_1 + &smelt_number_to_string(self.gen_);
+    fn loop_(&self) -> JsString {
+    let _smelt_tmp_1: JsString = self.type_.clone() + &JsString::from(":");
+    let _smelt_tmp_2: JsString = _smelt_tmp_1 + &smelt_number_to_string(self.gen_);
     return _smelt_tmp_2;
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
@@ -3837,11 +3840,11 @@ pub(crate) fn become_(abstract_: f64, final_: f64) -> f64 {
     return virtual_;
 }
 
-pub(crate) fn read_fields(fields: Fields) -> String {
-    let mut _smelt_tmp_2: String;
-    let _smelt_tmp_3: String;
-    let _smelt_tmp_1: String = fields.dyn_.clone() + &smelt_number_to_string(fields.gen_);
-    let _smelt_tmp_2: String = if fields.priv_ { "!".to_owned() } else { "?".to_owned() };
+pub(crate) fn read_fields(fields: Fields) -> JsString {
+    let mut _smelt_tmp_2: JsString;
+    let _smelt_tmp_3: JsString;
+    let _smelt_tmp_1: JsString = fields.dyn_.clone() + &smelt_number_to_string(fields.gen_);
+    let _smelt_tmp_2: JsString = if fields.priv_ { JsString::from("!") } else { JsString::from("?") };
     _smelt_tmp_3 = _smelt_tmp_1 + &_smelt_tmp_2;
     return _smelt_tmp_3;
 }

@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -4478,13 +4481,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 let smelt_local = tokio::task::LocalSet::new();
 smelt_local.block_on(&smelt_runtime, async move {
-    let groups: SmeltList<String>;
+    let groups: SmeltList<JsString>;
     let message: SmeltTypedArray;
     let empty: SmeltTypedArray;
     let _smelt_tmp_9: bool;
-    let _smelt_tmp_11: String;
+    let _smelt_tmp_11: JsString;
     let _smelt_tmp_12: bool;
-    let _smelt_tmp_14: String;
+    let _smelt_tmp_14: JsString;
     let _smelt_tmp_15: bool;
     let _smelt_tmp_18: f64;
     let _smelt_tmp_20: f64;
@@ -4508,12 +4511,12 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_54: SmeltArrayBuffer;
     let _smelt_tmp_55: f64;
     let _smelt_tmp_58: ();
-    let id: String = uuid::Uuid::new_v4().to_string();
+    let id: JsString = uuid::Uuid::new_v4().to_string();
     let _smelt_tmp_5: f64 = smelt_utf16_len(&id) as f64;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_5)); };
     let _ = { println!("{} {} {} {}", smelt_utf16_char_at(&id, { let smelt_normalized = 8.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).unwrap_or_default(), smelt_utf16_char_at(&id, { let smelt_normalized = 13.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).unwrap_or_default(), smelt_utf16_char_at(&id, { let smelt_normalized = 18.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).unwrap_or_default(), smelt_utf16_char_at(&id, { let smelt_normalized = 23.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).unwrap_or_default()); };
     let _ = { println!("{}", smelt_utf16_char_at(&id, { let smelt_normalized = 14.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).unwrap_or_default()); };
-    _smelt_tmp_9 = "89ab".to_owned().contains(&smelt_utf16_char_at(&id, { let smelt_normalized = 19.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).unwrap_or_default());
+    _smelt_tmp_9 = JsString::from("89ab").contains(&smelt_utf16_char_at(&id, { let smelt_normalized = 19.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).unwrap_or_default());
     let _ = { println!("{}", _smelt_tmp_9); };
     _smelt_tmp_11 = uuid::Uuid::new_v4().to_string();
     _smelt_tmp_12 = id.clone() == _smelt_tmp_11;
@@ -4521,7 +4524,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_14 = id.clone().to_lowercase();
     _smelt_tmp_15 = _smelt_tmp_14 == id.clone();
     let _ = { println!("{}", _smelt_tmp_15); };
-    groups = Into::<SmeltList<_>>::into({ let smelt_haystack = id.clone(); let smelt_separator = "-".to_owned(); if smelt_separator.is_empty() { if smelt_haystack.is_empty() { Vec::new() } else { smelt_utf16_units(&smelt_haystack) } } else { smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() } });
+    groups = Into::<SmeltList<_>>::into({ let smelt_haystack = id.clone(); let smelt_separator = JsString::from("-"); if smelt_separator.is_empty() { if smelt_haystack.is_empty() { Vec::new() } else { smelt_utf16_units(&smelt_haystack) } } else { smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() } });
     _smelt_tmp_18 = groups.len() as f64;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_18)); };
     _smelt_tmp_20 = smelt_utf16_len(&groups.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new())) as f64;
@@ -4531,33 +4534,33 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_24 = smelt_utf16_len(&groups.borrow().get({ let smelt_normalized = 3.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new())) as f64;
     _smelt_tmp_25 = smelt_utf16_len(&groups.borrow().get({ let smelt_normalized = 4.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new())) as f64;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_24), smelt_console_number(_smelt_tmp_25)); };
-    _smelt_tmp_27 = fancy_regex::Regex::new(&"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$".to_owned()).expect("regex compile failed").is_match(&id).unwrap_or(false);
+    _smelt_tmp_27 = fancy_regex::Regex::new(&JsString::from("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")).expect("regex compile failed").is_match(&id).unwrap_or(false);
     let _ = { println!("{}", _smelt_tmp_27); };
     _smelt_tmp_29 = SmeltTextEncoder::new();
-    message = _smelt_tmp_29.encode(&"abc".to_owned());
-    let _smelt_tmp_31: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = ("SHA-1".to_owned()).clone(); let smelt_data = (message.clone()).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
+    message = _smelt_tmp_29.encode(&JsString::from("abc"));
+    let _smelt_tmp_31: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = (JsString::from("SHA-1")).clone(); let smelt_data = (message.clone()).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
     _smelt_tmp_32 = _smelt_tmp_31.await?;
     _smelt_tmp_33 = _smelt_tmp_32.byte_length();
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_33)); };
-    let _smelt_tmp_35: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = ("SHA-256".to_owned()).clone(); let smelt_data = (message.clone()).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
+    let _smelt_tmp_35: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = (JsString::from("SHA-256")).clone(); let smelt_data = (message.clone()).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
     _smelt_tmp_36 = _smelt_tmp_35.await?;
     _smelt_tmp_37 = _smelt_tmp_36.byte_length();
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_37)); };
-    let _smelt_tmp_39: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = ("SHA-384".to_owned()).clone(); let smelt_data = (message.clone()).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
+    let _smelt_tmp_39: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = (JsString::from("SHA-384")).clone(); let smelt_data = (message.clone()).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
     _smelt_tmp_40 = _smelt_tmp_39.await?;
     _smelt_tmp_41 = _smelt_tmp_40.byte_length();
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_41)); };
-    let _smelt_tmp_43: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = ("SHA-512".to_owned()).clone(); let smelt_data = (message.clone()).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
+    let _smelt_tmp_43: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = (JsString::from("SHA-512")).clone(); let smelt_data = (message.clone()).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
     _smelt_tmp_44 = _smelt_tmp_43.await?;
     _smelt_tmp_45 = _smelt_tmp_44.byte_length();
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_45)); };
-    let _smelt_tmp_47: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = ("sha-256".to_owned()).clone(); let smelt_data = (message).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
+    let _smelt_tmp_47: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = (JsString::from("sha-256")).clone(); let smelt_data = (message).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
     _smelt_tmp_48 = _smelt_tmp_47.await?;
     _smelt_tmp_49 = _smelt_tmp_48.byte_length();
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_49)); };
     _smelt_tmp_51 = SmeltTextEncoder::new();
-    empty = _smelt_tmp_51.encode(&"".to_owned());
-    let _smelt_tmp_53: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = ("SHA-256".to_owned()).clone(); let smelt_data = (empty).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
+    empty = _smelt_tmp_51.encode(&JsString::new());
+    let _smelt_tmp_53: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = (JsString::from("SHA-256")).clone(); let smelt_data = (empty).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
     _smelt_tmp_54 = _smelt_tmp_53.await?;
     _smelt_tmp_55 = _smelt_tmp_54.byte_length();
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_55)); };

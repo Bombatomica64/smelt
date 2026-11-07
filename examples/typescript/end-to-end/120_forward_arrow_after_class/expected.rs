@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3921,7 +3924,7 @@ impl SmeltFromUnknown for SmeltMatch {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Request {
-    headers: SmeltRecord<String, String>,
+    headers: SmeltRecord<String, JsString>,
 }
 impl IntoSmeltUnknown for Request {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -3967,17 +3970,17 @@ smelt_local.block_on(&smelt_runtime, async move {
 impl Request {
     fn new() -> Self {
     let mut this: Self = Request { headers: SmeltRecord::new() };
-    let _smelt_tmp_1: SmeltRecord<String, String> = SmeltRecord::from([("content-length".to_owned(), "12".to_owned()), ("accept".to_owned(), "json".to_owned())]);
+    let _smelt_tmp_1: SmeltRecord<String, JsString> = SmeltRecord::from([(JsString::from("content-length"), JsString::from("12")), (JsString::from("accept"), JsString::from("json"))]);
     this.headers = _smelt_tmp_1;
     return this;
     }
-    fn all(&self) -> SmeltRecord<String, String> {
-    let _smelt_tmp_1: SmeltRecord<String, String> = SmeltRecord::from([]);
-    let _smelt_tmp_2: SmeltRecord<String, String> = { _smelt_tmp_1.extend(self.headers.clone().iter().map(|(key, value)| (key.clone(), value.clone()))); _smelt_tmp_1.clone() };
+    fn all(&self) -> SmeltRecord<String, JsString> {
+    let _smelt_tmp_1: SmeltRecord<String, JsString> = SmeltRecord::from([]);
+    let _smelt_tmp_2: SmeltRecord<String, JsString> = { _smelt_tmp_1.extend(self.headers.clone().iter().map(|(key, value)| (key.clone(), value.clone()))); _smelt_tmp_1.clone() };
     return _smelt_tmp_2;
     }
-    fn header(&self, name: String) -> Option<String> {
-    let _smelt_tmp_2: Option<String> = self.headers.clone().get(&name.clone());
+    fn header(&self, name: JsString) -> Option<JsString> {
+    let _smelt_tmp_2: Option<JsString> = self.headers.clone().get(&name.clone());
     return _smelt_tmp_2;
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
@@ -4008,18 +4011,18 @@ pub(crate) async fn report(req: Request) -> Result<f64, Box<dyn std::error::Erro
 }
 
 pub(crate) async fn without_length(req: Request, strip: bool) -> Result<f64, Box<dyn std::error::Error>> {
-    let mut headers: SmeltRecord<String, String>;
+    let mut headers: SmeltRecord<String, JsString>;
     let _smelt_tmp_4: bool;
-    let _smelt_tmp_6: String;
-    let _smelt_tmp_8: SmeltList<String>;
+    let _smelt_tmp_6: JsString;
+    let _smelt_tmp_8: SmeltList<JsString>;
     let _smelt_tmp_9: f64;
-    let _smelt_tmp_3: SmeltRecord<String, String> = req.all();
+    let _smelt_tmp_3: SmeltRecord<String, JsString> = req.all();
     headers = _smelt_tmp_3;
     if strip {
-    _smelt_tmp_4 = headers.remove(&"content-length".to_owned()).is_some();
+    _smelt_tmp_4 = headers.remove(&JsString::from("content-length")).is_some();
     }
-    let _smelt_tmp_5: Option<String> = req.header("accept".to_owned());
-    _smelt_tmp_6 = _smelt_tmp_5.clone().unwrap_or("none".to_owned());
+    let _smelt_tmp_5: Option<JsString> = req.header(JsString::from("accept"));
+    _smelt_tmp_6 = _smelt_tmp_5.clone().unwrap_or(JsString::from("none"));
     let _ = { println!("{}", _smelt_tmp_6); };
     _smelt_tmp_8 = Into::<SmeltList<_>>::into(headers.keys().filter(|key| !key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&headers, key)).collect::<Vec<_>>());
     _smelt_tmp_9 = _smelt_tmp_8.len() as f64;

@@ -66,6 +66,9 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 // @smelt:prelude-end — generated program below
 
 #[allow(dead_code)]
@@ -73,8 +76,8 @@ struct Registry(::std::rc::Rc<::std::cell::RefCell<RegistryInner>>);
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct RegistryInner {
-    public_log: String,
-    private_log: String,
+    public_log: JsString,
+    private_log: JsString,
 }
 impl Clone for Registry {
     fn clone(&self) -> Self {
@@ -99,13 +102,13 @@ impl ::std::fmt::Debug for Registry {
 
 fn main() {
     let registry: Registry;
-    let _smelt_tmp_4: String;
-    let _smelt_tmp_5: String;
+    let _smelt_tmp_4: JsString;
+    let _smelt_tmp_5: JsString;
     let _smelt_tmp_1: Registry = Registry::new();
     registry = _smelt_tmp_1;
-    let _ = registry.add("a".to_owned());
-    let _ = registry.add("b".to_owned());
-    _smelt_tmp_4 = registry.0.borrow().private_log.clone().clone() + &",".to_owned();
+    let _ = registry.add(JsString::from("a"));
+    let _ = registry.add(JsString::from("b"));
+    _smelt_tmp_4 = registry.0.borrow().private_log.clone().clone() + &JsString::from(",");
     _smelt_tmp_5 = _smelt_tmp_4 + &registry.0.borrow().public_log.clone().clone();
     let _ = { println!("{}", _smelt_tmp_5); };
     return;
@@ -114,21 +117,21 @@ fn main() {
 impl Registry {
     fn new() -> Self {
     let mut this: Self = Registry(::std::rc::Rc::new(::std::cell::RefCell::new(RegistryInner { public_log: String::new(), private_log: String::new() })));
-    this.0.borrow_mut().public_log = "".to_owned();
-    this.0.borrow_mut().private_log = "".to_owned();
+    this.0.borrow_mut().public_log = JsString::new();
+    this.0.borrow_mut().private_log = JsString::new();
     return this;
     }
-    fn stash(&self, value: String) -> () {
-    let _smelt_tmp_2: String = self.0.borrow().private_log.clone().clone() + &value.clone();
+    fn stash(&self, value: JsString) -> () {
+    let _smelt_tmp_2: JsString = self.0.borrow().private_log.clone().clone() + &value.clone();
     self.0.borrow_mut().private_log = _smelt_tmp_2;
     return;
     }
-    fn keep(&self, value: String) -> () {
-    let _smelt_tmp_2: String = self.0.borrow().public_log.clone().clone() + &value.clone();
+    fn keep(&self, value: JsString) -> () {
+    let _smelt_tmp_2: JsString = self.0.borrow().public_log.clone().clone() + &value.clone();
     self.0.borrow_mut().public_log = _smelt_tmp_2;
     return;
     }
-    fn add(&self, value: String) -> () {
+    fn add(&self, value: JsString) -> () {
     let _ = self.stash(value.clone());
     let _ = self.keep(value.clone());
     return;

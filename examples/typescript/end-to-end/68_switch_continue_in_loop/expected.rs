@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
@@ -262,15 +265,15 @@ impl<T: Clone> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Se
 fn main() {
     let _smelt_tmp_4: SmeltList<f64>;
     let _smelt_tmp_7: SmeltList<f64>;
-    let _smelt_tmp_0: String = escape_html("a\"b&c<d>e".to_owned());
+    let _smelt_tmp_0: JsString = escape_html(JsString::from("a\"b&c<d>e"));
     let _ = { println!("{}", _smelt_tmp_0); };
-    let _smelt_tmp_2: String = escape_html("nothing to escape".to_owned());
+    let _smelt_tmp_2: JsString = escape_html(JsString::from("nothing to escape"));
     let _ = { println!("{}", _smelt_tmp_2); };
     _smelt_tmp_4 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0, 4.0, 5.0]; smelt_list_items }));
     let _smelt_tmp_5: f64 = sum_odd(_smelt_tmp_4);
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_5)); };
     _smelt_tmp_7 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
-    let _smelt_tmp_8: String = classify(_smelt_tmp_7);
+    let _smelt_tmp_8: JsString = classify(_smelt_tmp_7);
     let _ = { println!("{}", _smelt_tmp_8); };
     return;
 }
@@ -282,24 +285,24 @@ fn main() {
 
 use super::*;
 
-pub(crate) fn escape_html(str: String) -> String {
+pub(crate) fn escape_html(str: JsString) -> JsString {
     let mut code: f64;
-    let mut replacement: String;
+    let mut replacement: JsString;
     let mut _smelt_tmp_6: usize;
     let mut _smelt_tmp_7: bool;
-    let mut _smelt_tmp_9: String;
-    let mut _smelt_tmp_10: String;
-    let mut _smelt_tmp_11: String;
+    let mut _smelt_tmp_9: JsString;
+    let mut _smelt_tmp_10: JsString;
+    let mut _smelt_tmp_11: JsString;
     let mut _smelt_tmp_12: usize;
     let mut _smelt_tmp_13: usize;
     let mut _smelt_tmp_14: f64;
-    let mut _smelt_tmp_15: String;
-    let mut _smelt_tmp_16: String;
+    let mut _smelt_tmp_15: JsString;
+    let mut _smelt_tmp_16: JsString;
     let mut _smelt_tmp_17: f64;
     let mut _smelt_tmp_18: f64;
     let mut _smelt_tmp_19: f64;
     let mut _smelt_tmp_20: f64;
-    let mut out: String = "".to_owned();
+    let mut out: JsString = JsString::new();
     let mut last_index: usize = 0;
     let mut i: usize = 0;
     loop {
@@ -308,10 +311,10 @@ pub(crate) fn escape_html(str: String) -> String {
     if !(_smelt_tmp_7) { break; }
     _smelt_tmp_17 = i as f64;
     code = (|smelt_text: &str, smelt_index: f64| if smelt_index < 0.0 { f64::NAN } else { let smelt_index = smelt_index as usize; smelt_utf16_unit_at(smelt_text, smelt_index).map_or(f64::NAN, f64::from) })(&str, _smelt_tmp_17 as f64);
-    replacement = "".to_owned();
+    replacement = JsString::new();
     match code {
         34.0 => {
-    replacement = "&quot;".to_owned();
+    replacement = JsString::from("&quot;");
     _smelt_tmp_19 = last_index as f64;
     _smelt_tmp_20 = i as f64;
     _smelt_tmp_9 = { let smelt_text = str.clone(); let smelt_len = smelt_utf16_len(&smelt_text) as f64; let smelt_from = { let smelt_bound = _smelt_tmp_19 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).min({ let smelt_bound = _smelt_tmp_20 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)); let smelt_count = { let smelt_bound = _smelt_tmp_19 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).max({ let smelt_bound = _smelt_tmp_20 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)) - smelt_from; { let smelt_start = smelt_from as usize; smelt_utf16_slice(&smelt_text, smelt_start, smelt_start.saturating_add(smelt_count as usize)) } };
@@ -325,7 +328,7 @@ pub(crate) fn escape_html(str: String) -> String {
     continue;
         }
         38.0 => {
-    replacement = "&amp;".to_owned();
+    replacement = JsString::from("&amp;");
     _smelt_tmp_19 = last_index as f64;
     _smelt_tmp_20 = i as f64;
     _smelt_tmp_9 = { let smelt_text = str.clone(); let smelt_len = smelt_utf16_len(&smelt_text) as f64; let smelt_from = { let smelt_bound = _smelt_tmp_19 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).min({ let smelt_bound = _smelt_tmp_20 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)); let smelt_count = { let smelt_bound = _smelt_tmp_19 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).max({ let smelt_bound = _smelt_tmp_20 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)) - smelt_from; { let smelt_start = smelt_from as usize; smelt_utf16_slice(&smelt_text, smelt_start, smelt_start.saturating_add(smelt_count as usize)) } };
@@ -339,7 +342,7 @@ pub(crate) fn escape_html(str: String) -> String {
     continue;
         }
         60.0 => {
-    replacement = "&lt;".to_owned();
+    replacement = JsString::from("&lt;");
     _smelt_tmp_19 = last_index as f64;
     _smelt_tmp_20 = i as f64;
     _smelt_tmp_9 = { let smelt_text = str.clone(); let smelt_len = smelt_utf16_len(&smelt_text) as f64; let smelt_from = { let smelt_bound = _smelt_tmp_19 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).min({ let smelt_bound = _smelt_tmp_20 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)); let smelt_count = { let smelt_bound = _smelt_tmp_19 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).max({ let smelt_bound = _smelt_tmp_20 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)) - smelt_from; { let smelt_start = smelt_from as usize; smelt_utf16_slice(&smelt_text, smelt_start, smelt_start.saturating_add(smelt_count as usize)) } };
@@ -353,7 +356,7 @@ pub(crate) fn escape_html(str: String) -> String {
     continue;
         }
         62.0 => {
-    replacement = "&gt;".to_owned();
+    replacement = JsString::from("&gt;");
     _smelt_tmp_19 = last_index as f64;
     _smelt_tmp_20 = i as f64;
     _smelt_tmp_9 = { let smelt_text = str.clone(); let smelt_len = smelt_utf16_len(&smelt_text) as f64; let smelt_from = { let smelt_bound = _smelt_tmp_19 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).min({ let smelt_bound = _smelt_tmp_20 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)); let smelt_count = { let smelt_bound = _smelt_tmp_19 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).max({ let smelt_bound = _smelt_tmp_20 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)) - smelt_from; { let smelt_start = smelt_from as usize; smelt_utf16_slice(&smelt_text, smelt_start, smelt_start.saturating_add(smelt_count as usize)) } };
@@ -410,14 +413,14 @@ pub(crate) fn sum_odd(values: SmeltList<f64>) -> f64 {
     return total;
 }
 
-pub(crate) fn classify(values: SmeltList<f64>) -> String {
+pub(crate) fn classify(values: SmeltList<f64>) -> JsString {
     let mut value: f64;
     let mut _smelt_tmp_4: usize;
     let mut _smelt_tmp_5: bool;
-    let mut _smelt_tmp_6: String;
-    let mut _smelt_tmp_7: String;
-    let mut _smelt_tmp_8: String;
-    let mut seen: String = "".to_owned();
+    let mut _smelt_tmp_6: JsString;
+    let mut _smelt_tmp_7: JsString;
+    let mut _smelt_tmp_8: JsString;
+    let mut seen: JsString = JsString::new();
     let mut _smelt_tmp_3: usize = 0;
     loop {
     _smelt_tmp_4 = values.len();
@@ -426,9 +429,9 @@ pub(crate) fn classify(values: SmeltList<f64>) -> String {
     value = values.borrow().get(_smelt_tmp_3).cloned().unwrap_or_else(|| 0.0);
     match value {
         1.0 => {
-    _smelt_tmp_6 = seen + &"one".to_owned();
+    _smelt_tmp_6 = seen + &JsString::from("one");
     seen = _smelt_tmp_6;
-    _smelt_tmp_8 = seen + &".".to_owned();
+    _smelt_tmp_8 = seen + &JsString::from(".");
     seen = _smelt_tmp_8;
     _smelt_tmp_3 = _smelt_tmp_3 + 1;
     continue;
@@ -438,9 +441,9 @@ pub(crate) fn classify(values: SmeltList<f64>) -> String {
     continue;
         }
         _ => {
-    _smelt_tmp_7 = seen + &"?".to_owned();
+    _smelt_tmp_7 = seen + &JsString::from("?");
     seen = _smelt_tmp_7;
-    _smelt_tmp_8 = seen + &".".to_owned();
+    _smelt_tmp_8 = seen + &JsString::from(".");
     seen = _smelt_tmp_8;
     _smelt_tmp_3 = _smelt_tmp_3 + 1;
     continue;

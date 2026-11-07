@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3803,14 +3806,14 @@ impl SmeltFromUnknown for Registry {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let _smelt_tmp_1: String;
-    let _smelt_tmp_5: String;
-    let _smelt_tmp_0: String = fill(None::<Registry>, "a".to_owned())?;
-    _smelt_tmp_1 = "no receiver: ".to_owned() + &_smelt_tmp_0;
+    let _smelt_tmp_1: JsString;
+    let _smelt_tmp_5: JsString;
+    let _smelt_tmp_0: JsString = fill(None::<Registry>, JsString::from("a"))?;
+    _smelt_tmp_1 = JsString::from("no receiver: ") + &_smelt_tmp_0;
     let _ = { println!("{}", _smelt_tmp_1); };
     let _smelt_tmp_3: Registry = Registry::new();
-    let _smelt_tmp_4: String = fill(Some(_smelt_tmp_3), "a".to_owned())?;
-    _smelt_tmp_5 = "receiver: ".to_owned() + &_smelt_tmp_4;
+    let _smelt_tmp_4: JsString = fill(Some(_smelt_tmp_3), JsString::from("a"))?;
+    _smelt_tmp_5 = JsString::from("receiver: ") + &_smelt_tmp_4;
     let _ = { println!("{}", _smelt_tmp_5); };
     return Ok(());
 }
@@ -3822,11 +3825,11 @@ impl Registry {
     this.0.borrow_mut()._seen = _smelt_tmp_1;
     return this;
     }
-    fn insert(&self, key: String, value: bool) -> Result<(), Box<dyn std::error::Error>> {
+    fn insert(&self, key: JsString, value: bool) -> Result<(), Box<dyn std::error::Error>> {
     let mut _smelt_tmp_6: SmeltRecord<String, bool>;
-    let _smelt_tmp_3: bool = key.clone() == "".to_owned();
+    let _smelt_tmp_3: bool = key.clone() == JsString::new();
     if _smelt_tmp_3 {
-    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([("__smelt_error".to_owned(), SmeltUnknown::String("Error".into())), ("message".to_owned(), SmeltUnknown::String("empty key".into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])).clone()))));
+    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String("empty key".into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
     } else {
     _smelt_tmp_6 = self.0.borrow()._seen.clone();
     _smelt_tmp_6.insert(key.clone(), value);
@@ -3834,11 +3837,11 @@ impl Registry {
     return Ok(());
     }
     }
-    fn has(&self, key: String) -> String {
-    let mut _smelt_tmp_4: String;
+    fn has(&self, key: JsString) -> JsString {
+    let mut _smelt_tmp_4: JsString;
     let _smelt_tmp_2: SmeltRecord<String, bool> = self.0.borrow()._seen.clone();
     let _smelt_tmp_3: bool = (_smelt_tmp_2.get(&key)).is_none();
-    let _smelt_tmp_4: String = if _smelt_tmp_3 { "absent".to_owned() } else { "present".to_owned() };
+    let _smelt_tmp_4: JsString = if _smelt_tmp_3 { JsString::from("absent") } else { JsString::from("present") };
     return _smelt_tmp_4;
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
@@ -3862,16 +3865,16 @@ impl Registry {
 
 use super::*;
 
-pub(crate) fn fill(registry: Option<Registry>, key: String) -> Result<String, Box<dyn std::error::Error>> {
-    let mut _smelt_tmp_4: String;
+pub(crate) fn fill(registry: Option<Registry>, key: JsString) -> Result<JsString, Box<dyn std::error::Error>> {
+    let mut _smelt_tmp_4: JsString;
     let _smelt_tmp_5: Registry;
     let _smelt_tmp_2: Option<()> = match registry.clone().as_ref() { Some(_smelt_value) => Some(_smelt_value.insert(key.clone(), true)?), None => None };
     let _smelt_tmp_3: bool = registry.clone().is_none();
     if _smelt_tmp_3 {
-    _smelt_tmp_4 = "no registry".to_owned();
+    _smelt_tmp_4 = JsString::from("no registry");
     } else {
     _smelt_tmp_5 = registry.clone().expect("optional value was absent after narrowing");
-    let _smelt_tmp_6: String = _smelt_tmp_5.has(key.clone());
+    let _smelt_tmp_6: JsString = _smelt_tmp_5.has(key.clone());
     _smelt_tmp_4 = _smelt_tmp_6;
     }
     return Ok(_smelt_tmp_4);

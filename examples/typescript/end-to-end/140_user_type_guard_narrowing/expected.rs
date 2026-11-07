@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3683,8 +3686,8 @@ impl SmeltFromUnknown for SmeltMatch {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Req {
-    kind: String,
-    url: String,
+    kind: JsString,
+    url: JsString,
 }
 impl IntoSmeltUnknown for Req {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -3711,7 +3714,7 @@ impl SmeltFromUnknown for Req {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct RawReq {
-    kind: String,
+    kind: JsString,
     raw: f64,
 }
 impl IntoSmeltUnknown for RawReq {
@@ -3799,7 +3802,7 @@ impl Default for SmeltUnion3 {
 
 #[derive(Clone)]
 pub enum SmeltUnion15 {
-    M0(String),
+    M0(JsString),
     M1(f64),
 }
 impl IntoSmeltUnknown for SmeltUnion15 {
@@ -3841,39 +3844,39 @@ impl Default for SmeltUnion15 {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let checker: Checker;
-    let plain_request: Req = Req { kind: "req".to_owned(), url: "/home".to_owned() };
-    let raw_request: RawReq = RawReq { kind: "raw".to_owned(), raw: 7.0 };
-    let _smelt_tmp_5: String = describe(SmeltUnion3::M0(plain_request.clone()));
+    let plain_request: Req = Req { kind: JsString::from("req"), url: JsString::from("/home") };
+    let raw_request: RawReq = RawReq { kind: JsString::from("raw"), raw: 7.0 };
+    let _smelt_tmp_5: JsString = describe(SmeltUnion3::M0(plain_request.clone()));
     let _ = { println!("{}", _smelt_tmp_5); };
-    let _smelt_tmp_7: String = describe(SmeltUnion3::M1(raw_request.clone()));
+    let _smelt_tmp_7: JsString = describe(SmeltUnion3::M1(raw_request.clone()));
     let _ = { println!("{}", _smelt_tmp_7); };
-    let _smelt_tmp_9: String = describe_arrow(SmeltUnion3::M0(plain_request.clone()));
+    let _smelt_tmp_9: JsString = describe_arrow(SmeltUnion3::M0(plain_request.clone()));
     let _ = { println!("{}", _smelt_tmp_9); };
-    let _smelt_tmp_11: String = describe_arrow(SmeltUnion3::M1(raw_request.clone()));
+    let _smelt_tmp_11: JsString = describe_arrow(SmeltUnion3::M1(raw_request.clone()));
     let _ = { println!("{}", _smelt_tmp_11); };
-    let _smelt_tmp_13: String = early_return(SmeltUnion3::M0(plain_request.clone()));
+    let _smelt_tmp_13: JsString = early_return(SmeltUnion3::M0(plain_request.clone()));
     let _ = { println!("{}", _smelt_tmp_13); };
-    let _smelt_tmp_15: String = early_return(SmeltUnion3::M1(raw_request.clone()));
+    let _smelt_tmp_15: JsString = early_return(SmeltUnion3::M1(raw_request.clone()));
     let _ = { println!("{}", _smelt_tmp_15); };
-    let _smelt_tmp_17: f64 = length_or(SmeltUnion15::M0("hello".to_owned()), true);
+    let _smelt_tmp_17: f64 = length_or(SmeltUnion15::M0(JsString::from("hello")), true);
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_17)); };
-    let _smelt_tmp_19: f64 = length_or(SmeltUnion15::M0("hi".to_owned()), true);
+    let _smelt_tmp_19: f64 = length_or(SmeltUnion15::M0(JsString::from("hi")), true);
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_19)); };
     let _smelt_tmp_21: f64 = length_or(SmeltUnion15::M1(5.0), true);
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_21)); };
     let _smelt_tmp_23: Checker = Checker::new();
     checker = _smelt_tmp_23;
-    let _smelt_tmp_24: String = describe_method(checker.clone(), SmeltUnion3::M0(plain_request.clone()));
+    let _smelt_tmp_24: JsString = describe_method(checker.clone(), SmeltUnion3::M0(plain_request.clone()));
     let _ = { println!("{}", _smelt_tmp_24); };
-    let _smelt_tmp_26: String = describe_method(checker.clone(), SmeltUnion3::M1(raw_request.clone()));
+    let _smelt_tmp_26: JsString = describe_method(checker.clone(), SmeltUnion3::M1(raw_request.clone()));
     let _ = { println!("{}", _smelt_tmp_26); };
-    let _smelt_tmp_28: String = checker.label(SmeltUnion3::M0(plain_request.clone()));
+    let _smelt_tmp_28: JsString = checker.label(SmeltUnion3::M0(plain_request.clone()));
     let _ = { println!("{}", _smelt_tmp_28); };
-    let _smelt_tmp_30: String = checker.label(SmeltUnion3::M1(raw_request.clone()));
+    let _smelt_tmp_30: JsString = checker.label(SmeltUnion3::M1(raw_request.clone()));
     let _ = { println!("{}", _smelt_tmp_30); };
-    let _smelt_tmp_32: String = describe_local(SmeltUnion3::M0(plain_request));
+    let _smelt_tmp_32: JsString = describe_local(SmeltUnion3::M0(plain_request));
     let _ = { println!("{}", _smelt_tmp_32); };
-    let _smelt_tmp_34: String = describe_local(SmeltUnion3::M1(raw_request.clone()));
+    let _smelt_tmp_34: JsString = describe_local(SmeltUnion3::M1(raw_request.clone()));
     let _ = { println!("{}", _smelt_tmp_34); };
     let _smelt_tmp_36: f64 = asserted(SmeltUnion3::M1(raw_request))?;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_36)); };
@@ -3886,22 +3889,22 @@ impl Checker {
     return this;
     }
     fn is_raw(&self, r: SmeltUnion3) -> bool {
-    let _smelt_tmp_2: bool = match &r { SmeltUnion3::M0(smelt_union_arm) => smelt_union_arm.kind.clone(), SmeltUnion3::M1(smelt_union_arm) => smelt_union_arm.kind.clone() }.clone() == "raw".to_owned();
+    let _smelt_tmp_2: bool = match &r { SmeltUnion3::M0(smelt_union_arm) => smelt_union_arm.kind.clone(), SmeltUnion3::M1(smelt_union_arm) => smelt_union_arm.kind.clone() }.clone() == JsString::from("raw");
     return _smelt_tmp_2;
     }
-    fn label(&self, request: SmeltUnion3) -> String {
+    fn label(&self, request: SmeltUnion3) -> JsString {
     let _smelt_tmp_3: RawReq;
-    let _smelt_tmp_4: String;
+    let _smelt_tmp_4: JsString;
     let _smelt_tmp_5: Req;
-    let _smelt_tmp_6: String;
+    let _smelt_tmp_6: JsString;
     let _smelt_tmp_2: bool = self.is_raw(request.clone());
     if _smelt_tmp_2 {
     _smelt_tmp_3 = match request.clone() { SmeltUnion3::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_4 = "this-raw ".to_owned() + &smelt_number_to_string(_smelt_tmp_3.raw);
+    _smelt_tmp_4 = JsString::from("this-raw ") + &smelt_number_to_string(_smelt_tmp_3.raw);
     return _smelt_tmp_4;
     } else {
     _smelt_tmp_5 = match request.clone() { SmeltUnion3::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_6 = "this-req ".to_owned() + &_smelt_tmp_5.url.clone();
+    _smelt_tmp_6 = JsString::from("this-req ") + &_smelt_tmp_5.url.clone();
     return _smelt_tmp_6;
     }
     }
@@ -3935,61 +3938,61 @@ fn __smelt_from_unknown_record_0(smelt_value: SmeltUnknown) -> Req {
 use super::*;
 
 pub(crate) fn is_raw(r: SmeltUnion3) -> bool {
-    let _smelt_tmp_1: bool = match &r { SmeltUnion3::M0(smelt_union_arm) => smelt_union_arm.kind.clone(), SmeltUnion3::M1(smelt_union_arm) => smelt_union_arm.kind.clone() }.clone() == "raw".to_owned();
+    let _smelt_tmp_1: bool = match &r { SmeltUnion3::M0(smelt_union_arm) => smelt_union_arm.kind.clone(), SmeltUnion3::M1(smelt_union_arm) => smelt_union_arm.kind.clone() }.clone() == JsString::from("raw");
     return _smelt_tmp_1;
 }
 
-pub(crate) fn describe(request: SmeltUnion3) -> String {
+pub(crate) fn describe(request: SmeltUnion3) -> JsString {
     let _smelt_tmp_2: RawReq;
-    let _smelt_tmp_3: String;
+    let _smelt_tmp_3: JsString;
     let _smelt_tmp_4: Req;
-    let _smelt_tmp_5: String;
+    let _smelt_tmp_5: JsString;
     let _smelt_tmp_1: bool = is_raw(request.clone());
     if _smelt_tmp_1 {
     _smelt_tmp_2 = match request.clone() { SmeltUnion3::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_3 = "raw ".to_owned() + &smelt_number_to_string(_smelt_tmp_2.raw);
+    _smelt_tmp_3 = JsString::from("raw ") + &smelt_number_to_string(_smelt_tmp_2.raw);
     return _smelt_tmp_3;
     } else {
     _smelt_tmp_4 = match request.clone() { SmeltUnion3::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_5 = "req ".to_owned() + &_smelt_tmp_4.url.clone();
+    _smelt_tmp_5 = JsString::from("req ") + &_smelt_tmp_4.url.clone();
     return _smelt_tmp_5;
     }
 }
 
-pub(crate) fn describe_arrow(request: SmeltUnion3) -> String {
+pub(crate) fn describe_arrow(request: SmeltUnion3) -> JsString {
     let _smelt_tmp_2: Req;
-    let _smelt_tmp_3: String;
+    let _smelt_tmp_3: JsString;
     let _smelt_tmp_4: RawReq;
-    let _smelt_tmp_5: String;
+    let _smelt_tmp_5: JsString;
     let _smelt_tmp_1: bool = is_req__module_main(request.clone());
     if _smelt_tmp_1 {
     _smelt_tmp_2 = match request.clone() { SmeltUnion3::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_3 = "req ".to_owned() + &_smelt_tmp_2.url.clone();
+    _smelt_tmp_3 = JsString::from("req ") + &_smelt_tmp_2.url.clone();
     return _smelt_tmp_3;
     } else {
     _smelt_tmp_4 = match request.clone() { SmeltUnion3::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_5 = "raw ".to_owned() + &smelt_number_to_string(_smelt_tmp_4.raw);
+    _smelt_tmp_5 = JsString::from("raw ") + &smelt_number_to_string(_smelt_tmp_4.raw);
     return _smelt_tmp_5;
     }
 }
 
-pub(crate) fn early_return(request: SmeltUnion3) -> String {
+pub(crate) fn early_return(request: SmeltUnion3) -> JsString {
     let _smelt_tmp_2: bool;
     let _smelt_tmp_3: Req;
-    let _smelt_tmp_4: String;
+    let _smelt_tmp_4: JsString;
     let _smelt_tmp_5: RawReq;
     let _smelt_tmp_6: f64;
-    let _smelt_tmp_7: String;
+    let _smelt_tmp_7: JsString;
     let _smelt_tmp_1: bool = is_raw(request.clone());
     _smelt_tmp_2 = !(_smelt_tmp_1);
     if _smelt_tmp_2 {
     _smelt_tmp_3 = match request.clone() { SmeltUnion3::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_4 = "req ".to_owned() + &_smelt_tmp_3.url.clone();
+    _smelt_tmp_4 = JsString::from("req ") + &_smelt_tmp_3.url.clone();
     return _smelt_tmp_4;
     } else {
     _smelt_tmp_5 = match request.clone() { SmeltUnion3::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_6 = _smelt_tmp_5.raw + 1.0;
-    _smelt_tmp_7 = "raw ".to_owned() + &smelt_number_to_string(_smelt_tmp_6);
+    _smelt_tmp_7 = JsString::from("raw ") + &smelt_number_to_string(_smelt_tmp_6);
     return _smelt_tmp_7;
     }
 }
@@ -4002,10 +4005,10 @@ pub(crate) fn is_string(value: SmeltUnion15) -> bool {
 pub(crate) fn length_or(value: SmeltUnion15, big: bool) -> f64 {
     let mut _smelt_tmp_3: bool;
     let mut _smelt_tmp_4: bool;
-    let _smelt_tmp_5: String;
+    let _smelt_tmp_5: JsString;
     let _smelt_tmp_6: f64;
     let _smelt_tmp_7: bool;
-    let _smelt_tmp_8: String;
+    let _smelt_tmp_8: JsString;
     let _smelt_tmp_9: f64;
     let _smelt_tmp_11: bool;
     let _smelt_tmp_12: f64;
@@ -4038,49 +4041,49 @@ pub(crate) fn length_or(value: SmeltUnion15, big: bool) -> f64 {
     }
 }
 
-pub(crate) fn describe_method(checker: Checker, request: SmeltUnion3) -> String {
+pub(crate) fn describe_method(checker: Checker, request: SmeltUnion3) -> JsString {
     let _smelt_tmp_3: RawReq;
-    let _smelt_tmp_4: String;
+    let _smelt_tmp_4: JsString;
     let _smelt_tmp_5: Req;
-    let _smelt_tmp_6: String;
+    let _smelt_tmp_6: JsString;
     let _smelt_tmp_2: bool = checker.is_raw(request.clone());
     if _smelt_tmp_2 {
     _smelt_tmp_3 = match request.clone() { SmeltUnion3::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_4 = "m-raw ".to_owned() + &smelt_number_to_string(_smelt_tmp_3.raw);
+    _smelt_tmp_4 = JsString::from("m-raw ") + &smelt_number_to_string(_smelt_tmp_3.raw);
     return _smelt_tmp_4;
     } else {
     _smelt_tmp_5 = match request.clone() { SmeltUnion3::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_6 = "m-req ".to_owned() + &_smelt_tmp_5.url.clone();
+    _smelt_tmp_6 = JsString::from("m-req ") + &_smelt_tmp_5.url.clone();
     return _smelt_tmp_6;
     }
 }
 
-pub(crate) fn describe_local(request: SmeltUnion3) -> String {
+pub(crate) fn describe_local(request: SmeltUnion3) -> JsString {
     let _smelt_tmp_4: RawReq;
-    let _smelt_tmp_5: String;
+    let _smelt_tmp_5: JsString;
     let _smelt_tmp_6: Req;
-    let _smelt_tmp_7: String;
+    let _smelt_tmp_7: JsString;
     let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: SmeltUnion3| {
-    let _smelt_tmp_1: bool = match &closure_arg_0 { SmeltUnion3::M0(smelt_union_arm) => smelt_union_arm.kind.clone(), SmeltUnion3::M1(smelt_union_arm) => smelt_union_arm.kind.clone() }.clone() == "raw".to_owned();
+    let _smelt_tmp_1: bool = match &closure_arg_0 { SmeltUnion3::M0(smelt_union_arm) => smelt_union_arm.kind.clone(), SmeltUnion3::M1(smelt_union_arm) => smelt_union_arm.kind.clone() }.clone() == JsString::from("raw");
     _smelt_tmp_1
     });
     let local_is_raw = _smelt_tmp_2.clone();
     let _smelt_tmp_3: bool = (local_is_raw)(request.clone());
     if _smelt_tmp_3 {
     _smelt_tmp_4 = match request.clone() { SmeltUnion3::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_5 = "l-raw ".to_owned() + &smelt_number_to_string(_smelt_tmp_4.raw);
+    _smelt_tmp_5 = JsString::from("l-raw ") + &smelt_number_to_string(_smelt_tmp_4.raw);
     return _smelt_tmp_5;
     } else {
     _smelt_tmp_6 = match request.clone() { SmeltUnion3::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_7 = "l-req ".to_owned() + &_smelt_tmp_6.url.clone();
+    _smelt_tmp_7 = JsString::from("l-req ") + &_smelt_tmp_6.url.clone();
     return _smelt_tmp_7;
     }
 }
 
 pub(crate) fn assert_raw(r: SmeltUnion3) -> Result<(), Box<dyn std::error::Error>> {
-    let _smelt_tmp_1: bool = match &r { SmeltUnion3::M0(smelt_union_arm) => smelt_union_arm.kind.clone(), SmeltUnion3::M1(smelt_union_arm) => smelt_union_arm.kind.clone() }.clone() != "raw".to_owned();
+    let _smelt_tmp_1: bool = match &r { SmeltUnion3::M0(smelt_union_arm) => smelt_union_arm.kind.clone(), SmeltUnion3::M1(smelt_union_arm) => smelt_union_arm.kind.clone() }.clone() != JsString::from("raw");
     if _smelt_tmp_1 {
-    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([("__smelt_error".to_owned(), SmeltUnknown::String("Error".into())), ("message".to_owned(), SmeltUnknown::String("not raw".into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])).clone()))));
+    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String("not raw".into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
     } else {
     return Ok(());
     }
@@ -4096,6 +4099,6 @@ pub(crate) fn asserted(request: SmeltUnion3) -> Result<f64, Box<dyn std::error::
 }
 
 pub(crate) fn is_req__module_main(r: SmeltUnion3) -> bool {
-    let _smelt_tmp_1: bool = match &r { SmeltUnion3::M0(smelt_union_arm) => smelt_union_arm.kind.clone(), SmeltUnion3::M1(smelt_union_arm) => smelt_union_arm.kind.clone() }.clone() == "req".to_owned();
+    let _smelt_tmp_1: bool = match &r { SmeltUnion3::M0(smelt_union_arm) => smelt_union_arm.kind.clone(), SmeltUnion3::M1(smelt_union_arm) => smelt_union_arm.kind.clone() }.clone() == JsString::from("req");
     return _smelt_tmp_1;
 }

@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3697,10 +3700,10 @@ impl SmeltFromUnknown for Holder {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let holder: Holder;
     let _smelt_tmp_8: f64;
-    let _smelt_tmp_10: String;
-    let _smelt_tmp_12: String;
-    let _smelt_tmp_13: String;
-    let _smelt_tmp_14: String;
+    let _smelt_tmp_10: JsString;
+    let _smelt_tmp_12: JsString;
+    let _smelt_tmp_13: JsString;
+    let _smelt_tmp_14: JsString;
     let match_result: SmeltUnknown = SmeltUnknown::Symbol("Symbol()@813".to_owned().into());
     let described: SmeltUnknown = SmeltUnknown::Symbol("Symbol(described)@841".to_owned().into());
     let shared: SmeltUnknown = SmeltUnknown::Symbol("Symbol.for(shared)".to_owned().into());
@@ -3717,7 +3720,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_13 = match ({ let smelt_function_value = ({ let smelt_receiver = holder.clone(); let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::String((smelt_receiver.__smelt_symbol_unique_same_at_945()).into()))); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Holder::__smelt_symbol_unique_same_at_945")); SmeltUnknown::Function(smelt_method) }.clone()); let smelt_call_args: Vec<SmeltUnknown> = Into::into(vec![]); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(smelt_call_args).unwrap_or_else(|error| smelt_panic_throw(error)) } else { smelt_value_not_callable() } }).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() };
     _smelt_tmp_14 = _smelt_tmp_12 + &_smelt_tmp_13;
     let _ = { println!("{}", _smelt_tmp_14); };
-    let _smelt_tmp_16: String = holder.plain();
+    let _smelt_tmp_16: JsString = holder.plain();
     let _ = { println!("{}", _smelt_tmp_16); };
     return Ok(());
 }
@@ -3734,17 +3737,17 @@ impl Holder {
     let _smelt_tmp_2: f64 = 1.0 + offset;
     return _smelt_tmp_2;
     }
-    fn __smelt_symbol_for_shared(&self) -> String {
-    return "registry".to_owned();
+    fn __smelt_symbol_for_shared(&self) -> JsString {
+    return JsString::from("registry");
     }
-    fn __smelt_symbol_unique_same_at_914(&self) -> String {
-    return "a".to_owned();
+    fn __smelt_symbol_unique_same_at_914(&self) -> JsString {
+    return JsString::from("a");
     }
-    fn __smelt_symbol_unique_same_at_945(&self) -> String {
-    return "b".to_owned();
+    fn __smelt_symbol_unique_same_at_945(&self) -> JsString {
+    return JsString::from("b");
     }
-    fn plain(&self) -> String {
-    return "plain".to_owned();
+    fn plain(&self) -> JsString {
+    return JsString::from("plain");
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
     ///

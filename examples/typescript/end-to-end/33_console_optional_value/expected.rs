@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3681,23 +3684,23 @@ impl SmeltFromUnknown for SmeltMatch {
 
 // @smelt:prelude-end — generated program below
 fn main() {
-    let scores: SmeltJsMap<String, f64>;
-    let explicit: Option<String>;
+    let scores: SmeltJsMap<JsString, f64>;
+    let explicit: Option<JsString>;
     let _smelt_tmp_7: Option<f64>;
     let _smelt_tmp_9: Option<f64>;
-    let _smelt_tmp_2: Option<String> = label_of(Some("ada".to_owned()));
+    let _smelt_tmp_2: Option<JsString> = label_of(Some(JsString::from("ada")));
     let _ = { println!("{}", match &_smelt_tmp_2 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    let _smelt_tmp_4: Option<String> = label_of(None::<String>);
+    let _smelt_tmp_4: Option<JsString> = label_of(None::<JsString>);
     let _ = { println!("{}", match &_smelt_tmp_4 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    scores = SmeltJsMap::from([("a".to_owned(), 1.0)]);
-    _smelt_tmp_7 = scores.get(&"a".to_owned());
+    scores = SmeltJsMap::from([(JsString::from("a"), 1.0)]);
+    _smelt_tmp_7 = scores.get(&JsString::from("a"));
     let _ = { println!("{}", match &_smelt_tmp_7 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    _smelt_tmp_9 = scores.get(&"z".to_owned());
+    _smelt_tmp_9 = scores.get(&JsString::from("z"));
     let _ = { println!("{}", match &_smelt_tmp_9 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    explicit = Some("set".to_owned());
+    explicit = Some(JsString::from("set"));
     let _ = { println!("{}", match &explicit.clone() { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    let _smelt_tmp_12: Option<String> = label_of(Some("ada".to_owned()));
-    let _smelt_tmp_13: Option<String> = label_of(None::<String>);
+    let _smelt_tmp_12: Option<JsString> = label_of(Some(JsString::from("ada")));
+    let _smelt_tmp_13: Option<JsString> = label_of(None::<JsString>);
     let _ = { println!("{} {} {}", match &_smelt_tmp_12 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_13 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &explicit { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
     return;
 }
@@ -3709,6 +3712,6 @@ fn main() {
 
 use super::*;
 
-pub(crate) fn label_of(name: Option<String>) -> Option<String> {
+pub(crate) fn label_of(name: Option<JsString>) -> Option<JsString> {
     return name.clone();
 }

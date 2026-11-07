@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3706,7 +3709,7 @@ impl SmeltFromUnknown for Reply {
 
 #[derive(Clone)]
 pub enum SmeltUnion5 {
-    M0(String),
+    M0(JsString),
     M1(f64),
     M2(bool),
 }
@@ -3751,7 +3754,7 @@ impl Default for SmeltUnion5 {
 
 #[derive(Clone)]
 pub enum SmeltUnion7 {
-    M0(String),
+    M0(JsString),
     M1(bool),
 }
 impl IntoSmeltUnknown for SmeltUnion7 {
@@ -3795,11 +3798,11 @@ fn main() {
     let reply: Reply;
     let _smelt_tmp_1: Reply = Reply::new(404.0);
     reply = _smelt_tmp_1;
-    let _smelt_tmp_2: String = reply.describe();
+    let _smelt_tmp_2: JsString = reply.describe();
     let _ = { println!("{}", _smelt_tmp_2); };
-    let _smelt_tmp_4: String = render(SmeltUnion7::M0("hi".to_owned()));
+    let _smelt_tmp_4: JsString = render(SmeltUnion7::M0(JsString::from("hi")));
     let _ = { println!("{}", _smelt_tmp_4); };
-    let _smelt_tmp_6: String = render(SmeltUnion7::M1(true));
+    let _smelt_tmp_6: JsString = render(SmeltUnion7::M1(true));
     let _ = { println!("{}", _smelt_tmp_6); };
     return;
 }
@@ -3810,9 +3813,9 @@ impl Reply {
     this.status = status;
     return this;
     }
-    fn describe(&self) -> String {
+    fn describe(&self) -> JsString {
     let _smelt_tmp_1: f64 = self.status + 1.0;
-    let _smelt_tmp_2: String = "status=".to_owned() + &smelt_number_to_string(_smelt_tmp_1);
+    let _smelt_tmp_2: JsString = JsString::from("status=") + &smelt_number_to_string(_smelt_tmp_1);
     return _smelt_tmp_2;
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
@@ -3835,19 +3838,19 @@ impl Reply {
 
 use super::*;
 
-pub(crate) fn render(value: SmeltUnion7) -> String {
-    let _smelt_tmp_2: String;
-    let _smelt_tmp_3: String;
+pub(crate) fn render(value: SmeltUnion7) -> JsString {
+    let _smelt_tmp_2: JsString;
+    let _smelt_tmp_3: JsString;
     let _smelt_tmp_4: bool;
-    let _smelt_tmp_5: String;
+    let _smelt_tmp_5: JsString;
     let _smelt_tmp_1: bool = matches!(value.clone(), SmeltUnion7::M0(_));
     if _smelt_tmp_1 {
     _smelt_tmp_2 = match value.clone() { SmeltUnion7::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_3 = "s:".to_owned() + &_smelt_tmp_2;
+    _smelt_tmp_3 = JsString::from("s:") + &_smelt_tmp_2;
     return _smelt_tmp_3;
     } else {
     _smelt_tmp_4 = match value.clone() { SmeltUnion7::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_5 = "b:".to_owned() + &_smelt_tmp_4.to_string();
+    _smelt_tmp_5 = JsString::from("b:") + &_smelt_tmp_4.to_string();
     return _smelt_tmp_5;
     }
 }

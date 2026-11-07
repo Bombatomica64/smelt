@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -4236,11 +4239,11 @@ fn main() {
     _smelt_tmp_1.clone()
     });
     let make = _smelt_tmp_1.clone();
-    let _smelt_tmp_2: String = describe(SmeltUnion4::M1(make.clone()));
+    let _smelt_tmp_2: JsString = describe(SmeltUnion4::M1(make.clone()));
     let _ = { println!("{}", _smelt_tmp_2); };
-    let _smelt_tmp_4: String = describe(SmeltUnion4::M0(true));
+    let _smelt_tmp_4: JsString = describe(SmeltUnion4::M0(true));
     let _ = { println!("{}", _smelt_tmp_4); };
-    let _smelt_tmp_6: String = label(SmeltUnion4::M1(make));
+    let _smelt_tmp_6: JsString = label(SmeltUnion4::M1(make));
     let _ = { println!("{}", _smelt_tmp_6); };
     return;
 }
@@ -4252,29 +4255,29 @@ fn main() {
 
 use super::*;
 
-pub(crate) fn describe(maker: SmeltUnion4) -> String {
+pub(crate) fn describe(maker: SmeltUnion4) -> JsString {
     let buffer: SmeltArrayBuffer;
     let _smelt_tmp_3: ::std::rc::Rc<dyn Fn(f64) -> SmeltArrayBuffer>;
     let _smelt_tmp_5: f64;
-    let _smelt_tmp_6: String;
+    let _smelt_tmp_6: JsString;
     let _smelt_tmp_7: bool;
-    let _smelt_tmp_8: String;
+    let _smelt_tmp_8: JsString;
     let _smelt_tmp_2: bool = matches!(maker.clone(), SmeltUnion4::M1(_));
     if _smelt_tmp_2 {
     _smelt_tmp_3 = (match maker.clone() { SmeltUnion4::M1(value) => value, _ => unreachable!("union guard selected an excluded member") }).clone();
     buffer = (_smelt_tmp_3)(4.0);
     _smelt_tmp_5 = buffer.byte_length();
-    _smelt_tmp_6 = "bytes=".to_owned() + &smelt_number_to_string(_smelt_tmp_5);
+    _smelt_tmp_6 = JsString::from("bytes=") + &smelt_number_to_string(_smelt_tmp_5);
     return _smelt_tmp_6;
     } else {
     _smelt_tmp_7 = match maker.clone() { SmeltUnion4::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_8 = "flag=".to_owned() + &_smelt_tmp_7.to_string();
+    _smelt_tmp_8 = JsString::from("flag=") + &_smelt_tmp_7.to_string();
     return _smelt_tmp_8;
     }
 }
 
-pub(crate) fn label(maker: SmeltUnion4) -> String {
-    let _smelt_tmp_1: String = match &maker { SmeltUnion4::M0(_) => "boolean", SmeltUnion4::M1(_) => "function" }.to_owned();
-    let _smelt_tmp_2: String = "".to_owned() + &_smelt_tmp_1;
+pub(crate) fn label(maker: SmeltUnion4) -> JsString {
+    let _smelt_tmp_1: JsString = match &maker { SmeltUnion4::M0(_) => "boolean", SmeltUnion4::M1(_) => "function" }.to_owned();
+    let _smelt_tmp_2: JsString = JsString::new() + &_smelt_tmp_1;
     return _smelt_tmp_2;
 }

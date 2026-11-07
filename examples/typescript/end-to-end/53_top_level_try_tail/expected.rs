@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3922,35 +3925,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 let smelt_local = tokio::task::LocalSet::new();
 smelt_local.block_on(&smelt_runtime, async move {
-    let after: String;
-    let mut thrown: String;
-    let last: String;
-    let mut nested: String;
-    let mut final_: String;
+    let after: JsString;
+    let mut thrown: JsString;
+    let last: JsString;
+    let mut nested: JsString;
+    let mut final_: JsString;
     let _smelt_tmp_12: f64;
     let _smelt_tmp_13: f64;
     let _smelt_tmp_14: f64;
     let _smelt_tmp_21: f64;
-    let _smelt_tmp_25: String;
-    let _smelt_tmp_28: String;
+    let _smelt_tmp_25: JsString;
+    let _smelt_tmp_28: JsString;
     let _smelt_tmp_34: ();
-    let mut outcome: String = "not run".to_owned();
+    let mut outcome: JsString = JsString::from("not run");
     match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| work(false))) {
         Ok(__smelt_value) => {
             let _smelt_tmp_6 = __smelt_value;
     match _smelt_tmp_6.await {
         Ok(__smelt_value) => {
-            let _smelt_tmp_7: String = __smelt_value;
+            let _smelt_tmp_7: JsString = __smelt_value;
     outcome = _smelt_tmp_7;
         }
         Err(__smelt_error) => {
-    outcome = "caught".to_owned();
+    outcome = JsString::from("caught");
         }
     }
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
-    outcome = "caught".to_owned();
+    outcome = JsString::from("caught");
         }
     }
     let _ = { println!("{}", outcome.clone()); };
@@ -3961,23 +3964,23 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_13 = smelt_utf16_len(&outcome) as f64;
     _smelt_tmp_14 = _smelt_tmp_12 + _smelt_tmp_13;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_14)); };
-    thrown = "not run".to_owned();
+    thrown = JsString::from("not run");
     match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| work(true))) {
         Ok(__smelt_value) => {
             let _smelt_tmp_16 = __smelt_value;
     match _smelt_tmp_16.await {
         Ok(__smelt_value) => {
-            let _smelt_tmp_17: String = __smelt_value;
+            let _smelt_tmp_17: JsString = __smelt_value;
     thrown = _smelt_tmp_17;
         }
         Err(__smelt_error) => {
-    thrown = "caught".to_owned();
+    thrown = JsString::from("caught");
         }
     }
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
-    thrown = "caught".to_owned();
+    thrown = JsString::from("caught");
         }
     }
     let _ = { println!("{}", thrown.clone()); };
@@ -3985,63 +3988,63 @@ smelt_local.block_on(&smelt_runtime, async move {
     last = _smelt_tmp_19.await?;
     _smelt_tmp_21 = smelt_utf16_len(&thrown) as f64;
     let _ = { println!("{} {}", last, smelt_console_number(_smelt_tmp_21)); };
-    nested = "not run".to_owned();
+    nested = JsString::from("not run");
     match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| work(true))) {
         Ok(__smelt_value) => {
             let _smelt_tmp_23 = __smelt_value;
     match _smelt_tmp_23.await {
         Ok(__smelt_value) => {
-            let _smelt_tmp_24: String = __smelt_value;
+            let _smelt_tmp_24: JsString = __smelt_value;
     nested = _smelt_tmp_24;
         }
         Err(__smelt_error) => {
-    nested = "inner".to_owned();
+    nested = JsString::from("inner");
         }
     }
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
-    nested = "inner".to_owned();
+    nested = JsString::from("inner");
         }
     }
-    _smelt_tmp_25 = nested + &"|".to_owned();
+    _smelt_tmp_25 = nested + &JsString::from("|");
     match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| work(false))) {
         Ok(__smelt_value) => {
             let _smelt_tmp_26 = __smelt_value;
     match _smelt_tmp_26.await {
         Ok(__smelt_value) => {
-            let _smelt_tmp_27: String = __smelt_value;
+            let _smelt_tmp_27: JsString = __smelt_value;
     _smelt_tmp_28 = _smelt_tmp_25 + &_smelt_tmp_27;
     nested = _smelt_tmp_28;
         }
         Err(__smelt_error) => {
-    nested = "outer".to_owned();
+    nested = JsString::from("outer");
         }
     }
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
-    nested = "outer".to_owned();
+    nested = JsString::from("outer");
         }
     }
     let _ = { println!("{}", nested); };
-    final_ = "not run".to_owned();
+    final_ = JsString::from("not run");
     match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| work(true))) {
         Ok(__smelt_value) => {
             let _smelt_tmp_30 = __smelt_value;
     match _smelt_tmp_30.await {
         Ok(__smelt_value) => {
-            let _smelt_tmp_31: String = __smelt_value;
+            let _smelt_tmp_31: JsString = __smelt_value;
     final_ = _smelt_tmp_31;
         }
         Err(__smelt_error) => {
-    final_ = "last caught".to_owned();
+    final_ = JsString::from("last caught");
         }
     }
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
-    final_ = "last caught".to_owned();
+    final_ = JsString::from("last caught");
         }
     }
     let _ = { println!("{}", final_); };
@@ -4058,10 +4061,10 @@ smelt_local.block_on(&smelt_runtime, async move {
 
 use super::*;
 
-pub(crate) async fn work(flag: bool) -> Result<String, Box<dyn std::error::Error>> {
+pub(crate) async fn work(flag: bool) -> Result<JsString, Box<dyn std::error::Error>> {
     if flag {
-    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([("__smelt_error".to_owned(), SmeltUnknown::String("Error".into())), ("message".to_owned(), SmeltUnknown::String("rejected".into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])).clone()))));
+    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String("rejected".into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
     } else {
-    return Ok("resolved".to_owned());
+    return Ok(JsString::from("resolved"));
     }
 }

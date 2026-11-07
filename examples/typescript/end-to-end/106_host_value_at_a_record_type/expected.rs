@@ -71,6 +71,9 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
@@ -376,22 +379,22 @@ impl SmeltResponse {
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Init {
     status: Option<f64>,
-    status_text: Option<String>,
+    status_text: Option<JsString>,
     ok: Option<bool>,
-    label: Option<String>,
+    label: Option<JsString>,
 }
 fn main() {
     let _smelt_tmp_10: Init;
-    let created: SmeltResponse = SmeltResponse::from_parts(201.0, "Created".to_owned(), SmeltHeaders::new(), SmeltBody::from_text(&"hi".to_owned()));
-    let failed: SmeltResponse = SmeltResponse::from_parts(500.0, "Boom".to_owned(), SmeltHeaders::new(), SmeltBody::from_text(&"no".to_owned()));
-    let _smelt_tmp_4: String = describe({ let smelt_host_value = created; Init { status: Some(smelt_host_value.status()), status_text: Some(smelt_host_value.status_text()), ok: Some(smelt_host_value.ok()), label: None } });
+    let created: SmeltResponse = SmeltResponse::from_parts(201.0, JsString::from("Created"), SmeltHeaders::new(), SmeltBody::from_text(&JsString::from("hi")));
+    let failed: SmeltResponse = SmeltResponse::from_parts(500.0, JsString::from("Boom"), SmeltHeaders::new(), SmeltBody::from_text(&JsString::from("no")));
+    let _smelt_tmp_4: JsString = describe({ let smelt_host_value = created; Init { status: Some(smelt_host_value.status()), status_text: Some(smelt_host_value.status_text()), ok: Some(smelt_host_value.ok()), label: None } });
     let _ = { println!("{}", _smelt_tmp_4); };
-    let _smelt_tmp_6: String = describe_maybe(Some({ let smelt_host_value = failed; Init { status: Some(smelt_host_value.status()), status_text: Some(smelt_host_value.status_text()), ok: Some(smelt_host_value.ok()), label: None } }));
+    let _smelt_tmp_6: JsString = describe_maybe(Some({ let smelt_host_value = failed; Init { status: Some(smelt_host_value.status()), status_text: Some(smelt_host_value.status_text()), ok: Some(smelt_host_value.ok()), label: None } }));
     let _ = { println!("{}", _smelt_tmp_6); };
-    let _smelt_tmp_8: String = describe_maybe(None::<Init>);
+    let _smelt_tmp_8: JsString = describe_maybe(None::<Init>);
     let _ = { println!("{}", _smelt_tmp_8); };
-    _smelt_tmp_10 = Init { status: Some(7.0), status_text: None::<String>, ok: None::<bool>, label: Some("plain".to_owned()) };
-    let _smelt_tmp_11: String = describe(_smelt_tmp_10);
+    _smelt_tmp_10 = Init { status: Some(7.0), status_text: None::<JsString>, ok: None::<bool>, label: Some(JsString::from("plain")) };
+    let _smelt_tmp_11: JsString = describe(_smelt_tmp_10);
     let _ = { println!("{}", _smelt_tmp_11); };
     return;
 }
@@ -403,29 +406,29 @@ fn main() {
 
 use super::*;
 
-pub(crate) fn describe(init: Init) -> String {
+pub(crate) fn describe(init: Init) -> JsString {
     let _smelt_tmp_1: f64 = init.status.clone().unwrap_or(0.0);
-    let _smelt_tmp_2: String = "".to_owned() + &smelt_number_to_string(_smelt_tmp_1);
-    let _smelt_tmp_3: String = _smelt_tmp_2 + &"/".to_owned();
-    let _smelt_tmp_4: String = init.status_text.clone().unwrap_or("-".to_owned());
-    let _smelt_tmp_5: String = _smelt_tmp_3 + &_smelt_tmp_4;
-    let _smelt_tmp_6: String = _smelt_tmp_5 + &"/".to_owned();
+    let _smelt_tmp_2: JsString = JsString::new() + &smelt_number_to_string(_smelt_tmp_1);
+    let _smelt_tmp_3: JsString = _smelt_tmp_2 + &JsString::from("/");
+    let _smelt_tmp_4: JsString = init.status_text.clone().unwrap_or(JsString::from("-"));
+    let _smelt_tmp_5: JsString = _smelt_tmp_3 + &_smelt_tmp_4;
+    let _smelt_tmp_6: JsString = _smelt_tmp_5 + &JsString::from("/");
     let _smelt_tmp_7: bool = init.ok.clone().unwrap_or(false);
-    let _smelt_tmp_8: String = _smelt_tmp_6 + &_smelt_tmp_7.to_string();
-    let _smelt_tmp_9: String = _smelt_tmp_8 + &"/".to_owned();
-    let _smelt_tmp_10: String = init.label.clone().unwrap_or("none".to_owned());
-    let _smelt_tmp_11: String = _smelt_tmp_9 + &_smelt_tmp_10;
+    let _smelt_tmp_8: JsString = _smelt_tmp_6 + &_smelt_tmp_7.to_string();
+    let _smelt_tmp_9: JsString = _smelt_tmp_8 + &JsString::from("/");
+    let _smelt_tmp_10: JsString = init.label.clone().unwrap_or(JsString::from("none"));
+    let _smelt_tmp_11: JsString = _smelt_tmp_9 + &_smelt_tmp_10;
     return _smelt_tmp_11;
 }
 
-pub(crate) fn describe_maybe(init: Option<Init>) -> String {
+pub(crate) fn describe_maybe(init: Option<Init>) -> JsString {
     let _smelt_tmp_2: Init;
     let _smelt_tmp_1: bool = init.clone().is_none();
     if _smelt_tmp_1 {
-    return "absent".to_owned();
+    return JsString::from("absent");
     } else {
     _smelt_tmp_2 = init.clone().expect("optional value was absent after narrowing");
-    let _smelt_tmp_3: String = describe(_smelt_tmp_2);
+    let _smelt_tmp_3: JsString = describe(_smelt_tmp_2);
     return _smelt_tmp_3;
     }
 }

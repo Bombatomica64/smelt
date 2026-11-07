@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -4030,7 +4033,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 let smelt_local = tokio::task::LocalSet::new();
 smelt_local.block_on(&smelt_runtime, async move {
-    let _smelt_tmp_1: String;
+    let _smelt_tmp_1: JsString;
     let _smelt_tmp_4: ();
     let _smelt_tmp_0 = SmeltFuture::from_future(Box::pin(run()));
     _smelt_tmp_1 = _smelt_tmp_0.await?;
@@ -4082,16 +4085,16 @@ pub(crate) fn pick_number(sync: bool) -> SmeltUnion7 {
     return _smelt_tmp_1;
 }
 
-pub(crate) async fn run() -> Result<String, Box<dyn std::error::Error>> {
+pub(crate) async fn run() -> Result<JsString, Box<dyn std::error::Error>> {
     let direct: Cell;
     let deferred: Cell;
     let direct_number: f64;
     let deferred_number: f64;
     let _smelt_tmp_16: f64;
-    let _smelt_tmp_17: String;
-    let _smelt_tmp_18: String;
+    let _smelt_tmp_17: JsString;
+    let _smelt_tmp_18: JsString;
     let _smelt_tmp_19: f64;
-    let _smelt_tmp_20: String;
+    let _smelt_tmp_20: JsString;
     let _smelt_tmp_4: SmeltUnion4 = pick(true);
     let _smelt_tmp_5: SmeltFuture<Cell> = match _smelt_tmp_4 { SmeltUnion4::M0(value) => SmeltFuture::<Cell>::resolved(value), SmeltUnion4::M1(value) => value };
     direct = _smelt_tmp_5.await?;
@@ -4105,8 +4108,8 @@ pub(crate) async fn run() -> Result<String, Box<dyn std::error::Error>> {
     let _smelt_tmp_14: SmeltFuture<f64> = match _smelt_tmp_13 { SmeltUnion7::M0(value) => SmeltFuture::<f64>::resolved(value), SmeltUnion7::M1(value) => value };
     deferred_number = _smelt_tmp_14.await?;
     _smelt_tmp_16 = direct.value + deferred.value;
-    _smelt_tmp_17 = "".to_owned() + &smelt_number_to_string(_smelt_tmp_16);
-    _smelt_tmp_18 = _smelt_tmp_17 + &"/".to_owned();
+    _smelt_tmp_17 = JsString::new() + &smelt_number_to_string(_smelt_tmp_16);
+    _smelt_tmp_18 = _smelt_tmp_17 + &JsString::from("/");
     _smelt_tmp_19 = direct_number + deferred_number;
     _smelt_tmp_20 = _smelt_tmp_18 + &smelt_number_to_string(_smelt_tmp_19);
     return Ok(_smelt_tmp_20);

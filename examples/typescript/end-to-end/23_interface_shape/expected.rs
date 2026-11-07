@@ -66,28 +66,31 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 // @smelt:prelude-end — generated program below
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Named {
-    name: String,
+    name: JsString,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct User {
-    name: String,
+    name: JsString,
 }
 
 fn main() {
     let user: User;
-    let _smelt_tmp_1: User = User::new("Ada".to_owned());
+    let _smelt_tmp_1: User = User::new(JsString::from("Ada"));
     user = _smelt_tmp_1;
     let _ = { println!("{}", user.name.clone()); };
     return;
 }
 
 impl User {
-    fn new(name: String) -> Self {
+    fn new(name: JsString) -> Self {
     let mut this: Self = User { name: String::new() };
     this.name = name.clone();
     return this;

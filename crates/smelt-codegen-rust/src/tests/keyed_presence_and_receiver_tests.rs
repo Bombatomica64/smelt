@@ -126,7 +126,7 @@ console.log(error.message);
 ",
     );
     assert!(
-        source.contains("fn new(message: Option<String>) -> Self"),
+        source.contains("fn new(message: Option<JsString>) -> Self"),
         "{source}"
     );
     assert!(!source.contains("_smelt_super_arg"), "{source}");
@@ -210,7 +210,7 @@ console.log(log.join(','));
         .split("\n}\n")
         .next()
         .unwrap_or_default();
-    let continuation = run.find("k.clone() == \"w\"").unwrap_or(0);
+    let continuation = run.find("k.clone() == JsString::from(\"w\")").unwrap_or(0);
     let first_if = run.find("if _smelt_tmp").unwrap_or(usize::MAX);
     assert!(
         first_if < continuation && !run[first_if..continuation].contains("} else {"),
@@ -437,7 +437,7 @@ export function ownValue(rec: Record<string, string>, key: string): unknown {
 ",
     );
     assert!(source.contains("contains_key(&key"), "{source}");
-    assert!(source.contains("\"configurable\".to_owned()"), "{source}");
+    assert!(source.contains("JsString::from(\"configurable\")"), "{source}");
     assert!(!program_part(&source).contains("\"getOwnPropertyDescriptor\""), "{source}");
 }
 

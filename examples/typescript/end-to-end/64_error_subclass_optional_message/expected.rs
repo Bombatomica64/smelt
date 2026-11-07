@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3746,7 +3749,7 @@ impl SmeltFromUnknown for SmeltMatch {
 
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 struct HTTPExceptionOptions {
-    message: Option<String>,
+    message: Option<JsString>,
 }
 impl IntoSmeltUnknown for HTTPExceptionOptions {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -3770,9 +3773,9 @@ impl SmeltFromUnknown for HTTPExceptionOptions {
 
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 struct HTTPException {
-    name: String,
-    message: String,
-    stack: Option<String>,
+    name: JsString,
+    message: JsString,
+    stack: Option<JsString>,
     cause: SmeltUnknown,
     status: f64,
 }
@@ -3813,9 +3816,9 @@ impl SmeltFromUnknown for HTTPException {
 
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 struct GatewayError {
-    name: String,
-    message: String,
-    stack: Option<String>,
+    name: JsString,
+    message: JsString,
+    stack: Option<JsString>,
     cause: SmeltUnknown,
     status: f64,
 }
@@ -3858,9 +3861,9 @@ fn main() {
     let described: HTTPException;
     let bare: HTTPException;
     let gateway: GatewayError;
-    let _smelt_tmp_7: String;
-    let _smelt_tmp_10: String;
-    let _smelt_tmp_3: HTTPExceptionOptions = HTTPExceptionOptions { message: Some("not found".to_owned()) };
+    let _smelt_tmp_7: JsString;
+    let _smelt_tmp_10: JsString;
+    let _smelt_tmp_3: HTTPExceptionOptions = HTTPExceptionOptions { message: Some(JsString::from("not found")) };
     let _smelt_tmp_4: HTTPException = HTTPException::new(404.0, Some(_smelt_tmp_3));
     described = _smelt_tmp_4;
     let _ = { println!("{} {} {}", smelt_console_number(described.status), described.message.clone(), described.name.clone()); };
@@ -3877,12 +3880,12 @@ fn main() {
 
 impl HTTPException {
     fn new(status: f64, options: Option<HTTPExceptionOptions>) -> Self {
-    let mut this: Self = HTTPException { name: String::new(), message: String::new(), stack: None::<String>, cause: SmeltUnknown::Null, status: 0.0 };
-    this.name = "Error".to_owned();
-    let _smelt_tmp_3: Option<String> = options.clone().as_ref().and_then(|_smelt_value| _smelt_value.message.clone());
-    let _smelt_tmp_4: String = _smelt_tmp_3.clone().unwrap_or("".to_owned());
+    let mut this: Self = HTTPException { name: String::new(), message: String::new(), stack: None::<JsString>, cause: SmeltUnknown::Null, status: 0.0 };
+    this.name = JsString::from("Error");
+    let _smelt_tmp_3: Option<JsString> = options.clone().as_ref().and_then(|_smelt_value| _smelt_value.message.clone());
+    let _smelt_tmp_4: JsString = _smelt_tmp_3.clone().unwrap_or(JsString::new());
     this.message = _smelt_tmp_4;
-    this.stack = Some("".to_owned());
+    this.stack = Some(JsString::new());
     this.status = status;
     return this;
     }
@@ -3890,18 +3893,18 @@ impl HTTPException {
 
 impl GatewayError {
     fn new(options: Option<HTTPExceptionOptions>) -> Self {
-    let mut this: Self = GatewayError { name: String::new(), message: String::new(), stack: None::<String>, cause: SmeltUnknown::Null, status: 0.0 };
+    let mut this: Self = GatewayError { name: String::new(), message: String::new(), stack: None::<JsString>, cause: SmeltUnknown::Null, status: 0.0 };
     let _smelt_tmp_2: Self = Self::__smelt_init_HTTPException(this, 502.0, options.clone());
     this = _smelt_tmp_2;
     return this;
     }
     fn __smelt_init_HTTPException(smelt_receiver: Self, status: f64, options: Option<HTTPExceptionOptions>) -> Self {
     let mut this: Self = smelt_receiver;
-    this.name = "Error".to_owned();
-    let _smelt_tmp_3: Option<String> = options.clone().as_ref().and_then(|_smelt_value| _smelt_value.message.clone());
-    let _smelt_tmp_4: String = _smelt_tmp_3.clone().unwrap_or("".to_owned());
+    this.name = JsString::from("Error");
+    let _smelt_tmp_3: Option<JsString> = options.clone().as_ref().and_then(|_smelt_value| _smelt_value.message.clone());
+    let _smelt_tmp_4: JsString = _smelt_tmp_3.clone().unwrap_or(JsString::new());
     this.message = _smelt_tmp_4;
-    this.stack = Some("".to_owned());
+    this.stack = Some(JsString::new());
     this.status = status;
     return this;
     }

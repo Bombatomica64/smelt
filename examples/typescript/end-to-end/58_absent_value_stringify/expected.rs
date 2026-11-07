@@ -71,45 +71,48 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 // @smelt:prelude-end — generated program below
 fn main() {
-    let present_text: Option<String>;
+    let present_text: Option<JsString>;
     let missing_count: Option<f64>;
     let present_count: Option<f64>;
     let nothing: ();
-    let _smelt_tmp_7: String;
-    let _smelt_tmp_9: String;
-    let _smelt_tmp_11: String;
-    let _smelt_tmp_13: String;
-    let _smelt_tmp_15: String;
-    let _smelt_tmp_17: String;
-    let _smelt_tmp_19: String;
-    let _smelt_tmp_20: String;
-    let missing_text: Option<String> = None::<String>;
-    let _smelt_tmp_5: String = missing_text.clone().map_or_else(|| "undefined".to_owned(), |value| value.to_string());
+    let _smelt_tmp_7: JsString;
+    let _smelt_tmp_9: JsString;
+    let _smelt_tmp_11: JsString;
+    let _smelt_tmp_13: JsString;
+    let _smelt_tmp_15: JsString;
+    let _smelt_tmp_17: JsString;
+    let _smelt_tmp_19: JsString;
+    let _smelt_tmp_20: JsString;
+    let missing_text: Option<JsString> = None::<JsString>;
+    let _smelt_tmp_5: JsString = missing_text.clone().map_or_else(|| "undefined".to_owned(), |value| value.to_string());
     let _ = { println!("{}", _smelt_tmp_5); };
-    _smelt_tmp_7 = "".to_owned() + &missing_text.unwrap_or_else(|| "undefined".to_owned());
+    _smelt_tmp_7 = JsString::new() + &missing_text.unwrap_or_else(|| "undefined".to_owned());
     let _ = { println!("{}", _smelt_tmp_7); };
-    present_text = Some("here".to_owned());
+    present_text = Some(JsString::from("here"));
     _smelt_tmp_9 = present_text.clone().map_or_else(|| "undefined".to_owned(), |value| value.to_string());
     let _ = { println!("{}", _smelt_tmp_9); };
-    _smelt_tmp_11 = "".to_owned() + &present_text.unwrap_or_else(|| "undefined".to_owned());
+    _smelt_tmp_11 = JsString::new() + &present_text.unwrap_or_else(|| "undefined".to_owned());
     let _ = { println!("{}", _smelt_tmp_11); };
     missing_count = None::<f64>;
-    _smelt_tmp_13 = "count=".to_owned() + &missing_count.map_or_else(|| "undefined".to_owned(), |value| value.to_string());
+    _smelt_tmp_13 = JsString::from("count=") + &missing_count.map_or_else(|| "undefined".to_owned(), |value| value.to_string());
     let _ = { println!("{}", _smelt_tmp_13); };
     present_count = Some(3.0);
-    _smelt_tmp_15 = "count=".to_owned() + &present_count.map_or_else(|| "undefined".to_owned(), |value| value.to_string());
+    _smelt_tmp_15 = JsString::from("count=") + &present_count.map_or_else(|| "undefined".to_owned(), |value| value.to_string());
     let _ = { println!("{}", _smelt_tmp_15); };
     nothing = ();
-    _smelt_tmp_17 = "".to_owned() + &"null".to_owned();
+    _smelt_tmp_17 = JsString::new() + &"null".to_owned();
     let _ = { println!("{}", _smelt_tmp_17); };
-    _smelt_tmp_19 = "".to_owned() + &"null".to_owned();
-    _smelt_tmp_20 = "x".to_owned() + &_smelt_tmp_19;
+    _smelt_tmp_19 = JsString::new() + &"null".to_owned();
+    _smelt_tmp_20 = JsString::from("x") + &_smelt_tmp_19;
     let _ = { println!("{}", _smelt_tmp_20); };
-    let _smelt_tmp_22: String = label("p:".to_owned(), Some("v".to_owned()));
+    let _smelt_tmp_22: JsString = label(JsString::from("p:"), Some(JsString::from("v")));
     let _ = { println!("{}", _smelt_tmp_22); };
-    let _smelt_tmp_24: String = label("p:".to_owned(), None::<String>);
+    let _smelt_tmp_24: JsString = label(JsString::from("p:"), None::<JsString>);
     let _ = { println!("{}", _smelt_tmp_24); };
     return;
 }
@@ -121,7 +124,7 @@ fn main() {
 
 use super::*;
 
-pub(crate) fn label(prefix: String, value: Option<String>) -> String {
-    let _smelt_tmp_2: String = prefix.clone() + &value.clone().unwrap_or_else(|| "undefined".to_owned());
+pub(crate) fn label(prefix: JsString, value: Option<JsString>) -> JsString {
+    let _smelt_tmp_2: JsString = prefix.clone() + &value.clone().unwrap_or_else(|| "undefined".to_owned());
     return _smelt_tmp_2;
 }

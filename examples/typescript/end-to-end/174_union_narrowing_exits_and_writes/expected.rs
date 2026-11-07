@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -4062,7 +4065,7 @@ impl SmeltFromUnknown for Square {
 pub enum SmeltUnion4 {
     M0(Circle),
     M1(Square),
-    M2(String),
+    M2(JsString),
 }
 impl IntoSmeltUnknown for SmeltUnion4 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -4148,7 +4151,7 @@ impl Default for SmeltUnion6 {
 #[derive(Clone)]
 pub enum SmeltUnion10 {
     M0(f64),
-    M1(String),
+    M1(JsString),
     M2(SmeltUrl),
 }
 impl IntoSmeltUnknown for SmeltUnion10 {
@@ -4193,7 +4196,7 @@ impl Default for SmeltUnion10 {
 #[derive(Clone)]
 pub enum SmeltUnion15 {
     M0(Square),
-    M1(String),
+    M1(JsString),
 }
 impl IntoSmeltUnknown for SmeltUnion15 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -4235,7 +4238,7 @@ impl Default for SmeltUnion15 {
 #[derive(Clone)]
 pub enum SmeltUnion17 {
     M0(f64),
-    M1(String),
+    M1(JsString),
 }
 impl IntoSmeltUnknown for SmeltUnion17 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -4276,10 +4279,10 @@ impl Default for SmeltUnion17 {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_0: Circle = Circle::new(2.0);
-    let _smelt_tmp_1: String = describe(SmeltUnion4::M0(_smelt_tmp_0));
+    let _smelt_tmp_1: JsString = describe(SmeltUnion4::M0(_smelt_tmp_0));
     let _smelt_tmp_2: Square = Square::new(3.0);
-    let _smelt_tmp_3: String = describe(SmeltUnion4::M1(_smelt_tmp_2));
-    let _smelt_tmp_4: String = describe(SmeltUnion4::M2("hex".to_owned()));
+    let _smelt_tmp_3: JsString = describe(SmeltUnion4::M1(_smelt_tmp_2));
+    let _smelt_tmp_4: JsString = describe(SmeltUnion4::M2(JsString::from("hex")));
     let _ = { println!("{} {} {}", _smelt_tmp_1, _smelt_tmp_3, _smelt_tmp_4); };
     let _smelt_tmp_6: Circle = Circle::new(1.0);
     let _smelt_tmp_7: f64 = area(Some(SmeltUnion6::M0(_smelt_tmp_6)));
@@ -4287,13 +4290,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_9: f64 = area(Some(SmeltUnion6::M1(_smelt_tmp_8)));
     let _smelt_tmp_10: f64 = area(None::<SmeltUnion6>);
     let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_7), smelt_console_number(_smelt_tmp_9), smelt_console_number(_smelt_tmp_10)); };
-    let _smelt_tmp_12: String = normalize(SmeltUnion10::M0(5.0));
-    let _smelt_tmp_13: String = normalize(SmeltUnion10::M1("42".to_owned()));
-    let _smelt_tmp_14: SmeltUrl = smelt_url_new_throwing("https://a.test/p?q=1".to_owned().as_str(), None)?;
-    let _smelt_tmp_15: String = normalize(SmeltUnion10::M2(_smelt_tmp_14));
+    let _smelt_tmp_12: JsString = normalize(SmeltUnion10::M0(5.0));
+    let _smelt_tmp_13: JsString = normalize(SmeltUnion10::M1(JsString::from("42")));
+    let _smelt_tmp_14: SmeltUrl = smelt_url_new_throwing(JsString::from("https://a.test/p?q=1").as_str(), None)?;
+    let _smelt_tmp_15: JsString = normalize(SmeltUnion10::M2(_smelt_tmp_14));
     let _ = { println!("{} {} {}", _smelt_tmp_12, _smelt_tmp_13, _smelt_tmp_15); };
-    let _smelt_tmp_17: String = widen(true);
-    let _smelt_tmp_18: String = widen(false);
+    let _smelt_tmp_17: JsString = widen(true);
+    let _smelt_tmp_18: JsString = widen(false);
     let _ = { println!("{} {}", _smelt_tmp_17, _smelt_tmp_18); };
     return Ok(());
 }
@@ -4321,32 +4324,32 @@ impl Square {
 
 use super::*;
 
-pub(crate) fn describe(shape: SmeltUnion4) -> String {
+pub(crate) fn describe(shape: SmeltUnion4) -> JsString {
     let _smelt_tmp_2: Circle;
-    let _smelt_tmp_3: String;
+    let _smelt_tmp_3: JsString;
     let _smelt_tmp_4: SmeltUnion15;
     let _smelt_tmp_5: bool;
     let _smelt_tmp_6: Square;
-    let _smelt_tmp_7: String;
-    let _smelt_tmp_8: String;
-    let _smelt_tmp_9: String;
-    let _smelt_tmp_10: String;
+    let _smelt_tmp_7: JsString;
+    let _smelt_tmp_8: JsString;
+    let _smelt_tmp_9: JsString;
+    let _smelt_tmp_10: JsString;
     let _smelt_tmp_1: bool = matches!(shape.clone(), SmeltUnion4::M0(_));
     if _smelt_tmp_1 {
     _smelt_tmp_2 = match shape.clone() { SmeltUnion4::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_3 = "circle ".to_owned() + &smelt_number_to_string(_smelt_tmp_2.radius);
+    _smelt_tmp_3 = JsString::from("circle ") + &smelt_number_to_string(_smelt_tmp_2.radius);
     return _smelt_tmp_3;
     } else {
     _smelt_tmp_4 = match shape.clone() { SmeltUnion4::M1(value) => SmeltUnion15::M0(value), SmeltUnion4::M2(value) => SmeltUnion15::M1(value), _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_5 = matches!(_smelt_tmp_4, SmeltUnion15::M0(_));
     if _smelt_tmp_5 {
     _smelt_tmp_6 = match shape.clone() { SmeltUnion4::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_7 = "square ".to_owned() + &smelt_number_to_string(_smelt_tmp_6.side);
+    _smelt_tmp_7 = JsString::from("square ") + &smelt_number_to_string(_smelt_tmp_6.side);
     return _smelt_tmp_7;
     } else {
     _smelt_tmp_8 = match shape.clone() { SmeltUnion4::M2(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_9 = _smelt_tmp_8.to_uppercase();
-    _smelt_tmp_10 = "named ".to_owned() + &_smelt_tmp_9;
+    _smelt_tmp_10 = JsString::from("named ") + &_smelt_tmp_9;
     return _smelt_tmp_10;
     }
     }
@@ -4392,55 +4395,55 @@ pub(crate) fn area(shape: Option<SmeltUnion6>) -> f64 {
     }
 }
 
-pub(crate) fn normalize(mut input: SmeltUnion10) -> String {
-    let mut _smelt_tmp_6: String;
-    let _smelt_tmp_7: String;
-    let _smelt_tmp_8: String;
-    let _smelt_tmp_9: String;
-    let _smelt_tmp_10: String;
-    let _smelt_tmp_1: String = match &input { SmeltUnion10::M0(smelt_union_arm) => smelt_number_to_string(*smelt_union_arm), SmeltUnion10::M1(smelt_union_arm) => smelt_union_arm.clone(), SmeltUnion10::M2(smelt_union_arm) => smelt_union_arm.href() };
+pub(crate) fn normalize(mut input: SmeltUnion10) -> JsString {
+    let mut _smelt_tmp_6: JsString;
+    let _smelt_tmp_7: JsString;
+    let _smelt_tmp_8: JsString;
+    let _smelt_tmp_9: JsString;
+    let _smelt_tmp_10: JsString;
+    let _smelt_tmp_1: JsString = match &input { SmeltUnion10::M0(smelt_union_arm) => smelt_number_to_string(*smelt_union_arm), SmeltUnion10::M1(smelt_union_arm) => smelt_union_arm.clone(), SmeltUnion10::M2(smelt_union_arm) => smelt_union_arm.href() };
     input = SmeltUnion10::M1(_smelt_tmp_1);
-    let _smelt_tmp_3: String = match input.clone() { SmeltUnion10::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    let _smelt_tmp_4: String = "http".to_owned();
+    let _smelt_tmp_3: JsString = match input.clone() { SmeltUnion10::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
+    let _smelt_tmp_4: JsString = JsString::from("http");
     let _smelt_tmp_5: bool = _smelt_tmp_3.starts_with(&_smelt_tmp_4);
-    let mut _smelt_tmp_6: String = String::new();
+    let mut _smelt_tmp_6: JsString = String::new();
     if _smelt_tmp_5 {
     _smelt_tmp_7 = match input.clone() { SmeltUnion10::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_6 = _smelt_tmp_7;
     } else {
     _smelt_tmp_8 = match input.clone() { SmeltUnion10::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_9 = { let value = &_smelt_tmp_8; let target_len = 3.0 as usize; let pad = &"0".to_owned(); let current_len = smelt_utf16_len(&value); if current_len >= target_len || pad.is_empty() { value.to_owned() } else { let needed = target_len - current_len; let padding: String = smelt_utf16_slice(&pad.repeat(needed.div_ceil(smelt_utf16_len(pad))), 0, needed); format!("{}{}", padding, value) } };
-    _smelt_tmp_10 = "#".to_owned() + &_smelt_tmp_9;
+    _smelt_tmp_9 = { let value = &_smelt_tmp_8; let target_len = 3.0 as usize; let pad = &JsString::from("0"); let current_len = smelt_utf16_len(&value); if current_len >= target_len || pad.is_empty() { value.to_owned() } else { let needed = target_len - current_len; let padding: String = smelt_utf16_slice(&pad.repeat(needed.div_ceil(smelt_utf16_len(pad))), 0, needed); format!("{}{}", padding, value) } };
+    _smelt_tmp_10 = JsString::from("#") + &_smelt_tmp_9;
     _smelt_tmp_6 = _smelt_tmp_10;
     }
     return _smelt_tmp_6;
 }
 
-pub(crate) fn widen(flag: bool) -> String {
-    let _smelt_tmp_2: String;
+pub(crate) fn widen(flag: bool) -> JsString {
+    let _smelt_tmp_2: JsString;
     let _smelt_tmp_3: f64;
     let _smelt_tmp_5: bool;
-    let mut _smelt_tmp_6: String;
-    let _smelt_tmp_7: String;
+    let mut _smelt_tmp_6: JsString;
+    let _smelt_tmp_7: JsString;
     let _smelt_tmp_8: f64;
     let _smelt_tmp_9: f64;
-    let _smelt_tmp_10: String;
+    let _smelt_tmp_10: JsString;
     let mut value: SmeltUnion17 = SmeltUnion17::M0(7.0);
     if flag {
-    value = SmeltUnion17::M1("seven".to_owned());
+    value = SmeltUnion17::M1(JsString::from("seven"));
     _smelt_tmp_2 = match value.clone() { SmeltUnion17::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_3 = smelt_utf16_len(&_smelt_tmp_2) as f64;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_3)); };
     }
     _smelt_tmp_5 = matches!(value.clone(), SmeltUnion17::M1(_));
-    let mut _smelt_tmp_6: String = String::new();
+    let mut _smelt_tmp_6: JsString = String::new();
     if _smelt_tmp_5 {
     _smelt_tmp_7 = match value { SmeltUnion17::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_6 = _smelt_tmp_7;
     } else {
     _smelt_tmp_8 = match value { SmeltUnion17::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_9 = _smelt_tmp_8 + 1.0;
-    _smelt_tmp_10 = "n=".to_owned() + &smelt_number_to_string(_smelt_tmp_9);
+    _smelt_tmp_10 = JsString::from("n=") + &smelt_number_to_string(_smelt_tmp_9);
     _smelt_tmp_6 = _smelt_tmp_10;
     }
     return _smelt_tmp_6;

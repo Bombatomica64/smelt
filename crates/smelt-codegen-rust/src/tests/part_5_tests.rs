@@ -215,7 +215,7 @@ describe("outer", () => {
         })
         .count();
     assert_eq!(person_structs, 2, "{source}");
-    assert!(source.contains("::new(\"jake\".to_owned())"), "{source}");
+    assert!(source.contains("::new(JsString::from(\"jake\"))"), "{source}");
     assert!(source.contains(".self_ ="), "{source}");
     assert!(source.contains(".friends ="), "{source}");
 }
@@ -593,14 +593,14 @@ const value = mapping.get("a");
     // string-keyed, so erasure can stamp the `__smelt_map` marker. `SmeltJsMap`
     // stores owned entries, so `get` returns `Option<V>` directly with no
     // `.cloned()`.
-    assert!(source.contains("SmeltJsMap<String, f64>"));
+    assert!(source.contains("SmeltJsMap<JsString, f64>"));
     assert!(source.contains("SmeltJsMap::from([]);"));
     assert!(source.contains(
-        "SmeltJsMap::from([(\"a\".to_owned(), 1.0), (\"b\".to_owned(), 2.0)])"
+        "SmeltJsMap::from([(JsString::from(\"a\"), 1.0), (JsString::from(\"b\"), 2.0)])"
     ));
-    assert!(source.contains(".contains_key(&\"a\".to_owned());"));
-    assert!(source.contains(".get(&\"a\".to_owned());"));
-    assert!(!source.contains(".get(&\"a\".to_owned()).cloned();"));
+    assert!(source.contains(".contains_key(&JsString::from(\"a\"));"));
+    assert!(source.contains(".get(&JsString::from(\"a\"));"));
+    assert!(!source.contains(".get(&JsString::from(\"a\")).cloned();"));
 }
 
 #[test]
@@ -614,8 +614,8 @@ mapping.clear();
 "#,
     );
 
-    assert!(source.contains(".insert(\"a\".to_owned(), 1.0);"));
-    assert!(source.contains(".remove(&\"a\".to_owned()).is_some();"));
+    assert!(source.contains(".insert(JsString::from(\"a\"), 1.0);"));
+    assert!(source.contains(".remove(&JsString::from(\"a\")).is_some();"));
     assert!(source.contains(".clear(); ()"));
     assert!(source.contains(".clone()"));
 }
@@ -790,7 +790,7 @@ const patterns = { separator: /[T ]/i };
     );
 
     assert!(
-        source.contains("SmeltRegExp::new(\"[T ]\".to_owned(), \"i\".to_owned())"),
+        source.contains("SmeltRegExp::new(JsString::from(\"[T ]\"), JsString::from(\"i\"))"),
         "{source}"
     );
     assert!(source.contains(".split_string(&"), "{source}");
@@ -808,8 +808,8 @@ const numberJoined = numbers.join("-");
 "#,
     );
 
-    assert!(source.contains(".join(&\"-\".to_owned());"));
-    assert!(source.contains(".join(&\",\".to_owned());"));
+    assert!(source.contains(".join(&JsString::from(\"-\"));"));
+    assert!(source.contains(".join(&JsString::from(\",\"));"));
     // A numeric item stringifies the way `String(item)` does, which is
     // JavaScript's rule and not Rust's `Display`.
     assert!(source.contains(".iter().map(|item| { smelt_number_to_string(*item) })"));
@@ -1055,7 +1055,7 @@ const asRecord: unknown = obj;
 
     // Direction 1: the Map is backed by the marker-stamping `SmeltJsMap`.
     assert!(
-        source.contains("let m: SmeltJsMap<String, f64> ="),
+        source.contains("let m: SmeltJsMap<JsString, f64> ="),
         "{source}"
     );
     // Direction 2: the object literal stays an unmarked `SmeltRecord`, never a

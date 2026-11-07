@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3921,8 +3924,8 @@ impl SmeltFromUnknown for SmeltMatch {
 
 #[derive(Clone)]
 pub enum SmeltUnion2 {
-    M0(String),
-    M1(SmeltFuture<String>),
+    M0(JsString),
+    M1(SmeltFuture<JsString>),
 }
 impl IntoSmeltUnknown for SmeltUnion2 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -3964,13 +3967,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 let smelt_local = tokio::task::LocalSet::new();
 smelt_local.block_on(&smelt_runtime, async move {
-    let _smelt_tmp_1: String;
-    let _smelt_tmp_5: String;
+    let _smelt_tmp_1: JsString;
+    let _smelt_tmp_5: JsString;
     let _smelt_tmp_8: ();
-    let _smelt_tmp_0 = SmeltFuture::from_future(Box::pin(label(SmeltUnion2::M0("here".to_owned()))));
+    let _smelt_tmp_0 = SmeltFuture::from_future(Box::pin(label(SmeltUnion2::M0(JsString::from("here")))));
     _smelt_tmp_1 = _smelt_tmp_0.await?;
     let _ = { println!("{}", _smelt_tmp_1); };
-    let _smelt_tmp_3: SmeltFuture<String> = SmeltFuture::from_future(Box::pin(async move { smelt_sleep_ms(0.0 as f64).await; Ok::<_, Box<dyn std::error::Error>>("later".to_owned()) }));
+    let _smelt_tmp_3: SmeltFuture<JsString> = SmeltFuture::from_future(Box::pin(async move { smelt_sleep_ms(0.0 as f64).await; Ok::<_, Box<dyn std::error::Error>>(JsString::from("later")) }));
     let _smelt_tmp_4 = SmeltFuture::from_future(Box::pin(label(SmeltUnion2::M1(_smelt_tmp_3))));
     _smelt_tmp_5 = _smelt_tmp_4.await?;
     let _ = { println!("{}", _smelt_tmp_5); };
@@ -3987,20 +3990,20 @@ smelt_local.block_on(&smelt_runtime, async move {
 
 use super::*;
 
-pub(crate) async fn label(value: SmeltUnion2) -> Result<String, Box<dyn std::error::Error>> {
-    let _smelt_tmp_2: String;
-    let _smelt_tmp_3: String;
-    let _smelt_tmp_5: String;
-    let _smelt_tmp_6: String;
+pub(crate) async fn label(value: SmeltUnion2) -> Result<JsString, Box<dyn std::error::Error>> {
+    let _smelt_tmp_2: JsString;
+    let _smelt_tmp_3: JsString;
+    let _smelt_tmp_5: JsString;
+    let _smelt_tmp_6: JsString;
     let _smelt_tmp_1: bool = matches!(value.clone(), SmeltUnion2::M0(_));
     if _smelt_tmp_1 {
     _smelt_tmp_2 = match value.clone() { SmeltUnion2::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_3 = "direct:".to_owned() + &_smelt_tmp_2;
+    _smelt_tmp_3 = JsString::from("direct:") + &_smelt_tmp_2;
     return Ok(_smelt_tmp_3);
     } else {
-    let _smelt_tmp_4: SmeltFuture<String> = match value.clone() { SmeltUnion2::M0(value) => SmeltFuture::<String>::resolved(value), SmeltUnion2::M1(value) => value };
+    let _smelt_tmp_4: SmeltFuture<JsString> = match value.clone() { SmeltUnion2::M0(value) => SmeltFuture::<JsString>::resolved(value), SmeltUnion2::M1(value) => value };
     _smelt_tmp_5 = _smelt_tmp_4.await?;
-    _smelt_tmp_6 = "deferred:".to_owned() + &_smelt_tmp_5;
+    _smelt_tmp_6 = JsString::from("deferred:") + &_smelt_tmp_5;
     return Ok(_smelt_tmp_6);
     }
 }

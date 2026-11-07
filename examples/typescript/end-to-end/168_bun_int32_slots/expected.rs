@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
@@ -310,18 +313,18 @@ fn main() {
     let _smelt_tmp_15: f64;
     let _smelt_tmp_16: f64;
     let _smelt_tmp_18: f64;
-    let _smelt_tmp_19: ::std::collections::HashMap<String, f64>;
+    let _smelt_tmp_19: ::std::collections::HashMap<JsString, f64>;
     let _smelt_tmp_20: f64;
     let _smelt_tmp_21: f64;
     let _smelt_tmp_22: f64;
     let _smelt_tmp_23: Option<f64>;
     let _smelt_tmp_24: bool;
     let _smelt_tmp_25: f64;
-    let _smelt_tmp_26: String;
-    let _smelt_tmp_27: String;
+    let _smelt_tmp_26: JsString;
+    let _smelt_tmp_27: JsString;
     let _smelt_tmp_28: f64;
-    let _smelt_tmp_29: String;
-    let _smelt_tmp_31: ::std::collections::HashMap<String, f64>;
+    let _smelt_tmp_29: JsString;
+    let _smelt_tmp_31: ::std::collections::HashMap<JsString, f64>;
     let _smelt_tmp_32: Option<f64>;
     let _smelt_tmp_33: Option<f64>;
     let _smelt_tmp_34: f64;
@@ -361,7 +364,7 @@ fn main() {
     _smelt_tmp_16 = c.0.borrow().column.clone() as f64;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_15), smelt_console_number(_smelt_tmp_16)); };
     _smelt_tmp_18 = -4.0;
-    _smelt_tmp_19 = ::std::collections::HashMap::from([("x".to_owned(), 3.0), ("y".to_owned(), _smelt_tmp_18)]);
+    _smelt_tmp_19 = ::std::collections::HashMap::from([(JsString::from("x"), 3.0), (JsString::from("y"), _smelt_tmp_18)]);
     p = { let smelt_record_map = _smelt_tmp_19.clone(); Pixel { x: smelt_record_map.get("x").cloned().map_or(0, |value| (value as i32)), y: smelt_record_map.get("y").cloned().map_or(0, |value| (value as i32)), alpha: smelt_record_map.get("alpha").cloned().map(|value| (value as i32)) } };
     _smelt_tmp_20 = p.x as f64;
     _smelt_tmp_21 = p.y as f64;
@@ -369,12 +372,12 @@ fn main() {
     _smelt_tmp_23 = p.alpha.clone().map(f64::from);
     _smelt_tmp_24 = _smelt_tmp_23.is_none();
     _smelt_tmp_25 = p.x as f64;
-    _smelt_tmp_26 = "".to_owned() + &smelt_number_to_string(_smelt_tmp_25);
-    _smelt_tmp_27 = _smelt_tmp_26 + &",".to_owned();
+    _smelt_tmp_26 = JsString::new() + &smelt_number_to_string(_smelt_tmp_25);
+    _smelt_tmp_27 = _smelt_tmp_26 + &JsString::from(",");
     _smelt_tmp_28 = p.y as f64;
     _smelt_tmp_29 = _smelt_tmp_27 + &smelt_number_to_string(_smelt_tmp_28);
     let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_22), _smelt_tmp_24, _smelt_tmp_29); };
-    _smelt_tmp_31 = ::std::collections::HashMap::from([("x".to_owned(), 1.0), ("y".to_owned(), 2.0), ("alpha".to_owned(), 255.0)]);
+    _smelt_tmp_31 = ::std::collections::HashMap::from([(JsString::from("x"), 1.0), (JsString::from("y"), 2.0), (JsString::from("alpha"), 255.0)]);
     q = { let smelt_record_map = _smelt_tmp_31.clone(); Pixel { x: smelt_record_map.get("x").cloned().map_or(0, |value| (value as i32)), y: smelt_record_map.get("y").cloned().map_or(0, |value| (value as i32)), alpha: smelt_record_map.get("alpha").cloned().map(|value| (value as i32)) } };
     _smelt_tmp_32 = q.alpha.clone().map(f64::from);
     _smelt_tmp_33 = q.alpha.clone().map(f64::from);
@@ -401,9 +404,9 @@ fn main() {
     let _smelt_tmp_54: i32 = bits(_smelt_tmp_53);
     _smelt_tmp_55 = _smelt_tmp_54 as f64;
     let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_48), smelt_console_number(_smelt_tmp_51), smelt_console_number(_smelt_tmp_55)); };
-    let _smelt_tmp_57: i32 = count("banana".to_owned(), "a".to_owned());
+    let _smelt_tmp_57: i32 = count(JsString::from("banana"), JsString::from("a"));
     _smelt_tmp_58 = _smelt_tmp_57 as f64;
-    let _smelt_tmp_59: i32 = count("".to_owned(), "a".to_owned());
+    let _smelt_tmp_59: i32 = count(JsString::new(), JsString::from("a"));
     _smelt_tmp_60 = _smelt_tmp_59 as f64;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_58), smelt_console_number(_smelt_tmp_60)); };
     let _smelt_tmp_62: i32 = wrap_around(7.0);
@@ -459,7 +462,7 @@ pub(crate) fn mix(a: i32, b: i32) -> i32 {
     let _smelt_tmp_9: f64 = a as f64;
     let _smelt_tmp_10: f64 = b as f64;
     let _smelt_tmp_11: f64 = _smelt_tmp_9 / _smelt_tmp_10;
-    let _ = { println!("{} {} {} {}", "sum as number".to_owned(), smelt_console_number(sum), smelt_console_number(_smelt_tmp_8), smelt_console_number(_smelt_tmp_11)); };
+    let _ = { println!("{} {} {} {}", JsString::from("sum as number"), smelt_console_number(sum), smelt_console_number(_smelt_tmp_8), smelt_console_number(_smelt_tmp_11)); };
     _smelt_tmp_13 = a as f64;
     _smelt_tmp_14 = b as f64;
     _smelt_tmp_15 = ((({ let smelt_int32_v = (_smelt_tmp_13 as f64).trunc(); if smelt_int32_v.is_finite() { smelt_int32_v.rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }).wrapping_mul({ let smelt_int32_v = (_smelt_tmp_14 as f64).trunc(); if smelt_int32_v.is_finite() { smelt_int32_v.rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } })) as f64);
@@ -494,7 +497,7 @@ pub(crate) fn bits(n: f64) -> i32 {
     return _smelt_tmp_28;
 }
 
-pub(crate) fn count(text: String, needle: String) -> i32 {
+pub(crate) fn count(text: JsString, needle: JsString) -> i32 {
     let mut _smelt_tmp_6: f64;
     let mut _smelt_tmp_7: f64;
     let mut _smelt_tmp_8: bool;

@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3916,8 +3919,8 @@ impl SmeltFromUnknown for SmeltHeaders {
 
 #[derive(Clone)]
 pub enum SmeltUnion8 {
-    M0(SmeltList<(String, String)>),
-    M1(SmeltRecord<String, String>),
+    M0(SmeltList<(JsString, JsString)>),
+    M1(SmeltRecord<String, JsString>),
     M2(SmeltHeaders),
 }
 impl IntoSmeltUnknown for SmeltUnion8 {
@@ -3956,36 +3959,36 @@ impl ::std::fmt::Debug for SmeltUnion8 {
 }
 impl Default for SmeltUnion8 {
     fn default() -> Self {
-        Self::M0(SmeltList::new(Vec::<(String, String)>::new()))
+        Self::M0(SmeltList::new(Vec::<(JsString, JsString)>::new()))
     }
 }
 fn main() {
-    let _smelt_tmp_6: (String, String);
-    let _smelt_tmp_7: SmeltList<(String, String)>;
-    let _smelt_tmp_10: SmeltRecord<String, String>;
-    let _smelt_tmp_13: SmeltList<String>;
-    let _smelt_tmp_14: SmeltList<SmeltList<String>>;
+    let _smelt_tmp_6: (JsString, JsString);
+    let _smelt_tmp_7: SmeltList<(JsString, JsString)>;
+    let _smelt_tmp_10: SmeltRecord<String, JsString>;
+    let _smelt_tmp_13: SmeltList<JsString>;
+    let _smelt_tmp_14: SmeltList<SmeltList<JsString>>;
     let _smelt_tmp_15: SmeltHeaders;
-    let _smelt_tmp_18: SmeltRecord<String, String>;
-    let mimes: SmeltRecord<String, String> = SmeltRecord::from([("json".to_owned(), "application/json".to_owned()), ("text".to_owned(), "text/plain".to_owned())]);
-    let declared: String = mimes.get(&"json".to_owned()).expect("missing field").clone();
-    let _smelt_tmp_3: SmeltRecord<String, String> = SmeltRecord::from([("Content-Type".to_owned(), declared)]);
-    let _smelt_tmp_4: String = header_of(SmeltUnion8::M1(_smelt_tmp_3), "content-type".to_owned());
+    let _smelt_tmp_18: SmeltRecord<String, JsString>;
+    let mimes: SmeltRecord<String, JsString> = SmeltRecord::from([(JsString::from("json"), JsString::from("application/json")), (JsString::from("text"), JsString::from("text/plain"))]);
+    let declared: JsString = mimes.get(&"json".to_owned()).expect("missing field").clone();
+    let _smelt_tmp_3: SmeltRecord<String, JsString> = SmeltRecord::from([(JsString::from("Content-Type"), declared)]);
+    let _smelt_tmp_4: JsString = header_of(SmeltUnion8::M1(_smelt_tmp_3), JsString::from("content-type"));
     let _ = { println!("{}", _smelt_tmp_4); };
-    _smelt_tmp_6 = ("x-kind".to_owned(), "pairs".to_owned());
-    _smelt_tmp_7 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, String)> = vec![_smelt_tmp_6.clone()]; smelt_list_items }));
-    let _smelt_tmp_8: String = header_of(SmeltUnion8::M0(_smelt_tmp_7), "x-kind".to_owned());
+    _smelt_tmp_6 = (JsString::from("x-kind"), JsString::from("pairs"));
+    _smelt_tmp_7 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(JsString, JsString)> = vec![_smelt_tmp_6.clone()]; smelt_list_items }));
+    let _smelt_tmp_8: JsString = header_of(SmeltUnion8::M0(_smelt_tmp_7), JsString::from("x-kind"));
     let _ = { println!("{}", _smelt_tmp_8); };
-    _smelt_tmp_10 = SmeltRecord::from([("x-kind".to_owned(), "record".to_owned())]);
-    let _smelt_tmp_11: String = header_of(SmeltUnion8::M1(_smelt_tmp_10), "x-kind".to_owned());
+    _smelt_tmp_10 = SmeltRecord::from([(JsString::from("x-kind"), JsString::from("record"))]);
+    let _smelt_tmp_11: JsString = header_of(SmeltUnion8::M1(_smelt_tmp_10), JsString::from("x-kind"));
     let _ = { println!("{}", _smelt_tmp_11); };
-    _smelt_tmp_13 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["x-kind".to_owned(), "headers".to_owned()]; smelt_list_items }));
-    _smelt_tmp_14 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<String>> = vec![_smelt_tmp_13.clone()]; smelt_list_items }));
+    _smelt_tmp_13 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("x-kind"), JsString::from("headers")]; smelt_list_items }));
+    _smelt_tmp_14 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<JsString>> = vec![_smelt_tmp_13.clone()]; smelt_list_items }));
     _smelt_tmp_15 = SmeltHeaders::from_pairs(_smelt_tmp_14.to_vec().into_iter().filter_map(|smelt_pair| { let smelt_pair = smelt_pair.to_vec(); Some((smelt_pair.first()?.clone(), smelt_pair.get(1)?.clone())) }).collect::<Vec<(String, String)>>());
-    let _smelt_tmp_16: String = header_of(SmeltUnion8::M2(_smelt_tmp_15), "x-kind".to_owned());
+    let _smelt_tmp_16: JsString = header_of(SmeltUnion8::M2(_smelt_tmp_15), JsString::from("x-kind"));
     let _ = { println!("{}", _smelt_tmp_16); };
-    _smelt_tmp_18 = SmeltRecord::from([("Content-Type".to_owned(), mimes.get(&"text".to_owned()).expect("missing field").clone())]);
-    let _smelt_tmp_19: String = header_of(SmeltUnion8::M1(_smelt_tmp_18), "x-missing".to_owned());
+    _smelt_tmp_18 = SmeltRecord::from([(JsString::from("Content-Type"), mimes.get(&"text".to_owned()).expect("missing field").clone())]);
+    let _smelt_tmp_19: JsString = header_of(SmeltUnion8::M1(_smelt_tmp_18), JsString::from("x-missing"));
     let _ = { println!("{}", _smelt_tmp_19); };
     return;
 }
@@ -3997,9 +4000,9 @@ fn main() {
 
 use super::*;
 
-pub(crate) fn header_of(init: SmeltUnion8, name: String) -> String {
+pub(crate) fn header_of(init: SmeltUnion8, name: JsString) -> JsString {
     let copied: SmeltHeaders = match init.clone() { SmeltUnion8::M0(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.to_vec().into_iter().map(|smelt_pair| (smelt_pair.0, smelt_pair.1)).collect::<Vec<(String, String)>>()), SmeltUnion8::M1(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltUnion8::M2(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.entries_sorted()) };
-    let _smelt_tmp_4: Option<String> = copied.get(&name.clone());
-    let _smelt_tmp_5: String = _smelt_tmp_4.clone().unwrap_or("none".to_owned());
+    let _smelt_tmp_4: Option<JsString> = copied.get(&name.clone());
+    let _smelt_tmp_5: JsString = _smelt_tmp_4.clone().unwrap_or(JsString::from("none"));
     return _smelt_tmp_5;
 }

@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 thread_local! {
     static SMELT_NEXT_CAPTURE_SCOPE: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
     static SMELT_SHARED_CAPTURES: ::std::cell::RefCell<::std::collections::HashMap<(usize, usize), ::std::rc::Weak<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
@@ -217,9 +220,9 @@ fn smelt_shared_capture<T: Clone + 'static>(scope: usize, slot: *mut T, initial:
 fn main() {
     let _smelt_tmp_0: f64 = total_down(4.0);
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_0)); };
-    let _smelt_tmp_2: String = banner("ab".to_owned(), 3.0);
+    let _smelt_tmp_2: JsString = banner(JsString::from("ab"), 3.0);
     let _ = { println!("{}", _smelt_tmp_2); };
-    let _smelt_tmp_4: String = trim("done!!!".to_owned());
+    let _smelt_tmp_4: JsString = trim(JsString::from("done!!!"));
     let _ = { println!("{}", _smelt_tmp_4); };
     return;
 }
@@ -255,15 +258,15 @@ pub(crate) fn total_down(start: f64) -> f64 {
     return _smelt_tmp_3;
 }
 
-pub(crate) fn banner(text: String, times: f64) -> String {
-    let smelt_capture_repeat: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(f64, String) -> String>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64, String) -> String> = ::std::rc::Rc::new(move |arg0: f64, arg1: String| -> String { String::new() }); smelt_default_callback }));
+pub(crate) fn banner(text: JsString, times: f64) -> JsString {
+    let smelt_capture_repeat: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(f64, JsString) -> JsString>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64, JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: f64, arg1: JsString| -> JsString { String::new() }); smelt_default_callback }));
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let smelt_capture_repeat = ::std::rc::Rc::downgrade(&smelt_capture_repeat);
     let text = text.clone();
-    move |closure_arg_0: f64, closure_arg_1: String| {
+    move |closure_arg_0: f64, closure_arg_1: JsString| {
     let _smelt_tmp_5: f64;
-    let _smelt_tmp_6: String;
-    let _smelt_tmp_7: String;
+    let _smelt_tmp_6: JsString;
+    let _smelt_tmp_7: JsString;
     let _smelt_tmp_4: bool = closure_arg_0 <= 0.0;
     if _smelt_tmp_4 {
     closure_arg_1.clone()
@@ -276,21 +279,21 @@ pub(crate) fn banner(text: String, times: f64) -> String {
     }
 });
     (*smelt_capture_repeat.borrow_mut()) = _smelt_tmp_3.clone();
-    let _smelt_tmp_4: String = { let smelt_callable = ::std::clone::Clone::clone(&(*smelt_capture_repeat.borrow())); (smelt_callable)(times, "".to_owned()) };
+    let _smelt_tmp_4: JsString = { let smelt_callable = ::std::clone::Clone::clone(&(*smelt_capture_repeat.borrow())); (smelt_callable)(times, JsString::new()) };
     return _smelt_tmp_4;
 }
 
-pub(crate) fn trim(label: String) -> String {
-    let smelt_capture_strip: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(String) -> String>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback }));
-    let suffix: String = "!".to_owned();
+pub(crate) fn trim(label: JsString) -> JsString {
+    let smelt_capture_strip: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(JsString) -> JsString>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { String::new() }); smelt_default_callback }));
+    let suffix: JsString = JsString::from("!");
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let smelt_capture_strip = ::std::rc::Rc::downgrade(&smelt_capture_strip);
     let suffix = suffix.clone();
-    move |closure_arg_0: String| {
+    move |closure_arg_0: JsString| {
     let _smelt_tmp_7: f64;
     let _smelt_tmp_8: f64;
-    let _smelt_tmp_9: String;
-    let _smelt_tmp_10: String;
+    let _smelt_tmp_9: JsString;
+    let _smelt_tmp_10: JsString;
     let _smelt_tmp_5: bool = closure_arg_0.clone().ends_with(&suffix.clone());
     let _smelt_tmp_6: bool = !(_smelt_tmp_5);
     if _smelt_tmp_6 {
@@ -305,6 +308,6 @@ pub(crate) fn trim(label: String) -> String {
     }
 });
     (*smelt_capture_strip.borrow_mut()) = _smelt_tmp_3.clone();
-    let _smelt_tmp_4: String = { let smelt_callable = ::std::clone::Clone::clone(&(*smelt_capture_strip.borrow())); (smelt_callable)(label.clone()) };
+    let _smelt_tmp_4: JsString = { let smelt_callable = ::std::clone::Clone::clone(&(*smelt_capture_strip.borrow())); (smelt_callable)(label.clone()) };
     return _smelt_tmp_4;
 }

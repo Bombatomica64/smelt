@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3699,15 +3702,15 @@ impl SmeltFromUnknown for SmeltMatch {
 
 // @smelt:prelude-end — generated program below
 fn main() {
-    let _smelt_tmp_5: ::std::rc::Rc<dyn Fn() -> String>;
-    let _smelt_tmp_6: String;
-    let _smelt_tmp_8: ::std::rc::Rc<dyn Fn() -> String>;
-    let _smelt_tmp_9: String;
-    let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: ::std::rc::Rc<dyn Fn() -> String>| {
-    let _smelt_tmp_2: String = "".to_owned() + &closure_arg_0.clone();
-    let _smelt_tmp_3: String = _smelt_tmp_2.clone() + &"=".to_owned();
-    let _smelt_tmp_4: String = (closure_arg_1)();
-    let _smelt_tmp_5: String = _smelt_tmp_3.clone() + &_smelt_tmp_4.clone();
+    let _smelt_tmp_5: ::std::rc::Rc<dyn Fn() -> JsString>;
+    let _smelt_tmp_6: JsString;
+    let _smelt_tmp_8: ::std::rc::Rc<dyn Fn() -> JsString>;
+    let _smelt_tmp_9: JsString;
+    let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: ::std::rc::Rc<dyn Fn() -> JsString>| {
+    let _smelt_tmp_2: JsString = JsString::new() + &closure_arg_0.clone();
+    let _smelt_tmp_3: JsString = _smelt_tmp_2.clone() + &JsString::from("=");
+    let _smelt_tmp_4: JsString = (closure_arg_1)();
+    let _smelt_tmp_5: JsString = _smelt_tmp_3.clone() + &_smelt_tmp_4.clone();
     _smelt_tmp_5.clone()
     });
     let run = _smelt_tmp_1.clone();
@@ -3734,10 +3737,10 @@ fn main() {
     let _smelt_tmp_7: f64 = (_smelt_tmp_6)(0.0);
     let _smelt_tmp_8: f64 = (add_five)(_smelt_tmp_7);
     let _smelt_tmp_9: f64 = (twice)(_smelt_tmp_8);
-    let _smelt_tmp_10: String = smelt_number_to_string(_smelt_tmp_9);
+    let _smelt_tmp_10: JsString = smelt_number_to_string(_smelt_tmp_9);
     _smelt_tmp_10.clone()
     });
-    let _smelt_tmp_3: String = (run)("first".to_owned(), _smelt_tmp_2.clone());
+    let _smelt_tmp_3: JsString = (run)(JsString::from("first"), _smelt_tmp_2.clone());
     let _ = { println!("{}", _smelt_tmp_3); };
     _smelt_tmp_5 = ::std::rc::Rc::new(|| {
     let _smelt_tmp_4 = ::std::rc::Rc::new(|closure_arg_0: f64| -> ::std::rc::Rc<dyn Fn(f64) -> f64> {
@@ -3759,7 +3762,7 @@ fn main() {
     });
     let twice = _smelt_tmp_6.clone();
     let _smelt_tmp_7 = ::std::rc::Rc::new(|closure_arg_0: f64| {
-    let _smelt_tmp_1: String = "x".to_owned().repeat(closure_arg_0 as usize);
+    let _smelt_tmp_1: JsString = JsString::from("x").repeat(closure_arg_0 as usize);
     _smelt_tmp_1.clone()
     });
     let repeat = _smelt_tmp_7.clone();
@@ -3767,15 +3770,15 @@ fn main() {
     let _smelt_tmp_9: f64 = (_smelt_tmp_8)(0.0);
     let _smelt_tmp_10: f64 = (add_five)(_smelt_tmp_9);
     let _smelt_tmp_11: f64 = (twice)(_smelt_tmp_10);
-    let _smelt_tmp_12: String = (repeat)(_smelt_tmp_11);
+    let _smelt_tmp_12: JsString = (repeat)(_smelt_tmp_11);
     _smelt_tmp_12.clone()
     });
-    _smelt_tmp_6 = (run)("second".to_owned(), _smelt_tmp_5.clone());
+    _smelt_tmp_6 = (run)(JsString::from("second"), _smelt_tmp_5.clone());
     let _ = { println!("{}", _smelt_tmp_6); };
     _smelt_tmp_8 = ::std::rc::Rc::new(|| {
-    "plain".to_owned()
+    JsString::from("plain")
     });
-    _smelt_tmp_9 = (run)("third".to_owned(), _smelt_tmp_8.clone());
+    _smelt_tmp_9 = (run)(JsString::from("third"), _smelt_tmp_8.clone());
     let _ = { println!("{}", _smelt_tmp_9); };
     return;
 }

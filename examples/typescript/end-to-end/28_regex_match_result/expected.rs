@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
@@ -584,12 +587,12 @@ impl SmeltMatch {
 // @smelt:prelude-end — generated program below
 fn main() {
     let mut found: SmeltMatch;
-    let mut whole: Option<String>;
-    let mut letter: Option<String>;
-    let mut digit: Option<String>;
-    let mut full: Option<String>;
-    let mut first: Option<String>;
-    let mut second: Option<String>;
+    let mut whole: Option<JsString>;
+    let mut letter: Option<JsString>;
+    let mut digit: Option<JsString>;
+    let mut full: Option<JsString>;
+    let mut first: Option<JsString>;
+    let mut second: Option<JsString>;
     let mut single: SmeltRegExp;
     let mut found_1: Option<SmeltMatch>;
     let mut _smelt_tmp_14: usize;
@@ -597,16 +600,16 @@ fn main() {
     let mut _smelt_tmp_17: SmeltMatch;
     let mut _smelt_tmp_32: bool;
     let mut _smelt_tmp_33: SmeltMatch;
-    let mut _smelt_tmp_34: Option<String>;
+    let mut _smelt_tmp_34: Option<JsString>;
     let mut _smelt_tmp_36: SmeltMatch;
     let mut _smelt_tmp_37: SmeltMatch;
     let mut _smelt_tmp_39: SmeltMatch;
-    let mut _smelt_tmp_40: Option<String>;
+    let mut _smelt_tmp_40: Option<JsString>;
     let mut _smelt_tmp_42: SmeltMatch;
-    let mut _smelt_tmp_43: Option<String>;
+    let mut _smelt_tmp_43: Option<JsString>;
     let mut _smelt_tmp_45: SmeltMatch;
-    let pattern: SmeltRegExp = SmeltRegExp::new("(?P<letter>[a-z])(\\d)?".to_owned(), "g".to_owned());
-    let matches: SmeltList<SmeltMatch> = Into::<SmeltList<_>>::into(pattern.match_all_indices(&"a1 b c3".to_owned()));
+    let pattern: SmeltRegExp = SmeltRegExp::new(JsString::from("(?P<letter>[a-z])(\\d)?"), JsString::from("g"));
+    let matches: SmeltList<SmeltMatch> = Into::<SmeltList<_>>::into(pattern.match_all_indices(&JsString::from("a1 b c3")));
     let mut _smelt_tmp_13: usize = 0;
     loop {
     _smelt_tmp_14 = matches.len();
@@ -630,8 +633,8 @@ fn main() {
     let _ = { println!("{}", match &second { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
     _smelt_tmp_13 = _smelt_tmp_13 + 1;
     }
-    single = SmeltRegExp::new("(?P<year>\\d{4})-(\\d{2})".to_owned(), "".to_owned());
-    found_1 = single.exec(&"2024-07".to_owned());
+    single = SmeltRegExp::new(JsString::from("(?P<year>\\d{4})-(\\d{2})"), JsString::new());
+    found_1 = single.exec(&JsString::from("2024-07"));
     _smelt_tmp_32 = !(found_1.clone().is_none());
     if _smelt_tmp_32 {
     _smelt_tmp_33 = found_1.clone().expect("optional value was absent after narrowing");

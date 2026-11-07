@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3683,9 +3686,9 @@ impl SmeltFromUnknown for SmeltMatch {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Options {
-    label: Option<String>,
+    label: Option<JsString>,
     limit: Option<f64>,
-    tags: Option<SmeltList<String>>,
+    tags: Option<SmeltList<JsString>>,
 }
 impl IntoSmeltUnknown for Options {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -3746,8 +3749,8 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, N: Clon
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Request {
-    _routes: SmeltList<(String, String)>,
-    _context: Option<String>,
+    _routes: SmeltList<(JsString, JsString)>,
+    _context: Option<JsString>,
 }
 impl IntoSmeltUnknown for Request {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -3766,54 +3769,54 @@ impl SmeltFromUnknown for Request {
 
 fn main() {
     let req: Request;
-    let no_routes: SmeltList<(String, String)>;
+    let no_routes: SmeltList<(JsString, JsString)>;
     let _smelt_tmp_4: Options;
     let _smelt_tmp_6: Options;
-    let _smelt_tmp_9: Tagged<String, f64>;
-    let _smelt_tmp_12: (String, String);
-    let _smelt_tmp_13: (String, String);
-    let _smelt_tmp_14: SmeltList<(String, String)>;
+    let _smelt_tmp_9: Tagged<JsString, f64>;
+    let _smelt_tmp_12: (JsString, JsString);
+    let _smelt_tmp_13: (JsString, JsString);
+    let _smelt_tmp_14: SmeltList<(JsString, JsString)>;
     let match_: SmeltUnknown = SmeltUnknown::Symbol("Symbol()@663".to_owned().into());
-    let _smelt_tmp_3: String = configure(None::<Options>);
-    _smelt_tmp_4 = Options { label: Some("custom".to_owned()), limit: None::<f64>, tags: None::<SmeltList<String>> };
-    let _smelt_tmp_5: String = configure(Some(_smelt_tmp_4));
-    _smelt_tmp_6 = Options { label: None::<String>, limit: Some(9.0), tags: None::<SmeltList<String>> };
-    let _smelt_tmp_7: String = configure(Some(_smelt_tmp_6));
+    let _smelt_tmp_3: JsString = configure(None::<Options>);
+    _smelt_tmp_4 = Options { label: Some(JsString::from("custom")), limit: None::<f64>, tags: None::<SmeltList<JsString>> };
+    let _smelt_tmp_5: JsString = configure(Some(_smelt_tmp_4));
+    _smelt_tmp_6 = Options { label: None::<JsString>, limit: Some(9.0), tags: None::<SmeltList<JsString>> };
+    let _smelt_tmp_7: JsString = configure(Some(_smelt_tmp_6));
     let _ = { println!("{} {} {}", _smelt_tmp_3, _smelt_tmp_5, _smelt_tmp_7); };
-    _smelt_tmp_9 = Tagged { value: "a".to_owned(), count: 2.0, _smelt_phantom: ::std::marker::PhantomData };
-    let _smelt_tmp_10: String = first(_smelt_tmp_9);
+    _smelt_tmp_9 = Tagged { value: JsString::from("a"), count: 2.0, _smelt_phantom: ::std::marker::PhantomData };
+    let _smelt_tmp_10: JsString = first(_smelt_tmp_9);
     let _ = { println!("{}", _smelt_tmp_10); };
-    _smelt_tmp_12 = ("a".to_owned(), "/x".to_owned());
-    _smelt_tmp_13 = ("b".to_owned(), "/y".to_owned());
-    _smelt_tmp_14 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, String)> = vec![_smelt_tmp_12.clone(), _smelt_tmp_13.clone()]; smelt_list_items }));
-    let _smelt_tmp_15: Request = Request::new(_smelt_tmp_14, Some("ctx".to_owned()));
+    _smelt_tmp_12 = (JsString::from("a"), JsString::from("/x"));
+    _smelt_tmp_13 = (JsString::from("b"), JsString::from("/y"));
+    _smelt_tmp_14 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(JsString, JsString)> = vec![_smelt_tmp_12.clone(), _smelt_tmp_13.clone()]; smelt_list_items }));
+    let _smelt_tmp_15: Request = Request::new(_smelt_tmp_14, Some(JsString::from("ctx")));
     req = _smelt_tmp_15;
-    no_routes = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, String)> = vec![]; smelt_list_items }));
-    let _smelt_tmp_17: String = paths(req.clone());
-    let _smelt_tmp_18: String = context_of(req);
-    let _smelt_tmp_19: Request = Request::new(no_routes, None::<String>);
-    let _smelt_tmp_20: String = context_of(_smelt_tmp_19);
+    no_routes = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(JsString, JsString)> = vec![]; smelt_list_items }));
+    let _smelt_tmp_17: JsString = paths(req.clone());
+    let _smelt_tmp_18: JsString = context_of(req);
+    let _smelt_tmp_19: Request = Request::new(no_routes, None::<JsString>);
+    let _smelt_tmp_20: JsString = context_of(_smelt_tmp_19);
     let _ = { println!("{} {} {}", _smelt_tmp_17, _smelt_tmp_18, _smelt_tmp_20); };
     return;
 }
 
 impl Request {
-    fn new(routes: SmeltList<(String, String)>, context: Option<String>) -> Self {
-    let mut this: Self = Request { _routes: SmeltList::new(Vec::<(String, String)>::new()), _context: None::<String> };
+    fn new(routes: SmeltList<(JsString, JsString)>, context: Option<JsString>) -> Self {
+    let mut this: Self = Request { _routes: SmeltList::new(Vec::<(JsString, JsString)>::new()), _context: None::<JsString> };
     this._routes = Into::<SmeltList<_>>::into(routes.clone());
     this._context = context.clone();
     return this;
     }
-    fn __smelt_get___smelt_symbol_unique__at_663(&self) -> (SmeltList<(String, String)>,) {
-    let _smelt_tmp_1: (SmeltList<(String, String)>,) = (self._routes.clone(),);
+    fn __smelt_get___smelt_symbol_unique__at_663(&self) -> (SmeltList<(JsString, JsString)>,) {
+    let _smelt_tmp_1: (SmeltList<(JsString, JsString)>,) = (self._routes.clone(),);
     return _smelt_tmp_1;
     }
-    fn __smelt_get_context(&self) -> Result<String, Box<dyn std::error::Error>> {
+    fn __smelt_get_context(&self) -> Result<JsString, Box<dyn std::error::Error>> {
     let _smelt_tmp_1: bool = self._context.clone().clone().is_some_and(|value| !value.is_empty());
     if _smelt_tmp_1 {
     return Ok(self._context.clone().unwrap_or_else(|| String::new()));
     } else {
-    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([("__smelt_error".to_owned(), SmeltUnknown::String("Error".into())), ("message".to_owned(), SmeltUnknown::String("no context".into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])).clone()))));
+    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String("no context".into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
     }
     }
 }
@@ -3825,44 +3828,44 @@ impl Request {
 
 use super::*;
 
-pub(crate) fn configure(options: Option<Options>) -> String {
-    let _smelt_tmp_1: Option<String> = options.clone().as_ref().and_then(|_smelt_value| _smelt_value.label.clone());
-    let _smelt_tmp_2: String = _smelt_tmp_1.clone().unwrap_or("default".to_owned());
-    let _smelt_tmp_3: String = "".to_owned() + &_smelt_tmp_2;
-    let _smelt_tmp_4: String = _smelt_tmp_3 + &"/".to_owned();
+pub(crate) fn configure(options: Option<Options>) -> JsString {
+    let _smelt_tmp_1: Option<JsString> = options.clone().as_ref().and_then(|_smelt_value| _smelt_value.label.clone());
+    let _smelt_tmp_2: JsString = _smelt_tmp_1.clone().unwrap_or(JsString::from("default"));
+    let _smelt_tmp_3: JsString = JsString::new() + &_smelt_tmp_2;
+    let _smelt_tmp_4: JsString = _smelt_tmp_3 + &JsString::from("/");
     let _smelt_tmp_5: Option<f64> = options.clone().as_ref().and_then(|_smelt_value| _smelt_value.limit.clone());
     let _smelt_tmp_6: f64 = _smelt_tmp_5.clone().unwrap_or(3.0);
-    let _smelt_tmp_7: String = _smelt_tmp_4 + &smelt_number_to_string(_smelt_tmp_6);
+    let _smelt_tmp_7: JsString = _smelt_tmp_4 + &smelt_number_to_string(_smelt_tmp_6);
     return _smelt_tmp_7;
 }
 
-pub(crate) fn first(tagged: Tagged<String, f64>) -> String {
-    let _smelt_tmp_1: String = "".to_owned() + &tagged.value.clone();
-    let _smelt_tmp_2: String = _smelt_tmp_1 + &"x".to_owned();
-    let _smelt_tmp_3: String = _smelt_tmp_2 + &smelt_number_to_string(tagged.count);
+pub(crate) fn first(tagged: Tagged<JsString, f64>) -> JsString {
+    let _smelt_tmp_1: JsString = JsString::new() + &tagged.value.clone();
+    let _smelt_tmp_2: JsString = _smelt_tmp_1 + &JsString::from("x");
+    let _smelt_tmp_3: JsString = _smelt_tmp_2 + &smelt_number_to_string(tagged.count);
     return _smelt_tmp_3;
 }
 
-pub(crate) fn paths(req: Request) -> String {
-    let _smelt_tmp_1: SmeltList<(String, String)> = Into::<SmeltList<_>>::into(req.__smelt_get___smelt_symbol_unique__at_663().clone().0.clone());
-    let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: (String, String), _arg0: i64, _arg1: &SmeltList<(String, String)>| {
-    let path: String = closure_arg_0.clone().1.clone();
+pub(crate) fn paths(req: Request) -> JsString {
+    let _smelt_tmp_1: SmeltList<(JsString, JsString)> = Into::<SmeltList<_>>::into(req.__smelt_get___smelt_symbol_unique__at_663().clone().0.clone());
+    let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: (JsString, JsString), _arg0: i64, _arg1: &SmeltList<(JsString, JsString)>| {
+    let path: JsString = closure_arg_0.clone().1.clone();
     path.clone()
     });
-    let _smelt_tmp_3: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: (String, String), _arg0: i64, _arg1: &SmeltList<(String, String)>| {
-    let path: String = closure_arg_0.clone().1.clone();
+    let _smelt_tmp_3: SmeltList<JsString> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: (JsString, JsString), _arg0: i64, _arg1: &SmeltList<(JsString, JsString)>| {
+    let path: JsString = closure_arg_0.clone().1.clone();
     path.clone()
     }); let smelt_array = _smelt_tmp_1; let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
-    let _smelt_tmp_4: String = _smelt_tmp_3.borrow().join(&",".to_owned());
+    let _smelt_tmp_4: JsString = _smelt_tmp_3.borrow().join(&JsString::from(","));
     return _smelt_tmp_4;
 }
 
-pub(crate) fn context_of(req: Request) -> String {
-    let _smelt_tmp_3: String;
-    let mut context: Option<String> = None::<String>;
+pub(crate) fn context_of(req: Request) -> JsString {
+    let _smelt_tmp_3: JsString;
+    let mut context: Option<JsString> = None::<JsString>;
     match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| req.__smelt_get_context())) {
         Ok(Ok(__smelt_value)) => {
-            let _smelt_tmp_2: String = __smelt_value;
+            let _smelt_tmp_2: JsString = __smelt_value;
     context = Some(_smelt_tmp_2);
         }
         Ok(Err(__smelt_error)) => {
@@ -3871,6 +3874,6 @@ pub(crate) fn context_of(req: Request) -> String {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
         }
     }
-    _smelt_tmp_3 = context.clone().unwrap_or("none".to_owned());
+    _smelt_tmp_3 = context.clone().unwrap_or(JsString::from("none"));
     return _smelt_tmp_3;
 }

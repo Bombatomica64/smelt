@@ -71,6 +71,9 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 thread_local! {
     static SMELT_NEXT_CAPTURE_SCOPE: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
     static SMELT_SHARED_CAPTURES: ::std::cell::RefCell<::std::collections::HashMap<(usize, usize), ::std::rc::Weak<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
@@ -102,9 +105,9 @@ fn main() {
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_2)); };
     let _smelt_tmp_4: f64 = count_up_hoisted(1.0);
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_4)); };
-    let _smelt_tmp_6: String = pick_label(true);
+    let _smelt_tmp_6: JsString = pick_label(true);
     let _ = { println!("{}", _smelt_tmp_6); };
-    let _smelt_tmp_8: String = pick_label(false);
+    let _smelt_tmp_8: JsString = pick_label(false);
     let _ = { println!("{}", _smelt_tmp_8); };
     return;
 }
@@ -178,20 +181,20 @@ pub(crate) fn count_up_hoisted(base: f64) -> f64 {
     return _smelt_tmp_4;
 }
 
-pub(crate) fn pick_label(flag: bool) -> String {
-    let decorate: ::std::rc::Rc<dyn Fn(String) -> String>;
-    let _smelt_tmp_2: ::std::rc::Rc<dyn Fn(String) -> String>;
-    let _smelt_tmp_3: String;
+pub(crate) fn pick_label(flag: bool) -> JsString {
+    let decorate: ::std::rc::Rc<dyn Fn(JsString) -> JsString>;
+    let _smelt_tmp_2: ::std::rc::Rc<dyn Fn(JsString) -> JsString>;
+    let _smelt_tmp_3: JsString;
     if flag {
-    _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: String| {
-    let _smelt_tmp_1: String = "[".to_owned() + &closure_arg_0.clone();
-    let _smelt_tmp_2: String = _smelt_tmp_1.clone() + &"]".to_owned();
+    _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: JsString| {
+    let _smelt_tmp_1: JsString = JsString::from("[") + &closure_arg_0.clone();
+    let _smelt_tmp_2: JsString = _smelt_tmp_1.clone() + &JsString::from("]");
     _smelt_tmp_2.clone()
     });
     decorate = _smelt_tmp_2.clone();
-    _smelt_tmp_3 = (decorate)("on".to_owned());
+    _smelt_tmp_3 = (decorate)(JsString::from("on"));
     return _smelt_tmp_3;
     } else {
-    return "off".to_owned();
+    return JsString::from("off");
     }
 }

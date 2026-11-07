@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3922,13 +3925,13 @@ impl SmeltFromUnknown for SmeltMatch {
 #[derive(Clone)]
 #[allow(dead_code)]
 struct Job {
-    run: ::std::rc::Rc<dyn Fn(String) -> SmeltFuture<String>>,
-    label: String,
+    run: ::std::rc::Rc<dyn Fn(JsString) -> SmeltFuture<JsString>>,
+    label: JsString,
 }
 impl Default for Job {
     fn default() -> Self {
         Self {
-            run: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> SmeltFuture<String>> = ::std::rc::Rc::new(move |arg0: String| -> SmeltFuture<String> { SmeltFuture::resolved(String::new()) }); smelt_default_callback },
+            run: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> SmeltFuture<JsString>> = ::std::rc::Rc::new(move |arg0: JsString| -> SmeltFuture<JsString> { SmeltFuture::resolved(String::new()) }); smelt_default_callback },
             label: String::new(),
         }
     }
@@ -3941,7 +3944,7 @@ impl ::std::fmt::Debug for Job {
 impl IntoSmeltUnknown for Job {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("run".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(String) -> SmeltFuture<String>> = self.run.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
+        ("run".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(JsString) -> SmeltFuture<JsString>> = self.run.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
         ("label".to_owned(), SmeltUnknown::String(self.label.into())),
         ])))
     }
@@ -3952,7 +3955,7 @@ impl SmeltFromUnknown for Job {
         if let SmeltUnknown::Object(object) = value {
             if let Some(field) = object.get("run") {
                 let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
-                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String) -> SmeltFuture<String>>>(&smelt_function)) { result.run = smelt_origin; }
+                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(JsString) -> SmeltFuture<JsString>>>(&smelt_function)) { result.run = smelt_origin; }
             }
             if let Some(field) = object.get("label") {
                 result.label = SmeltFromUnknown::smelt_from_unknown(field);
@@ -3966,22 +3969,22 @@ let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().b
 let smelt_local = tokio::task::LocalSet::new();
 smelt_local.block_on(&smelt_runtime, async move {
     let job: Job;
-    let _smelt_tmp_5: String;
+    let _smelt_tmp_5: JsString;
     let _smelt_tmp_8: ();
-    let _smelt_tmp_1 = ::std::rc::Rc::new(move |closure_arg_0: String| { SmeltFuture::from_future_primed(Box::pin(async move {
+    let _smelt_tmp_1 = ::std::rc::Rc::new(move |closure_arg_0: JsString| { SmeltFuture::from_future_primed(Box::pin(async move {
         let smelt_async_value = {
-    let _smelt_tmp_2: String = closure_arg_0.clone().trim().to_owned();
-    let _smelt_tmp_3: SmeltFuture<String> = SmeltFuture::from_future(Box::pin(async move { smelt_sleep_ms(0.0 as f64).await; Ok::<_, Box<dyn std::error::Error>>(_smelt_tmp_2.clone()) }));
-    let trimmed: String = _smelt_tmp_3.await?;
-    let _smelt_tmp_5: String = trimmed.clone().to_uppercase();
+    let _smelt_tmp_2: JsString = closure_arg_0.clone().trim().to_owned();
+    let _smelt_tmp_3: SmeltFuture<JsString> = SmeltFuture::from_future(Box::pin(async move { smelt_sleep_ms(0.0 as f64).await; Ok::<_, Box<dyn std::error::Error>>(_smelt_tmp_2.clone()) }));
+    let trimmed: JsString = _smelt_tmp_3.await?;
+    let _smelt_tmp_5: JsString = trimmed.clone().to_uppercase();
     _smelt_tmp_5.clone()
         };
-        Ok::<String, Box<dyn std::error::Error>>(smelt_async_value)
-    }) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<String, Box<dyn std::error::Error>>>>>) });
-    let _smelt_tmp_2: Job = Job { run: _smelt_tmp_1.clone(), label: "upper".to_owned() };
+        Ok::<JsString, Box<dyn std::error::Error>>(smelt_async_value)
+    }) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<JsString, Box<dyn std::error::Error>>>>>) });
+    let _smelt_tmp_2: Job = Job { run: _smelt_tmp_1.clone(), label: JsString::from("upper") };
     let _smelt_tmp_3: Job = make_job(_smelt_tmp_2);
     job = _smelt_tmp_3;
-    let _smelt_tmp_4: SmeltFuture<String> = (job.run.clone())("  hello  ".to_owned());
+    let _smelt_tmp_4: SmeltFuture<JsString> = (job.run.clone())(JsString::from("  hello  "));
     _smelt_tmp_5 = _smelt_tmp_4.await?;
     let _ = { println!("{} {}", job.label.clone(), _smelt_tmp_5); };
     let _smelt_tmp_7: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));

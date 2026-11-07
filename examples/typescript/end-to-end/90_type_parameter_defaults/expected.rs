@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3753,7 +3756,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, U: Clon
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Holder {
-    slot: Slot<bool, String, f64>,
+    slot: Slot<bool, JsString, f64>,
 }
 impl IntoSmeltUnknown for Holder {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -3890,30 +3893,30 @@ impl<A: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, B: Clon
 
 fn main() {
     let holder: Holder;
-    let relabelled: Slot<bool, String, f64>;
-    let config: Config<String, f64>;
+    let relabelled: Slot<bool, JsString, f64>;
+    let config: Config<JsString, f64>;
     let pair: Pair<bool, SmeltList<bool>>;
-    let _smelt_tmp_7: Slot<bool, String, f64>;
+    let _smelt_tmp_7: Slot<bool, JsString, f64>;
     let _smelt_tmp_19: SmeltList<bool>;
     let _smelt_tmp_21: bool;
     let _smelt_tmp_23: f64;
-    let _smelt_tmp_4: Slot<bool, String, f64> = Slot::new(true, "one".to_owned(), 1.0);
+    let _smelt_tmp_4: Slot<bool, JsString, f64> = Slot::new(true, JsString::from("one"), 1.0);
     let _smelt_tmp_5: Holder = Holder::new(_smelt_tmp_4);
     holder = _smelt_tmp_5;
-    let _smelt_tmp_6: String = holder.describe();
+    let _smelt_tmp_6: JsString = holder.describe();
     _smelt_tmp_7 = holder.slot.clone();
     let _ = { println!("{} {}", _smelt_tmp_6, _smelt_tmp_7.first); };
-    let _smelt_tmp_9: Slot<bool, String, f64> = relabel(holder.slot.clone(), "two".to_owned());
+    let _smelt_tmp_9: Slot<bool, JsString, f64> = relabel(holder.slot.clone(), JsString::from("two"));
     relabelled = _smelt_tmp_9;
-    let _smelt_tmp_10: String = relabelled.label();
+    let _smelt_tmp_10: JsString = relabelled.label();
     let _smelt_tmp_11: f64 = relabelled.count();
     let _ = { println!("{} {} {}", _smelt_tmp_10, smelt_console_number(_smelt_tmp_11), relabelled.first); };
-    let _smelt_tmp_13: Config<String, f64> = Config::new("width".to_owned(), 42.0);
+    let _smelt_tmp_13: Config<JsString, f64> = Config::new(JsString::from("width"), 42.0);
     config = _smelt_tmp_13;
-    let _smelt_tmp_14: String = config.name();
+    let _smelt_tmp_14: JsString = config.name();
     let _smelt_tmp_15: f64 = config.amount();
     let _ = { println!("{} {}", _smelt_tmp_14, smelt_console_number(_smelt_tmp_15)); };
-    let _smelt_tmp_17: String = read_config(config);
+    let _smelt_tmp_17: JsString = read_config(config);
     let _ = { println!("{}", _smelt_tmp_17); };
     _smelt_tmp_19 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<bool> = vec![false, true]; smelt_list_items }));
     let _smelt_tmp_20: Pair<bool, SmeltList<bool>> = Pair::new(true, _smelt_tmp_19);
@@ -3955,21 +3958,21 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, U: Clon
 }
 
 impl Holder {
-    fn new(slot: Slot<bool, String, f64>) -> Self {
+    fn new(slot: Slot<bool, JsString, f64>) -> Self {
     let mut this: Self = Holder { slot: Default::default() };
     this.slot = slot.clone();
     return this;
     }
-    fn describe(&self) -> String {
-    let _smelt_tmp_3: String;
-    let _smelt_tmp_4: String;
-    let _smelt_tmp_5: Slot<bool, String, f64>;
+    fn describe(&self) -> JsString {
+    let _smelt_tmp_3: JsString;
+    let _smelt_tmp_4: JsString;
+    let _smelt_tmp_5: Slot<bool, JsString, f64>;
     let _smelt_tmp_7: f64;
-    let _smelt_tmp_8: String;
-    let _smelt_tmp_1: Slot<bool, String, f64> = self.slot.clone();
-    let _smelt_tmp_2: String = self.slot.label();
+    let _smelt_tmp_8: JsString;
+    let _smelt_tmp_1: Slot<bool, JsString, f64> = self.slot.clone();
+    let _smelt_tmp_2: JsString = self.slot.label();
     _smelt_tmp_3 = _smelt_tmp_2.to_uppercase();
-    _smelt_tmp_4 = _smelt_tmp_3 + &":".to_owned();
+    _smelt_tmp_4 = _smelt_tmp_3 + &JsString::from(":");
     _smelt_tmp_5 = self.slot.clone();
     let _smelt_tmp_6: f64 = self.slot.count();
     _smelt_tmp_7 = _smelt_tmp_6 + 1.0;
@@ -4046,20 +4049,20 @@ impl<A: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, B: Clon
 
 use super::*;
 
-pub(crate) fn relabel(slot: Slot<bool, String, f64>, label: String) -> Slot<bool, String, f64> {
+pub(crate) fn relabel(slot: Slot<bool, JsString, f64>, label: JsString) -> Slot<bool, JsString, f64> {
     let _smelt_tmp_4: f64;
     let _smelt_tmp_2: bool = slot.first;
     let _smelt_tmp_3: f64 = slot.count();
     _smelt_tmp_4 = _smelt_tmp_3 * 2.0;
-    let _smelt_tmp_5: Slot<bool, String, f64> = Slot::new(_smelt_tmp_2, label.clone(), _smelt_tmp_4);
+    let _smelt_tmp_5: Slot<bool, JsString, f64> = Slot::new(_smelt_tmp_2, label.clone(), _smelt_tmp_4);
     return _smelt_tmp_5;
 }
 
-pub(crate) fn read_config(input: Config<String, f64>) -> String {
-    let _smelt_tmp_2: String;
-    let _smelt_tmp_4: String;
-    let _smelt_tmp_1: String = input.name();
-    _smelt_tmp_2 = _smelt_tmp_1 + &"=".to_owned();
+pub(crate) fn read_config(input: Config<JsString, f64>) -> JsString {
+    let _smelt_tmp_2: JsString;
+    let _smelt_tmp_4: JsString;
+    let _smelt_tmp_1: JsString = input.name();
+    _smelt_tmp_2 = _smelt_tmp_1 + &JsString::from("=");
     let _smelt_tmp_3: f64 = input.amount();
     _smelt_tmp_4 = _smelt_tmp_2 + &smelt_number_to_string(_smelt_tmp_3);
     return _smelt_tmp_4;

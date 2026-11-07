@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 // @smelt:prelude-end — generated program below
 
 #[allow(dead_code)]
@@ -217,7 +220,7 @@ impl ::std::fmt::Debug for Ticker {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Labeller {
-    label: String,
+    label: JsString,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -227,36 +230,36 @@ struct Sizer {
 fn main() {
     let ticker: Ticker;
     let labeller: Labeller;
-    let held: String;
-    let _smelt_tmp_5: String;
-    let _smelt_tmp_6: String;
-    let _smelt_tmp_10: String;
-    let _smelt_tmp_13: String;
-    let _smelt_tmp_16: String;
-    let _smelt_tmp_20: String;
-    let _smelt_tmp_21: String;
+    let held: JsString;
+    let _smelt_tmp_5: JsString;
+    let _smelt_tmp_6: JsString;
+    let _smelt_tmp_10: JsString;
+    let _smelt_tmp_13: JsString;
+    let _smelt_tmp_16: JsString;
+    let _smelt_tmp_20: JsString;
+    let _smelt_tmp_21: JsString;
     let _smelt_tmp_3: Ticker = Ticker::new();
     ticker = _smelt_tmp_3;
-    let _ = ticker.bump("ab".to_owned());
+    let _ = ticker.bump(JsString::from("ab"));
     _smelt_tmp_5 = smelt_number_to_string(ticker.0.borrow().count.clone());
-    _smelt_tmp_6 = "void method: ".to_owned() + &_smelt_tmp_5;
+    _smelt_tmp_6 = JsString::from("void method: ") + &_smelt_tmp_5;
     let _ = { println!("{}", _smelt_tmp_6); };
     let _smelt_tmp_8: Labeller = Labeller::new();
     labeller = _smelt_tmp_8;
-    let _smelt_tmp_9: String = labeller.bump("!".to_owned());
-    _smelt_tmp_10 = "value method: ".to_owned() + &_smelt_tmp_9;
+    let _smelt_tmp_9: JsString = labeller.bump(JsString::from("!"));
+    _smelt_tmp_10 = JsString::from("value method: ") + &_smelt_tmp_9;
     let _ = { println!("{}", _smelt_tmp_10); };
-    let _smelt_tmp_12: String = labeller.bump("?".to_owned());
+    let _smelt_tmp_12: JsString = labeller.bump(JsString::from("?"));
     held = _smelt_tmp_12;
-    _smelt_tmp_13 = "bound value: ".to_owned() + &held;
+    _smelt_tmp_13 = JsString::from("bound value: ") + &held;
     let _ = { println!("{}", _smelt_tmp_13); };
-    let _smelt_tmp_15: String = labeller.describe(3.0);
-    _smelt_tmp_16 = "same name, other params: ".to_owned() + &_smelt_tmp_15;
+    let _smelt_tmp_15: JsString = labeller.describe(3.0);
+    _smelt_tmp_16 = JsString::from("same name, other params: ") + &_smelt_tmp_15;
     let _ = { println!("{}", _smelt_tmp_16); };
     let _smelt_tmp_18: Sizer = Sizer::new();
-    let _smelt_tmp_19: f64 = _smelt_tmp_18.describe("abcd".to_owned());
+    let _smelt_tmp_19: f64 = _smelt_tmp_18.describe(JsString::from("abcd"));
     _smelt_tmp_20 = smelt_number_to_string(_smelt_tmp_19);
-    _smelt_tmp_21 = "other class: ".to_owned() + &_smelt_tmp_20;
+    _smelt_tmp_21 = JsString::from("other class: ") + &_smelt_tmp_20;
     let _ = { println!("{}", _smelt_tmp_21); };
     return;
 }
@@ -267,7 +270,7 @@ impl Ticker {
     this.0.borrow_mut().count = 0.0;
     return this;
     }
-    fn bump(&self, key: String) -> () {
+    fn bump(&self, key: JsString) -> () {
     let _smelt_tmp_2: f64 = smelt_utf16_len(&key) as f64;
     let _smelt_tmp_3: f64 = self.0.borrow().count.clone() + _smelt_tmp_2;
     self.0.borrow_mut().count = _smelt_tmp_3;
@@ -278,17 +281,17 @@ impl Ticker {
 impl Labeller {
     fn new() -> Self {
     let mut this: Self = Labeller { label: String::new() };
-    this.label = "labelled".to_owned();
+    this.label = JsString::from("labelled");
     return this;
     }
-    fn bump(&self, key: String) -> String {
-    let _smelt_tmp_2: String = self.label.clone() + &key.clone();
+    fn bump(&self, key: JsString) -> JsString {
+    let _smelt_tmp_2: JsString = self.label.clone() + &key.clone();
     return _smelt_tmp_2;
     }
-    fn describe(&self, size: f64) -> String {
-    let _smelt_tmp_2: String = self.label.clone() + &"/".to_owned();
-    let _smelt_tmp_3: String = smelt_number_to_string(size);
-    let _smelt_tmp_4: String = _smelt_tmp_2 + &_smelt_tmp_3;
+    fn describe(&self, size: f64) -> JsString {
+    let _smelt_tmp_2: JsString = self.label.clone() + &JsString::from("/");
+    let _smelt_tmp_3: JsString = smelt_number_to_string(size);
+    let _smelt_tmp_4: JsString = _smelt_tmp_2 + &_smelt_tmp_3;
     return _smelt_tmp_4;
     }
 }
@@ -298,7 +301,7 @@ impl Sizer {
     let this: Self = Sizer {  };
     return this;
     }
-    fn describe(&self, text: String) -> f64 {
+    fn describe(&self, text: JsString) -> f64 {
     let _smelt_tmp_2: f64 = smelt_utf16_len(&text) as f64;
     return _smelt_tmp_2;
     }

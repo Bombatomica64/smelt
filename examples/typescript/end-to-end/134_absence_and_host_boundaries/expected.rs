@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -4690,7 +4693,7 @@ fn smelt_crypto_digest(algorithm: &str, data: &[u8]) -> Result<SmeltArrayBuffer,
 
 #[derive(Clone)]
 pub enum SmeltUnion7 {
-    M0(String),
+    M0(JsString),
     M1(SmeltBlob),
 }
 impl IntoSmeltUnknown for SmeltUnion7 {
@@ -4816,7 +4819,7 @@ impl Default for SmeltUnion28 {
 
 #[derive(Clone)]
 pub enum SmeltUnion30 {
-    M0(String),
+    M0(JsString),
     M1(SmeltTypedArray),
     M2(SmeltTypedArray),
     M3(SmeltTypedArray),
@@ -4996,115 +4999,115 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 let smelt_local = tokio::task::LocalSet::new();
 smelt_local.block_on(&smelt_runtime, async move {
-    let rec: SmeltRecord<String, String>;
-    let pairs: SmeltList<(String, SmeltRecord<String, String>)>;
-    let xs: SmeltList<String>;
+    let rec: SmeltRecord<String, JsString>;
+    let pairs: SmeltList<(JsString, SmeltRecord<String, JsString>)>;
+    let xs: SmeltList<JsString>;
     let mut entries: SmeltList<SmeltUnion7>;
     let digest_bytes: SmeltTypedArray;
-    let mut queue: SmeltList<SmeltList<String>>;
-    let head: Option<SmeltList<String>>;
+    let mut queue: SmeltList<SmeltList<JsString>>;
+    let head: Option<SmeltList<JsString>>;
     let _smelt_tmp_9: bool;
     let _smelt_tmp_10: bool;
     let _smelt_tmp_11: bool;
-    let _smelt_tmp_13: SmeltList<String>;
-    let _smelt_tmp_15: (String, SmeltRecord<String, String>);
-    let _smelt_tmp_16: SmeltList<String>;
-    let _smelt_tmp_18: (String, SmeltRecord<String, String>);
-    let _smelt_tmp_20: SmeltRecord<String, String>;
+    let _smelt_tmp_13: SmeltList<JsString>;
+    let _smelt_tmp_15: (JsString, SmeltRecord<String, JsString>);
+    let _smelt_tmp_16: SmeltList<JsString>;
+    let _smelt_tmp_18: (JsString, SmeltRecord<String, JsString>);
+    let _smelt_tmp_20: SmeltRecord<String, JsString>;
     let _smelt_tmp_21: bool;
-    let _smelt_tmp_22: SmeltRecord<String, String>;
+    let _smelt_tmp_22: SmeltRecord<String, JsString>;
     let _smelt_tmp_23: bool;
     let _smelt_tmp_26: bool;
     let _smelt_tmp_27: bool;
-    let _smelt_tmp_29: SmeltList<String>;
-    let _smelt_tmp_31: SmeltList<String>;
+    let _smelt_tmp_29: SmeltList<JsString>;
+    let _smelt_tmp_31: SmeltList<JsString>;
     let _smelt_tmp_36: f64;
-    let _smelt_tmp_37: String;
+    let _smelt_tmp_37: JsString;
     let _smelt_tmp_39: SmeltRegExp;
     let _smelt_tmp_42: ();
     let _smelt_tmp_43: SmeltList<f64>;
     let _smelt_tmp_45: SmeltList<f64>;
-    let _smelt_tmp_46: String;
+    let _smelt_tmp_46: JsString;
     let _smelt_tmp_47: SmeltList<f64>;
     let _smelt_tmp_48: f64;
     let _smelt_tmp_50: SmeltList<f64>;
-    let _smelt_tmp_51: ::std::rc::Rc<dyn Fn(f64, i64, &SmeltList<f64>) -> String>;
-    let _smelt_tmp_52: SmeltList<String>;
-    let _smelt_tmp_53: String;
-    let _smelt_tmp_55: SmeltList<String>;
-    let _smelt_tmp_56: SmeltList<String>;
+    let _smelt_tmp_51: ::std::rc::Rc<dyn Fn(f64, i64, &SmeltList<f64>) -> JsString>;
+    let _smelt_tmp_52: SmeltList<JsString>;
+    let _smelt_tmp_53: JsString;
+    let _smelt_tmp_55: SmeltList<JsString>;
+    let _smelt_tmp_56: SmeltList<JsString>;
     let _smelt_tmp_59: bool;
-    let mut _smelt_tmp_60: String;
-    let _smelt_tmp_61: SmeltList<String>;
-    let _smelt_tmp_62: String;
+    let mut _smelt_tmp_60: JsString;
+    let _smelt_tmp_61: SmeltList<JsString>;
+    let _smelt_tmp_62: JsString;
     let _smelt_tmp_65: ();
-    let _smelt_tmp_7: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_8: SmeltRecord<String, String> = make_record(_smelt_tmp_7);
+    let _smelt_tmp_7: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a")]; smelt_list_items }));
+    let _smelt_tmp_8: SmeltRecord<String, JsString> = make_record(_smelt_tmp_7);
     rec = _smelt_tmp_8;
-    _smelt_tmp_9 = (rec.get(&"id".to_owned())).is_none();
-    _smelt_tmp_10 = (rec.get(&"a".to_owned())).is_none();
-    _smelt_tmp_11 = (rec.get(&"a".to_owned())).is_some();
+    _smelt_tmp_9 = (rec.get(&JsString::from("id"))).is_none();
+    _smelt_tmp_10 = (rec.get(&JsString::from("a"))).is_none();
+    _smelt_tmp_11 = (rec.get(&JsString::from("a"))).is_some();
     let _ = { println!("{} {} {}", _smelt_tmp_9, _smelt_tmp_10, _smelt_tmp_11); };
-    _smelt_tmp_13 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
-    let _smelt_tmp_14: SmeltRecord<String, String> = make_record(_smelt_tmp_13);
-    _smelt_tmp_15 = ("x".to_owned(), _smelt_tmp_14);
-    _smelt_tmp_16 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["id".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_17: SmeltRecord<String, String> = make_record(_smelt_tmp_16);
-    _smelt_tmp_18 = ("y".to_owned(), _smelt_tmp_17);
-    pairs = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, SmeltRecord<String, String>)> = vec![_smelt_tmp_15.clone(), _smelt_tmp_18.clone()]; smelt_list_items }));
+    _smelt_tmp_13 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
+    let _smelt_tmp_14: SmeltRecord<String, JsString> = make_record(_smelt_tmp_13);
+    _smelt_tmp_15 = (JsString::from("x"), _smelt_tmp_14);
+    _smelt_tmp_16 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("id")]; smelt_list_items }));
+    let _smelt_tmp_17: SmeltRecord<String, JsString> = make_record(_smelt_tmp_16);
+    _smelt_tmp_18 = (JsString::from("y"), _smelt_tmp_17);
+    pairs = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(JsString, SmeltRecord<String, JsString>)> = vec![_smelt_tmp_15.clone(), _smelt_tmp_18.clone()]; smelt_list_items }));
     _smelt_tmp_20 = pairs.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), SmeltRecord::new())).1.clone();
-    _smelt_tmp_21 = (_smelt_tmp_20.get(&"id".to_owned())).is_none();
+    _smelt_tmp_21 = (_smelt_tmp_20.get(&JsString::from("id"))).is_none();
     _smelt_tmp_22 = pairs.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), SmeltRecord::new())).1.clone();
-    _smelt_tmp_23 = (_smelt_tmp_22.get(&"id".to_owned())).is_none();
+    _smelt_tmp_23 = (_smelt_tmp_22.get(&JsString::from("id"))).is_none();
     let _ = { println!("{} {}", _smelt_tmp_21, _smelt_tmp_23); };
-    xs = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["q".to_owned()]; smelt_list_items }));
+    xs = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("q")]; smelt_list_items }));
     _smelt_tmp_26 = (xs.borrow().get({ let smelt_normalized = 3.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned()).is_none();
     _smelt_tmp_27 = (xs.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned()).is_none();
     let _ = { println!("{} {}", _smelt_tmp_26, _smelt_tmp_27); };
-    _smelt_tmp_29 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["".to_owned()]; smelt_list_items }));
+    _smelt_tmp_29 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::new()]; smelt_list_items }));
     let _smelt_tmp_30: bool = starts_with_slash(_smelt_tmp_29);
-    _smelt_tmp_31 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["/a".to_owned()]; smelt_list_items }));
+    _smelt_tmp_31 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("/a")]; smelt_list_items }));
     let _smelt_tmp_32: bool = starts_with_slash(_smelt_tmp_31);
     let _ = { println!("{} {}", _smelt_tmp_30, _smelt_tmp_32); };
-    entries = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnion7> = vec![SmeltUnion7::M0("a".to_owned())]; smelt_list_items }));
-    let _smelt_tmp_35: f64 = collect(&mut entries, SmeltUnion7::M0("b".to_owned()));
+    entries = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnion7> = vec![SmeltUnion7::M0(JsString::from("a"))]; smelt_list_items }));
+    let _smelt_tmp_35: f64 = collect(&mut entries, SmeltUnion7::M0(JsString::from("b")));
     _smelt_tmp_36 = entries.len() as f64;
     _smelt_tmp_37 = match &entries.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltUnion7::M0(String::new())) { SmeltUnion7::M0(_) => "string", SmeltUnion7::M1(_) => "object" }.to_owned();
     let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_36), _smelt_tmp_37, entries.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltUnion7::M0(String::new())).into_smelt_unknown()); };
-    _smelt_tmp_39 = SmeltRegExp::new("a/b".to_owned(), "".to_owned());
+    _smelt_tmp_39 = SmeltRegExp::new(JsString::from("a/b"), JsString::new());
     let _ = { println!("{}", _smelt_tmp_39.source.to_string().clone()); };
     let _smelt_tmp_41 = SmeltFuture::from_future(Box::pin(run()));
     _smelt_tmp_42 = { smelt_spawn_promise_task(Box::pin(async move { let _ = _smelt_tmp_41.await; })); () };
     _smelt_tmp_43 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 171.0, 255.0]; smelt_list_items }));
     digest_bytes = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8, &_smelt_tmp_43.to_vec());
     _smelt_tmp_45 = Into::<SmeltList<_>>::into(SmeltList::new(digest_bytes.clone().to_elements()));
-    _smelt_tmp_46 = _smelt_tmp_45.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&"-".to_owned());
+    _smelt_tmp_46 = _smelt_tmp_45.borrow().iter().map(|item| { smelt_number_to_string(*item) }).collect::<Vec<_>>().join(&JsString::from("-"));
     _smelt_tmp_47 = Into::<SmeltList<_>>::into(SmeltList::new(digest_bytes.to_elements()));
     _smelt_tmp_48 = { let smelt_needle = 171.0; _smelt_tmp_47.borrow().iter().position(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).map_or(-1.0, |idx| idx as f64) };
     let _ = { println!("{} {}", _smelt_tmp_46, smelt_console_number(_smelt_tmp_48)); };
     _smelt_tmp_50 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![10.0, 255.0]; smelt_list_items }));
     _smelt_tmp_51 = ::std::rc::Rc::new(|closure_arg_0: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
-    let _smelt_tmp_1: String = { let value = (closure_arg_0 as f64).trunc() as i128; let radix = ((16.0 as f64).trunc() as u32).clamp(2, 36); let negative = value < 0; let mut n = value.unsigned_abs(); let mut digits = Vec::new(); if n == 0 { digits.push('0'); } while n > 0 { let digit = (n % u128::from(radix)) as u8; digits.push(if digit < 10 { (b'0' + digit) as char } else { (b'a' + digit - 10) as char }); n /= u128::from(radix); } if negative { digits.push('-'); } digits.iter().rev().collect::<String>() };
+    let _smelt_tmp_1: JsString = { let value = (closure_arg_0 as f64).trunc() as i128; let radix = ((16.0 as f64).trunc() as u32).clamp(2, 36); let negative = value < 0; let mut n = value.unsigned_abs(); let mut digits = Vec::new(); if n == 0 { digits.push('0'); } while n > 0 { let digit = (n % u128::from(radix)) as u8; digits.push(if digit < 10 { (b'0' + digit) as char } else { (b'a' + digit - 10) as char }); n /= u128::from(radix); } if negative { digits.push('-'); } digits.iter().rev().collect::<String>() };
     _smelt_tmp_1.clone()
     });
     _smelt_tmp_52 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
-    let _smelt_tmp_1: String = { let value = (closure_arg_0 as f64).trunc() as i128; let radix = ((16.0 as f64).trunc() as u32).clamp(2, 36); let negative = value < 0; let mut n = value.unsigned_abs(); let mut digits = Vec::new(); if n == 0 { digits.push('0'); } while n > 0 { let digit = (n % u128::from(radix)) as u8; digits.push(if digit < 10 { (b'0' + digit) as char } else { (b'a' + digit - 10) as char }); n /= u128::from(radix); } if negative { digits.push('-'); } digits.iter().rev().collect::<String>() };
+    let _smelt_tmp_1: JsString = { let value = (closure_arg_0 as f64).trunc() as i128; let radix = ((16.0 as f64).trunc() as u32).clamp(2, 36); let negative = value < 0; let mut n = value.unsigned_abs(); let mut digits = Vec::new(); if n == 0 { digits.push('0'); } while n > 0 { let digit = (n % u128::from(radix)) as u8; digits.push(if digit < 10 { (b'0' + digit) as char } else { (b'a' + digit - 10) as char }); n /= u128::from(radix); } if negative { digits.push('-'); } digits.iter().rev().collect::<String>() };
     _smelt_tmp_1.clone()
     }); let smelt_array = _smelt_tmp_50; let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
-    _smelt_tmp_53 = _smelt_tmp_52.borrow().join(&",".to_owned());
+    _smelt_tmp_53 = _smelt_tmp_52.borrow().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_53); };
-    _smelt_tmp_55 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "b".to_owned()]; smelt_list_items }));
-    _smelt_tmp_56 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["c".to_owned()]; smelt_list_items }));
-    queue = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<String>> = vec![_smelt_tmp_55.clone(), _smelt_tmp_56.clone()]; smelt_list_items }));
+    _smelt_tmp_55 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a"), JsString::from("b")]; smelt_list_items }));
+    _smelt_tmp_56 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("c")]; smelt_list_items }));
+    queue = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<JsString>> = vec![_smelt_tmp_55.clone(), _smelt_tmp_56.clone()]; smelt_list_items }));
     head = if queue.is_empty() { None } else { Some(queue.borrow_mut().remove(0)) };
     _smelt_tmp_59 = !(head.clone().is_none());
-    let mut _smelt_tmp_60: String = String::new();
+    let mut _smelt_tmp_60: JsString = String::new();
     if _smelt_tmp_59 {
     _smelt_tmp_61 = Into::<SmeltList<_>>::into(head.clone().expect("optional value was absent after narrowing"));
-    _smelt_tmp_62 = _smelt_tmp_61.borrow().join(&",".to_owned());
+    _smelt_tmp_62 = _smelt_tmp_61.borrow().join(&JsString::from(","));
     _smelt_tmp_60 = _smelt_tmp_62;
     } else {
-    _smelt_tmp_60 = "none".to_owned();
+    _smelt_tmp_60 = JsString::from("none");
     }
     let _ = { println!("{}", _smelt_tmp_60); };
     let _smelt_tmp_64: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
@@ -5120,35 +5123,35 @@ smelt_local.block_on(&smelt_runtime, async move {
 
 use super::*;
 
-pub(crate) fn make_record(keys: SmeltList<String>) -> SmeltRecord<String, String> {
-    let mut key: String;
+pub(crate) fn make_record(keys: SmeltList<JsString>) -> SmeltRecord<String, JsString> {
+    let mut key: JsString;
     let mut _smelt_tmp_5: usize;
     let mut _smelt_tmp_6: bool;
-    let mut _smelt_tmp_7: String;
-    let mut rec: SmeltRecord<String, String> = SmeltRecord::from([]);
+    let mut _smelt_tmp_7: JsString;
+    let mut rec: SmeltRecord<String, JsString> = SmeltRecord::from([]);
     let mut _smelt_tmp_4: usize = 0;
     loop {
     _smelt_tmp_5 = keys.len();
     _smelt_tmp_6 = _smelt_tmp_4 < _smelt_tmp_5;
     if !(_smelt_tmp_6) { break; }
     key = keys.borrow().get(_smelt_tmp_4).cloned().unwrap_or_else(|| String::new());
-    _smelt_tmp_7 = key.clone() + &"!".to_owned();
+    _smelt_tmp_7 = key.clone() + &JsString::from("!");
     rec.insert(key.clone(), _smelt_tmp_7);
     _smelt_tmp_4 = _smelt_tmp_4 + 1;
     }
     return rec;
 }
 
-pub(crate) fn starts_with_slash(parts: SmeltList<String>) -> bool {
-    let _smelt_tmp_1: String = parts.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new());
-    let _smelt_tmp_2: bool = smelt_utf16_char_at(&_smelt_tmp_1, { let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).unwrap_or_default() == "/".to_owned();
+pub(crate) fn starts_with_slash(parts: SmeltList<JsString>) -> bool {
+    let _smelt_tmp_1: JsString = parts.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new());
+    let _smelt_tmp_2: bool = smelt_utf16_char_at(&_smelt_tmp_1, { let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).unwrap_or_default() == JsString::from("/");
     return _smelt_tmp_2;
 }
 
 pub(crate) async fn digest_length(data: SmeltUnion30) -> Result<f64, Box<dyn std::error::Error>> {
     let buffer: SmeltArrayBuffer;
     let _smelt_tmp_4: SmeltTextEncoder;
-    let _smelt_tmp_5: String;
+    let _smelt_tmp_5: JsString;
     let _smelt_tmp_6: SmeltTypedArray;
     let _smelt_tmp_7: SmeltUnion40;
     let _smelt_tmp_10: SmeltTypedArray;
@@ -5163,7 +5166,7 @@ pub(crate) async fn digest_length(data: SmeltUnion30) -> Result<f64, Box<dyn std
     _smelt_tmp_7 = match data.clone() { SmeltUnion30::M1(value) => SmeltUnion40::M0(value), SmeltUnion30::M2(value) => SmeltUnion40::M1(value), SmeltUnion30::M3(value) => SmeltUnion40::M2(value), SmeltUnion30::M4(value) => SmeltUnion40::M3(value), SmeltUnion30::M5(value) => SmeltUnion40::M4(value), SmeltUnion30::M6(value) => SmeltUnion40::M5(value), SmeltUnion30::M7(value) => SmeltUnion40::M6(value), SmeltUnion30::M8(value) => SmeltUnion40::M7(value), SmeltUnion30::M9(value) => SmeltUnion40::M8(value), SmeltUnion30::M10(value) => SmeltUnion40::M9(value), SmeltUnion30::M11(value) => SmeltUnion40::M10(value), SmeltUnion30::M12(value) => SmeltUnion40::M11(value), SmeltUnion30::M13(value) => SmeltUnion40::M12(value), _ => unreachable!("union guard selected an excluded member") };
     source = _smelt_tmp_7;
     }
-    let _smelt_tmp_8: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = ("SHA-256".to_owned()).clone(); let smelt_data = match &(source) { SmeltUnion40::M0(value) => value.to_bytes(), SmeltUnion40::M1(value) => value.to_bytes(), SmeltUnion40::M2(value) => value.to_bytes(), SmeltUnion40::M3(value) => value.to_bytes(), SmeltUnion40::M4(value) => value.to_bytes(), SmeltUnion40::M5(value) => value.to_bytes(), SmeltUnion40::M6(value) => value.to_bytes(), SmeltUnion40::M7(value) => value.to_bytes(), SmeltUnion40::M8(value) => value.to_bytes(), SmeltUnion40::M9(value) => value.to_bytes(), SmeltUnion40::M10(value) => value.to_bytes(), SmeltUnion40::M11(value) => value.to_bytes(), SmeltUnion40::M12(value) => value.to_bytes() }; SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
+    let _smelt_tmp_8: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = (JsString::from("SHA-256")).clone(); let smelt_data = match &(source) { SmeltUnion40::M0(value) => value.to_bytes(), SmeltUnion40::M1(value) => value.to_bytes(), SmeltUnion40::M2(value) => value.to_bytes(), SmeltUnion40::M3(value) => value.to_bytes(), SmeltUnion40::M4(value) => value.to_bytes(), SmeltUnion40::M5(value) => value.to_bytes(), SmeltUnion40::M6(value) => value.to_bytes(), SmeltUnion40::M7(value) => value.to_bytes(), SmeltUnion40::M8(value) => value.to_bytes(), SmeltUnion40::M9(value) => value.to_bytes(), SmeltUnion40::M10(value) => value.to_bytes(), SmeltUnion40::M11(value) => value.to_bytes(), SmeltUnion40::M12(value) => value.to_bytes() }; SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
     buffer = _smelt_tmp_8.await?;
     _smelt_tmp_10 = SmeltTypedArray::over_buffer(SmeltTypedArrayKind::Uint8, &buffer, 0, None);
     return Ok(_smelt_tmp_10.get(0.0).unwrap_or(0.0));
@@ -5174,7 +5177,7 @@ pub(crate) fn collect(mut into: &mut SmeltList<SmeltUnion7>, value: SmeltUnion7)
     return _smelt_tmp_2;
 }
 
-pub(crate) async fn slow(ms: f64, value: String) -> Result<String, Box<dyn std::error::Error>> {
+pub(crate) async fn slow(ms: f64, value: JsString) -> Result<JsString, Box<dyn std::error::Error>> {
     let _smelt_tmp_2: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_sleep_ms(ms as f64).await; Ok::<_, Box<dyn std::error::Error>>(()) }));
     let _smelt_tmp_3: () = _smelt_tmp_2.await?;
     return Ok(value.clone());
@@ -5185,29 +5188,29 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_2: SmeltList<f64>;
     let _smelt_tmp_3: SmeltTypedArray;
     let _smelt_tmp_5: f64;
-    let _smelt_tmp_10: String;
-    let _smelt_tmp_15: String;
-    let _smelt_tmp_20: String;
-    let _smelt_tmp_0 = SmeltFuture::from_future(Box::pin(digest_length(SmeltUnion30::M0("abc".to_owned()))));
+    let _smelt_tmp_10: JsString;
+    let _smelt_tmp_15: JsString;
+    let _smelt_tmp_20: JsString;
+    let _smelt_tmp_0 = SmeltFuture::from_future(Box::pin(digest_length(SmeltUnion30::M0(JsString::from("abc")))));
     _smelt_tmp_1 = _smelt_tmp_0.await?;
     _smelt_tmp_2 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
     _smelt_tmp_3 = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8, &_smelt_tmp_2.to_vec());
     let _smelt_tmp_4 = SmeltFuture::from_future(Box::pin(digest_length(SmeltUnion30::M1(_smelt_tmp_3))));
     _smelt_tmp_5 = _smelt_tmp_4.await?;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_1), smelt_console_number(_smelt_tmp_5)); };
-    let _smelt_tmp_7 = SmeltFuture::from_future(Box::pin(slow(100.0, "slow".to_owned())));
-    let _smelt_tmp_8 = SmeltFuture::from_future(Box::pin(slow(30.0, "fast".to_owned())));
-    let _smelt_tmp_9: SmeltFuture<String> = SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>({ let mut smelt_racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<_, Box<dyn std::error::Error>>>>>> = Vec::new(); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(_smelt_tmp_7))); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(_smelt_tmp_8))); smelt_promise_race(smelt_racers).await? }) }));
+    let _smelt_tmp_7 = SmeltFuture::from_future(Box::pin(slow(100.0, JsString::from("slow"))));
+    let _smelt_tmp_8 = SmeltFuture::from_future(Box::pin(slow(30.0, JsString::from("fast"))));
+    let _smelt_tmp_9: SmeltFuture<JsString> = SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>({ let mut smelt_racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<_, Box<dyn std::error::Error>>>>>> = Vec::new(); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(_smelt_tmp_7))); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(_smelt_tmp_8))); smelt_promise_race(smelt_racers).await? }) }));
     _smelt_tmp_10 = _smelt_tmp_9.await?;
     let _ = { println!("{}", _smelt_tmp_10); };
-    let _smelt_tmp_12 = SmeltFuture::from_future(Box::pin(slow(110.0, "late".to_owned())));
-    let _smelt_tmp_13 = SmeltFuture::from_future(Box::pin(slow(50.0, "timed out".to_owned())));
-    let _smelt_tmp_14: SmeltFuture<String> = SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>({ let mut smelt_racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<_, Box<dyn std::error::Error>>>>>> = Vec::new(); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(_smelt_tmp_12))); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(_smelt_tmp_13))); smelt_promise_race(smelt_racers).await? }) }));
+    let _smelt_tmp_12 = SmeltFuture::from_future(Box::pin(slow(110.0, JsString::from("late"))));
+    let _smelt_tmp_13 = SmeltFuture::from_future(Box::pin(slow(50.0, JsString::from("timed out"))));
+    let _smelt_tmp_14: SmeltFuture<JsString> = SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>({ let mut smelt_racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<_, Box<dyn std::error::Error>>>>>> = Vec::new(); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(_smelt_tmp_12))); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(_smelt_tmp_13))); smelt_promise_race(smelt_racers).await? }) }));
     _smelt_tmp_15 = _smelt_tmp_14.await?;
     let _ = { println!("{}", _smelt_tmp_15); };
-    let _smelt_tmp_17 = SmeltFuture::from_future(Box::pin(slow(20.0, "early".to_owned())));
-    let _smelt_tmp_18 = SmeltFuture::from_future(Box::pin(slow(60.0, "late timeout".to_owned())));
-    let _smelt_tmp_19: SmeltFuture<String> = SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>({ let mut smelt_racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<_, Box<dyn std::error::Error>>>>>> = Vec::new(); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(_smelt_tmp_17))); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(_smelt_tmp_18))); smelt_promise_race(smelt_racers).await? }) }));
+    let _smelt_tmp_17 = SmeltFuture::from_future(Box::pin(slow(20.0, JsString::from("early"))));
+    let _smelt_tmp_18 = SmeltFuture::from_future(Box::pin(slow(60.0, JsString::from("late timeout"))));
+    let _smelt_tmp_19: SmeltFuture<JsString> = SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>({ let mut smelt_racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<_, Box<dyn std::error::Error>>>>>> = Vec::new(); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(_smelt_tmp_17))); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(_smelt_tmp_18))); smelt_promise_race(smelt_racers).await? }) }));
     _smelt_tmp_20 = _smelt_tmp_19.await?;
     let _ = { println!("{}", _smelt_tmp_20); };
     return Ok(());

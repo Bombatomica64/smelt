@@ -71,6 +71,9 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 // @smelt:prelude-end — generated program below
 
 #[derive(Clone)]
@@ -106,17 +109,17 @@ fn main() {
     let counter: Counter;
     let _smelt_tmp_2: Body = Body::new();
     body = _smelt_tmp_2;
-    let _smelt_tmp_3: String = read(body.clone(), "json".to_owned());
+    let _smelt_tmp_3: JsString = read(body.clone(), JsString::from("json"));
     let _ = { println!("{}", _smelt_tmp_3); };
-    let _smelt_tmp_5: String = read(body.clone(), "text".to_owned());
+    let _smelt_tmp_5: JsString = read(body.clone(), JsString::from("text"));
     let _ = { println!("{}", _smelt_tmp_5); };
-    let _smelt_tmp_7: String = read(body, "raw".to_owned());
+    let _smelt_tmp_7: JsString = read(body, JsString::from("raw"));
     let _ = { println!("{}", _smelt_tmp_7); };
     let _smelt_tmp_9: Counter = Counter::new();
     counter = _smelt_tmp_9;
-    let _smelt_tmp_10: f64 = count(counter.clone(), "head".to_owned());
+    let _smelt_tmp_10: f64 = count(counter.clone(), JsString::from("head"));
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_10)); };
-    let _smelt_tmp_12: f64 = count(counter, "tail".to_owned());
+    let _smelt_tmp_12: f64 = count(counter, JsString::from("tail"));
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_12)); };
     return;
 }
@@ -126,14 +129,14 @@ impl Body {
     let this: Self = Body {  };
     return this;
     }
-    fn json(&self) -> String {
-    return "json-body".to_owned();
+    fn json(&self) -> JsString {
+    return JsString::from("json-body");
     }
-    fn text(&self) -> String {
-    return "text-body".to_owned();
+    fn text(&self) -> JsString {
+    return JsString::from("text-body");
     }
-    fn raw(&self) -> String {
-    return "raw-body".to_owned();
+    fn raw(&self) -> JsString {
+    return JsString::from("raw-body");
     }
 }
 
@@ -157,24 +160,24 @@ impl Counter {
 
 use super::*;
 
-pub(crate) fn read(body: Body, key: String) -> String {
-    let mut _smelt_tmp_3: String;
+pub(crate) fn read(body: Body, key: JsString) -> JsString {
+    let mut _smelt_tmp_3: JsString;
     let _smelt_tmp_5: bool;
-    let mut _smelt_tmp_6: String;
-    let _smelt_tmp_2: bool = key.clone() == "json".to_owned();
+    let mut _smelt_tmp_6: JsString;
+    let _smelt_tmp_2: bool = key.clone() == JsString::from("json");
     if _smelt_tmp_2 {
-    let _smelt_tmp_4: String = body.json();
+    let _smelt_tmp_4: JsString = body.json();
     _smelt_tmp_3 = _smelt_tmp_4;
     return _smelt_tmp_3;
     } else {
-    _smelt_tmp_5 = key.clone() == "text".to_owned();
+    _smelt_tmp_5 = key.clone() == JsString::from("text");
     if _smelt_tmp_5 {
-    let _smelt_tmp_7: String = body.text();
+    let _smelt_tmp_7: JsString = body.text();
     _smelt_tmp_6 = _smelt_tmp_7;
     _smelt_tmp_3 = _smelt_tmp_6;
     return _smelt_tmp_3;
     } else {
-    let _smelt_tmp_8: String = body.raw();
+    let _smelt_tmp_8: JsString = body.raw();
     _smelt_tmp_6 = _smelt_tmp_8;
     _smelt_tmp_3 = _smelt_tmp_6;
     return _smelt_tmp_3;
@@ -182,9 +185,9 @@ pub(crate) fn read(body: Body, key: String) -> String {
     }
 }
 
-pub(crate) fn count(counter: Counter, key: String) -> f64 {
+pub(crate) fn count(counter: Counter, key: JsString) -> f64 {
     let mut _smelt_tmp_3: f64;
-    let _smelt_tmp_2: bool = key.clone() == "head".to_owned();
+    let _smelt_tmp_2: bool = key.clone() == JsString::from("head");
     if _smelt_tmp_2 {
     let _smelt_tmp_4: f64 = counter.head();
     _smelt_tmp_3 = _smelt_tmp_4;

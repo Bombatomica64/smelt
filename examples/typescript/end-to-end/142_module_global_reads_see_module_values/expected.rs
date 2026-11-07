@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3688,16 +3691,16 @@ impl SmeltFromUnknown for SmeltMatch {
 thread_local! {
     static SMELT_GLOBAL_ZS_0: ::std::cell::RefCell<SmeltList<f64>> = ::std::cell::RefCell::new(smelt_global_init__zs__0());
     static SMELT_GLOBAL_SEED_1: ::std::cell::Cell<f64> = const { ::std::cell::Cell::new(1.0) };
-    static SMELT_GLOBAL_P_2: ::std::cell::RefCell<SmeltRecord<String, (f64, String)>> = ::std::cell::RefCell::new(smelt_global_init__p__2());
+    static SMELT_GLOBAL_P_2: ::std::cell::RefCell<SmeltRecord<String, (f64, JsString)>> = ::std::cell::RefCell::new(smelt_global_init__p__2());
     static SMELT_GLOBAL_TABLE_3: ::std::cell::RefCell<SmeltRecord<String, f64>> = ::std::cell::RefCell::new(smelt_global_init__table__3());
     static SMELT_GLOBAL_SNAPSHOT_4: ::std::cell::RefCell<SmeltRecord<String, f64>> = ::std::cell::RefCell::new(smelt_global_init__snapshot__4());
 }
-fn smelt_global_init__p__2() -> SmeltRecord<String, (f64, String)> {
-    let _smelt_tmp_1: (f64, String);
-    let _smelt_tmp_2: SmeltRecord<String, (f64, String)>;
+fn smelt_global_init__p__2() -> SmeltRecord<String, (f64, JsString)> {
+    let _smelt_tmp_1: (f64, JsString);
+    let _smelt_tmp_2: SmeltRecord<String, (f64, JsString)>;
     let _smelt_tmp_0: f64 = zero();
-    _smelt_tmp_1 = (_smelt_tmp_0, "a".to_owned());
-    _smelt_tmp_2 = SmeltRecord::from([("k".to_owned(), _smelt_tmp_1)]);
+    _smelt_tmp_1 = (_smelt_tmp_0, JsString::from("a"));
+    _smelt_tmp_2 = SmeltRecord::from([(JsString::from("k"), _smelt_tmp_1)]);
     return _smelt_tmp_2;
 }
 
@@ -3709,7 +3712,7 @@ fn smelt_global_init__zs__0() -> SmeltList<f64> {
 fn smelt_global_init__table__3() -> SmeltRecord<String, f64> {
     let _smelt_tmp_1: SmeltRecord<String, f64>;
     let _smelt_tmp_0: f64 = double__module_main(2.0);
-    _smelt_tmp_1 = SmeltRecord::from([("four".to_owned(), _smelt_tmp_0)]);
+    _smelt_tmp_1 = SmeltRecord::from([(JsString::from("four"), _smelt_tmp_0)]);
     return _smelt_tmp_1;
 }
 
@@ -3717,7 +3720,7 @@ fn smelt_global_init__snapshot__4() -> SmeltRecord<String, f64> {
     let _smelt_tmp_2: SmeltRecord<String, f64>;
     let _smelt_tmp_0: f64 = SMELT_GLOBAL_SEED_1.with(::std::cell::Cell::get);
     let _smelt_tmp_1: f64 = double__module_main(_smelt_tmp_0);
-    _smelt_tmp_2 = SmeltRecord::from([("seed".to_owned(), _smelt_tmp_1)]);
+    _smelt_tmp_2 = SmeltRecord::from([(JsString::from("seed"), _smelt_tmp_1)]);
     return _smelt_tmp_2;
 }
 
@@ -3733,17 +3736,17 @@ fn main() {
     _smelt_tmp_1
     });
     let cnt = _smelt_tmp_6.clone();
-    let greeting: String = "hello".to_owned();
+    let greeting: JsString = JsString::from("hello");
     SMELT_GLOBAL_TABLE_3.with(|_| ());
     SMELT_GLOBAL_SNAPSHOT_4.with(|_| ());
     let _smelt_tmp_9: f64 = { let smelt_global_value = 10.0; SMELT_GLOBAL_SEED_1.with(|value| value.set(smelt_global_value)); smelt_global_value };
-    let _smelt_tmp_10: String = read_p("k".to_owned());
+    let _smelt_tmp_10: JsString = read_p(JsString::from("k"));
     let _ = { println!("{}", _smelt_tmp_10); };
     _smelt_tmp_12 = (cnt)();
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_12)); };
-    let _smelt_tmp_14: String = greet();
+    let _smelt_tmp_14: JsString = greet();
     let _ = { println!("{}", _smelt_tmp_14); };
-    let _smelt_tmp_16: f64 = lookup("four".to_owned());
+    let _smelt_tmp_16: f64 = lookup(JsString::from("four"));
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_16)); };
     let _smelt_tmp_18: f64 = snapshot_seed();
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_18)); };
@@ -3761,24 +3764,24 @@ pub(crate) fn zero() -> f64 {
     return 0.0;
 }
 
-pub(crate) fn read_p(key: String) -> String {
-    let _smelt_tmp_2: SmeltRecord<String, (f64, String)> = SMELT_GLOBAL_P_2.with(|value| value.borrow().clone());
-    let entry: Option<(f64, String)> = _smelt_tmp_2.get(&key.clone());
-    let _smelt_tmp_4: (f64, String) = entry.clone().expect("optional value was absent after narrowing");
+pub(crate) fn read_p(key: JsString) -> JsString {
+    let _smelt_tmp_2: SmeltRecord<String, (f64, JsString)> = SMELT_GLOBAL_P_2.with(|value| value.borrow().clone());
+    let entry: Option<(f64, JsString)> = _smelt_tmp_2.get(&key.clone());
+    let _smelt_tmp_4: (f64, JsString) = entry.clone().expect("optional value was absent after narrowing");
     let _smelt_tmp_5: f64 = _smelt_tmp_4.0.clone();
-    let _smelt_tmp_6: String = "".to_owned() + &smelt_number_to_string(_smelt_tmp_5);
-    let _smelt_tmp_7: String = _smelt_tmp_6 + &":".to_owned();
-    let _smelt_tmp_8: (f64, String) = entry.clone().expect("optional value was absent after narrowing");
-    let _smelt_tmp_9: String = _smelt_tmp_8.1.clone();
-    let _smelt_tmp_10: String = _smelt_tmp_7 + &_smelt_tmp_9;
+    let _smelt_tmp_6: JsString = JsString::new() + &smelt_number_to_string(_smelt_tmp_5);
+    let _smelt_tmp_7: JsString = _smelt_tmp_6 + &JsString::from(":");
+    let _smelt_tmp_8: (f64, JsString) = entry.clone().expect("optional value was absent after narrowing");
+    let _smelt_tmp_9: JsString = _smelt_tmp_8.1.clone();
+    let _smelt_tmp_10: JsString = _smelt_tmp_7 + &_smelt_tmp_9;
     return _smelt_tmp_10;
 }
 
-pub(crate) fn greet() -> String {
-    return "hello".to_owned();
+pub(crate) fn greet() -> JsString {
+    return JsString::from("hello");
 }
 
-pub(crate) fn lookup(key: String) -> f64 {
+pub(crate) fn lookup(key: JsString) -> f64 {
     let _smelt_tmp_1: SmeltRecord<String, f64> = SMELT_GLOBAL_TABLE_3.with(|value| value.borrow().clone());
     return _smelt_tmp_1.get(&key.clone()).unwrap_or(0.0);
 }
@@ -3786,7 +3789,7 @@ pub(crate) fn lookup(key: String) -> f64 {
 pub(crate) fn snapshot_seed() -> f64 {
     let _smelt_tmp_0: SmeltRecord<String, f64> = SMELT_GLOBAL_SNAPSHOT_4.with(|value| value.borrow().clone());
     let _smelt_tmp_1: f64 = SMELT_GLOBAL_SEED_1.with(::std::cell::Cell::get);
-    let _smelt_tmp_2: f64 = _smelt_tmp_0.get(&"seed".to_owned().clone()).unwrap_or(0.0) + _smelt_tmp_1;
+    let _smelt_tmp_2: f64 = _smelt_tmp_0.get(&JsString::from("seed").clone()).unwrap_or(0.0) + _smelt_tmp_1;
     return _smelt_tmp_2;
 }
 

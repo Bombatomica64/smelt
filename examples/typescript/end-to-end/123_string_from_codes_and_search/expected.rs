@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
@@ -587,16 +590,16 @@ fn main() {
     let mut _smelt_tmp_5: usize;
     let mut _smelt_tmp_6: bool;
     let mut _smelt_tmp_7: SmeltList<f64>;
-    let mut _smelt_tmp_8: String;
-    let mut _smelt_tmp_9: String;
+    let mut _smelt_tmp_8: JsString;
+    let mut _smelt_tmp_9: JsString;
     let mut _smelt_tmp_10: usize;
     let mut _smelt_tmp_12: f64;
     let mut _smelt_tmp_13: SmeltList<f64>;
-    let mut _smelt_tmp_14: String;
+    let mut _smelt_tmp_14: JsString;
     let mut _smelt_tmp_16: SmeltList<f64>;
-    let mut _smelt_tmp_17: String;
+    let mut _smelt_tmp_17: JsString;
     let mut _smelt_tmp_19: SmeltList<f64>;
-    let mut _smelt_tmp_20: String;
+    let mut _smelt_tmp_20: JsString;
     let mut _smelt_tmp_21: f64;
     let mut _smelt_tmp_24: f64;
     let mut _smelt_tmp_25: f64;
@@ -605,7 +608,7 @@ fn main() {
     let mut _smelt_tmp_28: SmeltRegExp;
     let mut _smelt_tmp_29: f64;
     let codes: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![72.0, 101.0, 108.0, 108.0, 111.0]; smelt_list_items }));
-    let mut text: String = "".to_owned();
+    let mut text: JsString = JsString::new();
     let mut i: usize = 0;
     loop {
     _smelt_tmp_5 = codes.len();
@@ -630,13 +633,13 @@ fn main() {
     _smelt_tmp_20 = { let smelt_units: Vec<u16> = _smelt_tmp_19.borrow().iter().map(|smelt_code| { let smelt_code = *smelt_code; if smelt_code.is_finite() { smelt_code.trunc().rem_euclid(65536.0) as u16 } else { 0 } }).collect(); String::from_utf16_lossy(&smelt_units) };
     _smelt_tmp_21 = smelt_utf16_len(&_smelt_tmp_20) as f64;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_21)); };
-    escape_re = SmeltRegExp::new("[\\&<>'\"]".to_owned(), "".to_owned());
-    _smelt_tmp_24 = { let smelt_haystack = "I <b>".to_owned(); let smelt_regex = escape_re; match smelt_regex.compiled().find(&smelt_haystack) { Ok(Some(smelt_found)) => smelt_haystack[..smelt_found.start()].encode_utf16().count() as f64, _ => -1.0 } };
-    _smelt_tmp_25 = { let smelt_haystack = "ab".to_owned(); let smelt_regex = SmeltRegExp::new("b".to_owned(), String::new()); match smelt_regex.compiled().find(&smelt_haystack) { Ok(Some(smelt_found)) => smelt_haystack[..smelt_found.start()].encode_utf16().count() as f64, _ => -1.0 } };
-    _smelt_tmp_26 = SmeltRegExp::new("<".to_owned(), "".to_owned());
-    _smelt_tmp_27 = { let smelt_haystack = "héllo<".to_owned(); let smelt_regex = _smelt_tmp_26; match smelt_regex.compiled().find(&smelt_haystack) { Ok(Some(smelt_found)) => smelt_haystack[..smelt_found.start()].encode_utf16().count() as f64, _ => -1.0 } };
-    _smelt_tmp_28 = SmeltRegExp::new("y".to_owned(), "".to_owned());
-    _smelt_tmp_29 = { let smelt_haystack = "x".to_owned(); let smelt_regex = _smelt_tmp_28; match smelt_regex.compiled().find(&smelt_haystack) { Ok(Some(smelt_found)) => smelt_haystack[..smelt_found.start()].encode_utf16().count() as f64, _ => -1.0 } };
+    escape_re = SmeltRegExp::new(JsString::from("[\\&<>'\"]"), JsString::new());
+    _smelt_tmp_24 = { let smelt_haystack = JsString::from("I <b>"); let smelt_regex = escape_re; match smelt_regex.compiled().find(&smelt_haystack) { Ok(Some(smelt_found)) => smelt_haystack[..smelt_found.start()].encode_utf16().count() as f64, _ => -1.0 } };
+    _smelt_tmp_25 = { let smelt_haystack = JsString::from("ab"); let smelt_regex = SmeltRegExp::new(JsString::from("b"), String::new()); match smelt_regex.compiled().find(&smelt_haystack) { Ok(Some(smelt_found)) => smelt_haystack[..smelt_found.start()].encode_utf16().count() as f64, _ => -1.0 } };
+    _smelt_tmp_26 = SmeltRegExp::new(JsString::from("<"), JsString::new());
+    _smelt_tmp_27 = { let smelt_haystack = JsString::from("héllo<"); let smelt_regex = _smelt_tmp_26; match smelt_regex.compiled().find(&smelt_haystack) { Ok(Some(smelt_found)) => smelt_haystack[..smelt_found.start()].encode_utf16().count() as f64, _ => -1.0 } };
+    _smelt_tmp_28 = SmeltRegExp::new(JsString::from("y"), JsString::new());
+    _smelt_tmp_29 = { let smelt_haystack = JsString::from("x"); let smelt_regex = _smelt_tmp_28; match smelt_regex.compiled().find(&smelt_haystack) { Ok(Some(smelt_found)) => smelt_haystack[..smelt_found.start()].encode_utf16().count() as f64, _ => -1.0 } };
     let _ = { println!("{} {} {} {}", smelt_console_number(_smelt_tmp_24), smelt_console_number(_smelt_tmp_25), smelt_console_number(_smelt_tmp_27), smelt_console_number(_smelt_tmp_29)); };
     return;
 }

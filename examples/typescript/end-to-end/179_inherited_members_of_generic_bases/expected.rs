@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3958,7 +3961,7 @@ struct Leaf(::std::rc::Rc<::std::cell::RefCell<LeafInner>>);
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct LeafInner {
-    items: SmeltList<SmeltList<String>>,
+    items: SmeltList<SmeltList<JsString>>,
 }
 impl Clone for Leaf {
     fn clone(&self) -> Self {
@@ -4059,13 +4062,13 @@ impl SmeltFromUnknown for Nums {
 struct Parser<T>(::std::rc::Rc<::std::cell::RefCell<ParserInner<T>>>);
 #[allow(dead_code)]
 struct ParserInner<T> {
-    parse: ::std::rc::Rc<dyn Fn(String) -> ParseResult<T>>,
+    parse: ::std::rc::Rc<dyn Fn(JsString) -> ParseResult<T>>,
     _smelt_phantom: ::std::marker::PhantomData<(T)>,
 }
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for ParserInner<T> {
     fn default() -> Self {
         Self {
-            parse: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> ParseResult<T>> = ::std::rc::Rc::new(move |arg0: String| -> ParseResult<T> { Default::default() }); smelt_default_callback },
+            parse: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> ParseResult<T>> = ::std::rc::Rc::new(move |arg0: JsString| -> ParseResult<T> { Default::default() }); smelt_default_callback },
             _smelt_phantom: ::std::marker::PhantomData,
         }
     }
@@ -4122,12 +4125,12 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFr
 struct YearParser(::std::rc::Rc<::std::cell::RefCell<YearParserInner>>);
 #[allow(dead_code)]
 struct YearParserInner {
-    parse: ::std::rc::Rc<dyn Fn(String) -> ParseResult<f64>>,
+    parse: ::std::rc::Rc<dyn Fn(JsString) -> ParseResult<f64>>,
 }
 impl Default for YearParserInner {
     fn default() -> Self {
         Self {
-            parse: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> ParseResult<f64>> = ::std::rc::Rc::new(move |arg0: String| -> ParseResult<f64> { Default::default() }); smelt_default_callback },
+            parse: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> ParseResult<f64>> = ::std::rc::Rc::new(move |arg0: JsString| -> ParseResult<f64> { Default::default() }); smelt_default_callback },
         }
     }
 }
@@ -4181,33 +4184,33 @@ impl SmeltFromUnknown for YearParser {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let leaf: Leaf;
-    let joined: SmeltList<String>;
+    let joined: SmeltList<JsString>;
     let nums: Nums;
     let parser: Parser<f64>;
-    let _smelt_tmp_5: SmeltList<String>;
-    let _smelt_tmp_7: SmeltList<String>;
-    let _smelt_tmp_11: ::std::rc::Rc<dyn Fn(&SmeltList<String>) -> String>;
-    let _smelt_tmp_13: String;
-    let _smelt_tmp_18: ::std::rc::Rc<dyn Fn(f64) -> String>;
-    let _smelt_tmp_20: String;
+    let _smelt_tmp_5: SmeltList<JsString>;
+    let _smelt_tmp_7: SmeltList<JsString>;
+    let _smelt_tmp_11: ::std::rc::Rc<dyn Fn(&SmeltList<JsString>) -> JsString>;
+    let _smelt_tmp_13: JsString;
+    let _smelt_tmp_18: ::std::rc::Rc<dyn Fn(f64) -> JsString>;
+    let _smelt_tmp_20: JsString;
     let _smelt_tmp_4: Leaf = Leaf::new();
     leaf = _smelt_tmp_4;
-    _smelt_tmp_5 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "b".to_owned()]; smelt_list_items }));
+    _smelt_tmp_5 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a"), JsString::from("b")]; smelt_list_items }));
     let _smelt_tmp_6: f64 = leaf.push(_smelt_tmp_5);
-    _smelt_tmp_7 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["c".to_owned()]; smelt_list_items }));
+    _smelt_tmp_7 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("c")]; smelt_list_items }));
     let _smelt_tmp_8: f64 = leaf.push(_smelt_tmp_7);
     let _smelt_tmp_9: f64 = leaf.total();
     let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_6), smelt_console_number(_smelt_tmp_8), smelt_console_number(_smelt_tmp_9)); };
-    _smelt_tmp_11 = ::std::rc::Rc::new(|closure_arg_0: &SmeltList<String>| {
+    _smelt_tmp_11 = ::std::rc::Rc::new(|closure_arg_0: &SmeltList<JsString>| {
     let _smelt_tmp_1: f64 = closure_arg_0.len() as f64;
-    let _smelt_tmp_2: String = "".to_owned() + &smelt_number_to_string(_smelt_tmp_1);
-    let _smelt_tmp_3: String = _smelt_tmp_2.clone() + &":".to_owned();
-    let _smelt_tmp_4: String = _smelt_tmp_3.clone() + &closure_arg_0.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()).clone();
+    let _smelt_tmp_2: JsString = JsString::new() + &smelt_number_to_string(_smelt_tmp_1);
+    let _smelt_tmp_3: JsString = _smelt_tmp_2.clone() + &JsString::from(":");
+    let _smelt_tmp_4: JsString = _smelt_tmp_3.clone() + &closure_arg_0.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()).clone();
     _smelt_tmp_4.clone()
     });
-    let _smelt_tmp_12: SmeltList<String> = leaf.map(&*_smelt_tmp_11);
+    let _smelt_tmp_12: SmeltList<JsString> = leaf.map(&*_smelt_tmp_11);
     joined = Into::<SmeltList<_>>::into(_smelt_tmp_12);
-    _smelt_tmp_13 = joined.borrow().join(&",".to_owned());
+    _smelt_tmp_13 = joined.borrow().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_13); };
     let _smelt_tmp_15: Nums = Nums::new();
     nums = _smelt_tmp_15;
@@ -4215,15 +4218,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_17: f64 = nums.push(4.0);
     _smelt_tmp_18 = ::std::rc::Rc::new(|closure_arg_0: f64| {
     let _smelt_tmp_1: f64 = closure_arg_0 * 2.0;
-    let _smelt_tmp_2: String = "".to_owned() + &smelt_number_to_string(_smelt_tmp_1);
+    let _smelt_tmp_2: JsString = JsString::new() + &smelt_number_to_string(_smelt_tmp_1);
     _smelt_tmp_2.clone()
     });
-    let _smelt_tmp_19: SmeltList<String> = nums.map(&*_smelt_tmp_18);
-    _smelt_tmp_20 = _smelt_tmp_19.borrow().join(&" ".to_owned());
+    let _smelt_tmp_19: SmeltList<JsString> = nums.map(&*_smelt_tmp_18);
+    _smelt_tmp_20 = _smelt_tmp_19.borrow().join(&JsString::from(" "));
     let _ = { println!("{}", _smelt_tmp_20); };
     let _smelt_tmp_22: YearParser = YearParser::new();
-    parser = { let smelt_struct_value = _smelt_tmp_22.clone(); Parser(::std::rc::Rc::new(::std::cell::RefCell::new(ParserInner { parse: { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(String) -> ParseResult<f64>> = ::std::rc::Rc::new(move |arg0: String| -> ParseResult<f64> { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.parse(arg0.clone()) }); smelt_virtual_method }, _smelt_phantom: ::std::marker::PhantomData }))) };
-    let _smelt_tmp_23: f64 = parser.run("2016".to_owned())?;
+    parser = { let smelt_struct_value = _smelt_tmp_22.clone(); Parser(::std::rc::Rc::new(::std::cell::RefCell::new(ParserInner { parse: { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(JsString) -> ParseResult<f64>> = ::std::rc::Rc::new(move |arg0: JsString| -> ParseResult<f64> { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.parse(arg0.clone()) }); smelt_virtual_method }, _smelt_phantom: ::std::marker::PhantomData }))) };
+    let _smelt_tmp_23: f64 = parser.run(JsString::from("2016"))?;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_23)); };
     return Ok(());
 }
@@ -4259,13 +4262,13 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Base<T>
     let _smelt_tmp_3: bool = !((box_.value.clone()).into_smelt_unknown().js_strict_eq(&(_smelt_tmp_2).into_smelt_unknown()));
     return _smelt_tmp_3;
     }
-    fn map(&self, fn_: &dyn Fn(&T) -> String) -> SmeltList<String> {
+    fn map(&self, fn_: &dyn Fn(&T) -> JsString) -> SmeltList<JsString> {
     let _smelt_tmp_2 = ::std::rc::Rc::new(move |closure_arg_0: &T, _arg0: i64, _arg1: &SmeltList<T>| {
-    let _smelt_tmp_2: String = fn_(closure_arg_0);
+    let _smelt_tmp_2: JsString = fn_(closure_arg_0);
     _smelt_tmp_2.clone()
     });
-    let _smelt_tmp_3: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(move |closure_arg_0: &T, _arg0: i64, _arg1: &SmeltList<T>| {
-    let _smelt_tmp_2: String = fn_(closure_arg_0);
+    let _smelt_tmp_3: SmeltList<JsString> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(move |closure_arg_0: &T, _arg0: i64, _arg1: &SmeltList<T>| {
+    let _smelt_tmp_2: JsString = fn_(closure_arg_0);
     _smelt_tmp_2.clone()
     }); let smelt_array = self.0.borrow().items.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item, index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
     return _smelt_tmp_3;
@@ -4320,13 +4323,13 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Middle<
     let _smelt_tmp_3: bool = !(false);
     return _smelt_tmp_3;
     }
-    fn map(&self, fn_: &dyn Fn(&SmeltList<T>) -> String) -> SmeltList<String> {
+    fn map(&self, fn_: &dyn Fn(&SmeltList<T>) -> JsString) -> SmeltList<JsString> {
     let _smelt_tmp_2 = ::std::rc::Rc::new(move |closure_arg_0: &SmeltList<T>, _arg0: i64, _arg1: &SmeltList<SmeltList<T>>| {
-    let _smelt_tmp_2: String = fn_(closure_arg_0);
+    let _smelt_tmp_2: JsString = fn_(closure_arg_0);
     _smelt_tmp_2.clone()
     });
-    let _smelt_tmp_3: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(move |closure_arg_0: &SmeltList<T>, _arg0: i64, _arg1: &SmeltList<SmeltList<T>>| {
-    let _smelt_tmp_2: String = fn_(closure_arg_0);
+    let _smelt_tmp_3: SmeltList<JsString> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(move |closure_arg_0: &SmeltList<T>, _arg0: i64, _arg1: &SmeltList<SmeltList<T>>| {
+    let _smelt_tmp_2: JsString = fn_(closure_arg_0);
     _smelt_tmp_2.clone()
     }); let smelt_array = self.0.borrow().items.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item, index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
     return _smelt_tmp_3;
@@ -4352,7 +4355,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Middle<
 
 impl Leaf {
     fn new() -> Self {
-    let mut this: Self = Leaf(::std::rc::Rc::new(::std::cell::RefCell::new(LeafInner { items: SmeltList::new(Vec::<SmeltList<String>>::new()) })));
+    let mut this: Self = Leaf(::std::rc::Rc::new(::std::cell::RefCell::new(LeafInner { items: SmeltList::new(Vec::<SmeltList<JsString>>::new()) })));
     let _smelt_tmp_1: Self = Self::__smelt_init_Middle(this);
     this = _smelt_tmp_1;
     return this;
@@ -4365,18 +4368,18 @@ impl Leaf {
     }
     fn __smelt_init_Base(smelt_receiver: Self) -> Self {
     let mut this: Self = smelt_receiver;
-    let _smelt_tmp_1: SmeltList<SmeltList<String>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<String>> = vec![]; smelt_list_items }));
+    let _smelt_tmp_1: SmeltList<SmeltList<JsString>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<JsString>> = vec![]; smelt_list_items }));
     this.0.borrow_mut().items = Into::<SmeltList<_>>::into(_smelt_tmp_1);
     return this;
     }
-    fn push(&self, value: SmeltList<String>) -> f64 {
+    fn push(&self, value: SmeltList<JsString>) -> f64 {
     let mut _smelt_tmp_7: f64;
     let _smelt_tmp_8: f64;
     let _smelt_tmp_9: f64;
-    let mut _smelt_tmp_3: SmeltList<SmeltList<String>> = Into::<SmeltList<_>>::into(self.0.borrow().items.clone());
+    let mut _smelt_tmp_3: SmeltList<SmeltList<JsString>> = Into::<SmeltList<_>>::into(self.0.borrow().items.clone());
     let _smelt_tmp_4: f64 = { let smelt_push_item = value.clone(); _smelt_tmp_3.borrow_mut().push(smelt_push_item); _smelt_tmp_3.len() as f64 };
     self.0.borrow_mut().items = Into::<SmeltList<_>>::into(_smelt_tmp_3);
-    let wrapped: Box1<SmeltList<String>> = Box1 { value: value.clone(), _smelt_phantom: ::std::marker::PhantomData };
+    let wrapped: Box1<SmeltList<JsString>> = Box1 { value: value.clone(), _smelt_phantom: ::std::marker::PhantomData };
     let _smelt_tmp_6: bool = self.check(wrapped);
     let mut _smelt_tmp_7: f64 = 0.0;
     if _smelt_tmp_6 {
@@ -4388,17 +4391,17 @@ impl Leaf {
     }
     return _smelt_tmp_7;
     }
-    fn check(&self, box_: Box1<SmeltList<String>>) -> bool {
+    fn check(&self, box_: Box1<SmeltList<JsString>>) -> bool {
     let _smelt_tmp_3: bool = !(false);
     return _smelt_tmp_3;
     }
-    fn map(&self, fn_: &dyn Fn(&SmeltList<String>) -> String) -> SmeltList<String> {
-    let _smelt_tmp_2 = ::std::rc::Rc::new(move |closure_arg_0: &SmeltList<String>, _arg0: i64, _arg1: &SmeltList<SmeltList<String>>| {
-    let _smelt_tmp_2: String = fn_(closure_arg_0);
+    fn map(&self, fn_: &dyn Fn(&SmeltList<JsString>) -> JsString) -> SmeltList<JsString> {
+    let _smelt_tmp_2 = ::std::rc::Rc::new(move |closure_arg_0: &SmeltList<JsString>, _arg0: i64, _arg1: &SmeltList<SmeltList<JsString>>| {
+    let _smelt_tmp_2: JsString = fn_(closure_arg_0);
     _smelt_tmp_2.clone()
     });
-    let _smelt_tmp_3: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(move |closure_arg_0: &SmeltList<String>, _arg0: i64, _arg1: &SmeltList<SmeltList<String>>| {
-    let _smelt_tmp_2: String = fn_(closure_arg_0);
+    let _smelt_tmp_3: SmeltList<JsString> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(move |closure_arg_0: &SmeltList<JsString>, _arg0: i64, _arg1: &SmeltList<SmeltList<JsString>>| {
+    let _smelt_tmp_2: JsString = fn_(closure_arg_0);
     _smelt_tmp_2.clone()
     }); let smelt_array = self.0.borrow().items.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item, index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
     return _smelt_tmp_3;
@@ -4458,13 +4461,13 @@ impl Nums {
     let _smelt_tmp_3: bool = !(false);
     return _smelt_tmp_3;
     }
-    fn map(&self, fn_: &dyn Fn(f64) -> String) -> SmeltList<String> {
+    fn map(&self, fn_: &dyn Fn(f64) -> JsString) -> SmeltList<JsString> {
     let _smelt_tmp_2 = ::std::rc::Rc::new(move |closure_arg_0: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
-    let _smelt_tmp_2: String = fn_(closure_arg_0.clone());
+    let _smelt_tmp_2: JsString = fn_(closure_arg_0.clone());
     _smelt_tmp_2.clone()
     });
-    let _smelt_tmp_3: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(move |closure_arg_0: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
-    let _smelt_tmp_2: String = fn_(closure_arg_0.clone());
+    let _smelt_tmp_3: SmeltList<JsString> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(move |closure_arg_0: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
+    let _smelt_tmp_2: JsString = fn_(closure_arg_0.clone());
     _smelt_tmp_2.clone()
     }); let smelt_array = self.0.borrow().items.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
     return _smelt_tmp_3;
@@ -4484,7 +4487,7 @@ impl Nums {
 }
 
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Parser<T> {
-    fn run(&self, input: String) -> Result<T, Box<dyn std::error::Error>> {
+    fn run(&self, input: JsString) -> Result<T, Box<dyn std::error::Error>> {
     let result: ParseResult<T> = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().parse.clone()); (smelt_callable)(input.clone()) };
     return Ok(result.value.clone());
     }
@@ -4503,7 +4506,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Parser<
 
 impl YearParser {
     fn new() -> Self {
-    let mut this: Self = { let smelt_instance = YearParser(::std::rc::Rc::new(::std::cell::RefCell::new(YearParserInner { parse: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> ParseResult<f64>> = ::std::rc::Rc::new(move |arg0: String| -> ParseResult<f64> { Default::default() }); smelt_default_callback } }))); smelt_instance.0.borrow_mut().parse = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(String) -> ParseResult<f64>> = ::std::rc::Rc::new(move |arg0: String| -> ParseResult<f64> { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.parse(arg0.clone()) }); smelt_virtual_method }; smelt_instance };
+    let mut this: Self = { let smelt_instance = YearParser(::std::rc::Rc::new(::std::cell::RefCell::new(YearParserInner { parse: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> ParseResult<f64>> = ::std::rc::Rc::new(move |arg0: JsString| -> ParseResult<f64> { Default::default() }); smelt_default_callback } }))); smelt_instance.0.borrow_mut().parse = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(JsString) -> ParseResult<f64>> = ::std::rc::Rc::new(move |arg0: JsString| -> ParseResult<f64> { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.parse(arg0.clone()) }); smelt_virtual_method }; smelt_instance };
     let _smelt_tmp_1: Self = Self::__smelt_init_Parser(this);
     this = _smelt_tmp_1;
     return this;
@@ -4512,11 +4515,11 @@ impl YearParser {
     let this: Self = smelt_receiver;
     return this;
     }
-    fn run(&self, input: String) -> Result<f64, Box<dyn std::error::Error>> {
+    fn run(&self, input: JsString) -> Result<f64, Box<dyn std::error::Error>> {
     let result: ParseResult<f64> = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().parse.clone()); (smelt_callable)(input.clone()) };
     return Ok(result.value);
     }
-    fn parse(&self, input: String) -> ParseResult<f64> {
+    fn parse(&self, input: JsString) -> ParseResult<f64> {
     let _smelt_tmp_2: f64 = smelt_string_to_number(&(input.clone()));
     let _smelt_tmp_3: f64 = _smelt_tmp_2 + 1.0;
     let _smelt_tmp_4: ParseResult<f64> = ParseResult { value: _smelt_tmp_3, _smelt_phantom: ::std::marker::PhantomData };

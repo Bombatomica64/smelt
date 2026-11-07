@@ -35,7 +35,10 @@ pub(crate) fn emit_mutable_globals(mir: &Mir, context: &EmitContext) -> Result<S
         // — and that timing is exactly JavaScript's "module state is
         // initialized before any consumer runs", per generated test thread.
         let init = match &global.init {
-            MirGlobalInit::Constant(constant) => emitter::literals::constant_expr(constant),
+            MirGlobalInit::Constant(constant) => emitter::literals::constant_expr(
+                constant,
+                !matches!(mir.types.get(global.ty), Some(smelt_hir::Type::PyStr)),
+            ),
             MirGlobalInit::Call(func_id) => {
                 let function = mir
                     .functions

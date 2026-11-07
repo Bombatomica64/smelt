@@ -66,6 +66,9 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -88,14 +91,14 @@ fn smelt_panic_payload(error: &(dyn ::std::error::Error + 'static)) -> SmeltPani
 struct Router(::std::rc::Rc<::std::cell::RefCell<RouterInner>>);
 #[allow(dead_code)]
 struct RouterInner {
-    log: String,
-    pick: ::std::rc::Rc<dyn Fn(String) -> String>,
+    log: JsString,
+    pick: ::std::rc::Rc<dyn Fn(JsString) -> JsString>,
 }
 impl Default for RouterInner {
     fn default() -> Self {
         Self {
             log: String::new(),
-            pick: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback },
+            pick: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { String::new() }); smelt_default_callback },
         }
     }
 }
@@ -127,13 +130,13 @@ impl ::std::fmt::Debug for Router {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let router: Router;
-    let first: String;
-    let second: String;
+    let first: JsString;
+    let second: JsString;
     let _smelt_tmp_3: Router = Router::new();
     router = _smelt_tmp_3;
-    let _smelt_tmp_4: String = router.route("a".to_owned())?;
+    let _smelt_tmp_4: JsString = router.route(JsString::from("a"))?;
     first = _smelt_tmp_4;
-    let _smelt_tmp_5: String = router.route("b".to_owned())?;
+    let _smelt_tmp_5: JsString = router.route(JsString::from("b"))?;
     second = _smelt_tmp_5;
     let _ = { println!("{}", first); };
     let _ = { println!("{}", second); };
@@ -143,36 +146,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 impl Router {
     fn new() -> Self {
-    let mut this: Self = Router(::std::rc::Rc::new(::std::cell::RefCell::new(RouterInner { log: String::new(), pick: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback } })));
-    this.0.borrow_mut().log = "".to_owned();
-    let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: String| {
-    let _smelt_tmp_1: String = "slow:".to_owned() + &closure_arg_0.clone();
+    let mut this: Self = Router(::std::rc::Rc::new(::std::cell::RefCell::new(RouterInner { log: String::new(), pick: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { String::new() }); smelt_default_callback } })));
+    this.0.borrow_mut().log = JsString::new();
+    let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: JsString| {
+    let _smelt_tmp_1: JsString = JsString::from("slow:") + &closure_arg_0.clone();
     _smelt_tmp_1.clone()
     });
     this.0.borrow_mut().pick = _smelt_tmp_1.clone();
     return this;
     }
-    fn describe(&self, path: String) -> String {
-    let _smelt_tmp_2: String = "[".to_owned() + &path.clone();
-    let _smelt_tmp_3: String = _smelt_tmp_2 + &"]".to_owned();
+    fn describe(&self, path: JsString) -> JsString {
+    let _smelt_tmp_2: JsString = JsString::from("[") + &path.clone();
+    let _smelt_tmp_3: JsString = _smelt_tmp_2 + &JsString::from("]");
     return _smelt_tmp_3;
     }
-    fn route(&self, path: String) -> Result<String, Box<dyn std::error::Error>> {
-    let _smelt_tmp_9: String;
-    let _smelt_tmp_10: String;
-    let _smelt_tmp_11: String;
-    let before: String = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().pick.clone()); (smelt_callable)(path.clone()) };
-    let _smelt_tmp_5 = ::std::rc::Rc::new(|closure_arg_0: String| {
-    let _smelt_tmp_1: String = "fast:".to_owned() + &closure_arg_0.clone();
+    fn route(&self, path: JsString) -> Result<JsString, Box<dyn std::error::Error>> {
+    let _smelt_tmp_9: JsString;
+    let _smelt_tmp_10: JsString;
+    let _smelt_tmp_11: JsString;
+    let before: JsString = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().pick.clone()); (smelt_callable)(path.clone()) };
+    let _smelt_tmp_5 = ::std::rc::Rc::new(|closure_arg_0: JsString| {
+    let _smelt_tmp_1: JsString = JsString::from("fast:") + &closure_arg_0.clone();
     _smelt_tmp_1.clone()
     });
     self.0.borrow_mut().pick = _smelt_tmp_5.clone();
-    let after: String = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().pick.clone()); (smelt_callable)(path.clone()) };
-    let _smelt_tmp_7: String = self.0.borrow().log.clone();
-    let _smelt_tmp_8: String = self.describe(path.clone());
+    let after: JsString = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().pick.clone()); (smelt_callable)(path.clone()) };
+    let _smelt_tmp_7: JsString = self.0.borrow().log.clone();
+    let _smelt_tmp_8: JsString = self.describe(path.clone());
     _smelt_tmp_9 = _smelt_tmp_7 + &_smelt_tmp_8;
     self.0.borrow_mut().log = _smelt_tmp_9;
-    _smelt_tmp_10 = before + &",".to_owned();
+    _smelt_tmp_10 = before + &JsString::from(",");
     _smelt_tmp_11 = _smelt_tmp_10 + &after;
     return Ok(_smelt_tmp_11);
     }

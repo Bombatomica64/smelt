@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -4366,8 +4369,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_14: bool;
     let _smelt_tmp_16: bool;
     let _smelt_tmp_17: bool;
-    let _smelt_tmp_19: String;
-    let _smelt_tmp_20: String;
+    let _smelt_tmp_19: JsString;
+    let _smelt_tmp_20: JsString;
     let _smelt_tmp_23: SmeltArrayBuffer;
     let _smelt_tmp_24: bool;
     let _smelt_tmp_27: f64;
@@ -4377,7 +4380,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_34: SmeltArrayBuffer;
     let _smelt_tmp_35: bool;
     let _smelt_tmp_37: bool;
-    let _smelt_tmp_38: String;
+    let _smelt_tmp_38: JsString;
     let _smelt_tmp_40: f64;
     let _smelt_tmp_48: f64;
     let _smelt_tmp_64: f64;
@@ -4385,11 +4388,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_72: SmeltArrayBuffer;
     let _smelt_tmp_73: bool;
     let _smelt_tmp_74: f64;
-    let _smelt_tmp_78: String;
-    let _smelt_tmp_79: SmeltList<String>;
+    let _smelt_tmp_78: JsString;
+    let _smelt_tmp_79: SmeltList<JsString>;
     let _smelt_tmp_80: f64;
-    let _smelt_tmp_82: String;
-    let _smelt_tmp_83: String;
+    let _smelt_tmp_82: JsString;
+    let _smelt_tmp_83: JsString;
     let _smelt_tmp_85: bool;
     let mut _smelt_tmp_86: f64;
     let _smelt_tmp_87: f64;
@@ -4466,7 +4469,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_76: f64 = smelt_data_view_get_throwing(&shared_view, SmeltTypedArrayKind::Uint8, (0.0) as f64, false)?;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_76)); };
     _smelt_tmp_78 = serde_json::to_string(&view.clone().into_smelt_unknown()).expect("JSON serialization failed");
-    _smelt_tmp_79 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    _smelt_tmp_79 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
     _smelt_tmp_80 = _smelt_tmp_79.len() as f64;
     let _ = { println!("{} {}", _smelt_tmp_78, smelt_console_number(_smelt_tmp_80)); };
     _smelt_tmp_82 = smelt_object_to_string_tag(&(view.clone().into_smelt_unknown()));

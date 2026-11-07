@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3906,15 +3909,15 @@ struct Ctx(::std::rc::Rc<::std::cell::RefCell<CtxInner>>);
 #[allow(dead_code)]
 struct CtxInner {
     status: f64,
-    json: ::std::rc::Rc<dyn Fn(String) -> String>,
-    later: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn() -> String>>,
+    json: ::std::rc::Rc<dyn Fn(JsString) -> JsString>,
+    later: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn() -> JsString>>,
 }
 impl Default for CtxInner {
     fn default() -> Self {
         Self {
             status: 0.0,
-            json: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback },
-            later: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn() -> String>> = ::std::rc::Rc::new(move || -> ::std::rc::Rc<dyn Fn() -> String> { { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> String> = ::std::rc::Rc::new(move || -> String { String::new() }); smelt_default_callback } }); smelt_default_callback },
+            json: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { String::new() }); smelt_default_callback },
+            later: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn() -> JsString>> = ::std::rc::Rc::new(move || -> ::std::rc::Rc<dyn Fn() -> JsString> { { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { String::new() }); smelt_default_callback } }); smelt_default_callback },
         }
     }
 }
@@ -3975,16 +3978,16 @@ struct Sub(::std::rc::Rc<::std::cell::RefCell<SubInner>>);
 #[allow(dead_code)]
 struct SubInner {
     status: f64,
-    json: ::std::rc::Rc<dyn Fn(String) -> String>,
-    later: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn() -> String>>,
+    json: ::std::rc::Rc<dyn Fn(JsString) -> JsString>,
+    later: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn() -> JsString>>,
     extra: f64,
 }
 impl Default for SubInner {
     fn default() -> Self {
         Self {
             status: 0.0,
-            json: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback },
-            later: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn() -> String>> = ::std::rc::Rc::new(move || -> ::std::rc::Rc<dyn Fn() -> String> { { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> String> = ::std::rc::Rc::new(move || -> String { String::new() }); smelt_default_callback } }); smelt_default_callback },
+            json: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { String::new() }); smelt_default_callback },
+            later: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn() -> JsString>> = ::std::rc::Rc::new(move || -> ::std::rc::Rc<dyn Fn() -> JsString> { { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { String::new() }); smelt_default_callback } }); smelt_default_callback },
             extra: 0.0,
         }
     }
@@ -4041,14 +4044,14 @@ impl SmeltFromUnknown for Sub {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut field: ::std::rc::Rc<dyn Fn(String) -> String>;
-    let mut nested: ::std::rc::Rc<dyn Fn() -> String>;
+    let mut field: ::std::rc::Rc<dyn Fn(JsString) -> JsString>;
+    let mut nested: ::std::rc::Rc<dyn Fn() -> JsString>;
     let mut _smelt_tmp_4: bool;
     let mut _smelt_tmp_6: f64;
     let mut _smelt_tmp_7: f64;
     let mut _smelt_tmp_8: usize;
-    let mut _smelt_tmp_11: String;
-    let mut _smelt_tmp_12: String;
+    let mut _smelt_tmp_11: JsString;
+    let mut _smelt_tmp_12: JsString;
     let mut _smelt_tmp_16: f64;
     let mut total: f64 = 0.0;
     let mut i: usize = 0;
@@ -4056,7 +4059,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_4 = i < 3;
     if !(_smelt_tmp_4) { break; }
     _smelt_tmp_16 = i as f64;
-    let _smelt_tmp_5: String = use_once(_smelt_tmp_16)?;
+    let _smelt_tmp_5: JsString = use_once(_smelt_tmp_16)?;
     _smelt_tmp_6 = smelt_utf16_len(&_smelt_tmp_5) as f64;
     _smelt_tmp_7 = total + _smelt_tmp_6;
     total = _smelt_tmp_7;
@@ -4067,35 +4070,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     field = _smelt_tmp_9.clone();
     let _smelt_tmp_10 = (escape_nested()?).clone();
     nested = _smelt_tmp_10.clone();
-    _smelt_tmp_11 = (field)("z".to_owned());
+    _smelt_tmp_11 = (field)(JsString::from("z"));
     _smelt_tmp_12 = (nested)();
     let _ = { println!("{} {} {}", smelt_console_number(total), _smelt_tmp_11, _smelt_tmp_12); };
-    let _smelt_tmp_14: String = subclass_field()?;
+    let _smelt_tmp_14: JsString = subclass_field()?;
     let _ = { println!("{}", _smelt_tmp_14); };
     return Ok(());
 }
 
 impl Ctx {
     fn new(code: f64) -> Self {
-    let mut this: Self = Ctx(::std::rc::Rc::new(::std::cell::RefCell::new(CtxInner { status: 0.0, json: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback }, later: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn() -> String>> = ::std::rc::Rc::new(move || -> ::std::rc::Rc<dyn Fn() -> String> { { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> String> = ::std::rc::Rc::new(move || -> String { String::new() }); smelt_default_callback } }); smelt_default_callback } })));
+    let mut this: Self = Ctx(::std::rc::Rc::new(::std::cell::RefCell::new(CtxInner { status: 0.0, json: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { String::new() }); smelt_default_callback }, later: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn() -> JsString>> = ::std::rc::Rc::new(move || -> ::std::rc::Rc<dyn Fn() -> JsString> { { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { String::new() }); smelt_default_callback } }); smelt_default_callback } })));
     this.0.borrow_mut().status = 200.0;
     let _smelt_tmp_2 = ::std::rc::Rc::new({
     let smelt_capture_this = SmeltWeakReceiver::new(&this);
-    move |closure_arg_0: String| {
-    let _smelt_tmp_2: String = "".to_owned() + &smelt_number_to_string((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().status.clone());
-    let _smelt_tmp_3: String = _smelt_tmp_2.clone() + &":".to_owned();
-    let _smelt_tmp_4: String = _smelt_tmp_3.clone() + &closure_arg_0.clone();
+    move |closure_arg_0: JsString| {
+    let _smelt_tmp_2: JsString = JsString::new() + &smelt_number_to_string((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().status.clone());
+    let _smelt_tmp_3: JsString = _smelt_tmp_2.clone() + &JsString::from(":");
+    let _smelt_tmp_4: JsString = _smelt_tmp_3.clone() + &closure_arg_0.clone();
     _smelt_tmp_4.clone()
     }
 });
     this.0.borrow_mut().json = _smelt_tmp_2.clone();
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let smelt_capture_this = SmeltWeakReceiver::new(&this);
-    move || -> ::std::rc::Rc<dyn Fn() -> String> {
+    move || -> ::std::rc::Rc<dyn Fn() -> JsString> {
     let _smelt_tmp_1 = ::std::rc::Rc::new({
     let smelt_capture_this = smelt_capture_this.clone();
     move || {
-    let _smelt_tmp_1: String = "later ".to_owned() + &smelt_number_to_string((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().status.clone());
+    let _smelt_tmp_1: JsString = JsString::from("later ") + &smelt_number_to_string((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().status.clone());
     _smelt_tmp_1.clone()
     }
 });
@@ -4111,7 +4114,7 @@ impl Ctx {
 impl Sub {
     fn new(code: f64) -> Self {
     let _smelt_tmp_3: f64;
-    let mut this: Self = Sub(::std::rc::Rc::new(::std::cell::RefCell::new(SubInner { status: 0.0, json: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> String> = ::std::rc::Rc::new(move |arg0: String| -> String { String::new() }); smelt_default_callback }, later: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn() -> String>> = ::std::rc::Rc::new(move || -> ::std::rc::Rc<dyn Fn() -> String> { { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> String> = ::std::rc::Rc::new(move || -> String { String::new() }); smelt_default_callback } }); smelt_default_callback }, extra: 0.0 })));
+    let mut this: Self = Sub(::std::rc::Rc::new(::std::cell::RefCell::new(SubInner { status: 0.0, json: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { String::new() }); smelt_default_callback }, later: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn() -> JsString>> = ::std::rc::Rc::new(move || -> ::std::rc::Rc<dyn Fn() -> JsString> { { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { String::new() }); smelt_default_callback } }); smelt_default_callback }, extra: 0.0 })));
     let _smelt_tmp_2: Self = Self::__smelt_init_Ctx(this, code);
     this = _smelt_tmp_2;
     this.0.borrow_mut().extra = 1.0;
@@ -4124,21 +4127,21 @@ impl Sub {
     this.0.borrow_mut().status = 200.0;
     let _smelt_tmp_2 = ::std::rc::Rc::new({
     let smelt_capture_this = SmeltWeakReceiver::new(&this);
-    move |closure_arg_0: String| {
-    let _smelt_tmp_2: String = "".to_owned() + &smelt_number_to_string((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().status.clone());
-    let _smelt_tmp_3: String = _smelt_tmp_2.clone() + &":".to_owned();
-    let _smelt_tmp_4: String = _smelt_tmp_3.clone() + &closure_arg_0.clone();
+    move |closure_arg_0: JsString| {
+    let _smelt_tmp_2: JsString = JsString::new() + &smelt_number_to_string((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().status.clone());
+    let _smelt_tmp_3: JsString = _smelt_tmp_2.clone() + &JsString::from(":");
+    let _smelt_tmp_4: JsString = _smelt_tmp_3.clone() + &closure_arg_0.clone();
     _smelt_tmp_4.clone()
     }
 });
     this.0.borrow_mut().json = _smelt_tmp_2.clone();
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let smelt_capture_this = SmeltWeakReceiver::new(&this);
-    move || -> ::std::rc::Rc<dyn Fn() -> String> {
+    move || -> ::std::rc::Rc<dyn Fn() -> JsString> {
     let _smelt_tmp_1 = ::std::rc::Rc::new({
     let smelt_capture_this = smelt_capture_this.clone();
     move || {
-    let _smelt_tmp_1: String = "later ".to_owned() + &smelt_number_to_string((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().status.clone());
+    let _smelt_tmp_1: JsString = JsString::from("later ") + &smelt_number_to_string((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().status.clone());
     _smelt_tmp_1.clone()
     }
 });
@@ -4158,19 +4161,19 @@ impl Sub {
 
 use super::*;
 
-pub(crate) fn use_once(code: f64) -> Result<String, Box<dyn std::error::Error>> {
+pub(crate) fn use_once(code: f64) -> Result<JsString, Box<dyn std::error::Error>> {
     let mut c: Ctx;
     let _smelt_tmp_3: f64;
-    let _smelt_tmp_5: String;
+    let _smelt_tmp_5: JsString;
     let _smelt_tmp_2: Ctx = Ctx::new(code);
     c = _smelt_tmp_2;
     _smelt_tmp_3 = c.0.borrow().status.clone() + 1.0;
     c.0.borrow_mut().status = _smelt_tmp_3;
-    _smelt_tmp_5 = { let smelt_callable = ::std::clone::Clone::clone(&c.0.borrow().json.clone()); (smelt_callable)("x".to_owned()) };
+    _smelt_tmp_5 = { let smelt_callable = ::std::clone::Clone::clone(&c.0.borrow().json.clone()); (smelt_callable)(JsString::from("x")) };
     return Ok(_smelt_tmp_5);
 }
 
-pub(crate) fn escape_field() -> ::std::rc::Rc<dyn Fn(String) -> String> {
+pub(crate) fn escape_field() -> ::std::rc::Rc<dyn Fn(JsString) -> JsString> {
     let mut c: Ctx;
     let _smelt_tmp_1: Ctx = Ctx::new(5.0);
     c = _smelt_tmp_1;
@@ -4178,9 +4181,9 @@ pub(crate) fn escape_field() -> ::std::rc::Rc<dyn Fn(String) -> String> {
     return c.0.borrow().json.clone();
 }
 
-pub(crate) fn escape_nested() -> Result<::std::rc::Rc<dyn Fn() -> String>, Box<dyn std::error::Error>> {
+pub(crate) fn escape_nested() -> Result<::std::rc::Rc<dyn Fn() -> JsString>, Box<dyn std::error::Error>> {
     let mut c: Ctx;
-    let _smelt_tmp_3: ::std::rc::Rc<dyn Fn() -> String>;
+    let _smelt_tmp_3: ::std::rc::Rc<dyn Fn() -> JsString>;
     let _smelt_tmp_1: Ctx = Ctx::new(8.0);
     c = _smelt_tmp_1;
     c.0.borrow_mut().status = 9.0;
@@ -4188,18 +4191,18 @@ pub(crate) fn escape_nested() -> Result<::std::rc::Rc<dyn Fn() -> String>, Box<d
     return Ok(_smelt_tmp_3.clone());
 }
 
-pub(crate) fn subclass_field() -> Result<String, Box<dyn std::error::Error>> {
+pub(crate) fn subclass_field() -> Result<JsString, Box<dyn std::error::Error>> {
     let mut s: Sub;
-    let _smelt_tmp_3: String;
-    let _smelt_tmp_4: String;
-    let _smelt_tmp_5: String;
-    let _smelt_tmp_6: String;
+    let _smelt_tmp_3: JsString;
+    let _smelt_tmp_4: JsString;
+    let _smelt_tmp_5: JsString;
+    let _smelt_tmp_6: JsString;
     let _smelt_tmp_1: Sub = Sub::new(3.0);
     s = _smelt_tmp_1;
     s.0.borrow_mut().status = 4.0;
-    _smelt_tmp_3 = { let smelt_callable = ::std::clone::Clone::clone(&s.0.borrow().json.clone()); (smelt_callable)("s".to_owned()) };
-    _smelt_tmp_4 = "".to_owned() + &_smelt_tmp_3;
-    _smelt_tmp_5 = _smelt_tmp_4 + &" ".to_owned();
+    _smelt_tmp_3 = { let smelt_callable = ::std::clone::Clone::clone(&s.0.borrow().json.clone()); (smelt_callable)(JsString::from("s")) };
+    _smelt_tmp_4 = JsString::new() + &_smelt_tmp_3;
+    _smelt_tmp_5 = _smelt_tmp_4 + &JsString::from(" ");
     _smelt_tmp_6 = _smelt_tmp_5 + &smelt_number_to_string(s.0.borrow().extra.clone());
     return Ok(_smelt_tmp_6);
 }

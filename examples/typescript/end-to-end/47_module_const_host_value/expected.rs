@@ -71,6 +71,9 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
@@ -680,48 +683,48 @@ fn smelt_global_init__decoder__1() -> SmeltTextDecoder {
 }
 
 fn smelt_global_init__headers__2() -> SmeltHeaders {
-    let _smelt_tmp_0: ::std::collections::HashMap<String, String> = ::std::collections::HashMap::from([("content-type".to_owned(), "text/plain".to_owned())]);
+    let _smelt_tmp_0: ::std::collections::HashMap<JsString, JsString> = ::std::collections::HashMap::from([(JsString::from("content-type"), JsString::from("text/plain"))]);
     let _smelt_tmp_1: SmeltHeaders = SmeltHeaders::from_pairs(_smelt_tmp_0.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>());
     return _smelt_tmp_1;
 }
 
 fn smelt_global_init__params__3() -> SmeltUrlSearchParams {
-    let _smelt_tmp_0: SmeltUrlSearchParams = SmeltUrlSearchParams::from_query(&"a=1&b=2".to_owned());
+    let _smelt_tmp_0: SmeltUrlSearchParams = SmeltUrlSearchParams::from_query(&JsString::from("a=1&b=2"));
     return _smelt_tmp_0;
 }
 
 fn main() {
     let _smelt_tmp_20: SmeltUrlSearchParams;
-    let _smelt_tmp_21: String;
+    let _smelt_tmp_21: JsString;
     let _smelt_tmp_23: SmeltHeaders;
-    let _smelt_tmp_24: Option<String>;
-    let _smelt_tmp_25: String;
+    let _smelt_tmp_24: Option<JsString>;
+    let _smelt_tmp_25: JsString;
     SMELT_GLOBAL_ENCODER_0.with(|_| ());
     SMELT_GLOBAL_DECODER_1.with(|_| ());
     SMELT_GLOBAL_HEADERS_2.with(|_| ());
     SMELT_GLOBAL_PARAMS_3.with(|_| ());
-    let _smelt_tmp_4: f64 = encoded_length("hello".to_owned());
+    let _smelt_tmp_4: f64 = encoded_length(JsString::from("hello"));
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_4)); };
-    let _smelt_tmp_6: f64 = encoded_length("héllo".to_owned());
+    let _smelt_tmp_6: f64 = encoded_length(JsString::from("héllo"));
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_6)); };
-    let _smelt_tmp_8: String = round_trip("round trip".to_owned());
+    let _smelt_tmp_8: JsString = round_trip(JsString::from("round trip"));
     let _ = { println!("{}", _smelt_tmp_8); };
-    let _smelt_tmp_10: String = content_type();
+    let _smelt_tmp_10: JsString = content_type();
     let _ = { println!("{}", _smelt_tmp_10); };
-    let _smelt_tmp_12: String = extra();
+    let _smelt_tmp_12: JsString = extra();
     let _ = { println!("{}", _smelt_tmp_12); };
     let _ = add_header();
-    let _smelt_tmp_15: String = extra();
+    let _smelt_tmp_15: JsString = extra();
     let _ = { println!("{}", _smelt_tmp_15); };
-    let _smelt_tmp_17: String = param_a();
+    let _smelt_tmp_17: JsString = param_a();
     let _ = { println!("{}", _smelt_tmp_17); };
     let _ = append_param();
     _smelt_tmp_20 = SMELT_GLOBAL_PARAMS_3.with(|value| value.borrow().clone());
     _smelt_tmp_21 = _smelt_tmp_20.to_text();
     let _ = { println!("{}", _smelt_tmp_21); };
     _smelt_tmp_23 = SMELT_GLOBAL_HEADERS_2.with(|value| value.borrow().clone());
-    _smelt_tmp_24 = _smelt_tmp_23.get(&"content-type".to_owned());
-    _smelt_tmp_25 = _smelt_tmp_24.clone().unwrap_or("none".to_owned());
+    _smelt_tmp_24 = _smelt_tmp_23.get(&JsString::from("content-type"));
+    _smelt_tmp_25 = _smelt_tmp_24.clone().unwrap_or(JsString::from("none"));
     let _ = { println!("{}", _smelt_tmp_25); };
     return;
 }
@@ -733,50 +736,50 @@ fn main() {
 
 use super::*;
 
-pub(crate) fn encoded_length(text: String) -> f64 {
+pub(crate) fn encoded_length(text: JsString) -> f64 {
     let _smelt_tmp_1: SmeltTextEncoder = SMELT_GLOBAL_ENCODER_0.with(|value| value.borrow().clone());
     let _smelt_tmp_2: SmeltTypedArray = _smelt_tmp_1.encode(&text.clone());
     let _smelt_tmp_3: f64 = _smelt_tmp_2.length();
     return _smelt_tmp_3;
 }
 
-pub(crate) fn round_trip(text: String) -> String {
+pub(crate) fn round_trip(text: JsString) -> JsString {
     let _smelt_tmp_1: SmeltTextDecoder = SMELT_GLOBAL_DECODER_1.with(|value| value.borrow().clone());
     let _smelt_tmp_2: SmeltTextEncoder = SMELT_GLOBAL_ENCODER_0.with(|value| value.borrow().clone());
     let _smelt_tmp_3: SmeltTypedArray = _smelt_tmp_2.encode(&text.clone());
-    let _smelt_tmp_4: String = _smelt_tmp_1.decode(&_smelt_tmp_3);
+    let _smelt_tmp_4: JsString = _smelt_tmp_1.decode(&_smelt_tmp_3);
     return _smelt_tmp_4;
 }
 
-pub(crate) fn content_type() -> String {
+pub(crate) fn content_type() -> JsString {
     let _smelt_tmp_0: SmeltHeaders = SMELT_GLOBAL_HEADERS_2.with(|value| value.borrow().clone());
-    let _smelt_tmp_1: Option<String> = _smelt_tmp_0.get(&"content-type".to_owned());
-    let _smelt_tmp_2: String = _smelt_tmp_1.clone().unwrap_or("none".to_owned());
+    let _smelt_tmp_1: Option<JsString> = _smelt_tmp_0.get(&JsString::from("content-type"));
+    let _smelt_tmp_2: JsString = _smelt_tmp_1.clone().unwrap_or(JsString::from("none"));
     return _smelt_tmp_2;
 }
 
 pub(crate) fn add_header() -> () {
     let _smelt_tmp_0: SmeltHeaders = SMELT_GLOBAL_HEADERS_2.with(|value| value.borrow().clone());
-    let _smelt_tmp_1: () = _smelt_tmp_0.set(&"x-extra".to_owned(), &"added".to_owned());
+    let _smelt_tmp_1: () = _smelt_tmp_0.set(&JsString::from("x-extra"), &JsString::from("added"));
     return;
 }
 
-pub(crate) fn extra() -> String {
+pub(crate) fn extra() -> JsString {
     let _smelt_tmp_0: SmeltHeaders = SMELT_GLOBAL_HEADERS_2.with(|value| value.borrow().clone());
-    let _smelt_tmp_1: Option<String> = _smelt_tmp_0.get(&"x-extra".to_owned());
-    let _smelt_tmp_2: String = _smelt_tmp_1.clone().unwrap_or("missing".to_owned());
+    let _smelt_tmp_1: Option<JsString> = _smelt_tmp_0.get(&JsString::from("x-extra"));
+    let _smelt_tmp_2: JsString = _smelt_tmp_1.clone().unwrap_or(JsString::from("missing"));
     return _smelt_tmp_2;
 }
 
-pub(crate) fn param_a() -> String {
+pub(crate) fn param_a() -> JsString {
     let _smelt_tmp_0: SmeltUrlSearchParams = SMELT_GLOBAL_PARAMS_3.with(|value| value.borrow().clone());
-    let _smelt_tmp_1: Option<String> = _smelt_tmp_0.get(&"a".to_owned());
-    let _smelt_tmp_2: String = _smelt_tmp_1.clone().unwrap_or("none".to_owned());
+    let _smelt_tmp_1: Option<JsString> = _smelt_tmp_0.get(&JsString::from("a"));
+    let _smelt_tmp_2: JsString = _smelt_tmp_1.clone().unwrap_or(JsString::from("none"));
     return _smelt_tmp_2;
 }
 
 pub(crate) fn append_param() -> () {
     let _smelt_tmp_0: SmeltUrlSearchParams = SMELT_GLOBAL_PARAMS_3.with(|value| value.borrow().clone());
-    let _smelt_tmp_1: () = _smelt_tmp_0.append(&"c".to_owned(), &"3".to_owned());
+    let _smelt_tmp_1: () = _smelt_tmp_0.append(&JsString::from("c"), &JsString::from("3"));
     return;
 }

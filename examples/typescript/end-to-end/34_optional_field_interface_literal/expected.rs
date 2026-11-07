@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3683,7 +3686,7 @@ impl SmeltFromUnknown for SmeltMatch {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Config {
-    label: Option<String>,
+    label: Option<JsString>,
     count: Option<f64>,
 }
 impl IntoSmeltUnknown for Config {
@@ -3734,16 +3737,16 @@ impl SmeltFromUnknown for Outer {
     }
 }
 fn main() {
-    let empty: Config = Config { label: None::<String>, count: None::<f64> };
-    let partial: Config = Config { label: Some("x".to_owned()), count: None::<f64> };
-    let counted: Config = Config { label: None::<String>, count: Some(41.0) };
-    let _smelt_tmp_7: Config = Config { label: None::<String>, count: Some(7.0) };
+    let empty: Config = Config { label: None::<JsString>, count: None::<f64> };
+    let partial: Config = Config { label: Some(JsString::from("x")), count: None::<f64> };
+    let counted: Config = Config { label: None::<JsString>, count: Some(41.0) };
+    let _smelt_tmp_7: Config = Config { label: None::<JsString>, count: Some(7.0) };
     let nested: Outer = Outer { inner: Some(_smelt_tmp_7) };
-    let _smelt_tmp_9: String = label_of(empty.clone());
+    let _smelt_tmp_9: JsString = label_of(empty.clone());
     let _ = { println!("{}", _smelt_tmp_9); };
     let _smelt_tmp_11: f64 = count_plus_one(empty);
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_11)); };
-    let _smelt_tmp_13: String = label_of(partial);
+    let _smelt_tmp_13: JsString = label_of(partial);
     let _ = { println!("{}", _smelt_tmp_13); };
     let _smelt_tmp_15: f64 = count_plus_one(counted);
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_15)); };
@@ -3759,14 +3762,14 @@ fn main() {
 
 use super::*;
 
-pub(crate) fn label_of(config: Config) -> String {
-    let mut _smelt_tmp_3: String;
-    let _smelt_tmp_4: String;
-    let label: Option<String> = config.label.clone();
+pub(crate) fn label_of(config: Config) -> JsString {
+    let mut _smelt_tmp_3: JsString;
+    let _smelt_tmp_4: JsString;
+    let label: Option<JsString> = config.label.clone();
     let _smelt_tmp_2: bool = label.clone().is_none();
-    let mut _smelt_tmp_3: String = String::new();
+    let mut _smelt_tmp_3: JsString = String::new();
     if _smelt_tmp_2 {
-    _smelt_tmp_3 = "none".to_owned();
+    _smelt_tmp_3 = JsString::from("none");
     } else {
     _smelt_tmp_4 = label.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_3 = _smelt_tmp_4;

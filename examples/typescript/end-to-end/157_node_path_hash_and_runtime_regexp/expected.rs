@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -4700,9 +4703,9 @@ struct UnsupportedPathError(::std::rc::Rc<::std::cell::RefCell<UnsupportedPathEr
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct UnsupportedPathErrorInner {
-    name: String,
-    message: String,
-    stack: Option<String>,
+    name: JsString,
+    message: JsString,
+    stack: Option<JsString>,
     cause: SmeltUnknown,
 }
 impl Clone for UnsupportedPathError {
@@ -4755,139 +4758,139 @@ impl SmeltFromUnknown for UnsupportedPathError {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let literal: SmeltRegExp;
-    let _smelt_tmp_6: String;
-    let _smelt_tmp_7: SmeltList<String>;
-    let _smelt_tmp_8: String;
-    let _smelt_tmp_10: SmeltList<String>;
-    let _smelt_tmp_11: String;
-    let _smelt_tmp_12: SmeltList<String>;
-    let _smelt_tmp_13: String;
-    let _smelt_tmp_14: SmeltList<String>;
-    let _smelt_tmp_15: String;
-    let _smelt_tmp_16: SmeltList<String>;
-    let _smelt_tmp_17: String;
-    let _smelt_tmp_19: SmeltList<String>;
-    let _smelt_tmp_20: String;
-    let _smelt_tmp_21: SmeltList<String>;
-    let _smelt_tmp_22: String;
-    let _smelt_tmp_24: String;
-    let _smelt_tmp_25: String;
-    let _smelt_tmp_26: String;
-    let _smelt_tmp_27: String;
-    let _smelt_tmp_29: String;
-    let _smelt_tmp_30: String;
-    let _smelt_tmp_31: String;
-    let _smelt_tmp_32: String;
-    let _smelt_tmp_34: String;
-    let _smelt_tmp_35: String;
-    let _smelt_tmp_36: String;
-    let _smelt_tmp_38: String;
-    let _smelt_tmp_39: String;
-    let _smelt_tmp_40: String;
-    let _smelt_tmp_41: String;
-    let _smelt_tmp_43: String;
-    let _smelt_tmp_44: String;
-    let _smelt_tmp_45: String;
+    let _smelt_tmp_6: JsString;
+    let _smelt_tmp_7: SmeltList<JsString>;
+    let _smelt_tmp_8: JsString;
+    let _smelt_tmp_10: SmeltList<JsString>;
+    let _smelt_tmp_11: JsString;
+    let _smelt_tmp_12: SmeltList<JsString>;
+    let _smelt_tmp_13: JsString;
+    let _smelt_tmp_14: SmeltList<JsString>;
+    let _smelt_tmp_15: JsString;
+    let _smelt_tmp_16: SmeltList<JsString>;
+    let _smelt_tmp_17: JsString;
+    let _smelt_tmp_19: SmeltList<JsString>;
+    let _smelt_tmp_20: JsString;
+    let _smelt_tmp_21: SmeltList<JsString>;
+    let _smelt_tmp_22: JsString;
+    let _smelt_tmp_24: JsString;
+    let _smelt_tmp_25: JsString;
+    let _smelt_tmp_26: JsString;
+    let _smelt_tmp_27: JsString;
+    let _smelt_tmp_29: JsString;
+    let _smelt_tmp_30: JsString;
+    let _smelt_tmp_31: JsString;
+    let _smelt_tmp_32: JsString;
+    let _smelt_tmp_34: JsString;
+    let _smelt_tmp_35: JsString;
+    let _smelt_tmp_36: JsString;
+    let _smelt_tmp_38: JsString;
+    let _smelt_tmp_39: JsString;
+    let _smelt_tmp_40: JsString;
+    let _smelt_tmp_41: JsString;
+    let _smelt_tmp_43: JsString;
+    let _smelt_tmp_44: JsString;
+    let _smelt_tmp_45: JsString;
     let _smelt_tmp_46: bool;
     let _smelt_tmp_48: bool;
     let _smelt_tmp_49: bool;
     let _smelt_tmp_67: SmeltTypedArray;
-    let segments: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["public".to_owned(), "sub/".to_owned(), "../file.html".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_3: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["/home/app".to_owned(), "static//main.html".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_4: String = smelt_path_join(&_smelt_tmp_3.borrow());
+    let segments: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("public"), JsString::from("sub/"), JsString::from("../file.html")]; smelt_list_items }));
+    let _smelt_tmp_3: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("/home/app"), JsString::from("static//main.html")]; smelt_list_items }));
+    let _smelt_tmp_4: JsString = smelt_path_join(&_smelt_tmp_3.borrow());
     let _ = { println!("{}", _smelt_tmp_4); };
     _smelt_tmp_6 = smelt_path_join(&segments.borrow());
-    _smelt_tmp_7 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a/b".to_owned(), "..".to_owned(), "c".to_owned()]; smelt_list_items }));
+    _smelt_tmp_7 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a/b"), JsString::from(".."), JsString::from("c")]; smelt_list_items }));
     _smelt_tmp_8 = smelt_path_join(&_smelt_tmp_7.borrow());
     let _ = { println!("{} {}", _smelt_tmp_6, _smelt_tmp_8); };
-    _smelt_tmp_10 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    _smelt_tmp_10 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
     _smelt_tmp_11 = smelt_path_join(&_smelt_tmp_10.borrow());
-    _smelt_tmp_12 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["".to_owned()]; smelt_list_items }));
+    _smelt_tmp_12 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::new()]; smelt_list_items }));
     _smelt_tmp_13 = smelt_path_join(&_smelt_tmp_12.borrow());
-    _smelt_tmp_14 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["public".to_owned(), "".to_owned()]; smelt_list_items }));
+    _smelt_tmp_14 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("public"), JsString::new()]; smelt_list_items }));
     _smelt_tmp_15 = smelt_path_join(&_smelt_tmp_14.borrow());
-    _smelt_tmp_16 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["./x".to_owned(), "/abs".to_owned()]; smelt_list_items }));
+    _smelt_tmp_16 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("./x"), JsString::from("/abs")]; smelt_list_items }));
     _smelt_tmp_17 = smelt_path_join(&_smelt_tmp_16.borrow());
     let _ = { println!("{} {} {} {}", _smelt_tmp_11, _smelt_tmp_13, _smelt_tmp_15, _smelt_tmp_17); };
-    _smelt_tmp_19 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["/a/b".to_owned(), "./c".to_owned(), "../d".to_owned()]; smelt_list_items }));
+    _smelt_tmp_19 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("/a/b"), JsString::from("./c"), JsString::from("../d")]; smelt_list_items }));
     _smelt_tmp_20 = smelt_path_resolve(&_smelt_tmp_19.borrow());
-    _smelt_tmp_21 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["/x".to_owned(), "/y".to_owned(), "z".to_owned()]; smelt_list_items }));
+    _smelt_tmp_21 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("/x"), JsString::from("/y"), JsString::from("z")]; smelt_list_items }));
     _smelt_tmp_22 = smelt_path_resolve(&_smelt_tmp_21.borrow());
     let _ = { println!("{} {}", _smelt_tmp_20, _smelt_tmp_22); };
-    _smelt_tmp_24 = smelt_path_normalize(&"/a//b/../c/.".to_owned());
-    _smelt_tmp_25 = smelt_path_normalize(&"a/..".to_owned());
-    _smelt_tmp_26 = smelt_path_normalize(&"".to_owned());
-    _smelt_tmp_27 = smelt_path_normalize(&"x/".to_owned());
+    _smelt_tmp_24 = smelt_path_normalize(&JsString::from("/a//b/../c/."));
+    _smelt_tmp_25 = smelt_path_normalize(&JsString::from("a/.."));
+    _smelt_tmp_26 = smelt_path_normalize(&JsString::new());
+    _smelt_tmp_27 = smelt_path_normalize(&JsString::from("x/"));
     let _ = { println!("{} {} {} {}", _smelt_tmp_24, _smelt_tmp_25, _smelt_tmp_26, _smelt_tmp_27); };
-    _smelt_tmp_29 = smelt_path_dirname(&"/a/b/c.txt".to_owned());
-    _smelt_tmp_30 = smelt_path_dirname(&"a".to_owned());
-    _smelt_tmp_31 = smelt_path_dirname(&"/".to_owned());
-    _smelt_tmp_32 = smelt_path_dirname(&"//x".to_owned());
+    _smelt_tmp_29 = smelt_path_dirname(&JsString::from("/a/b/c.txt"));
+    _smelt_tmp_30 = smelt_path_dirname(&JsString::from("a"));
+    _smelt_tmp_31 = smelt_path_dirname(&JsString::from("/"));
+    _smelt_tmp_32 = smelt_path_dirname(&JsString::from("//x"));
     let _ = { println!("{} {} {} {}", _smelt_tmp_29, _smelt_tmp_30, _smelt_tmp_31, _smelt_tmp_32); };
-    _smelt_tmp_34 = smelt_path_basename(&"/a/b/c.txt".to_owned(), None);
-    _smelt_tmp_35 = smelt_path_basename(&"/a/b/c.txt".to_owned(), Some(".txt".to_owned().as_str()));
-    _smelt_tmp_36 = smelt_path_basename(&"a/b/".to_owned(), None);
+    _smelt_tmp_34 = smelt_path_basename(&JsString::from("/a/b/c.txt"), None);
+    _smelt_tmp_35 = smelt_path_basename(&JsString::from("/a/b/c.txt"), Some(JsString::from(".txt").as_str()));
+    _smelt_tmp_36 = smelt_path_basename(&JsString::from("a/b/"), None);
     let _ = { println!("{} {} {}", _smelt_tmp_34, _smelt_tmp_35, _smelt_tmp_36); };
-    _smelt_tmp_38 = smelt_path_extname(&"x.tar.gz".to_owned());
-    _smelt_tmp_39 = smelt_path_extname(&".hidden".to_owned());
-    _smelt_tmp_40 = smelt_path_extname(&"a.".to_owned());
-    _smelt_tmp_41 = smelt_path_extname(&"noext".to_owned());
+    _smelt_tmp_38 = smelt_path_extname(&JsString::from("x.tar.gz"));
+    _smelt_tmp_39 = smelt_path_extname(&JsString::from(".hidden"));
+    _smelt_tmp_40 = smelt_path_extname(&JsString::from("a."));
+    _smelt_tmp_41 = smelt_path_extname(&JsString::from("noext"));
     let _ = { println!("{} {} {} {}", _smelt_tmp_38, _smelt_tmp_39, _smelt_tmp_40, _smelt_tmp_41); };
-    _smelt_tmp_43 = smelt_path_relative(&"/a/b/c".to_owned(), &"/a/d".to_owned());
-    _smelt_tmp_44 = smelt_path_relative(&"/a".to_owned(), &"/a/b/c".to_owned());
-    _smelt_tmp_45 = smelt_path_relative(&"/same".to_owned(), &"/same".to_owned());
-    _smelt_tmp_46 = _smelt_tmp_45 == "".to_owned();
+    _smelt_tmp_43 = smelt_path_relative(&JsString::from("/a/b/c"), &JsString::from("/a/d"));
+    _smelt_tmp_44 = smelt_path_relative(&JsString::from("/a"), &JsString::from("/a/b/c"));
+    _smelt_tmp_45 = smelt_path_relative(&JsString::from("/same"), &JsString::from("/same"));
+    _smelt_tmp_46 = _smelt_tmp_45 == JsString::new();
     let _ = { println!("{} {} {}", _smelt_tmp_43, _smelt_tmp_44, _smelt_tmp_46); };
-    _smelt_tmp_48 = smelt_path_is_absolute(&"/x".to_owned());
-    _smelt_tmp_49 = smelt_path_is_absolute(&"x".to_owned());
-    let _ = { println!("{} {} {} {}", _smelt_tmp_48, _smelt_tmp_49, "/".to_owned(), "/".to_owned()); };
-    let _smelt_tmp_51: String = own_join("a".to_owned(), "b".to_owned());
+    _smelt_tmp_48 = smelt_path_is_absolute(&JsString::from("/x"));
+    _smelt_tmp_49 = smelt_path_is_absolute(&JsString::from("x"));
+    let _ = { println!("{} {} {} {}", _smelt_tmp_48, _smelt_tmp_49, JsString::from("/"), JsString::from("/")); };
+    let _smelt_tmp_51: JsString = own_join(JsString::from("a"), JsString::from("b"));
     let _ = { println!("{}", _smelt_tmp_51); };
-    let _smelt_tmp_53: SmeltHash = smelt_hash_create(&"sha256".to_owned())?;
-    let _smelt_tmp_54: SmeltHash = smelt_hash_update_text(&_smelt_tmp_53, &"hello".to_owned(), &"utf8".to_owned())?;
-    let _smelt_tmp_55: String = smelt_hash_digest_text(&_smelt_tmp_54, &"hex".to_owned())?;
+    let _smelt_tmp_53: SmeltHash = smelt_hash_create(&JsString::from("sha256"))?;
+    let _smelt_tmp_54: SmeltHash = smelt_hash_update_text(&_smelt_tmp_53, &JsString::from("hello"), &"utf8".to_owned())?;
+    let _smelt_tmp_55: JsString = smelt_hash_digest_text(&_smelt_tmp_54, &JsString::from("hex"))?;
     let _ = { println!("{}", _smelt_tmp_55); };
-    let _smelt_tmp_57: SmeltHash = smelt_hash_create(&"SHA1".to_owned())?;
-    let _smelt_tmp_58: SmeltHash = smelt_hash_update_text(&_smelt_tmp_57, &"hel".to_owned(), &"utf8".to_owned())?;
-    let _smelt_tmp_59: SmeltHash = smelt_hash_update_text(&_smelt_tmp_58, &"lo".to_owned(), &"utf8".to_owned())?;
-    let _smelt_tmp_60: String = smelt_hash_digest_text(&_smelt_tmp_59, &"base64".to_owned())?;
+    let _smelt_tmp_57: SmeltHash = smelt_hash_create(&JsString::from("SHA1"))?;
+    let _smelt_tmp_58: SmeltHash = smelt_hash_update_text(&_smelt_tmp_57, &JsString::from("hel"), &"utf8".to_owned())?;
+    let _smelt_tmp_59: SmeltHash = smelt_hash_update_text(&_smelt_tmp_58, &JsString::from("lo"), &"utf8".to_owned())?;
+    let _smelt_tmp_60: JsString = smelt_hash_digest_text(&_smelt_tmp_59, &JsString::from("base64"))?;
     let _ = { println!("{}", _smelt_tmp_60); };
-    let _smelt_tmp_62: SmeltHash = smelt_hash_create(&"md5".to_owned())?;
-    let _smelt_tmp_63: SmeltHash = smelt_hash_update_text(&_smelt_tmp_62, &"68656c6c6f".to_owned(), &"hex".to_owned())?;
-    let _smelt_tmp_64: String = smelt_hash_digest_text(&_smelt_tmp_63, &"hex".to_owned())?;
+    let _smelt_tmp_62: SmeltHash = smelt_hash_create(&JsString::from("md5"))?;
+    let _smelt_tmp_63: SmeltHash = smelt_hash_update_text(&_smelt_tmp_62, &JsString::from("68656c6c6f"), &JsString::from("hex"))?;
+    let _smelt_tmp_64: JsString = smelt_hash_digest_text(&_smelt_tmp_63, &JsString::from("hex"))?;
     let _ = { println!("{}", _smelt_tmp_64); };
-    let _smelt_tmp_66: SmeltHash = smelt_hash_create(&"sha512".to_owned())?;
+    let _smelt_tmp_66: SmeltHash = smelt_hash_create(&JsString::from("sha512"))?;
     _smelt_tmp_67 = SmeltTypedArray::with_length(SmeltTypedArrayKind::Uint8, ((3.0) as f64).max(0.0) as usize);
     let _smelt_tmp_68: SmeltHash = smelt_hash_update_bytes(&_smelt_tmp_66, &(_smelt_tmp_67).to_bytes())?;
-    let _smelt_tmp_69: String = smelt_hash_digest_text(&_smelt_tmp_68, &"base64url".to_owned())?;
+    let _smelt_tmp_69: JsString = smelt_hash_digest_text(&_smelt_tmp_68, &JsString::from("base64url"))?;
     let _ = { println!("{}", _smelt_tmp_69); };
-    let _smelt_tmp_71: String = hex_of("sha384".to_owned(), "".to_owned());
-    let _smelt_tmp_72: String = hex_of("bogus".to_owned(), "x".to_owned());
+    let _smelt_tmp_71: JsString = hex_of(JsString::from("sha384"), JsString::new());
+    let _smelt_tmp_72: JsString = hex_of(JsString::from("bogus"), JsString::from("x"));
     let _ = { println!("{} {}", _smelt_tmp_71, _smelt_tmp_72); };
-    let _smelt_tmp_74: String = digest_twice()?;
+    let _smelt_tmp_74: JsString = digest_twice()?;
     let _ = { println!("{}", _smelt_tmp_74); };
-    let _smelt_tmp_76: String = describe_compile("/(?<id>[^/]+)/(?<rest>[^/]+)".to_owned());
+    let _smelt_tmp_76: JsString = describe_compile(JsString::from("/(?<id>[^/]+)/(?<rest>[^/]+)"));
     let _ = { println!("{}", _smelt_tmp_76); };
-    let _smelt_tmp_78: String = describe_compile("/(?<id>[^/]+)/(?<id>[^/]+)".to_owned());
+    let _smelt_tmp_78: JsString = describe_compile(JsString::from("/(?<id>[^/]+)/(?<id>[^/]+)"));
     let _ = { println!("{}", _smelt_tmp_78); };
-    let _smelt_tmp_80: String = describe_compile("/(unclosed".to_owned());
+    let _smelt_tmp_80: JsString = describe_compile(JsString::from("/(unclosed"));
     let _ = { println!("{}", _smelt_tmp_80); };
-    let _smelt_tmp_82: String = try_flags("gi".to_owned());
-    let _smelt_tmp_83: String = try_flags("gg".to_owned());
-    let _smelt_tmp_84: String = try_flags("q".to_owned());
+    let _smelt_tmp_82: JsString = try_flags(JsString::from("gi"));
+    let _smelt_tmp_83: JsString = try_flags(JsString::from("gg"));
+    let _smelt_tmp_84: JsString = try_flags(JsString::from("q"));
     let _ = { println!("{} {} {}", _smelt_tmp_82, _smelt_tmp_83, _smelt_tmp_84); };
-    literal = SmeltRegExp::new("x+".to_owned(), "g".to_owned());
+    literal = SmeltRegExp::new(JsString::from("x+"), JsString::from("g"));
     let _ = { println!("{} {}", literal.source.to_string().clone(), literal.flags.to_string().clone()); };
     return Ok(());
 }
 
 impl UnsupportedPathError {
-    fn new(message: Option<String>) -> Self {
-    let mut this: Self = UnsupportedPathError(::std::rc::Rc::new(::std::cell::RefCell::new(UnsupportedPathErrorInner { name: String::new(), message: String::new(), stack: None::<String>, cause: SmeltUnknown::Null })));
-    this.0.borrow_mut().name = "Error".to_owned();
-    let _smelt_tmp_2: String = message.clone().unwrap_or("".to_owned());
+    fn new(message: Option<JsString>) -> Self {
+    let mut this: Self = UnsupportedPathError(::std::rc::Rc::new(::std::cell::RefCell::new(UnsupportedPathErrorInner { name: String::new(), message: String::new(), stack: None::<JsString>, cause: SmeltUnknown::Null })));
+    this.0.borrow_mut().name = JsString::from("Error");
+    let _smelt_tmp_2: JsString = message.clone().unwrap_or(JsString::new());
     this.0.borrow_mut().message = _smelt_tmp_2;
-    this.0.borrow_mut().stack = Some("".to_owned());
+    this.0.borrow_mut().stack = Some(JsString::new());
     return this;
     }
 }
@@ -4899,161 +4902,161 @@ impl UnsupportedPathError {
 
 use super::*;
 
-pub(crate) fn own_join(first: String, second: String) -> String {
-    let _smelt_tmp_2: String = "".to_owned() + &first.clone();
-    let _smelt_tmp_3: String = _smelt_tmp_2 + &"+".to_owned();
-    let _smelt_tmp_4: String = _smelt_tmp_3 + &second.clone();
+pub(crate) fn own_join(first: JsString, second: JsString) -> JsString {
+    let _smelt_tmp_2: JsString = JsString::new() + &first.clone();
+    let _smelt_tmp_3: JsString = _smelt_tmp_2 + &JsString::from("+");
+    let _smelt_tmp_4: JsString = _smelt_tmp_3 + &second.clone();
     return _smelt_tmp_4;
 }
 
-pub(crate) fn hex_of(algorithm: String, data: String) -> String {
+pub(crate) fn hex_of(algorithm: JsString, data: JsString) -> JsString {
     match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_hash_create(&algorithm.clone()))) {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_3: SmeltHash = __smelt_value;
     match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_hash_update_text(&_smelt_tmp_3, &data.clone(), &"utf8".to_owned()))) {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_4: SmeltHash = __smelt_value;
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_hash_digest_text(&_smelt_tmp_4, &"hex".to_owned()))) {
+    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_hash_digest_text(&_smelt_tmp_4, &JsString::from("hex")))) {
         Ok(Ok(__smelt_value)) => {
-            let _smelt_tmp_5: String = __smelt_value;
+            let _smelt_tmp_5: JsString = __smelt_value;
     return _smelt_tmp_5;
         }
         Ok(Err(__smelt_error)) => {
             let e = smelt_thrown_value(&*__smelt_error);
-    return "unsupported".to_owned();
+    return JsString::from("unsupported");
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
             let e = smelt_panic_error_value(&*__smelt_panic);
-    return "unsupported".to_owned();
+    return JsString::from("unsupported");
         }
     }
         }
         Ok(Err(__smelt_error)) => {
             let e = smelt_thrown_value(&*__smelt_error);
-    return "unsupported".to_owned();
+    return JsString::from("unsupported");
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
             let e = smelt_panic_error_value(&*__smelt_panic);
-    return "unsupported".to_owned();
+    return JsString::from("unsupported");
         }
     }
         }
         Ok(Err(__smelt_error)) => {
             let e = smelt_thrown_value(&*__smelt_error);
-    return "unsupported".to_owned();
+    return JsString::from("unsupported");
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
             let e = smelt_panic_error_value(&*__smelt_panic);
-    return "unsupported".to_owned();
+    return JsString::from("unsupported");
         }
     }
 }
 
-pub(crate) fn digest_twice() -> Result<String, Box<dyn std::error::Error>> {
+pub(crate) fn digest_twice() -> Result<JsString, Box<dyn std::error::Error>> {
     let hash: SmeltHash;
-    let first: String;
+    let first: JsString;
     let _smelt_tmp_7: f64;
-    let _smelt_tmp_8: String;
-    let _smelt_tmp_9: String;
-    let _smelt_tmp_3: SmeltHash = smelt_hash_create(&"sha1".to_owned())?;
+    let _smelt_tmp_8: JsString;
+    let _smelt_tmp_9: JsString;
+    let _smelt_tmp_3: SmeltHash = smelt_hash_create(&JsString::from("sha1"))?;
     hash = _smelt_tmp_3;
-    let _smelt_tmp_4: SmeltHash = smelt_hash_update_text(&hash.clone(), &"once".to_owned(), &"utf8".to_owned())?;
-    let _smelt_tmp_5: String = smelt_hash_digest_text(&hash.clone(), &"hex".to_owned())?;
+    let _smelt_tmp_4: SmeltHash = smelt_hash_update_text(&hash.clone(), &JsString::from("once"), &"utf8".to_owned())?;
+    let _smelt_tmp_5: JsString = smelt_hash_digest_text(&hash.clone(), &JsString::from("hex"))?;
     first = _smelt_tmp_5;
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_hash_digest_text(&hash, &"hex".to_owned()))) {
+    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_hash_digest_text(&hash, &JsString::from("hex")))) {
         Ok(Ok(__smelt_value)) => {
-            let _smelt_tmp_6: String = __smelt_value;
-    return Ok("no throw".to_owned());
+            let _smelt_tmp_6: JsString = __smelt_value;
+    return Ok(JsString::from("no throw"));
         }
         Ok(Err(__smelt_error)) => {
             let e = smelt_thrown_value(&*__smelt_error);
     _smelt_tmp_7 = smelt_utf16_len(&first) as f64;
-    _smelt_tmp_8 = "".to_owned() + &smelt_number_to_string(_smelt_tmp_7);
-    _smelt_tmp_9 = _smelt_tmp_8 + &" then threw".to_owned();
+    _smelt_tmp_8 = JsString::new() + &smelt_number_to_string(_smelt_tmp_7);
+    _smelt_tmp_9 = _smelt_tmp_8 + &JsString::from(" then threw");
     return Ok(_smelt_tmp_9);
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
             let e = smelt_panic_error_value(&*__smelt_panic);
     _smelt_tmp_7 = smelt_utf16_len(&first) as f64;
-    _smelt_tmp_8 = "".to_owned() + &smelt_number_to_string(_smelt_tmp_7);
-    _smelt_tmp_9 = _smelt_tmp_8 + &" then threw".to_owned();
+    _smelt_tmp_8 = JsString::new() + &smelt_number_to_string(_smelt_tmp_7);
+    _smelt_tmp_9 = _smelt_tmp_8 + &JsString::from(" then threw");
     return Ok(_smelt_tmp_9);
         }
     }
 }
 
-pub(crate) fn compile_route(route: String) -> Result<SmeltRegExp, Box<dyn std::error::Error>> {
-    let _smelt_tmp_1: String;
-    let _smelt_tmp_2: String;
-    _smelt_tmp_1 = "^".to_owned() + &route.clone();
-    _smelt_tmp_2 = _smelt_tmp_1 + &"$".to_owned();
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_regexp_compile(_smelt_tmp_2, "".to_owned()))) {
+pub(crate) fn compile_route(route: JsString) -> Result<SmeltRegExp, Box<dyn std::error::Error>> {
+    let _smelt_tmp_1: JsString;
+    let _smelt_tmp_2: JsString;
+    _smelt_tmp_1 = JsString::from("^") + &route.clone();
+    _smelt_tmp_2 = _smelt_tmp_1 + &JsString::from("$");
+    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_regexp_compile(_smelt_tmp_2, JsString::new()))) {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_3: SmeltRegExp = __smelt_value;
     return Ok(_smelt_tmp_3);
         }
         Ok(Err(__smelt_error)) => {
-    let _smelt_tmp_4: UnsupportedPathError = UnsupportedPathError::new(None::<String>);
+    let _smelt_tmp_4: UnsupportedPathError = UnsupportedPathError::new(None::<JsString>);
     return Err::<_, Box<dyn std::error::Error>>(smelt_throw({ let smelt_object_value = _smelt_tmp_4; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_reference_object_identity(&smelt_struct_value.0), { let smelt_lazy_handle = smelt_struct_value.clone(); move || { let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("name".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().name.clone()).into()))); smelt_object_entries.push(("message".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().message.clone()).into()))); if let Some(value) = smelt_object_value.0.borrow().stack.clone() { smelt_object_entries.push(("stack".to_owned(), SmeltUnknown::String(value.into()))); } smelt_object_entries.push(("cause".to_owned(), smelt_object_value.0.borrow().cause.clone())); smelt_object_entries.push(("__smelt_error".to_owned(), SmeltUnknown::String("Error".into()))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("UnsupportedPathError".into()))); smelt_object_entries } }).smelt_with_origin(smelt_struct_value.clone())) }));
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
-    let _smelt_tmp_4: UnsupportedPathError = UnsupportedPathError::new(None::<String>);
+    let _smelt_tmp_4: UnsupportedPathError = UnsupportedPathError::new(None::<JsString>);
     return Err::<_, Box<dyn std::error::Error>>(smelt_throw({ let smelt_object_value = _smelt_tmp_4; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_reference_object_identity(&smelt_struct_value.0), { let smelt_lazy_handle = smelt_struct_value.clone(); move || { let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("name".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().name.clone()).into()))); smelt_object_entries.push(("message".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().message.clone()).into()))); if let Some(value) = smelt_object_value.0.borrow().stack.clone() { smelt_object_entries.push(("stack".to_owned(), SmeltUnknown::String(value.into()))); } smelt_object_entries.push(("cause".to_owned(), smelt_object_value.0.borrow().cause.clone())); smelt_object_entries.push(("__smelt_error".to_owned(), SmeltUnknown::String("Error".into()))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("UnsupportedPathError".into()))); smelt_object_entries } }).smelt_with_origin(smelt_struct_value.clone())) }));
         }
     }
 }
 
-pub(crate) fn describe_compile(route: String) -> String {
+pub(crate) fn describe_compile(route: JsString) -> JsString {
     let compiled: SmeltRegExp;
-    let _smelt_tmp_4: String;
-    let _smelt_tmp_5: String;
+    let _smelt_tmp_4: JsString;
+    let _smelt_tmp_5: JsString;
     let _smelt_tmp_6: bool;
-    let _smelt_tmp_7: String;
+    let _smelt_tmp_7: JsString;
     let _smelt_tmp_8: bool;
-    let _smelt_tmp_9: String;
+    let _smelt_tmp_9: JsString;
     match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| compile_route(route.clone()))) {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_3: SmeltRegExp = __smelt_value;
     compiled = _smelt_tmp_3;
-    _smelt_tmp_4 = "".to_owned() + &compiled.source.to_string().clone();
-    _smelt_tmp_5 = _smelt_tmp_4 + &" ".to_owned();
-    _smelt_tmp_6 = compiled.test(&"/7/8".to_owned());
+    _smelt_tmp_4 = JsString::new() + &compiled.source.to_string().clone();
+    _smelt_tmp_5 = _smelt_tmp_4 + &JsString::from(" ");
+    _smelt_tmp_6 = compiled.test(&JsString::from("/7/8"));
     _smelt_tmp_7 = _smelt_tmp_5 + &_smelt_tmp_6.to_string();
     return _smelt_tmp_7;
         }
         Ok(Err(__smelt_error)) => {
             let e = smelt_thrown_value(&*__smelt_error);
     _smelt_tmp_8 = matches!(e.clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_class"), Some(SmeltUnknown::String(smelt_class_name)) if matches!(&*smelt_class_name, "UnsupportedPathError")));
-    _smelt_tmp_9 = "rejected ".to_owned() + &_smelt_tmp_8.to_string();
+    _smelt_tmp_9 = JsString::from("rejected ") + &_smelt_tmp_8.to_string();
     return _smelt_tmp_9;
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
             let e = smelt_panic_error_value(&*__smelt_panic);
     _smelt_tmp_8 = matches!(e.clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_class"), Some(SmeltUnknown::String(smelt_class_name)) if matches!(&*smelt_class_name, "UnsupportedPathError")));
-    _smelt_tmp_9 = "rejected ".to_owned() + &_smelt_tmp_8.to_string();
+    _smelt_tmp_9 = JsString::from("rejected ") + &_smelt_tmp_8.to_string();
     return _smelt_tmp_9;
         }
     }
 }
 
-pub(crate) fn try_flags(flags: String) -> String {
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_regexp_compile("a".to_owned(), flags.clone()))) {
+pub(crate) fn try_flags(flags: JsString) -> JsString {
+    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_regexp_compile(JsString::from("a"), flags.clone()))) {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_1: SmeltRegExp = __smelt_value;
     return _smelt_tmp_1.flags.to_string().clone();
         }
         Ok(Err(__smelt_error)) => {
-    return "bad flags".to_owned();
+    return JsString::from("bad flags");
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
-    return "bad flags".to_owned();
+    return JsString::from("bad flags");
         }
     }
 }

@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3922,7 +3925,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 let smelt_local = tokio::task::LocalSet::new();
 smelt_local.block_on(&smelt_runtime, async move {
-    let _smelt_tmp_1: String;
+    let _smelt_tmp_1: JsString;
     let _smelt_tmp_4: ();
     let _smelt_tmp_0 = SmeltFuture::from_future(Box::pin(run()));
     _smelt_tmp_1 = _smelt_tmp_0.await?;
@@ -3940,62 +3943,62 @@ smelt_local.block_on(&smelt_runtime, async move {
 
 use super::*;
 
-pub(crate) async fn work(kind: String) -> Result<String, Box<dyn std::error::Error>> {
-    let _smelt_tmp_2: String;
-    let _smelt_tmp_5: String;
-    let _smelt_tmp_1: bool = kind.clone() == "bad".to_owned();
+pub(crate) async fn work(kind: JsString) -> Result<JsString, Box<dyn std::error::Error>> {
+    let _smelt_tmp_2: JsString;
+    let _smelt_tmp_5: JsString;
+    let _smelt_tmp_1: bool = kind.clone() == JsString::from("bad");
     if _smelt_tmp_1 {
-    _smelt_tmp_2 = "failed:".to_owned() + &kind.clone();
-    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([("__smelt_error".to_owned(), SmeltUnknown::String("Error".into())), ("message".to_owned(), SmeltUnknown::String(_smelt_tmp_2.into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])).clone()))));
+    _smelt_tmp_2 = JsString::from("failed:") + &kind.clone();
+    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String(_smelt_tmp_2.into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
     } else {
-    _smelt_tmp_5 = "ok:".to_owned() + &kind.clone();
+    _smelt_tmp_5 = JsString::from("ok:") + &kind.clone();
     return Ok(_smelt_tmp_5);
     }
 }
 
-pub(crate) async fn run() -> Result<String, Box<dyn std::error::Error>> {
-    let recovered: String;
-    let untouched: String;
-    let mapped: String;
-    let chained: String;
-    let _smelt_tmp_5: ::std::rc::Rc<dyn Fn() -> String>;
-    let _smelt_tmp_9: ::std::rc::Rc<dyn Fn() -> String>;
-    let _smelt_tmp_13: ::std::rc::Rc<dyn Fn(String) -> String>;
-    let _smelt_tmp_17: ::std::rc::Rc<dyn Fn() -> String>;
-    let _smelt_tmp_19: ::std::rc::Rc<dyn Fn(String) -> String>;
-    let _smelt_tmp_22: SmeltList<String>;
-    let _smelt_tmp_23: String;
-    let _smelt_tmp_4 = SmeltFuture::from_future(Box::pin(work("bad".to_owned())));
+pub(crate) async fn run() -> Result<JsString, Box<dyn std::error::Error>> {
+    let recovered: JsString;
+    let untouched: JsString;
+    let mapped: JsString;
+    let chained: JsString;
+    let _smelt_tmp_5: ::std::rc::Rc<dyn Fn() -> JsString>;
+    let _smelt_tmp_9: ::std::rc::Rc<dyn Fn() -> JsString>;
+    let _smelt_tmp_13: ::std::rc::Rc<dyn Fn(JsString) -> JsString>;
+    let _smelt_tmp_17: ::std::rc::Rc<dyn Fn() -> JsString>;
+    let _smelt_tmp_19: ::std::rc::Rc<dyn Fn(JsString) -> JsString>;
+    let _smelt_tmp_22: SmeltList<JsString>;
+    let _smelt_tmp_23: JsString;
+    let _smelt_tmp_4 = SmeltFuture::from_future(Box::pin(work(JsString::from("bad"))));
     _smelt_tmp_5 = ::std::rc::Rc::new(|| {
-    "typed:recovered".to_owned()
+    JsString::from("typed:recovered")
     });
-    let _smelt_tmp_6: SmeltFuture<String> = { let smelt_promise_callback = (_smelt_tmp_5).clone(); SmeltFuture::from_future(Box::pin(async move { match _smelt_tmp_4.await { Ok(smelt_value) => Ok::<_, Box<dyn std::error::Error>>(smelt_value), Err(smelt_error) => { let smelt_callback_value = ({ let _ = smelt_thrown_value(&*smelt_error); (smelt_promise_callback)() }); Ok::<_, Box<dyn std::error::Error>>(smelt_callback_value) } } })) };
+    let _smelt_tmp_6: SmeltFuture<JsString> = { let smelt_promise_callback = (_smelt_tmp_5).clone(); SmeltFuture::from_future(Box::pin(async move { match _smelt_tmp_4.await { Ok(smelt_value) => Ok::<_, Box<dyn std::error::Error>>(smelt_value), Err(smelt_error) => { let smelt_callback_value = ({ let _ = smelt_thrown_value(&*smelt_error); (smelt_promise_callback)() }); Ok::<_, Box<dyn std::error::Error>>(smelt_callback_value) } } })) };
     recovered = _smelt_tmp_6.await?;
-    let _smelt_tmp_8 = SmeltFuture::from_future(Box::pin(work("kept".to_owned())));
+    let _smelt_tmp_8 = SmeltFuture::from_future(Box::pin(work(JsString::from("kept"))));
     _smelt_tmp_9 = ::std::rc::Rc::new(|| {
-    "not reached".to_owned()
+    JsString::from("not reached")
     });
-    let _smelt_tmp_10: SmeltFuture<String> = { let smelt_promise_callback = (_smelt_tmp_9).clone(); SmeltFuture::from_future(Box::pin(async move { match _smelt_tmp_8.await { Ok(smelt_value) => Ok::<_, Box<dyn std::error::Error>>(smelt_value), Err(smelt_error) => { let smelt_callback_value = ({ let _ = smelt_thrown_value(&*smelt_error); (smelt_promise_callback)() }); Ok::<_, Box<dyn std::error::Error>>(smelt_callback_value) } } })) };
+    let _smelt_tmp_10: SmeltFuture<JsString> = { let smelt_promise_callback = (_smelt_tmp_9).clone(); SmeltFuture::from_future(Box::pin(async move { match _smelt_tmp_8.await { Ok(smelt_value) => Ok::<_, Box<dyn std::error::Error>>(smelt_value), Err(smelt_error) => { let smelt_callback_value = ({ let _ = smelt_thrown_value(&*smelt_error); (smelt_promise_callback)() }); Ok::<_, Box<dyn std::error::Error>>(smelt_callback_value) } } })) };
     untouched = _smelt_tmp_10.await?;
-    let _smelt_tmp_12 = SmeltFuture::from_future(Box::pin(work("mapped".to_owned())));
-    _smelt_tmp_13 = ::std::rc::Rc::new(|closure_arg_0: String| {
-    let _smelt_tmp_1: String = closure_arg_0.clone() + &"/then".to_owned();
+    let _smelt_tmp_12 = SmeltFuture::from_future(Box::pin(work(JsString::from("mapped"))));
+    _smelt_tmp_13 = ::std::rc::Rc::new(|closure_arg_0: JsString| {
+    let _smelt_tmp_1: JsString = closure_arg_0.clone() + &JsString::from("/then");
     _smelt_tmp_1.clone()
     });
-    let _smelt_tmp_14: SmeltFuture<String> = { let smelt_promise_callback = (_smelt_tmp_13).clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_value = _smelt_tmp_12.await?; let smelt_callback_value = (smelt_promise_callback)(smelt_value); Ok::<_, Box<dyn std::error::Error>>(smelt_callback_value) })) };
+    let _smelt_tmp_14: SmeltFuture<JsString> = { let smelt_promise_callback = (_smelt_tmp_13).clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_value = _smelt_tmp_12.await?; let smelt_callback_value = (smelt_promise_callback)(smelt_value); Ok::<_, Box<dyn std::error::Error>>(smelt_callback_value) })) };
     mapped = _smelt_tmp_14.await?;
-    let _smelt_tmp_16 = SmeltFuture::from_future(Box::pin(work("bad".to_owned())));
+    let _smelt_tmp_16 = SmeltFuture::from_future(Box::pin(work(JsString::from("bad"))));
     _smelt_tmp_17 = ::std::rc::Rc::new(|| {
-    "recovered".to_owned()
+    JsString::from("recovered")
     });
-    let _smelt_tmp_18: SmeltFuture<String> = { let smelt_promise_callback = (_smelt_tmp_17).clone(); SmeltFuture::from_future(Box::pin(async move { match _smelt_tmp_16.await { Ok(smelt_value) => Ok::<_, Box<dyn std::error::Error>>(smelt_value), Err(smelt_error) => { let smelt_callback_value = ({ let _ = smelt_thrown_value(&*smelt_error); (smelt_promise_callback)() }); Ok::<_, Box<dyn std::error::Error>>(smelt_callback_value) } } })) };
-    _smelt_tmp_19 = ::std::rc::Rc::new(|closure_arg_0: String| {
-    let _smelt_tmp_1: String = closure_arg_0.clone() + &"/chained".to_owned();
+    let _smelt_tmp_18: SmeltFuture<JsString> = { let smelt_promise_callback = (_smelt_tmp_17).clone(); SmeltFuture::from_future(Box::pin(async move { match _smelt_tmp_16.await { Ok(smelt_value) => Ok::<_, Box<dyn std::error::Error>>(smelt_value), Err(smelt_error) => { let smelt_callback_value = ({ let _ = smelt_thrown_value(&*smelt_error); (smelt_promise_callback)() }); Ok::<_, Box<dyn std::error::Error>>(smelt_callback_value) } } })) };
+    _smelt_tmp_19 = ::std::rc::Rc::new(|closure_arg_0: JsString| {
+    let _smelt_tmp_1: JsString = closure_arg_0.clone() + &JsString::from("/chained");
     _smelt_tmp_1.clone()
     });
-    let _smelt_tmp_20: SmeltFuture<String> = { let smelt_promise_callback = (_smelt_tmp_19).clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_value = _smelt_tmp_18.await?; let smelt_callback_value = (smelt_promise_callback)(smelt_value); Ok::<_, Box<dyn std::error::Error>>(smelt_callback_value) })) };
+    let _smelt_tmp_20: SmeltFuture<JsString> = { let smelt_promise_callback = (_smelt_tmp_19).clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_value = _smelt_tmp_18.await?; let smelt_callback_value = (smelt_promise_callback)(smelt_value); Ok::<_, Box<dyn std::error::Error>>(smelt_callback_value) })) };
     chained = _smelt_tmp_20.await?;
-    _smelt_tmp_22 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![recovered.clone(), untouched.clone(), mapped.clone(), chained.clone()]; smelt_list_items }));
-    _smelt_tmp_23 = _smelt_tmp_22.borrow().join(&" | ".to_owned());
+    _smelt_tmp_22 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![recovered.clone(), untouched.clone(), mapped.clone(), chained.clone()]; smelt_list_items }));
+    _smelt_tmp_23 = _smelt_tmp_22.borrow().join(&JsString::from(" | "));
     return Ok(_smelt_tmp_23);
 }

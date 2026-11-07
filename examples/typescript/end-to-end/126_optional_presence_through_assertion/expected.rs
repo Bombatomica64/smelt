@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3750,7 +3753,7 @@ impl SmeltFromUnknown for SmeltMatch {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct HandlerSet {
-    handler: String,
+    handler: JsString,
     score: f64,
 }
 impl IntoSmeltUnknown for HandlerSet {
@@ -3781,9 +3784,9 @@ struct HandlerParamsSet(::std::rc::Rc<::std::cell::RefCell<HandlerParamsSetInner
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct HandlerParamsSetInner {
-    handler: String,
+    handler: JsString,
     score: f64,
-    params: SmeltRecord<String, String>,
+    params: SmeltRecord<String, JsString>,
 }
 impl Clone for HandlerParamsSet {
     fn clone(&self) -> Self {
@@ -3889,72 +3892,72 @@ fn main() {
     let absent: Option<HandlerSet>;
     let base: HandlerSet;
     let mut full: HandlerParamsSet;
-    let _smelt_tmp_11: String;
-    let _smelt_tmp_14: String;
-    let _smelt_tmp_17: String;
+    let _smelt_tmp_11: JsString;
+    let _smelt_tmp_14: JsString;
+    let _smelt_tmp_17: JsString;
     let _smelt_tmp_19: HandlerSet;
     let _smelt_tmp_21: Option<HandlerSet>;
     let _smelt_tmp_22: Option<HandlerSet>;
     let _smelt_tmp_24: bool;
-    let mut _smelt_tmp_25: String;
+    let mut _smelt_tmp_25: JsString;
     let _smelt_tmp_26: HandlerSet;
     let _smelt_tmp_28: Option<HandlerSet>;
     let _smelt_tmp_29: Option<HandlerSet>;
     let _smelt_tmp_31: bool;
-    let mut _smelt_tmp_32: String;
+    let mut _smelt_tmp_32: JsString;
     let _smelt_tmp_33: HandlerSet;
-    let _smelt_tmp_37: SmeltRecord<String, String>;
-    let mut _smelt_tmp_38: SmeltRecord<String, String>;
-    let _smelt_tmp_39: SmeltRecord<String, String>;
+    let _smelt_tmp_37: SmeltRecord<String, JsString>;
+    let mut _smelt_tmp_38: SmeltRecord<String, JsString>;
+    let _smelt_tmp_39: SmeltRecord<String, JsString>;
     let _smelt_tmp_6: Table = Table::new();
     table = _smelt_tmp_6;
-    let _ = table.add("get".to_owned(), "get hello".to_owned(), 1.0);
-    let _ = table.add("post".to_owned(), "post hello".to_owned(), 2.0);
-    let _ = table.add("ALL".to_owned(), "any".to_owned(), 3.0);
-    let _smelt_tmp_10: SmeltList<String> = table.lookup("get".to_owned());
-    _smelt_tmp_11 = _smelt_tmp_10.borrow().join(&",".to_owned());
+    let _ = table.add(JsString::from("get"), JsString::from("get hello"), 1.0);
+    let _ = table.add(JsString::from("post"), JsString::from("post hello"), 2.0);
+    let _ = table.add(JsString::from("ALL"), JsString::from("any"), 3.0);
+    let _smelt_tmp_10: SmeltList<JsString> = table.lookup(JsString::from("get"));
+    _smelt_tmp_11 = _smelt_tmp_10.borrow().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_11); };
-    let _smelt_tmp_13: SmeltList<String> = table.lookup("post".to_owned());
-    _smelt_tmp_14 = _smelt_tmp_13.borrow().join(&",".to_owned());
+    let _smelt_tmp_13: SmeltList<JsString> = table.lookup(JsString::from("post"));
+    _smelt_tmp_14 = _smelt_tmp_13.borrow().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_14); };
-    let _smelt_tmp_16: SmeltList<String> = table.lookup("put".to_owned());
-    _smelt_tmp_17 = _smelt_tmp_16.borrow().join(&",".to_owned());
+    let _smelt_tmp_16: SmeltList<JsString> = table.lookup(JsString::from("put"));
+    _smelt_tmp_17 = _smelt_tmp_16.borrow().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_17); };
-    _smelt_tmp_19 = HandlerSet { handler: "first".to_owned(), score: 1.0 };
-    entries = SmeltRecord::from([("a".to_owned(), _smelt_tmp_19)]);
-    _smelt_tmp_21 = entries.clone().get(&"missing".to_owned());
-    _smelt_tmp_22 = entries.clone().get(&"a".to_owned());
+    _smelt_tmp_19 = HandlerSet { handler: JsString::from("first"), score: 1.0 };
+    entries = SmeltRecord::from([(JsString::from("a"), _smelt_tmp_19)]);
+    _smelt_tmp_21 = entries.clone().get(&JsString::from("missing"));
+    _smelt_tmp_22 = entries.clone().get(&JsString::from("a"));
     picked = _smelt_tmp_21.clone().or(_smelt_tmp_22);
     _smelt_tmp_24 = !(picked.clone().is_none());
-    let mut _smelt_tmp_25: String = String::new();
+    let mut _smelt_tmp_25: JsString = String::new();
     if _smelt_tmp_24 {
     _smelt_tmp_26 = picked.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_25 = _smelt_tmp_26.handler.clone();
     } else {
-    _smelt_tmp_25 = "none".to_owned();
+    _smelt_tmp_25 = JsString::from("none");
     }
     let _ = { println!("{}", _smelt_tmp_25); };
-    _smelt_tmp_28 = entries.clone().get(&"missing".to_owned());
-    _smelt_tmp_29 = entries.get(&"other".to_owned());
+    _smelt_tmp_28 = entries.clone().get(&JsString::from("missing"));
+    _smelt_tmp_29 = entries.get(&JsString::from("other"));
     absent = _smelt_tmp_28.clone().or(_smelt_tmp_29);
     _smelt_tmp_31 = !(absent.clone().is_none());
-    let mut _smelt_tmp_32: String = String::new();
+    let mut _smelt_tmp_32: JsString = String::new();
     if _smelt_tmp_31 {
     _smelt_tmp_33 = absent.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_32 = _smelt_tmp_33.handler.clone();
     } else {
-    _smelt_tmp_32 = "none".to_owned();
+    _smelt_tmp_32 = JsString::from("none");
     }
     let _ = { println!("{}", _smelt_tmp_32); };
-    base = HandlerSet { handler: "h".to_owned(), score: 1.0 };
+    base = HandlerSet { handler: JsString::from("h"), score: 1.0 };
     full = { let smelt_struct_value = base.clone(); HandlerParamsSet(::std::rc::Rc::new(::std::cell::RefCell::new(HandlerParamsSetInner { handler: smelt_struct_value.handler.clone(), score: smelt_struct_value.score.clone(), params: SmeltRecord::new() }))) };
     _smelt_tmp_37 = SmeltRecord::from([]);
     full.0.borrow_mut().params = _smelt_tmp_37;
     _smelt_tmp_38 = full.0.borrow().params.clone();
-    _smelt_tmp_38.insert("k".to_owned(), "v".to_owned());
+    _smelt_tmp_38.insert(JsString::from("k"), JsString::from("v"));
     full.0.borrow_mut().params = _smelt_tmp_38;
     _smelt_tmp_39 = full.0.borrow().params.clone();
-    let _ = { println!("{} {} {}", full.0.borrow().handler.clone(), smelt_console_number(full.0.borrow().score.clone()), _smelt_tmp_39.get(&"k".to_owned().clone()).unwrap_or(String::new())); };
+    let _ = { println!("{} {} {}", full.0.borrow().handler.clone(), smelt_console_number(full.0.borrow().score.clone()), _smelt_tmp_39.get(&JsString::from("k").clone()).unwrap_or(String::new())); };
     return;
 }
 
@@ -3965,7 +3968,7 @@ impl Table {
     this.0.borrow_mut().methods = Into::<SmeltList<_>>::into(_smelt_tmp_1);
     return this;
     }
-    fn add(&self, method: String, handler: String, score: f64) -> () {
+    fn add(&self, method: JsString, handler: JsString, score: f64) -> () {
     let mut _smelt_tmp_4: SmeltList<SmeltRecord<String, HandlerSet>> = Into::<SmeltList<_>>::into(self.0.borrow().methods.clone());
     let _smelt_tmp_5: HandlerSet = HandlerSet { handler: handler.clone(), score: score };
     let _smelt_tmp_6: SmeltRecord<String, HandlerSet> = SmeltRecord::from([(method.clone(), _smelt_tmp_5)]);
@@ -3973,7 +3976,7 @@ impl Table {
     self.0.borrow_mut().methods = Into::<SmeltList<_>>::into(_smelt_tmp_4);
     return;
     }
-    fn lookup(&self, method: String) -> SmeltList<String> {
+    fn lookup(&self, method: JsString) -> SmeltList<JsString> {
     let mut m: SmeltRecord<String, HandlerSet>;
     let mut set: Option<HandlerParamsSet>;
     let mut _smelt_tmp_7: usize;
@@ -3984,12 +3987,12 @@ impl Table {
     let mut _smelt_tmp_12: Option<HandlerSet>;
     let mut _smelt_tmp_14: bool;
     let mut _smelt_tmp_15: HandlerParamsSet;
-    let mut _smelt_tmp_16: String;
+    let mut _smelt_tmp_16: JsString;
     let mut _smelt_tmp_17: HandlerParamsSet;
-    let mut _smelt_tmp_18: String;
+    let mut _smelt_tmp_18: JsString;
     let mut _smelt_tmp_19: f64;
     let mut _smelt_tmp_20: usize;
-    let mut found: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    let mut found: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
     let mut i: usize = 0;
     loop {
     _smelt_tmp_7 = self.0.borrow().methods.clone().len();
@@ -3998,13 +4001,13 @@ impl Table {
     _smelt_tmp_9 = Into::<SmeltList<_>>::into(self.0.borrow().methods.clone());
     m = _smelt_tmp_9.borrow().get(i).cloned().unwrap_or_else(|| SmeltRecord::new());
     _smelt_tmp_10 = m.clone().get(&method.clone());
-    _smelt_tmp_11 = m.get(&"ALL".to_owned());
+    _smelt_tmp_11 = m.get(&JsString::from("ALL"));
     _smelt_tmp_12 = _smelt_tmp_10.clone().or(_smelt_tmp_11);
     set = _smelt_tmp_12.map(|value| { let smelt_struct_value = value.clone(); HandlerParamsSet(::std::rc::Rc::new(::std::cell::RefCell::new(HandlerParamsSetInner { handler: smelt_struct_value.handler.clone(), score: smelt_struct_value.score.clone(), params: SmeltRecord::new() }))) });
     _smelt_tmp_14 = !(set.clone().is_none());
     if _smelt_tmp_14 {
     _smelt_tmp_15 = set.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_16 = _smelt_tmp_15.0.borrow().handler.clone().clone() + &":".to_owned();
+    _smelt_tmp_16 = _smelt_tmp_15.0.borrow().handler.clone().clone() + &JsString::from(":");
     _smelt_tmp_17 = set.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_18 = _smelt_tmp_16 + &smelt_number_to_string(_smelt_tmp_17.0.borrow().score.clone());
     _smelt_tmp_19 = { let smelt_push_item = _smelt_tmp_18; found.borrow_mut().push(smelt_push_item); found.len() as f64 };

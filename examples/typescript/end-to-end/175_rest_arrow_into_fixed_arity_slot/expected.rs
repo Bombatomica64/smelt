@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3774,12 +3777,12 @@ impl SmeltFromUnknown for SmeltMatch {
 #[derive(Clone)]
 #[allow(dead_code)]
 struct Respond {
-    __smelt_call: ::std::rc::Rc<dyn Fn(String, SmeltUnion2) -> String>,
+    __smelt_call: ::std::rc::Rc<dyn Fn(JsString, SmeltUnion2) -> JsString>,
 }
 impl Default for Respond {
     fn default() -> Self {
         Self {
-            __smelt_call: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String, SmeltUnion2) -> String> = ::std::rc::Rc::new(move |arg0: String, arg1: SmeltUnion2| -> String { String::new() }); smelt_default_callback },
+            __smelt_call: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString, SmeltUnion2) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString, arg1: SmeltUnion2| -> JsString { String::new() }); smelt_default_callback },
         }
     }
 }
@@ -3791,7 +3794,7 @@ impl ::std::fmt::Debug for Respond {
 impl IntoSmeltUnknown for Respond {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("__smelt_call".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(String, SmeltUnion2) -> String> = self.__smelt_call.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
+        ("__smelt_call".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(JsString, SmeltUnion2) -> JsString> = self.__smelt_call.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
         ])))
     }
 }
@@ -3801,7 +3804,7 @@ impl SmeltFromUnknown for Respond {
         if let SmeltUnknown::Object(object) = value {
             if let Some(field) = object.get("__smelt_call") {
                 let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
-                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String, SmeltUnion2) -> String>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
+                if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(JsString, SmeltUnion2) -> JsString>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
             }
         }
         result
@@ -3858,7 +3861,7 @@ impl SmeltFromUnknown for Ctx {
 
 #[derive(Clone)]
 pub enum SmeltUnion2 {
-    M0(String),
+    M0(JsString),
     M1(f64),
 }
 impl IntoSmeltUnknown for SmeltUnion2 {
@@ -3901,28 +3904,28 @@ impl Default for SmeltUnion2 {
 fn main() {
     let ctx: Ctx;
     let respond: Respond;
-    let one: SmeltList<String>;
-    let two: SmeltList<String>;
-    let __smelt_spread: SmeltList<String>;
-    let __smelt_spread_1: SmeltList<String>;
-    let _smelt_tmp_7: ::std::rc::Rc<dyn Fn(String, SmeltUnion2) -> String>;
-    let _smelt_tmp_8: String;
-    let _smelt_tmp_9: ::std::rc::Rc<dyn Fn(String, SmeltUnion2) -> String>;
-    let _smelt_tmp_10: String;
+    let one: SmeltList<JsString>;
+    let two: SmeltList<JsString>;
+    let __smelt_spread: SmeltList<JsString>;
+    let __smelt_spread_1: SmeltList<JsString>;
+    let _smelt_tmp_7: ::std::rc::Rc<dyn Fn(JsString, SmeltUnion2) -> JsString>;
+    let _smelt_tmp_8: JsString;
+    let _smelt_tmp_9: ::std::rc::Rc<dyn Fn(JsString, SmeltUnion2) -> JsString>;
+    let _smelt_tmp_10: JsString;
     let _smelt_tmp_6: Ctx = Ctx::new();
     ctx = _smelt_tmp_6;
     respond = ctx.__smelt_get_respond().clone();
     _smelt_tmp_7 = respond.clone().__smelt_call.clone();
-    _smelt_tmp_8 = (_smelt_tmp_7)("a".to_owned(), SmeltUnion2::M1(301.0));
+    _smelt_tmp_8 = (_smelt_tmp_7)(JsString::from("a"), SmeltUnion2::M1(301.0));
     _smelt_tmp_9 = respond.__smelt_call.clone();
-    _smelt_tmp_10 = (_smelt_tmp_9)("b".to_owned(), SmeltUnion2::M0("gone".to_owned()));
+    _smelt_tmp_10 = (_smelt_tmp_9)(JsString::from("b"), SmeltUnion2::M0(JsString::from("gone")));
     let _ = { println!("{} {}", _smelt_tmp_8, _smelt_tmp_10); };
-    one = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["c".to_owned()]; smelt_list_items }));
-    two = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["d".to_owned(), "e".to_owned()]; smelt_list_items }));
+    one = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("c")]; smelt_list_items }));
+    two = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("d"), JsString::from("e")]; smelt_list_items }));
     __smelt_spread = Into::<SmeltList<_>>::into(one);
     __smelt_spread_1 = Into::<SmeltList<_>>::into(two);
-    let _smelt_tmp_14: String = ctx.direct(__smelt_spread.borrow().get({ let smelt_normalized = 0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()), __smelt_spread.borrow().get({ let smelt_normalized = 1 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned());
-    let _smelt_tmp_15: String = ctx.direct(__smelt_spread_1.borrow().get({ let smelt_normalized = 0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()), __smelt_spread_1.borrow().get({ let smelt_normalized = 1 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned());
+    let _smelt_tmp_14: JsString = ctx.direct(__smelt_spread.borrow().get({ let smelt_normalized = 0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()), __smelt_spread.borrow().get({ let smelt_normalized = 1 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned());
+    let _smelt_tmp_15: JsString = ctx.direct(__smelt_spread_1.borrow().get({ let smelt_normalized = 0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()), __smelt_spread_1.borrow().get({ let smelt_normalized = 1 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned());
     let _ = { println!("{} {}", _smelt_tmp_14, _smelt_tmp_15); };
     return;
 }
@@ -3932,28 +3935,28 @@ impl Ctx {
     let this: Self = Ctx(::std::rc::Rc::new(::std::cell::RefCell::new(CtxInner {  })));
     return this;
     }
-    fn _respond(&self, data: String, detail: SmeltUnion2) -> String {
-    let mut _smelt_tmp_4: String;
-    let _smelt_tmp_5: String;
-    let _smelt_tmp_6: String;
+    fn _respond(&self, data: JsString, detail: SmeltUnion2) -> JsString {
+    let mut _smelt_tmp_4: JsString;
+    let _smelt_tmp_5: JsString;
+    let _smelt_tmp_6: JsString;
     let _smelt_tmp_7: f64;
-    let _smelt_tmp_8: String;
-    let _smelt_tmp_9: String;
-    let _smelt_tmp_10: String;
-    let _smelt_tmp_11: String;
-    let _smelt_tmp_12: String;
-    let _smelt_tmp_13: String;
+    let _smelt_tmp_8: JsString;
+    let _smelt_tmp_9: JsString;
+    let _smelt_tmp_10: JsString;
+    let _smelt_tmp_11: JsString;
+    let _smelt_tmp_12: JsString;
+    let _smelt_tmp_13: JsString;
     let _smelt_tmp_3: bool = matches!(detail.clone(), SmeltUnion2::M1(_));
-    let mut _smelt_tmp_4: String = String::new();
+    let mut _smelt_tmp_4: JsString = String::new();
     if _smelt_tmp_3 {
-    _smelt_tmp_5 = "".to_owned() + &data.clone();
-    _smelt_tmp_6 = _smelt_tmp_5 + &":".to_owned();
+    _smelt_tmp_5 = JsString::new() + &data.clone();
+    _smelt_tmp_6 = _smelt_tmp_5 + &JsString::from(":");
     _smelt_tmp_7 = match detail.clone() { SmeltUnion2::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_8 = _smelt_tmp_6 + &smelt_number_to_string(_smelt_tmp_7);
     _smelt_tmp_4 = _smelt_tmp_8;
     } else {
-    _smelt_tmp_9 = "".to_owned() + &data.clone();
-    _smelt_tmp_10 = _smelt_tmp_9 + &":".to_owned();
+    _smelt_tmp_9 = JsString::new() + &data.clone();
+    _smelt_tmp_10 = _smelt_tmp_9 + &JsString::from(":");
     _smelt_tmp_11 = match detail.clone() { SmeltUnion2::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_12 = _smelt_tmp_11.to_uppercase();
     _smelt_tmp_13 = _smelt_tmp_10 + &_smelt_tmp_12;
@@ -3961,24 +3964,24 @@ impl Ctx {
     }
     return _smelt_tmp_4;
     }
-    fn direct(&self, data: String, note: Option<String>) -> String {
-    let _smelt_tmp_3: String = "".to_owned() + &data.clone();
-    let _smelt_tmp_4: String = _smelt_tmp_3 + &"/".to_owned();
-    let _smelt_tmp_5: String = note.clone().unwrap_or("-".to_owned());
-    let _smelt_tmp_6: String = _smelt_tmp_4 + &_smelt_tmp_5;
+    fn direct(&self, data: JsString, note: Option<JsString>) -> JsString {
+    let _smelt_tmp_3: JsString = JsString::new() + &data.clone();
+    let _smelt_tmp_4: JsString = _smelt_tmp_3 + &JsString::from("/");
+    let _smelt_tmp_5: JsString = note.clone().unwrap_or(JsString::from("-"));
+    let _smelt_tmp_6: JsString = _smelt_tmp_4 + &_smelt_tmp_5;
     return _smelt_tmp_6;
     }
     fn __smelt_get_respond(&self) -> Respond {
     let _smelt_tmp_1 = ::std::rc::Rc::new({
     let smelt_self = self.clone();
-    move |closure_arg_0: String, closure_arg_1: SmeltUnion2| {
-    let args: (String, SmeltUnion2) = (closure_arg_0.clone(), closure_arg_1.clone());
-    let __smelt_spread: (String, SmeltUnion2) = args.clone();
-    let _smelt_tmp_6: String = smelt_self._respond(__smelt_spread.0.clone(), __smelt_spread.1.clone());
+    move |closure_arg_0: JsString, closure_arg_1: SmeltUnion2| {
+    let args: (JsString, SmeltUnion2) = (closure_arg_0.clone(), closure_arg_1.clone());
+    let __smelt_spread: (JsString, SmeltUnion2) = args.clone();
+    let _smelt_tmp_6: JsString = smelt_self._respond(__smelt_spread.0.clone(), __smelt_spread.1.clone());
     _smelt_tmp_6.clone()
     }
 });
-    return Respond { __smelt_call: { let smelt_callback = _smelt_tmp_1.clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(String, SmeltUnion2) -> String> = ::std::rc::Rc::new(move |arg0: String, arg1: SmeltUnion2| (smelt_callback)(arg0, arg1)); smelt_adapted } };
+    return Respond { __smelt_call: { let smelt_callback = _smelt_tmp_1.clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(JsString, SmeltUnion2) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString, arg1: SmeltUnion2| (smelt_callback)(arg0, arg1)); smelt_adapted } };
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
     ///

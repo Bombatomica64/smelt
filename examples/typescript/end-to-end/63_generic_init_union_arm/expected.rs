@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -4181,8 +4184,8 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFr
 
 #[derive(Clone)]
 pub enum SmeltUnion6 {
-    M0(SmeltList<(String, String)>),
-    M1(SmeltRecord<String, String>),
+    M0(SmeltList<(JsString, JsString)>),
+    M1(SmeltRecord<String, JsString>),
     M2(SmeltHeaders),
 }
 impl IntoSmeltUnknown for SmeltUnion6 {
@@ -4221,7 +4224,7 @@ impl ::std::fmt::Debug for SmeltUnion6 {
 }
 impl Default for SmeltUnion6 {
     fn default() -> Self {
-        Self::M0(SmeltList::new(Vec::<(String, String)>::new()))
+        Self::M0(SmeltList::new(Vec::<(JsString, JsString)>::new()))
     }
 }
 
@@ -4357,19 +4360,19 @@ impl Default for SmeltUnion17 {
     }
 }
 fn main() {
-    let _smelt_tmp_7: SmeltRecord<String, String>;
+    let _smelt_tmp_7: SmeltRecord<String, JsString>;
     let _smelt_tmp_8: SmeltResponse;
-    let _smelt_tmp_1: SmeltRecord<String, String> = SmeltRecord::from([("x-kind".to_owned(), "record".to_owned())]);
+    let _smelt_tmp_1: SmeltRecord<String, JsString> = SmeltRecord::from([(JsString::from("x-kind"), JsString::from("record"))]);
     let record_init: InitLike<f64> = InitLike { headers: Some(SmeltUnion6::M1(_smelt_tmp_1)), status: Some(201.0), _smelt_phantom: ::std::marker::PhantomData };
-    let _smelt_tmp_3: String = header_of(SmeltUnion17::M2(record_init.clone()), "x-kind".to_owned());
+    let _smelt_tmp_3: JsString = header_of(SmeltUnion17::M2(record_init.clone()), JsString::from("x-kind"));
     let _ = { println!("{}", _smelt_tmp_3); };
     let _smelt_tmp_5: f64 = status_of(SmeltUnion17::M2(record_init));
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_5)); };
-    _smelt_tmp_7 = SmeltRecord::from([("x-kind".to_owned(), "response".to_owned())]);
-    _smelt_tmp_8 = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::from_pairs(_smelt_tmp_7.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"body".to_owned()));
-    let _smelt_tmp_9: String = header_of(SmeltUnion17::M1(_smelt_tmp_8), "x-kind".to_owned());
+    _smelt_tmp_7 = SmeltRecord::from([(JsString::from("x-kind"), JsString::from("response"))]);
+    _smelt_tmp_8 = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::from_pairs(_smelt_tmp_7.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&JsString::from("body")));
+    let _smelt_tmp_9: JsString = header_of(SmeltUnion17::M1(_smelt_tmp_8), JsString::from("x-kind"));
     let _ = { println!("{}", _smelt_tmp_9); };
-    let _smelt_tmp_11: String = header_of(SmeltUnion17::M0(404.0), "x-kind".to_owned());
+    let _smelt_tmp_11: JsString = header_of(SmeltUnion17::M0(404.0), JsString::from("x-kind"));
     let _ = { println!("{}", _smelt_tmp_11); };
     return;
 }
@@ -4385,7 +4388,7 @@ fn __smelt_from_unknown_record_0(smelt_value: SmeltUnknown) -> InitLike<f64> {
 
 use super::*;
 
-pub(crate) fn header_of(arg: SmeltUnion17, name: String) -> String {
+pub(crate) fn header_of(arg: SmeltUnion17, name: JsString) -> JsString {
     let copied: SmeltHeaders;
     let mut _smelt_tmp_4: bool;
     let _smelt_tmp_5: SmeltUnion16;
@@ -4400,8 +4403,8 @@ pub(crate) fn header_of(arg: SmeltUnion17, name: String) -> String {
     let _smelt_tmp_15: SmeltResponse;
     let _smelt_tmp_16: SmeltHeaders;
     let _smelt_tmp_17: InitLike<f64>;
-    let _smelt_tmp_20: Option<String>;
-    let _smelt_tmp_21: String;
+    let _smelt_tmp_20: Option<JsString>;
+    let _smelt_tmp_21: JsString;
     let _smelt_tmp_3: bool = matches!(arg.clone(), SmeltUnion17::M1(_) | SmeltUnion17::M2(_));
     if _smelt_tmp_3 {
     _smelt_tmp_5 = match arg.clone() { SmeltUnion17::M1(value) => SmeltUnion16::M0(value), SmeltUnion17::M2(value) => SmeltUnion16::M1(value), _ => unreachable!("union guard selected an excluded member") };
@@ -4430,10 +4433,10 @@ pub(crate) fn header_of(arg: SmeltUnion17, name: String) -> String {
     }
     copied = match _smelt_tmp_14 { Some(smelt_headers_init) => match smelt_headers_init { SmeltUnion6::M0(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.to_vec().into_iter().map(|smelt_pair| (smelt_pair.0, smelt_pair.1)).collect::<Vec<(String, String)>>()), SmeltUnion6::M1(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltUnion6::M2(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.entries_sorted()) }, None => SmeltHeaders::new() };
     _smelt_tmp_20 = copied.get(&name.clone());
-    _smelt_tmp_21 = _smelt_tmp_20.clone().unwrap_or("none".to_owned());
+    _smelt_tmp_21 = _smelt_tmp_20.clone().unwrap_or(JsString::from("none"));
     return _smelt_tmp_21;
     } else {
-    return "none".to_owned();
+    return JsString::from("none");
     }
     } else {
     _smelt_tmp_4 = false;
@@ -4451,10 +4454,10 @@ pub(crate) fn header_of(arg: SmeltUnion17, name: String) -> String {
     }
     copied = match _smelt_tmp_14 { Some(smelt_headers_init) => match smelt_headers_init { SmeltUnion6::M0(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.to_vec().into_iter().map(|smelt_pair| (smelt_pair.0, smelt_pair.1)).collect::<Vec<(String, String)>>()), SmeltUnion6::M1(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltUnion6::M2(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.entries_sorted()) }, None => SmeltHeaders::new() };
     _smelt_tmp_20 = copied.get(&name.clone());
-    _smelt_tmp_21 = _smelt_tmp_20.clone().unwrap_or("none".to_owned());
+    _smelt_tmp_21 = _smelt_tmp_20.clone().unwrap_or(JsString::from("none"));
     return _smelt_tmp_21;
     } else {
-    return "none".to_owned();
+    return JsString::from("none");
     }
     }
 }

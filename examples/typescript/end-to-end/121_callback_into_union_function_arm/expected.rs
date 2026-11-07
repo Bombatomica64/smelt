@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3702,7 +3705,7 @@ impl SmeltFromUnknown for Ex {
 #[derive(Clone)]
 pub enum SmeltUnion4 {
     M0(Ex),
-    M1(::std::rc::Rc<dyn Fn(String) -> Ex>),
+    M1(::std::rc::Rc<dyn Fn(JsString) -> Ex>),
 }
 impl IntoSmeltUnknown for SmeltUnion4 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -3715,7 +3718,7 @@ impl IntoSmeltUnknown for SmeltUnion4 {
 impl SmeltUnion4 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
         if matches!(value, SmeltUnknown::Object(_)) { return Self::M0(<Ex as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown())); }
-        Self::M1({ let smelt_source_value = value.clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function); let smelt_callback: ::std::rc::Rc<dyn Fn(String) -> Ex> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(String) -> Ex>>(&smelt_function) { if matches!(smelt_source_value, SmeltUnknown::Object(_)) { ::std::rc::Rc::new(move |arg0: String| (smelt_original)(arg0)) } else { smelt_original } } else { ::std::rc::Rc::new(move |arg0: String| -> Ex { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args.push(SmeltUnknown::String(arg0.into())); smelt_call_args }).unwrap_or_else(|error| smelt_panic_throw(error)); <Ex as SmeltFromUnknown>::smelt_from_unknown((smelt_result).into_smelt_unknown()) }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> Ex> = ::std::rc::Rc::new(move |arg0: String| -> Ex { smelt_value_not_callable() }); smelt_default_callback } } })
+        Self::M1({ let smelt_source_value = value.clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function); let smelt_callback: ::std::rc::Rc<dyn Fn(JsString) -> Ex> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(JsString) -> Ex>>(&smelt_function) { if matches!(smelt_source_value, SmeltUnknown::Object(_)) { ::std::rc::Rc::new(move |arg0: JsString| (smelt_original)(arg0)) } else { smelt_original } } else { ::std::rc::Rc::new(move |arg0: JsString| -> Ex { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args.push(SmeltUnknown::String(arg0.into())); smelt_call_args }).unwrap_or_else(|error| smelt_panic_throw(error)); <Ex as SmeltFromUnknown>::smelt_from_unknown((smelt_result).into_smelt_unknown()) }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> Ex> = ::std::rc::Rc::new(move |arg0: JsString| -> Ex { smelt_value_not_callable() }); smelt_default_callback } } })
     }
 }
 impl PartialEq for SmeltUnion4 {
@@ -3742,10 +3745,10 @@ impl Default for SmeltUnion4 {
 }
 
 fn main() {
-    let e500: ::std::rc::Rc<dyn Fn(String) -> Ex>;
+    let e500: ::std::rc::Rc<dyn Fn(JsString) -> Ex>;
     let _smelt_tmp_5: ::std::rc::Rc<dyn Fn() -> Ex>;
     let _smelt_tmp_6: f64;
-    let _smelt_tmp_8: ::std::rc::Rc<dyn Fn(String) -> Ex>;
+    let _smelt_tmp_8: ::std::rc::Rc<dyn Fn(JsString) -> Ex>;
     let _smelt_tmp_9: f64;
     let _smelt_tmp_12: f64;
     let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: Option<SmeltUnion4>| {
@@ -3754,7 +3757,7 @@ fn main() {
     let mut _smelt_tmp_5: SmeltUnion4;
     let _smelt_tmp_7: bool;
     let mut _smelt_tmp_8: Ex;
-    let _smelt_tmp_9: ::std::rc::Rc<dyn Fn(String) -> Ex>;
+    let _smelt_tmp_9: ::std::rc::Rc<dyn Fn(JsString) -> Ex>;
     let _smelt_tmp_10: Ex;
     let _smelt_tmp_11: Ex;
     let _smelt_tmp_12: f64;
@@ -3769,7 +3772,7 @@ fn main() {
     _smelt_tmp_7 = matches!(exception_1.clone(), SmeltUnion4::M1(_));
     if _smelt_tmp_7 {
     _smelt_tmp_9 = (match exception_1.clone() { SmeltUnion4::M1(value) => value, _ => unreachable!("union guard selected an excluded member") }).clone();
-    _smelt_tmp_10 = (_smelt_tmp_9)("ctx".to_owned());
+    _smelt_tmp_10 = (_smelt_tmp_9)(JsString::from("ctx"));
     _smelt_tmp_8 = _smelt_tmp_10.clone();
     } else {
     _smelt_tmp_11 = match exception_1.clone() { SmeltUnion4::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
@@ -3786,9 +3789,9 @@ fn main() {
     let _smelt_tmp_0: Ex = Ex::new(408.0);
     _smelt_tmp_0.clone()
     });
-    _smelt_tmp_6 = (timeout)(2.0, Some(SmeltUnion4::M1({ let smelt_callback = _smelt_tmp_5.clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(String) -> Ex> = ::std::rc::Rc::new(move |arg0: String| (smelt_callback)()); smelt_adapted })));
+    _smelt_tmp_6 = (timeout)(2.0, Some(SmeltUnion4::M1({ let smelt_callback = _smelt_tmp_5.clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(JsString) -> Ex> = ::std::rc::Rc::new(move |arg0: JsString| (smelt_callback)()); smelt_adapted })));
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_6)); };
-    _smelt_tmp_8 = ::std::rc::Rc::new(|closure_arg_0: String| {
+    _smelt_tmp_8 = ::std::rc::Rc::new(|closure_arg_0: JsString| {
     let _smelt_tmp_1: f64 = smelt_utf16_len(&closure_arg_0) as f64;
     let _smelt_tmp_2: f64 = 500.0 + _smelt_tmp_1;
     let _smelt_tmp_3: Ex = Ex::new(_smelt_tmp_2);

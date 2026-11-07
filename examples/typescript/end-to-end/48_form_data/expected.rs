@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -5379,7 +5382,7 @@ impl SmeltFromUnknown for SmeltBlob {
 
 #[derive(Clone)]
 pub enum SmeltUnion12 {
-    M0(String),
+    M0(JsString),
     M1(SmeltBlob),
 }
 impl IntoSmeltUnknown for SmeltUnion12 {
@@ -5422,22 +5425,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 let smelt_local = tokio::task::LocalSet::new();
 smelt_local.block_on(&smelt_runtime, async move {
-    let mut __smelt_for_item: (String, SmeltUnion12);
-    let mut name: String;
+    let mut __smelt_for_item: (JsString, SmeltUnion12);
+    let mut name: JsString;
     let mut value: SmeltUnion12;
     let mut with_files: SmeltFormData;
     let mut entry: SmeltUnion12;
     let mut urlencoded: SmeltResponse;
     let mut parsed: SmeltFormData;
-    let mut __smelt_for_item_1: (String, SmeltUnion12);
-    let mut name_1: String;
+    let mut __smelt_for_item_1: (JsString, SmeltUnion12);
+    let mut name_1: JsString;
     let mut value_1: SmeltUnion12;
-    let mut boundary: String;
-    let mut multipart: String;
+    let mut boundary: JsString;
+    let mut multipart: JsString;
     let mut request: SmeltRequest;
     let mut uploaded: SmeltFormData;
-    let mut __smelt_for_item_2: (String, SmeltUnion12);
-    let mut name_2: String;
+    let mut __smelt_for_item_2: (JsString, SmeltUnion12);
+    let mut name_2: JsString;
     let mut value_2: SmeltUnion12;
     let _smelt_tmp_24: SmeltList<SmeltUnion12>;
     let _smelt_tmp_25: SmeltList<SmeltUnion12>;
@@ -5446,28 +5449,28 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_29: bool;
     let _smelt_tmp_30: bool;
     let _smelt_tmp_32: ();
-    let _smelt_tmp_33: SmeltList<String>;
-    let _smelt_tmp_34: SmeltList<String>;
-    let _smelt_tmp_35: SmeltList<String>;
-    let _smelt_tmp_36: String;
-    let _smelt_tmp_38: SmeltList<(String, SmeltUnion12)>;
+    let _smelt_tmp_33: SmeltList<JsString>;
+    let _smelt_tmp_34: SmeltList<JsString>;
+    let _smelt_tmp_35: SmeltList<JsString>;
+    let _smelt_tmp_36: JsString;
+    let _smelt_tmp_38: SmeltList<(JsString, SmeltUnion12)>;
     let mut _smelt_tmp_39: usize;
     let mut _smelt_tmp_40: usize;
     let mut _smelt_tmp_41: bool;
     let mut _smelt_tmp_45: ();
-    let mut _smelt_tmp_46: SmeltList<String>;
-    let mut _smelt_tmp_47: SmeltList<String>;
-    let mut _smelt_tmp_48: SmeltList<String>;
-    let mut _smelt_tmp_49: String;
+    let mut _smelt_tmp_46: SmeltList<JsString>;
+    let mut _smelt_tmp_47: SmeltList<JsString>;
+    let mut _smelt_tmp_48: SmeltList<JsString>;
+    let mut _smelt_tmp_49: JsString;
     let mut _smelt_tmp_51: Option<SmeltUnion12>;
     let mut _smelt_tmp_52: SmeltUnion12;
-    let mut _smelt_tmp_55: SmeltList<String>;
+    let mut _smelt_tmp_55: SmeltList<JsString>;
     let mut _smelt_tmp_56: SmeltBlob;
     let mut _smelt_tmp_57: ();
-    let mut _smelt_tmp_58: SmeltList<String>;
+    let mut _smelt_tmp_58: SmeltList<JsString>;
     let mut _smelt_tmp_59: SmeltBlob;
     let mut _smelt_tmp_60: ();
-    let mut _smelt_tmp_61: SmeltList<String>;
+    let mut _smelt_tmp_61: SmeltList<JsString>;
     let mut _smelt_tmp_62: SmeltBlob;
     let mut _smelt_tmp_63: ();
     let mut _smelt_tmp_64: SmeltList<SmeltUnion12>;
@@ -5475,66 +5478,66 @@ smelt_local.block_on(&smelt_runtime, async move {
     let mut _smelt_tmp_66: usize;
     let mut _smelt_tmp_67: bool;
     let mut _smelt_tmp_68: bool;
-    let mut _smelt_tmp_69: String;
+    let mut _smelt_tmp_69: JsString;
     let mut _smelt_tmp_71: SmeltBlob;
-    let mut _smelt_tmp_72: String;
+    let mut _smelt_tmp_72: JsString;
     let mut _smelt_tmp_73: SmeltBlob;
-    let mut _smelt_tmp_74: String;
+    let mut _smelt_tmp_74: JsString;
     let mut _smelt_tmp_75: SmeltBlob;
     let mut _smelt_tmp_76: f64;
     let mut _smelt_tmp_77: SmeltBlob;
-    let mut _smelt_tmp_79: String;
-    let mut _smelt_tmp_81: SmeltRecord<String, String>;
-    let mut _smelt_tmp_85: SmeltList<(String, SmeltUnion12)>;
+    let mut _smelt_tmp_79: JsString;
+    let mut _smelt_tmp_81: SmeltRecord<String, JsString>;
+    let mut _smelt_tmp_85: SmeltList<(JsString, SmeltUnion12)>;
     let mut _smelt_tmp_86: usize;
     let mut _smelt_tmp_87: usize;
     let mut _smelt_tmp_88: bool;
     let mut _smelt_tmp_92: bool;
-    let mut _smelt_tmp_94: String;
-    let mut _smelt_tmp_95: String;
-    let mut _smelt_tmp_96: String;
-    let mut _smelt_tmp_97: String;
-    let mut _smelt_tmp_98: SmeltList<String>;
-    let mut _smelt_tmp_100: String;
-    let mut _smelt_tmp_101: SmeltRecord<String, String>;
-    let mut _smelt_tmp_105: SmeltList<(String, SmeltUnion12)>;
+    let mut _smelt_tmp_94: JsString;
+    let mut _smelt_tmp_95: JsString;
+    let mut _smelt_tmp_96: JsString;
+    let mut _smelt_tmp_97: JsString;
+    let mut _smelt_tmp_98: SmeltList<JsString>;
+    let mut _smelt_tmp_100: JsString;
+    let mut _smelt_tmp_101: SmeltRecord<String, JsString>;
+    let mut _smelt_tmp_105: SmeltList<(JsString, SmeltUnion12)>;
     let mut _smelt_tmp_106: usize;
     let mut _smelt_tmp_107: usize;
     let mut _smelt_tmp_108: bool;
     let mut _smelt_tmp_111: bool;
-    let mut _smelt_tmp_112: String;
+    let mut _smelt_tmp_112: JsString;
     let mut _smelt_tmp_114: SmeltBlob;
-    let mut _smelt_tmp_115: String;
+    let mut _smelt_tmp_115: JsString;
     let mut _smelt_tmp_116: SmeltBlob;
-    let mut _smelt_tmp_117: String;
+    let mut _smelt_tmp_117: JsString;
     let mut _smelt_tmp_118: SmeltBlob;
     let mut _smelt_tmp_119: f64;
     let mut _smelt_tmp_120: SmeltBlob;
-    let mut _smelt_tmp_122: String;
-    let mut _smelt_tmp_124: SmeltRecord<String, String>;
+    let mut _smelt_tmp_122: JsString;
+    let mut _smelt_tmp_124: SmeltRecord<String, JsString>;
     let mut _smelt_tmp_125: SmeltResponse;
     let mut _smelt_tmp_127: ();
     let mut _smelt_tmp_129: ();
     let mut _smelt_tmp_131: ();
     let form: SmeltFormData = SmeltFormData::new();
-    let _smelt_tmp_19: () = form.clone().append(&"a".to_owned(), SmeltFormDataValue::Text(("1".to_owned()).clone()));
-    let _smelt_tmp_20: () = form.clone().append(&"a".to_owned(), SmeltFormDataValue::Text(("2".to_owned()).clone()));
-    let _smelt_tmp_21: () = form.clone().append(&"b".to_owned(), SmeltFormDataValue::Text(("x".to_owned()).clone()));
-    let _smelt_tmp_22: Option<SmeltUnion12> = form.clone().get(&"a".to_owned()).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion12::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion12::M1(smelt_file) });
+    let _smelt_tmp_19: () = form.clone().append(&JsString::from("a"), SmeltFormDataValue::Text((JsString::from("1")).clone()));
+    let _smelt_tmp_20: () = form.clone().append(&JsString::from("a"), SmeltFormDataValue::Text((JsString::from("2")).clone()));
+    let _smelt_tmp_21: () = form.clone().append(&JsString::from("b"), SmeltFormDataValue::Text((JsString::from("x")).clone()));
+    let _smelt_tmp_22: Option<SmeltUnion12> = form.clone().get(&JsString::from("a")).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion12::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion12::M1(smelt_file) });
     let _ = { println!("{}", match &_smelt_tmp_22 { Some(value) => format!("{}", value.clone().into_smelt_unknown()), None => "undefined".to_owned() }); };
-    _smelt_tmp_24 = Into::<SmeltList<_>>::into(SmeltList::new(form.clone().get_all(&"a".to_owned()).into_iter().map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion12::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion12::M1(smelt_file) }).collect::<Vec<_>>()));
+    _smelt_tmp_24 = Into::<SmeltList<_>>::into(SmeltList::new(form.clone().get_all(&JsString::from("a")).into_iter().map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion12::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion12::M1(smelt_file) }).collect::<Vec<_>>()));
     _smelt_tmp_25 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnion12> = vec![]; smelt_list_items }));
     _smelt_tmp_26 = Into::<SmeltList<_>>::into(_smelt_tmp_24.borrow().iter().cloned().chain(_smelt_tmp_25.borrow().iter().cloned()).collect::<Vec<_>>());
     _smelt_tmp_27 = _smelt_tmp_26.len() as f64;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_27)); };
-    _smelt_tmp_29 = form.clone().has(&"b".to_owned());
-    _smelt_tmp_30 = form.clone().has(&"B".to_owned());
+    _smelt_tmp_29 = form.clone().has(&JsString::from("b"));
+    _smelt_tmp_30 = form.clone().has(&JsString::from("B"));
     let _ = { println!("{} {}", _smelt_tmp_29, _smelt_tmp_30); };
-    _smelt_tmp_32 = form.clone().set(&"a".to_owned(), SmeltFormDataValue::Text(("9".to_owned()).clone()));
+    _smelt_tmp_32 = form.clone().set(&JsString::from("a"), SmeltFormDataValue::Text((JsString::from("9")).clone()));
     _smelt_tmp_33 = Into::<SmeltList<_>>::into(SmeltList::new(form.clone().keys()));
-    _smelt_tmp_34 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    _smelt_tmp_34 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
     _smelt_tmp_35 = Into::<SmeltList<_>>::into(_smelt_tmp_33.borrow().iter().cloned().chain(_smelt_tmp_34.borrow().iter().cloned()).collect::<Vec<_>>());
-    _smelt_tmp_36 = _smelt_tmp_35.borrow().join(&",".to_owned());
+    _smelt_tmp_36 = _smelt_tmp_35.borrow().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_36); };
     _smelt_tmp_38 = Into::<SmeltList<_>>::into(SmeltList::new(form.clone().entries_in_order().into_iter().map(|(smelt_name, smelt_entry)| (smelt_name, match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion12::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion12::M1(smelt_file) })).collect::<Vec<_>>()));
     _smelt_tmp_39 = 0;
@@ -5548,25 +5551,25 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _ = { println!("{} {}", name, value.into_smelt_unknown()); };
     _smelt_tmp_39 = _smelt_tmp_39 + 1;
     }
-    _smelt_tmp_45 = form.clone().delete(&"a".to_owned());
+    _smelt_tmp_45 = form.clone().delete(&JsString::from("a"));
     _smelt_tmp_46 = Into::<SmeltList<_>>::into(SmeltList::new(form.clone().keys()));
-    _smelt_tmp_47 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    _smelt_tmp_47 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
     _smelt_tmp_48 = Into::<SmeltList<_>>::into(_smelt_tmp_46.borrow().iter().cloned().chain(_smelt_tmp_47.borrow().iter().cloned()).collect::<Vec<_>>());
-    _smelt_tmp_49 = _smelt_tmp_48.borrow().join(&",".to_owned());
+    _smelt_tmp_49 = _smelt_tmp_48.borrow().join(&JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_49); };
-    _smelt_tmp_51 = form.get(&"a".to_owned()).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion12::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion12::M1(smelt_file) });
-    _smelt_tmp_52 = _smelt_tmp_51.map_or_else(|| SmeltUnion12::M0("absent".to_owned()), |value| value);
+    _smelt_tmp_51 = form.get(&JsString::from("a")).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion12::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion12::M1(smelt_file) });
+    _smelt_tmp_52 = _smelt_tmp_51.map_or_else(|| SmeltUnion12::M0(JsString::from("absent")), |value| value);
     let _ = { println!("{}", _smelt_tmp_52.into_smelt_unknown()); };
     with_files = SmeltFormData::new();
-    _smelt_tmp_55 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["hello".to_owned()]; smelt_list_items }));
-    _smelt_tmp_56 = SmeltBlob::from_string_parts((_smelt_tmp_55).clone().into(), ("text/plain".to_owned()).clone(), None, None);
-    _smelt_tmp_57 = with_files.clone().append(&"plain".to_owned(), smelt_form_data_file_value((_smelt_tmp_56).clone(), None));
-    _smelt_tmp_58 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["hello".to_owned()]; smelt_list_items }));
-    _smelt_tmp_59 = SmeltBlob::from_string_parts((_smelt_tmp_58).clone().into(), ("text/plain".to_owned()).clone(), None, None);
-    _smelt_tmp_60 = with_files.clone().append(&"named".to_owned(), smelt_form_data_file_value((_smelt_tmp_59).clone(), Some("note.txt".to_owned())));
-    _smelt_tmp_61 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["bye".to_owned()]; smelt_list_items }));
-    _smelt_tmp_62 = SmeltBlob::from_string_parts((_smelt_tmp_61).clone().into(), ("text/plain".to_owned()).clone(), Some(("given.txt".to_owned()).clone()), None);
-    _smelt_tmp_63 = with_files.clone().append(&"file".to_owned(), smelt_form_data_file_value((_smelt_tmp_62).clone(), None));
+    _smelt_tmp_55 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("hello")]; smelt_list_items }));
+    _smelt_tmp_56 = SmeltBlob::from_string_parts((_smelt_tmp_55).clone().into(), (JsString::from("text/plain")).clone(), None, None);
+    _smelt_tmp_57 = with_files.clone().append(&JsString::from("plain"), smelt_form_data_file_value((_smelt_tmp_56).clone(), None));
+    _smelt_tmp_58 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("hello")]; smelt_list_items }));
+    _smelt_tmp_59 = SmeltBlob::from_string_parts((_smelt_tmp_58).clone().into(), (JsString::from("text/plain")).clone(), None, None);
+    _smelt_tmp_60 = with_files.clone().append(&JsString::from("named"), smelt_form_data_file_value((_smelt_tmp_59).clone(), Some(JsString::from("note.txt"))));
+    _smelt_tmp_61 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("bye")]; smelt_list_items }));
+    _smelt_tmp_62 = SmeltBlob::from_string_parts((_smelt_tmp_61).clone().into(), (JsString::from("text/plain")).clone(), Some((JsString::from("given.txt")).clone()), None);
+    _smelt_tmp_63 = with_files.clone().append(&JsString::from("file"), smelt_form_data_file_value((_smelt_tmp_62).clone(), None));
     _smelt_tmp_64 = Into::<SmeltList<_>>::into(SmeltList::new(with_files.values().into_iter().map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion12::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion12::M1(smelt_file) }).collect::<Vec<_>>()));
     _smelt_tmp_65 = 0;
     loop {
@@ -5577,7 +5580,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_68 = matches!(entry.clone(), SmeltUnion12::M0(_));
     if _smelt_tmp_68 {
     _smelt_tmp_69 = match entry { SmeltUnion12::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    let _ = { println!("{} {}", "text".to_owned(), _smelt_tmp_69); };
+    let _ = { println!("{} {}", JsString::from("text"), _smelt_tmp_69); };
     _smelt_tmp_65 = _smelt_tmp_65 + 1;
     continue;
     } else {
@@ -5588,15 +5591,15 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_75 = match entry.clone() { SmeltUnion12::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_76 = _smelt_tmp_75.size();
     _smelt_tmp_77 = match entry { SmeltUnion12::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    let mut _smelt_tmp_78: SmeltFuture<String> = { let smelt_blob = _smelt_tmp_77.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_blob.to_text()) })) };
+    let mut _smelt_tmp_78: SmeltFuture<JsString> = { let smelt_blob = _smelt_tmp_77.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_blob.to_text()) })) };
     _smelt_tmp_79 = _smelt_tmp_78.await?;
-    let _ = { println!("{} {} {} {} {}", "file".to_owned(), _smelt_tmp_72, _smelt_tmp_74, smelt_console_number(_smelt_tmp_76), _smelt_tmp_79); };
+    let _ = { println!("{} {} {} {} {}", JsString::from("file"), _smelt_tmp_72, _smelt_tmp_74, smelt_console_number(_smelt_tmp_76), _smelt_tmp_79); };
     _smelt_tmp_65 = _smelt_tmp_65 + 1;
     continue;
     }
     }
-    _smelt_tmp_81 = SmeltRecord::from([("content-type".to_owned(), "application/x-www-form-urlencoded".to_owned())]);
-    urlencoded = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::from_pairs(_smelt_tmp_81.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"a=1&b=hello+world&a=2".to_owned()));
+    _smelt_tmp_81 = SmeltRecord::from([(JsString::from("content-type"), JsString::from("application/x-www-form-urlencoded"))]);
+    urlencoded = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::from_pairs(_smelt_tmp_81.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&JsString::from("a=1&b=hello+world&a=2")));
     let mut _smelt_tmp_83: SmeltFuture<SmeltFormData> = { let smelt_response = urlencoded.clone().clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_content_type = smelt_response.headers().get("content-type"); Ok::<_, Box<dyn std::error::Error>>(smelt_form_data_from_body(smelt_content_type, smelt_response.body().take_bytes()?)?) })) };
     parsed = _smelt_tmp_83.await?;
     _smelt_tmp_85 = Into::<SmeltList<_>>::into(SmeltList::new(parsed.entries_in_order().into_iter().map(|(smelt_name, smelt_entry)| (smelt_name, match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion12::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion12::M1(smelt_file) })).collect::<Vec<_>>()));
@@ -5613,16 +5616,16 @@ smelt_local.block_on(&smelt_runtime, async move {
     }
     _smelt_tmp_92 = urlencoded.clone().body_used();
     let _ = { println!("{}", _smelt_tmp_92); };
-    boundary = "----SmeltBoundary".to_owned();
-    _smelt_tmp_94 = "--".to_owned() + &boundary.clone();
-    _smelt_tmp_95 = "--".to_owned() + &boundary.clone();
-    _smelt_tmp_96 = "--".to_owned() + &boundary.clone();
-    _smelt_tmp_97 = _smelt_tmp_96 + &"--".to_owned();
-    _smelt_tmp_98 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![_smelt_tmp_94.clone(), "Content-Disposition: form-data; name=\"title\"".to_owned(), "".to_owned(), "hello".to_owned(), _smelt_tmp_95.clone(), "Content-Disposition: form-data; name=\"doc\"; filename=\"a.txt\"".to_owned(), "Content-Type: text/plain".to_owned(), "".to_owned(), "file body".to_owned(), _smelt_tmp_97.clone(), "".to_owned()]; smelt_list_items }));
-    multipart = _smelt_tmp_98.borrow().join(&"\r\n".to_owned());
-    _smelt_tmp_100 = "multipart/form-data; boundary=".to_owned() + &boundary;
-    _smelt_tmp_101 = SmeltRecord::from([("content-type".to_owned(), _smelt_tmp_100)]);
-    request = SmeltRequest::from_parts_with_init(&"https://forms.test/upload".to_owned(), "POST".to_owned(), SmeltHeaders::from_pairs(_smelt_tmp_101.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&multipart), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
+    boundary = JsString::from("----SmeltBoundary");
+    _smelt_tmp_94 = JsString::from("--") + &boundary.clone();
+    _smelt_tmp_95 = JsString::from("--") + &boundary.clone();
+    _smelt_tmp_96 = JsString::from("--") + &boundary.clone();
+    _smelt_tmp_97 = _smelt_tmp_96 + &JsString::from("--");
+    _smelt_tmp_98 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![_smelt_tmp_94.clone(), JsString::from("Content-Disposition: form-data; name=\"title\""), JsString::new(), JsString::from("hello"), _smelt_tmp_95.clone(), JsString::from("Content-Disposition: form-data; name=\"doc\"; filename=\"a.txt\""), JsString::from("Content-Type: text/plain"), JsString::new(), JsString::from("file body"), _smelt_tmp_97.clone(), JsString::new()]; smelt_list_items }));
+    multipart = _smelt_tmp_98.borrow().join(&JsString::from("\r\n"));
+    _smelt_tmp_100 = JsString::from("multipart/form-data; boundary=") + &boundary;
+    _smelt_tmp_101 = SmeltRecord::from([(JsString::from("content-type"), _smelt_tmp_100)]);
+    request = SmeltRequest::from_parts_with_init(&JsString::from("https://forms.test/upload"), JsString::from("POST"), SmeltHeaders::from_pairs(_smelt_tmp_101.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&multipart), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
     let mut _smelt_tmp_103: SmeltFuture<SmeltFormData> = { let smelt_request = request.clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_content_type = smelt_request.headers().get("content-type"); Ok::<_, Box<dyn std::error::Error>>(smelt_form_data_from_body(smelt_content_type, smelt_request.body().take_bytes()?)?) })) };
     uploaded = _smelt_tmp_103.await?;
     _smelt_tmp_105 = Into::<SmeltList<_>>::into(SmeltList::new(uploaded.entries_in_order().into_iter().map(|(smelt_name, smelt_entry)| (smelt_name, match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion12::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion12::M1(smelt_file) })).collect::<Vec<_>>()));
@@ -5637,7 +5640,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_111 = matches!(value_2.clone(), SmeltUnion12::M0(_));
     if _smelt_tmp_111 {
     _smelt_tmp_112 = match value_2 { SmeltUnion12::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    let _ = { println!("{} {} {}", name_2, "text".to_owned(), _smelt_tmp_112); };
+    let _ = { println!("{} {} {}", name_2, JsString::from("text"), _smelt_tmp_112); };
     _smelt_tmp_106 = _smelt_tmp_106 + 1;
     continue;
     } else {
@@ -5648,18 +5651,18 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_118 = match value_2.clone() { SmeltUnion12::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_119 = _smelt_tmp_118.size();
     _smelt_tmp_120 = match value_2 { SmeltUnion12::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    let mut _smelt_tmp_121: SmeltFuture<String> = { let smelt_blob = _smelt_tmp_120.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_blob.to_text()) })) };
+    let mut _smelt_tmp_121: SmeltFuture<JsString> = { let smelt_blob = _smelt_tmp_120.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_blob.to_text()) })) };
     _smelt_tmp_122 = _smelt_tmp_121.await?;
-    let _ = { println!("{} {} {} {} {} {}", name_2, "file".to_owned(), _smelt_tmp_115, _smelt_tmp_117, smelt_console_number(_smelt_tmp_119), _smelt_tmp_122); };
+    let _ = { println!("{} {} {} {} {} {}", name_2, JsString::from("file"), _smelt_tmp_115, _smelt_tmp_117, smelt_console_number(_smelt_tmp_119), _smelt_tmp_122); };
     _smelt_tmp_106 = _smelt_tmp_106 + 1;
     continue;
     }
     }
-    _smelt_tmp_124 = SmeltRecord::from([("content-type".to_owned(), "text/plain".to_owned())]);
-    _smelt_tmp_125 = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::from_pairs(_smelt_tmp_124.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"plain".to_owned()));
-    let _smelt_tmp_126 = SmeltFuture::from_future(Box::pin(read_or_report(_smelt_tmp_125, "wrong type".to_owned())));
+    _smelt_tmp_124 = SmeltRecord::from([(JsString::from("content-type"), JsString::from("text/plain"))]);
+    _smelt_tmp_125 = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::from_pairs(_smelt_tmp_124.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&JsString::from("plain")));
+    let _smelt_tmp_126 = SmeltFuture::from_future(Box::pin(read_or_report(_smelt_tmp_125, JsString::from("wrong type"))));
     _smelt_tmp_127 = _smelt_tmp_126.await?;
-    let _smelt_tmp_128 = SmeltFuture::from_future(Box::pin(read_or_report(urlencoded, "second read".to_owned())));
+    let _smelt_tmp_128 = SmeltFuture::from_future(Box::pin(read_or_report(urlencoded, JsString::from("second read"))));
     _smelt_tmp_129 = _smelt_tmp_128.await?;
     let mut _smelt_tmp_130: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
     _smelt_tmp_131 = _smelt_tmp_130.await?;
@@ -5674,25 +5677,25 @@ smelt_local.block_on(&smelt_runtime, async move {
 
 use super::*;
 
-pub(crate) async fn read_or_report(response: SmeltResponse, label: String) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) async fn read_or_report(response: SmeltResponse, label: JsString) -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_3: SmeltFuture<SmeltFormData> = { let smelt_response = response.clone().clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_content_type = smelt_response.headers().get("content-type"); Ok::<_, Box<dyn std::error::Error>>(smelt_form_data_from_body(smelt_content_type, smelt_response.body().take_bytes()?)?) })) };
     match _smelt_tmp_3.await {
         Ok(__smelt_value) => {
             let _smelt_tmp_4: SmeltFormData = __smelt_value;
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| { println!("{} {}", label.clone(), "read".to_owned()); })) {
+    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| { println!("{} {}", label.clone(), JsString::from("read")); })) {
         Ok(__smelt_value) => {
             let _smelt_tmp_5: () = __smelt_value;
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
             let error = smelt_panic_error_value(&*__smelt_panic);
-    let _ = { println!("{} {}", label.clone(), "threw".to_owned()); };
+    let _ = { println!("{} {}", label.clone(), JsString::from("threw")); };
         }
     }
         }
         Err(__smelt_error) => {
             let error = smelt_thrown_value(&*__smelt_error);
-    let _ = { println!("{} {}", label.clone(), "threw".to_owned()); };
+    let _ = { println!("{} {}", label.clone(), JsString::from("threw")); };
         }
     }
     return Ok(());

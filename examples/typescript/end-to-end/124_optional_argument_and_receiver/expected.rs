@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3676,86 +3679,86 @@ impl SmeltFromUnknown for SmeltMatch {
 
 // @smelt:prelude-end — generated program below
 fn main() {
-    let merge_path: ::std::rc::Rc<dyn Fn(Option<String>, Option<String>) -> String>;
-    let words: SmeltList<Option<String>>;
-    let mut w: Option<String>;
-    let _smelt_tmp_8: ::std::rc::Rc<dyn Fn(Option<String>, Option<String>) -> String>;
-    let _smelt_tmp_9: String;
-    let _smelt_tmp_10: String;
-    let _smelt_tmp_11: String;
+    let merge_path: ::std::rc::Rc<dyn Fn(Option<JsString>, Option<JsString>) -> JsString>;
+    let words: SmeltList<Option<JsString>>;
+    let mut w: Option<JsString>;
+    let _smelt_tmp_8: ::std::rc::Rc<dyn Fn(Option<JsString>, Option<JsString>) -> JsString>;
+    let _smelt_tmp_9: JsString;
+    let _smelt_tmp_10: JsString;
+    let _smelt_tmp_11: JsString;
     let mut _smelt_tmp_14: usize;
     let mut _smelt_tmp_15: usize;
     let mut _smelt_tmp_16: bool;
     let mut _smelt_tmp_17: bool;
     let mut _smelt_tmp_18: bool;
-    let mut _smelt_tmp_19: Option<String>;
-    let mut _smelt_tmp_20: String;
+    let mut _smelt_tmp_19: Option<JsString>;
+    let mut _smelt_tmp_20: JsString;
     let mut _smelt_tmp_21: f64;
-    let mut _smelt_tmp_22: Option<String>;
+    let mut _smelt_tmp_22: Option<JsString>;
     let mut _smelt_tmp_23: bool;
     let mut _smelt_tmp_24: bool;
-    let mut _smelt_tmp_25: Option<String>;
-    let mut _smelt_tmp_26: String;
-    let mut _smelt_tmp_27: String;
+    let mut _smelt_tmp_25: Option<JsString>;
+    let mut _smelt_tmp_26: JsString;
+    let mut _smelt_tmp_27: JsString;
     let mut _smelt_tmp_28: bool;
     let mut _smelt_tmp_29: bool;
-    let mut _smelt_tmp_30: Option<String>;
-    let mut _smelt_tmp_31: String;
-    let mut _smelt_tmp_32: Option<String>;
+    let mut _smelt_tmp_30: Option<JsString>;
+    let mut _smelt_tmp_31: JsString;
+    let mut _smelt_tmp_32: Option<JsString>;
     let mut _smelt_tmp_33: bool;
     let mut _smelt_tmp_34: bool;
     let mut _smelt_tmp_35: Option<f64>;
-    let mut _smelt_tmp_36: String;
+    let mut _smelt_tmp_36: JsString;
     let mut _smelt_tmp_37: f64;
     let mut _smelt_tmp_38: bool;
     let mut _smelt_tmp_39: bool;
     let mut _smelt_tmp_40: Option<bool>;
-    let mut _smelt_tmp_42: String;
-    let mut _smelt_tmp_43: String;
+    let mut _smelt_tmp_42: JsString;
+    let mut _smelt_tmp_43: JsString;
     let mut _smelt_tmp_44: bool;
-    let _smelt_tmp_4 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: Option<String>| {
-    let _smelt_tmp_2: String = closure_arg_1.clone().unwrap_or("-".to_owned());
-    let _smelt_tmp_3: String = closure_arg_0.clone() + &_smelt_tmp_2.clone();
+    let _smelt_tmp_4 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: Option<JsString>| {
+    let _smelt_tmp_2: JsString = closure_arg_1.clone().unwrap_or(JsString::from("-"));
+    let _smelt_tmp_3: JsString = closure_arg_0.clone() + &_smelt_tmp_2.clone();
     _smelt_tmp_3.clone()
     });
     let join = _smelt_tmp_4.clone();
-    let _smelt_tmp_5: String = (join)("p".to_owned(), None);
-    let _smelt_tmp_6: String = (join)("p".to_owned(), Some("q".to_owned()));
+    let _smelt_tmp_5: JsString = (join)(JsString::from("p"), None);
+    let _smelt_tmp_6: JsString = (join)(JsString::from("p"), Some(JsString::from("q")));
     let _ = { println!("{} {}", _smelt_tmp_5, _smelt_tmp_6); };
-    _smelt_tmp_8 = ::std::rc::Rc::new(|closure_arg_0: Option<String>, closure_arg_1: Option<String>| {
-    let mut _smelt_tmp_4: String;
-    let _smelt_tmp_5: String;
-    let _smelt_tmp_6: String;
+    _smelt_tmp_8 = ::std::rc::Rc::new(|closure_arg_0: Option<JsString>, closure_arg_1: Option<JsString>| {
+    let mut _smelt_tmp_4: JsString;
+    let _smelt_tmp_5: JsString;
+    let _smelt_tmp_6: JsString;
     let _smelt_tmp_7: bool;
-    let mut _smelt_tmp_8: String;
+    let mut _smelt_tmp_8: JsString;
     let _smelt_tmp_9: bool;
     let _smelt_tmp_10: bool;
-    let mut _smelt_tmp_11: Option<String>;
-    let _smelt_tmp_12: String;
+    let mut _smelt_tmp_11: Option<JsString>;
+    let _smelt_tmp_12: JsString;
     let _smelt_tmp_13: f64;
-    let _smelt_tmp_14: Option<String>;
+    let _smelt_tmp_14: Option<JsString>;
     let _smelt_tmp_15: bool;
-    let mut _smelt_tmp_16: String;
-    let _smelt_tmp_17: String;
-    let _smelt_tmp_18: Option<String>;
+    let mut _smelt_tmp_16: JsString;
+    let _smelt_tmp_17: JsString;
+    let _smelt_tmp_18: Option<JsString>;
     let _smelt_tmp_19: bool;
-    let mut _smelt_tmp_20: Option<String>;
-    let _smelt_tmp_21: String;
-    let _smelt_tmp_22: String;
-    let _smelt_tmp_23: String;
-    let _smelt_tmp_24: String;
-    let _smelt_tmp_2: Option<String> = closure_arg_0.clone().as_ref().and_then(|_smelt_value| ({ let smelt_len = smelt_utf16_len(&_smelt_value) as i64; let smelt_index = 0.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| smelt_utf16_char_at(&_smelt_value, index)));
-    let _smelt_tmp_3: bool = _smelt_tmp_2.clone() == Some("/".to_owned());
+    let mut _smelt_tmp_20: Option<JsString>;
+    let _smelt_tmp_21: JsString;
+    let _smelt_tmp_22: JsString;
+    let _smelt_tmp_23: JsString;
+    let _smelt_tmp_24: JsString;
+    let _smelt_tmp_2: Option<JsString> = closure_arg_0.clone().as_ref().and_then(|_smelt_value| ({ let smelt_len = smelt_utf16_len(&_smelt_value) as i64; let smelt_index = 0.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| smelt_utf16_char_at(&_smelt_value, index)));
+    let _smelt_tmp_3: bool = _smelt_tmp_2.clone() == Some(JsString::from("/"));
     if _smelt_tmp_3 {
-    _smelt_tmp_4 = "".to_owned();
+    _smelt_tmp_4 = JsString::new();
     } else {
-    _smelt_tmp_4 = "/".to_owned();
+    _smelt_tmp_4 = JsString::from("/");
     }
-    _smelt_tmp_5 = "".to_owned() + &_smelt_tmp_4.clone();
+    _smelt_tmp_5 = JsString::new() + &_smelt_tmp_4.clone();
     _smelt_tmp_6 = _smelt_tmp_5.clone() + &closure_arg_0.clone().unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_7 = closure_arg_1.clone() == Some("/".to_owned());
+    _smelt_tmp_7 = closure_arg_1.clone() == Some(JsString::from("/"));
     if _smelt_tmp_7 {
-    _smelt_tmp_8 = "".to_owned();
+    _smelt_tmp_8 = JsString::new();
     } else {
     _smelt_tmp_9 = closure_arg_0.clone().is_none();
     _smelt_tmp_10 = !(_smelt_tmp_9);
@@ -3765,17 +3768,17 @@ fn main() {
     _smelt_tmp_14 = ({ let smelt_len = smelt_utf16_len(&_smelt_tmp_12.clone()) as i64; let smelt_index = _smelt_tmp_13 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| smelt_utf16_char_at(&_smelt_tmp_12.clone(), index));
     _smelt_tmp_11 = _smelt_tmp_14.clone();
     } else {
-    _smelt_tmp_11 = None::<String>;
+    _smelt_tmp_11 = None::<JsString>;
     }
-    _smelt_tmp_15 = _smelt_tmp_11.clone() == Some("/".to_owned());
+    _smelt_tmp_15 = _smelt_tmp_11.clone() == Some(JsString::from("/"));
     if _smelt_tmp_15 {
-    _smelt_tmp_16 = "".to_owned();
+    _smelt_tmp_16 = JsString::new();
     } else {
-    _smelt_tmp_16 = "/".to_owned();
+    _smelt_tmp_16 = JsString::from("/");
     }
-    _smelt_tmp_17 = "".to_owned() + &_smelt_tmp_16.clone();
+    _smelt_tmp_17 = JsString::new() + &_smelt_tmp_16.clone();
     _smelt_tmp_18 = closure_arg_1.clone().as_ref().and_then(|_smelt_value| ({ let smelt_len = smelt_utf16_len(&_smelt_value) as i64; let smelt_index = 0.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| smelt_utf16_char_at(&_smelt_value, index)));
-    _smelt_tmp_19 = _smelt_tmp_18.clone() == Some("/".to_owned());
+    _smelt_tmp_19 = _smelt_tmp_18.clone() == Some(JsString::from("/"));
     if _smelt_tmp_19 {
     _smelt_tmp_21 = closure_arg_1.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_22 = { let smelt_len_units = smelt_utf16_len(&_smelt_tmp_21); { let smelt_start = { let smelt_len = smelt_len_units as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }; smelt_utf16_slice(&_smelt_tmp_21, smelt_start, smelt_start.saturating_add(smelt_len_units.saturating_sub({ let smelt_len = smelt_len_units as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }))) } };
@@ -3790,17 +3793,17 @@ fn main() {
     _smelt_tmp_24.clone()
     });
     merge_path = _smelt_tmp_8.clone();
-    _smelt_tmp_9 = (merge_path)(Some("/book/".to_owned()), Some("/hey".to_owned()));
-    _smelt_tmp_10 = (merge_path)(Some("/".to_owned()), Some("book".to_owned()));
-    _smelt_tmp_11 = (merge_path)(Some("/".to_owned()), Some("/book".to_owned()));
+    _smelt_tmp_9 = (merge_path)(Some(JsString::from("/book/")), Some(JsString::from("/hey")));
+    _smelt_tmp_10 = (merge_path)(Some(JsString::from("/")), Some(JsString::from("book")));
+    _smelt_tmp_11 = (merge_path)(Some(JsString::from("/")), Some(JsString::from("/book")));
     let _ = { println!("{} {} {}", _smelt_tmp_9, _smelt_tmp_10, _smelt_tmp_11); };
-    words = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Option<String>> = vec![Some("/xy".to_owned()), None::<String>]; smelt_list_items }));
+    words = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Option<JsString>> = vec![Some(JsString::from("/xy")), None::<JsString>]; smelt_list_items }));
     _smelt_tmp_14 = 0;
     loop {
     _smelt_tmp_15 = words.len();
     _smelt_tmp_16 = _smelt_tmp_14 < _smelt_tmp_15;
     if !(_smelt_tmp_16) { break; }
-    w = words.borrow().get(_smelt_tmp_14).cloned().unwrap_or_else(|| None::<String>);
+    w = words.borrow().get(_smelt_tmp_14).cloned().unwrap_or_else(|| None::<JsString>);
     _smelt_tmp_17 = w.clone().is_none();
     _smelt_tmp_18 = !(_smelt_tmp_17);
     if _smelt_tmp_18 {
@@ -3815,7 +3818,7 @@ fn main() {
     _smelt_tmp_27 = { let smelt_len_units = smelt_utf16_len(&_smelt_tmp_26); { let smelt_start = { let smelt_len = smelt_len_units as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }; smelt_utf16_slice(&_smelt_tmp_26, smelt_start, smelt_start.saturating_add(smelt_len_units.saturating_sub({ let smelt_len = smelt_len_units as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }))) } };
     _smelt_tmp_25 = Some(_smelt_tmp_27);
     } else {
-    _smelt_tmp_25 = None::<String>;
+    _smelt_tmp_25 = None::<JsString>;
     }
     _smelt_tmp_28 = w.clone().is_none();
     _smelt_tmp_29 = !(_smelt_tmp_28);
@@ -3824,13 +3827,13 @@ fn main() {
     _smelt_tmp_32 = Some(_smelt_tmp_31.to_uppercase());
     _smelt_tmp_30 = _smelt_tmp_32;
     } else {
-    _smelt_tmp_30 = None::<String>;
+    _smelt_tmp_30 = None::<JsString>;
     }
     _smelt_tmp_33 = w.clone().is_none();
     _smelt_tmp_34 = !(_smelt_tmp_33);
     if _smelt_tmp_34 {
     _smelt_tmp_36 = w.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_37 = { let smelt_haystack = &&_smelt_tmp_36; smelt_haystack.find(&"x".to_owned()).map_or(-1.0, |idx| smelt_utf16_index_of_byte(&smelt_haystack, idx) as f64) };
+    _smelt_tmp_37 = { let smelt_haystack = &&_smelt_tmp_36; smelt_haystack.find(&JsString::from("x")).map_or(-1.0, |idx| smelt_utf16_index_of_byte(&smelt_haystack, idx) as f64) };
     _smelt_tmp_35 = Some(_smelt_tmp_37);
     } else {
     _smelt_tmp_35 = None::<f64>;
@@ -3839,7 +3842,7 @@ fn main() {
     _smelt_tmp_39 = !(_smelt_tmp_38);
     if _smelt_tmp_39 {
     _smelt_tmp_42 = w.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_43 = "/".to_owned();
+    _smelt_tmp_43 = JsString::from("/");
     _smelt_tmp_44 = _smelt_tmp_42.starts_with(&_smelt_tmp_43);
     _smelt_tmp_40 = Some(_smelt_tmp_44);
     } else {
@@ -3849,7 +3852,7 @@ fn main() {
     _smelt_tmp_14 = _smelt_tmp_14 + 1;
     continue;
     } else {
-    _smelt_tmp_19 = None::<String>;
+    _smelt_tmp_19 = None::<JsString>;
     _smelt_tmp_23 = w.clone().is_none();
     _smelt_tmp_24 = !(_smelt_tmp_23);
     if _smelt_tmp_24 {
@@ -3857,7 +3860,7 @@ fn main() {
     _smelt_tmp_27 = { let smelt_len_units = smelt_utf16_len(&_smelt_tmp_26); { let smelt_start = { let smelt_len = smelt_len_units as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }; smelt_utf16_slice(&_smelt_tmp_26, smelt_start, smelt_start.saturating_add(smelt_len_units.saturating_sub({ let smelt_len = smelt_len_units as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }))) } };
     _smelt_tmp_25 = Some(_smelt_tmp_27);
     } else {
-    _smelt_tmp_25 = None::<String>;
+    _smelt_tmp_25 = None::<JsString>;
     }
     _smelt_tmp_28 = w.clone().is_none();
     _smelt_tmp_29 = !(_smelt_tmp_28);
@@ -3866,13 +3869,13 @@ fn main() {
     _smelt_tmp_32 = Some(_smelt_tmp_31.to_uppercase());
     _smelt_tmp_30 = _smelt_tmp_32;
     } else {
-    _smelt_tmp_30 = None::<String>;
+    _smelt_tmp_30 = None::<JsString>;
     }
     _smelt_tmp_33 = w.clone().is_none();
     _smelt_tmp_34 = !(_smelt_tmp_33);
     if _smelt_tmp_34 {
     _smelt_tmp_36 = w.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_37 = { let smelt_haystack = &&_smelt_tmp_36; smelt_haystack.find(&"x".to_owned()).map_or(-1.0, |idx| smelt_utf16_index_of_byte(&smelt_haystack, idx) as f64) };
+    _smelt_tmp_37 = { let smelt_haystack = &&_smelt_tmp_36; smelt_haystack.find(&JsString::from("x")).map_or(-1.0, |idx| smelt_utf16_index_of_byte(&smelt_haystack, idx) as f64) };
     _smelt_tmp_35 = Some(_smelt_tmp_37);
     } else {
     _smelt_tmp_35 = None::<f64>;
@@ -3881,7 +3884,7 @@ fn main() {
     _smelt_tmp_39 = !(_smelt_tmp_38);
     if _smelt_tmp_39 {
     _smelt_tmp_42 = w.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_43 = "/".to_owned();
+    _smelt_tmp_43 = JsString::from("/");
     _smelt_tmp_44 = _smelt_tmp_42.starts_with(&_smelt_tmp_43);
     _smelt_tmp_40 = Some(_smelt_tmp_44);
     } else {

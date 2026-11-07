@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3750,7 +3753,7 @@ impl SmeltFromUnknown for SmeltMatch {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Route {
-    path: String,
+    path: JsString,
 }
 impl IntoSmeltUnknown for Route {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -3775,14 +3778,14 @@ impl SmeltFromUnknown for Route {
 struct Session(::std::rc::Rc<::std::cell::RefCell<SessionInner>>);
 #[allow(dead_code)]
 struct SessionInner {
-    name: String,
-    renew: Option<::std::rc::Rc<dyn Fn(Session) -> String>>,
+    name: JsString,
+    renew: Option<::std::rc::Rc<dyn Fn(Session) -> JsString>>,
 }
 impl Default for SessionInner {
     fn default() -> Self {
         Self {
             name: String::new(),
-            renew: None::<::std::rc::Rc<dyn Fn(Session) -> String>>,
+            renew: None::<::std::rc::Rc<dyn Fn(Session) -> JsString>>,
         }
     }
 }
@@ -3946,52 +3949,52 @@ impl<Carried: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> S
 fn main() {
     let route: Route;
     let mut session: Session;
-    let cell: Cell<String>;
+    let cell: Cell<JsString>;
     let pair: Pair<f64>;
-    let _smelt_tmp_8: ::std::rc::Rc<dyn Fn(Session) -> String>;
-    let _smelt_tmp_11: ::std::rc::Rc<dyn Fn(Session) -> String>;
-    let _smelt_tmp_12: String;
+    let _smelt_tmp_8: ::std::rc::Rc<dyn Fn(Session) -> JsString>;
+    let _smelt_tmp_11: ::std::rc::Rc<dyn Fn(Session) -> JsString>;
+    let _smelt_tmp_12: JsString;
     let _smelt_tmp_19: f64;
     let _smelt_tmp_21: Route;
-    let _smelt_tmp_4: Route = Route::new("/users".to_owned());
+    let _smelt_tmp_4: Route = Route::new(JsString::from("/users"));
     route = _smelt_tmp_4;
-    let _smelt_tmp_5: String = route.describe();
+    let _smelt_tmp_5: JsString = route.describe();
     let _ = { println!("{}", _smelt_tmp_5); };
-    let _smelt_tmp_7: Session = Session::new("s1".to_owned());
+    let _smelt_tmp_7: Session = Session::new(JsString::from("s1"));
     session = _smelt_tmp_7;
     _smelt_tmp_8 = ::std::rc::Rc::new(|closure_arg_0: Session| {
-    let _smelt_tmp_1: String = "renewed ".to_owned() + &closure_arg_0.0.borrow().name.clone().clone();
+    let _smelt_tmp_1: JsString = JsString::from("renewed ") + &closure_arg_0.0.borrow().name.clone().clone();
     _smelt_tmp_1.clone()
     });
     session.0.borrow_mut().renew = Some(_smelt_tmp_8.clone());
-    let _smelt_tmp_9: String = session.label();
+    let _smelt_tmp_9: JsString = session.label();
     let _ = { println!("{}", _smelt_tmp_9); };
-    _smelt_tmp_11 = session.0.borrow().renew.clone().clone().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn(Session) -> String> = ::std::rc::Rc::new(move |arg0: Session| -> String { String::new() }); smelt_default_callback });
+    _smelt_tmp_11 = session.0.borrow().renew.clone().clone().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn(Session) -> JsString> = ::std::rc::Rc::new(move |arg0: Session| -> JsString { String::new() }); smelt_default_callback });
     _smelt_tmp_12 = (_smelt_tmp_11)(session);
     let _ = { println!("{}", _smelt_tmp_12); };
-    let _smelt_tmp_14: Cell<String> = Cell::new("held".to_owned());
+    let _smelt_tmp_14: Cell<JsString> = Cell::new(JsString::from("held"));
     cell = _smelt_tmp_14;
-    let _smelt_tmp_15: String = cell.get();
+    let _smelt_tmp_15: JsString = cell.get();
     let _ = { println!("{}", _smelt_tmp_15); };
-    let _smelt_tmp_17: Pair<f64> = Pair::new(41.0, "/posts".to_owned());
+    let _smelt_tmp_17: Pair<f64> = Pair::new(41.0, JsString::from("/posts"));
     pair = _smelt_tmp_17;
     let _smelt_tmp_18: f64 = pair.carried();
     _smelt_tmp_19 = _smelt_tmp_18 + 1.0;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_19)); };
     _smelt_tmp_21 = pair.right.clone();
-    let _smelt_tmp_22: String = pair.right.describe();
+    let _smelt_tmp_22: JsString = pair.right.describe();
     let _ = { println!("{}", _smelt_tmp_22); };
     return;
 }
 
 impl Route {
-    fn new(path: String) -> Self {
+    fn new(path: JsString) -> Self {
     let mut this: Self = Route { path: String::new() };
     this.path = path.clone();
     return this;
     }
-    fn describe(&self) -> String {
-    let _smelt_tmp_1: String = "route ".to_owned() + &self.path.clone();
+    fn describe(&self) -> JsString {
+    let _smelt_tmp_1: JsString = JsString::from("route ") + &self.path.clone();
     return _smelt_tmp_1;
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
@@ -4008,14 +4011,14 @@ impl Route {
 }
 
 impl Session {
-    fn new(name: String) -> Self {
-    let mut this: Self = Session(::std::rc::Rc::new(::std::cell::RefCell::new(SessionInner { name: String::new(), renew: None::<::std::rc::Rc<dyn Fn(Session) -> String>> })));
+    fn new(name: JsString) -> Self {
+    let mut this: Self = Session(::std::rc::Rc::new(::std::cell::RefCell::new(SessionInner { name: String::new(), renew: None::<::std::rc::Rc<dyn Fn(Session) -> JsString>> })));
     this.0.borrow_mut().name = name.clone();
-    this.0.borrow_mut().renew = None::<::std::rc::Rc<dyn Fn(Session) -> String>>;
+    this.0.borrow_mut().renew = None::<::std::rc::Rc<dyn Fn(Session) -> JsString>>;
     return this;
     }
-    fn label(&self) -> String {
-    let _smelt_tmp_1: String = "session ".to_owned() + &self.0.borrow().name.clone().clone();
+    fn label(&self) -> JsString {
+    let _smelt_tmp_1: JsString = JsString::from("session ") + &self.0.borrow().name.clone().clone();
     return _smelt_tmp_1;
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
@@ -4054,7 +4057,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Cell<T>
 }
 
 impl<Carried: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Pair<Carried> {
-    fn new(value: Carried, path: String) -> Self {
+    fn new(value: Carried, path: JsString) -> Self {
     let mut this: Self = Pair { left: Default::default(), right: Default::default(), _smelt_phantom: ::std::marker::PhantomData };
     let _smelt_tmp_3: Cell<Carried> = Cell::new(value.clone());
     this.left = _smelt_tmp_3;

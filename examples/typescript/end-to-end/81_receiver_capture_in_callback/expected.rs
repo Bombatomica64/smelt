@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3822,25 +3825,25 @@ impl SmeltFromUnknown for Index {
 
 fn main() {
     let index: Index;
-    let _smelt_tmp_4: SmeltList<String>;
-    let _smelt_tmp_6: String;
-    let _smelt_tmp_7: String;
-    let _smelt_tmp_9: SmeltList<String>;
-    let _smelt_tmp_11: String;
-    let _smelt_tmp_12: String;
+    let _smelt_tmp_4: SmeltList<JsString>;
+    let _smelt_tmp_6: JsString;
+    let _smelt_tmp_7: JsString;
+    let _smelt_tmp_9: SmeltList<JsString>;
+    let _smelt_tmp_11: JsString;
+    let _smelt_tmp_12: JsString;
     let _smelt_tmp_1: Index = Index::new();
     index = _smelt_tmp_1;
-    let _ = index.add("a".to_owned());
-    let _ = index.add("c".to_owned());
-    _smelt_tmp_4 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "b".to_owned(), "c".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_5: SmeltList<String> = index.keep(_smelt_tmp_4);
-    _smelt_tmp_6 = _smelt_tmp_5.borrow().join(&",".to_owned());
-    _smelt_tmp_7 = "kept: ".to_owned() + &_smelt_tmp_6;
+    let _ = index.add(JsString::from("a"));
+    let _ = index.add(JsString::from("c"));
+    _smelt_tmp_4 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a"), JsString::from("b"), JsString::from("c")]; smelt_list_items }));
+    let _smelt_tmp_5: SmeltList<JsString> = index.keep(_smelt_tmp_4);
+    _smelt_tmp_6 = _smelt_tmp_5.borrow().join(&JsString::from(","));
+    _smelt_tmp_7 = JsString::from("kept: ") + &_smelt_tmp_6;
     let _ = { println!("{}", _smelt_tmp_7); };
-    _smelt_tmp_9 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "b".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_10: SmeltList<String> = index.label(_smelt_tmp_9, "!".to_owned());
-    _smelt_tmp_11 = _smelt_tmp_10.borrow().join(&",".to_owned());
-    _smelt_tmp_12 = "labelled: ".to_owned() + &_smelt_tmp_11;
+    _smelt_tmp_9 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a"), JsString::from("b")]; smelt_list_items }));
+    let _smelt_tmp_10: SmeltList<JsString> = index.label(_smelt_tmp_9, JsString::from("!"));
+    _smelt_tmp_11 = _smelt_tmp_10.borrow().join(&JsString::from(","));
+    _smelt_tmp_12 = JsString::from("labelled: ") + &_smelt_tmp_11;
     let _ = { println!("{}", _smelt_tmp_12); };
     return;
 }
@@ -3852,24 +3855,24 @@ impl Index {
     this.0.borrow_mut()._known = _smelt_tmp_1;
     return this;
     }
-    fn add(&self, key: String) -> () {
+    fn add(&self, key: JsString) -> () {
     let mut _smelt_tmp_2: SmeltRecord<String, bool> = self.0.borrow()._known.clone();
     _smelt_tmp_2.insert(key.clone(), true);
     self.0.borrow_mut()._known = _smelt_tmp_2;
     return;
     }
-    fn keep(&self, keys: SmeltList<String>) -> SmeltList<String> {
+    fn keep(&self, keys: SmeltList<JsString>) -> SmeltList<JsString> {
     let _smelt_tmp_2 = ::std::rc::Rc::new({
     let smelt_self = self.clone();
-    move |closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    move |closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
     let _smelt_tmp_2: SmeltRecord<String, bool> = smelt_self.0.borrow()._known.clone();
     let _smelt_tmp_3: bool = _smelt_tmp_2.get(&closure_arg_0.clone()).unwrap_or(false) == true;
     _smelt_tmp_3
     }
 });
-    let _smelt_tmp_3: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new({
+    let _smelt_tmp_3: SmeltList<JsString> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new({
     let smelt_self = self.clone();
-    move |closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    move |closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
     let _smelt_tmp_2: SmeltRecord<String, bool> = smelt_self.0.borrow()._known.clone();
     let _smelt_tmp_3: bool = _smelt_tmp_2.get(&closure_arg_0.clone()).unwrap_or(false) == true;
     _smelt_tmp_3
@@ -3877,13 +3880,13 @@ impl Index {
 }); let smelt_array = keys.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value });
     return _smelt_tmp_3;
     }
-    fn label(&self, keys: SmeltList<String>, suffix: String) -> SmeltList<String> {
+    fn label(&self, keys: SmeltList<JsString>, suffix: JsString) -> SmeltList<JsString> {
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let suffix = suffix.clone();
     let smelt_self = self.clone();
-    move |closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let mut _smelt_tmp_5: String;
-    let _smelt_tmp_6: String;
+    move |closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
+    let mut _smelt_tmp_5: JsString;
+    let _smelt_tmp_6: JsString;
     let _smelt_tmp_3: SmeltRecord<String, bool> = smelt_self.0.borrow()._known.clone();
     let _smelt_tmp_4: bool = _smelt_tmp_3.get(&closure_arg_0.clone()).unwrap_or(false) == true;
     if _smelt_tmp_4 {
@@ -3895,12 +3898,12 @@ impl Index {
     _smelt_tmp_5.clone()
     }
 });
-    let _smelt_tmp_4: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new({
+    let _smelt_tmp_4: SmeltList<JsString> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new({
     let suffix = suffix.clone();
     let smelt_self = self.clone();
-    move |closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
-    let mut _smelt_tmp_5: String;
-    let _smelt_tmp_6: String;
+    move |closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
+    let mut _smelt_tmp_5: JsString;
+    let _smelt_tmp_6: JsString;
     let _smelt_tmp_3: SmeltRecord<String, bool> = smelt_self.0.borrow()._known.clone();
     let _smelt_tmp_4: bool = _smelt_tmp_3.get(&closure_arg_0.clone()).unwrap_or(false) == true;
     if _smelt_tmp_4 {

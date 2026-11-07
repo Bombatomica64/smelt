@@ -66,6 +66,9 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
@@ -406,35 +409,35 @@ fn main() {
     let mut __smelt_logical_5: SmeltHeaders;
     let __smelt_logical_value_6: SmeltHeaders;
     let again: SmeltHeaders;
-    let mut text: String;
-    let mut __smelt_logical_9: String;
-    let __smelt_logical_value_10: String;
-    let filled: String;
+    let mut text: JsString;
+    let mut __smelt_logical_9: JsString;
+    let __smelt_logical_value_10: JsString;
+    let filled: JsString;
     let response: SmeltResponse;
     let _smelt_tmp_23: bool;
     let _smelt_tmp_25: ();
-    let _smelt_tmp_26: Option<String>;
-    let _smelt_tmp_27: String;
+    let _smelt_tmp_26: Option<JsString>;
+    let _smelt_tmp_27: JsString;
     let _smelt_tmp_28: SmeltHeaders;
-    let _smelt_tmp_29: Option<String>;
-    let _smelt_tmp_30: String;
+    let _smelt_tmp_29: Option<JsString>;
+    let _smelt_tmp_30: JsString;
     let _smelt_tmp_32: bool;
-    let _smelt_tmp_34: Option<String>;
-    let _smelt_tmp_35: String;
+    let _smelt_tmp_34: Option<JsString>;
+    let _smelt_tmp_35: JsString;
     let _smelt_tmp_37: bool;
     let _smelt_tmp_38: bool;
-    let _smelt_tmp_40: ::std::collections::HashMap<String, String>;
+    let _smelt_tmp_40: ::std::collections::HashMap<JsString, JsString>;
     let _smelt_tmp_42: SmeltHeaders;
     let _smelt_tmp_13: Bag = Bag::new();
     bag = _smelt_tmp_13;
-    let _smelt_tmp_14: String = bag.peek("x".to_owned());
+    let _smelt_tmp_14: JsString = bag.peek(JsString::from("x"));
     let _ = { println!("{}", _smelt_tmp_14); };
-    let _ = bag.write("x".to_owned(), "1".to_owned());
-    let _smelt_tmp_17: String = bag.peek("x".to_owned());
-    let _smelt_tmp_18: String = bag.read("x".to_owned());
+    let _ = bag.write(JsString::from("x"), JsString::from("1"));
+    let _smelt_tmp_17: JsString = bag.peek(JsString::from("x"));
+    let _smelt_tmp_18: JsString = bag.read(JsString::from("x"));
     let _ = { println!("{} {}", _smelt_tmp_17, _smelt_tmp_18); };
-    let _ = bag.append_to("x".to_owned(), "2".to_owned());
-    let _smelt_tmp_21: String = bag.read("x".to_owned());
+    let _ = bag.append_to(JsString::from("x"), JsString::from("2"));
+    let _smelt_tmp_21: JsString = bag.read(JsString::from("x"));
     let _ = { println!("{}", _smelt_tmp_21); };
     maybe = None::<SmeltHeaders>;
     __smelt_logical_2 = SmeltHeaders::new();
@@ -447,12 +450,12 @@ fn main() {
     __smelt_logical_2 = maybe.clone().expect("optional value was absent after narrowing");
     }
     ensured = __smelt_logical_2;
-    _smelt_tmp_25 = ensured.clone().set(&"y".to_owned(), &"3".to_owned());
-    _smelt_tmp_26 = ensured.get(&"y".to_owned());
-    _smelt_tmp_27 = _smelt_tmp_26.clone().unwrap_or("absent".to_owned());
+    _smelt_tmp_25 = ensured.clone().set(&JsString::from("y"), &JsString::from("3"));
+    _smelt_tmp_26 = ensured.get(&JsString::from("y"));
+    _smelt_tmp_27 = _smelt_tmp_26.clone().unwrap_or(JsString::from("absent"));
     _smelt_tmp_28 = maybe.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_29 = _smelt_tmp_28.get(&"y".to_owned());
-    _smelt_tmp_30 = _smelt_tmp_29.clone().unwrap_or("absent".to_owned());
+    _smelt_tmp_29 = _smelt_tmp_28.get(&JsString::from("y"));
+    _smelt_tmp_30 = _smelt_tmp_29.clone().unwrap_or(JsString::from("absent"));
     let _ = { println!("{} {}", _smelt_tmp_27, _smelt_tmp_30); };
     __smelt_logical_5 = SmeltHeaders::new();
     _smelt_tmp_32 = maybe.clone().is_none();
@@ -464,15 +467,15 @@ fn main() {
     __smelt_logical_5 = maybe.clone().expect("optional value was absent after narrowing");
     }
     again = __smelt_logical_5;
-    _smelt_tmp_34 = again.get(&"y".to_owned());
-    _smelt_tmp_35 = _smelt_tmp_34.clone().unwrap_or("absent".to_owned());
+    _smelt_tmp_34 = again.get(&JsString::from("y"));
+    _smelt_tmp_35 = _smelt_tmp_34.clone().unwrap_or(JsString::from("absent"));
     let _ = { println!("{}", _smelt_tmp_35); };
-    text = "".to_owned();
+    text = JsString::new();
     __smelt_logical_9 = String::new();
-    _smelt_tmp_37 = text.clone() != "".to_owned();
+    _smelt_tmp_37 = text.clone() != JsString::new();
     _smelt_tmp_38 = !(_smelt_tmp_37);
     if _smelt_tmp_38 {
-    __smelt_logical_value_10 = "fallback".to_owned();
+    __smelt_logical_value_10 = JsString::from("fallback");
     text = __smelt_logical_value_10.clone();
     __smelt_logical_9 = __smelt_logical_value_10;
     } else {
@@ -480,13 +483,13 @@ fn main() {
     }
     filled = __smelt_logical_9;
     let _ = { println!("{} {}", filled, text); };
-    _smelt_tmp_40 = ::std::collections::HashMap::from([("x-from".to_owned(), "response".to_owned())]);
-    response = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::from_pairs(_smelt_tmp_40.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"body".to_owned()));
+    _smelt_tmp_40 = ::std::collections::HashMap::from([(JsString::from("x-from"), JsString::from("response"))]);
+    response = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::from_pairs(_smelt_tmp_40.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&JsString::from("body")));
     _smelt_tmp_42 = response.headers();
     let _ = bag.adopt(_smelt_tmp_42);
-    let _ = bag.write("x-added".to_owned(), "4".to_owned());
-    let _smelt_tmp_45: String = bag.peek("x-from".to_owned());
-    let _smelt_tmp_46: String = bag.peek("x-added".to_owned());
+    let _ = bag.write(JsString::from("x-added"), JsString::from("4"));
+    let _smelt_tmp_45: JsString = bag.peek(JsString::from("x-from"));
+    let _smelt_tmp_46: JsString = bag.peek(JsString::from("x-added"));
     let _ = { println!("{} {}", _smelt_tmp_45, _smelt_tmp_46); };
     return;
 }
@@ -496,7 +499,7 @@ impl Bag {
     let this: Self = Bag(::std::rc::Rc::new(::std::cell::RefCell::new(BagInner { prepared: None::<SmeltHeaders>, current: None::<SmeltHeaders> })));
     return this;
     }
-    fn write(&self, name: String, value: String) -> () {
+    fn write(&self, name: JsString, value: JsString) -> () {
     let mut __smelt_logical_3: SmeltHeaders;
     let __smelt_logical_value_4: SmeltHeaders;
     let headers: Option<SmeltHeaders>;
@@ -530,30 +533,30 @@ impl Bag {
     return;
     }
     }
-    fn peek(&self, name: String) -> String {
+    fn peek(&self, name: JsString) -> JsString {
     let headers: Option<SmeltHeaders>;
     let mut _smelt_tmp_4: Option<SmeltHeaders>;
     let _smelt_tmp_5: bool;
-    let mut _smelt_tmp_6: String;
+    let mut _smelt_tmp_6: JsString;
     let _smelt_tmp_7: SmeltHeaders;
-    let _smelt_tmp_8: Option<String>;
-    let _smelt_tmp_9: String;
+    let _smelt_tmp_8: Option<JsString>;
+    let _smelt_tmp_9: JsString;
     let _smelt_tmp_3: bool = !(self.0.borrow().current.clone().is_none());
     let _smelt_tmp_4: Option<SmeltHeaders> = if _smelt_tmp_3 { self.0.borrow().current.clone() } else { self.0.borrow().prepared.clone() };
     headers = _smelt_tmp_4;
     _smelt_tmp_5 = !(headers.clone().is_none());
-    let mut _smelt_tmp_6: String = String::new();
+    let mut _smelt_tmp_6: JsString = String::new();
     if _smelt_tmp_5 {
     _smelt_tmp_7 = headers.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_8 = _smelt_tmp_7.get(&name.clone());
-    _smelt_tmp_9 = _smelt_tmp_8.clone().unwrap_or("absent".to_owned());
+    _smelt_tmp_9 = _smelt_tmp_8.clone().unwrap_or(JsString::from("absent"));
     _smelt_tmp_6 = _smelt_tmp_9;
     } else {
-    _smelt_tmp_6 = "none".to_owned();
+    _smelt_tmp_6 = JsString::from("none");
     }
     return _smelt_tmp_6;
     }
-    fn append_to(&self, name: String, value: String) -> () {
+    fn append_to(&self, name: JsString, value: JsString) -> () {
     let _smelt_tmp_4: SmeltHeaders;
     let _smelt_tmp_5: ();
     let _smelt_tmp_3: bool = !(self.0.borrow().prepared.clone().is_none());
@@ -563,10 +566,10 @@ impl Bag {
     }
     return;
     }
-    fn read(&self, name: String) -> String {
+    fn read(&self, name: JsString) -> JsString {
     let _smelt_tmp_2: SmeltHeaders = self.0.borrow().prepared.clone().clone().expect("optional value was absent after narrowing");
-    let _smelt_tmp_3: Option<String> = _smelt_tmp_2.get(&name.clone());
-    let _smelt_tmp_4: String = _smelt_tmp_3.clone().unwrap_or("absent".to_owned());
+    let _smelt_tmp_3: Option<JsString> = _smelt_tmp_2.get(&name.clone());
+    let _smelt_tmp_4: JsString = _smelt_tmp_3.clone().unwrap_or(JsString::from("absent"));
     return _smelt_tmp_4;
     }
     fn adopt(&self, headers: SmeltHeaders) -> () {

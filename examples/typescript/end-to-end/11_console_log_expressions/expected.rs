@@ -71,12 +71,15 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 // @smelt:prelude-end — generated program below
 fn main() {
     let value: f64 = 4.0;
     let _smelt_tmp_1: f64 = value + 1.0;
     let _smelt_tmp_2: f64 = add(2.0, 3.0);
-    let _ = { println!("{} {} {}", "sum".to_owned(), smelt_console_number(_smelt_tmp_1), smelt_console_number(_smelt_tmp_2)); };
+    let _ = { println!("{} {} {}", JsString::from("sum"), smelt_console_number(_smelt_tmp_1), smelt_console_number(_smelt_tmp_2)); };
     return;
 }
 

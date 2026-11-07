@@ -54,7 +54,7 @@ fn shorter_callback_and_init_value_monomorphize_the_call() {
     let source = source_for(FIXTURE);
     let uid = emitted_function_body(&source, "fn uid(");
     assert!(
-        uid.contains("move |arg0: &String, arg1: f64| -> String"),
+        uid.contains("move |arg0: &JsString, arg1: f64| -> JsString"),
         "the callback adapter is declared at T = String: {uid}"
     );
     assert!(

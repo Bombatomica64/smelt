@@ -185,6 +185,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3682,11 +3685,11 @@ fn main() {
     });
     let apply = _smelt_tmp_2.clone();
     let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: f64| {
-    let _smelt_tmp_1: () = { println!("{} {}", "value".to_owned(), smelt_console_number(closure_arg_0)); };
+    let _smelt_tmp_1: () = { println!("{} {}", JsString::from("value"), smelt_console_number(closure_arg_0)); };
     ()
     });
     let _smelt_tmp_4: () = (apply)(_smelt_tmp_3.clone());
-    let _smelt_tmp_5 = ::std::rc::Rc::new(|closure_arg_0: &SmeltList<String>, closure_arg_1: ::std::rc::Rc<dyn Fn(String, f64) -> ()>| {
+    let _smelt_tmp_5 = ::std::rc::Rc::new(|closure_arg_0: &SmeltList<JsString>, closure_arg_1: ::std::rc::Rc<dyn Fn(JsString, f64) -> ()>| {
     let mut _smelt_tmp_3: usize;
     let mut _smelt_tmp_4: bool;
     let mut _smelt_tmp_5: ();
@@ -3707,8 +3710,8 @@ fn main() {
     }
     });
     let each = _smelt_tmp_5.clone();
-    let _smelt_tmp_6: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "b".to_owned()]; smelt_list_items }));
-    let _smelt_tmp_7 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: f64| {
+    let _smelt_tmp_6: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a"), JsString::from("b")]; smelt_list_items }));
+    let _smelt_tmp_7 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: f64| {
     let _smelt_tmp_2: () = { println!("{} {}", smelt_console_number(closure_arg_1), closure_arg_0.clone()); };
     ()
     });

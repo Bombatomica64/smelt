@@ -73,7 +73,7 @@ const value = Number.parseInt("42");
     );
 
     assert!(source.contains("fn smelt_parse_int(text: &str, radix: f64) -> f64"), "{source}");
-    assert!(source.contains("smelt_parse_int(&\"42\".to_owned(), (0 as f64).trunc())"), "{source}");
+    assert!(source.contains("smelt_parse_int(&JsString::from(\"42\"), (0 as f64).trunc())"), "{source}");
 }
 
 #[test]
@@ -173,8 +173,8 @@ const floatValue = parseFloat("42.5");
 "#,
     );
 
-    assert!(source.contains("smelt_parse_int(&\"42\".to_owned(), (0 as f64).trunc())"), "{source}");
-    assert!(source.contains("smelt_parse_float(&\"42.5\".to_owned())"), "{source}");
+    assert!(source.contains("smelt_parse_int(&JsString::from(\"42\"), (0 as f64).trunc())"), "{source}");
+    assert!(source.contains("smelt_parse_float(&JsString::from(\"42.5\"))"), "{source}");
 }
 
 #[test]
@@ -373,7 +373,7 @@ const no = isBoxedNumber(42);
 ",
     );
 
-    assert!(source.contains("\"__smelt_number\".to_owned()"), "{source}");
+    assert!(source.contains("JsString::from(\"__smelt_number\")"), "{source}");
     assert!(
         source.contains("value.contains_key(\"__smelt_number\")"),
         "{source}"

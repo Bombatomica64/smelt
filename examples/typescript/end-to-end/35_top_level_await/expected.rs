@@ -190,6 +190,9 @@ fn smelt_utf16_units(text: &str) -> Vec<String> {
     units
 }
 
+/// A JavaScript string, held as UTF-8 `String` text.
+type JsString = String;
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -3922,20 +3925,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 let smelt_local = tokio::task::LocalSet::new();
 smelt_local.block_on(&smelt_runtime, async move {
-    let first: String;
+    let first: JsString;
     let total: f64;
     let _smelt_tmp_5: SmeltList<f64>;
-    let _smelt_tmp_10: String;
+    let _smelt_tmp_10: JsString;
     let _smelt_tmp_11: f64;
     let _smelt_tmp_14: ();
-    let _smelt_tmp_2 = SmeltFuture::from_future(Box::pin(greet("ada".to_owned())));
+    let _smelt_tmp_2 = SmeltFuture::from_future(Box::pin(greet(JsString::from("ada"))));
     first = _smelt_tmp_2.await?;
     let _ = { println!("{}", first); };
     _smelt_tmp_5 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
     let _smelt_tmp_6 = SmeltFuture::from_future(Box::pin(sum(_smelt_tmp_5)));
     total = _smelt_tmp_6.await?;
     let _ = { println!("{}", smelt_console_number(total)); };
-    let _smelt_tmp_9 = SmeltFuture::from_future(Box::pin(greet("grace".to_owned())));
+    let _smelt_tmp_9 = SmeltFuture::from_future(Box::pin(greet(JsString::from("grace"))));
     _smelt_tmp_10 = _smelt_tmp_9.await?;
     _smelt_tmp_11 = smelt_utf16_len(&_smelt_tmp_10) as f64;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_11)); };
@@ -3952,8 +3955,8 @@ smelt_local.block_on(&smelt_runtime, async move {
 
 use super::*;
 
-pub(crate) async fn greet(name: String) -> Result<String, Box<dyn std::error::Error>> {
-    let _smelt_tmp_1: String = "hello ".to_owned() + &name.clone();
+pub(crate) async fn greet(name: JsString) -> Result<JsString, Box<dyn std::error::Error>> {
+    let _smelt_tmp_1: JsString = JsString::from("hello ") + &name.clone();
     return Ok(_smelt_tmp_1);
 }
 
