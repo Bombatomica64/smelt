@@ -522,6 +522,25 @@ impl SandboxBackend for OciSandboxBackend {
                 reason: format!("OCI image '{}' is not pinned by an @sha256: digest", self.image),
             };
         }
+        // The guest runs with `--pull=never`, so its wall-time limit measures
+        // the guest and not a download; an image not yet pulled is therefore
+        // not ready.
+        let present = Command::new(&self.runtime)
+            .args(["image", "inspect", "--format", "{{.Id}}", &self.image])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success());
+        if !present {
+            return BackendAvailability::Unavailable {
+                reason: format!(
+                    "OCI image '{}' is not present locally; run `{} pull {}` first",
+                    self.image,
+                    self.runtime.display(),
+                    self.image
+                ),
+            };
+        }
         BackendAvailability::Available
     }
 
@@ -538,6 +557,8 @@ impl SandboxBackend for OciSandboxBackend {
         let mut args = os_args([
             "run",
             "--rm",
+            "--pull",
+            "never",
             "--network",
             "none",
             "--read-only",
@@ -1069,7 +1090,9 @@ mod tests {
     /// closed, is what runs.
     #[test]
     fn the_oci_fallback_replaces_only_an_unavailable_native_backend() -> Result<(), String> {
-        let runtime = std::env::current_exe().map_err(|error| error.to_string())?;
+        let directory = tempfile_dir("smelt-oci-select")?;
+        let runtime = fake_runtime(&directory, "present", 0)?;
+        let absent_image = fake_runtime(&directory, "absent", 1)?;
         let pinned = OciSandboxBackend::new(runtime.clone(), "busybox@sha256:00".to_owned());
         let unavailable = || -> Box<dyn SandboxBackend> { Box::new(LinuxBubblewrapBackend::from_paths(None, None)) };
         let available = || -> Box<dyn SandboxBackend> {
@@ -1095,6 +1118,11 @@ mod tests {
                 .name(),
                 "linux-bubblewrap",
             ),
+            (
+                select_backend(unavailable(), Some(OciSandboxBackend::new(absent_image, "b@sha256:00".to_owned())))
+                    .name(),
+                "linux-bubblewrap",
+            ),
         ];
         for (index, (chosen, expected)) in cases.into_iter().enumerate() {
             if chosen != expected {
@@ -1104,7 +1132,27 @@ mod tests {
         if select_backend(unavailable(), None).availability() == BackendAvailability::Available {
             return Err("with no fallback the unavailable native backend must stay unavailable".to_owned());
         }
-        Ok(())
+        fs::remove_dir_all(&directory).map_err(|error| error.to_string())
+    }
+
+    /// A fresh directory under the system temporary directory.
+    fn tempfile_dir(prefix: &str) -> Result<PathBuf, String> {
+        let directory = std::env::temp_dir().join(format!("{prefix}-{}", std::process::id()));
+        fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+        Ok(directory)
+    }
+
+    /// A stand-in container runtime that exits with `status` for every command,
+    /// so `image inspect` answers present (0) or absent (non-zero).
+    fn fake_runtime(directory: &Path, name: &str, status: u8) -> Result<PathBuf, String> {
+        let path = directory.join(name);
+        fs::write(&path, format!("#!/bin/sh\nexit {status}\n")).map_err(|error| error.to_string())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).map_err(|error| error.to_string())?;
+        }
+        Ok(path)
     }
 
     /// Roots are mounted once each, at their canonical paths, outermost only.
@@ -1133,7 +1181,7 @@ mod tests {
             .prepare(&request(&scratch), &policy(&scratch))
             .map_err(|error| error.to_string())?;
         let rendered = prepared.args.iter().map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>();
-        for control in ["none", "--read-only", "ALL", "no-new-privileges", "--user"] {
+        for control in ["never", "none", "--read-only", "ALL", "no-new-privileges", "--user"] {
             if !rendered.iter().any(|arg| arg == control) {
                 return Err(format!("container command omitted `{control}`: {rendered:?}"));
             }

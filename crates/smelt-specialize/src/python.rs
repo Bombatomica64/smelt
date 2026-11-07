@@ -584,6 +584,10 @@ mod tests {
         if !daemon.is_ok_and(|output| output.status.success()) {
             return missing_prerequisite(TEST, "a reachable docker daemon");
         }
+        let pulled = std::process::Command::new(&docker).args(["pull", "-q", OCI_TEST_IMAGE]).output();
+        if !pulled.is_ok_and(|output| output.status.success()) {
+            return missing_prerequisite(TEST, "the pinned test image (docker pull)");
+        }
         let backend = crate::OciSandboxBackend::new(docker, OCI_TEST_IMAGE.to_owned());
         let scratch = ScratchDirectory::create().map_err(|error| error.to_string())?;
         let project = scratch.path().join("oci-project");
@@ -594,6 +598,8 @@ mod tests {
         policy.read_only_roots = runtime_roots(&project, &python);
         policy.writable_roots.clear();
         policy.memory_bytes = 512 * 1024 * 1024;
+        // Container start-up is part of the guest's time on a busy runner.
+        policy.wall_time_ms = 30_000;
         let request = PythonSpecializationRequest {
             smelt_version: "test".to_owned(),
             python_executable: python,
