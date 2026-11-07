@@ -507,6 +507,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             items,
             imports: ImportScope::default(),
             export_renames: HashMap::new(),
+            conditional_bases: HashMap::new(),
+            conditional_classes: HashMap::new(),
+            forced_class_name: None,
             classes: ClassRegistry::new(classes, class_index_values),
             interfaces: InterfaceRegistry::new(
                 interfaces,

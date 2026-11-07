@@ -160,10 +160,10 @@ fn inherited_statics() -> TestResult {
     verify_node_parity("inherited_statics")
 }
 
-/// A union of classes dispatches throwing methods and reference fields.
+/// A class whose base is chosen at run time is specialised per arm.
 #[test]
-fn union_of_classes() -> TestResult {
-    verify_node_parity("union_of_classes")
+fn conditional_base_class() -> TestResult {
+    verify_node_parity("conditional_base_class")
 }
 
 /// A parameter does not hide a module constant from other functions.

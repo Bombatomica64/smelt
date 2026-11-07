@@ -401,6 +401,18 @@ impl ModuleBuilder<'_> {
         reject_unmodeled_function_field: bool,
         is_assignment_target: bool,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(member.span.start, member.span.end);
+        if let Some(selected) = self.conditional_class_select(Some(&member.object), span, body, |this, body| {
+            this.static_member_with_absent_fallback(
+                member,
+                body,
+                absent_list_field_is_undefined,
+                reject_unmodeled_function_field,
+                is_assignment_target,
+            )
+        })? {
+            return Ok(selected);
+        }
         if let Some(expr) = self.global_alias_member_read(member, body)? {
             return Ok(expr);
         }

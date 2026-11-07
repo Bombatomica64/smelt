@@ -88,6 +88,9 @@ pub(in crate::lowering) enum ClassState {
 pub(in crate::lowering) struct ClassRegistry {
     /// Every class name the module knows: its declaration and its item.
     names: HashMap<String, ClassName>,
+    /// Names that stand for other class names while one arm of a conditional
+    /// class is lowered, innermost last; see `conditional_base`.
+    aliases: Vec<(String, String)>,
     /// The static fields of the classes being lowered, innermost last: a method
     /// reads its own class's statics before the class has an item.
     statics_in_flight: Vec<(String, Vec<smelt_hir::StaticField>)>,
@@ -197,7 +200,7 @@ impl ClassRegistry {
 
     /// The state of the class name `name`, if the module knows it at all.
     pub(in crate::lowering) fn state(&self, name: &str) -> Option<ClassState> {
-        let entry = self.names.get(name)?;
+        let entry = self.names.get(self.alias_target(name))?;
         match (entry.item, entry.declared) {
             (Some(item), _) => Some(ClassState::Lowered(item)),
             (None, Some(ClassDeclaration::Class)) => Some(ClassState::Declared),
@@ -256,6 +259,7 @@ impl ClassRegistry {
 
     /// The static fields of `name`, when it is a class still being lowered.
     pub(in crate::lowering) fn statics_in_flight(&self, name: &str) -> Option<&[smelt_hir::StaticField]> {
+        let name = self.alias_target(name);
         self.statics_in_flight
             .iter()
             .rev()
@@ -270,7 +274,31 @@ impl ClassRegistry {
 
     /// Return the HIR item registered for the class named `name`.
     pub(in crate::lowering) fn item(&self, name: &str) -> Option<ItemId> {
-        self.names.get(name).and_then(|entry| entry.item)
+        self.names.get(self.alias_target(name)).and_then(|entry| entry.item)
+    }
+
+    /// Make `from` stand for the class `to` until [`Self::pop_alias`].
+    pub(in crate::lowering) fn push_alias(&mut self, from: String, to: String) {
+        self.aliases.push((from, to));
+    }
+
+    /// End the innermost [`Self::push_alias`].
+    pub(in crate::lowering) fn pop_alias(&mut self) {
+        self.aliases.pop();
+    }
+
+    /// Whether `name` currently stands for another class.
+    pub(in crate::lowering) fn is_aliased(&self, name: &str) -> bool {
+        self.aliases.iter().any(|(from, _)| from == name)
+    }
+
+    /// The class name `name` stands for: itself unless an alias is in force.
+    pub(in crate::lowering) fn alias_target<'a>(&'a self, name: &'a str) -> &'a str {
+        self.aliases
+            .iter()
+            .rev()
+            .find(|(from, _)| from == name)
+            .map_or(name, |(_, to)| to.as_str())
     }
 
     /// Return whether `item` is registered under any class name.
@@ -366,7 +394,7 @@ impl ClassRegistry {
 
     /// Return the lexically scoped type symbol bound to the source name `name`.
     pub(in crate::lowering) fn scoped_type_name(&self, name: &str) -> Option<Symbol> {
-        self.scoped_type_names.get(name).copied()
+        self.scoped_type_names.get(self.alias_target(name)).copied()
     }
 
     /// Bind a lexically scoped type symbol to the source name `name`.

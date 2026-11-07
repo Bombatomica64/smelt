@@ -83,6 +83,12 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(new_expr.span.start, new_expr.span.end);
+        if let Some(selected) = self.conditional_class_select(Some(&new_expr.callee), span, body, |this, body| {
+            this.new_expression_with_hint(new_expr, body, type_hint)
+        })? {
+            return Ok(selected);
+        }
         if let Some(expr) = self.construct_like_expression(new_expr, body)? {
             return Ok(expr);
         }
@@ -2344,7 +2350,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower one expression; see [`Self::expression_with_hint`].
-    fn expression_shape_with_hint(
+    pub(in crate::lowering) fn expression_shape_with_hint(
         &mut self,
         expression: &Expression<'_>,
         body: &mut Body,

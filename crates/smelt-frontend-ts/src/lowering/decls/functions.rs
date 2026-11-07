@@ -1624,10 +1624,12 @@ impl ModuleBuilder<'_> {
         // `class_text` for the rest of lowering.
         // A class EXPRESSION initializing a binding is named by that binding
         // (see `class_declaration_named`).
-        let class_source_name = class.id.as_ref().map_or_else(
-            || binding_name.map_or_else(|| Self::anonymous_class_name(class), str::to_owned),
-            |id| id.name.to_string(),
-        );
+        let class_source_name = self.forced_class_name.take().unwrap_or_else(|| {
+            class.id.as_ref().map_or_else(
+                || binding_name.map_or_else(|| Self::anonymous_class_name(class), str::to_owned),
+                |id| id.name.to_string(),
+            )
+        });
         let scoped_or_host_name = self
             .classes
             .scoped_type_name(&class_source_name)
