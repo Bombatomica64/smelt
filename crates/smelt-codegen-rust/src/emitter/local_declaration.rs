@@ -1,5 +1,6 @@
 //! How a MIR local is declared in Rust: whether it is hoisted above its first
 //! assignment, at which type, and with which default.
+
 use super::*;
 use crate::rust::{RustExpr, RustType};
 

@@ -1,10 +1,12 @@
 //! Structural record adapters, behind the coercion seam: a value of one record
 //! shape rebuilt field by field as another, or as or from a string-keyed dict.
+
 use super::*;
+use crate::generic_bindings::substitute_existing_type;
 
 impl FunctionEmitter<'_> {
     /// Returns whether `source` can be coerced before wrapping into `Option`.
-    pub(in crate::emitter) fn can_coerce_to_optional_inner(&self, source: TypeId, inner: TypeId) -> bool {
+    pub(super) fn can_coerce_to_optional_inner(&self, source: TypeId, inner: TypeId) -> bool {
         self.has_dynamic_shape(inner)
             || self.structural_record_adapter_available(source, inner)
             || self.string_dict_record_adapter_available(source, inner)
@@ -52,13 +54,13 @@ impl FunctionEmitter<'_> {
     ///
     /// Expansion depth is guarded while rendering so callback-bearing records
     /// may retain nested option bags without infinitely expanding cyclic shapes.
-    pub(in crate::emitter) fn can_extract_unknown_object_record(&self, target: TypeId) -> bool {
+    pub(super) fn can_extract_unknown_object_record(&self, target: TypeId) -> bool {
         self.structural_record_fields(target)
             .is_some_and(|fields| !fields.is_empty())
     }
 
     /// Returns matching source/target fields for a structural record adapter.
-    pub(in crate::emitter) fn structural_record_adapter_fields(
+    fn structural_record_adapter_fields(
         &self,
         source: TypeId,
         target: TypeId,
@@ -343,7 +345,7 @@ impl FunctionEmitter<'_> {
     /// non-optional target field is one of its members. An OPTIONAL target
     /// field the source does not expose is simply absent, which is what an
     /// optional property means.
-    pub(in crate::emitter) fn host_class_to_record_adapter(
+    fn host_class_to_record_adapter(
         &self,
         value_text: &RustExpr,
         source: TypeId,
@@ -402,7 +404,7 @@ impl FunctionEmitter<'_> {
     /// semantics when the frontend has not retained the original literal at the
     /// destination site. Missing optional fields become `None`; missing required
     /// fields fall back to the target field default.
-    pub(in crate::emitter) fn string_dict_record_adapter(
+    pub(super) fn string_dict_record_adapter(
         &self,
         value_text: &RustExpr,
         source_key: TypeId,
@@ -609,7 +611,7 @@ impl FunctionEmitter<'_> {
     /// Typed source records sometimes flow back into object operations. Rust
     /// structs cannot be matched as maps, so this reconstructs the source
     /// property names and converts each field to the requested map value type.
-    pub(in crate::emitter) fn structural_record_to_string_dict_adapter(
+    pub(super) fn structural_record_to_string_dict_adapter(
         &self,
         value_text: &RustExpr,
         source: TypeId,
@@ -699,7 +701,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Returns whether a non-callback dictionary value can populate a field.
-    pub(in crate::emitter) fn can_render_non_function_dict_value_as(&self, source: TypeId, target: TypeId) -> bool {
+    pub(super) fn can_render_non_function_dict_value_as(&self, source: TypeId, target: TypeId) -> bool {
         if let Some(Type::Optional(inner)) = self.mir.types.get(target) {
             // An optional field accepts the inner type (the `get` already supplies
             // the outer `Option`) or an absent value. It must ALSO accept a source
@@ -736,5 +738,147 @@ impl FunctionEmitter<'_> {
             )
             || self.is_erased_class_type(source)
             || self.is_erased_class_type(target)
+    }
+}
+
+impl FunctionEmitter<'_> {
+    /// Returns the generated fields for a concrete class/interface storage type.
+    pub(in crate::emitter) fn structural_record_fields(&self, ty: TypeId) -> Option<Vec<MirField>> {
+        let Some(Type::Class { name, args }) = self.mir.types.get(ty) else {
+            return None;
+        };
+        if let Some(interface) = self
+            .mir
+            .interfaces
+            .iter()
+            .find(|interface| interface.name == *name)
+        {
+            let fields = crate::classes::effective_interface_fields(self.mir, interface);
+            return Some(self.substitute_record_field_type_params(
+                &interface.type_params,
+                args,
+                fields,
+            ));
+        }
+        crate::classes::find_class(self.mir, *name)
+            .map(|class| {
+                self.substitute_record_field_type_params(
+                    &class.type_params,
+                    args,
+                    crate::classes::effective_class_fields(self.mir, class),
+                )
+            })
+    }
+
+    /// How many type parameters the class named `name` declares.
+    ///
+    /// `0` for a non-generic class and for a name that is not a generated class
+    /// at all, so callers can ask without checking first.
+    pub(in crate::emitter) fn class_type_param_count(&self, name: Symbol) -> usize {
+        // The parameters the emitted struct DECLARES: a position
+        // `generic_elision` dropped is spelled nowhere, so it must not be
+        // spelled here either (`Context_1::<SmeltUnknown, ..>::default()` for a
+        // `Context_1` whose three parameters were all elided was E0107 in the
+        // Hono crate). Same rule as the type renderer's `retain_carried`.
+        let declared = crate::classes::find_class(self.mir, name)
+            .map_or(0, |class| class.type_params.len());
+        self.context
+            .type_param_elision()
+            .retain_carried(name, (0..declared).collect::<Vec<_>>())
+            .len()
+    }
+
+    /// Substitute concrete class/interface arguments into structural fields.
+    ///
+    /// Generated storage structs keep their Rust generic parameters, but
+    /// adapter emission usually works with an instantiated type such as
+    /// `MatchFnResult<f64>`. Field reads must therefore use the instantiated
+    /// payload type instead of the declaration-time type parameter.
+    pub(in crate::emitter) fn substitute_record_field_type_params(
+        &self,
+        type_params: &[smelt_hir::TypeParamDef],
+        args: &[TypeId],
+        fields: Vec<MirField>,
+    ) -> Vec<MirField> {
+        // A parameter the reference leaves off takes its declared default, as
+        // the type renderer does (see the `Type::Class` arm of `rust_type`),
+        // so a field's type matches the struct the reference renders as.
+        let substitutions = type_params
+            .iter()
+            .enumerate()
+            .filter_map(|(index, param)| {
+                args.get(index)
+                    .copied()
+                    .or(if args.is_empty() { None } else { param.default })
+                    .map(|arg| (param.name, arg))
+            })
+            .collect::<HashMap<_, _>>();
+        if substitutions.is_empty() {
+            return fields;
+        }
+        fields
+            .into_iter()
+            .map(|mut field| {
+                field.ty = substitute_existing_type(self.mir, field.ty, &substitutions);
+                field
+            })
+            .collect()
+    }
+
+    /// Returns whether a generated storage type is an interface-shaped record.
+    pub(in crate::emitter) fn is_interface_record_type(&self, ty: TypeId) -> bool {
+        matches!(
+            self.mir.types.get(ty),
+            Some(Type::Class { name, .. })
+                if self
+                    .mir
+                    .interfaces
+                    .iter()
+                    .any(|interface| interface.name == *name)
+        )
+    }
+
+    /// Returns true when `source` can be field-wise adapted to `target`.
+    ///
+    /// TypeScript option bags are structurally compatible, but generated Rust
+    /// structs are nominal. This predicate intentionally only enables the
+    /// adapter when the destination is an emitted interface record; ordinary
+    /// class-to-class conversion still keeps Rust's nominal identity.
+    pub(in crate::emitter) fn structural_record_adapter_available(&self, source: TypeId, target: TypeId) -> bool {
+        self.structural_record_adapter_fields(source, target)
+            .is_some()
+            // A modeled host class carries its members behind accessors rather
+            // than as generated fields, so the field-pairing answer above is
+            // `None` for one; it is still structurally assignable to a record
+            // whose every declared member it exposes. Kept in lock-step with
+            // `host_class_to_record_adapter`, which emits that conversion.
+            || self.host_class_record_adapter_available(source, target)
+    }
+
+    /// Whether every member a target record declares can be read off a host value.
+    ///
+    /// The availability half of `host_class_to_record_adapter`: an
+    /// optional target field the source does not expose is absent, any other
+    /// missing member means the conversion does not exist.
+    fn host_class_record_adapter_available(&self, source: TypeId, target: TypeId) -> bool {
+        if source == target || !self.exposes_host_members(source).unwrap_or(false) {
+            return false;
+        }
+        let Some(target_fields) = self.structural_record_fields(target) else {
+            return false;
+        };
+        if target_fields.is_empty() {
+            return false;
+        }
+        target_fields.iter().all(|field| {
+            let Ok(member) = self.symbol_source_name(field.name) else {
+                return false;
+            };
+            match self.host_class_member_read(&RustExpr::path("smelt_host_value"), source, member) {
+                Ok(Some(_)) => true,
+                Ok(None) => matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))),
+                Err(_) => false,
+            }
+        })
     }
 }

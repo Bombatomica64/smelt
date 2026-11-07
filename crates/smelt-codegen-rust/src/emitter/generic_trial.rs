@@ -1,5 +1,6 @@
 //! The generic trial: rendering a function once with its own type parameters
 //! kept, to decide whether its Rust definition can stay generic.
+
 use super::*;
 
 impl<'mir> FunctionEmitter<'mir> {

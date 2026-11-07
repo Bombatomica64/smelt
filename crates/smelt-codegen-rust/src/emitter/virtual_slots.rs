@@ -1,5 +1,6 @@
 //! Virtual method slots: the storage fields that carry a class method through a
 //! record, and the closures that dispatch them on a receiver.
+
 use super::*;
 use crate::rust::RustExpr;
 

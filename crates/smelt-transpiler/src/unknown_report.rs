@@ -984,7 +984,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // avoidable — proven by `json_serializer_argument_is_a_boundary`.
         boundary::JSON_TO_STRING,
         // `instanceof HostClass` against a DYNAMIC or erased-class operand
-        // (`crates/smelt-codegen-rust/src/emitter/call.rs`, the
+        // (`crates/smelt-codegen-rust/src/emitter/instance_of.rs`, the
         // `host_instance_markers` arm). Every modeled host object whose
         // identity has to survive erasure — `Request`, `DataView`,
         // `SharedArrayBuffer`, `DOMException`, `WeakMap`, the boxed primitive

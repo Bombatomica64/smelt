@@ -1,5 +1,6 @@
 //! Rendering an inherited method's copy on a subclass, and a base initializer's
 //! copy: the class-parameter substitution and the receiver upcast they need.
+
 use super::*;
 use crate::rust::RustExpr;
 
@@ -132,5 +133,80 @@ impl<'mir> FunctionEmitter<'mir> {
         self.role
             .base_initializer()
             .is_some_and(|receiver| receiver.receivers.contains(&local))
+    }
+}
+
+impl FunctionEmitter<'_> {
+    /// Which inherited-copy substitution applies right now; see
+    /// [`InheritedScope`].
+    fn inherited_scope(&self) -> InheritedScope<'_> {
+        if self.inherited_bound_suspended.get() {
+            return InheritedScope::Suspended;
+        }
+        let map = self.role.inherited_type_args();
+        if map.is_empty() {
+            InheritedScope::None
+        } else {
+            InheritedScope::Active(map)
+        }
+    }
+
+    /// The receiving-scope argument of a declaring base's type parameter inside
+    /// an inherited copy, unless such a bound is being rendered already.
+    pub(super) fn inherited_bound(&self, name: Symbol) -> Option<TypeId> {
+        match self.inherited_scope() {
+            InheritedScope::Active(map) => map.get(&name).copied(),
+            InheritedScope::None | InheritedScope::Suspended => None,
+        }
+    }
+
+    /// Run `render` on an inherited bound with the inherited map suspended
+    /// (see [`InheritedScope::Suspended`]); the previous state is restored
+    /// when the guard drops, whichever way `render` returns.
+    pub(super) fn with_inherited_bound<R>(&self, render: impl FnOnce() -> R) -> R {
+        let _suspended = InheritedBoundSuspension::enter(self);
+        render()
+    }
+}
+
+/// Whether an inherited copy's base-to-receiver type substitution applies to
+/// the type being rendered.
+///
+/// An inherited or base-initializer copy (or a closure inside one) maps the
+/// declaring base's type parameters to their arguments in the receiving
+/// class's scope (`emit_role::EmitRole::inherited_type_args`). The bound such a
+/// parameter maps to is itself spelled in the RECEIVING class's scope, whose
+/// parameter may share a declaring parameter's name (`C<T> extends B<T[]>`),
+/// so while a bound is rendered the map is suspended — applying it inside
+/// would recurse forever.
+pub(super) enum InheritedScope<'a> {
+    /// The emitter applies no substitution.
+    None,
+    /// The substitution applies.
+    Active(&'a HashMap<Symbol, TypeId>),
+    /// A bound from the substitution is being rendered; it does not apply.
+    Suspended,
+}
+
+/// Holds [`InheritedScope::Suspended`] for as long as it lives.
+pub(super) struct InheritedBoundSuspension<'e, 'm> {
+    /// The emitter whose substitution is suspended.
+    emitter: &'e FunctionEmitter<'m>,
+    /// The suspension state to restore on drop.
+    previous: bool,
+}
+
+impl<'e, 'm> InheritedBoundSuspension<'e, 'm> {
+    /// Suspend `emitter`'s inherited substitution.
+    pub(super) fn enter(emitter: &'e FunctionEmitter<'m>) -> Self {
+        let previous = emitter.inherited_bound_suspended.replace(true);
+        Self { emitter, previous }
+    }
+}
+
+impl Drop for InheritedBoundSuspension<'_, '_> {
+    /// Restore the previous suspension state.
+    fn drop(&mut self) {
+        self.emitter.inherited_bound_suspended.set(self.previous);
     }
 }

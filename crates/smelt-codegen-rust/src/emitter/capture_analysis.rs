@@ -325,7 +325,7 @@ impl FunctionEmitter<'_> {
                     // three such call sites exist in the es-toolkit corpus).
                     // Refusing the emit aborts the whole crate, and carrying the
                     // mutation back needs the temporary-plus-write-back channel
-                    // `call::mut_list_adapter_arg` has and this
+                    // `mut_list_call::mut_list_adapter_arg` has and this
                     // single-expression seam does not, so the hazard is named
                     // here rather than papered over.
                     self.value_at_type(operand, target)?

@@ -1,5 +1,6 @@
 //! How a callable value is held and invoked: erased `SmeltErasedFunction`
 //! values, borrowed `&dyn Fn` handles and monomorphized generic handles.
+
 use super::*;
 use crate::emitter::local_binding::LocalBinding;
 use crate::rust::RustExpr;

@@ -1,5 +1,6 @@
 //! Function and method definitions: the signature, the parameter and local
 //! preludes, the body, and the fallthrough return of one emitted Rust item.
+
 use super::*;
 use crate::emitter::local_binding::SELF_OWNED_NAME;
 use crate::rust::RustExpr;

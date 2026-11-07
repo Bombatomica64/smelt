@@ -1,5 +1,6 @@
 //! Yes/no questions about a MIR type or class that decide a Rust representation:
 //! container backing, reference-class storage, host class kinds, cloneability.
+
 use super::*;
 
 impl FunctionEmitter<'_> {
@@ -523,5 +524,102 @@ impl FunctionEmitter<'_> {
                     | Type::Optional(_)
             )
         )
+    }
+}
+
+impl FunctionEmitter<'_> {
+    /// Returns whether a type is supported by the current JSON serializer path.
+    pub(super) fn is_json_serializable_type(&self, ty: TypeId) -> bool {
+        // A value whose EMITTED Rust type is already the erased carrier has
+        // nothing left to reject. `json_stringify_expr` erases its operand
+        // unconditionally and lets `Serialize for SmeltUnknown` decide the
+        // output at run time — that impl is where every ECMA-262 rule lives
+        // (an integral number has no fraction, a non-finite one is `null`, an
+        // `undefined` property is omitted, a byte-backed view serializes as its
+        // element indices, a host object as `{}`), and it has an arm for every
+        // tag a `SmeltUnknown` can carry. So for such an operand this predicate
+        // is asking a question about a representation that no longer exists.
+        //
+        // **The boundary, documented at the emit site as the policy requires.**
+        // This does not introduce an erasure: the operand is ALREADY a
+        // `SmeltUnknown` because its own type is `unknown`, a type parameter, or
+        // a union with no concrete Rust spelling. Rejecting it did not keep any
+        // value concrete; it only refused to serialize the one case the runtime
+        // rule exists for. Hono's `utils/crypto.ts` is exactly that case:
+        // `data: string | boolean | number | JSONValue | ArrayBufferView |
+        // ArrayBuffer` is reassigned across a narrowing, so the operand's static
+        // type is the erased union, and the whole crate stopped in the emitter
+        // on a value the generated `Serialize` would have rendered correctly.
+        //
+        // A value with a REAL Rust representation still goes through the arms
+        // below, so a user class with an unserializable field is still a named
+        // blocker rather than silently becoming `{}`.
+        if self.renders_erased(ty).unwrap_or(false) {
+            return true;
+        }
+        match self.mir.types.get(ty) {
+            // A TYPE PARAMETER stringifies through the erased boundary, exactly
+            // as `Unknown` does: `JSON.stringify(x)` on a generic `x: T` is
+            // legal JavaScript for every instantiation, and the generated code
+            // erases the value first (`json_stringify_expr` always does). Rejecting it
+            // made a generic helper that serializes its argument a blocker for
+            // the whole crate.
+            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::Unknown)
+            | Some(Type::TypeParam { .. }) => true,
+            Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
+                self.is_json_serializable_type(*item)
+            }
+            Some(Type::Tuple(items)) => items
+                .iter()
+                .all(|item| self.is_json_serializable_type(*item)),
+            Some(Type::Dict(key, value)) => {
+                matches!(self.mir.types.get(*key), Some(Type::String))
+                    && self.is_json_serializable_type(*value)
+            }
+            // JSON has no `undefined`, and `JSON.stringify(null)` is `null`.
+            Some(Type::None) => true,
+            // A union is serializable when every arm is. This is what lets a
+            // `BodyInit` (`string | ArrayBuffer | Blob | FormData |
+            // URLSearchParams | ReadableStream | null`) be stringified at all.
+            Some(Type::Union(items)) => items
+                .iter()
+                .all(|item| self.is_json_serializable_type(*item)),
+            Some(Type::Class { name, .. }) => {
+                // A host object serializes as `{}` — none of its state is an own
+                // enumerable property (see the frontend's matching arm). The
+                // emitter erases such a value first, and the erased carrier's
+                // `Serialize` is what renders the empty object.
+                if self.is_host_object_class(*name) {
+                    return true;
+                }
+                if let Some(class) = crate::classes::find_class(self.mir, *name) {
+                    crate::classes::effective_class_fields(self.mir, class)
+                        .iter()
+                        .all(|field| self.is_json_serializable_type(field.ty))
+                } else {
+                    self.mir
+                        .interfaces
+                        .iter()
+                        .find(|interface| interface.name == *name)
+                        .is_some_and(|interface| {
+                            interface
+                                .fields
+                                .iter()
+                                .all(|field| self.is_json_serializable_type(field.ty))
+                        })
+                }
+            }
+            _ => false,
+        }
+    }
+
+    /// Return whether a class symbol names a registered host object.
+    ///
+    /// The registry is the shared one (`smelt_stdlib::host_object_marker`), so
+    /// the frontend's serializability rule and this one cannot disagree about
+    /// which classes have no own enumerable properties.
+    fn is_host_object_class(&self, name: Symbol) -> bool {
+        self.symbol_name(name)
+            .is_ok_and(|class_name| smelt_stdlib::host_object_marker(class_name).is_some())
     }
 }

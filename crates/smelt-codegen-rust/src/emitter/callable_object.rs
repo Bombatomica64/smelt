@@ -1,5 +1,6 @@
 //! Callable objects: records with a call signature, their `__smelt_call` slot,
 //! and the dispatch of a call on a value only known at runtime to be callable.
+
 use super::*;
 use crate::rust::RustExpr;
 

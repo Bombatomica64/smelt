@@ -787,7 +787,7 @@ impl FunctionEmitter<'_> {
                 // once `.into_smelt_unknown()` consumes the concrete type
                 // (E0282 in es-toolkit's `isFunction` spec). Yield operands are
                 // erased at each suspension point (see `GeneratorYield` in
-                // `call_runtime.rs`), so `SmeltUnknown` channels are exact.
+                // `generator.rs`), so `SmeltUnknown` channels are exact.
                 let (erase_suffix, generator_turbofish) = if matches!(
                     emitter.mir.types.get(function.return_ty),
                     Some(Type::Generator { .. })
@@ -999,7 +999,7 @@ impl FunctionEmitter<'_> {
                 )
             } else {
                 // Shared captures are emitted as safe `Rc<RefCell<T>>` and accessed via
-                // `borrow_mut()` (see core.rs), so the closure body contains no `unsafe`
+                // `borrow_mut()` (see `local_shared_cell`), so the closure body contains no `unsafe`
                 // operations. Emit the body directly; wrapping it in an `unsafe` block only
                 // produced `unnecessary unsafe block` warnings in generated crates.
                 format!("|{params_text}| {{{owned_param_prelude_block}\n{body_text}    }}")

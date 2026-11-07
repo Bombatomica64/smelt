@@ -1,6 +1,7 @@
 //! Rvalue dispatch: one arm per `Rvalue` variant, each handing its operands to
 //! the family that renders it. The match stays exhaustive, so a new op fails to
 //! compile here until it has an arm.
+
 use super::*;
 use crate::rust::RustExpr;
 

@@ -1,5 +1,6 @@
 //! What a local's uses ask of it: the single target its value is read at, and
 //! whether an erased definition is dead or can be rendered at the use instead.
+
 use super::*;
 
 impl FunctionEmitter<'_> {

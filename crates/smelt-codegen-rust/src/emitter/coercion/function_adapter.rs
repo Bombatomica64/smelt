@@ -1,5 +1,6 @@
 //! Function-shape adapters, behind the coercion seam: a callable of one
 //! signature wrapped to answer another, including rest-vector and erased forms.
+
 use super::*;
 
 impl FunctionEmitter<'_> {
@@ -98,7 +99,7 @@ impl FunctionEmitter<'_> {
     ///
     /// The wrapper may discard arguments, as TypeScript permits, but it cannot
     /// invent a different return value or convert incompatible argument types.
-    pub(in crate::emitter) fn can_adapt_rendered_function_value(&self, source: TypeId, target: TypeId) -> bool {
+    pub(super) fn can_adapt_rendered_function_value(&self, source: TypeId, target: TypeId) -> bool {
         let (Some(Type::Function(source_function)), Some(Type::Function(target_function))) =
             (self.mir.types.get(source), self.mir.types.get(target))
         else {
@@ -161,7 +162,7 @@ impl FunctionEmitter<'_> {
 
     /// The position and element type of a function's trailing rest parameter,
     /// when it has one whose type is a list.
-    pub(super) fn trailing_rest_element(&self, function: &FunctionType) -> Option<(usize, TypeId)> {
+    fn trailing_rest_element(&self, function: &FunctionType) -> Option<(usize, TypeId)> {
         let rest = function.rest?;
         if rest + 1 != function.params.len() {
             return None;
@@ -1526,7 +1527,7 @@ impl FunctionEmitter<'_> {
     /// when the source already exposes the erased rest ABI and cannot throw, and
     /// `(smelt_callback)(..)` otherwise. The `return_text` branches (None-return,
     /// fieldless class, may-throw, ordinary erase) match that function exactly.
-    pub(super) fn erased_rest_forwarding_closure(
+    fn erased_rest_forwarding_closure(
         &self,
         source_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
@@ -1634,7 +1635,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Adapts a concrete callback to the erased JavaScript callback surface.
-    pub(in crate::emitter) fn rest_vector_unknown_adapter(
+    pub(super) fn rest_vector_unknown_adapter(
         &self,
         operand: &Operand,
     ) -> Result<Option<RustExpr>, EmitError> {
