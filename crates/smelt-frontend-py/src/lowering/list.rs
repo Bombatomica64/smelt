@@ -95,7 +95,7 @@ impl ModuleBuilder<'_> {
     ) -> Option<SmeltError> {
         let span = self.span(call.range());
         match call.func.as_ref() {
-            Expr::Name(name) if name.id.as_str() == "open" => Some(SmeltError::unsupported(
+            Expr::Name(name) if name.id.as_str() == "open" && !self.program_binds_name("open") => Some(SmeltError::unsupported(
                 span,
                 "Python open() is not supported yet; file IO needs a dedicated text-mode mapping",
             )),
@@ -103,7 +103,7 @@ impl ModuleBuilder<'_> {
                 if matches!(
                     attr.value.as_ref(),
                     Expr::Call(inner)
-                        if matches!(inner.func.as_ref(), Expr::Name(name) if name.id.as_str() == "open")
+                        if matches!(inner.func.as_ref(), Expr::Name(name) if name.id.as_str() == "open" && !self.program_binds_name("open"))
                 ) {
                     return Some(SmeltError::unsupported(
                         span,

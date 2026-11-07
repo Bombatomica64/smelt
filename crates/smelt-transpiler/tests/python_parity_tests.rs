@@ -95,3 +95,9 @@ fn builtin_method_names_on_classes() -> TestResult {
 fn print_container_repr() -> TestResult {
     verify_python_parity("print_container_repr")
 }
+
+/// A user `open` is the user's function, not the builtin.
+#[test]
+fn user_open_shadows_builtin() -> TestResult {
+    verify_python_parity("user_open_shadows_builtin")
+}

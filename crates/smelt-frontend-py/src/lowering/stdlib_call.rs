@@ -264,7 +264,7 @@ impl ModuleBuilder<'_> {
         let Expr::Name(open_name) = open_call.func.as_ref() else {
             return Ok(None);
         };
-        if open_name.id.as_str() != "open" {
+        if open_name.id.as_str() != "open" || self.program_binds_name("open") {
             return Ok(None);
         }
         let path = self.open_path_argument(open_call, body)?;

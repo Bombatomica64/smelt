@@ -317,6 +317,41 @@ async def run() -> tuple[int, int]:
     Ok(())
 }
 
+/// `asyncio` means the module it is bound to: an alias of the import lowers
+/// like the module, and a parameter spelled `asyncio` is not the module.
+#[test]
+fn asyncio_resolves_through_its_import_binding() -> TestResult {
+    let source = py!(r"
+import asyncio as aio
+
+async def lift(value: int) -> int:
+    await aio.sleep(0)
+    return value
+
+class Clock:
+    def sleep(self, seconds: int) -> int:
+        return seconds
+
+def tick(asyncio: Clock) -> int:
+    return asyncio.sleep(3)
+");
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let mut sleeps = 0;
+    for item_id in &module.items {
+        let Item::Function(function) = item(&ctx, *item_id)? else { continue };
+        let Some(body_id) = function.body else { continue };
+        sleeps += body(&ctx, body_id)?
+            .exprs
+            .iter()
+            .filter(|expr| matches!(expr.kind, ExprKind::AsyncOp { op: AsyncOp::Sleep, .. }))
+            .count();
+    }
+    ensure(sleeps == 1, format!("expected exactly the aliased `aio.sleep` to lower to AsyncOp::Sleep, found {sleeps}"))?;
+    Ok(())
+}
+
 #[test]
 fn lower_level_asyncio_loop_apis_are_rejected() -> TestResult {
     let source = py!(r"

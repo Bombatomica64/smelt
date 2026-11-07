@@ -315,6 +315,13 @@ impl ModuleBuilder<'_> {
             || self.import_aliases.contains_key(name)
     }
 
+    /// Whether `name` denotes the module `module` here: it is an import of
+    /// that module (under any local name) and no local rebinds it.
+    fn name_denotes_module(&self, name: &str, module: &str) -> bool {
+        !self.scope.locals.contains_key(name)
+            && self.import_aliases.get(name).is_some_and(|imported| imported == module)
+    }
+
     /// Lower calls whose callee is a builtin name (`print`, `len`, container and
     /// primitive constructors, and the numeric/iterator builtins).
     fn builtin_name_call_expression(
