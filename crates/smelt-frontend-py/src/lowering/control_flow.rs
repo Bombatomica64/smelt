@@ -364,10 +364,7 @@ impl ModuleBuilder<'_> {
         if matches!(self.ctx.krate.types.get(target_ty), Some(Type::Int))
             && matches!(self.ctx.krate.types.get(compound_ty), Some(Type::Float))
         {
-            return Err(SmeltError::unsupported(
-                span,
-                "this augmented assignment makes an `int` variable a `float`; declare it `float`",
-            ));
+            return self.rebind_as_float(aug, compound, body, block);
         }
         let target = Self::subscript_store_target(target, body);
         body.push_stmt_to_block(
@@ -377,6 +374,47 @@ impl ModuleBuilder<'_> {
                 value: compound,
             },
         );
+        Ok(())
+    }
+
+    /// `x /= n` on an `int` local: Python rebinds `x` to the `float` result.
+    ///
+    /// In the body's top-level block the statement runs exactly once, before
+    /// every later statement and never again after them, so the rebinding is a
+    /// new `float` local that every later read names, as `let x = x as f64 / n`
+    /// is in Rust. Under a branch or a loop the name holds an `int` on some
+    /// paths and a `float` on others, which needs an `int | float` local; that
+    /// stays rejected.
+    fn rebind_as_float(
+        &mut self,
+        aug: &StmtAugAssign,
+        compound: smelt_hir::ExprId,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        let span = self.span(aug.range);
+        let float_ty = Self::expr_ty(body, compound);
+        let Expr::Name(name) = aug.target.as_ref() else {
+            return Err(SmeltError::unsupported(
+                span,
+                "this augmented assignment makes an `int` element a `float`",
+            ));
+        };
+        if block != body.root || !self.scope.locals.contains_key(name.id.as_str()) {
+            return Err(SmeltError::unsupported(
+                span,
+                "this augmented assignment makes an `int` variable a `float` on only some paths; declare it `float`",
+            ));
+        }
+        let local = body.push_local(LocalDecl {
+            name: Some(self.intern_name(name.id.as_str())),
+            ty: float_ty,
+            mutable: true,
+            span,
+        });
+        let pat = body.push_pattern(HirPattern::Binding(local));
+        body.push_stmt_to_block(block, HirStmt::Let { pat, ty: float_ty, value: Some(compound) });
+        self.scope.locals.insert(name.id.as_str().to_owned(), local);
         Ok(())
     }
 
