@@ -172,6 +172,12 @@ fn type_alias_scope() -> TestResult {
     verify_node_parity_with("type_alias_scope", &["helpers.ts"])
 }
 
+/// A needle typed by a parameter bounded by `string` is a string.
+#[test]
+fn string_bound_needle() -> TestResult {
+    verify_node_parity("string_bound_needle")
+}
+
 /// A parameter does not hide a module constant from other functions.
 #[test]
 fn parameter_shadows_module_const() -> TestResult {

@@ -1093,9 +1093,12 @@ impl ModuleBuilder<'_> {
             });
         }
         let needle_ty = Self::expr_ty(body, needle);
-        if self.ctx.krate.types.get(needle_ty) == Some(&Type::Unknown)
-            || self.type_contains_unknown(needle_ty)
-            || self.erased_or_union_surface(needle_ty)
+        // A needle typed by a parameter bounded by `string` (`substr extends
+        // string`) is a string, as the haystack's rule above already says.
+        if self.ctx.krate.types.get(needle_ty) != Some(&Type::String)
+            && (self.type_contains_unknown(needle_ty)
+                || self.erased_or_union_surface(needle_ty)
+                || self.is_string_compatible_type(needle_ty))
         {
             needle = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: needle },
