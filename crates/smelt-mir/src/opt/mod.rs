@@ -113,6 +113,7 @@ fn propagate_function(
     let mut aliases = HashMap::new();
     let mutated = mutated_locals(function);
     let assigned_counts = function.assignment_counts();
+    let unwind_written = unwind_written_locals(function);
 
     for block in &function.blocks {
         for stmt in &block.statements {
@@ -124,6 +125,7 @@ fn propagate_function(
                 && !mutated.contains(source)
                 && !shared.contains(source)
                 && assigned_counts.get(dest) == Some(&1)
+                && !unwind_written.contains(dest)
                 && !function.is_temp(*source)
                 && !is_function_local(function, types, *dest)
                 && !is_function_local(function, types, *source)
@@ -204,6 +206,23 @@ fn mutated_locals(function: &MirFunction) -> HashSet<LocalId> {
         }
     }
     locals
+}
+
+/// The locals an unwind edge writes: the exception local of each call or
+/// await handler. Such a local has a definition `assignment_counts` does not
+/// see, so a single statement assigning it does not make it an alias.
+fn unwind_written_locals(function: &MirFunction) -> HashSet<LocalId> {
+    function
+        .blocks
+        .iter()
+        .filter_map(|block| match &block.terminator {
+            Some(
+                Terminator::Call { unwind: Some(handler), .. }
+                | Terminator::Await { unwind: Some(handler), .. },
+            ) => handler.exception_local,
+            _ => None,
+        })
+        .collect()
 }
 
 /// Resolves a local to its canonical alias target.

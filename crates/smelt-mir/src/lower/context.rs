@@ -64,6 +64,8 @@ pub(super) struct LoweringCtx<'hir> {
     pub(super) loop_bool_ty: TypeId,
     /// See [`LoweringShared::thrown_ty`].
     pub(super) thrown_ty: Option<(TypeId, Symbol)>,
+    /// See [`LoweringShared::py_thrown_ty`].
+    pub(super) py_thrown_ty: Option<TypeId>,
     /// The class or interface bounding each type parameter in scope, by
     /// parameter name: the enclosing class's and the function's own, inherited
     /// by every closure lowered inside the body.
@@ -133,6 +135,11 @@ pub(super) struct LoweringShared<'hir> {
     /// The erased type a `finally` clause's rethrown value is held at; `Some`
     /// when the crate has a `try` with a `finally` (see `lower_try_catch`).
     pub(super) thrown_ty: Option<(TypeId, Symbol)>,
+    /// The Python exception type a `finally` clause in a Python body holds
+    /// its rethrown value at instead: every value a Python `raise` throws is
+    /// an exception, so nothing about it needs erasing. `Some` alongside
+    /// `thrown_ty`.
+    pub(super) py_thrown_ty: Option<TypeId>,
     /// Global closure id offset for closures this context constructs.
     pub(super) closure_base: usize,
 }
@@ -331,6 +338,7 @@ impl<'hir> LoweringCtx<'hir> {
             loop_index_ty: shared.loop_index_ty,
             loop_bool_ty: shared.loop_bool_ty,
             thrown_ty: shared.thrown_ty,
+            py_thrown_ty: shared.py_thrown_ty,
             type_param_bounds: HashMap::new(),
         }
     }

@@ -445,3 +445,22 @@ fn conditional_primitive_arms() -> TestResult {
 fn spread_is_syntax() -> TestResult {
     verify_node_parity("spread_is_syntax")
 }
+
+/// A `throw` inside an `if` in a `try` runs the `catch` before the code after it.
+#[test]
+fn throw_in_branch_reaches_catch() -> TestResult {
+    verify_node_parity("throw_in_branch_reaches_catch")
+}
+
+/// The code after a `try` whose `catch` may rethrow runs, a later loop included.
+#[test]
+fn code_after_nested_try_with_loop() -> TestResult {
+    verify_node_parity("code_after_nested_try_with_loop")
+}
+
+/// A record is an object: an alias, an array element and a parameter all
+/// reach the same object.
+#[test]
+fn record_aliasing() -> TestResult {
+    verify_node_parity("record_aliasing")
+}

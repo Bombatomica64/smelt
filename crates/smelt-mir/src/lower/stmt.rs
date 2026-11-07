@@ -97,13 +97,21 @@ impl LoweringCtx<'_> {
     /// Lowers a single HIR statement to MIR.
     pub(super) fn lower_stmt(&mut self, stmt: &HirStmt) -> Result<(), LowerError> {
         match stmt {
-            HirStmt::Let { pat, value, .. } => {
+            HirStmt::Let { pat, ty, value } => {
                 let hir_local = match self.hir_pattern(*pat)? {
                     smelt_hir::Pattern::Binding(hir_local) => *hir_local,
                     smelt_hir::Pattern::Tuple(_) => {
-                        return Err(
-                            self.error("only binding let patterns can lower to MIR yet", None)
-                        );
+                        let Some(value_expr) = value else {
+                            return Err(self.error("a destructuring let needs a value", None));
+                        };
+                        let span = self.block()?.span;
+                        let source = self.push_temp(*ty, span);
+                        let lowered = self.lower_expr(*value_expr)?;
+                        self.block_mut()?.statements.push(Statement::Assign {
+                            dest: source,
+                            value: Rvalue::Use(lowered),
+                        });
+                        return self.bind_tuple_pattern(*pat, source, *ty);
                     }
                 };
                 let Some(dest) = self.locals.get(&hir_local).copied() else {
@@ -526,21 +534,35 @@ impl LoweringCtx<'_> {
         iter: ExprId,
         body_hir: smelt_hir::BlockId,
     ) -> Result<(), LowerError> {
-        let hir_local = match self.hir_pattern(pat)? {
-            smelt_hir::Pattern::Binding(hir_local) => *hir_local,
-            smelt_hir::Pattern::Tuple(_) => {
-                return Err(self.error("only binding for patterns can lower to MIR yet", None));
-            }
-        };
-        let item_local = self
-            .locals
-            .get(&hir_local)
-            .copied()
-            .ok_or_else(|| self.error("for pattern references an unknown local", None))?;
-        let iter_operand = self.lower_expr(iter)?;
         let iter_expr = self.hir_expr(iter)?;
         let iter_span = iter_expr.span;
         let iter_ty = iter_expr.ty;
+        // A destructuring target (`for k, v in pairs`) binds each item to a
+        // temporary and splits it into the pattern's locals at the top of the
+        // body; see `bind_tuple_pattern`.
+        let (item_local, item_pattern) = match self.hir_pattern(pat)? {
+            smelt_hir::Pattern::Binding(hir_local) => {
+                let local = self
+                    .locals
+                    .get(hir_local)
+                    .copied()
+                    .ok_or_else(|| self.error("for pattern references an unknown local", None))?;
+                (local, None)
+            }
+            smelt_hir::Pattern::Tuple(_) => {
+                let item_ty = match self.krate.types.get(iter_ty) {
+                    Some(smelt_hir::Type::List(item) | smelt_hir::Type::Set(item)) => *item,
+                    _ => {
+                        return Err(self.error(
+                            "a destructuring for target needs a list or set iterable",
+                            Some(iter_span),
+                        ));
+                    }
+                };
+                (self.push_temp(item_ty, iter_span), Some(item_ty))
+            }
+        };
+        let iter_operand = self.lower_expr(iter)?;
         // The loop indexes its iterable by place, so the iterable needs a base
         // it can index. A source `for (const x of a.b)` — or of a call result,
         // or of `m[k]` — hands back a projection or a value, not a local, and
@@ -598,6 +620,9 @@ impl LoweringCtx<'_> {
                 negative: NegativeIndex::OutOfRange,
             })),
         });
+        if let Some(item_ty) = item_pattern {
+            self.bind_tuple_pattern(pat, item_local, item_ty)?;
+        }
         self.lower_loop_body(
             body_hir,
             LoopTargets {
@@ -618,6 +643,48 @@ impl LoweringCtx<'_> {
         });
         self.terminate(Terminator::Goto(header))?;
         self.switch_to(after);
+        Ok(())
+    }
+
+    /// Splits the tuple in `source` (of type `source_ty`) into the locals a
+    /// tuple pattern binds, element by element, nested patterns included.
+    ///
+    /// Each binding is a `tuple_index` read of its position, so `k, v = pair`
+    /// and `for k, v in pairs` bind exactly what indexing the tuple would.
+    fn bind_tuple_pattern(
+        &mut self,
+        pat: smelt_hir::PatternId,
+        source: LocalId,
+        source_ty: smelt_hir::TypeId,
+    ) -> Result<(), LowerError> {
+        let smelt_hir::Pattern::Tuple(items) = self.hir_pattern(pat)?.clone() else {
+            return Err(self.error("internal: a tuple binding needs a tuple pattern", None));
+        };
+        let Some(smelt_hir::Type::Tuple(item_types)) = self.krate.types.get(source_ty).cloned() else {
+            return Err(self.error("a destructured value must be a tuple", None));
+        };
+        if item_types.len() != items.len() {
+            return Err(self.error("a tuple pattern must bind every element", None));
+        }
+        for (index, (item, item_ty)) in items.into_iter().zip(item_types).enumerate() {
+            let value = Rvalue::TupleIndex { tuple: Operand::Copy(Place::Local(source)), index };
+            match self.hir_pattern(item)?.clone() {
+                smelt_hir::Pattern::Binding(hir_local) => {
+                    let dest = self
+                        .locals
+                        .get(&hir_local)
+                        .copied()
+                        .ok_or_else(|| self.error("tuple pattern references an unknown local", None))?;
+                    self.block_mut()?.statements.push(Statement::Assign { dest, value });
+                }
+                smelt_hir::Pattern::Tuple(_) => {
+                    let span = self.block()?.span;
+                    let nested = self.push_temp(item_ty, span);
+                    self.block_mut()?.statements.push(Statement::Assign { dest: nested, value });
+                    self.bind_tuple_pattern(item, nested, item_ty)?;
+                }
+            }
+        }
         Ok(())
     }
 
@@ -741,8 +808,10 @@ struct FinallyPlan {
     after: BlockId,
     /// The exceptional exit's handler block.
     handler_block: BlockId,
-    /// The erased local holding the thrown value while the clause runs.
+    /// The local holding the thrown value while the clause runs.
     thrown: LocalId,
+    /// Its type: the erased `thrown_ty`, or a Python body's exception type.
+    thrown_ty: smelt_hir::TypeId,
     /// Whether the clause was entered by a throw (and must rethrow).
     pending: LocalId,
     /// The `try` body's span, for the synthesized rethrow block.
@@ -772,8 +841,12 @@ impl FinallyPlan {
                 Some(span),
             ));
         };
+        let thrown_ty = match (ctx.source_language(span), ctx.py_thrown_ty) {
+            (smelt_hir::Language::Python, Some(py_thrown_ty)) => py_thrown_ty,
+            _ => unknown_ty,
+        };
         let thrown = ctx.function.push_local(LocalDecl {
-            ty: unknown_ty,
+            ty: thrown_ty,
             kind: LocalKind::UserBinding(name),
             span,
         });
@@ -785,6 +858,7 @@ impl FinallyPlan {
             after,
             handler_block,
             thrown,
+            thrown_ty,
             pending,
             span,
         })
@@ -811,11 +885,15 @@ impl FinallyPlan {
 
     /// Clears the protocol locals at the `try` entry (cursor's block).
     fn arm(&self, ctx: &mut LoweringCtx<'_>) -> Result<(), LowerError> {
+        // A Python exception local has no `undefined`; it starts as an
+        // exception of no class and no arguments, which no path observes.
+        let cleared = if Some(self.thrown_ty) == ctx.py_thrown_ty {
+            Rvalue::PyExceptionNew { classes: Vec::new(), args: Vec::new() }
+        } else {
+            Rvalue::Use(Operand::Const(Constant::Undefined))
+        };
         let statements = &mut ctx.block_mut()?.statements;
-        statements.push(Statement::Assign {
-            dest: self.thrown,
-            value: Rvalue::Use(Operand::Const(Constant::Undefined)),
-        });
+        statements.push(Statement::Assign { dest: self.thrown, value: cleared });
         statements.push(Statement::Assign {
             dest: self.pending,
             value: Rvalue::Use(Operand::Const(Constant::Bool(false))),

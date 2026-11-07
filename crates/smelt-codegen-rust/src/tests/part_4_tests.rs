@@ -281,10 +281,10 @@ def run() -> int:
     assert!(source.contains("vec![2, 3, 4]"));
     assert!(
         source.contains(
-            "closure_arg_0.get(&\"value\".to_owned()).cloned().ok_or_else(|| smelt_py_key_error("
+            "closure_arg_0.get(&\"value\".to_owned()).ok_or_else(|| smelt_py_key_error("
         )
     );
-    assert!(source.contains("::std::collections::HashMap::from([(\"value\".to_owned(), 5)])"));
+    assert!(source.contains("SmeltRecord::from([(\"value\".to_owned(), 5)])"));
     assert!(source.contains(".extend("));
 }
 
@@ -308,8 +308,8 @@ chosen: int = pick(value=5, **extras)
     assert!(source.contains("fn sum_values(values: SmeltList<i64>) -> Result<i64,"));
     assert!(source.contains("vec![2, 3, 4]"));
     // `kwargs["value"]` can raise `KeyError`, so the function can fail.
-    assert!(source.contains("fn pick(kwargs: ::std::collections::HashMap<String, i64>) -> Result<i64,"));
-    assert!(source.contains("::std::collections::HashMap::from([(\"value\".to_owned(), 5)])"));
+    assert!(source.contains("fn pick(kwargs: SmeltRecord<String, i64>) -> Result<i64,"));
+    assert!(source.contains("SmeltRecord::from([(\"value\".to_owned(), 5)])"));
     assert!(source.contains(".extend("));
 }
 
@@ -388,7 +388,7 @@ item_pairs: list[tuple[int, int]] = enumerate(items)
     assert!(source.contains("idx as i64"));
     assert!(
         source.contains(
-            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol\")).cloned().collect::<Vec<_>>()"
+            ".keys().collect::<Vec<_>>()"
         ),
         "{source}"
     );
@@ -411,7 +411,7 @@ mixed: list[tuple[str, int]] = zip(lookup, items)
     assert!(source.contains(".iter().cloned().zip("));
     assert!(
         source.contains(
-            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol\")).cloned().collect::<Vec<_>>()"
+            ".keys().collect::<Vec<_>>()"
         ),
         "{source}"
     );
@@ -976,7 +976,7 @@ for name in names:
     assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
     assert!(
         source.contains(
-            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol\")).cloned().collect::<Vec<_>>()"
+            ".keys().collect::<Vec<_>>()"
         ),
         "{source}"
     );

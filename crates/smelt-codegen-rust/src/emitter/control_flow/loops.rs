@@ -89,6 +89,40 @@ impl FunctionEmitter<'_> {
         )))
     }
 
+    /// Recognizes the header of a loop whose condition is the constant `true`
+    /// (`while True:`), answering its body entry and its exit.
+    ///
+    /// [`Self::while_header`] only claims a header whose condition is a local
+    /// the header computes; a constant condition has no such local, so inside
+    /// a nested region the header was emitted as a plain `if` and its back
+    /// edge re-entered it until the recursion guard cut the region off. The
+    /// shape checks are the same as `while_header`'s.
+    fn constant_true_loop_header(
+        &self,
+        block: &BasicBlock,
+    ) -> Result<Option<(smelt_mir::BlockId, smelt_mir::BlockId)>, EmitError> {
+        let Some(Terminator::Switch {
+            cond: Operand::Const(Constant::Bool(true)),
+            then_block,
+            else_block,
+        }) = &block.terminator
+        else {
+            return Ok(None);
+        };
+        if !self.block_reaches_target(*then_block, block.id, &mut BlockIdSet::default())
+            || !self.is_back_edge_target(*then_block, block.id)
+            || !self.block_exits_to_loop(
+                self.block(*then_block)?,
+                block.id,
+                *else_block,
+                &mut BlockIdSet::default(),
+            )?
+        {
+            return Ok(None);
+        }
+        Ok(Some((*then_block, *else_block)))
+    }
+
     /// Recognizes a loop whose one switch branch returns to the current block.
     ///
     /// TypeScript `do...while` commonly routes its back edge through a small
@@ -1302,14 +1336,11 @@ impl FunctionEmitter<'_> {
         if let Some((cond, then_block, else_block, cond_statement_idx)) =
             self.while_header(block)?
         {
-            if self.block_reaches_target_avoiding(
-                then_block,
-                stop,
-                &[block.id, else_block],
-                &mut BlockIdSet::default(),
-            ) {
+            let Some(break_block) =
+                self.nested_loop_break_block(then_block, else_block, stop, &[block.id, else_block])
+            else {
                 return Ok(false);
-            }
+            };
             let then = self.block(then_block)?;
             let loop_declared = self.declared_scope();
             self.open_while_loop(block, &cond, cond_statement_idx, out)?;
@@ -1317,7 +1348,33 @@ impl FunctionEmitter<'_> {
                 then,
                 block.id,
                 RegionExit::LoopBody {
-                    break_block: Some(else_block),
+                    break_block: Some(break_block),
+                },
+                out,
+            )?;
+            out.push_str("    }\n");
+            loop_declared.close();
+            self.emit_after_nested_loop(else_block, stop, exit, out, visited)?;
+            return Ok(true);
+        }
+
+        if let Some((then_block, else_block)) = self.constant_true_loop_header(block)? {
+            let Some(break_block) =
+                self.nested_loop_break_block(then_block, else_block, stop, &[block.id, else_block])
+            else {
+                return Ok(false);
+            };
+            let then = self.block(then_block)?;
+            let loop_declared = self.declared_scope();
+            out.push_str("    loop {\n");
+            for statement in &block.statements {
+                self.emit_statement_for_block(block, statement, out)?;
+            }
+            self.emit_block_until_goto(
+                then,
+                block.id,
+                RegionExit::LoopBody {
+                    break_block: Some(break_block),
                 },
                 out,
             )?;
@@ -1330,14 +1387,14 @@ impl FunctionEmitter<'_> {
         if let Some((cond, then_block, latch_block, else_block, cond_statement_idx)) =
             self.while_header_with_latch(block)?
         {
-            if self.block_reaches_target_avoiding(
+            let Some(break_block) = self.nested_loop_break_block(
                 then_block,
+                else_block,
                 stop,
                 &[block.id, latch_block, else_block],
-                &mut BlockIdSet::default(),
-            ) {
+            ) else {
                 return Ok(false);
-            }
+            };
             let then = self.block(then_block)?;
             let latch = self.block(latch_block)?;
             let loop_declared = self.declared_scope();
@@ -1346,7 +1403,7 @@ impl FunctionEmitter<'_> {
                 then,
                 latch_block,
                 RegionExit::LoopBody {
-                    break_block: Some(else_block),
+                    break_block: Some(break_block),
                 },
                 out,
             )?;
@@ -1360,6 +1417,48 @@ impl FunctionEmitter<'_> {
         }
 
         Ok(false)
+    }
+
+    /// The block a nested loop's body `break`s to, or `None` when the loop
+    /// cannot be structured inside a region ending at `stop`.
+    ///
+    /// Normally that is the loop's exit, `else_block`. A body path that leaves
+    /// for the region's `stop` without passing the exit (a `throw` inside a
+    /// `try` whose handler rejoins after it) cannot end inside the loop, so the
+    /// loop is refused, unless the exit itself only jumps on to `stop`: then
+    /// arriving at `stop` from the body is exactly a `break`, and `stop` is
+    /// what the body breaks to.
+    fn nested_loop_break_block(
+        &self,
+        then_block: smelt_mir::BlockId,
+        else_block: smelt_mir::BlockId,
+        stop: smelt_mir::BlockId,
+        avoiding: &[smelt_mir::BlockId],
+    ) -> Option<smelt_mir::BlockId> {
+        if !self.block_reaches_target_avoiding(then_block, stop, avoiding, &mut BlockIdSet::default()) {
+            return Some(else_block);
+        }
+        self.empty_goto_chain_reaches(else_block, stop).then_some(stop)
+    }
+
+    /// Whether following blocks that hold no statement and only `goto` leads
+    /// from `from` to `target`.
+    fn empty_goto_chain_reaches(&self, from: smelt_mir::BlockId, target: smelt_mir::BlockId) -> bool {
+        let mut current = from;
+        let mut seen = BlockIdSet::default();
+        while current != target {
+            if !seen.insert(current) {
+                return false;
+            }
+            let Ok(block) = self.block(current) else {
+                return false;
+            };
+            match &block.terminator {
+                Some(Terminator::Goto(next)) if block.statements.is_empty() => current = *next,
+                _ => return false,
+            }
+        }
+        true
     }
 
     /// Emits the continuation reached after a nested loop exits.

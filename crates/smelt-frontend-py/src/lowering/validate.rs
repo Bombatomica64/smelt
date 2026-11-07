@@ -147,17 +147,6 @@ fn is_class_metadata_assignment(assign: &StmtAssign) -> bool {
     CLASS_METADATA_NAMES.contains(&target.id.as_str())
 }
 
-/// Return whether a raise statement is the simple `StopIteration` sentinel form.
-fn is_stop_iteration_raise(raise_stmt: &ruff_python_ast::StmtRaise) -> bool {
-    match raise_stmt.exc.as_deref() {
-        Some(Expr::Name(name)) => name.id.as_str() == "StopIteration",
-        Some(Expr::Call(call)) => {
-            matches!(call.func.as_ref(), Expr::Name(name) if name.id.as_str() == "StopIteration")
-        }
-        _ => false,
-    }
-}
-
 /// Derive a stable Python module name from a source path.
 fn module_name_from_path(path: &str) -> String {
     let source_path = Path::new(path);

@@ -498,7 +498,31 @@ impl FunctionEmitter<'_> {
                 "dict remove receiver must be a place operand",
             ));
         };
-        Ok({ let receiver = self.assignment_place_expr(dict_place)?; RustExpr::postfix_on(&receiver, format!("{receiver}.remove({}).is_some()", self.dict_key_reference_expr(key, *key_ty)?)) })
+        Ok({ let receiver = self.assignment_place_expr(dict_place)?; RustExpr::postfix_on(&receiver, format!("{receiver}.{}({}).is_some()", self.dict_remove_method(dict_ty, *key_ty), self.dict_key_reference_expr(key, *key_ty)?)) })
+    }
+
+    /// The method that removes one key from a dict of type `dict_ty` while
+    /// keeping the remaining entries in insertion order.
+    ///
+    /// `IndexMap::remove` is a `swap_remove`, which moves the last entry into
+    /// the hole; `shift_remove` keeps the order, so a key deleted and inserted
+    /// again iterates last, as in Python and JavaScript. `SmeltRecord` and
+    /// `SmeltJsMap` already keep order under their own `remove`.
+    pub(super) fn dict_remove_method(&self, dict_ty: TypeId, key_ty: TypeId) -> &'static str {
+        if matches!(self.mir.types.get(dict_ty), Some(Type::Dict(_, _)))
+            && dict_renders_as_index_map(self.mir, self.context.demand(), key_ty)
+        {
+            "shift_remove"
+        } else {
+            "remove"
+        }
+    }
+
+    /// Whether a string-keyed record may hold the runtime's `__smelt` marker
+    /// keys, which only the erased carrier ever writes: without the carrier a
+    /// record's keys are exactly the program's own keys.
+    fn records_may_hold_markers(&self) -> bool {
+        self.context.demand().has(Need::Unknown)
     }
 
     /// Converts a dictionary pop operation to Rust text.
@@ -537,14 +561,15 @@ impl FunctionEmitter<'_> {
         };
         let dict_text = self.local_mut_value(*local)?;
         let key_text = self.operand_expr(key)?;
+        let remove = self.dict_remove_method(dict_ty, *key_ty);
         if let Some(default_operand) = default {
             let default_text = self.operand_expr(default_operand)?;
             Ok(RustExpr::postfix_on(&dict_text, format!(
-                "{dict_text}.remove(&{key_text}).unwrap_or({default_text})"
+                "{dict_text}.{remove}(&{key_text}).unwrap_or({default_text})"
             )))
         } else {
             Ok(RustExpr::postfix_on(&dict_text, format!(
-                "{dict_text}.remove(&{key_text}).expect(\"dict pop missing key\")"
+                "{dict_text}.{remove}(&{key_text}).expect(\"dict pop missing key\")"
             )))
         }
     }
@@ -806,6 +831,14 @@ impl FunctionEmitter<'_> {
                 "dict copy destination must match the receiver dict type",
             ));
         }
+        // A shared dict's `clone` is another handle on the same container, so
+        // a copy collects its entries into a new one.
+        if let Some(Type::Dict(key_ty, _)) = self.mir.types.get(dict_ty)
+            && self.dict_uses_smelt_record(*key_ty)
+        {
+            let receiver = self.operand_borrow_expr(dict)?;
+            return Ok(RustExpr::postfix_on(&receiver, format!("{receiver}.iter().collect::<SmeltRecord<_, _>>()")));
+        }
         // The copy itself is the clone; reading by borrow keeps it at one.
         Ok({ let receiver = self.operand_borrow_expr(dict)?; RustExpr::postfix_on(&receiver, format!("{receiver}.clone()")) }.ending_in_clone())
     }
@@ -882,6 +915,22 @@ impl FunctionEmitter<'_> {
         ) {
             return Err(EmitError::new("dict projection receiver must be a dict"));
         }
+        // A record that holds no `__smelt` markers projects its own entries,
+        // whatever its key type.
+        if let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?)
+            && self.dict_uses_smelt_record(*key_ty)
+            && !self.records_may_hold_markers()
+        {
+            let projection = match op {
+                smelt_hir::DictProjectionOp::Keys | smelt_hir::DictProjectionOp::ForInKeys => Some("keys"),
+                smelt_hir::DictProjectionOp::Values => Some("values"),
+                smelt_hir::DictProjectionOp::Entries => Some("iter"),
+                _ => None,
+            };
+            if let Some(method) = projection {
+                return Ok(RustExpr::atom_on(&dict_text, format!("{dict_text}.{method}().collect::<Vec<_>>()")));
+            }
+        }
         match op {
             smelt_hir::DictProjectionOp::FromEntries => {
                 Err(EmitError::new("fromEntries receiver must be erased"))
@@ -905,7 +954,11 @@ impl FunctionEmitter<'_> {
                     // key branch below. A `SmeltJsMap` DOES carry the markers —
                     // the erased-object coercion copies them in verbatim — so the
                     // symbol-only filter used to leak an inherited key here.
-                    if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty) {
+                    if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
+                        && !self.records_may_hold_markers()
+                    {
+                        Ok(RustExpr::atom_on(&dict_text, format!("{dict_text}.keys().collect::<Vec<_>>()")))
+                    } else if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty) {
                         // A byte-backed host record's own keys are its element
                         // indices, not the storage keys the marker filter hides.
                         if self.dict_holds_erased_values(self.operand_ty(dict)?) {
@@ -973,7 +1026,11 @@ impl FunctionEmitter<'_> {
                     // The `SmeltRecord` / `SmeltJsMap` / plain-dict split the
                     // sibling `Keys` arm needs therefore does not apply here, so
                     // this is one branch rather than three identical ones.
-                    Ok(RustExpr::chain(format!("smelt_for_in_record_keys(&{dict_text})")))
+                    if self.records_may_hold_markers() {
+                        Ok(RustExpr::chain(format!("smelt_for_in_record_keys(&{dict_text})")))
+                    } else {
+                        Ok(RustExpr::atom_on(&dict_text, format!("{dict_text}.keys().collect::<Vec<_>>()")))
+                    }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     // `for...in` also walks the enumerable `__smelt_proto:`
                     // members, so it uses the prototype-chain helper rather than
@@ -1015,6 +1072,10 @@ impl FunctionEmitter<'_> {
                 };
                 if self.mir.types.get(*key_ty) == Some(&Type::String) {
                     if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
+                        && !self.records_may_hold_markers()
+                    {
+                        Ok(RustExpr::atom_on(&dict_text, format!("{dict_text}.values().collect::<Vec<_>>()")))
+                    } else if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
                     || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                         // A byte-backed view's values are its decoded elements, not
                         // its internal storage fields; see the `Keys` arm above.
@@ -1029,7 +1090,7 @@ impl FunctionEmitter<'_> {
                         )))
                     } else {
                         Ok(RustExpr::atom_on(&dict_text, format!(
-                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"{SMELT_SYMBOL}\") && !key.starts_with(\"{SMELT_PROTO}:\") && !key.starts_with(\"{SMELT_METHOD}:\") && key != \"{SMELT_CLASS}\").map(|(_, value)| value.clone()).collect::<Vec<_>>()"
+                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"{SMELT_SYMBOL}\") && !key.starts_with(\"{SMELT_PROTO}:\") && !key.starts_with(\"{SMELT_METHOD}:\") && *key != \"{SMELT_CLASS}\").map(|(_, value)| value.clone()).collect::<Vec<_>>()"
                         )))
                     }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
@@ -1049,6 +1110,10 @@ impl FunctionEmitter<'_> {
                 };
                 if self.mir.types.get(*key_ty) == Some(&Type::String) {
                     if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
+                        && !self.records_may_hold_markers()
+                    {
+                        Ok(RustExpr::atom_on(&dict_text, format!("{dict_text}.iter().collect::<Vec<_>>()")))
+                    } else if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
                     || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                         // A byte-backed view's entries pair its element indices with
                         // its decoded elements; see the `Keys` arm above.
@@ -1063,7 +1128,7 @@ impl FunctionEmitter<'_> {
                         )))
                     } else {
                         Ok(RustExpr::atom_on(&dict_text, format!(
-                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"{SMELT_SYMBOL}\") && !key.starts_with(\"{SMELT_PROTO}:\") && !key.starts_with(\"{SMELT_METHOD}:\") && key != \"{SMELT_CLASS}\").map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
+                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"{SMELT_SYMBOL}\") && !key.starts_with(\"{SMELT_PROTO}:\") && !key.starts_with(\"{SMELT_METHOD}:\") && *key != \"{SMELT_CLASS}\").map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
                         )))
                     }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {

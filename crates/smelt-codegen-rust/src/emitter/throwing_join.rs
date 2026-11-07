@@ -10,7 +10,9 @@
 //! the test `3^n` times — 616 MB of Rust for Hono's `utils/cookie.test.ts`.
 //!
 //! The rejoin point is the nearest common post-dominator of the two
-//! successors (`post_dominance`). When the surrounding emission region can
+//! successors over the paths that do not `throw` (`post_dominance`): a path
+//! that throws leaves the region through its own `return Err(..)`, so a
+//! handler whose unmatched case rethrows still rejoins after its `try`. When the surrounding emission region can
 //! end an arm there, each arm is emitted only up to it and the tail once after
 //! the `match`, exactly as a structured `if`/`else` is.
 
@@ -37,7 +39,7 @@ impl FunctionEmitter<'_> {
                 break;
             }
             normal_chain.push(block);
-            next = self.immediate_post_dominator(block);
+            next = self.immediate_post_dominator_past_throws(block);
         }
         let mut seen = Vec::new();
         let mut catch_next = Some(catch_block);
@@ -50,7 +52,7 @@ impl FunctionEmitter<'_> {
                 return None;
             }
             seen.push(block);
-            catch_next = self.immediate_post_dominator(block);
+            catch_next = self.immediate_post_dominator_past_throws(block);
         };
         // Blocks an arm must not reach except THROUGH the join: the region's
         // end, and (in a closure) every block already on the emission path.

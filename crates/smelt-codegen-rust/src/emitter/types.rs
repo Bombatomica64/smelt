@@ -322,20 +322,23 @@ impl FunctionEmitter<'_> {
                 let item = self.rust_type(*item, false, substitution)?;
                 Ok(RustType::composed(format!("{container}<{item}>"), [&item]))
             }
-            Type::Dict(key, value) if self.dict_uses_smelt_record(*key) => {
-                let value = self.rust_type(*value, false, substitution)?;
-                Ok(RustType::composed(self.carrier_format(format_args!("SmeltRecord<String, {value}>")), [&value]).on_carrier())
+            Type::Dict(key_ty, value_ty) if self.dict_uses_smelt_record(*key_ty) => {
+                let key = self.rust_type(*key_ty, false, substitution)?;
+                let value = self.rust_type(*value_ty, false, substitution)?;
+                Ok(RustType::composed(format!("SmeltRecord<{key}, {value}>"), [&key, &value]))
             }
             Type::Dict(key, value) if self.dict_uses_js_key_map(*key) => {
                 let key = self.rust_type(*key, false, substitution)?;
                 let value = self.rust_type(*value, false, substitution)?;
                 Ok(RustType::composed(self.carrier_format(format_args!("SmeltJsMap<{key}, {value}>")), [&key, &value]).on_carrier())
             }
+            // Insertion-ordered, as a Python dict and a JavaScript object are;
+            // see `dict_renders_as_index_map`.
             Type::Dict(key, value) => {
                 let key = self.rust_type(*key, false, substitution)?;
                 let value = self.rust_type(*value, false, substitution)?;
                 Ok(RustType::composed(
-                    format!("::std::collections::HashMap<{key}, {value}>"),
+                    format!("::indexmap::IndexMap<{key}, {value}>"),
                     [&key, &value],
                 ))
             }
@@ -513,6 +516,16 @@ impl FunctionEmitter<'_> {
             == Some(smelt_stdlib::StdlibClass::Headers)
         {
             return Ok(RustType::raw("SmeltHeaders"));
+        }
+        if self.stdlib_class_of_symbol(name)?
+            == Some(smelt_stdlib::StdlibClass::PyException)
+        {
+            return Ok(RustType::raw("SmeltPyException"));
+        }
+        if self.stdlib_class_of_symbol(name)?
+            == Some(smelt_stdlib::StdlibClass::PyExceptionArgs)
+        {
+            return Ok(RustType::raw("SmeltPyExceptionArgs"));
         }
         if self.stdlib_class_of_symbol(name)?
             == Some(smelt_stdlib::StdlibClass::UrlSearchParams)

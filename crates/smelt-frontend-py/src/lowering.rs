@@ -135,6 +135,14 @@ pub(crate) struct ModuleBuilder<'ctx> {
     /// Module-scope and class-body bindings, used to resolve what a
     /// decorator, base class or metaclass expression denotes.
     bindings: ModuleBindings,
+    /// User exception classes of this module, each with its chain: its own
+    /// name, then each base up to `BaseException`.
+    exception_classes: HashMap<String, Vec<String>>,
+    /// The caught-exception local of each enclosing `except` clause, innermost
+    /// last, which a bare `raise` re-raises.
+    handled_exceptions: Vec<smelt_hir::LocalId>,
+    /// Whether the module body awaits (`asyncio.run`), which makes it async.
+    module_awaits: bool,
 }
 
 /// What kind of body the lowering cursor is in.
@@ -338,6 +346,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             specialization,
             resolved_types: analysis.resolved_types,
             bindings: analysis.bindings,
+            exception_classes: HashMap::new(),
+            handled_exceptions: Vec::new(),
+            module_awaits: false,
         }
     }
 
@@ -391,6 +402,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             return Err(vec![SmeltError::specialization_required(span, name)]);
         }
         self.replay_specialization_output(&mut body);
+        self.collect_exception_classes(module);
 
         // Pass 1 — collect top-level function/class declarations so later
         // statements can reference them in calls. Each statement pass 1 takes
@@ -423,6 +435,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
             return Err(errors);
         }
 
+        if self.module_awaits {
+            hir_module.is_async = true;
+            // MIR requires an async body's await-point metadata.
+            body.finish_async();
+        }
         let body_id = self.ctx.krate.push_body(body);
         hir_module.body = Some(body_id);
         Ok(self.ctx.krate.push_module(hir_module))
@@ -450,6 +467,12 @@ impl ModuleBuilder<'_> {
                         Ok(item_ids) => hir_module.items.extend(item_ids),
                         Err(err) => errors.push(err),
                     }
+                }
+                true
+            }
+            Stmt::ClassDef(class) if self.exception_classes.contains_key(class.name.as_str()) => {
+                if let Err(err) = self.exception_class_def(class) {
+                    errors.push(err);
                 }
                 true
             }
@@ -511,6 +534,8 @@ include!("lowering/types.rs");
 include!("lowering/statement.rs");
 // Control-flow statement lowering helpers.
 include!("lowering/control_flow.rs");
+// Exception classes, `raise` and `try`/`except`.
+include!("lowering/exceptions.rs");
 // Match statement and block lowering helpers.
 include!("lowering/match.rs");
 // Literal and base expression lowering helpers.

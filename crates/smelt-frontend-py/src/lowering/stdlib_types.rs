@@ -40,6 +40,14 @@ impl ModuleBuilder<'_> {
             ));
         }
         let operand = self.expression(&call.arguments.args[0], body)?;
+        if op == PrimitiveCastOp::ToString
+            && !matches!(
+                self.ctx.krate.types.get(Self::expr_ty(body, operand)),
+                Some(Type::Bool | Type::Int | Type::Float | Type::String)
+            )
+        {
+            return self.python_text_expr(operand, false, self.span(call.range()), body).map(Some);
+        }
         if !matches!(
             self.ctx.krate.types.get(Self::expr_ty(body, operand)),
             Some(Type::Bool | Type::Int | Type::Float | Type::String)

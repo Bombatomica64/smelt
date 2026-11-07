@@ -1,6 +1,6 @@
 // `SmeltRecord`: a string-keyed record that keeps its JavaScript object identity.
 
-// @smelt:item SmeltRecord when unknown
+// @smelt:item SmeltRecord when record
 #[derive(Debug)]
 pub struct SmeltRecord<K, V> {
     id: usize,
@@ -13,14 +13,14 @@ pub struct SmeltRecord<K, V> {
 
 // @smelt:item-end
 
-// @smelt:item impl_Clone_for_SmeltRecord_K_V when unknown
+// @smelt:item impl_Clone_for_SmeltRecord_K_V when record
 impl<K, V> Clone for SmeltRecord<K, V> {
     fn clone(&self) -> Self { Self { id: self.id, store: self.store.clone() } }
 }
 
 // @smelt:item-end
 
-// @smelt:item impl_serde_Serialize_for_SmeltRecord_K_V when dep_serde_json & unknown
+// @smelt:item impl_serde_Serialize_for_SmeltRecord_K_V when dep_serde_json & record
 impl<K, V> serde::Serialize for SmeltRecord<K, V> where K: Eq + ::std::hash::Hash + Clone + serde::Serialize, V: serde::Serialize {
     /// Serialize record entries in JavaScript insertion order.
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -55,7 +55,7 @@ impl<'de, K, V> serde::Deserialize<'de> for SmeltRecord<K, V> where K: Eq + ::st
 
 // @smelt:item-end
 
-// @smelt:item SmeltOwnedOptionCloned when unknown
+// @smelt:item SmeltOwnedOptionCloned when record
 trait SmeltOwnedOptionCloned<T> {
     /// Return owned optional values unchanged when generated shared lookup code calls `.cloned()`.
     fn cloned(self) -> Option<T>;
@@ -103,7 +103,16 @@ pub trait SmeltPropertyKey {
 
 impl SmeltPropertyKey for str { fn smelt_array_index(&self) -> Option<u32> { smelt_canonical_array_index(self) } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(self.as_bytes()) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { smelt_field_fingerprint(self.as_bytes()) } #[inline] fn smelt_is_internal_key(&self) -> bool { self.starts_with("__smelt") } }
 impl SmeltPropertyKey for String { fn smelt_array_index(&self) -> Option<u32> { smelt_canonical_array_index(self) } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(self.as_bytes()) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { smelt_field_fingerprint(self.as_bytes()) } #[inline] fn smelt_is_internal_key(&self) -> bool { self.starts_with("__smelt") } }
+// @smelt:if js_key_order
+// @smelt:else
+//~ A Python dict keyed by `int` or `bool` is a record too. Neither spells a
+//~ JavaScript array index, and both hash their bytes the way a string key does.
+//= impl SmeltPropertyKey for i64 { fn smelt_array_index(&self) -> Option<u32> { None } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(&self.to_le_bytes()) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { smelt_field_fingerprint(&self.to_le_bytes()) } #[inline] fn smelt_is_internal_key(&self) -> bool { false } }
+//= impl SmeltPropertyKey for bool { fn smelt_array_index(&self) -> Option<u32> { None } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(&[u8::from(*self)]) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { smelt_field_fingerprint(&[u8::from(*self)]) } #[inline] fn smelt_is_internal_key(&self) -> bool { false } }
+// @smelt:end
 
+//~ In a Python program (`js_key_order` off) every key appends: a Python dict
+//~ keeps plain insertion order.
 /// Return the position a newly inserted key takes in a JavaScript own-key order.
 ///
 /// `entries` keeps its array-index keys as a sorted leading run, so the slot
@@ -111,9 +120,16 @@ impl SmeltPropertyKey for String { fn smelt_array_index(&self) -> Option<u32> { 
 /// the ascending slot inside it. A non-index key appends. Appending keys in
 /// ascending index order therefore stays linear overall, never quadratic.
 fn smelt_js_key_order_position<K: SmeltPropertyKey, V>(entries: &[SmeltFieldEntry<K, V>], key: &K) -> usize {
+// @smelt:if js_key_order
     let Some(index) = key.smelt_array_index() else { return entries.len() };
     let indexed = entries.partition_point(|entry| entry.key.smelt_array_index().is_some());
     entries[..indexed].partition_point(|entry| entry.key.smelt_array_index().is_some_and(|existing| existing < index))
+// @smelt:else
+    //~ A Python program's dicts keep plain insertion order: a key that spells
+    //~ an array index is not moved to the front, as JavaScript moves it.
+//=     let _ = key;
+//=     entries.len()
+// @smelt:end
 }
 
 impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V> SmeltRecord<K, V> {
@@ -136,6 +152,12 @@ impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V> SmeltRecord<K, V> 
     fn keys(&self) -> ::std::vec::IntoIter<K> { self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect::<Vec<_>>().into_iter() }
     fn values(&self) -> ::std::vec::IntoIter<V> where V: Clone { self.store.borrow().entries().iter().map(|entry| entry.value.clone()).collect::<Vec<_>>().into_iter() }
     fn extend<I: IntoIterator<Item = (K, V)>>(&self, iter: I) { for (key, value) in iter { self.insert(key, value); } }
+// @smelt:if js_key_order
+// @smelt:else
+    //~ Remove and return the last entry (Python `dict.popitem()`); only a
+    //~ Python program can ask for it.
+//=     fn pop_last(&self) -> Option<(K, V)> { let key = self.store.borrow().entries().last()?.key.clone(); let value = self.remove(&key)?; Some((key, value)) }
+// @smelt:end
     //~ The default is a CLOSURE, not a value. A JavaScript accumulator loop
     //~ (`groupBy`, `countBy`, `uniqBy`) calls this once per element and the key
     //~ is already present for all but the first, so a by-value default built an

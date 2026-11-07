@@ -60,6 +60,116 @@ impl FunctionEmitter<'_> {
         ))
     }
 
+    /// The mutable place a dict-mutating fallible op works on.
+    fn dict_receiver_text(&self, dict: &Operand) -> Result<RustExpr, EmitError> {
+        match dict {
+            Operand::Copy(smelt_mir::Place::Local(local)) | Operand::Move(smelt_mir::Place::Local(local)) => {
+                self.local_mut_value(*local)
+            }
+            _ => Err(EmitError::new("a dict pop needs a local receiver")),
+        }
+    }
+
+    /// Renders Python's `d.pop(k)` with no default: the value, or a raised
+    /// `KeyError` whose one argument is the key.
+    fn python_dict_pop_call(
+        &self,
+        dict: &Operand,
+        key: &Operand,
+    ) -> Result<(RenderedCall, TypeId), EmitError> {
+        let dict_ty = self.operand_ty(dict)?;
+        let Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
+            return Err(EmitError::new("dict pop receiver must be a dict"));
+        };
+        let dict_text = self.dict_receiver_text(dict)?;
+        let key_text = self.operand_expr(key)?;
+        let remove = self.dict_remove_method(dict_ty, *key_ty);
+        Ok((
+            RenderedCall::propagating(format!(
+                "{{ let smelt_key = {key_text}; {dict_text}.{remove}(&smelt_key).ok_or_else(|| smelt_py_key_error(&smelt_key)) }}"
+            )),
+            *value_ty,
+        ))
+    }
+
+    /// Renders Python's `d.popitem()`: the last-inserted `(key, value)` pair,
+    /// or a raised `KeyError` on an empty dict.
+    fn python_dict_popitem_call(&self, dict: &Operand) -> Result<(RenderedCall, TypeId), EmitError> {
+        let dict_ty = self.operand_ty(dict)?;
+        let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
+            return Err(EmitError::new("dict popitem receiver must be a dict"));
+        };
+        let pop = if self.dict_uses_smelt_record(*key_ty) { "pop_last" } else { "pop" };
+        let dict_text = self.dict_receiver_text(dict)?;
+        Ok((
+            RenderedCall::propagating(format!(
+                "{dict_text}.{pop}().ok_or_else(|| smelt_py_key_error(&\"popitem(): dictionary is empty\".to_owned()))"
+            )),
+            self.type_id(Type::Tuple(vec![*key_ty, *value_ty]))?,
+        ))
+    }
+
+    /// Renders Python's `xs[i]` on a list or a string: a negative index counts
+    /// from the end (a string's in code points), and an index past either end
+    /// raises `IndexError`.
+    fn python_sequence_read_call(
+        &self,
+        sequence: &Operand,
+        index: &Operand,
+    ) -> Result<(RenderedCall, TypeId), EmitError> {
+        let sequence_ty = self.operand_ty(sequence)?;
+        let index_text = self.operand_expr(index)?;
+        let sequence_text = self.operand_borrow_expr(sequence)?;
+        let position = "let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok()";
+        match self.mir.types.get(sequence_ty) {
+            Some(Type::List(item_ty)) => Ok((
+                RenderedCall::propagating(format!(
+                    "{{ let smelt_index: i64 = {index_text}; let smelt_list = &{sequence_text}; let smelt_items = smelt_list.borrow(); let smelt_len = smelt_items.len() as i64; {position}.and_then(|smelt_at| smelt_items.get(smelt_at).cloned()).ok_or_else(|| smelt_py_index_error(\"list index out of range\")) }}"
+                )),
+                *item_ty,
+            )),
+            Some(Type::String) => Ok((
+                RenderedCall::propagating(format!(
+                    "{{ let smelt_index: i64 = {index_text}; let smelt_text = &{sequence_text}; let smelt_len = smelt_text.chars().count() as i64; {position}.and_then(|smelt_at| smelt_text.chars().nth(smelt_at)).map(String::from).ok_or_else(|| smelt_py_index_error(\"string index out of range\")) }}"
+                )),
+                sequence_ty,
+            )),
+            _ => Err(EmitError::new("a Python sequence read needs a list or a string")),
+        }
+    }
+
+    /// Renders Python's `xs[start:end:step]` on a list or a string: the
+    /// elements (code points) at the positions `smelt_py_slice_positions`
+    /// picks.
+    fn python_step_slice_call(
+        &self,
+        sequence: &Operand,
+        start: Option<&Operand>,
+        end: Option<&Operand>,
+        step: &Operand,
+    ) -> Result<(RenderedCall, TypeId), EmitError> {
+        let sequence_ty = self.operand_ty(sequence)?;
+        let bound = |operand: Option<&Operand>| -> Result<String, EmitError> {
+            Ok(match operand {
+                Some(operand) => format!("Some({} as i64)", self.operand_expr(operand)?),
+                None => "None".to_owned(),
+            })
+        };
+        let (start_text, end_text) = (bound(start)?, bound(end)?);
+        let step_text = self.operand_expr(step)?;
+        let sequence_text = self.operand_borrow_expr(sequence)?;
+        let text = match self.mir.types.get(sequence_ty) {
+            Some(Type::List(_)) => format!(
+                "{{ let smelt_list = &{sequence_text}; let smelt_items = smelt_list.borrow(); smelt_py_slice_positions(smelt_items.len(), {start_text}, {end_text}, {step_text} as i64).map(|smelt_at| SmeltList::from(smelt_at.into_iter().filter_map(|index| smelt_items.get(index).cloned()).collect::<Vec<_>>())) }}"
+            ),
+            Some(Type::String) => format!(
+                "{{ let smelt_chars = {sequence_text}.chars().collect::<Vec<char>>(); smelt_py_slice_positions(smelt_chars.len(), {start_text}, {end_text}, {step_text} as i64).map(|smelt_at| smelt_at.into_iter().filter_map(|index| smelt_chars.get(index)).collect::<String>()) }}"
+            ),
+            _ => return Err(EmitError::new("a Python step slice needs a list or a string")),
+        };
+        Ok((RenderedCall::propagating(text), sequence_ty))
+    }
+
     /// Renders a Python division whose divisor is a nonzero constant.
     pub(super) fn python_division_expr(
         &self,
@@ -103,6 +213,12 @@ impl FunctionEmitter<'_> {
                     )),
                     *item_ty,
                 )
+            }
+            Rvalue::DictPop { dict, key, default: None } => self.python_dict_pop_call(dict, key)?,
+            Rvalue::DictPopItem { dict } => self.python_dict_popitem_call(dict)?,
+            Rvalue::PythonSequenceRead { sequence, index } => self.python_sequence_read_call(sequence, index)?,
+            Rvalue::PythonStepSlice { sequence, start, end, step } => {
+                self.python_step_slice_call(sequence, start.as_ref(), end.as_ref(), step)?
             }
             Rvalue::Base64Transcode { op, .. } => {
                 let value = args.first().ok_or_else(|| {

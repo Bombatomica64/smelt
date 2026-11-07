@@ -98,6 +98,7 @@ compiled = [
     "dep:http-body-util",
     "dep:hyper",
     "dep:hyper-util",
+    "dep:indexmap",
     "dep:md-5",
     "dep:num-bigint",
     "dep:num-integer",
@@ -131,6 +132,7 @@ http = { version = "1", optional = true }
 http-body-util = { version = "0.1", optional = true }
 hyper = { version = "1", features = ["server", "http1"], optional = true }
 hyper-util = { version = "0.1", features = ["tokio", "server"], optional = true }
+indexmap = { version = "2", optional = true }
 md-5 = { version = "0.10", optional = true }
 num-bigint = { version = "0.4", optional = true }
 num-integer = { version = "0.1", optional = true }

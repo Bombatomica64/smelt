@@ -258,6 +258,387 @@ impl<T: ::std::hash::Hash> ::std::hash::Hash for SmeltList<T> { fn hash<H: ::std
 impl<T> Default for SmeltList<T> { fn default() -> Self { Self::new(Vec::new()) } }
 impl<T: Clone> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Self { list.into_vec() } }
 
+use ::std::hash::Hash;
+
+#[derive(Default, Clone, Copy)]
+pub struct SmeltFieldHasher(u64);
+
+impl ::std::hash::Hasher for SmeltFieldHasher {
+    fn finish(&self) -> u64 {
+        let mut mixed = self.0;
+        mixed = (mixed ^ (mixed >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        mixed = (mixed ^ (mixed >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        mixed ^ (mixed >> 31)
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        const SMELT_FX_SEED: u64 = 0x51_7c_c1_b7_27_22_0a_95;
+        let mut hash = self.0;
+        let mut rest = bytes;
+        while rest.len() >= 8 {
+            let (head, tail) = rest.split_at(8);
+            let word = u64::from_le_bytes(head.try_into().unwrap_or([0; 8]));
+            hash = (hash.rotate_left(5) ^ word).wrapping_mul(SMELT_FX_SEED);
+            rest = tail;
+        }
+        if !rest.is_empty() {
+            let mut buf = [0_u8; 8];
+            buf[..rest.len()].copy_from_slice(rest);
+            let word = u64::from_le_bytes(buf);
+            hash = (hash.rotate_left(5) ^ word).wrapping_mul(SMELT_FX_SEED);
+        }
+        self.0 = hash;
+    }
+}
+
+/// The map behind a JavaScript object/record, keyed by property name.
+pub type SmeltFieldMap<K, V> = ::std::collections::HashMap<K, V, ::std::hash::BuildHasherDefault<SmeltFieldHasher>>;
+
+/// Hash a property key's bytes into a property store's key space.
+///
+/// Only the dictionary-sized path uses this; a record-sized store scans.
+/// Deliberately not routed through `Hash`/`SmeltFieldHasher`: `<str as Hash>::hash`
+/// makes TWO `Hasher::write` calls -- the bytes, then a `0xff` terminator that
+/// disambiguates concatenations -- and each rebuilds an 8-byte staging buffer.
+/// Property names are short, so this folds the length in directly (which serves
+/// the same disambiguating purpose) and takes the <=8-byte case, nearly every
+/// property name, as a single load and mix. No avalanche finalizer: the value
+/// only ever enters the `index` map, which re-hashes it through
+/// `SmeltFieldHasher`, and that finalizes.
+#[inline]
+fn smelt_field_hash_bytes(bytes: &[u8]) -> u64 {
+    const SMELT_FX_SEED: u64 = 0x51_7c_c1_b7_27_22_0a_95;
+    let mut hash = bytes.len() as u64;
+    let mut rest = bytes;
+    while rest.len() >= 8 {
+        let (head, tail) = rest.split_at(8);
+        let word = u64::from_le_bytes(head.try_into().unwrap_or([0; 8]));
+        hash = (hash.rotate_left(5) ^ word).wrapping_mul(SMELT_FX_SEED);
+        rest = tail;
+    }
+    if !rest.is_empty() {
+        let mut buf = [0_u8; 8];
+        buf[..rest.len()].copy_from_slice(rest);
+        let word = u64::from_le_bytes(buf);
+        hash = (hash.rotate_left(5) ^ word).wrapping_mul(SMELT_FX_SEED);
+    }
+    hash
+}
+
+/// A cheap same-length tie-break for a property key: length, first byte, last byte.
+///
+/// Equal keys MUST produce equal fingerprints, so every `SmeltPropertyKey`
+/// impl delegates here rather than computing its own -- a `String` entry and
+/// the `&str` a lookup borrows against it must agree or the lookup would
+/// report a present key absent. Unequal keys may collide; a fingerprint hit
+/// is always confirmed with full key equality.
+#[inline]
+fn smelt_field_fingerprint(bytes: &[u8]) -> u32 {
+    let first = bytes.first().copied().unwrap_or(0) as u32;
+    let last = bytes.last().copied().unwrap_or(0) as u32;
+    ((bytes.len() as u32) << 16) | (first << 8) | last
+}
+
+/// One property of a store: its key, its value, and the key's fingerprint.
+///
+/// `fingerprint` is derived from `key` at insert time and is never updated
+/// independently -- the key of an existing entry is never rewritten, only its
+/// value is -- so the two cannot drift apart.
+#[derive(Debug)]
+pub struct SmeltFieldEntry<K, V> {
+    fingerprint: u32,
+    key: K,
+    value: V,
+}
+
+/// Entries a property store scans linearly before it builds a hash index.
+///
+/// Set where an object stops looking like a record and starts looking like a
+/// dictionary: below it a length-first key scan beats hashing plus a probe,
+/// above it dictionary-shaped objects need their O(1) lookup back.
+const SMELT_FIELD_SCAN_LIMIT: usize = 12;
+
+/// The ordered property store behind a JavaScript object or record.
+///
+/// `entries` is held in JavaScript own-key order (array-index keys first, in
+/// ascending numeric order, then the remaining string keys in insertion
+/// order), so `keys()`/`iter()` read the order as a fact rather than
+/// re-deriving it. `index` maps a key hash to the FIRST entry position
+/// carrying it and exists ONLY while the store is larger than
+/// `SMELT_FIELD_SCAN_LIMIT` — a small store never hashes a key at all.
+#[derive(Debug)]
+pub struct SmeltFieldStore<K, V> {
+    entries: Vec<SmeltFieldEntry<K, V>>,
+    index: Option<SmeltFieldMap<u64, usize>>,
+    /// How many keys live in the runtime's internal `__smelt` namespace.
+    internal: u32,
+    /// The live typed value this store is an erased view of, if any (see `smelt_with_origin`).
+    origin: Option<Box<dyn ::std::any::Any>>,
+}
+
+impl<K, V> SmeltFieldStore<K, V> {
+    /// Build an empty store sized for `capacity` entries.
+    fn with_capacity(capacity: usize) -> Self { Self { entries: Vec::with_capacity(capacity), index: None, internal: 0, origin: None } }
+    #[inline]
+    fn len(&self) -> usize { self.entries.len() }
+    /// Borrow the key/value pairs in JavaScript own-key order.
+    #[inline]
+    fn entries(&self) -> &[SmeltFieldEntry<K, V>] { &self.entries }
+    /// Whether any key is in the internal `__smelt` namespace (markers, slots).
+    ///
+    /// Every marker probe (`smelt_object_has_host_marker`, the byte-buffer
+    /// marker, `for...in`'s regexp/error/arguments checks) asks about keys in
+    /// that namespace, and almost every object has none: a store that says so
+    /// answers all of them without scanning its entries once per marker.
+    #[inline]
+    fn has_internal_keys(&self) -> bool { self.internal != 0 }
+}
+
+impl<K, V> Default for SmeltFieldStore<K, V> {
+    fn default() -> Self { Self { entries: Vec::new(), index: None, internal: 0, origin: None } }
+}
+
+impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltFieldStore<K, V> {
+    /// Rebuild the hash index, or drop it when the store is small enough to scan.
+    fn reindex(&mut self) {
+        if self.entries.len() <= SMELT_FIELD_SCAN_LIMIT { self.index = None; return; }
+        let mut index: SmeltFieldMap<u64, usize> = SmeltFieldMap::with_capacity_and_hasher(self.entries.len(), ::std::default::Default::default());
+        for (position, entry) in self.entries.iter().enumerate() { index.entry(entry.key.smelt_key_hash()).or_insert(position); }
+        self.index = Some(index);
+    }
+    /// Return the entry position holding `key`, or `None`.
+    ///
+    /// A small store is SCANNED, comparing keys directly: `str` equality checks
+    /// the length first, so a handful of differently sized property names are
+    /// rejected without touching their bytes, and the key is never hashed. That
+    /// is the whole point — hashing a short key costs more than the scan it
+    /// would save. Two keys of the SAME length are the case that costs, so
+    /// each entry carries a `smelt_field_fingerprint` — length, first byte,
+    /// last byte — that is compared first and rejects such a key out of the
+    /// entries vector, without dereferencing its bytes. A fingerprint hit is
+    /// still confirmed with full key equality, so the answer is unchanged.
+    /// Past `SMELT_FIELD_SCAN_LIMIT` entries the store is a
+    /// dictionary rather than a record, and the hash index resolves the
+    /// position directly; a hash collision between two DISTINCT keys is
+    /// vanishingly unlikely but not impossible, so a failed key confirmation
+    /// falls back to the scan rather than reporting the key absent.
+    #[inline]
+    fn position<Q>(&self, key: &Q) -> Option<usize> where K: ::std::borrow::Borrow<Q>, Q: Eq + SmeltPropertyKey + ?Sized {
+        let fingerprint = key.smelt_key_fingerprint();
+        if let Some(index) = self.index.as_ref() {
+            let start = *index.get(&key.smelt_key_hash())?;
+            let entry = &self.entries[start];
+            if entry.fingerprint == fingerprint && entry.key.borrow() == key { return Some(start); }
+        }
+        self.entries.iter().position(|entry| entry.fingerprint == fingerprint && entry.key.borrow() == key)
+    }
+    #[inline]
+    fn get<Q>(&self, key: &Q) -> Option<&V> where K: ::std::borrow::Borrow<Q>, Q: Eq + SmeltPropertyKey + ?Sized {
+        self.position(key).map(|position| &self.entries[position].value)
+    }
+    fn get_mut<Q>(&mut self, key: &Q) -> Option<&mut V> where K: ::std::borrow::Borrow<Q>, Q: Eq + SmeltPropertyKey + ?Sized {
+        let position = self.position(key)?;
+        Some(&mut self.entries[position].value)
+    }
+    #[inline]
+    fn contains_key<Q>(&self, key: &Q) -> bool where K: ::std::borrow::Borrow<Q>, Q: Eq + SmeltPropertyKey + ?Sized {
+        self.position(key).is_some()
+    }
+    /// Remove `key`, returning its value; later positions shift, so reindex.
+    fn remove<Q>(&mut self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + SmeltPropertyKey + ?Sized {
+        let position = self.position(key)?;
+        let entry = self.entries.remove(position);
+        if entry.key.smelt_is_internal_key() { self.internal -= 1; }
+        let value = entry.value;
+        self.reindex();
+        Some(value)
+    }
+    /// Insert or overwrite `key`, keeping JavaScript own-key order.
+    ///
+    /// A new key almost always appends, which keeps the index valid with a
+    /// single added mapping; only an array-index key landing before an existing
+    /// entry shifts later positions and forces a rebuild.
+    fn insert(&mut self, key: K, value: V) -> Option<V> {
+        if let Some(position) = self.position(&key) { return Some(::std::mem::replace(&mut self.entries[position].value, value)); }
+        if key.smelt_is_internal_key() { self.internal += 1; }
+        let position = smelt_js_key_order_position(&self.entries, &key);
+        if position == self.entries.len() {
+            let hash = if self.index.is_some() { key.smelt_key_hash() } else { 0 };
+            let fingerprint = key.smelt_key_fingerprint();
+            self.entries.push(SmeltFieldEntry { fingerprint, key, value });
+            match self.index.as_mut() {
+                Some(index) => { index.entry(hash).or_insert(position); }
+                None => self.reindex(),
+            }
+        } else {
+            let fingerprint = key.smelt_key_fingerprint();
+            self.entries.insert(position, SmeltFieldEntry { fingerprint, key, value });
+            self.reindex();
+        }
+        None
+    }
+}
+
+/// A snapshot an erased view builds the first time its store is read.
+struct SmeltPendingFill<K, V> {
+    build: Box<dyn FnOnce() -> Vec<(K, V)>>,
+    insert: fn(&mut SmeltFieldStore<K, V>, Vec<(K, V)>),
+}
+
+/// The `RefCell` around a field store, building a pending snapshot on first use.
+///
+/// See `lazy_view` in the code generator: `borrow`/`borrow_mut` are the
+/// `RefCell` ones after materializing; `origin`/`origin_mut` skip it and reach
+/// nothing but the `origin` slot.
+pub struct SmeltStoreCell<K, V> {
+    cell: ::std::cell::RefCell<SmeltFieldStore<K, V>>,
+    pending: ::std::cell::Cell<Option<SmeltPendingFill<K, V>>>,
+}
+
+#[allow(dead_code)]
+impl<K, V> SmeltStoreCell<K, V> {
+    /// A cell over an already-populated store.
+    #[inline]
+    fn new(store: SmeltFieldStore<K, V>) -> Self { Self { cell: ::std::cell::RefCell::new(store), pending: ::std::cell::Cell::new(None) } }
+    /// A cell whose entries `build` produces on the first read or write.
+    fn lazy(store: SmeltFieldStore<K, V>, build: Box<dyn FnOnce() -> Vec<(K, V)>>, insert: fn(&mut SmeltFieldStore<K, V>, Vec<(K, V)>)) -> Self {
+        Self { cell: ::std::cell::RefCell::new(store), pending: ::std::cell::Cell::new(Some(SmeltPendingFill { build, insert })) }
+    }
+    /// Build the pending snapshot, if any, into the store.
+    #[inline]
+    fn materialize(&self) {
+        if let Some(fill) = self.pending.take() {
+            let entries = (fill.build)();
+            (fill.insert)(&mut self.cell.borrow_mut(), entries);
+        }
+    }
+    /// Borrow the store, building a pending snapshot first.
+    #[inline]
+    fn borrow(&self) -> ::std::cell::Ref<'_, SmeltFieldStore<K, V>> { self.materialize(); self.cell.borrow() }
+    /// Mutably borrow the store, building a pending snapshot first.
+    #[inline]
+    fn borrow_mut(&self) -> ::std::cell::RefMut<'_, SmeltFieldStore<K, V>> { self.materialize(); self.cell.borrow_mut() }
+    /// The origin slot, pending snapshot left unbuilt.
+    #[inline]
+    fn origin(&self) -> ::std::cell::Ref<'_, Option<Box<dyn ::std::any::Any>>> { ::std::cell::Ref::map(self.cell.borrow(), |store| &store.origin) }
+    /// The origin slot, mutably, pending snapshot left unbuilt.
+    #[inline]
+    fn origin_mut(&self) -> ::std::cell::RefMut<'_, Option<Box<dyn ::std::any::Any>>> { ::std::cell::RefMut::map(self.cell.borrow_mut(), |store| &mut store.origin) }
+}
+
+impl<K: ::std::fmt::Debug, V: ::std::fmt::Debug> ::std::fmt::Debug for SmeltStoreCell<K, V> {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { self.borrow().fmt(formatter) }
+}
+
+#[derive(Debug)]
+pub struct SmeltRecord<K, V> {
+    id: usize,
+    store: ::std::rc::Rc<SmeltStoreCell<K, V>>,
+}
+
+impl<K, V> Clone for SmeltRecord<K, V> {
+    fn clone(&self) -> Self { Self { id: self.id, store: self.store.clone() } }
+}
+
+trait SmeltOwnedOptionCloned<T> {
+    /// Return owned optional values unchanged when generated shared lookup code calls `.cloned()`.
+    fn cloned(self) -> Option<T>;
+}
+
+impl<T> SmeltOwnedOptionCloned<T> for Option<T> {
+    fn cloned(self) -> Option<T> { self }
+}
+
+/// Return the canonical array index a JavaScript property key spells.
+///
+/// Only the canonical decimal spelling of a `u32` below `u32::MAX` is an
+/// array index, so `"01"`, `"+1"`, `"1.0"` and `"-1"` stay string keys.
+fn smelt_canonical_array_index(key: &str) -> Option<u32> {
+    if key.is_empty() || key.len() > 10 { return None; }
+    if key.len() > 1 && key.starts_with('0') { return None; }
+    if !key.bytes().all(|byte| byte.is_ascii_digit()) { return None; }
+    key.parse::<u32>().ok().filter(|index| *index != u32::MAX)
+}
+
+/// A key of an erased JavaScript object or record.
+///
+/// Generated code only ever instantiates records with `String` keys; the
+/// trait exists so the shared ordering logic can ask a generic `K` whether
+/// it spells an array index without the containers hard-coding `String`,
+/// and so a lookup can hash a borrowed `str` key the same way the stored
+/// `String` was hashed. Both impls must agree on `smelt_key_hash` and on
+/// `smelt_key_fingerprint`, which is why both delegate to the shared
+/// `smelt_field_hash_bytes`/`smelt_field_fingerprint` functions.
+pub trait SmeltPropertyKey {
+    fn smelt_array_index(&self) -> Option<u32>;
+    fn smelt_key_hash(&self) -> u64;
+    /// The stored-entry tie-break for this key; see `smelt_field_fingerprint`.
+    fn smelt_key_fingerprint(&self) -> u32;
+    /// Whether this key is in the runtime's internal `__smelt` namespace.
+    fn smelt_is_internal_key(&self) -> bool;
+}
+
+impl SmeltPropertyKey for str { fn smelt_array_index(&self) -> Option<u32> { smelt_canonical_array_index(self) } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(self.as_bytes()) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { smelt_field_fingerprint(self.as_bytes()) } #[inline] fn smelt_is_internal_key(&self) -> bool { self.starts_with("__smelt") } }
+impl SmeltPropertyKey for String { fn smelt_array_index(&self) -> Option<u32> { smelt_canonical_array_index(self) } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(self.as_bytes()) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { smelt_field_fingerprint(self.as_bytes()) } #[inline] fn smelt_is_internal_key(&self) -> bool { self.starts_with("__smelt") } }
+
+/// Return the position a newly inserted key takes in a JavaScript own-key order.
+///
+/// `entries` keeps its array-index keys as a sorted leading run, so the slot
+/// is found with two binary searches: one for the end of that run, one for
+/// the ascending slot inside it. A non-index key appends. Appending keys in
+/// ascending index order therefore stays linear overall, never quadratic.
+fn smelt_js_key_order_position<K: SmeltPropertyKey, V>(entries: &[SmeltFieldEntry<K, V>], key: &K) -> usize {
+    let Some(index) = key.smelt_array_index() else { return entries.len() };
+    let indexed = entries.partition_point(|entry| entry.key.smelt_array_index().is_some());
+    entries[..indexed].partition_point(|entry| entry.key.smelt_array_index().is_some_and(|existing| existing < index))
+}
+
+impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V> SmeltRecord<K, V> {
+    fn new() -> Self { Self { id: smelt_next_object_id(), store: ::std::rc::Rc::new(SmeltStoreCell::new(SmeltFieldStore::default())) } }
+    fn with_id_from_entries<I: IntoIterator<Item = (K, V)>>(id: usize, iter: I) -> Self { let record = Self { id, store: ::std::rc::Rc::new(SmeltStoreCell::new(SmeltFieldStore::default())) }; record.extend(iter); record }
+    fn len(&self) -> usize { self.store.borrow().len() }
+    fn contains_key<Q>(&self, key: &Q) -> bool where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized { self.store.borrow().contains_key(key) }
+    fn insert(&self, key: K, value: V) -> Option<V> { self.store.borrow_mut().insert(key, value) }
+    fn remove<Q>(&self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized { self.store.borrow_mut().remove(key) }
+    fn get<Q>(&self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized, V: Clone { self.store.borrow().get(key).cloned() }
+    fn iter(&self) -> ::std::vec::IntoIter<(K, V)> where V: Clone { self.store.borrow().entries().iter().map(|entry| (entry.key.clone(), entry.value.clone())).collect::<Vec<_>>().into_iter() }
+    fn keys(&self) -> ::std::vec::IntoIter<K> { self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect::<Vec<_>>().into_iter() }
+    fn values(&self) -> ::std::vec::IntoIter<V> where V: Clone { self.store.borrow().entries().iter().map(|entry| entry.value.clone()).collect::<Vec<_>>().into_iter() }
+    fn extend<I: IntoIterator<Item = (K, V)>>(&self, iter: I) { for (key, value) in iter { self.insert(key, value); } }
+    fn entry_or_insert(&self, key: K, default: impl FnOnce() -> V) -> ::std::cell::RefMut<'_, V> {
+        let missing = !self.store.borrow().contains_key(&key);
+        if missing { self.insert(key.clone(), default()); }
+        ::std::cell::RefMut::map(self.store.borrow_mut(), move |store| store.get_mut(&key).expect("record entry just inserted"))
+    }
+}
+
+impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V> Default for SmeltRecord<K, V> {
+    fn default() -> Self { Self::new() }
+}
+
+impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V, const N: usize> From<[(K, V); N]> for SmeltRecord<K, V> {
+    fn from(values: [(K, V); N]) -> Self { values.into_iter().collect() }
+}
+
+impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V> ::std::iter::FromIterator<(K, V)> for SmeltRecord<K, V> {
+    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self { let record = Self::new(); record.extend(iter); record }
+}
+
+impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V: Clone> IntoIterator for SmeltRecord<K, V> {
+    type Item = (K, V);
+    type IntoIter = ::std::vec::IntoIter<(K, V)>;
+    fn into_iter(self) -> Self::IntoIter { self.iter() }
+}
+
+impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V: PartialEq> PartialEq for SmeltRecord<K, V> {
+    fn eq(&self, other: &Self) -> bool { let left = self.store.borrow(); let right = other.store.borrow(); left.len() == right.len() && left.entries().iter().all(|entry| right.get(&entry.key).is_some_and(|found| *found == entry.value)) }
+}
+
+impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V: Eq> Eq for SmeltRecord<K, V> {}
+
+impl<K, V> PartialEq<::std::collections::HashMap<K, V>> for SmeltRecord<K, V> where K: Eq + ::std::hash::Hash, V: PartialEq {
+    fn eq(&self, other: &::std::collections::HashMap<K, V>) -> bool { let store = self.store.borrow(); store.len() == other.len() && store.entries().iter().all(|entry| other.get(&entry.key).is_some_and(|found| *found == entry.value)) }
+}
+
 // @smelt:prelude-end — generated program below
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -310,7 +691,7 @@ fn main() {
     let _smelt_tmp_15: f64;
     let _smelt_tmp_16: f64;
     let _smelt_tmp_18: f64;
-    let _smelt_tmp_19: ::std::collections::HashMap<String, f64>;
+    let _smelt_tmp_19: SmeltRecord<String, f64>;
     let _smelt_tmp_20: f64;
     let _smelt_tmp_21: f64;
     let _smelt_tmp_22: f64;
@@ -321,7 +702,7 @@ fn main() {
     let _smelt_tmp_27: String;
     let _smelt_tmp_28: f64;
     let _smelt_tmp_29: String;
-    let _smelt_tmp_31: ::std::collections::HashMap<String, f64>;
+    let _smelt_tmp_31: SmeltRecord<String, f64>;
     let _smelt_tmp_32: Option<f64>;
     let _smelt_tmp_33: Option<f64>;
     let _smelt_tmp_34: f64;
@@ -361,7 +742,7 @@ fn main() {
     _smelt_tmp_16 = c.0.borrow().column.clone() as f64;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_15), smelt_console_number(_smelt_tmp_16)); };
     _smelt_tmp_18 = -4.0;
-    _smelt_tmp_19 = ::std::collections::HashMap::from([("x".to_owned(), 3.0), ("y".to_owned(), _smelt_tmp_18)]);
+    _smelt_tmp_19 = SmeltRecord::from([("x".to_owned(), 3.0), ("y".to_owned(), _smelt_tmp_18)]);
     p = { let smelt_record_map = _smelt_tmp_19.clone(); Pixel { x: smelt_record_map.get("x").cloned().map_or(0, |value| (value as i32)), y: smelt_record_map.get("y").cloned().map_or(0, |value| (value as i32)), alpha: smelt_record_map.get("alpha").cloned().map(|value| (value as i32)) } };
     _smelt_tmp_20 = p.x as f64;
     _smelt_tmp_21 = p.y as f64;
@@ -374,7 +755,7 @@ fn main() {
     _smelt_tmp_28 = p.y as f64;
     _smelt_tmp_29 = _smelt_tmp_27 + &smelt_number_to_string(_smelt_tmp_28);
     let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_22), _smelt_tmp_24, _smelt_tmp_29); };
-    _smelt_tmp_31 = ::std::collections::HashMap::from([("x".to_owned(), 1.0), ("y".to_owned(), 2.0), ("alpha".to_owned(), 255.0)]);
+    _smelt_tmp_31 = SmeltRecord::from([("x".to_owned(), 1.0), ("y".to_owned(), 2.0), ("alpha".to_owned(), 255.0)]);
     q = { let smelt_record_map = _smelt_tmp_31.clone(); Pixel { x: smelt_record_map.get("x").cloned().map_or(0, |value| (value as i32)), y: smelt_record_map.get("y").cloned().map_or(0, |value| (value as i32)), alpha: smelt_record_map.get("alpha").cloned().map(|value| (value as i32)) } };
     _smelt_tmp_32 = q.alpha.clone().map(f64::from);
     _smelt_tmp_33 = q.alpha.clone().map(f64::from);

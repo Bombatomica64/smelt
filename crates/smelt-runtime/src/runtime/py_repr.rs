@@ -12,6 +12,9 @@
 trait SmeltPyRepr {
     /// The text `repr(self)` answers.
     fn py_repr(&self) -> String;
+    /// The text `str(self)` answers, which is the `repr` for every value but a
+    /// string and an exception.
+    fn py_str(&self) -> String { self.py_repr() }
 }
 
 impl SmeltPyRepr for i64 { fn py_repr(&self) -> String { self.to_string() } }
@@ -22,6 +25,7 @@ impl<T: SmeltPyRepr> SmeltPyRepr for Option<T> { fn py_repr(&self) -> String { s
 impl<T: SmeltPyRepr + ?Sized> SmeltPyRepr for ::std::rc::Rc<T> { fn py_repr(&self) -> String { (**self).py_repr() } }
 
 impl SmeltPyRepr for String {
+    fn py_str(&self) -> String { self.clone() }
     fn py_repr(&self) -> String {
         //~ Single quotes, unless the text holds a `'` and no `"`.
         let quote = if self.contains('\'') && !self.contains('"') { '"' } else { '\'' };
@@ -51,11 +55,20 @@ fn smelt_py_repr_items<'a, T: SmeltPyRepr + 'a>(items: impl IntoIterator<Item = 
 
 impl<T: SmeltPyRepr> SmeltPyRepr for Vec<T> { fn py_repr(&self) -> String { format!("[{}]", smelt_py_repr_items(self)) } }
 
-impl<K: SmeltPyRepr, V: SmeltPyRepr> SmeltPyRepr for ::std::collections::HashMap<K, V> {
+// @smelt:if record
+impl<K: SmeltPyRepr + Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V: SmeltPyRepr + Clone> SmeltPyRepr for SmeltRecord<K, V> {
     fn py_repr(&self) -> String {
         format!("{{{}}}", self.iter().map(|(key, value)| format!("{}: {}", key.py_repr(), value.py_repr())).collect::<Vec<_>>().join(", "))
     }
 }
+// @smelt:end
+// @smelt:if dep_indexmap
+impl<K: SmeltPyRepr, V: SmeltPyRepr> SmeltPyRepr for ::indexmap::IndexMap<K, V> {
+    fn py_repr(&self) -> String {
+        format!("{{{}}}", self.iter().map(|(key, value)| format!("{}: {}", key.py_repr(), value.py_repr())).collect::<Vec<_>>().join(", "))
+    }
+}
+// @smelt:end
 
 /// A tuple's `repr`: `(a,)` for one element, `(a, b)` for more.
 macro_rules! smelt_py_repr_tuple {

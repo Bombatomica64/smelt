@@ -188,6 +188,10 @@ struct HelperTypes {
     /// Interned only for a crate that has a `try` with a `finally`, so a
     /// program without one does not gain an erased type it never uses.
     thrown_ty: Option<(TypeId, smelt_hir::Symbol)>,
+    /// The Python exception type a `finally` in a Python body holds its
+    /// rethrown value at; interned when `thrown_ty` is and the crate has a
+    /// Python module, so a TypeScript crate never names it.
+    py_thrown_ty: Option<TypeId>,
 }
 
 /// Lowers a HIR crate to MIR, or returns lowering errors if the conversion fails.
@@ -227,7 +231,7 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
         .map(|module| (module.source.file, module.source.path.clone()))
         .collect();
     let volatile = volatile_locals::VolatileLocals::of(krate);
-    let helpers = HelperTypes {
+    let shared_helpers = HelperTypes {
         none: mir.types.intern(Type::None),
         loop_index_ty: mir.types.intern(Type::Float),
         loop_bool_ty: mir.types.intern(Type::Bool),
@@ -251,6 +255,19 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
                     mir.symbols.intern(PENDING_THROWN_LOCAL),
                 )
             }),
+        py_thrown_ty: None,
+    };
+    let helpers = HelperTypes {
+        py_thrown_ty: (shared_helpers.thrown_ty.is_some()
+            && krate
+                .modules
+                .iter()
+                .any(|module| module.source.language == smelt_hir::Language::Python))
+        .then(|| {
+            let name = mir.symbols.intern(smelt_stdlib::PY_EXCEPTION_CLASS_NAME);
+            mir.types.intern(Type::Class { name, args: vec![] })
+        }),
+        ..shared_helpers
     };
     let mut errors = Vec::new();
 
@@ -597,6 +614,7 @@ fn lower_item_functions(
             loop_index_ty: helpers.loop_index_ty,
             loop_bool_ty: helpers.loop_bool_ty,
             thrown_ty: helpers.thrown_ty,
+            py_thrown_ty: helpers.py_thrown_ty,
             closure_base: mir.closures.len(),
         };
         // A source function named `main` is not the program's entry point:
@@ -672,6 +690,7 @@ fn lower_module_bodies(
             loop_index_ty: helpers.loop_index_ty,
             loop_bool_ty: helpers.loop_bool_ty,
             thrown_ty: helpers.thrown_ty,
+            py_thrown_ty: helpers.py_thrown_ty,
             closure_base: mir.closures.len(),
         };
         let spec = FunctionSpec {

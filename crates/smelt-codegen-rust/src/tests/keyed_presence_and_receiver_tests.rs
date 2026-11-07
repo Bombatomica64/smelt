@@ -83,7 +83,7 @@ console.log(ensure({}, '/a'));
     // guard and the write into one `entry(..).or_insert_with(..)`; a folded
     // guard left a `!(true)` that never inserted.
     assert!(
-        source.contains("routes.entry(path.clone()).or_insert_with("),
+        source.contains("routes.entry_or_insert(path.clone(), ||"),
         "{source}"
     );
     assert!(!source.contains("!(true)"), "{source}");
@@ -305,8 +305,8 @@ export function holeAt(xs: number[], index: number): boolean {
 ",
     );
     let program = program_part(&source);
-    assert!(program.contains(".get(&key.clone())).is_none()"), "{program}");
-    assert!(program.contains(".get(&key.clone())).is_some()"), "{program}");
+    assert!(program.contains(".get(&key)).is_none()"), "{program}");
+    assert!(program.contains(".get(&key)).is_some()"), "{program}");
     assert!(program.contains(".cloned()).is_none()"), "{program}");
     assert!(!program.contains("= false;"), "{program}");
 }

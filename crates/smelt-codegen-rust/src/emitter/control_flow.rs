@@ -474,7 +474,14 @@ impl FunctionEmitter<'_> {
         self.flow.record(Flow::FallsThrough);
         match terminator {
             Terminator::Goto(target) => {
-                if target.0 <= current.0 {
+                // A lower block id is only a hint of a back edge: lowering
+                // allocates a statement's join block before the blocks inside
+                // it, so the edge out of a `try` handler to the code after the
+                // `try` also points backwards by id. It is a back edge only
+                // when the target can come back to this block.
+                if target.0 <= current.0
+                    && self.block_can_reach(*target, current, &mut BlockIdSet::default())
+                {
                     if self.block_eventually_terminates(*target, &mut BlockIdSet::default())? {
                         return self.emit_block(self.block(*target)?, out);
                     }

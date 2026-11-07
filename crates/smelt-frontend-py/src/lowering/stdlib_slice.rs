@@ -109,12 +109,6 @@ impl ModuleBuilder<'_> {
         let Expr::Slice(slice) = sub.slice.as_ref() else {
             return Ok(None);
         };
-        if slice.step.is_some() {
-            return Err(SmeltError::unsupported(
-                self.span(slice.range),
-                "slice steps are not supported yet",
-            ));
-        }
         let receiver = self.expression(&sub.value, body)?;
         let receiver_ty = Self::expr_ty(body, receiver);
         let lower = slice
@@ -128,6 +122,20 @@ impl ModuleBuilder<'_> {
             .map(|expr| self.slice_bound(expr, body))
             .transpose()?;
 
+        if let Some(step_expr) = slice.step.as_deref() {
+            if !matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::List(_) | Type::String)) {
+                return Err(SmeltError::unsupported(
+                    self.span(slice.range),
+                    "a slice step needs a list or string receiver",
+                ));
+            }
+            let step = self.slice_bound(step_expr, body)?;
+            return Ok(Some(body.push_expr(HirExpr {
+                kind: ExprKind::PythonStepSlice { sequence: receiver, start: lower, end: upper, step },
+                ty: receiver_ty,
+                span: self.span(sub.range),
+            })));
+        }
         match self.ctx.krate.types.get(receiver_ty) {
             Some(Type::List(_)) => Ok(Some(body.push_expr(HirExpr {
                 kind: ExprKind::ListSlice {

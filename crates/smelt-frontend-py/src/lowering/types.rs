@@ -508,6 +508,10 @@ impl ModuleBuilder<'_> {
         if let Some(alias) = self.type_aliases.get(name) {
             return Ok(alias.ty);
         }
+        // Every exception class shares one type; see `py_exception_type`.
+        if self.exception_class_chain(name).is_some() {
+            return Ok(self.py_exception_type());
+        }
         match name {
             "int" => Ok(self.intern_type(Type::Int)),
             "float" => Ok(self.intern_type(Type::Float)),

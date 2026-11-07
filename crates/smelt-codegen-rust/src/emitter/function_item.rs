@@ -345,6 +345,7 @@ impl FunctionEmitter<'_> {
             }
             if matches!(self.mir.types.get(decl.ty), Some(Type::Class { .. }))
                 && !self.is_erased_class_type(decl.ty)
+                && !self.is_py_exception_type(decl.ty)
                 && (self.predeclared_local_needs_default(local)?
                     || self.local_may_be_used_before_assignment(local)?)
             {

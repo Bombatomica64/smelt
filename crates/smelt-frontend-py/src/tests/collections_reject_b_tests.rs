@@ -301,14 +301,17 @@ fn unsupported_slice_forms_reject() -> TestResult {
     let mut ctx = HirCtx::new();
     let step = lower_errors(
         py!(r"
-values: list[int] = [1, 2, 3]
-bad: list[int] = values[0:2:1]
+values: tuple[int, int, int] = (1, 2, 3)
+bad: tuple[int, int] = values[0:2:1]
 "),
         &mut ctx,
     )?;
+    // A list or string takes a step (sequence_indexing parity fixture); a
+    // tuple slice's type is computed from static bounds, so a step on it is
+    // still a named deferral.
     let error = first_error(&step)?;
     ensure(
-        error.message.contains("steps"),
+        error.message.contains("slice step needs a list or string"),
         "expected slice step diagnostic",
     )
 }
