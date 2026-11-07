@@ -250,9 +250,8 @@ result: int = sum_two(2, 3)
 
     assert!(source.contains("|closure_arg_0: i64, closure_arg_1: i64|"));
     assert!(source.contains("vec![closure_arg_0, closure_arg_1]"));
-    // An element READ never panics: a still-negative normalized index misses
-    // (`usize::MAX`) exactly like a positive out-of-range index does.
-    assert!(source.contains("usize::try_from(smelt_normalized).unwrap_or(usize::MAX)"));
+    // An element read past either end raises `IndexError`.
+    assert!(source.contains("smelt_py_list_read(&"));
     assert!(source.contains("(2, 3)"));
 }
 
@@ -277,9 +276,8 @@ def run() -> int:
     // A list-typed callback parameter is passed by shared reference; the body here
     // only reads `values[0]`/`values[1]`.
     assert!(source.contains("|closure_arg_0: &SmeltList<i64>|"));
-    // An element READ never panics: a still-negative normalized index misses
-    // (`usize::MAX`) exactly like a positive out-of-range index does.
-    assert!(source.contains("usize::try_from(smelt_normalized).unwrap_or(usize::MAX)"));
+    // An element read past either end raises `IndexError`.
+    assert!(source.contains("smelt_py_list_read(&"));
     assert!(source.contains("vec![2, 3, 4]"));
     assert!(
         source.contains(
@@ -306,7 +304,8 @@ chosen: int = pick(value=5, **extras)
 "#,
     );
 
-    assert!(source.contains("fn sum_values(values: SmeltList<i64>) -> i64"));
+    // `values[0]` can raise `IndexError`, so the function can fail.
+    assert!(source.contains("fn sum_values(values: SmeltList<i64>) -> Result<i64,"));
     assert!(source.contains("vec![2, 3, 4]"));
     // `kwargs["value"]` can raise `KeyError`, so the function can fail.
     assert!(source.contains("fn pick(kwargs: ::std::collections::HashMap<String, i64>) -> Result<i64,"));

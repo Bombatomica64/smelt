@@ -321,7 +321,7 @@ impl ModuleBuilder<'_> {
             if self.allows_unknown_index_access() {
                 let ty = self.erase_with(ErasureReason::ByName, "unresolved global");
                 return Ok(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::None),
+                    kind: ExprKind::UnmodeledImport,
                     ty,
                     span: self.span(start, end),
                 }));
@@ -1746,16 +1746,8 @@ impl ModuleBuilder<'_> {
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
             )
         {
-            let key_ty = self.ctx.krate.types.intern(Type::String);
-            let value_ty = self.erase_with(ErasureReason::ByName, "module global");
-            let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
-            let value = body.push_expr(Expr {
-                kind: ExprKind::DictLit(Vec::new()),
-                ty: dict_ty,
-                span: self.span(start, end),
-            });
             return Ok(body.push_expr(Expr {
-                kind: ExprKind::UnknownCast { value, target: ty },
+                kind: ExprKind::UnmodeledImport,
                 ty,
                 span: self.span(start, end),
             }));

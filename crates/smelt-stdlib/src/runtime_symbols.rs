@@ -434,6 +434,8 @@ pub mod markers {
     pub const SMELT_CALL: &str = "__smelt_call";
     /// `__smelt_class`.
     pub const SMELT_CLASS: &str = "__smelt_class";
+    /// `__smelt_unmodeled`.
+    pub const SMELT_UNMODELED: &str = "__smelt_unmodeled";
     /// `__smelt_class_value`.
     pub const SMELT_CLASS_VALUE: &str = "__smelt_class_value";
     /// `__smelt_crypto_key`.
@@ -598,6 +600,7 @@ pub mod markers {
         SMELT_BUILTIN_PROTOTYPE,
         SMELT_CALL,
         SMELT_CLASS,
+        SMELT_UNMODELED,
         SMELT_CLASS_VALUE,
         SMELT_CRYPTO_KEY,
         SMELT_DATABASESYNC,

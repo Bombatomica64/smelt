@@ -351,5 +351,11 @@ fn smelt_throw_builtin_error(class: &str, message: String) -> ! { smelt_panic_th
 ///
 /// `callee` is the source spelling of what was called (`x.map`), as V8 words it.
 fn smelt_throw_not_callable(callee: &str) -> ! { smelt_throw_builtin_error("TypeError", format!("{callee} is not a function")) }
+/// Throw JavaScript's `TypeError` for a call of a value that holds no function,
+/// where the source spelling of the callee is not known.
+fn smelt_value_not_callable() -> ! { smelt_throw_not_callable("value") }
+/// The value of an import with no model: every call answers it, and so does every
+/// member read (see `smelt_get_unknown_field`).
+fn smelt_unmodeled_import() -> SmeltUnknown { SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_unmodeled".to_owned(), SmeltUnknown::Bool(true)), ("__smelt_call".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(|_smelt_args: Vec<SmeltUnknown>| Ok(smelt_unmodeled_import()))))]))) }
 
 // @smelt:item-end

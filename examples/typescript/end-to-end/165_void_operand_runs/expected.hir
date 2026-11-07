@@ -47,13 +47,12 @@ module examples/typescript/end-to-end/165_void_operand_runs/input.ts (ModuleId(0
 interned types
   t0 = Float
   t1 = Unknown
-  t2 = String
-  t3 = Dict<String, Unknown>
-  t4 = None
-  t5 = fn() -> Float
-  t6 = Future<None>
-  t7 = async fn(String) -> Future<None>
-  t8 = fn() -> Float
-  t9 = Bool
-  t10 = List<String>
-  t11 = async fn(String) -> Future<None>
+  t2 = None
+  t3 = fn() -> Float
+  t4 = String
+  t5 = Future<None>
+  t6 = async fn(String) -> Future<None>
+  t7 = fn() -> Float
+  t8 = Bool
+  t9 = List<String>
+  t10 = async fn(String) -> Future<None>

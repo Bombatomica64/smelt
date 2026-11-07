@@ -364,6 +364,7 @@ fn smelt_get_array_field(values: &SmeltArray, field: &str) -> SmeltUnknown {
 /// Read a property off any erased value (JS `value.field`).
 fn smelt_get_unknown_field(value: &SmeltUnknown, field: &str) -> SmeltUnknown {
     match value {
+        SmeltUnknown::Object(object) if object.contains_key("__smelt_unmodeled") => value.clone(),
         //~ A marker-bearing host record resolves its MODELED MEMBERS first.
         //~ `smelt_host_method` answers `None` for a record with an own key of
         //~ that name, so an own property still wins as JavaScript's own-property

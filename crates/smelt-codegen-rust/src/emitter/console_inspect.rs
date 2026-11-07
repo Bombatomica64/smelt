@@ -78,6 +78,7 @@ impl FunctionEmitter<'_> {
                 | Type::JsMap(_, _)
                 | Type::Tuple(_)
                 | Type::Class { .. }
+                | Type::Unknown
                 | Type::Union(_),
             ) => true,
             Some(Type::Optional(inner)) => {

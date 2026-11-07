@@ -3217,11 +3217,11 @@ impl FunctionEmitter<'_> {
                 ),
             ))
         } else if absent == AbsentSpelling::Undefined
-            && matches!(
-                self.mir.types.get(ty),
-                Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))
-            )
-            && self.type_mentions_any(ty, &self.current_function_type_params())
+            && (matches!(self.mir.types.get(ty), Some(Type::TypeParam { .. }))
+                || matches!(
+                    self.mir.types.get(ty),
+                    Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))
+                ) && self.type_mentions_any(ty, &self.current_function_type_params()))
         {
             // A container of a Rust generic has no `SmeltInspect` impl: its
             // elements print through the erased carrier their bound provides.

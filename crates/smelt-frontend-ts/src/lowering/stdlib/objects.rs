@@ -140,7 +140,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let op = match (object.name.as_str(), member.property.name.as_str()) {
-            ("Object", "keys") => DictProjectionOp::Keys,
+            ("Object", "keys" | "getOwnPropertyNames") => DictProjectionOp::Keys,
             ("Object", "values") => DictProjectionOp::Values,
             ("Object", "entries") => DictProjectionOp::Entries,
             ("Reflect", "ownKeys") => DictProjectionOp::OwnKeys,
@@ -983,8 +983,10 @@ impl ModuleBuilder<'_> {
             return self.object_has_own_expr(call, body, dict, key);
         }
         if let Expression::Identifier(object) = &member.object
-            && object.name == "Object"
-            && member.property.name == "hasOwn"
+            && matches!(
+                (object.name.as_str(), member.property.name.as_str()),
+                ("Object", "hasOwn") | ("Reflect", "has")
+            )
         {
             let [dict_argument, key_argument] = call.arguments.as_slice() else {
                 return Err(SmeltError::unsupported(

@@ -1591,7 +1591,7 @@ fn smelt_function_value_property(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknow
 /// `@@toStringTag`-bearing `name` becomes the tag, matching `[object JSON]` /
 /// `[object Math]`). Class instances and unmarked records are plain
 /// `[object Object]`, exactly like JavaScript objects without a custom tag.
-fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String { match value { SmeltUnknown::Null => "[object Null]".to_owned(), SmeltUnknown::Undefined => "[object Undefined]".to_owned(), SmeltUnknown::Bool(_) => "[object Boolean]".to_owned(), SmeltUnknown::Number(_) => "[object Number]".to_owned(), SmeltUnknown::String(_) => "[object String]".to_owned(), SmeltUnknown::Symbol(_) => "[object Symbol]".to_owned(), SmeltUnknown::Array(_) => "[object Array]".to_owned(), SmeltUnknown::Function(_) => "[object Function]".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned(), SmeltUnknown::Object(map) => { if let Some(SmeltUnknown::String(tag)) = map.get("__smelt_symbol_to_string_tag") { return format!("[object {tag}]"); } if map.contains_key("__smelt_date") { return "[object Date]".to_owned(); } if map.contains_key("__smelt_regexp") { return "[object RegExp]".to_owned(); } if map.contains_key("__smelt_error") { return "[object Error]".to_owned(); } if map.contains_key("__smelt_global_object") { return "[object global]".to_owned(); } if map.contains_key("__smelt_map") { return "[object Map]".to_owned(); } if map.contains_key("__smelt_set") { return "[object Set]".to_owned(); } if map.contains_key("__smelt_arguments") { return "[object Arguments]".to_owned(); } if map.contains_key("__smelt_abortcontroller") { return "[object AbortController]".to_owned(); } if map.contains_key("__smelt_abortsignal") { return "[object AbortSignal]".to_owned(); } if map.contains_key("__smelt_arraybuffer") { return "[object ArrayBuffer]".to_owned(); } if map.contains_key("__smelt_sharedarraybuffer") { return "[object SharedArrayBuffer]".to_owned(); } if map.contains_key("__smelt_int8array") { return "[object Int8Array]".to_owned(); } if map.contains_key("__smelt_uint8array") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_uint8clampedarray") { return "[object Uint8ClampedArray]".to_owned(); } if map.contains_key("__smelt_int16array") { return "[object Int16Array]".to_owned(); } if map.contains_key("__smelt_uint16array") { return "[object Uint16Array]".to_owned(); } if map.contains_key("__smelt_int32array") { return "[object Int32Array]".to_owned(); } if map.contains_key("__smelt_uint32array") { return "[object Uint32Array]".to_owned(); } if map.contains_key("__smelt_float32array") { return "[object Float32Array]".to_owned(); } if map.contains_key("__smelt_float64array") { return "[object Float64Array]".to_owned(); } if map.contains_key("__smelt_bigint64array") { return "[object BigInt64Array]".to_owned(); } if map.contains_key("__smelt_biguint64array") { return "[object BigUint64Array]".to_owned(); } if map.contains_key("__smelt_buffer") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_dataview") { return "[object DataView]".to_owned(); } if map.contains_key("__smelt_weakmap") { return "[object WeakMap]".to_owned(); } if map.contains_key("__smelt_weakset") { return "[object WeakSet]".to_owned(); } if map.contains_key("__smelt_file") { return "[object File]".to_owned(); } if map.contains_key("__smelt_blob") { return "[object Blob]".to_owned(); } if map.contains_key("__smelt_headers") { return "[object Headers]".to_owned(); } if map.contains_key("__smelt_urlsearchparams") { return "[object URLSearchParams]".to_owned(); } if map.contains_key("__smelt_url") { return "[object URL]".to_owned(); } if map.contains_key("__smelt_crypto_key") { return "[object CryptoKey]".to_owned(); } if map.contains_key("__smelt_request") { return "[object Request]".to_owned(); } if map.contains_key("__smelt_response") { return "[object Response]".to_owned(); } if map.contains_key("__smelt_textencoder") { return "[object TextEncoder]".to_owned(); } if map.contains_key("__smelt_textdecoder") { return "[object TextDecoder]".to_owned(); } if map.contains_key("__smelt_eventemitter") { return "[object EventEmitter]".to_owned(); } if map.contains_key("__smelt_httpserver") { return "[object Server]".to_owned(); } if map.contains_key("__smelt_incomingmessage") { return "[object IncomingMessage]".to_owned(); } if map.contains_key("__smelt_serverresponse") { return "[object ServerResponse]".to_owned(); } if map.contains_key("__smelt_formdata") { return "[object FormData]".to_owned(); } if map.contains_key("__smelt_databasesync") { return "[object DatabaseSync]".to_owned(); } if map.contains_key("__smelt_statementsync") { return "[object StatementSync]".to_owned(); } if map.contains_key("__smelt_readablestream") { return "[object ReadableStream]".to_owned(); } if map.contains_key("__smelt_domexception") { return "[object DOMException]".to_owned(); } if map.contains_key("__smelt_intl_collator") { return "[object Intl.Collator]".to_owned(); } if map.contains_key("__smelt_intl_displaynames") { return "[object Intl.DisplayNames]".to_owned(); } if map.contains_key("__smelt_intl_durationformat") { return "[object Intl.DurationFormat]".to_owned(); } if map.contains_key("__smelt_intl_listformat") { return "[object Intl.ListFormat]".to_owned(); } if map.contains_key("__smelt_intl_locale") { return "[object Intl.Locale]".to_owned(); } if map.contains_key("__smelt_intl_numberformat") { return "[object Intl.NumberFormat]".to_owned(); } if map.contains_key("__smelt_intl_pluralrules") { return "[object Intl.PluralRules]".to_owned(); } if map.contains_key("__smelt_intl_segmenter") { return "[object Intl.Segmenter]".to_owned(); } if map.contains_key("__smelt_number") { return "[object Number]".to_owned(); } if map.contains_key("__smelt_boolean") { return "[object Boolean]".to_owned(); } if map.contains_key("__smelt_string") { return "[object String]".to_owned(); } if map.contains_key("__smelt_symbol") { return "[object Symbol]".to_owned(); } if map.contains_key("__smelt_builtin_namespace") { if let Some(SmeltUnknown::String(name)) = map.get("name") { return format!("[object {name}]"); } } "[object Object]".to_owned() } } }
+fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String { match value { SmeltUnknown::Null => "[object Null]".to_owned(), SmeltUnknown::Undefined => "[object Undefined]".to_owned(), SmeltUnknown::Bool(_) => "[object Boolean]".to_owned(), SmeltUnknown::Number(_) => "[object Number]".to_owned(), SmeltUnknown::String(_) => "[object String]".to_owned(), SmeltUnknown::Symbol(_) => "[object Symbol]".to_owned(), SmeltUnknown::Array(_) => "[object Array]".to_owned(), SmeltUnknown::Function(_) => "[object Function]".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned(), SmeltUnknown::Object(map) => { if map.contains_key("__smelt_unmodeled") { return "[object Unmodeled]".to_owned(); } if let Some(SmeltUnknown::String(tag)) = map.get("__smelt_symbol_to_string_tag") { return format!("[object {tag}]"); } if map.contains_key("__smelt_date") { return "[object Date]".to_owned(); } if map.contains_key("__smelt_regexp") { return "[object RegExp]".to_owned(); } if map.contains_key("__smelt_error") { return "[object Error]".to_owned(); } if map.contains_key("__smelt_global_object") { return "[object global]".to_owned(); } if map.contains_key("__smelt_map") { return "[object Map]".to_owned(); } if map.contains_key("__smelt_set") { return "[object Set]".to_owned(); } if map.contains_key("__smelt_arguments") { return "[object Arguments]".to_owned(); } if map.contains_key("__smelt_abortcontroller") { return "[object AbortController]".to_owned(); } if map.contains_key("__smelt_abortsignal") { return "[object AbortSignal]".to_owned(); } if map.contains_key("__smelt_arraybuffer") { return "[object ArrayBuffer]".to_owned(); } if map.contains_key("__smelt_sharedarraybuffer") { return "[object SharedArrayBuffer]".to_owned(); } if map.contains_key("__smelt_int8array") { return "[object Int8Array]".to_owned(); } if map.contains_key("__smelt_uint8array") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_uint8clampedarray") { return "[object Uint8ClampedArray]".to_owned(); } if map.contains_key("__smelt_int16array") { return "[object Int16Array]".to_owned(); } if map.contains_key("__smelt_uint16array") { return "[object Uint16Array]".to_owned(); } if map.contains_key("__smelt_int32array") { return "[object Int32Array]".to_owned(); } if map.contains_key("__smelt_uint32array") { return "[object Uint32Array]".to_owned(); } if map.contains_key("__smelt_float32array") { return "[object Float32Array]".to_owned(); } if map.contains_key("__smelt_float64array") { return "[object Float64Array]".to_owned(); } if map.contains_key("__smelt_bigint64array") { return "[object BigInt64Array]".to_owned(); } if map.contains_key("__smelt_biguint64array") { return "[object BigUint64Array]".to_owned(); } if map.contains_key("__smelt_buffer") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_dataview") { return "[object DataView]".to_owned(); } if map.contains_key("__smelt_weakmap") { return "[object WeakMap]".to_owned(); } if map.contains_key("__smelt_weakset") { return "[object WeakSet]".to_owned(); } if map.contains_key("__smelt_file") { return "[object File]".to_owned(); } if map.contains_key("__smelt_blob") { return "[object Blob]".to_owned(); } if map.contains_key("__smelt_headers") { return "[object Headers]".to_owned(); } if map.contains_key("__smelt_urlsearchparams") { return "[object URLSearchParams]".to_owned(); } if map.contains_key("__smelt_url") { return "[object URL]".to_owned(); } if map.contains_key("__smelt_crypto_key") { return "[object CryptoKey]".to_owned(); } if map.contains_key("__smelt_request") { return "[object Request]".to_owned(); } if map.contains_key("__smelt_response") { return "[object Response]".to_owned(); } if map.contains_key("__smelt_textencoder") { return "[object TextEncoder]".to_owned(); } if map.contains_key("__smelt_textdecoder") { return "[object TextDecoder]".to_owned(); } if map.contains_key("__smelt_eventemitter") { return "[object EventEmitter]".to_owned(); } if map.contains_key("__smelt_httpserver") { return "[object Server]".to_owned(); } if map.contains_key("__smelt_incomingmessage") { return "[object IncomingMessage]".to_owned(); } if map.contains_key("__smelt_serverresponse") { return "[object ServerResponse]".to_owned(); } if map.contains_key("__smelt_formdata") { return "[object FormData]".to_owned(); } if map.contains_key("__smelt_databasesync") { return "[object DatabaseSync]".to_owned(); } if map.contains_key("__smelt_statementsync") { return "[object StatementSync]".to_owned(); } if map.contains_key("__smelt_readablestream") { return "[object ReadableStream]".to_owned(); } if map.contains_key("__smelt_domexception") { return "[object DOMException]".to_owned(); } if map.contains_key("__smelt_intl_collator") { return "[object Intl.Collator]".to_owned(); } if map.contains_key("__smelt_intl_displaynames") { return "[object Intl.DisplayNames]".to_owned(); } if map.contains_key("__smelt_intl_durationformat") { return "[object Intl.DurationFormat]".to_owned(); } if map.contains_key("__smelt_intl_listformat") { return "[object Intl.ListFormat]".to_owned(); } if map.contains_key("__smelt_intl_locale") { return "[object Intl.Locale]".to_owned(); } if map.contains_key("__smelt_intl_numberformat") { return "[object Intl.NumberFormat]".to_owned(); } if map.contains_key("__smelt_intl_pluralrules") { return "[object Intl.PluralRules]".to_owned(); } if map.contains_key("__smelt_intl_segmenter") { return "[object Intl.Segmenter]".to_owned(); } if map.contains_key("__smelt_number") { return "[object Number]".to_owned(); } if map.contains_key("__smelt_boolean") { return "[object Boolean]".to_owned(); } if map.contains_key("__smelt_string") { return "[object String]".to_owned(); } if map.contains_key("__smelt_symbol") { return "[object Symbol]".to_owned(); } if map.contains_key("__smelt_builtin_namespace") { if let Some(SmeltUnknown::String(name)) = map.get("name") { return format!("[object {name}]"); } } "[object Object]".to_owned() } } }
 
 impl PartialEq for SmeltObject { fn eq(&self, other: &Self) -> bool { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_eq(self, other, &mut smelt_seen) } }
 impl Eq for SmeltObject {}
@@ -2560,6 +2560,12 @@ fn smelt_throw_builtin_error(class: &str, message: String) -> ! { smelt_panic_th
 ///
 /// `callee` is the source spelling of what was called (`x.map`), as V8 words it.
 fn smelt_throw_not_callable(callee: &str) -> ! { smelt_throw_builtin_error("TypeError", format!("{callee} is not a function")) }
+/// Throw JavaScript's `TypeError` for a call of a value that holds no function,
+/// where the source spelling of the callee is not known.
+fn smelt_value_not_callable() -> ! { smelt_throw_not_callable("value") }
+/// The value of an import with no model: every call answers it, and so does every
+/// member read (see `smelt_get_unknown_field`).
+fn smelt_unmodeled_import() -> SmeltUnknown { SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_unmodeled".to_owned(), SmeltUnknown::Bool(true)), ("__smelt_call".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(|_smelt_args: Vec<SmeltUnknown>| Ok(smelt_unmodeled_import()))))]))) }
 
 /// Read a property off an erased JavaScript array (`arr.k` / `arr[k]`).
 fn smelt_get_array_field(values: &SmeltArray, field: &str) -> SmeltUnknown {
@@ -2571,6 +2577,7 @@ fn smelt_get_array_field(values: &SmeltArray, field: &str) -> SmeltUnknown {
 /// Read a property off any erased value (JS `value.field`).
 fn smelt_get_unknown_field(value: &SmeltUnknown, field: &str) -> SmeltUnknown {
     match value {
+        SmeltUnknown::Object(object) if object.contains_key("__smelt_unmodeled") => value.clone(),
         SmeltUnknown::Object(map) => match smelt_host_method(map, field).unwrap_or_else(|| smelt_get_object_field(map, field)) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
         SmeltUnknown::Array(values) => smelt_get_array_field(values, field),
         SmeltUnknown::String(marker) if &**marker == "__smelt_proto:object" => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined),
@@ -3582,11 +3589,11 @@ impl SmeltFromUnknown for SmeltMatch {
 // @smelt:prelude-end — generated program below
 
 #[derive(Clone)]
-pub enum SmeltUnion10 {
+pub enum SmeltUnion9 {
     M0(String),
     M1(SmeltList<String>),
 }
-impl IntoSmeltUnknown for SmeltUnion10 {
+impl IntoSmeltUnknown for SmeltUnion9 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         match self {
             Self::M0(value) => SmeltUnknown::String(value.into()),
@@ -3594,30 +3601,30 @@ impl IntoSmeltUnknown for SmeltUnion10 {
         }
     }
 }
-impl SmeltUnion10 {
+impl SmeltUnion9 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
         if matches!(value, SmeltUnknown::String(_)) { return Self::M0(match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }); }
         Self::M1({ let smelt_src = value.clone().into_smelt_unknown(); match smelt_src { SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltList::new(Vec::new()), SmeltUnknown::Array(values) => { let smelt_list_id = values.id; let smelt_list = SmeltList::with_id(smelt_list_id, values.into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()); smelt_array_props_adopt(smelt_list_id, &smelt_list.storage()); smelt_list }, SmeltUnknown::String(value) => SmeltList::new(value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>()), SmeltUnknown::Object(value) => if let Some(smelt_bytes) = smelt_host_buffer_elements(&SmeltUnknown::Object(value.clone())) { SmeltList::new(smelt_bytes.into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else if let Some(smelt_args) = smelt_arguments_elements(&value) { SmeltList::new(smelt_args.into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(pairs)) = value.get("__smelt_map") { SmeltList::new(pairs.into_vec().into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(members)) = value.get("__smelt_set") { SmeltList::new(members.into_vec().into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else { match value.get("__smelt_symbol_iterator") { Some(SmeltUnknown::Function(iterator)) => SmeltList::new(smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()), _ => panic!("unknown is not iterable") } }, _ => panic!("unknown is not iterable") } })
     }
 }
-impl PartialEq for SmeltUnion10 {
+impl PartialEq for SmeltUnion9 {
     fn eq(&self, other: &Self) -> bool {
         self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()
     }
 }
-impl SmeltFromUnknown for SmeltUnion10 {
+impl SmeltFromUnknown for SmeltUnion9 {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }
 }
-impl SmeltJsKeyEq for SmeltUnion10 {
+impl SmeltJsKeyEq for SmeltUnion9 {
     fn same_js_key(&self, other: &Self) -> bool { self.clone().into_smelt_unknown().same_js_key(&other.clone().into_smelt_unknown()) }
     fn js_key_hash(&self) -> Option<u64> { self.clone().into_smelt_unknown().js_key_hash() }
 }
-impl ::std::fmt::Debug for SmeltUnion10 {
+impl ::std::fmt::Debug for SmeltUnion9 {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)
     }
 }
-impl Default for SmeltUnion10 {
+impl Default for SmeltUnion9 {
     fn default() -> Self {
         Self::M0(String::new())
     }
@@ -3640,15 +3647,15 @@ fn smelt_global_init__seen__5() -> SmeltList<String> {
 fn main() {
     let a: (String, String, bool);
     let b: (String, String, bool);
-    let collect: ::std::rc::Rc<dyn Fn(bool) -> SmeltRecord<String, SmeltUnion10>>;
+    let collect: ::std::rc::Rc<dyn Fn(bool) -> SmeltRecord<String, SmeltUnion9>>;
     let _smelt_tmp_8: String;
     let _smelt_tmp_9: String;
     let _smelt_tmp_10: SmeltList<String>;
     let _smelt_tmp_11: String;
-    let _smelt_tmp_13: ::std::rc::Rc<dyn Fn(bool) -> SmeltRecord<String, SmeltUnion10>>;
-    let _smelt_tmp_14: SmeltRecord<String, SmeltUnion10>;
+    let _smelt_tmp_13: ::std::rc::Rc<dyn Fn(bool) -> SmeltRecord<String, SmeltUnion9>>;
+    let _smelt_tmp_14: SmeltRecord<String, SmeltUnion9>;
     let _smelt_tmp_15: String;
-    let _smelt_tmp_16: SmeltRecord<String, SmeltUnion10>;
+    let _smelt_tmp_16: SmeltRecord<String, SmeltUnion9>;
     let _smelt_tmp_17: String;
     SMELT_GLOBAL_CACHE_0.with(|_| ());
     SMELT_GLOBAL_SEEN_1.with(|_| ());
@@ -3676,9 +3683,9 @@ fn main() {
     let mut _smelt_tmp_21: SmeltList<String>;
     let mut _smelt_tmp_22: SmeltList<String>;
     let mut _smelt_tmp_23: f64;
-    let mut _smelt_tmp_24: Option<SmeltUnion10>;
+    let mut _smelt_tmp_24: Option<SmeltUnion9>;
     let mut _smelt_tmp_25: bool;
-    let mut results: SmeltRecord<String, SmeltUnion10> = SmeltRecord::from([]);
+    let mut results: SmeltRecord<String, SmeltUnion9> = SmeltRecord::from([]);
     let _smelt_tmp_8: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["name".to_owned(), "hey".to_owned()]; smelt_list_items }));
     let _smelt_tmp_9: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["name".to_owned(), "ho".to_owned()]; smelt_list_items }));
     let _smelt_tmp_10: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["x".to_owned(), "1".to_owned()]; smelt_list_items }));
@@ -3692,9 +3699,9 @@ fn main() {
     name = ({ let smelt_len = __smelt_for_item.clone().len() as i64; let smelt_index = 0.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| __smelt_for_item.clone().borrow().get(index).cloned());
     value = ({ let smelt_len = __smelt_for_item.clone().len() as i64; let smelt_index = 1.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| __smelt_for_item.clone().borrow().get(index).cloned());
     if closure_arg_0 {
-    _smelt_tmp_17 = match results.get(&name.clone().map_or(String::new(), |value| value.clone())).unwrap_or(SmeltUnion10::M0(String::new())).clone().into_smelt_unknown() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true };
+    _smelt_tmp_17 = match results.get(&name.clone().map_or(String::new(), |value| value.clone())).unwrap_or(SmeltUnion9::M0(String::new())).clone().into_smelt_unknown() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true };
     if _smelt_tmp_17 {
-    _smelt_tmp_19 = matches!(results.get(&name.clone().map_or(String::new(), |value| value.clone())).unwrap_or(SmeltUnion10::M0(String::new())), SmeltUnion10::M1(_));
+    _smelt_tmp_19 = matches!(results.get(&name.clone().map_or(String::new(), |value| value.clone())).unwrap_or(SmeltUnion9::M0(String::new())), SmeltUnion9::M1(_));
     _smelt_tmp_18 = _smelt_tmp_19;
     } else {
     _smelt_tmp_18 = false;
@@ -3702,18 +3709,18 @@ fn main() {
     _smelt_tmp_20 = !(_smelt_tmp_18);
     if _smelt_tmp_20 {
     _smelt_tmp_21 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
-    results.insert(name.clone().map_or(String::new(), |value| value.clone()), SmeltUnion10::M1(_smelt_tmp_21.clone()));
+    results.insert(name.clone().map_or(String::new(), |value| value.clone()), SmeltUnion9::M1(_smelt_tmp_21.clone()));
     } else {
     }
-    _smelt_tmp_22 = Into::<SmeltList<_>>::into(match results.get(&name.clone().map_or(String::new(), |value| value.clone())).unwrap_or(SmeltUnion10::M0(String::new())) { SmeltUnion10::M1(value) => value, _ => unreachable!("union guard selected an excluded member") });
+    _smelt_tmp_22 = Into::<SmeltList<_>>::into(match results.get(&name.clone().map_or(String::new(), |value| value.clone())).unwrap_or(SmeltUnion9::M0(String::new())) { SmeltUnion9::M1(value) => value, _ => unreachable!("union guard selected an excluded member") });
     _smelt_tmp_23 = { let smelt_push_item = value.clone().unwrap_or_else(|| String::new()); _smelt_tmp_22.borrow_mut().push(smelt_push_item); _smelt_tmp_22.len() as f64 };
-    results.insert(name.clone().map_or(String::new(), |value| value.clone()), SmeltUnion10::M1(_smelt_tmp_22.clone()));
+    results.insert(name.clone().map_or(String::new(), |value| value.clone()), SmeltUnion9::M1(_smelt_tmp_22.clone()));
     } else {
     _smelt_tmp_24 = results.clone().get(&name.clone().map_or(String::new(), |value| value.clone()));
     _smelt_tmp_25 = _smelt_tmp_24.clone().is_none();
     if _smelt_tmp_25 {
     __smelt_logical_value_6 = value.clone();
-    results.insert(name.clone().map_or(String::new(), |value| value.clone()), __smelt_logical_value_6.clone().clone().map_or(SmeltUnion10::M0(String::new()), |value| SmeltUnion10::M0(value)));
+    results.insert(name.clone().map_or(String::new(), |value| value.clone()), __smelt_logical_value_6.clone().clone().map_or(SmeltUnion9::M0(String::new()), |value| SmeltUnion9::M0(value)));
     } else {
     }
     }

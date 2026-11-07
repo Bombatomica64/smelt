@@ -3466,7 +3466,9 @@ impl FunctionEmitter<'_> {
                     let length = function
                         .required_params
                         .unwrap_or_else(|| function.rest.unwrap_or(function.params.len()));
-                    let default_callback = self.default_value(target)?;
+                    // Reading a value that holds no function is legal; only calling
+                    // it throws, so the adapter answers a callable that does.
+                    let default_callback = "SmeltErasedFunction { callback: ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| smelt_value_not_callable()), length: 0.0, object: None }";
                     return Ok(self.carrier_format(format_args!(
                         "{{ let smelt_value = {smelt_owned_text}; let smelt_function = match smelt_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"{SMELT_CALL}\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ SmeltErasedFunction {{ callback: ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| (smelt_function)(smelt_args).unwrap_or_else(|error| smelt_panic_throw(error))), length: {length}.0, object: match smelt_value {{ SmeltUnknown::Object(object) => Some(object), _ => None }} }} }} else {{ {default_callback} }} }}"
                     )));
@@ -3524,7 +3526,11 @@ impl FunctionEmitter<'_> {
                 } else {
                     converted_return_text
                 };
-                let default_callback = self.default_value(target)?;
+                // Reading a value that holds no function is legal; only calling it
+                // throws, so the adapter answers a callable that does.
+                let default_callback = format!(
+                    "{{ let smelt_default_callback: {target_text} = ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ smelt_value_not_callable() }}); smelt_default_callback }}"
+                );
                 // A callable OBJECT whose `__smelt_call` is the erasure of a
                 // typed callable restores that callable, and the object is then
                 // recorded against the restored callback so erasing it again

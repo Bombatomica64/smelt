@@ -133,10 +133,9 @@ impl FunctionEmitter<'_> {
     /// differ only in how they materialize that expression (an explicit
     /// `vec![...]` for `ClosureCall`, a pre-flattened list for
     /// `ClosureCallSpread`), so it is the single parameterized hole in the shared
-    /// snippet. `not_callable` decides what a non-callable callee does (see
-    /// [`Self::prototype_method_not_callable`]): `Some(spelling)` throws
-    /// `TypeError: <spelling> is not a function`, `None` keeps the erased call
-    /// ABI's historical `SmeltUnknown::Null` answer.
+    /// snippet. A non-callable callee throws `TypeError`; `not_callable` is its
+    /// source spelling when one is known (see
+    /// [`Self::prototype_method_not_callable`]).
     pub(super) fn dynamic_callable_dispatch_text(
         &self,
         callee_text: &str,
@@ -150,7 +149,7 @@ impl FunctionEmitter<'_> {
         self.carrier_format(format_args!(
             "{{ let smelt_function_value = {callee_text}; let smelt_call_args: Vec<SmeltUnknown> = Into::into({args_expr}); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"{SMELT_CALL}\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| smelt_panic_throw(error)) }} else {{ {fallback} }} }}",
             fallback = not_callable.map_or_else(
-                || self.carrier_text("SmeltUnknown::Null"),
+                || "smelt_value_not_callable()".to_owned(),
                 |description| format!("smelt_throw_not_callable({description:?})")
             ),
         ))
@@ -165,14 +164,9 @@ impl FunctionEmitter<'_> {
     /// that is the behaviour the runtime resolution exists to provide, and the
     /// read answers a callable whenever JavaScript would.
     ///
-    /// Every other erased callee keeps the erased call ABI's `SmeltUnknown::Null`
-    /// fallback (`None`). That fallback is wrong in JavaScript terms, but it
-    /// currently masks callee shapes the lowering does not yet reproduce
-    /// faithfully (a captured callback resolved to the wrong local, a function
-    /// stored in an erased record that is not re-registered as callable), and
-    /// making those throw fails working programs until each is fixed at its
-    /// source. The rule is by callee SHAPE, not by name alone: the chain must end
-    /// in a field read of a table method.
+    /// Every other erased callee answers `None` and throws the same `TypeError`
+    /// without a spelling, from the dispatch. The rule is by callee SHAPE, not by
+    /// name alone: the chain must end in a field read of a table method.
     ///
     /// JavaScript names the callee the way the source wrote it. MIR keeps no
     /// expression text, but the callee of an erased method call is a compiler
@@ -1480,6 +1474,7 @@ impl FunctionEmitter<'_> {
                 self.instance_of_value_text(value, target)
             }
             Rvalue::Construct { callee, args } => self.construct_text(callee, args, dest_ty),
+            Rvalue::ConstructLike { value, args } => self.construct_like_text(value, args, dest_ty),
             Rvalue::UnknownIs {
                 value: unknown_value,
                 kind,
@@ -2437,6 +2432,10 @@ impl FunctionEmitter<'_> {
             Rvalue::BlobOp { op, blob, args } => self.blob_op_text(*op, blob, args, dest_ty),
             Rvalue::HostConstruct { class_name, args } => {
                 self.host_construct_text(class_name, args, dest_ty)
+            }
+            Rvalue::UnmodeledImport => {
+                let unknown_ty = self.type_id(Type::Unknown)?;
+                self.value_at_type_text(&self.carrier_text("smelt_unmodeled_import()"), unknown_ty, dest_ty, &self.render_scope())
             }
             Rvalue::BuiltinNamespace { name } => self.builtin_namespace_text(name, dest_ty),
             Rvalue::ArgumentsObject { fixed, rest } => {

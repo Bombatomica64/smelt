@@ -82,6 +82,4 @@ interned types
   t6 = fn(String) -> Float
   t7 = Ticker
   t8 = Labeller
-  t9 = Unknown
-  t10 = Dict<String, Unknown>
-  t11 = Sizer
+  t9 = Sizer

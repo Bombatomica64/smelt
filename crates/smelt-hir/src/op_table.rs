@@ -235,6 +235,17 @@ macro_rules! op_group_transcribed {
             }
                 needs(Construct)
                 => (format!("construct {callee}({})", args.join(", ")));
+            /// JavaScript `new value.constructor(args)` on an erased `value`: a new
+            /// object of the kind `value` is, an array for an array, whose
+            /// constructor Smelt need not hold as a value.
+            ConstructLike {
+                /// The value whose constructor is read.
+                value: one,
+                /// The spelled constructor arguments.
+                args: many,
+            }
+                needs(Construct)
+                => (format!("construct_like {value}({})", args.join(", ")));
             /// Call a closure value with a runtime argument vector from spread syntax.
             ClosureCallSpread {
                 /// Closure value to call.
@@ -1997,6 +2008,14 @@ macro_rules! op_group_transcribed {
                 name: [String],
             }
                 => (format!("builtin_namespace {name}"));
+            /// The value of an import or global Smelt has no model for.
+            ///
+            /// Nothing is known of it, so it stands in for itself: every member
+            /// read and every call answers it. Any other value that holds no
+            /// function throws `TypeError` when called.
+            UnmodeledImport
+                needs(Unknown)
+                => ("unmodeled_import".to_owned());
             /// The JavaScript `arguments` object of the enclosing non-arrow function,
             /// built from that function's own parameters.
             ///

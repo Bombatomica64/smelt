@@ -124,6 +124,18 @@ fn local_class_static_self_read() -> TestResult {
     verify_node_parity("local_class_static_self_read")
 }
 
+/// Calling what a value does not hold throws `TypeError`; reading it does not.
+#[test]
+fn call_of_what_a_value_lacks() -> TestResult {
+    verify_node_parity("call_of_what_a_value_lacks")
+}
+
+/// `new value.constructor()` builds the value's kind, and prints as one.
+#[test]
+fn construct_through_constructor() -> TestResult {
+    verify_node_parity("construct_through_constructor")
+}
+
 /// A parameter does not hide a module constant from other functions.
 #[test]
 fn parameter_shadows_module_const() -> TestResult {

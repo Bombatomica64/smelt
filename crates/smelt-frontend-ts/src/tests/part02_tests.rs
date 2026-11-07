@@ -2066,7 +2066,7 @@ function clone<T extends object>(value: T): T {
     ensure!(body
         .exprs
         .iter()
-        .any(|expr| matches!(expr.kind, ExprKind::Construct { .. })));
+        .any(|expr| matches!(expr.kind, ExprKind::ConstructLike { .. })));
     ensure!(!body
         .exprs
         .iter()

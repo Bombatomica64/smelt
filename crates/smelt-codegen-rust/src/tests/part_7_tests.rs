@@ -12878,7 +12878,7 @@ last_value: int = values[-1]
     );
 
     assert!(
-        source.contains("let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }"),
+        source.contains("smelt_py_list_read(&") && source.contains("if index < 0 { index.saturating_add("),
         "a Python element read must still count a negative index from the end:\n{source}"
     );
 }
@@ -13503,7 +13503,7 @@ const v = check(new Ok());
     // The dynamic call ABI is fallible, so erasing also infected the signature
     // with a `Result`. Static dispatch cannot throw.
     assert!(
-        check_body.starts_with("r: SmeltUnion5) -> bool"),
+        check_body.starts_with("r: SmeltUnion") && check_body.contains(") -> bool {"),
         "static dispatch must not wrap the return type in `Result`:\n{source}"
     );
 }
