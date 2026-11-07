@@ -727,7 +727,8 @@ jobs:
           python3 -c "
           import json
           rows = json.load(open('hono-blockers.json'))
-          print(f'hono blockers: {len(rows)}')
+          blockers = [row for row in rows if row['category'] != 'type-check']
+          print(f'hono blockers: {len(blockers)}; checker diagnostics: {len(rows) - len(blockers)}')
           "
 
       - name: Transpile Hono to Rust + compile the generated crate (regression gate)

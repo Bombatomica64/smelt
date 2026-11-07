@@ -63,6 +63,13 @@ pub enum Command {
         /// (`all` for every reason). Repeatable; overrides `[erasure]`.
         #[arg(long = "erasure", value_name = "REASON=LEVEL")]
         erasure: Vec<String>,
+
+        /// Fail when the TypeScript checker reports an error. Off by default:
+        /// the checker sees only the dependency closure, so a project without
+        /// `@types/node` or with ambient test globals gets errors its real
+        /// `tsc` setup does not.
+        #[arg(long)]
+        deny_type_errors: bool,
     },
     /// Scaffold a new smelt project (not implemented yet)
     New {

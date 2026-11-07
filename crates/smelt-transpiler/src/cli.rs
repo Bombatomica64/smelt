@@ -124,19 +124,22 @@ pub fn run() -> CliResult<()> {
             })?;
             report::finish_gated(&outcome, output.as_deref(), fail_on_regression)?;
         }
-        Command::Check { message_format, define, erasure } => {
+        Command::Check { message_format, define, erasure, deny_type_errors } => {
             let mut config = load_config(&manifest_path)?;
             config.extend_defines(define.values);
             let settings = erasure::ErasureSettings::new(config.erasure(), &erasure)?;
             match message_format {
                 MessageFormat::Human => {
-                    pipeline::check_manifest(&config, &manifest_path, &settings)?;
+                    pipeline::check_manifest(&config, &manifest_path, &settings, deny_type_errors)?;
                 }
                 MessageFormat::Json => {
                     let diagnostics = ManifestLowering::for_manifest(&config, &manifest_path)?
                         .diagnostics(Some(&settings))?;
                     let mut stdout = io::stdout().lock();
                     writeln!(stdout, "{}", serde_json::to_string_pretty(&diagnostics)?)?;
+                    if deny_type_errors {
+                        crate::ts_facts::fail_on_type_errors(&diagnostics)?;
+                    }
                 }
             }
         }

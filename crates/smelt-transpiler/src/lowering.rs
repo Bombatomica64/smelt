@@ -138,10 +138,18 @@ impl ManifestLowering {
 
     /// Lowers every source into one crate; the first file that fails stops it.
     pub(crate) fn lower(self) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
+        self.lower_checked().map(|(lowered, _)| lowered)
+    }
+
+    /// [`Self::lower`], also answering what the TypeScript checker reported.
+    pub(crate) fn lower_checked(
+        self,
+    ) -> Result<(LoweredCrate, Vec<ManifestDiagnostic>), Box<dyn std::error::Error>> {
         timing::measure("manifest.frontend_lower", || {
             let ordered = self.sources.iter().collect::<Vec<_>>();
-            let ts_facts = crate::ts_facts::analyze_sources(&ordered);
-            let inputs = ModuleInputs { specialization: &self.specialization, ts_facts: ts_facts.as_ref() };
+            let ts_check = crate::ts_facts::analyze_sources(&ordered);
+            ts_check.report_failure();
+            let inputs = ModuleInputs { specialization: &self.specialization, ts_facts: ts_check.facts.as_ref() };
             let seed = ManifestSeed::scan(&ordered, &self.module_names, self.outside_crate.clone());
             let mut lowering = SeededLowering::new(seed).predeclare(&ordered, &self.file_ids)?;
             let mut modules = Vec::new();
@@ -160,7 +168,7 @@ impl ManifestLowering {
                 Some(index) => modules.into_iter().skip(index).take(1).collect(),
                 None => modules,
             };
-            Ok((lowering.into_crate(), modules))
+            Ok(((lowering.into_crate(), modules), ts_check.diagnostics(&ordered)))
         })
     }
 
@@ -171,17 +179,19 @@ impl ManifestLowering {
     /// modules still resolve. A frontend panic is reported as an `internal`
     /// diagnostic and stops the pass, since the shared crate cannot be recovered.
     ///
-    /// With `erasure` settings, every frontend erasure they mark `warn`/`deny` is
-    /// appended as an `erasure` diagnostic carrying its severity; `None` (the
-    /// probe) reports lowering blockers only.
+    /// With `erasure` settings (`smelt check`), every frontend erasure they mark
+    /// `warn`/`deny` is appended as an `erasure` diagnostic carrying its severity,
+    /// and the TypeScript checker's report as `type-check` diagnostics; `None`
+    /// (the probe) reports lowering blockers only.
     pub(crate) fn diagnostics(
         self,
         erasure: Option<&crate::erasure::ErasureSettings>,
     ) -> Result<Vec<ManifestDiagnostic>, Box<dyn std::error::Error>> {
         let _quiet = QuietPanics::install();
         let ordered = self.sources.iter().collect::<Vec<_>>();
-        let ts_facts = crate::ts_facts::analyze_sources(&ordered);
-        let inputs = ModuleInputs { specialization: &self.specialization, ts_facts: ts_facts.as_ref() };
+        let ts_check = crate::ts_facts::analyze_sources(&ordered);
+        ts_check.report_failure();
+        let inputs = ModuleInputs { specialization: &self.specialization, ts_facts: ts_check.facts.as_ref() };
         let seed = ManifestSeed::scan(&ordered, &self.module_names, self.outside_crate.clone());
         let mut lowering =
             RecoverableLowering::new(SeededLowering::new(seed).predeclare(&ordered, &self.file_ids)?);
@@ -209,6 +219,9 @@ impl ManifestLowering {
         // A poisoned crate has no erasure records worth reading.
         if let (Some(settings), Some(krate)) = (erasure, lowering.krate()) {
             diagnostics.extend(erasure_diagnostics(krate, &self.project_dir, settings));
+        }
+        if erasure.is_some() {
+            diagnostics.extend(ts_check.diagnostics(&ordered));
         }
         Ok(diagnostics)
     }
@@ -264,13 +277,14 @@ pub(crate) struct ManifestDiagnostic {
     pub(crate) severity: Option<Severity>,
 }
 
-/// Severity of an erasure diagnostic, serialized as `warning` / `error`.
+/// Severity of an erasure or type-check diagnostic, serialized as `warning` /
+/// `error`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Severity {
-    /// The erasure reason is set to `warn`.
+    /// The erasure reason is set to `warn`, or the checker warned.
     Warning,
-    /// The erasure reason is set to `deny`.
+    /// The erasure reason is set to `deny`, or the checker found an error.
     Error,
 }
 
@@ -607,7 +621,7 @@ pub(crate) fn manifest_diagnostics(
 ///
 /// The column counts UTF-8 bytes from the line start. Returns `None` for an
 /// offset past the end of `source` (a span from synthesized code).
-fn source_line_column(source: &str, offset: u32) -> Option<(u32, u32)> {
+pub(crate) fn source_line_column(source: &str, offset: u32) -> Option<(u32, u32)> {
     smelt_hir::line_col(source, offset)
 }
 

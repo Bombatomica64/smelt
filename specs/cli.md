@@ -69,6 +69,10 @@ Stop on the first failing phase; report errors and exit 1.
 
 Steps 1–4 from `build`. No MIR, no codegen, no emit. Exit 0 if all phases pass.
 
+TypeScript sources are also type-checked by the embedded TypeScript 7 checker (the `ts7` feature), and its errors and warnings are printed as `warning[ts-check]: <file>:<line>:<col>: TSnnnn: <message>`, or as `type-check` rows with `--message-format json`. They do not change the exit status unless `--deny-type-errors` is given: the checker sees only the dependency closure, so a project without `@types/node`, or with ambient test globals, gets errors its own `tsc` setup does not. `smelt build` lowers with the same checker's facts and reports none of its diagnostics.
+
+When the checker fails to run, lowering proceeds on annotations alone, which changes the output's types, so every command warns on stderr. `SMELT_TS7=0` turns the checker off on purpose, to compare a run with and without its facts.
+
 ### `smelt dump-hir <file>`
 
 Run the check pipeline only on `<file>` (ignoring entries), produce its HIR, pretty-print to stdout via `smelt_hir::pretty::print`. Useful for debugging frontends.
@@ -134,7 +138,7 @@ Telemetry: none. Ever.
 ## Current Gaps (state of the code → what's missing)
 
 - `smelt new` and `smelt clean` are still unimplemented in `main.rs`.
-- `checker.rs` shells out to `tsc` and `oxlint` via `npx`; the spec mandates `tsgo` and `oxclint` (the canonical fast-path tools). Migration pending.
+- `smelt-frontend-ts`'s `checker.rs` shells out to `tsc` and `oxlint` via `npx` and has no caller; type errors come from the embedded checker (see `smelt check`).
 - No call to `smelt-hir`, `smelt-mir`, or `smelt-codegen-rust` exists from the CLI yet.
 - Manifest validator does not enforce the missing-entries check.
 - No `--verbose`/`--quiet` flags.
@@ -163,7 +167,7 @@ The list below is the v1.0 roadmap for `smelt-cli`, ordered by dependency. Items
 
 - [ ] `smelt new <name>` — scaffold directory, generate `Smelt.toml` from a template, write `src/main.ts` (or `.py` with `--python`), write `.gitignore`.
 - [ ] `smelt clean` — remove `output.target`, with confirmation prompt unless `--force`.
-- [ ] `smelt check` — wire to the real check pipeline once frontends produce structured errors.
+- [x] `smelt check` — reports the embedded TypeScript checker's diagnostics; `--deny-type-errors` fails on them.
 - [ ] `smelt build` — wire HIR → MIR → codegen once those crates exist; invoke `cargo build` if `output.build = true`.
 - [x] `smelt dump-hir <file>` — invoke frontend, run validator, call `smelt_hir::pretty::print`.
 - [x] `smelt dump-mir <file>` — same, plus lowering.
