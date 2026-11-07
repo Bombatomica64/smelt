@@ -277,3 +277,10 @@ fn parse_number_prefix() -> TestResult {
 fn string_utf16_indices() -> TestResult {
     verify_node_parity("string_utf16_indices")
 }
+
+/// A list or typed-array element read past the end is `undefined` wherever
+/// the reader's type can hold `undefined`, and in range it is the element.
+#[test]
+fn element_read_misses() -> TestResult {
+    verify_node_parity("element_read_misses")
+}

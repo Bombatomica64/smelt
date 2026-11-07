@@ -677,6 +677,18 @@ impl FunctionEmitter<'_> {
         {
             return Ok(None);
         }
+        // A typed-array view's element read misses like a list's: `u8[5]` on
+        // a two-byte view is `undefined` where the reader can see it.
+        if self.is_typed_array_view_class_type(base_ty)? {
+            let base_text = self.local_value(*base)?;
+            let index_text = self.numeric_operand_expr(index)?;
+            let element_ty = if self.is_bigint_view_class_type(base_ty)? { Type::BigInt } else { Type::Float };
+            if self.mir.types.get(inner) == Some(&element_ty) {
+                let method = if element_ty == Type::BigInt { "get_bigint" } else { "get" };
+                return Ok(Some(RustExpr::postfix_on(&base_text, format!("{base_text}.{method}({index_text})"))));
+            }
+            return Ok(None);
+        }
         match self.mir.types.get(base_ty).cloned() {
             Some(Type::List(item_ty)) => {
                 let base_text = self.local_value(*base)?;
@@ -779,6 +791,20 @@ impl FunctionEmitter<'_> {
             && self.is_match_class_symbol(*name)?
         {
             return Ok(None);
+        }
+        // A typed-array view's miss erases to `undefined`, its values to numbers.
+        if self.is_typed_array_view_class_type(base_ty)? {
+            let base_text = self.local_value(*base)?;
+            let index_text = self.numeric_operand_expr(index)?;
+            let (method, element) = if self.is_bigint_view_class_type(base_ty)? {
+                ("get_bigint", Type::BigInt)
+            } else {
+                ("get", Type::Float)
+            };
+            let erased = self.erase_rendered(&RustExpr::path("smelt_element"), self.type_id(element)?)?;
+            return Ok(Some(RustExpr::postfix_on(&base_text, self.carrier_format(format_args!(
+                "{base_text}.{method}({index_text}).map(|smelt_element| {erased}).unwrap_or(SmeltUnknown::Undefined)"
+            )))));
         }
         match self.mir.types.get(base_ty).cloned() {
             Some(Type::List(item_ty)) => {
