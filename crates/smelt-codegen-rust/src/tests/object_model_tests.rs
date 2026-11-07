@@ -447,12 +447,12 @@ export function doubled(): number[] {
     );
 }
 
-/// A function stored in an erased value and called through it keeps the
-/// erased call ABI's `null` fallback when the callee is NOT a prototype-method
-/// read; only a table method read throws `TypeError` (see
-/// `prototype_method_not_callable`).
+/// Calling an erased value that holds no function throws `TypeError` whatever
+/// the callee is. A prototype-method read (`o.at`) names the callee in the
+/// message, as V8 does; any other callee (`o.handler`) throws through the dispatch
+/// without a spelling (see `prototype_method_not_callable`).
 #[test]
-fn only_a_prototype_method_read_throws_when_not_callable() {
+fn a_table_method_read_names_its_callee_and_others_throw_unnamed() {
     let source = source_for(
         r"
 export function viaField(o: any): unknown {
@@ -466,8 +466,8 @@ export function viaMethod(o: any): unknown {
     );
     let field = emitted_function_body(&source, "fn via_field(");
     assert!(
-        !field.contains("smelt_throw_not_callable("),
-        "a non-table callee keeps the erased call fallback:\n{field}"
+        !field.contains("smelt_throw_not_callable(") && field.contains("smelt_value_not_callable()"),
+        "a non-table callee throws TypeError without a spelling:\n{field}"
     );
     let method = emitted_function_body(&source, "fn via_method(");
     assert!(
