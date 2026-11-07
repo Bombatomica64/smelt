@@ -297,12 +297,10 @@ impl ModuleBuilder<'_> {
 
     /// Lower a Python `lambda` expression as a first-class closure value.
     ///
-    /// A lambda is lowered through the same compact callback IR the frontend
-    /// already uses for `map`/`filter`/`sorted(key=...)` lambdas: the body is
-    /// classified into a [`CallbackExpr`] tree by [`Self::lambda_callback`], then
-    /// materialized into a real [`ExprKind::Closure`] CFG body by
-    /// [`Self::callback_expr_to_closure`]. The resulting closure value can be
-    /// stored in a local, passed to a call argument, or returned.
+    /// The body lowers through ordinary expression lowering inside its own
+    /// closure body ([`Self::expr_callback_closure`]), the same path
+    /// `map`/`filter`/`sorted(key=...)` lambdas take. The resulting closure value
+    /// can be stored in a local, passed to a call argument, or returned.
     ///
     /// Python lambda parameters never carry type annotations, so their types can
     /// only come from an expected `Callable[...]`/function `type_hint` supplied
@@ -332,14 +330,16 @@ impl ModuleBuilder<'_> {
             ));
         };
 
-        let callback = self.lambda_callback(lambda, &function.params, body)?;
-        if callback.ty != function.return_ty {
+        let callback =
+            self.lambda_expr_callback(lambda, &function.params, Some(function.return_ty))?;
+        let closure = self.expr_callback_closure(&callback, self.span(lambda.range), body)?;
+        if closure.return_ty != function.return_ty {
             return Err(SmeltError::unsupported(
                 self.span(lambda.range),
                 "lambda return type does not match its expected callable annotation",
             ));
         }
-        self.callback_expr_to_closure(&callback, &function.params, self.span(lambda.range), body)
+        Ok(closure.expr)
     }
 
     /// Lower a Python f-string (`f"a{expr}b"`) as runtime string concatenation.
@@ -538,8 +538,8 @@ impl ModuleBuilder<'_> {
             Operator::Sub => (BinOp::Sub, false),
             Operator::Mult => (BinOp::Mul, false),
             Operator::Div => (BinOp::Div, false),
+            Operator::Mod => return self.floor_mod_expression(b, body),
             Operator::MatMult
-            | Operator::Mod
             | Operator::Pow
             | Operator::LShift
             | Operator::RShift
@@ -586,6 +586,124 @@ impl ModuleBuilder<'_> {
         };
         Ok(body.push_expr(HirExpr {
             kind: ExprKind::BinOp { op, lhs, rhs },
+            ty,
+            span,
+        }))
+    }
+
+    /// Lower Python `%` on numbers: the remainder takes the sign of the divisor.
+    ///
+    /// HIR `Rem` is Rust's truncating remainder, which takes the sign of the
+    /// dividend (`-4 % 3` is `-1` in Rust and `2` in Python). For `int` the
+    /// floored remainder is `((a rem b) + b) rem b`; for `float` it is Python's
+    /// own rule, `m = a rem b; if m != 0 and (m < 0) != (b < 0): m + b`. Both
+    /// read an operand more than once, and HIR has no expression-level binding,
+    /// so the operands read again must be names or literals, possibly negated
+    /// or cast: the divisor for
+    /// `int`, both for `float`. Mixing `int` and `float` promotes the `int`.
+    fn floor_mod_expression(
+        &mut self,
+        b: &ruff_python_ast::ExprBinOp,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(b.range);
+        let mut lhs = self.expression(&b.left, body)?;
+        let mut rhs = self.expression(&b.right, body)?;
+        let kinds = (
+            self.ctx.krate.types.get(Self::expr_ty(body, lhs)).cloned(),
+            self.ctx.krate.types.get(Self::expr_ty(body, rhs)).cloned(),
+        );
+        let any_float = match kinds {
+            (Some(Type::Int), Some(Type::Int)) => false,
+            (Some(Type::Int | Type::Float), Some(Type::Int | Type::Float)) => true,
+            _ => {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "binary operator '%' is supported on int and float operands",
+                ));
+            }
+        };
+        if any_float {
+            lhs = self.promote_int_to_float(lhs, body);
+            rhs = self.promote_int_to_float(rhs, body);
+        }
+        let reread = |body: &Body, expr: smelt_hir::ExprId| {
+            let mut current = expr;
+            loop {
+                match &body.exprs[current.0 as usize].kind {
+                    ExprKind::Literal(_) | ExprKind::Local(_) => return true,
+                    ExprKind::PrimitiveCast { operand, .. }
+                    | ExprKind::UnaryOp {
+                        op: UnaryOp::Neg,
+                        operand,
+                    } => current = *operand,
+                    _ => return false,
+                }
+            }
+        };
+        if !reread(body, rhs) || (any_float && !reread(body, lhs)) {
+            return Err(SmeltError::unsupported(
+                span,
+                if any_float {
+                    "float '%' needs a name or literal on each side"
+                } else {
+                    "'%' needs a name or literal as its divisor"
+                },
+            ));
+        }
+        let ty = Self::expr_ty(body, lhs);
+        let copy = |body: &mut Body, expr: smelt_hir::ExprId| {
+            let node = body.exprs[expr.0 as usize].clone();
+            body.push_expr(node)
+        };
+        let binop = |body: &mut Body, op: BinOp, lhs, rhs, ty| {
+            body.push_expr(HirExpr {
+                kind: ExprKind::BinOp { op, lhs, rhs },
+                ty,
+                span,
+            })
+        };
+        if !any_float {
+            let rem = binop(body, BinOp::Rem, lhs, rhs, ty);
+            let divisor = copy(body, rhs);
+            let shifted = binop(body, BinOp::Add, rem, divisor, ty);
+            let divisor = copy(body, rhs);
+            return Ok(binop(body, BinOp::Rem, shifted, divisor, ty));
+        }
+        let bool_ty = self.intern_type(Type::Bool);
+        let zero = |body: &mut Body| {
+            body.push_expr(HirExpr {
+                kind: ExprKind::Literal(Literal::Float(0.0)),
+                ty,
+                span,
+            })
+        };
+        let remainder = |body: &mut Body| {
+            let dividend = copy(body, lhs);
+            let divisor = copy(body, rhs);
+            binop(body, BinOp::Rem, dividend, divisor, ty)
+        };
+        let m = remainder(body);
+        let z = zero(body);
+        let nonzero = binop(body, BinOp::NotEq, m, z, bool_ty);
+        let m = remainder(body);
+        let z = zero(body);
+        let m_negative = binop(body, BinOp::Lt, m, z, bool_ty);
+        let divisor = copy(body, rhs);
+        let z = zero(body);
+        let divisor_negative = binop(body, BinOp::Lt, divisor, z, bool_ty);
+        let signs_differ = binop(body, BinOp::NotEq, m_negative, divisor_negative, bool_ty);
+        let cond = binop(body, BinOp::And, nonzero, signs_differ, bool_ty);
+        let m = remainder(body);
+        let divisor = copy(body, rhs);
+        let then_expr = binop(body, BinOp::Add, m, divisor, ty);
+        let else_expr = remainder(body);
+        Ok(body.push_expr(HirExpr {
+            kind: ExprKind::Conditional {
+                cond,
+                then_expr,
+                else_expr,
+            },
             ty,
             span,
         }))

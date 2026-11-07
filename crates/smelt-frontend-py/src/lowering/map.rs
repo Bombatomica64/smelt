@@ -274,12 +274,7 @@ impl ModuleBuilder<'_> {
         let span = self.span(range);
 
         if let Some(callback) = self.scope.local_callbacks.get(name).cloned() {
-            return self.callback_expr_to_closure(
-                &callback.callback,
-                &callback.params,
-                span,
-                body,
-            );
+            return Ok(self.expr_callback_closure(&callback.callback, span, body)?.expr);
         }
 
         if let Some(&local) = self.scope.locals.get(name) {

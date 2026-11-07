@@ -447,9 +447,11 @@ impl ModuleBuilder<'_> {
                 "local lambda assignments require a Callable annotation",
             ));
         };
-        let callback = self.lambda_callback(lambda, &function.params, body)?;
+        let callback =
+            self.lambda_expr_callback(lambda, &function.params, Some(function.return_ty))?;
+        let callback_ty = self.expr_callback_return_ty(&callback, span, body)?;
         let defaults = self.lambda_defaults(lambda, body)?;
-        if callback.ty != function.return_ty {
+        if callback_ty != function.return_ty {
             return Err(SmeltError::unsupported(
                 self.span(lambda.range),
                 "local lambda return type does not match Callable annotation",
@@ -715,8 +717,8 @@ impl ModuleBuilder<'_> {
     ///
     /// The closure's return type is *not* required to be annotated. A nested
     /// closure body is a single `return <expr>`, so the accurate return type is
-    /// the HIR type the frontend already computes for that expression while
-    /// lowering it into a [`CallbackExpr`]. The body is therefore lowered first
+    /// the HIR type ordinary expression lowering gives that expression. The body
+    /// is therefore lowered first
     /// and its type used directly when the source omits `-> T` (issue #93:
     /// idiomatic Python omits annotations, and the actual returned type is the
     /// one lowering must follow). A declared `-> T` still wins when present and
@@ -747,7 +749,7 @@ impl ModuleBuilder<'_> {
             .map(|annotation| self.annotation_to_hir(annotation))
             .transpose()?;
         let mut params = Vec::new();
-        let mut callback_params = HashMap::new();
+        let mut bindings = Vec::new();
         let mut defaults = Vec::new();
         for (index, param_with_default) in func.parameters.iter_non_variadic_params().enumerate() {
             let param = &param_with_default.parameter;
@@ -762,13 +764,7 @@ impl ModuleBuilder<'_> {
                 })?,
             };
             params.push(param_ty);
-            callback_params.insert(
-                param.name.as_str(),
-                CallbackExpr {
-                    kind: CallbackExprKind::Param(index),
-                    ty: param_ty,
-                },
-            );
+            bindings.push((param.name.to_string(), CallbackBinding::Param(index)));
             defaults.push(
                 param_with_default
                     .default
@@ -792,13 +788,7 @@ impl ModuleBuilder<'_> {
             let index = params.len();
             params.push(list_ty);
             defaults.push(None);
-            callback_params.insert(
-                vararg.name.as_str(),
-                CallbackExpr {
-                    kind: CallbackExprKind::Param(index),
-                    ty: list_ty,
-                },
-            );
+            bindings.push((vararg.name.to_string(), CallbackBinding::Param(index)));
             Some(VarArgParam { index, item_ty })
         } else {
             None
@@ -819,13 +809,7 @@ impl ModuleBuilder<'_> {
             let index = params.len();
             params.push(dict_ty);
             defaults.push(None);
-            callback_params.insert(
-                kwarg.name.as_str(),
-                CallbackExpr {
-                    kind: CallbackExprKind::Param(index),
-                    ty: dict_ty,
-                },
-            );
+            bindings.push((kwarg.name.to_string(), CallbackBinding::Param(index)));
             Some(KwArgParam { index, value_ty })
         } else {
             None
@@ -842,14 +826,20 @@ impl ModuleBuilder<'_> {
                 "nested closure return statements must return a value",
             )
         })?;
-        let callback = self.python_callback_expr(return_expr, &callback_params, body)?;
+        let callback = ExprCallback {
+            bindings,
+            params: params.clone(),
+            body: return_expr.clone(),
+            expected_return: declared_return_ty,
+        };
+        let callback_ty = self.expr_callback_return_ty(&callback, self.span(func.range), body)?;
         // With no declared `-> T`, the lowered body's own type *is* the closure's
         // return type; with one, the declaration is the contract and the body
         // must satisfy it exactly.
         let return_ty = match declared_return_ty {
-            None => callback.ty,
+            None => callback_ty,
             Some(declared) => {
-                if callback.ty != declared {
+                if callback_ty != declared {
                     return Err(SmeltError::unsupported(
                         self.span(return_stmt.range),
                         "nested closure return type does not match its annotation",

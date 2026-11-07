@@ -4,11 +4,9 @@
     reason = "the crate root constructs the lowering builder"
 )]
 
-mod callback_expr;
 mod stdlib;
 mod stdlib_dispatch;
 
-use callback_expr::{CallbackExpr, CallbackExprKind};
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -183,8 +181,8 @@ struct FnScope {
 /// A local Python lambda value that can be consumed by callback APIs without escaping.
 #[derive(Debug, Clone)]
 struct LocalCallback {
-    /// Lowered callback expression tree.
-    callback: CallbackExpr,
+    /// The callback's source, lowered again at each use.
+    callback: ExprCallback,
     /// Parameter types in source order.
     params: Vec<TypeId>,
     /// Default argument expressions in source order.
@@ -518,6 +516,8 @@ include!("lowering/literals.rs");
 include!("lowering/call.rs");
 // Collection constructor and list/set/dict helpers.
 include!("lowering/list.rs");
+
+include!("lowering/expression_callback.rs");
 // Numeric/math operation lowering helpers.
 include!("lowering/math.rs");
 // String formatting and manipulation lowering helpers.
