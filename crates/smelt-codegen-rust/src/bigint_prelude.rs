@@ -37,9 +37,9 @@
 )]
 
 
-/// The Rust type a JavaScript `bigint` is carried as.
 use crate::rust::RustExpr;
 
+/// The Rust type a JavaScript `bigint` is carried as.
 pub(crate) const BIGINT_TYPE: &str = "::num_bigint::BigInt";
 
 /// Renders the bigint constant whose canonical decimal digits are `digits`.

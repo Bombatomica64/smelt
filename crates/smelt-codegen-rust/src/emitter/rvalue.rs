@@ -270,7 +270,9 @@ impl FunctionEmitter<'_> {
                 self.instance_of_value(value, target)
             }
             Rvalue::Construct { callee, args } => self.construct_expr(callee, args, dest_ty),
-            Rvalue::ConstructLike { value, args } => self.construct_like_expr(value, args, dest_ty),
+            Rvalue::ConstructLike { value: constructed, args } => {
+                self.construct_like_expr(constructed, args, dest_ty)
+            }
             Rvalue::UnknownIs {
                 value: unknown_value,
                 kind,

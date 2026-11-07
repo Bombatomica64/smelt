@@ -273,12 +273,12 @@ impl ModuleBuilder<'_> {
         };
         let Some(radix) = radix else {
             let int_ty = self.ctx.krate.types.intern(Type::Int);
-            let radix = body.push_expr(Expr {
+            let default_radix = body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Int(0)),
                 ty: int_ty,
                 span: self.span(call.span.start, call.span.end),
             });
-            return Ok((operand, radix));
+            return Ok((operand, default_radix));
         };
         let radix_expr = self.argument(radix, body)?;
         let radix_expr = match self.ctx.krate.types.get(Self::expr_ty(body, radix_expr)) {

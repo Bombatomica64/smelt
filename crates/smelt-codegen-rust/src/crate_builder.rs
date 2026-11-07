@@ -342,11 +342,11 @@ impl<'a> CrateBuilder<'a, FreeFunctionsWritten> {
                 }
                 copied.push(method);
                 if let Some(function) = mir.functions.get(id_index(method.0, "method index does not fit usize")?)
-                    && let Some(name) = classes::super_copy_name(mir, function)
+                    && let Some(copy_name) = classes::super_copy_name(mir, function)
                 {
                     let substituted = classes::substituted_inherited_member(mir, function, class.name);
                     let copied_body = substituted.as_ref().unwrap_or(function);
-                    let mut emitter = FunctionEmitter::super_copy(mir, context, copied_body, class.name, name)?;
+                    let mut emitter = FunctionEmitter::super_copy(mir, context, copied_body, class.name, copy_name)?;
                     emitter.emit_method(out)?;
                 }
             }

@@ -24,6 +24,20 @@ fn smelt_utf16_len(text: &str) -> usize {
     if text.is_ascii() { text.len() } else { smelt_utf16_units_in(text.as_bytes()) }
 }
 
+/// A count or index of code units as a JavaScript number: exact, since a
+/// string's length is far below 2^53.
+#[allow(dead_code)]
+const fn smelt_units_to_number(units: usize) -> f64 {
+    units as f64
+}
+
+/// A JavaScript number as a count or index of code units: truncated toward
+/// zero, NaN and negatives `0`, anything past `usize::MAX` saturating.
+#[allow(dead_code)]
+const fn smelt_units_from_number(number: f64) -> usize {
+    number as usize
+}
+
 /// The UTF-16 index of the byte offset `byte` of `text`, which is a char boundary.
 #[allow(dead_code)]
 fn smelt_utf16_index_of_byte(text: &str, byte: usize) -> usize {
@@ -36,7 +50,7 @@ fn smelt_utf16_index_of_byte(text: &str, byte: usize) -> usize {
 //~ counts nothing; any other byte starts a character, one unit, and a
 //~ four-byte character's `11110xxx` lead counts a second unit.
 #[allow(dead_code)]
-fn smelt_utf16_units_in_word(word: u64) -> usize {
+const fn smelt_utf16_units_in_word(word: u64) -> usize {
     const HIGH: u64 = 0x8080_8080_8080_8080;
     let continuation = (word & !(word << 1) & HIGH).count_ones() as usize;
     let four_byte = (word & (word << 1) & (word << 2) & (word << 3) & HIGH).count_ones() as usize;
@@ -46,9 +60,9 @@ fn smelt_utf16_units_in_word(word: u64) -> usize {
 /// The UTF-16 code units of the characters whose first byte is in `bytes`.
 #[allow(dead_code)]
 fn smelt_utf16_units_in(bytes: &[u8]) -> usize {
-    let mut words = bytes.chunks_exact(8);
-    let whole: usize = words.by_ref().map(|word| smelt_utf16_units_in_word(u64::from_le_bytes([word[0], word[1], word[2], word[3], word[4], word[5], word[6], word[7]]))).sum();
-    whole + words.remainder().iter().map(|byte| usize::from(byte & 0xC0 != 0x80) + usize::from(*byte >= 0xF0)).sum::<usize>()
+    let (words, rest) = bytes.as_chunks::<8>();
+    let whole: usize = words.iter().map(|word| smelt_utf16_units_in_word(u64::from_le_bytes(*word))).sum();
+    whole + rest.iter().map(|byte| usize::from(byte & 0xC0 != 0x80) + usize::from(*byte >= 0xF0)).sum::<usize>()
 }
 
 /// The byte offset where UTF-16 index `unit` of `text` starts, clamped to the
@@ -94,9 +108,7 @@ fn smelt_utf16_slice(text: &str, start: usize, end: usize) -> String {
 /// The code unit at UTF-16 index `unit` of `text` (`charCodeAt`), if any.
 #[allow(dead_code)]
 fn smelt_utf16_unit_at(text: &str, unit: usize) -> Option<u16> {
-    if let Some(prefix) = text.as_bytes().get(..=unit) {
-        if prefix.is_ascii() { return Some(u16::from(prefix[unit])); }
-    }
+    if let Some(prefix) = text.as_bytes().get(..=unit) && prefix.is_ascii() { return Some(u16::from(prefix[unit])); }
     let (byte, half) = match smelt_utf16_byte_of(text, unit) { Ok(byte) => (byte, 0), Err(byte) => (byte, 1) };
     let mut units = [0; 2];
     text[byte..].chars().next().map(|ch| ch.encode_utf16(&mut units)[half])
@@ -106,23 +118,15 @@ fn smelt_utf16_unit_at(text: &str, unit: usize) -> Option<u16> {
 /// one unit, or a whole pair at its first unit and `""` at its second.
 #[allow(dead_code)]
 fn smelt_utf16_char_at(text: &str, unit: usize) -> Option<String> {
-    if let Some(prefix) = text.as_bytes().get(..=unit) {
-        if prefix.is_ascii() { return Some(char::from(prefix[unit]).to_string()); }
-    }
-    match smelt_utf16_byte_of(text, unit) {
-        Ok(byte) => text[byte..].chars().next().map(String::from),
-        Err(_) => Some(String::new()),
-    }
+    if let Some(prefix) = text.as_bytes().get(..=unit) && prefix.is_ascii() { return Some(char::from(prefix[unit]).to_string()); }
+    smelt_utf16_byte_of(text, unit).map_or_else(|_| Some(String::new()), |byte| text[byte..].chars().next().map(String::from))
 }
 
 /// The code point starting at UTF-16 index `unit` of `text` (`codePointAt`):
 /// a whole surrogate pair, else the lone unit there.
 #[allow(dead_code)]
 fn smelt_utf16_code_point_at(text: &str, unit: usize) -> Option<u32> {
-    match smelt_utf16_byte_of(text, unit) {
-        Ok(byte) => text[byte..].chars().next().map(u32::from),
-        Err(_) => smelt_utf16_unit_at(text, unit).map(u32::from),
-    }
+    smelt_utf16_byte_of(text, unit).map_or_else(|_| smelt_utf16_unit_at(text, unit).map(u32::from), |byte| text[byte..].chars().next().map(u32::from))
 }
 
 /// One string per code unit of `text` (`s.split("")`): a pair is its whole

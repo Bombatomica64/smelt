@@ -244,8 +244,8 @@ impl ModuleBuilder<'_> {
         let class = if let Some(scoped) = self.classes.scoped_type_name(class_text) {
             scoped
         } else {
-            let target = self.classes.alias_target(class_text).to_owned();
-            self.intern_type_name(&target)
+            let aliased = self.classes.alias_target(class_text).to_owned();
+            self.intern_type_name(&aliased)
         };
         let ty = self.ctx.krate.types.intern(Type::Bool);
         Ok(body.push_expr(Expr {

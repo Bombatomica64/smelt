@@ -82,12 +82,12 @@ fn fuse_body(locals: &[LocalDecl], blocks: &mut [BasicBlock], types: &TypeIntern
         let mut index: usize = 0;
         while index.saturating_add(1) < block.statements.len() {
             let pair = block.statements.get(index..index.saturating_add(2));
-            let fused = pair.and_then(|pair| match pair {
+            let fused = pair.and_then(|statements| match statements {
                 [definition, call] => fused_call(definition, call, locals, &single_use, types),
                 _ => None,
             });
-            if let Some(fused) = fused {
-                block.statements.splice(index..index.saturating_add(2), [fused]);
+            if let Some(statement) = fused {
+                block.statements.splice(index..index.saturating_add(2), [statement]);
                 changed = true;
             }
             index = index.saturating_add(1);
@@ -162,6 +162,11 @@ fn takes_only_an_erased_rest(
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::indexing_slicing,
+    clippy::panic,
+    reason = "fixed-shape hand-built MIR fixture: its one function and block are known to exist"
+)]
 mod tests {
     use smelt_hir::{BodyId, FileId, Span, Symbol};
 
@@ -205,8 +210,11 @@ mod tests {
         Statement::Assign { dest: TEMP, value: Rvalue::List(vec![copy(ITEM)]) }
     }
 
+    /// Builds the callee's function type from the erased list type and the element type.
+    type MakeFunction = fn(smelt_hir::TypeId, smelt_hir::TypeId) -> FunctionType;
+
     /// One function holding `statements`, whose callee is `make_function(list)`.
-    fn mir(statements: Vec<Statement>, make_function: fn(smelt_hir::TypeId, smelt_hir::TypeId) -> FunctionType) -> Mir {
+    fn mir(statements: Vec<Statement>, make_function: MakeFunction) -> Mir {
         let mut types = TypeInterner::default();
         let unknown = types.intern(Type::Unknown);
         let float = types.intern(Type::Float);

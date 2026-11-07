@@ -248,12 +248,13 @@ impl FreeFunctionVisibility {
 /// it, so no body renders before the generic decision is made.
 pub(crate) struct GenericsDecided(());
 
+/// Program-wide facts and memos shared by every function emitter of one crate.
 pub(crate) struct EmitContext {
     /// The type ID of the None type.
     pub(crate) none_ty: TypeId,
     /// Whether each union asked about so far is stored as a generated enum; a
     /// pure function of the MIR that every read of a union member asks.
-    pub(crate) concrete_unions: std::cell::RefCell<HashMap<TypeId, bool>>,
+    pub(crate) concrete_unions: RefCell<HashMap<TypeId, bool>>,
     /// Whether the program builds through `new value.constructor()` anywhere
     /// (`Rvalue::ConstructLike`), which is what a class's erased `constructor`
     /// entry is for; computed on first ask.

@@ -392,15 +392,15 @@ impl FunctionEmitter<'_> {
                 "(if *{reference} {{ \"True\" }} else {{ \"False\" }}).to_owned()"
             )),
             Type::Optional(inner) => {
-                let inner = self.python_repr_expr(&item, *inner)?;
+                let inner_repr = self.python_repr_expr(&item, *inner)?;
                 RustExpr::atom(format!(
-                    "match {reference} {{ Some(smelt_item) => {inner}, None => \"None\".to_owned() }}"
+                    "match {reference} {{ Some(smelt_item) => {inner_repr}, None => \"None\".to_owned() }}"
                 ))
             }
             Type::List(inner) => {
-                let inner = self.python_repr_expr(&item, *inner)?;
+                let inner_repr = self.python_repr_expr(&item, *inner)?;
                 RustExpr::chain(format!(
-                    "format!(\"[{{}}]\", ({reference}).borrow().iter().map(|smelt_item| {inner}).collect::<Vec<String>>().join(\", \"))"
+                    "format!(\"[{{}}]\", ({reference}).borrow().iter().map(|smelt_item| {inner_repr}).collect::<Vec<String>>().join(\", \"))"
                 ))
             }
             Type::Tuple(members) => {

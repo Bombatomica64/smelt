@@ -684,7 +684,6 @@ impl ModuleBuilder<'_> {
                         Some(Type::List(_))
                     )
                 {
-                    let span = self.span(member.span.start, member.span.end);
                     let ty = self.erase_at(
                         ErasureReason::ByName,
                         span,

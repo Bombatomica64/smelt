@@ -159,7 +159,7 @@ pub struct ItemPredicate {
     /// Positional index of the parameter it narrows.
     pub param_index: usize,
     /// The type it proves.
-    pub target: smelt_hir::TypeId,
+    pub target: TypeId,
 }
 
 /// Context for building HIR from TypeScript source.

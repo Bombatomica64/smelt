@@ -767,7 +767,7 @@ fn local_is_string(mir: &Mir, locals: &[LocalDecl], local: LocalId) -> bool {
     usize::try_from(local.0)
         .ok()
         .and_then(|index| locals.get(index))
-        .is_some_and(|local| type_may_be_string(mir, local.ty))
+        .is_some_and(|decl| type_may_be_string(mir, decl.ty))
 }
 
 /// Whether a value of type `ty` may be a string (see [`local_is_string`]).
