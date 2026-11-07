@@ -28,11 +28,21 @@
 //! their opaque type.
 
 use crate::lowering::js_text::js_str_text;
-use oxc::ast::ast::{Expression, TSEnumDeclaration, TSEnumMemberName};
+use oxc::ast::ast::{ComputedMemberExpression, Expression, TSEnumDeclaration, TSEnumMemberName};
 use std::borrow::Cow;
 
 use crate::lowering::{ConstLiteral, ModuleBuilder};
-use smelt_hir::{Item, Literal, Type, TypeAlias};
+use crate::error::SmeltError;
+use smelt_hir::{Body, Expr, ExprId, ExprKind, Item, Literal, Type, TypeAlias};
+
+/// The property key JavaScript makes of a number (`String(5) === "5"`).
+fn js_number_key(value: f64) -> String {
+    if value == value.trunc() && value.abs() < 1e21 {
+        format!("{value:.0}")
+    } else {
+        value.to_string()
+    }
+}
 
 impl ModuleBuilder<'_> {
     /// Const-fold every statically-resolvable member of an `enum` declaration
@@ -52,7 +62,15 @@ impl ModuleBuilder<'_> {
     /// at compile time is skipped so its later use produces the ordinary
     /// unsupported blocker rather than an incorrect constant.
     pub(in crate::lowering) fn collect_enum_declaration(&mut self, decl: &TSEnumDeclaration<'_>) {
+        self.collect_enum_members(decl, true);
+    }
+
+    /// [`Self::collect_enum_declaration`], publishing the folded members to
+    /// later modules only when `publish` (a module-level declaration they can
+    /// import).
+    pub(in crate::lowering) fn collect_enum_members(&mut self, decl: &TSEnumDeclaration<'_>, publish: bool) {
         let enum_name = decl.id.name.to_string();
+        let mut reverse = Vec::new();
         let float_ty = self.ctx.krate.types.intern(Type::Float);
         let mut members: std::collections::HashMap<String, ConstLiteral> =
             std::collections::HashMap::new();
@@ -90,12 +108,18 @@ impl ModuleBuilder<'_> {
                 next_auto = number + 1.0_f64;
             }
 
+            if let Literal::Float(number) = value.literal {
+                reverse.push((number, member_name.to_string()));
+            }
             members.insert(member_name.into_owned(), value);
         }
 
         if members.is_empty() {
             return;
         }
+        // TypeScript gives a numeric member a reverse entry (`E[0] === "A"`);
+        // a string member has none.
+        self.enum_reverse_names.insert(enum_name.clone(), reverse);
 
         // Register the enum name as a type alias to the primitive its members
         // share, so `c: EnumName` annotations lower to `f64`/`String` and the
@@ -105,7 +129,74 @@ impl ModuleBuilder<'_> {
         // Publish to the current module for immediate use, and to the shared
         // context so later modules that import this enum fold its members too.
         self.consts.set_enum_members(enum_name.clone(), members.clone());
-        self.ctx.enum_members.write().insert(enum_name, members);
+        if publish {
+            self.ctx.enum_members.write().insert(enum_name, members);
+        }
+    }
+
+    /// Lower `E[key]` on a numeric member of an `enum` declared in this module
+    /// to the member's name, the reverse mapping TypeScript emits for every
+    /// numeric member (`enum Color { Red }` defines `Color[0] = "Red"`).
+    ///
+    /// A key that folds to a constant reads its entry statically; any other key
+    /// indexes the reverse table `{ "0": "Red", .. }` as a `Record<number, string>`
+    /// read would, which is how TypeScript types it (`string`). Two members with
+    /// one value keep the later name, as the emitted assignments do. Returns
+    /// `None` for every other computed read, including a string key (`E["Red"]`)
+    /// and an enum name shadowed by a local binding.
+    pub(in crate::lowering) fn enum_reverse_mapping_read(
+        &mut self,
+        member: &ComputedMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<ExprId>, SmeltError> {
+        let Expression::Identifier(object) = member.object.without_parentheses() else {
+            return Ok(None);
+        };
+        if self.scope.lookup(object.name.as_str()).is_some() {
+            return Ok(None);
+        }
+        let Some(entries) = self.enum_reverse_names.get(object.name.as_str()).cloned() else {
+            return Ok(None);
+        };
+        let mut table: Vec<(f64, String)> = Vec::new();
+        for (value, name) in entries {
+            match table.iter_mut().find(|(existing, _)| existing.to_bits() == value.to_bits()) {
+                Some(entry) => entry.1 = name,
+                None => table.push((value, name)),
+            }
+        }
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let span = self.span(member.span.start, member.span.end);
+        let folded = self.literal_const_expression(&member.expression).ok();
+        match folded.map(|key| key.literal) {
+            Some(Literal::Float(key)) => {
+                let Some((_, name)) = table.iter().find(|(value, _)| value.to_bits() == key.to_bits()) else {
+                    return Ok(None);
+                };
+                return Ok(Some(body.push_expr(Expr { kind: ExprKind::Literal(Literal::String(name.clone())), ty: string_ty, span })));
+            }
+            Some(_) => return Ok(None),
+            None => {}
+        }
+        let key = self.expression(&member.expression, body)?;
+        if !matches!(self.ctx.krate.types.get(Self::expr_ty(body, key)), Some(Type::Float)) {
+            return Ok(None);
+        }
+        let entries = table
+            .into_iter()
+            .map(|(value, name)| {
+                let key = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(js_number_key(value))),
+                    ty: string_ty,
+                    span,
+                });
+                let name = body.push_expr(Expr { kind: ExprKind::Literal(Literal::String(name)), ty: string_ty, span });
+                (key, name)
+            })
+            .collect();
+        let table_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, string_ty));
+        let table = body.push_expr(Expr { kind: ExprKind::DictLit(entries), ty: table_ty, span });
+        Ok(Some(body.push_expr(Expr { kind: ExprKind::Index { receiver: table, index: key }, ty: string_ty, span })))
     }
 
     /// Register the enum name as a HIR type alias to its underlying primitive.

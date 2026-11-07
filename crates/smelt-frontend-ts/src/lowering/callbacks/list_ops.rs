@@ -468,6 +468,20 @@ impl ModuleBuilder<'_> {
         Ok(Some(self.narrowed_list_receiver(receiver, body)))
     }
 
+    /// Whether a value of type `ty` can be the receiver of an `Array.prototype`
+    /// method: an array or tuple, a union with an array arm, or a value whose
+    /// type is only known at run time (erased, a type parameter).
+    fn is_array_like_receiver_type(&self, ty: smelt_hir::TypeId) -> bool {
+        let inner = self.optional_receiver_inner_type(ty);
+        match self.ctx.krate.types.get(inner) {
+            Some(Type::List(_) | Type::Tuple(_) | Type::Unknown | Type::TypeParam { .. }) => true,
+            Some(Type::Union(items)) => items.iter().any(|item| {
+                matches!(self.ctx.krate.types.get(*item), Some(Type::List(_) | Type::Tuple(_) | Type::Unknown | Type::TypeParam { .. }))
+            }),
+            _ => false,
+        }
+    }
+
     /// Lower callback-heavy TypeScript array methods.
     pub(in crate::lowering) fn list_callback_call(
         &mut self,
@@ -555,6 +569,13 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let [callback_argument] = call.arguments.as_slice() else {
+            // Only an array-like receiver makes this `Array.prototype` (whose
+            // second argument is `thisArg`). Any other value with a `map` of a
+            // different arity is an ordinary call: a namespace member
+            // `P.map(key, value)`, an object's function-valued field.
+            if !self.is_array_like_receiver_type(Self::expr_ty(body, list)) {
+                return Ok(None);
+            }
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "array callback methods require exactly one callback argument",

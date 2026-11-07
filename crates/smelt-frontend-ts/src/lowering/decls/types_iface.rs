@@ -153,6 +153,12 @@ impl ModuleBuilder<'_> {
         {
             self.types.set_alias_fields(name, fields.clone());
             self.ctx.type_alias_fields.write().insert(name, fields);
+        } else if self.find_type_alias(name).is_some_and(|earlier| earlier.span.file == self.file_id) {
+            // A later declaration of the name in this file (block-local aliases
+            // of one name in successive tests) replaces the earlier one, fields
+            // included.
+            self.types.clear_alias_fields(name);
+            self.ctx.type_alias_fields.write().remove(&name);
         }
         let item = self
             .ctx

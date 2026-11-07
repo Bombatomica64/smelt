@@ -1235,7 +1235,9 @@ impl ModuleBuilder<'_> {
         if let Some(fields) = self.ambient_fetch_init_fields(name_text) {
             return Ok(fields);
         }
-        if let Some(interface) = self.find_interface(symbol).cloned() {
+        if let Some(interface) = self.find_interface(symbol).cloned()
+            && !self.alias_shadows_interface(symbol, name_text)
+        {
             let lowered_args = args
                 .iter()
                 .map(|arg| self.ts_type_to_hir(arg))
@@ -2611,7 +2613,9 @@ impl ModuleBuilder<'_> {
             }
             _ => {
                 let symbol = self.resolve_type_reference_symbol(&name_text);
-                if let Some(interface) = self.find_interface(symbol).cloned() {
+                if let Some(interface) = self.find_interface(symbol).cloned()
+                    && !self.alias_shadows_interface(symbol, &name_text)
+                {
                     let lowered_args = args
                         .iter()
                         .map(|arg| self.ts_type_to_hir(arg))

@@ -619,6 +619,14 @@ impl<'builder> ModuleBuilder<'builder> {
         {
             return Ok(None);
         }
+        // A member a crate module's namespace exports (`P.map(key, value)` with
+        // `import * as P from './patterns'`) is a call to that export, whatever
+        // builtin its name also spells: no builtin handler may claim it.
+        if let Expression::StaticMemberExpression(member) = &call.callee
+            && self.crate_namespace_member_item(member).is_some()
+        {
+            return Ok(None);
+        }
         self.receiver_frames.push(ReceiverFrame::of(call));
         let lowered = match self.dispatched_receiver_owns_member(call, body) {
             Ok(false) => Self::builtin_call_handlers()

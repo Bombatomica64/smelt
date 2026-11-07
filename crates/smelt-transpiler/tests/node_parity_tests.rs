@@ -238,6 +238,13 @@ fn block_local_classes() -> TestResult {
     verify_node_parity("block_local_classes")
 }
 
+/// Enum members auto-increment, string members fold, numeric members map back
+/// to their names, and an enum may be declared inside a function.
+#[test]
+fn enums() -> TestResult {
+    verify_node_parity("enums")
+}
+
 /// A string key is a property name on whatever the erased receiver holds.
 #[test]
 fn string_key_on_erased_receiver() -> TestResult {

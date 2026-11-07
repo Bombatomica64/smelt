@@ -105,6 +105,13 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             Statement::TSNamespaceDeclaration(_) => Ok(()),
+            // A block-local enum folds like a module-level one, and like a
+            // block-local class or type alias it is registered under its name
+            // for the rest of the module; it is not published to importers.
+            Statement::TSEnumDeclaration(decl) => {
+                self.collect_enum_members(decl, false);
+                Ok(())
+            }
             Statement::ExpressionStatement(expr_stmt) => {
                 self.expression_statement(&expr_stmt.expression, expr_stmt.span, body, block)
             }
