@@ -112,6 +112,12 @@ fn heterogeneous_object_constant() -> TestResult {
     verify_node_parity("heterogeneous_object_constant")
 }
 
+/// A run-time key reads the methods of a class instance too.
+#[test]
+fn class_function_field_by_key() -> TestResult {
+    verify_node_parity("class_function_field_by_key")
+}
+
 /// A parameter does not hide a module constant from other functions.
 #[test]
 fn parameter_shadows_module_const() -> TestResult {

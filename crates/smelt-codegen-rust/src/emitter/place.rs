@@ -619,8 +619,7 @@ impl FunctionEmitter<'_> {
                     Some(Type::Class { .. }) if self.mir.types.get(self.operand_ty(index)?) == Some(&Type::String)
                         && self.context.demand().has(Need::Unknown) =>
                     {
-                        let base_text =
-                            self.carrier_format(format_args!("({}).clone().into_smelt_unknown()", self.local_value_text(*base)?));
+                        let base_text = self.erase(&Operand::Copy(Place::Local(*base)))?;
                         let index_ty = self.operand_ty(index)?;
                         let key_text =
                             self.property_key_to_string_text(&self.operand_text(index)?, index_ty)?;
