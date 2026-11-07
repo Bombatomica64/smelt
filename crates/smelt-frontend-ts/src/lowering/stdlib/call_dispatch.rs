@@ -952,6 +952,7 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::object_get_own_property_symbols_call,
         Self::object_projection_call,
         Self::object_has_own_call,
+        Self::reflect_has_call,
         Self::object_get_own_property_descriptor_call,
         // Before the collection and list dispatches: `slice`, `set` and `fill`
         // are names those own for other receivers, and the family's receiver

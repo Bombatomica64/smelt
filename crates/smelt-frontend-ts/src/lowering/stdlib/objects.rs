@@ -119,6 +119,35 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower `Reflect.has(target, key)`: the `in` operator, `key in target`,
+    /// with the target evaluated first as `Reflect.has` does.
+    pub(in crate::lowering) fn reflect_has_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Reflect"
+            || member.property.name != "has"
+            || self.builtin_call_identifier_is_shadowed("Reflect")
+        {
+            return Ok(None);
+        }
+        let span = self.span(call.span.start, call.span.end);
+        let [target, key] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(span, "Reflect.has requires a target and a key"));
+        };
+        let (Some(target), Some(key)) = (target.as_expression(), key.as_expression()) else {
+            return Err(SmeltError::unsupported(span, "Reflect.has does not take spread arguments"));
+        };
+        self.key_in_expression(key, target, span, body).map(Some)
+    }
+
     /// Lower direct TypeScript `Object.keys`, `Object.values`, and `Object.entries` calls.
     ///
     /// `Reflect.ownKeys(record)` is routed here too, as its own projection: it

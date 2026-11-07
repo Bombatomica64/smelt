@@ -305,3 +305,9 @@ fn env_names_case_sensitive() -> TestResult {
 fn declared_class_shadows_host() -> TestResult {
     verify_node_parity("declared_class_shadows_host")
 }
+
+/// `Reflect.has(target, key)` answers like `key in target`.
+#[test]
+fn reflect_has_is_in() -> TestResult {
+    verify_node_parity("reflect_has_is_in")
+}
