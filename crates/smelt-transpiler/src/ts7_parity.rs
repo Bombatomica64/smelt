@@ -188,7 +188,7 @@ fn ts_shape_at_depth(facts: &TsTypeFacts, id: TsTypeId, depth: usize) -> String 
         | TsTypeKind::NonPrimitive
         | TsTypeKind::UniqueSymbol
         | TsTypeKind::Deferred(_)
-        | TsTypeKind::Truncated => ty.display.clone(),
+        | TsTypeKind::Truncated => ty.display.clone().unwrap_or_else(|| "?".to_owned()),
     }
 }
 

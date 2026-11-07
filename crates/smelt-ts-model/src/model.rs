@@ -39,7 +39,11 @@ pub struct TsType {
     /// The structure of the type.
     pub kind: TsTypeKind,
     /// The checker's own spelling (`typeToString`), as `tsc` prints it in hovers and baselines.
-    pub display: String,
+    ///
+    /// `None` when the analysis was asked to omit spellings: lowering reads
+    /// only [`Self::kind`] and [`Self::alias`], and printing every interned type
+    /// costs time proportional to the type's size for each of them.
+    pub display: Option<String>,
     /// The type alias this type was written through (`HandlerResponse<any>`), if any.
     ///
     /// A consumer that re-spells the type in source form uses the alias name
@@ -145,7 +149,7 @@ pub enum TsTypeKind {
     /// A type the checker keeps unevaluated because it still depends on a free type parameter.
     Deferred(TsDeferredKind),
     /// A structural type nested deeper than the expansion limit (or one the
-    /// converter cannot classify); only `display` describes it. Never a slot
+    /// converter cannot classify); only `display`, when spelled, describes it. Never a slot
     /// still being converted, which the table keeps as a separate state.
     Truncated,
 }
@@ -364,7 +368,7 @@ mod tests {
 
     /// A filled `string` type.
     fn string_type() -> TsType {
-        TsType { kind: TsTypeKind::String, display: "string".to_owned(), alias: None }
+        TsType { kind: TsTypeKind::String, display: Some("string".to_owned()), alias: None }
     }
 
     #[test]
