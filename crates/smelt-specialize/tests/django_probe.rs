@@ -59,6 +59,7 @@ fn real_django_model_exposes_fields_descriptors_managers_and_metadata() -> Resul
         smelt_version: "django-probe".to_owned(),
         python_executable: python.to_path_buf(),
         project_root: project.path().to_path_buf(),
+        import_paths: environment.roots.clone(),
         modules: vec![PythonModule {
             name: "probe".to_owned(),
             path: source_path,
@@ -124,7 +125,7 @@ fn assert_book_model(
 
 /// Runtime paths and native extensions needed by the installed Django package.
 struct DjangoEnvironment {
-    /// Additional read-only Python installation roots.
+    /// The directory Django is installed in: bound read-only and imported from.
     roots: Vec<PathBuf>,
     /// Explicit native-extension allowlist.
     extensions: Vec<String>,
@@ -138,7 +139,9 @@ fn discovered_python() -> Option<&'static Path> {
         .find(|path| path.is_file())
 }
 
-/// Discovers an installed Django distribution and its imported extensions.
+/// Discovers an installed Django distribution and the native extensions the
+/// probe loads: the probe source runs on the host first, so the allowlist names
+/// exactly what the guest will import.
 fn django_environment(python: &Path) -> Result<Option<DjangoEnvironment>, DynError> {
     let script = r#"
 import pathlib, sys
@@ -146,13 +149,14 @@ try:
     import django
 except ImportError:
     raise SystemExit(3)
-print(pathlib.Path(django.__file__).resolve().parents[2])
+print(pathlib.Path(django.__file__).resolve().parents[1])
+exec(compile(sys.argv[1], "probe.py", "exec"), {"__name__": "probe"})
 for module in sorted(sys.modules.values(), key=lambda item: getattr(item, "__name__", "")):
     filename = getattr(module, "__file__", "")
     if filename and filename.endswith((".so", ".pyd", ".dylib")):
         print(pathlib.Path(filename).name)
 "#;
-    let output = Command::new(python).args(["-c", script]).output()?;
+    let output = Command::new(python).args(["-c", script, DJANGO_PROBE_SOURCE]).output()?;
     if output.status.code() == Some(3_i32) {
         return Ok(None);
     }

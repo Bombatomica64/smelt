@@ -194,6 +194,7 @@ fn prepare_python(
             smelt_version: env!("CARGO_PKG_VERSION").to_owned(),
             python_executable: python,
             project_root: project_root.to_path_buf(),
+            import_paths: Vec::new(),
             modules,
             hashes,
             sandbox_policy: policy,
