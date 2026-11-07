@@ -318,3 +318,9 @@ fn reflect_has_is_in() -> TestResult {
 fn object_literal_getters() -> TestResult {
     verify_node_parity("object_literal_getters")
 }
+
+/// `String` of an erased array joins its elements.
+#[test]
+fn erased_string_joins_arrays() -> TestResult {
+    verify_node_parity("erased_string_joins_arrays")
+}

@@ -2277,6 +2277,26 @@ fn smelt_map_entry_key_is(entry: &SmeltUnknown, key: &SmeltUnknown) -> bool {
 /// `Object.create`, `__smelt_method:` for a class method), else `undefined`.
 #[allow(dead_code)]
 fn smelt_record_inherited(record: &SmeltRecord<String, SmeltUnknown>, key: &str) -> SmeltUnknown { record.get(&format!("__smelt_proto:{key}")).or_else(|| record.get(&format!("__smelt_method:{key}"))).unwrap_or(SmeltUnknown::Undefined) }
+
+/// What a property read answers for the stored `value`: an accessor record
+/// (`{ __smelt_get: getter }`, an object literal's `get`) is called.
+#[allow(dead_code)]
+fn smelt_resolve_accessor(value: SmeltUnknown) -> SmeltUnknown {
+    match value {
+        SmeltUnknown::Object(getter) if getter.contains_key("__smelt_get") => match getter.get("__smelt_get") {
+            Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| smelt_panic_throw(error)),
+            _ => SmeltUnknown::Null,
+        },
+        value => value,
+    }
+}
+
+/// A dotted property read on a string-keyed record of erased values: the own
+/// entry, else the prototype entries, with an accessor called.
+#[allow(dead_code)]
+fn smelt_record_property(record: &SmeltRecord<String, SmeltUnknown>, key: &str) -> SmeltUnknown {
+    smelt_resolve_accessor(record.get(&key.to_owned()).unwrap_or_else(|| smelt_record_inherited(record, key)))
+}
 fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     if field == "name" && !map.contains_key("name") { if let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_error") { return SmeltUnknown::String(class_name); } }
     if field == "constructor" && !map.contains_key("constructor") { if let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_class") { return smelt_class_constructor(class_name.to_string()); } }
@@ -2319,13 +2339,7 @@ fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     // A missing property reads as JS `undefined`, distinct from an
     // explicit `null` value (`obj.missing === undefined`, `!== null`).
     let smelt_field_value = match map.get(field) { Some(value) => Some(value), None => match map.get(&format!("__smelt_proto:{field}")) { Some(value) => Some(value), None => map.get(&format!("__smelt_method:{field}")) } };
-    match smelt_field_value.unwrap_or(SmeltUnknown::Undefined) {
-        SmeltUnknown::Object(getter) if getter.contains_key("__smelt_get") => match getter.get("__smelt_get") {
-            Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| smelt_panic_throw(error)),
-            _ => SmeltUnknown::Null,
-        },
-        value => value,
-    }
+    smelt_resolve_accessor(smelt_field_value.unwrap_or(SmeltUnknown::Undefined))
 }
 
 thread_local! {
@@ -4631,7 +4645,7 @@ fn main() {
     key = __for_each_entry.0.clone();
     _smelt_tmp_35 = "".to_owned() + &key.clone();
     _smelt_tmp_36 = _smelt_tmp_35 + &"=".to_owned();
-    _smelt_tmp_37 = match value.clone().into_smelt_unknown() {   SmeltUnknown::Object(value) if smelt_host_buffer_is_view(&SmeltUnknown::Object(value.clone())) => smelt_host_buffer_elements(&SmeltUnknown::Object(value)).unwrap_or_default().into_iter().map(|element| match element { SmeltUnknown::Number(element) => element.to_string(), _ => String::new() }).collect::<Vec<_>>().join(","), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key("__smelt_regexp") => smelt_regexp_literal(&value), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") => { let smelt_error_name = match value.get("name") { Some(SmeltUnknown::String(name)) => name.to_string(), _ => match value.get("__smelt_error") { Some(SmeltUnknown::String(class)) => class.to_string(), _ => "Error".to_owned() } }; let smelt_error_message = match value.get("message") { Some(SmeltUnknown::String(message)) => message.to_string(), _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!("{smelt_error_name}: {smelt_error_message}") } }, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() };
+    _smelt_tmp_37 = match value.clone().into_smelt_unknown() {   SmeltUnknown::Object(value) if smelt_host_buffer_is_view(&SmeltUnknown::Object(value.clone())) => smelt_host_buffer_elements(&SmeltUnknown::Object(value)).unwrap_or_default().into_iter().map(|element| match element { SmeltUnknown::Number(element) => element.to_string(), _ => String::new() }).collect::<Vec<_>>().join(","), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key("__smelt_regexp") => smelt_regexp_literal(&value), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") => { let smelt_error_name = match value.get("name") { Some(SmeltUnknown::String(name)) => name.to_string(), _ => match value.get("__smelt_error") { Some(SmeltUnknown::String(class)) => class.to_string(), _ => "Error".to_owned() } }; let smelt_error_message = match value.get("message") { Some(SmeltUnknown::String(message)) => message.to_string(), _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!("{smelt_error_name}: {smelt_error_message}") } }, SmeltUnknown::Array(values) => smelt_erased_to_js_string(&SmeltUnknown::Array(values)), SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() };
     _smelt_tmp_38 = _smelt_tmp_36 + &_smelt_tmp_37;
     _smelt_tmp_39 = _smelt_tmp_38 + &":".to_owned();
     _smelt_tmp_40 = key.clone();
@@ -4651,7 +4665,7 @@ fn main() {
     _smelt_tmp_51 = _smelt_tmp_49 < _smelt_tmp_50;
     if !(_smelt_tmp_51) { break; }
     value_1 = _smelt_tmp_48.borrow().get(_smelt_tmp_49).cloned().unwrap_or_else(|| SmeltUnion7::M0(String::new()));
-    _smelt_tmp_52 = match value_1.clone().into_smelt_unknown() {   SmeltUnknown::Object(value) if smelt_host_buffer_is_view(&SmeltUnknown::Object(value.clone())) => smelt_host_buffer_elements(&SmeltUnknown::Object(value)).unwrap_or_default().into_iter().map(|element| match element { SmeltUnknown::Number(element) => element.to_string(), _ => String::new() }).collect::<Vec<_>>().join(","), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key("__smelt_regexp") => smelt_regexp_literal(&value), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") => { let smelt_error_name = match value.get("name") { Some(SmeltUnknown::String(name)) => name.to_string(), _ => match value.get("__smelt_error") { Some(SmeltUnknown::String(class)) => class.to_string(), _ => "Error".to_owned() } }; let smelt_error_message = match value.get("message") { Some(SmeltUnknown::String(message)) => message.to_string(), _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!("{smelt_error_name}: {smelt_error_message}") } }, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() };
+    _smelt_tmp_52 = match value_1.clone().into_smelt_unknown() {   SmeltUnknown::Object(value) if smelt_host_buffer_is_view(&SmeltUnknown::Object(value.clone())) => smelt_host_buffer_elements(&SmeltUnknown::Object(value)).unwrap_or_default().into_iter().map(|element| match element { SmeltUnknown::Number(element) => element.to_string(), _ => String::new() }).collect::<Vec<_>>().join(","), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key("__smelt_regexp") => smelt_regexp_literal(&value), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") => { let smelt_error_name = match value.get("name") { Some(SmeltUnknown::String(name)) => name.to_string(), _ => match value.get("__smelt_error") { Some(SmeltUnknown::String(class)) => class.to_string(), _ => "Error".to_owned() } }; let smelt_error_message = match value.get("message") { Some(SmeltUnknown::String(message)) => message.to_string(), _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!("{smelt_error_name}: {smelt_error_message}") } }, SmeltUnknown::Array(values) => smelt_erased_to_js_string(&SmeltUnknown::Array(values)), SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() };
     _smelt_tmp_53 = { let smelt_push_item = _smelt_tmp_52; values.borrow_mut().push(smelt_push_item); values.len() as f64 };
     _smelt_tmp_49 = _smelt_tmp_49 + 1;
     }

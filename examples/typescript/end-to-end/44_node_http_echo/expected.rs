@@ -2357,6 +2357,26 @@ fn smelt_map_entry_key_is(entry: &SmeltUnknown, key: &SmeltUnknown) -> bool {
 /// `Object.create`, `__smelt_method:` for a class method), else `undefined`.
 #[allow(dead_code)]
 fn smelt_record_inherited(record: &SmeltRecord<String, SmeltUnknown>, key: &str) -> SmeltUnknown { record.get(&format!("__smelt_proto:{key}")).or_else(|| record.get(&format!("__smelt_method:{key}"))).unwrap_or(SmeltUnknown::Undefined) }
+
+/// What a property read answers for the stored `value`: an accessor record
+/// (`{ __smelt_get: getter }`, an object literal's `get`) is called.
+#[allow(dead_code)]
+fn smelt_resolve_accessor(value: SmeltUnknown) -> SmeltUnknown {
+    match value {
+        SmeltUnknown::Object(getter) if getter.contains_key("__smelt_get") => match getter.get("__smelt_get") {
+            Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| smelt_panic_throw(error)),
+            _ => SmeltUnknown::Null,
+        },
+        value => value,
+    }
+}
+
+/// A dotted property read on a string-keyed record of erased values: the own
+/// entry, else the prototype entries, with an accessor called.
+#[allow(dead_code)]
+fn smelt_record_property(record: &SmeltRecord<String, SmeltUnknown>, key: &str) -> SmeltUnknown {
+    smelt_resolve_accessor(record.get(&key.to_owned()).unwrap_or_else(|| smelt_record_inherited(record, key)))
+}
 fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     if field == "name" && !map.contains_key("name") { if let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_error") { return SmeltUnknown::String(class_name); } }
     if field == "constructor" && !map.contains_key("constructor") { if let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_class") { return smelt_class_constructor(class_name.to_string()); } }
@@ -2399,13 +2419,7 @@ fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     // A missing property reads as JS `undefined`, distinct from an
     // explicit `null` value (`obj.missing === undefined`, `!== null`).
     let smelt_field_value = match map.get(field) { Some(value) => Some(value), None => match map.get(&format!("__smelt_proto:{field}")) { Some(value) => Some(value), None => map.get(&format!("__smelt_method:{field}")) } };
-    match smelt_field_value.unwrap_or(SmeltUnknown::Undefined) {
-        SmeltUnknown::Object(getter) if getter.contains_key("__smelt_get") => match getter.get("__smelt_get") {
-            Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| smelt_panic_throw(error)),
-            _ => SmeltUnknown::Null,
-        },
-        value => value,
-    }
+    smelt_resolve_accessor(smelt_field_value.unwrap_or(SmeltUnknown::Undefined))
 }
 
 thread_local! {
