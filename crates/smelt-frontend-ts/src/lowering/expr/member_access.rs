@@ -1264,9 +1264,8 @@ impl ModuleBuilder<'_> {
             let span = self.span(member.span.start, member.span.end);
             let optional_ty =
                 smelt_hir::type_normalize::optional_of(&mut self.ctx.krate.types, string_ty);
-            let kind = if Self::is_process_env_field(member, "TZ")
-                || Self::is_process_env_field(member, "tz")
-            {
+            // Environment names are case-sensitive: only `TZ` is the zone.
+            let kind = if Self::is_process_env_field(member, "TZ") {
                 ExprKind::Literal(Literal::String(smelt_stdlib::NODE_PROFILE_TIMEZONE.to_owned()))
             } else {
                 ExprKind::ProcessEnvRead {
@@ -1624,15 +1623,16 @@ impl ModuleBuilder<'_> {
     /// Lower explicitly acknowledged `unknown[key]` reads in unknown contexts.
     ///
     /// Runtime indexing into `unknown` is intentionally rejected by the normal
-    /// index path. This fallback only covers source that already carries a
-    /// nearby `@ts-expect-error [ts7053]`, which Remeda uses for dynamic
-    /// accumulator reads that TypeScript itself cannot prove.
+    /// index path. This fallback only covers a read TypeScript's own rejection
+    /// of was suppressed (`@ts-expect-error`/`@ts-ignore` on the comment lines
+    /// directly above, `tsc`'s rule), which Remeda uses for dynamic accumulator
+    /// reads that TypeScript itself cannot prove.
     pub(in crate::lowering) fn unknown_computed_member_with_hint(
         &mut self,
         member: &oxc::ast::ast::ComputedMemberExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        if !self.has_ts_expect_error_before(member.span.start, "ts7053") {
+        if !self.has_ts_error_suppression_before(member.span.start) {
             return Ok(None);
         }
         let receiver = self.expression(&member.object, body)?;
@@ -1665,7 +1665,7 @@ impl ModuleBuilder<'_> {
         matches!(
             self.ctx.krate.types.get(receiver_ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. })
-        ) && self.has_ts_expect_error_before(start, "ts7053")
+        ) && self.has_ts_error_suppression_before(start)
     }
 
     /// Return whether a TypeScript error-suppression pragma covers this position.
@@ -1702,17 +1702,5 @@ impl ModuleBuilder<'_> {
             }
         }
         false
-    }
-
-    /// Return whether a nearby preceding comment expects the given TS error code.
-    pub(in crate::lowering) fn has_ts_expect_error_before(&self, start: u32, code: &str) -> bool {
-        let Ok(start) = usize::try_from(start) else {
-            return false;
-        };
-        let prefix_start = start.saturating_sub(256);
-        let Some(prefix) = self.source.get(prefix_start..start) else {
-            return false;
-        };
-        prefix.contains("@ts-expect-error") && prefix.contains(code)
     }
 }

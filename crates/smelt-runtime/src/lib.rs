@@ -130,10 +130,12 @@ mod runtime {
     include!("runtime/property_access.rs");
     include!("runtime/record.rs");
     include!("runtime/reflection.rs");
+    include!("runtime/py_repr.rs");
     include!("runtime/regexp.rs");
     include!("runtime/regexp_match.rs");
     include!("runtime/sqlite.rs");
     include!("runtime/string_to_number.rs");
+    include!("runtime/string_units.rs");
     include!("runtime/strings.rs");
     include!("runtime/structural_eq.rs");
     include!("runtime/symbol_keys.rs");

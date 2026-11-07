@@ -161,8 +161,8 @@ fn smelt_string_prototype_member(receiver: &::std::rc::Rc<str>, field: &str) -> 
 
 /// Read a property off an erased string: `length`, a character index, or a `String.prototype` method.
 fn smelt_get_string_field(text: &::std::rc::Rc<str>, field: &str) -> SmeltUnknown {
-    if field == "length" { return SmeltUnknown::Number(text.chars().count() as f64); }
-    if let Ok(index) = field.parse::<usize>() { return text.chars().nth(index).map_or(SmeltUnknown::Undefined, |ch| SmeltUnknown::String(ch.to_string().into())); }
+    if field == "length" { return SmeltUnknown::Number(smelt_utf16_len(text) as f64); }
+    if let Ok(index) = field.parse::<usize>() { return smelt_utf16_char_at(text, index).map_or(SmeltUnknown::Undefined, |ch| SmeltUnknown::String(ch.into())); }
     smelt_string_prototype_member(text, field).unwrap_or(SmeltUnknown::Undefined)
 }
 
@@ -284,43 +284,43 @@ fn smelt_erased_array_iterator(receiver: SmeltArray, kind: u8) -> SmeltUnknown {
 }
 
 /// The first index at or after `from` where `needle` occurs in `haystack`.
-fn smelt_erased_chars_find(haystack: &[char], needle: &[char], from: usize) -> Option<usize> {
+fn smelt_erased_units_find(haystack: &[u16], needle: &[u16], from: usize) -> Option<usize> {
     if needle.len() > haystack.len() { return None; }
     (from..=haystack.len() - needle.len()).find(|start| haystack[*start..*start + needle.len()] == *needle)
 }
 
-/// Pad `text` to `target` characters with repetitions of `fill` (`padStart`/`padEnd`).
+/// Pad `text` to `target` code units with repetitions of `fill` (`padStart`/`padEnd`).
 fn smelt_erased_padding(len: usize, target: f64, fill: &str) -> String {
-    let fill: Vec<char> = fill.chars().collect();
-    if fill.is_empty() || target <= len as f64 { return String::new(); }
-    (0..target as usize - len).map(|index| fill[index % fill.len()]).collect()
+    let fill_len = smelt_utf16_len(fill);
+    if fill_len == 0 || target <= len as f64 { return String::new(); }
+    let needed = target as usize - len;
+    smelt_utf16_slice(&fill.repeat(needed.div_ceil(fill_len)), 0, needed)
 }
 
 /// Apply `String.prototype[name]` to an erased string receiver.
 ///
-/// Positions count Unicode scalar values, the unit every other erased string
-/// operation in this runtime (`length`, indexing) uses.
+/// Positions count UTF-16 code units, as JavaScript's do (`runtime/string_units.rs`).
 fn smelt_string_prototype_apply(text: &str, name: &str, args: Vec<SmeltUnknown>) -> SmeltUnknown {
     let arg = |index: usize| args.get(index).map_or(SmeltUnknown::Undefined, SmeltUnknown::clone);
     let arg_text = |index: usize| smelt_erased_to_js_string(&arg(index));
-    let chars: Vec<char> = text.chars().collect();
-    let len = chars.len();
+    let units: Vec<u16> = text.encode_utf16().collect();
+    let len = units.len();
     let string = |value: String| SmeltUnknown::String(value.into());
-    let range = |start: usize, end: usize| chars[start..end.max(start)].iter().collect::<String>();
+    let range = |start: usize, end: usize| smelt_utf16_slice(text, start, end);
     match name {
-        "at" => smelt_erased_at_index(args.first(), len).map_or(SmeltUnknown::Undefined, |index| string(chars[index].to_string())),
-        "charAt" => { let index = smelt_erased_integer(&arg(0)); if index >= 0.0 && index < len as f64 { string(chars[index as usize].to_string()) } else { string(String::new()) } }
-        "charCodeAt" | "codePointAt" => { let index = smelt_erased_integer(&arg(0)); if index >= 0.0 && index < len as f64 { SmeltUnknown::Number(u32::from(chars[index as usize]) as f64) } else if name == "charCodeAt" { SmeltUnknown::Number(f64::NAN) } else { SmeltUnknown::Undefined } }
+        "at" => smelt_erased_at_index(args.first(), len).map_or(SmeltUnknown::Undefined, |index| string(range(index, index + 1))),
+        "charAt" => { let index = smelt_erased_integer(&arg(0)); if index >= 0.0 && index < len as f64 { string(range(index as usize, index as usize + 1)) } else { string(String::new()) } }
+        "charCodeAt" | "codePointAt" => { let index = smelt_erased_integer(&arg(0)); if index >= 0.0 && index < len as f64 { let code = if name == "charCodeAt" { u32::from(units[index as usize]) } else { smelt_utf16_code_point_at(text, index as usize).unwrap_or(0) }; SmeltUnknown::Number(f64::from(code)) } else if name == "charCodeAt" { SmeltUnknown::Number(f64::NAN) } else { SmeltUnknown::Undefined } }
         "concat" => { let mut result = text.to_owned(); for argument in &args { result.push_str(&smelt_erased_to_js_string(argument)); } string(result) }
-        "includes" | "indexOf" => { let needle: Vec<char> = arg_text(0).chars().collect(); let from = smelt_erased_clamped_position(args.get(1), len, 0); let found = smelt_erased_chars_find(&chars, &needle, from); if name == "includes" { SmeltUnknown::Bool(found.is_some()) } else { SmeltUnknown::Number(found.map_or(-1.0, |index| index as f64)) } }
+        "includes" | "indexOf" => { let needle: Vec<u16> = arg_text(0).encode_utf16().collect(); let from = smelt_erased_clamped_position(args.get(1), len, 0); let found = smelt_erased_units_find(&units, &needle, from); if name == "includes" { SmeltUnknown::Bool(found.is_some()) } else { SmeltUnknown::Number(found.map_or(-1.0, |index| index as f64)) } }
         "lastIndexOf" => {
-            let needle: Vec<char> = arg_text(0).chars().collect();
+            let needle: Vec<u16> = arg_text(0).encode_utf16().collect();
             let from = match args.get(1) { None | Some(SmeltUnknown::Undefined) => len, Some(value) => { let number = smelt_unknown_to_number(value); if number.is_nan() { len } else { number.trunc().clamp(0.0, len as f64) as usize } } };
             if needle.len() > len { return SmeltUnknown::Number(-1.0); }
-            SmeltUnknown::Number((0..=from.min(len - needle.len())).rev().find(|start| chars[*start..*start + needle.len()] == *needle).map_or(-1.0, |index| index as f64))
+            SmeltUnknown::Number((0..=from.min(len - needle.len())).rev().find(|start| units[*start..*start + needle.len()] == *needle).map_or(-1.0, |index| index as f64))
         }
-        "startsWith" => { let needle: Vec<char> = arg_text(0).chars().collect(); let start = smelt_erased_clamped_position(args.get(1), len, 0); SmeltUnknown::Bool(chars[start..].starts_with(&needle)) }
-        "endsWith" => { let needle: Vec<char> = arg_text(0).chars().collect(); let end = smelt_erased_clamped_position(args.get(1), len, len); SmeltUnknown::Bool(chars[..end].ends_with(&needle)) }
+        "startsWith" => { let needle: Vec<u16> = arg_text(0).encode_utf16().collect(); let start = smelt_erased_clamped_position(args.get(1), len, 0); SmeltUnknown::Bool(units[start..].starts_with(&needle)) }
+        "endsWith" => { let needle: Vec<u16> = arg_text(0).encode_utf16().collect(); let end = smelt_erased_clamped_position(args.get(1), len, len); SmeltUnknown::Bool(units[..end].ends_with(&needle)) }
         "padStart" | "padEnd" => {
             let fill = match args.get(1) { None | Some(SmeltUnknown::Undefined) => " ".to_owned(), Some(value) => smelt_erased_to_js_string(value) };
             let padding = smelt_erased_padding(len, smelt_erased_integer(&arg(0)), &fill);

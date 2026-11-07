@@ -248,6 +248,10 @@ const MODULES: &[RuntimeModule] = &[
         source: include_str!("runtime/property_access.rs"),
     },
     RuntimeModule {
+        name: "py_repr",
+        source: include_str!("runtime/py_repr.rs"),
+    },
+    RuntimeModule {
         name: "record",
         source: include_str!("runtime/record.rs"),
     },
@@ -270,6 +274,10 @@ const MODULES: &[RuntimeModule] = &[
     RuntimeModule {
         name: "string_to_number",
         source: include_str!("runtime/string_to_number.rs"),
+    },
+    RuntimeModule {
+        name: "string_units",
+        source: include_str!("runtime/string_units.rs"),
     },
     RuntimeModule {
         name: "strings",

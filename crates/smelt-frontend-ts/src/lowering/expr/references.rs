@@ -612,19 +612,13 @@ impl ModuleBuilder<'_> {
                 span,
                 outer_body,
             ),
-            // String-to-number parse functions used as callbacks. Both expose a
-            // single string parameter here; direct `parseFloat` calls separately
-            // make JavaScript's implicit `ToString` coercion explicit. Callers
-            // that need JavaScript's
-            // `(value, index)` arity (e.g. `arr.map(parseInt)`) wrap them in
-            // `unary`/`ary` first, so a one-parameter closure is faithful. The
-            // parameter is typed `string` so the cast emits the real numeric
-            // parse instead of the erased-operand fallback.
-            "parseInt" => self.builtin_string_cast_closure_expression(
-                PrimitiveCastOp::ToInt,
-                span,
-                outer_body,
-            ),
+            // String-to-number parse functions used as values. Both expose a
+            // single string parameter here (`parseInt` with an absent radix);
+            // a callback position that passes the element index as the radix
+            // (`arr.map(parseInt)`) builds the two-parameter `parseInt` in
+            // `callbacks::dispatch`. The parameter is typed `string` so the
+            // parse runs on the real text instead of the erased-operand fallback.
+            "parseInt" => self.builtin_parse_int_closure_expression(false, span, outer_body),
             "parseFloat" => self.builtin_string_cast_closure_expression(
                 PrimitiveCastOp::ParseFloat,
                 span,
@@ -1386,6 +1380,38 @@ impl ModuleBuilder<'_> {
         )
     }
 
+    /// Build the `parseInt` function value: `(value: string) => parseInt(value)`,
+    /// or with `with_radix` the two-parameter `(value: string, radix: number)`
+    /// form a callback position needs when its caller passes a second number.
+    pub(in crate::lowering) fn builtin_parse_int_closure_expression(
+        &mut self,
+        with_radix: bool,
+        span: Span,
+        outer_body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let float_ty = self.ctx.krate.types.intern(Type::Float);
+        let params: &[(&str, smelt_hir::TypeId)] = if with_radix {
+            &[("value", string_ty), ("radix", float_ty)]
+        } else {
+            &[("value", string_ty)]
+        };
+        let int_ty = self.ctx.krate.types.intern(Type::Int);
+        self.builtin_closure_expression(params, float_ty, span, outer_body, false, |body, reads| {
+            let radix = reads.get(1).copied().unwrap_or_else(|| {
+                body.push_expr(Expr {
+                    kind: ExprKind::Literal(smelt_hir::Literal::Int(0)),
+                    ty: int_ty,
+                    span,
+                })
+            });
+            ExprKind::ParseIntRadix {
+                operand: reads[0],
+                radix,
+            }
+        })
+    }
+
     /// Build a `(value) => <NumericPredicate op>(value)` closure value.
     pub(in crate::lowering) fn builtin_numeric_predicate_closure_expression(
         &mut self,
@@ -1438,29 +1464,66 @@ impl ModuleBuilder<'_> {
         may_throw: bool,
         make_body: impl FnOnce(smelt_hir::ExprId) -> ExprKind,
     ) -> smelt_hir::ExprId {
-        let value_name = self.intern_source_name("value");
+        self.builtin_closure_expression(
+            &[("value", param_ty)],
+            return_ty,
+            span,
+            outer_body,
+            may_throw,
+            |_, reads| make_body(reads[0]),
+        )
+    }
+
+    /// Synthesize a closure value with the named, typed `params` whose body
+    /// returns `make_body` applied to the closure body and the parameter reads,
+    /// in order.
+    ///
+    /// The general form behind the unary builtin closures, for a builtin whose
+    /// value form takes more than one argument (`xs.map(parseInt)` passes the
+    /// element index as the radix).
+    pub(in crate::lowering) fn builtin_closure_expression(
+        &mut self,
+        params: &[(&str, smelt_hir::TypeId)],
+        return_ty: smelt_hir::TypeId,
+        span: Span,
+        outer_body: &mut Body,
+        may_throw: bool,
+        make_body: impl FnOnce(&mut Body, &[smelt_hir::ExprId]) -> ExprKind,
+    ) -> smelt_hir::ExprId {
         let mut closure_body = Body::new(None, span);
-        let value_local = closure_body.push_local(LocalDecl {
-            name: Some(value_name),
-            ty: param_ty,
-            mutable: false,
-            span,
-        });
-        closure_body.params.push(value_local);
-        let value_expr = closure_body.push_expr(Expr {
-            kind: ExprKind::Local(value_local),
-            ty: param_ty,
-            span,
-        });
+        let mut closure_params = Vec::with_capacity(params.len());
+        let mut reads = Vec::with_capacity(params.len());
+        for &(name, ty) in params {
+            let name = self.intern_source_name(name);
+            let local = closure_body.push_local(LocalDecl {
+                name: Some(name),
+                ty,
+                mutable: false,
+                span,
+            });
+            closure_body.params.push(local);
+            reads.push(closure_body.push_expr(Expr {
+                kind: ExprKind::Local(local),
+                ty,
+                span,
+            }));
+            closure_params.push(Param {
+                name,
+                local,
+                ty,
+                span,
+            });
+        }
+        let kind = make_body(&mut closure_body, &reads);
         let result = closure_body.push_expr(Expr {
-            kind: make_body(value_expr),
+            kind,
             ty: return_ty,
             span,
         });
         closure_body.push_stmt(Stmt::Return(Some(result)));
         let body = self.ctx.krate.push_body(closure_body);
         let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
-            params: vec![param_ty],
+            params: params.iter().map(|&(_, ty)| ty).collect(),
             rest: None,
             required_params: None,
             mutable_params: Vec::new(),
@@ -1470,12 +1533,7 @@ impl ModuleBuilder<'_> {
         }));
         outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
-                params: vec![Param {
-                    name: value_name,
-                    local: value_local,
-                    ty: param_ty,
-                    span,
-                }],
+                params: closure_params,
                 rest: None,
                 required_params: None,
                 return_ty,

@@ -42,7 +42,7 @@ fn escape_html (FuncId(0)) -> String
   bb4:
     %14 = len copy %0
     %18 = primitive_cast_float copy %2
-    %15 = string_slice copy %0, move %18, move %14
+    %15 = string_substring copy %0, move %18, move %14
     %16 = move %1 + move %15
     return move %16
   bb5:
@@ -62,7 +62,7 @@ fn escape_html (FuncId(0)) -> String
   bb10:
     %19 = primitive_cast_float copy %2
     %20 = primitive_cast_float copy %3
-    %9 = string_slice copy %0, move %19, move %20
+    %9 = string_substring copy %0, move %19, move %20
     %10 = move %9 + move %5
     %11 = move %1 + move %10
     %1 = move %11

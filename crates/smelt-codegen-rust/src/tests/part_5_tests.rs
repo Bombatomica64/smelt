@@ -913,11 +913,10 @@ function sliceOptional(start?: number, end?: number): string {
     assert!(source.contains("let smelt_index = 1.0 as i64"));
     assert!(source.contains("clamp(0, smelt_len) as usize"));
     assert!(source.contains(".cloned().collect::<Vec<_>>()"));
-    assert!(source.contains(".chars().skip(0usize).take("));
+    assert!(source.contains("{ let smelt_len_units = smelt_utf16_len(&word); { let smelt_start = 0usize; smelt_utf16_slice(&word, smelt_start, smelt_start.saturating_add(smelt_len_units.saturating_sub(0usize))) } }"), "{source}");
     assert!(source.matches("if smelt_index < 0").count() >= 2);
-    assert!(source.contains(".collect::<String>();"));
     assert!(source.contains(".unwrap_or(0.0)"));
-    assert!(source.contains(".chars().count() as f64"));
+    assert!(source.contains(".unwrap_or(smelt_len_units as f64)"), "{source}");
 }
 
 #[test]

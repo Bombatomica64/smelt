@@ -486,6 +486,60 @@ mod number_family {
         assert!(smelt_string_to_number("12px").is_nan(), "trailing text is NaN");
     }
 
+    /// UTF-16 indices over UTF-8 text agree with a decoding walk, across
+    /// the eight-byte words the seek skips.
+    #[test]
+    fn utf16_indices_agree_with_decoding() {
+        let text = "aé😀日b".repeat(7);
+        let units: Vec<u16> = text.encode_utf16().collect();
+        assert_eq!(smelt_utf16_len(&text), units.len(), "length");
+        for unit in 0..=units.len() + 2 {
+            let expected = String::from_utf16_lossy(&units[unit.min(units.len())..]);
+            match smelt_utf16_byte_of(&text, unit) {
+                Ok(byte) => assert_eq!(&text[byte..], expected, "unit {unit}"),
+                Err(byte) => assert!(text[byte..].starts_with('😀') && expected.starts_with('\u{fffd}'), "unit {unit} is inside a pair"),
+            }
+            assert_eq!(smelt_utf16_unit_at(&text, unit), units.get(unit).copied(), "unit {unit}");
+        }
+        assert_eq!(smelt_utf16_slice("a😀b", 1, 3), "😀", "a whole pair");
+        assert_eq!(smelt_utf16_slice("a😀b", 2, 4), "b", "a pair cut at the start belongs to the left");
+        assert_eq!(smelt_utf16_slice("a😀b", 0, 2), "a😀", "a pair cut at the end belongs to the left");
+        assert_eq!(smelt_utf16_char_at("😀", 1).as_deref(), Some(""), "the second unit of a pair");
+        let text = "x😀y";
+        for cut in 0..=4 {
+            assert_eq!(smelt_utf16_slice(text, 0, cut) + &smelt_utf16_slice(text, cut, 4), text, "cut {cut}");
+        }
+        assert_eq!(smelt_utf16_index_of_byte("é😀x", 6), 3, "bytes to units");
+    }
+
+    /// `parseInt` reads the longest digit prefix, detects `0x` only for radix
+    /// 0 or 16, and keeps the sign of a zero.
+    #[test]
+    fn parse_int_reads_a_prefix_like_javascript() {
+        assert_eq!(smelt_parse_int("12px", 0.0), 12.0, "trailing text is ignored");
+        assert_eq!(smelt_parse_int(" 3.7", 0.0), 3.0, "the fraction is not a digit");
+        assert_eq!(smelt_parse_int("0x10", 0.0), 16.0, "an absent radix detects hex");
+        assert_eq!(smelt_parse_int("0x10", 10.0), 0.0, "radix 10 stops at the x");
+        assert_eq!(smelt_parse_int("-0x1F", 16.0), -31.0, "radix 16 strips the prefix");
+        assert!(smelt_parse_int("-0", 10.0).is_sign_negative(), "-0 keeps its sign");
+        assert!(smelt_parse_int("10", 1.0).is_nan(), "radix 1 is out of range");
+        assert_eq!(smelt_parse_int("10", 4_294_967_298.0), 2.0, "the radix wraps through ToInt32");
+        assert_eq!(smelt_parse_int("99999999999999999999", 0.0), 1e20, "beyond i64 it still rounds");
+        assert!(smelt_parse_int("Infinity", 0.0).is_nan(), "Infinity is not a digit");
+    }
+
+    /// `parseFloat` reads the longest decimal-literal prefix.
+    #[test]
+    fn parse_float_reads_a_prefix_like_javascript() {
+        assert_eq!(smelt_parse_float("12px"), 12.0, "trailing text is ignored");
+        assert_eq!(smelt_parse_float(".5e1x"), 5.0, "a bare fraction and exponent");
+        assert_eq!(smelt_parse_float("1e"), 1.0, "an exponent with no digits is dropped");
+        assert_eq!(smelt_parse_float("0x10"), 0.0, "no hex");
+        assert_eq!(smelt_parse_float("-Infinityx"), f64::NEG_INFINITY, "signed Infinity");
+        assert!(smelt_parse_float(".").is_nan(), "a lone dot has no digits");
+        assert!(smelt_parse_float("-").is_nan(), "a lone sign has no digits");
+    }
+
     /// `Math.round` rounds a tie toward +∞ and keeps `-0`.
     #[test]
     fn math_round_ties_toward_positive_infinity() {

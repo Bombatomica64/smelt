@@ -71,6 +71,121 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// The JavaScript `length` of `text`: its UTF-16 code units.
+#[allow(dead_code)]
+fn smelt_utf16_len(text: &str) -> usize {
+    if text.is_ascii() { text.len() } else { smelt_utf16_units_in(text.as_bytes()) }
+}
+
+/// The UTF-16 index of the byte offset `byte` of `text`, which is a char boundary.
+#[allow(dead_code)]
+fn smelt_utf16_index_of_byte(text: &str, byte: usize) -> usize {
+    smelt_utf16_len(&text[..byte])
+}
+
+/// The UTF-16 code units of the characters whose first byte is in the word
+/// `word` (eight bytes of a string, little-endian).
+#[allow(dead_code)]
+fn smelt_utf16_units_in_word(word: u64) -> usize {
+    const HIGH: u64 = 0x8080_8080_8080_8080;
+    let continuation = (word & !(word << 1) & HIGH).count_ones() as usize;
+    let four_byte = (word & (word << 1) & (word << 2) & (word << 3) & HIGH).count_ones() as usize;
+    8 - continuation + four_byte
+}
+
+/// The UTF-16 code units of the characters whose first byte is in `bytes`.
+#[allow(dead_code)]
+fn smelt_utf16_units_in(bytes: &[u8]) -> usize {
+    let mut words = bytes.chunks_exact(8);
+    let whole: usize = words.by_ref().map(|word| smelt_utf16_units_in_word(u64::from_le_bytes([word[0], word[1], word[2], word[3], word[4], word[5], word[6], word[7]]))).sum();
+    whole + words.remainder().iter().map(|byte| usize::from(byte & 0xC0 != 0x80) + usize::from(*byte >= 0xF0)).sum::<usize>()
+}
+
+/// The byte offset where UTF-16 index `unit` of `text` starts, clamped to the
+/// end; `Err` with the offset of the surrogate pair `unit` falls inside.
+#[allow(dead_code)]
+fn smelt_utf16_byte_of(text: &str, unit: usize) -> Result<usize, usize> {
+    let bytes = text.as_bytes();
+    if bytes.get(..unit).is_some_and(<[u8]>::is_ascii) { return Ok(unit); }
+    let (mut at, mut units) = (0, 0);
+    while let Some(word) = bytes.get(at..at + 8) {
+        let count = smelt_utf16_units_in_word(u64::from_le_bytes([word[0], word[1], word[2], word[3], word[4], word[5], word[6], word[7]]));
+        if units + count >= unit { break; }
+        units += count;
+        at += 8;
+    }
+    for (offset, &byte) in bytes[at..].iter().enumerate() {
+        if byte & 0xC0 == 0x80 { continue; }
+        if units == unit { return Ok(at + offset); }
+        units += 1 + usize::from(byte >= 0xF0);
+        if units > unit { return Err(at + offset); }
+    }
+    Ok(bytes.len())
+}
+
+/// The byte offset of the cut at UTF-16 index `unit` of `text`: a cut inside
+/// a surrogate pair falls after the pair.
+#[allow(dead_code)]
+fn smelt_utf16_cut(text: &str, unit: usize) -> usize {
+    smelt_utf16_byte_of(text, unit).unwrap_or_else(|byte| byte + 4)
+}
+
+/// The code units `start..end` of `text` (clamped; empty when `end <= start`),
+/// a pair cut at either end belonging to the piece on the cut's left.
+#[allow(dead_code)]
+fn smelt_utf16_slice(text: &str, start: usize, end: usize) -> String {
+    if end <= start { return String::new(); }
+    let from = smelt_utf16_cut(text, start);
+    let to = smelt_utf16_cut(text, end);
+    text.get(from..to.max(from)).unwrap_or("").to_owned()
+}
+
+/// The code unit at UTF-16 index `unit` of `text` (`charCodeAt`), if any.
+#[allow(dead_code)]
+fn smelt_utf16_unit_at(text: &str, unit: usize) -> Option<u16> {
+    if let Some(prefix) = text.as_bytes().get(..=unit) {
+        if prefix.is_ascii() { return Some(u16::from(prefix[unit])); }
+    }
+    let (byte, half) = match smelt_utf16_byte_of(text, unit) { Ok(byte) => (byte, 0), Err(byte) => (byte, 1) };
+    let mut units = [0; 2];
+    text[byte..].chars().next().map(|ch| ch.encode_utf16(&mut units)[half])
+}
+
+/// The string at UTF-16 index `unit` of `text` (`charAt`, `s[i]`), if any:
+/// one unit, or a whole pair at its first unit and `""` at its second.
+#[allow(dead_code)]
+fn smelt_utf16_char_at(text: &str, unit: usize) -> Option<String> {
+    if let Some(prefix) = text.as_bytes().get(..=unit) {
+        if prefix.is_ascii() { return Some(char::from(prefix[unit]).to_string()); }
+    }
+    match smelt_utf16_byte_of(text, unit) {
+        Ok(byte) => text[byte..].chars().next().map(String::from),
+        Err(_) => Some(String::new()),
+    }
+}
+
+/// The code point starting at UTF-16 index `unit` of `text` (`codePointAt`):
+/// a whole surrogate pair, else the lone unit there.
+#[allow(dead_code)]
+fn smelt_utf16_code_point_at(text: &str, unit: usize) -> Option<u32> {
+    match smelt_utf16_byte_of(text, unit) {
+        Ok(byte) => text[byte..].chars().next().map(u32::from),
+        Err(_) => smelt_utf16_unit_at(text, unit).map(u32::from),
+    }
+}
+
+/// One string per code unit of `text` (`s.split("")`): a pair is its whole
+/// character followed by `""`.
+#[allow(dead_code)]
+fn smelt_utf16_units(text: &str) -> Vec<String> {
+    let mut units = Vec::with_capacity(text.len());
+    for ch in text.chars() {
+        units.push(ch.to_string());
+        if ch.len_utf16() == 2 { units.push(String::new()); }
+    }
+    units
+}
+
 thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
@@ -184,18 +299,18 @@ pub(crate) fn escape_html(str: String) -> String {
     let mut last_index: usize = 0;
     let mut i: usize = 0;
     loop {
-    _smelt_tmp_6 = str.chars().count();
+    _smelt_tmp_6 = smelt_utf16_len(&str);
     _smelt_tmp_7 = i < _smelt_tmp_6;
     if !(_smelt_tmp_7) { break; }
     _smelt_tmp_17 = i as f64;
-    code = (|smelt_text: &str, smelt_index: usize| match smelt_text.as_bytes().get(..=smelt_index) { Some(smelt_prefix) if smelt_prefix.is_ascii() => f64::from(smelt_prefix[smelt_index]), _ => smelt_text.chars().nth(smelt_index).map_or(f64::NAN, |ch| ch as u32 as f64) })(&str, _smelt_tmp_17 as usize);
+    code = (|smelt_text: &str, smelt_index: f64| if smelt_index < 0.0 { f64::NAN } else { let smelt_index = smelt_index as usize; smelt_utf16_unit_at(smelt_text, smelt_index).map_or(f64::NAN, f64::from) })(&str, _smelt_tmp_17 as f64);
     replacement = "".to_owned();
     match code {
         34.0 => {
     replacement = "&quot;".to_owned();
     _smelt_tmp_19 = last_index as f64;
     _smelt_tmp_20 = i as f64;
-    _smelt_tmp_9 = str.clone().chars().skip({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_19 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_20 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_19 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).collect::<String>();
+    _smelt_tmp_9 = { let smelt_text = str.clone(); let smelt_len = smelt_utf16_len(&smelt_text) as f64; let smelt_from = { let smelt_bound = _smelt_tmp_19 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).min({ let smelt_bound = _smelt_tmp_20 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)); let smelt_count = { let smelt_bound = _smelt_tmp_19 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).max({ let smelt_bound = _smelt_tmp_20 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)) - smelt_from; { let smelt_start = smelt_from as usize; smelt_utf16_slice(&smelt_text, smelt_start, smelt_start.saturating_add(smelt_count as usize)) } };
     _smelt_tmp_10 = _smelt_tmp_9 + &replacement;
     _smelt_tmp_11 = out + &_smelt_tmp_10;
     out = _smelt_tmp_11;
@@ -209,7 +324,7 @@ pub(crate) fn escape_html(str: String) -> String {
     replacement = "&amp;".to_owned();
     _smelt_tmp_19 = last_index as f64;
     _smelt_tmp_20 = i as f64;
-    _smelt_tmp_9 = str.clone().chars().skip({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_19 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_20 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_19 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).collect::<String>();
+    _smelt_tmp_9 = { let smelt_text = str.clone(); let smelt_len = smelt_utf16_len(&smelt_text) as f64; let smelt_from = { let smelt_bound = _smelt_tmp_19 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).min({ let smelt_bound = _smelt_tmp_20 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)); let smelt_count = { let smelt_bound = _smelt_tmp_19 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).max({ let smelt_bound = _smelt_tmp_20 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)) - smelt_from; { let smelt_start = smelt_from as usize; smelt_utf16_slice(&smelt_text, smelt_start, smelt_start.saturating_add(smelt_count as usize)) } };
     _smelt_tmp_10 = _smelt_tmp_9 + &replacement;
     _smelt_tmp_11 = out + &_smelt_tmp_10;
     out = _smelt_tmp_11;
@@ -223,7 +338,7 @@ pub(crate) fn escape_html(str: String) -> String {
     replacement = "&lt;".to_owned();
     _smelt_tmp_19 = last_index as f64;
     _smelt_tmp_20 = i as f64;
-    _smelt_tmp_9 = str.clone().chars().skip({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_19 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_20 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_19 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).collect::<String>();
+    _smelt_tmp_9 = { let smelt_text = str.clone(); let smelt_len = smelt_utf16_len(&smelt_text) as f64; let smelt_from = { let smelt_bound = _smelt_tmp_19 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).min({ let smelt_bound = _smelt_tmp_20 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)); let smelt_count = { let smelt_bound = _smelt_tmp_19 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).max({ let smelt_bound = _smelt_tmp_20 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)) - smelt_from; { let smelt_start = smelt_from as usize; smelt_utf16_slice(&smelt_text, smelt_start, smelt_start.saturating_add(smelt_count as usize)) } };
     _smelt_tmp_10 = _smelt_tmp_9 + &replacement;
     _smelt_tmp_11 = out + &_smelt_tmp_10;
     out = _smelt_tmp_11;
@@ -237,7 +352,7 @@ pub(crate) fn escape_html(str: String) -> String {
     replacement = "&gt;".to_owned();
     _smelt_tmp_19 = last_index as f64;
     _smelt_tmp_20 = i as f64;
-    _smelt_tmp_9 = str.clone().chars().skip({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_19 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_20 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_19 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).collect::<String>();
+    _smelt_tmp_9 = { let smelt_text = str.clone(); let smelt_len = smelt_utf16_len(&smelt_text) as f64; let smelt_from = { let smelt_bound = _smelt_tmp_19 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).min({ let smelt_bound = _smelt_tmp_20 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)); let smelt_count = { let smelt_bound = _smelt_tmp_19 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).max({ let smelt_bound = _smelt_tmp_20 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)) - smelt_from; { let smelt_start = smelt_from as usize; smelt_utf16_slice(&smelt_text, smelt_start, smelt_start.saturating_add(smelt_count as usize)) } };
     _smelt_tmp_10 = _smelt_tmp_9 + &replacement;
     _smelt_tmp_11 = out + &_smelt_tmp_10;
     out = _smelt_tmp_11;
@@ -254,9 +369,9 @@ pub(crate) fn escape_html(str: String) -> String {
         }
     }
     }
-    _smelt_tmp_14 = str.chars().count() as f64;
+    _smelt_tmp_14 = smelt_utf16_len(&str) as f64;
     _smelt_tmp_18 = last_index as f64;
-    _smelt_tmp_15 = str.clone().chars().skip({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_18 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_14 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = str.clone().chars().count() as i64; let smelt_index = _smelt_tmp_18 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).collect::<String>();
+    _smelt_tmp_15 = { let smelt_text = str.clone(); let smelt_len = smelt_utf16_len(&smelt_text) as f64; let smelt_from = { let smelt_bound = _smelt_tmp_18 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).min({ let smelt_bound = _smelt_tmp_14 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)); let smelt_count = { let smelt_bound = _smelt_tmp_18 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).max({ let smelt_bound = _smelt_tmp_14 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)) - smelt_from; { let smelt_start = smelt_from as usize; smelt_utf16_slice(&smelt_text, smelt_start, smelt_start.saturating_add(smelt_count as usize)) } };
     _smelt_tmp_16 = out + &_smelt_tmp_15;
     return _smelt_tmp_16;
 }

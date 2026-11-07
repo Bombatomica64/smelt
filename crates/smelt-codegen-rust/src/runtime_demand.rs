@@ -63,6 +63,12 @@ pub(crate) enum Need {
     Date,
     /// JavaScript `Math.round`.
     MathRound,
+    /// The `parseInt`/`parseFloat` prefix parsers.
+    ParseNumber,
+    /// The UTF-16 index helpers every JavaScript string index goes through.
+    StringUnits,
+    /// Python's `repr`, for a container `print` shows.
+    PyRepr,
     /// Mutable closure captures shared through the capture registry.
     SharedCaptures,
     /// `encodeURI` and friends.
@@ -223,11 +229,13 @@ const REQUIRES: &[(Need, &[Need])] = &[
             Need::DepChrono,
             Need::DepChronoTz,
             Need::DepTokio,
+            Need::StringUnits,
         ],
     ),
     (Need::SmeltList, &[Need::ObjectIds]),
+    (Need::PyRepr, &[Need::PythonNumberFormat]),
     (Need::PrimSet, &[Need::ObjectIds]),
-    (Need::DepRegex, &[Need::ObjectIds]),
+    (Need::DepRegex, &[Need::ObjectIds, Need::StringUnits]),
     (Need::Date, &[Need::ObjectIds, Need::HostOrigins]),
     // These are emitted inside the carrier's block, or carry its values.
     (Need::IteratorResult, &[Need::Unknown]),
@@ -305,9 +313,15 @@ impl RuntimeDemand {
         demand.scan_types(mir);
         for function in &mir.functions {
             demand.scan_body(mir, &function.locals, &function.blocks, function.return_ty);
+            if function.language == smelt_hir::Language::TypeScript {
+                demand.scan_string_units(mir, &function.locals, &function.blocks);
+            }
         }
         for closure in &mir.closures {
             demand.scan_body(mir, &closure.locals, &closure.blocks, closure.return_ty);
+            if closure.language == smelt_hir::Language::TypeScript {
+                demand.scan_string_units(mir, &closure.locals, &closure.blocks);
+            }
         }
         demand.close();
         demand
@@ -363,6 +377,15 @@ impl RuntimeDemand {
             }
             if function.language == smelt_hir::Language::Python {
                 self.add(Need::PythonNumberFormat);
+                // A container `print` may show is drawn by Python's `repr`.
+                if function.locals.iter().any(|local| {
+                    matches!(
+                        mir.types.get(local.ty),
+                        Some(Type::List(_) | Type::Tuple(_) | Type::Dict(_, _) | Type::Set(_))
+                    )
+                }) {
+                    self.add(Need::PyRepr);
+                }
             }
             if function.is_generator {
                 self.add(Need::Generator);
@@ -537,6 +560,55 @@ impl RuntimeDemand {
         }
     }
 
+    /// Records whether a TypeScript body produces or consumes a string index.
+    ///
+    /// JavaScript string indices count UTF-16 code units, so such a body needs
+    /// the `smelt_utf16_*` helpers: a string-index op, a `length` of a string,
+    /// or an index read off a string local. Python indexes by code point and
+    /// needs none of them.
+    fn scan_string_units(&mut self, mir: &Mir, locals: &[LocalDecl], blocks: &[BasicBlock]) {
+        if self.has(Need::StringUnits) {
+            return;
+        }
+        let holds_string = |operand: &Operand| match operand {
+            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => {
+                local_is_string(mir, locals, *local)
+            }
+            Operand::Const(smelt_mir::Constant::String(_)) => true,
+            _ => false,
+        };
+        for statement in blocks.iter().flat_map(|block| &block.statements) {
+            let value = statement.value();
+            let indexes = match value {
+                Rvalue::StringSlice { .. }
+                | Rvalue::StringCharAt { .. }
+                | Rvalue::StringCharCodeAt { .. }
+                | Rvalue::StringCodePointAt { .. }
+                | Rvalue::StringSearch { .. }
+                | Rvalue::StringPad { .. }
+                | Rvalue::StringSplit { .. }
+                | Rvalue::StringContains { from_index: Some(_), .. }
+                | Rvalue::RegexReplaceCallback { .. } => true,
+                Rvalue::Len { operand } => holds_string(operand),
+                Rvalue::OptionalIndex { receiver, .. } => holds_string(receiver),
+                _ => false,
+            };
+            let mut reads_string_place = false;
+            value.reads(|operand| {
+                if let Operand::Copy(Place::Index { base, .. } | Place::Field { base, .. })
+                | Operand::Move(Place::Index { base, .. } | Place::Field { base, .. }) = operand
+                    && local_is_string(mir, locals, *base)
+                {
+                    reads_string_place = true;
+                }
+            });
+            if indexes || reads_string_place {
+                self.add(Need::StringUnits);
+                return;
+            }
+        }
+    }
+
     /// Records what one terminator demands.
     fn scan_terminator(&mut self, terminator: &Terminator) {
         let Terminator::Call { callee, unwind, .. } = terminator else {
@@ -685,6 +757,25 @@ fn local_holds_a_body(mir: &Mir, locals: &[LocalDecl], base: LocalId) -> bool {
         stdlib_class_of_class_symbol(mir, *name),
         Some(StdlibClass::Request | StdlibClass::Response)
     )
+}
+
+/// Whether `local` may hold a string: a string, an optional string, or a
+/// union with a string member.
+fn local_is_string(mir: &Mir, locals: &[LocalDecl], local: LocalId) -> bool {
+    usize::try_from(local.0)
+        .ok()
+        .and_then(|index| locals.get(index))
+        .is_some_and(|local| type_may_be_string(mir, local.ty))
+}
+
+/// Whether a value of type `ty` may be a string (see [`local_is_string`]).
+fn type_may_be_string(mir: &Mir, ty: smelt_hir::TypeId) -> bool {
+    match mir.types.get(ty) {
+        Some(Type::String) => true,
+        Some(Type::Optional(inner)) => type_may_be_string(mir, *inner),
+        Some(Type::Union(members)) => members.iter().any(|member| type_may_be_string(mir, *member)),
+        _ => false,
+    }
 }
 
 /// The backend crates a demand links, for the generated manifest.

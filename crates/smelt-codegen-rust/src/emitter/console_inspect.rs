@@ -356,6 +356,25 @@ pub(crate) fn emit_console_inspect_support(
 }
 
 impl FunctionEmitter<'_> {
+    /// Whether a value of type `ty` has a `SmeltPyRepr` impl
+    /// (`runtime/py_repr.rs`): Python's scalars, `None`, and lists, tuples,
+    /// hash-map dicts and primitive sets of such values.
+    fn type_has_py_repr(&self, ty: TypeId) -> bool {
+        match self.mir.types.get(ty) {
+            Some(Type::Int | Type::Float | Type::Bool | Type::String | Type::None) => true,
+            Some(Type::Optional(inner) | Type::List(inner)) => self.type_has_py_repr(*inner),
+            Some(Type::Tuple(items)) => !items.is_empty() && items.len() <= 6 && items.iter().all(|item| self.type_has_py_repr(*item)),
+            Some(Type::Dict(key, value)) => {
+                !self.dict_uses_smelt_record(*key)
+                    && !self.dict_uses_js_key_map(*key)
+                    && self.type_has_py_repr(*key)
+                    && self.type_has_py_repr(*value)
+            }
+            Some(Type::Set(item)) => self.set_container_name(*item) == "SmeltPrimSet" && self.type_has_py_repr(*item),
+            _ => false,
+        }
+    }
+
     /// Converts an operand to console.log argument format and returns format string and value.
     pub(super) fn console_arg(
         &self,
@@ -379,6 +398,20 @@ impl FunctionEmitter<'_> {
                     "if {} {{ \"True\" }} else {{ \"False\" }}",
                     self.operand_expr(operand)?
                 ),
+            ))
+        } else if absent == AbsentSpelling::None
+            && matches!(
+                self.mir.types.get(ty),
+                Some(Type::List(_) | Type::Tuple(_) | Type::Dict(_, _) | Type::Set(_))
+            )
+            && self.type_has_py_repr(ty)
+        {
+            // Python's `print` of a container writes `str(container)`, built
+            // from each element's `repr` (`['a', True, None]`), not Rust's
+            // `Debug` (`["a", true, ()]`).
+            Ok((
+                "{}",
+                format!("SmeltPyRepr::py_repr(&{})", self.operand_expr(operand)?),
             ))
         } else if self.console_inspects(ty, absent) {
             // A container, record or union prints the way Node's

@@ -389,6 +389,9 @@ impl FunctionEmitter<'_> {
             Rvalue::StringCharCodeAt { operand, index } => {
                 self.string_char_code_at_expr(operand, index)
             }
+            Rvalue::StringCodePointAt { operand, index } => {
+                self.string_code_point_at_expr(operand, index)
+            }
             Rvalue::StringContains {
                 haystack,
                 needle,
@@ -398,7 +401,8 @@ impl FunctionEmitter<'_> {
                 operand,
                 start,
                 end,
-            } => self.string_slice_expr(operand, start.as_ref(), end.as_ref(), dest_ty),
+                kind,
+            } => self.string_slice_expr(operand, start.as_ref(), end.as_ref(), *kind, dest_ty),
             Rvalue::ListContains { list, item } => {
                 let text = self.list_contains_expr(list, item)?;
                 let bool_ty = self.type_id(Type::Bool)?;

@@ -1,18 +1,4 @@
 impl ModuleBuilder<'_> {
-    /// Return whether an iterable type is a statically known empty protocol.
-    fn is_empty_static_protocol_iterable(&self, iter_ty: TypeId) -> bool {
-        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(iter_ty) else {
-            return false;
-        };
-        let Some(class_name) = self.ctx.krate.symbols.get(*name) else {
-            return false;
-        };
-        class_name == "NullFile"
-            && self.class_methods.get(class_name).is_some_and(|methods| {
-                methods.contains_key("__iter__") && methods.contains_key("__next__")
-            })
-    }
-
     /// Adapt Python iterables whose Rust representation is not directly indexable.
     fn for_iterable(&mut self, iter: smelt_hir::ExprId, body: &mut Body) -> smelt_hir::ExprId {
         let iter_ty = Self::expr_ty(body, iter);

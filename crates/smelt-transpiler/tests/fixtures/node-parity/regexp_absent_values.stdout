@@ -1,0 +1,7 @@
+undefined true 4 0
+undefined undefined
+false false false false undefined true
+[ 2, 3 ] undefined 2
+0 [ 0, 2 ] [ 1, 2 ] 3
+4 [ 4, 6 ] [ 5, 6 ] 3
+a undefined none 1

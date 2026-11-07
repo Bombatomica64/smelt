@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-use super::{AbortSignalOp, AsyncOp, BlobOp, BoolFoldOp, CryptoOp, DictProjectionOp, EventEmitterOp, FormDataOp, HeadersOp, HttpServerOp, IncomingMessageOp, ListCallbackOp, ListProjectionOp, ListSearchOp, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, PropertyLookup, RegexMatchOp, RequestOp, ResponseOp, ServerResponseOp, SetBinaryOp, SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringNormalizeForm, StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, TextDecoderOp, TextEncoderOp, UriTranscodeOp, UrlField, UrlSearchParamsOp};
+use super::{AbortSignalOp, AsyncOp, BlobOp, BoolFoldOp, CryptoOp, DictProjectionOp, EventEmitterOp, FormDataOp, HeadersOp, HttpServerOp, IncomingMessageOp, ListCallbackOp, ListProjectionOp, ListSearchOp, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, PropertyLookup, RegexMatchOp, RequestOp, ResponseOp, ServerResponseOp, SetBinaryOp, SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringNormalizeForm, StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringSliceKind, StringTrimSide, TextDecoderOp, TextEncoderOp, UriTranscodeOp, UrlField, UrlSearchParamsOp};
 
 impl NumericRoundOp {
     /// The operation's `dump` spelling.
@@ -273,6 +273,18 @@ impl StringReplaceOp {
 impl fmt::Display for StringReplaceOp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.text())
+    }
+}
+
+impl StringSliceKind {
+    /// The `dump` spelling of a `StringSlice` with this kind.
+    #[must_use]
+    pub const fn text(self) -> &'static str {
+        match self {
+            Self::Slice => "string_slice",
+            Self::Substring => "string_substring",
+            Self::Substr => "string_substr",
+        }
     }
 }
 

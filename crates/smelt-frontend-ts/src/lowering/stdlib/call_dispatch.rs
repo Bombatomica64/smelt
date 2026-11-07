@@ -305,7 +305,7 @@ impl<'builder> ModuleBuilder<'builder> {
                 span: self.span(callee_span.start, callee_span.end),
             })
         };
-        if self.call_has_spread_arguments_or_source_spread(call) {
+        if Self::call_has_spread_arguments(call) {
             let args = self.packed_spread_call_arguments(unknown_ty, call, body)?;
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::ClosureCallSpread { callee, args },
@@ -952,6 +952,7 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::object_get_own_property_symbols_call,
         Self::object_projection_call,
         Self::object_has_own_call,
+        Self::reflect_has_call,
         Self::object_get_own_property_descriptor_call,
         // Before the collection and list dispatches: `slice`, `set` and `fill`
         // are names those own for other receivers, and the family's receiver

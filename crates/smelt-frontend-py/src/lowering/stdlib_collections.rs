@@ -1,4 +1,7 @@
 impl ModuleBuilder<'_> {
+    // Each builtin method checks its receiver's type before its arity: a
+    // method of the same name on another receiver (a user class's `get`)
+    // is not this builtin and must not be rejected by its arity rule.
     /// Lower Python `list.count(item)` calls.
     pub(super) fn list_count_call_expression(
         &mut self,
@@ -11,17 +14,17 @@ impl ModuleBuilder<'_> {
         if attr.attr.as_str() != "count" {
             return Ok(None);
         }
+        let list = self.expression(&attr.value, body)?;
+        let list_ty = Self::expr_ty(body, list);
+        let Some(Type::List(list_element_ty)) = self.ctx.krate.types.get(list_ty) else {
+            return Ok(None);
+        };
         if call.arguments.args.len() != 1 {
             return Err(SmeltError::unsupported(
                 self.span(call.range()),
                 "list.count() requires exactly one item argument",
             ));
         }
-        let list = self.expression(&attr.value, body)?;
-        let list_ty = Self::expr_ty(body, list);
-        let Some(Type::List(list_element_ty)) = self.ctx.krate.types.get(list_ty) else {
-            return Ok(None);
-        };
         let element_ty = *list_element_ty;
         let item = self.expression(&call.arguments.args[0], body)?;
         if Self::expr_ty(body, item) != element_ty {
@@ -50,16 +53,16 @@ impl ModuleBuilder<'_> {
         if attr.attr.as_str() != "copy" {
             return Ok(None);
         }
+        let list = self.expression(&attr.value, body)?;
+        let list_ty = Self::expr_ty(body, list);
+        if !matches!(self.ctx.krate.types.get(list_ty), Some(Type::List(_))) {
+            return Ok(None);
+        }
         if !call.arguments.args.is_empty() {
             return Err(SmeltError::unsupported(
                 self.span(call.range()),
                 "list.copy() requires no arguments",
             ));
-        }
-        let list = self.expression(&attr.value, body)?;
-        let list_ty = Self::expr_ty(body, list);
-        if !matches!(self.ctx.krate.types.get(list_ty), Some(Type::List(_))) {
-            return Ok(None);
         }
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::ListCopy { list },
@@ -80,16 +83,16 @@ impl ModuleBuilder<'_> {
         if attr.attr.as_str() != "copy" {
             return Ok(None);
         }
+        let dict = self.expression(&attr.value, body)?;
+        let dict_ty = Self::expr_ty(body, dict);
+        if !matches!(self.ctx.krate.types.get(dict_ty), Some(Type::Dict(_, _))) {
+            return Ok(None);
+        }
         if !call.arguments.args.is_empty() {
             return Err(SmeltError::unsupported(
                 self.span(call.range()),
                 "dict.copy() requires no arguments",
             ));
-        }
-        let dict = self.expression(&attr.value, body)?;
-        let dict_ty = Self::expr_ty(body, dict);
-        if !matches!(self.ctx.krate.types.get(dict_ty), Some(Type::Dict(_, _))) {
-            return Ok(None);
         }
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::DictCopy { dict },
@@ -110,16 +113,16 @@ impl ModuleBuilder<'_> {
         if attr.attr.as_str() != "update" {
             return Ok(None);
         }
+        let dict = self.expression(&attr.value, body)?;
+        let dict_ty = Self::expr_ty(body, dict);
+        if !matches!(self.ctx.krate.types.get(dict_ty), Some(Type::Dict(_, _))) {
+            return Ok(None);
+        }
         if call.arguments.args.len() != 1 {
             return Err(SmeltError::unsupported(
                 self.span(call.range()),
                 "dict.update() requires exactly one dict argument",
             ));
-        }
-        let dict = self.expression(&attr.value, body)?;
-        let dict_ty = Self::expr_ty(body, dict);
-        if !matches!(self.ctx.krate.types.get(dict_ty), Some(Type::Dict(_, _))) {
-            return Ok(None);
         }
         let other = self.expression(&call.arguments.args[0], body)?;
         if Self::expr_ty(body, other) != dict_ty {
@@ -148,17 +151,17 @@ impl ModuleBuilder<'_> {
         if attr.attr.as_str() != "pop" {
             return Ok(None);
         }
+        let dict = self.expression(&attr.value, body)?;
+        let dict_ty = Self::expr_ty(body, dict);
+        let Some(Type::Dict(dict_key_ty, dict_value_ty)) = self.ctx.krate.types.get(dict_ty) else {
+            return Ok(None);
+        };
         if call.arguments.args.is_empty() || call.arguments.args.len() > 2 {
             return Err(SmeltError::unsupported(
                 self.span(call.range()),
                 "dict.pop() requires a key and optional default",
             ));
         }
-        let dict = self.expression(&attr.value, body)?;
-        let dict_ty = Self::expr_ty(body, dict);
-        let Some(Type::Dict(dict_key_ty, dict_value_ty)) = self.ctx.krate.types.get(dict_ty) else {
-            return Ok(None);
-        };
         let key_ty = *dict_key_ty;
         let value_ty = *dict_value_ty;
         let key = self.expression(&call.arguments.args[0], body)?;
@@ -201,17 +204,17 @@ impl ModuleBuilder<'_> {
         if attr.attr.as_str() != "get" {
             return Ok(None);
         }
+        let dict = self.expression(&attr.value, body)?;
+        let dict_ty = Self::expr_ty(body, dict);
+        let Some(Type::Dict(dict_key_ty, dict_value_ty)) = self.ctx.krate.types.get(dict_ty) else {
+            return Ok(None);
+        };
         if call.arguments.args.is_empty() || call.arguments.args.len() > 2 {
             return Err(SmeltError::unsupported(
                 self.span(call.range()),
                 "dict.get() requires a key and optional default",
             ));
         }
-        let dict = self.expression(&attr.value, body)?;
-        let dict_ty = Self::expr_ty(body, dict);
-        let Some(Type::Dict(dict_key_ty, dict_value_ty)) = self.ctx.krate.types.get(dict_ty) else {
-            return Ok(None);
-        };
         let key_ty = *dict_key_ty;
         let value_ty = *dict_value_ty;
         let key = self.expression(&call.arguments.args[0], body)?;
@@ -257,17 +260,17 @@ impl ModuleBuilder<'_> {
         if attr.attr.as_str() != "setdefault" {
             return Ok(None);
         }
+        let dict = self.expression(&attr.value, body)?;
+        let dict_ty = Self::expr_ty(body, dict);
+        let Some(Type::Dict(dict_key_ty, dict_value_ty)) = self.ctx.krate.types.get(dict_ty) else {
+            return Ok(None);
+        };
         if call.arguments.args.len() != 2 {
             return Err(SmeltError::unsupported(
                 self.span(call.range()),
                 "dict.setdefault() currently requires key and default arguments",
             ));
         }
-        let dict = self.expression(&attr.value, body)?;
-        let dict_ty = Self::expr_ty(body, dict);
-        let Some(Type::Dict(dict_key_ty, dict_value_ty)) = self.ctx.krate.types.get(dict_ty) else {
-            return Ok(None);
-        };
         let key_ty = *dict_key_ty;
         let value_ty = *dict_value_ty;
         let key = self.expression(&call.arguments.args[0], body)?;
@@ -303,12 +306,6 @@ impl ModuleBuilder<'_> {
         if attr.attr.as_str() != "clear" {
             return Ok(None);
         }
-        if !call.arguments.args.is_empty() {
-            return Err(SmeltError::unsupported(
-                self.span(call.range()),
-                "collection clear requires no arguments",
-            ));
-        }
         let collection = self.expression(&attr.value, body)?;
         let collection_ty = Self::expr_ty(body, collection);
         let kind = match self.ctx.krate.types.get(collection_ty) {
@@ -317,6 +314,12 @@ impl ModuleBuilder<'_> {
             Some(Type::Set(_)) => ExprKind::SetClear { set: collection },
             _ => return Ok(None),
         };
+        if !call.arguments.args.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.range()),
+                "collection clear requires no arguments",
+            ));
+        }
         let ty = self.intern_type(Type::None);
         Ok(Some(body.push_expr(HirExpr {
             kind,

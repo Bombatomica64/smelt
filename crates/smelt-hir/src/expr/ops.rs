@@ -337,6 +337,20 @@ impl UriTranscodeOp {
     }
 }
 
+/// The bound rule a `StringSlice` applies to its `start` and `end` operands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StringSliceKind {
+    /// `slice(start, end)` (and a Python `s[start:end]`): a negative bound
+    /// counts from the end.
+    Slice,
+    /// JavaScript `substring(start, end)`: bounds clamp to `[0, length]`, NaN
+    /// is 0, and the smaller bound starts the result.
+    Substring,
+    /// JavaScript `substr(start, length)`: `end` is a LENGTH; a negative start
+    /// counts from the end.
+    Substr,
+}
+
 /// A directly lowered string padding operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StringPadOp {

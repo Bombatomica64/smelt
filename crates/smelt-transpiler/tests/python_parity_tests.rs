@@ -65,3 +65,39 @@ clone-strategy = "aggressive"
 fn lambda_arithmetic() -> TestResult {
     verify_python_parity("lambda_arithmetic")
 }
+
+/// A `str` index counts code points, in `len`, `find`, `rfind` and slicing.
+#[test]
+fn str_code_point_indices() -> TestResult {
+    verify_python_parity("str_code_point_indices")
+}
+
+/// A class with `__iter__`/`__next__` drives `for` until `StopIteration`.
+#[test]
+fn iterator_protocol() -> TestResult {
+    verify_python_parity("iterator_protocol")
+}
+
+/// A `def` or parameter spelled like a builtin shadows it.
+#[test]
+fn builtin_names_shadowed() -> TestResult {
+    verify_python_parity("builtin_names_shadowed")
+}
+
+/// A user method spelled like a builtin collection method is the user's.
+#[test]
+fn builtin_method_names_on_classes() -> TestResult {
+    verify_python_parity("builtin_method_names_on_classes")
+}
+
+/// `print` of a container writes each element's Python `repr`.
+#[test]
+fn print_container_repr() -> TestResult {
+    verify_python_parity("print_container_repr")
+}
+
+/// A user `open` is the user's function, not the builtin.
+#[test]
+fn user_open_shadows_builtin() -> TestResult {
+    verify_python_parity("user_open_shadows_builtin")
+}

@@ -249,9 +249,6 @@ impl ModuleBuilder<'_> {
                 self.instantiate_overload_signature(signature, &substitutions),
             ));
         }
-        if self.has_ts_expect_error_before(span.start, "ts2353") {
-            return Ok(None);
-        }
         // The author explicitly suppressed TypeScript's own rejection of this
         // call (`@ts-expect-error` / `@ts-ignore` on the preceding line), so no
         // declared overload *can* describe it — the call is a deliberate

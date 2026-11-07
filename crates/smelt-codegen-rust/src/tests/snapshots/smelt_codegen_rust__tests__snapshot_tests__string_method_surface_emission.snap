@@ -18,12 +18,12 @@ fn main() {
     let _smelt_tmp_19: String = word.clone();
     let _smelt_tmp_20: String = "lt".to_owned();
     let ends: bool = word.clone().ends_with(&_smelt_tmp_20);
-    let first: f64 = word.clone().find(&"m".to_owned()).map_or(-1.0, |idx| idx as f64);
-    let last: f64 = word.clone().rfind(&"t".to_owned()).map_or(-1.0, |idx| idx as f64);
+    let first: f64 = { let smelt_haystack = &&word; smelt_haystack.find(&"m".to_owned()).map_or(-1.0, |idx| smelt_utf16_index_of_byte(&smelt_haystack, idx) as f64) };
+    let last: f64 = { let smelt_haystack = &&word; smelt_haystack.rfind(&"t".to_owned()).map_or(-1.0, |idx| smelt_utf16_index_of_byte(&smelt_haystack, idx) as f64) };
     let replaced: String = word.clone().replacen(&"Sm".to_owned(), &"sm".to_owned(), 1);
     let repeated: String = word.clone().repeat(3.0 as usize);
-    let padded_start: String = { let value = &word.clone(); let target_len = 8.0 as usize; let pad = &"0".to_owned(); let current_len = value.chars().count(); if current_len >= target_len || pad.is_empty() { value.to_owned() } else { let needed = target_len - current_len; let padding: String = pad.chars().cycle().take(needed).collect(); format!("{}{}", padding, value) } };
-    let ch: String = word.chars().nth(1.0 as usize).map(|ch| ch.to_string()).unwrap_or_default();
-    let code: f64 = (|smelt_text: &str, smelt_index: usize| match smelt_text.as_bytes().get(..=smelt_index) { Some(smelt_prefix) if smelt_prefix.is_ascii() => f64::from(smelt_prefix[smelt_index]), _ => smelt_text.chars().nth(smelt_index).map_or(f64::NAN, |ch| ch as u32 as f64) })(&word, 2.0 as usize);
+    let padded_start: String = { let value = &word.clone(); let target_len = 8.0 as usize; let pad = &"0".to_owned(); let current_len = smelt_utf16_len(&value); if current_len >= target_len || pad.is_empty() { value.to_owned() } else { let needed = target_len - current_len; let padding: String = smelt_utf16_slice(&pad.repeat(needed.div_ceil(smelt_utf16_len(pad))), 0, needed); format!("{}{}", padding, value) } };
+    let ch: String = { let smelt_index = 1.0 as f64; if smelt_index < 0.0 { None } else { smelt_utf16_char_at(&word, smelt_index as usize) } }.unwrap_or_default();
+    let code: f64 = (|smelt_text: &str, smelt_index: f64| if smelt_index < 0.0 { f64::NAN } else { let smelt_index = smelt_index as usize; smelt_utf16_unit_at(smelt_text, smelt_index).map_or(f64::NAN, f64::from) })(&word, 2.0 as f64);
     return;
 }

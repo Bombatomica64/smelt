@@ -66,6 +66,121 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// The JavaScript `length` of `text`: its UTF-16 code units.
+#[allow(dead_code)]
+fn smelt_utf16_len(text: &str) -> usize {
+    if text.is_ascii() { text.len() } else { smelt_utf16_units_in(text.as_bytes()) }
+}
+
+/// The UTF-16 index of the byte offset `byte` of `text`, which is a char boundary.
+#[allow(dead_code)]
+fn smelt_utf16_index_of_byte(text: &str, byte: usize) -> usize {
+    smelt_utf16_len(&text[..byte])
+}
+
+/// The UTF-16 code units of the characters whose first byte is in the word
+/// `word` (eight bytes of a string, little-endian).
+#[allow(dead_code)]
+fn smelt_utf16_units_in_word(word: u64) -> usize {
+    const HIGH: u64 = 0x8080_8080_8080_8080;
+    let continuation = (word & !(word << 1) & HIGH).count_ones() as usize;
+    let four_byte = (word & (word << 1) & (word << 2) & (word << 3) & HIGH).count_ones() as usize;
+    8 - continuation + four_byte
+}
+
+/// The UTF-16 code units of the characters whose first byte is in `bytes`.
+#[allow(dead_code)]
+fn smelt_utf16_units_in(bytes: &[u8]) -> usize {
+    let mut words = bytes.chunks_exact(8);
+    let whole: usize = words.by_ref().map(|word| smelt_utf16_units_in_word(u64::from_le_bytes([word[0], word[1], word[2], word[3], word[4], word[5], word[6], word[7]]))).sum();
+    whole + words.remainder().iter().map(|byte| usize::from(byte & 0xC0 != 0x80) + usize::from(*byte >= 0xF0)).sum::<usize>()
+}
+
+/// The byte offset where UTF-16 index `unit` of `text` starts, clamped to the
+/// end; `Err` with the offset of the surrogate pair `unit` falls inside.
+#[allow(dead_code)]
+fn smelt_utf16_byte_of(text: &str, unit: usize) -> Result<usize, usize> {
+    let bytes = text.as_bytes();
+    if bytes.get(..unit).is_some_and(<[u8]>::is_ascii) { return Ok(unit); }
+    let (mut at, mut units) = (0, 0);
+    while let Some(word) = bytes.get(at..at + 8) {
+        let count = smelt_utf16_units_in_word(u64::from_le_bytes([word[0], word[1], word[2], word[3], word[4], word[5], word[6], word[7]]));
+        if units + count >= unit { break; }
+        units += count;
+        at += 8;
+    }
+    for (offset, &byte) in bytes[at..].iter().enumerate() {
+        if byte & 0xC0 == 0x80 { continue; }
+        if units == unit { return Ok(at + offset); }
+        units += 1 + usize::from(byte >= 0xF0);
+        if units > unit { return Err(at + offset); }
+    }
+    Ok(bytes.len())
+}
+
+/// The byte offset of the cut at UTF-16 index `unit` of `text`: a cut inside
+/// a surrogate pair falls after the pair.
+#[allow(dead_code)]
+fn smelt_utf16_cut(text: &str, unit: usize) -> usize {
+    smelt_utf16_byte_of(text, unit).unwrap_or_else(|byte| byte + 4)
+}
+
+/// The code units `start..end` of `text` (clamped; empty when `end <= start`),
+/// a pair cut at either end belonging to the piece on the cut's left.
+#[allow(dead_code)]
+fn smelt_utf16_slice(text: &str, start: usize, end: usize) -> String {
+    if end <= start { return String::new(); }
+    let from = smelt_utf16_cut(text, start);
+    let to = smelt_utf16_cut(text, end);
+    text.get(from..to.max(from)).unwrap_or("").to_owned()
+}
+
+/// The code unit at UTF-16 index `unit` of `text` (`charCodeAt`), if any.
+#[allow(dead_code)]
+fn smelt_utf16_unit_at(text: &str, unit: usize) -> Option<u16> {
+    if let Some(prefix) = text.as_bytes().get(..=unit) {
+        if prefix.is_ascii() { return Some(u16::from(prefix[unit])); }
+    }
+    let (byte, half) = match smelt_utf16_byte_of(text, unit) { Ok(byte) => (byte, 0), Err(byte) => (byte, 1) };
+    let mut units = [0; 2];
+    text[byte..].chars().next().map(|ch| ch.encode_utf16(&mut units)[half])
+}
+
+/// The string at UTF-16 index `unit` of `text` (`charAt`, `s[i]`), if any:
+/// one unit, or a whole pair at its first unit and `""` at its second.
+#[allow(dead_code)]
+fn smelt_utf16_char_at(text: &str, unit: usize) -> Option<String> {
+    if let Some(prefix) = text.as_bytes().get(..=unit) {
+        if prefix.is_ascii() { return Some(char::from(prefix[unit]).to_string()); }
+    }
+    match smelt_utf16_byte_of(text, unit) {
+        Ok(byte) => text[byte..].chars().next().map(String::from),
+        Err(_) => Some(String::new()),
+    }
+}
+
+/// The code point starting at UTF-16 index `unit` of `text` (`codePointAt`):
+/// a whole surrogate pair, else the lone unit there.
+#[allow(dead_code)]
+fn smelt_utf16_code_point_at(text: &str, unit: usize) -> Option<u32> {
+    match smelt_utf16_byte_of(text, unit) {
+        Ok(byte) => text[byte..].chars().next().map(u32::from),
+        Err(_) => smelt_utf16_unit_at(text, unit).map(u32::from),
+    }
+}
+
+/// One string per code unit of `text` (`s.split("")`): a pair is its whole
+/// character followed by `""`.
+#[allow(dead_code)]
+fn smelt_utf16_units(text: &str) -> Vec<String> {
+    let mut units = Vec::with_capacity(text.len());
+    for ch in text.chars() {
+        units.push(ch.to_string());
+        if ch.len_utf16() == 2 { units.push(String::new()); }
+    }
+    units
+}
+
 thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
@@ -315,20 +430,20 @@ impl SmeltRegExp {
     /// `SmeltMatch::into_smelt_unknown` when required.
     pub fn exec(&self, haystack: &str) -> Option<SmeltMatch> {
         let regex = self.compiled();
-        let start = if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow() } else { 0 };
+        let start = if self.has_flag('g') || self.has_flag('y') { smelt_utf16_byte_of(haystack, *self.last_index.borrow()).unwrap_or_else(|byte| byte) } else { 0 };
         let suffix = haystack.get(start..).unwrap_or("");
         let Some(captures) = regex.captures(suffix).ok().flatten() else { if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = 0; } return None; };
         let Some(matched) = captures.get(0) else { if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = 0; } return None; };
         if self.has_flag('y') && matched.start() != 0 { *self.last_index.borrow_mut() = 0; return None; }
-        if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = start + matched.end(); }
-        Some(SmeltMatch::from_captures(&regex, &captures, start + matched.start(), haystack))
+        if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = smelt_utf16_index_of_byte(haystack, start + matched.end()); }
+        Some(SmeltMatch::from_captures(&regex, &captures, haystack, start, self.has_flag('d')))
     }
     /// Return concrete `SmeltMatch` results for String.prototype.matchAll.
     pub fn match_all_indices(&self, haystack: &str) -> Vec<SmeltMatch> {
         let regex = self.compiled();
         regex.captures_iter(haystack).filter_map(Result::ok).filter_map(|captures| {
-            let matched = captures.get(0)?;
-            Some(SmeltMatch::from_captures(&regex, &captures, matched.start(), haystack))
+            captures.get(0)?;
+            Some(SmeltMatch::from_captures(&regex, &captures, haystack, 0, self.has_flag('d')))
         }
         ).collect::<Vec<_>>()
     }
@@ -355,19 +470,26 @@ pub struct SmeltMatch {
     groups: ::std::rc::Rc<Vec<Option<String>>>,
     /// Named capture groups keyed by name (plus a snake_case alias).
     named: ::std::rc::Rc<::std::collections::HashMap<String, Option<String>>>,
-    /// Zero-based offset of the match within `input` (`.index`).
+    /// Zero-based UTF-16 offset of the match within `input` (`.index`).
     match_index: usize,
     /// The full string that was searched (`.input`).
     input: ::std::rc::Rc<str>,
+    /// Each numbered group's UTF-16 `[start, end)` (`.indices`), kept only
+    /// when the regexp has the `d` flag; an absent group is `None`.
+    spans: Option<::std::rc::Rc<Vec<Option<(f64, f64)>>>>,
 }
 
 /// Structural equality over the match content, ignoring reference identity.
-impl PartialEq for SmeltMatch { fn eq(&self, other: &Self) -> bool { self.groups == other.groups && self.named == other.named && self.match_index == other.match_index && self.input == other.input } }
+impl PartialEq for SmeltMatch { fn eq(&self, other: &Self) -> bool { self.groups == other.groups && self.named == other.named && self.match_index == other.match_index && self.input == other.input && self.spans == other.spans } }
 
 #[allow(dead_code)]
 impl SmeltMatch {
-    /// Build a `SmeltMatch` from a compiled regex and its captures.
-    fn from_captures(regex: &fancy_regex::Regex, captures: &fancy_regex::Captures<'_>, match_index: usize, input: &str) -> Self {
+    /// Build a `SmeltMatch` from a compiled regex and its captures, found in
+    /// `input[offset..]`; `spans` keeps the group indices (the `d` flag).
+    fn from_captures(regex: &fancy_regex::Regex, captures: &fancy_regex::Captures<'_>, input: &str, offset: usize, spans: bool) -> Self {
+        let unit_of = |byte: usize| smelt_utf16_index_of_byte(input, offset + byte) as f64;
+        let match_index = captures.get(0).map_or(0, |whole| smelt_utf16_index_of_byte(input, offset + whole.start()));
+        let spans = spans.then(|| ::std::rc::Rc::new((0..captures.len()).map(|index| captures.get(index).map(|group| (unit_of(group.start()), unit_of(group.end())))).collect::<Vec<_>>()));
         let groups = (0..captures.len()).map(|index| captures.get(index).map(|value| value.as_str().to_owned())).collect::<Vec<_>>();
         let mut named = ::std::collections::HashMap::new();
         for name in regex.capture_names().flatten() {
@@ -379,7 +501,7 @@ impl SmeltMatch {
             }
             named.insert(snake, value);
         }
-        Self { id: smelt_next_object_id(), groups: ::std::rc::Rc::new(groups), named: ::std::rc::Rc::new(named), match_index, input: input.into() }
+        Self { id: smelt_next_object_id(), groups: ::std::rc::Rc::new(groups), named: ::std::rc::Rc::new(named), match_index, input: input.into(), spans }
     }
     /// Build the array a GLOBAL `String.prototype.match` answers.
     ///
@@ -390,7 +512,7 @@ impl SmeltMatch {
     /// groups, and `index` is 0 with `input` the searched string, which a
     /// global match's reader does not consult.
     fn from_global_matches(matches: Vec<String>, input: &str) -> Self {
-        Self { id: smelt_next_object_id(), groups: ::std::rc::Rc::new(matches.into_iter().map(Some).collect()), named: ::std::rc::Rc::default(), match_index: 0, input: input.into() }
+        Self { id: smelt_next_object_id(), groups: ::std::rc::Rc::new(matches.into_iter().map(Some).collect()), named: ::std::rc::Rc::default(), match_index: 0, input: input.into(), spans: None }
     }
     /// The match viewed as the JavaScript array it is (`[...match]`).
     ///
@@ -400,6 +522,11 @@ impl SmeltMatch {
     /// (writes to a match are not lowered through it).
     pub fn to_array_view(&self) -> SmeltList<Option<String>> {
         SmeltList::with_id(self.id, self.groups.as_ref().clone())
+    }
+    /// `match.indices`: each group's `[start, end]` when the regexp has the
+    /// `d` flag (an absent group `undefined`), else `undefined`.
+    pub fn indices(&self) -> Option<SmeltList<Option<(f64, f64)>>> {
+        self.spans.as_ref().map(|spans| SmeltList::new(spans.as_ref().clone()))
     }
     /// Read a numbered capture group (`match[n]`).
     fn group(&self, index: usize) -> Option<&str> {
