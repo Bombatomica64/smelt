@@ -9,6 +9,7 @@ use std::{
 };
 
 use smelt_specialize::{
+    prereq::missing_prerequisite,
     BackendAvailability, Definition, GraphValueKind, HashInputs, LinuxBubblewrapBackend,
     PythonModule, PythonSpecializationRequest, PythonSpecializer, SandboxBackend,
     SandboxPolicyRecord,
@@ -40,15 +41,16 @@ type DynError = Box<dyn Error>;
 
 #[test]
 fn real_django_model_exposes_fields_descriptors_managers_and_metadata() -> Result<(), DynError> {
+    let test = "real_django_model_exposes_fields_descriptors_managers_and_metadata";
     let Some(python) = discovered_python() else {
-        return Ok(());
+        return missing_prerequisite(test, "a system `python3`");
     };
     let Some(environment) = django_environment(python)? else {
-        return Ok(());
+        return missing_prerequisite(test, "Django importable by the system `python3`");
     };
     let backend = LinuxBubblewrapBackend::discover();
     if backend.availability() != BackendAvailability::Available {
-        return Ok(());
+        return missing_prerequisite(test, "the bubblewrap sandbox backend");
     }
     let project = tempfile::tempdir()?;
     let source_path = project.path().join("probe.py");

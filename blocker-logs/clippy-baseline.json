@@ -1,0 +1,123 @@
+{
+  "_comment": "Warn-level clippy lints per crate; see scripts/check_clippy_ratchet.py. A count may only fall.",
+  "counts": {
+    "smelt-codegen-rust": {
+      "clippy::arithmetic_side_effects": 8,
+      "clippy::as_conversions": 2,
+      "clippy::exhaustive_enums": 2,
+      "clippy::expect_used": 94,
+      "clippy::indexing_slicing": 12,
+      "clippy::missing_docs_in_private_items": 6,
+      "clippy::shadow_reuse": 87,
+      "clippy::shadow_same": 17,
+      "clippy::shadow_unrelated": 12,
+      "clippy::unwrap_used": 11,
+      "clippy::wildcard_enum_match_arm": 1,
+      "unreachable_pub": 1,
+      "unused_qualifications": 11
+    },
+    "smelt-frontend-py": {
+      "clippy::as_conversions": 2,
+      "clippy::shadow_reuse": 27,
+      "clippy::shadow_unrelated": 27,
+      "unfulfilled_lint_expectations": 1,
+      "unused_qualifications": 2
+    },
+    "smelt-frontend-ts": {
+      "clippy::as_conversions": 184,
+      "clippy::if_then_some_else_none": 1,
+      "clippy::indexing_slicing": 145,
+      "clippy::missing_docs_in_private_items": 12,
+      "clippy::panic": 3,
+      "clippy::shadow_same": 2,
+      "clippy::shadow_unrelated": 68,
+      "clippy::unreachable": 1,
+      "unused_import_braces": 1,
+      "unused_qualifications": 4
+    },
+    "smelt-hir": {
+      "clippy::panic": 1,
+      "clippy::wildcard_enum_match_arm": 1,
+      "unused_qualifications": 2
+    },
+    "smelt-mir": {
+      "clippy::arithmetic_side_effects": 15,
+      "clippy::as_conversions": 13,
+      "clippy::expect_used": 2,
+      "clippy::if_then_some_else_none": 1,
+      "clippy::indexing_slicing": 32,
+      "clippy::missing_docs_in_private_items": 1,
+      "clippy::panic": 10,
+      "clippy::shadow_reuse": 31,
+      "clippy::shadow_same": 1,
+      "clippy::shadow_unrelated": 6,
+      "clippy::unreachable": 2,
+      "clippy::use_debug": 2,
+      "clippy::wildcard_enum_match_arm": 27,
+      "trivial_casts": 1,
+      "unfulfilled_lint_expectations": 2
+    },
+    "smelt-runtime": {
+      "clippy::assigning_clones": 3,
+      "clippy::bool_to_int_with_if": 1,
+      "clippy::cast_lossless": 12,
+      "clippy::cast_possible_truncation": 97,
+      "clippy::cast_possible_wrap": 26,
+      "clippy::cast_precision_loss": 79,
+      "clippy::cast_sign_loss": 79,
+      "clippy::default_trait_access": 1,
+      "clippy::doc_markdown": 28,
+      "clippy::explicit_iter_loop": 7,
+      "clippy::float_cmp": 11,
+      "clippy::format_collect": 1,
+      "clippy::format_push_string": 2,
+      "clippy::future_not_send": 11,
+      "clippy::ignored_unit_patterns": 5,
+      "clippy::iter_with_drain": 1,
+      "clippy::many_single_char_names": 1,
+      "clippy::map_unwrap_or": 5,
+      "clippy::match_same_arms": 17,
+      "clippy::missing_const_for_fn": 57,
+      "clippy::missing_fields_in_debug": 11,
+      "clippy::needless_pass_by_ref_mut": 4,
+      "clippy::needless_pass_by_value": 22,
+      "clippy::option_if_let_else": 35,
+      "clippy::or_fun_call": 3,
+      "clippy::ptr_as_ptr": 4,
+      "clippy::redundant_clone": 21,
+      "clippy::redundant_closure_for_method_calls": 3,
+      "clippy::single_match_else": 6,
+      "clippy::struct_excessive_bools": 1,
+      "clippy::suboptimal_flops": 1,
+      "clippy::too_many_lines": 2,
+      "clippy::unnecessary_wraps": 1,
+      "clippy::unnested_or_patterns": 1,
+      "clippy::unreadable_literal": 7,
+      "clippy::unused_self": 6,
+      "clippy::use_self": 71
+    },
+    "smelt-specialize": {
+      "clippy::indexing_slicing": 2,
+      "clippy::shadow_reuse": 3,
+      "clippy::wildcard_enum_match_arm": 1
+    },
+    "smelt-stdlib": {
+      "clippy::exhaustive_enums": 3,
+      "clippy::expect_used": 8,
+      "clippy::panic": 1
+    },
+    "smelt-transpiler": {
+      "clippy::arithmetic_side_effects": 9,
+      "clippy::as_conversions": 4,
+      "clippy::expect_used": 90,
+      "clippy::indexing_slicing": 22,
+      "clippy::integer_division": 2,
+      "clippy::print_stderr": 2,
+      "clippy::shadow_reuse": 21,
+      "clippy::shadow_unrelated": 36,
+      "clippy::unwrap_used": 11,
+      "unfulfilled_lint_expectations": 1,
+      "unused_qualifications": 10
+    }
+  }
+}

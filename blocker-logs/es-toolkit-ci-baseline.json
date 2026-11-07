@@ -1,11 +1,22 @@
 {
-  "_comment": "Checked-in high-water marks for the es-toolkit CI regression gate (see .github/workflows/ci.yml `es-toolkit-regression` and scripts/check_estoolkit_gate.py). `probe_blockers` is the number of source files with at least one blocker (probe.json `files_with_blockers`); the gate fails if it rises. `check_errors`/`test_build_errors` are gated at a hard zero by cargo exit code in the workflow. `runtime_passed`/`runtime_failed` back the advisory runtime ratchet (`runtime_gate` = advisory until the async hangs are fixed). `warning_count` is advisory only. Improvements pass without a bump (<=/>=); loosening any number is manual-only with PR justification, mirroring the SmeltUnknown-enforcement rule.",
+  "_comment": "Checked-in marks for the es-toolkit CI regression gate (see .github/workflows/ci.yml `es-toolkit-regression` and scripts/check_library_gate.py). `probe_blockers` is the number of source files with at least one blocker (probe.json `files_with_blockers`); the gate fails if it rises. `check_errors`/`test_build_errors` are gated at a hard zero by cargo exit code in the workflow. `runtime_passed` is the floor of passing tests and `runtime_known_failures` the only tests allowed to fail; both block. `warning_count` is advisory only. Improvements pass without a bump; loosening any mark is manual-only with PR justification, mirroring the SmeltUnknown-enforcement rule.",
   "ref": "e008a2818cd8d07469a5cc12ee0c02405d523e07",
-  "probe_blockers": 9,
+  "probe_blockers": 0,
   "check_errors": 0,
   "test_build_errors": 0,
-  "runtime_passed": 56,
-  "runtime_failed": 89,
-  "runtime_gate": "advisory",
+  "runtime_passed": 1048,
+  "runtime_known_failures": [
+    "__smelt_module_at_spec::test_at_should_return_undefined_for_non_integer_indices",
+    "__smelt_module_delay_spec::test_delay_should_clear_timeout_when_aborted_by_abortsignal",
+    "__smelt_module_flatten_spec::test_flatten_should_return_the_same_array_if_depth_is_0_or_nan_or_negative",
+    "__smelt_module_isBrowser_spec::test_isbrowser_should_return_true_in_browser_environment",
+    "__smelt_module_isPlainObject_spec::test_isplainobject_should_return_true_for_cross_realm_plain_objects",
+    "__smelt_module_memoize_spec::test_memoize_should_work_with_an_immutable_cache_implementation",
+    "__smelt_module_mergeWith_spec::test_mergewith_should_respect_null_returned_from_customizer",
+    "__smelt_module_timeout_spec::test_timeout_clears_the_underlying_timer_when_aborted_so_nothing_is_left_scheduled",
+    "__smelt_module_uniq_spec::test_uniq_uniq_function_works_with_nullish_values",
+    "__smelt_module_zipObject_spec::test_zipobject_creates_an_object_from_two_arrays_of_keys_and_values",
+    "__smelt_module_zipWith_spec::test_zipwith_zips_multiple_arrays_with_the_given_combine_function"
+  ],
   "warning_count": 950
 }

@@ -63,7 +63,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use baseline::{detect_regression, regression_message, updated_baseline};
+use baseline::{coverage_loss, detect_regression, regression_message, updated_baseline};
 use render::render_markdown;
 use scan::{ScanResult, scan_files};
 
@@ -193,9 +193,11 @@ const TOP_OFFENDER_LIMIT: usize = 10;
 
 /// Run a `SmeltUnknown` scan and render the report in the requested format.
 ///
-/// The returned [`GatedOutcome`] carries the rendered text and, when avoidable
-/// erasure rose above the baseline, the message of the [`Regression`]; only
-/// `--fail-on-regression` turns that into a nonzero exit.
+/// The returned [`GatedOutcome`] carries the rendered text and, when the scan
+/// cannot judge the baseline's corpus ([`coverage_loss`]) or avoidable erasure
+/// rose above the baseline, the message saying so; only `--fail-on-regression`
+/// turns that into a nonzero exit. A scan with a coverage loss never rewrites
+/// the baseline.
 pub(crate) fn unknown_report(
     options: &UnknownReportOptions<'_>,
 ) -> CliResult<GatedOutcome> {
@@ -211,7 +213,9 @@ pub(crate) fn unknown_report(
         Some(path) => Some(report::load_json::<UnknownReport>(path, "baseline ")?),
         None => None,
     };
+    let lost_coverage = options.baseline.as_ref().and_then(|_| coverage_loss(scanned, baseline.as_ref()));
     if options.update_baseline
+        && lost_coverage.is_none()
         && let Some(path) = &options.baseline
     {
         let updated = updated_baseline(scanned, baseline.as_ref());
@@ -224,7 +228,7 @@ pub(crate) fn unknown_report(
     let regression = baseline.as_ref().and_then(|prior| detect_regression(&scan, prior));
     Ok(GatedOutcome {
         rendered,
-        regression: regression.as_ref().map(regression_message),
+        regression: lost_coverage.or_else(|| regression.as_ref().map(regression_message)),
     })
 }
 

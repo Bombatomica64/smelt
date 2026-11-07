@@ -91,6 +91,7 @@ pub fn run() -> CliResult<()> {
             paths,
             define,
             gate: GateArgs { format, baseline, fail_on_regression, update_baseline, output },
+            retire_program,
         } => {
             let input_paths = paths.iter().map(PathBuf::from).collect::<Vec<_>>();
             let outcome =
@@ -100,6 +101,7 @@ pub fn run() -> CliResult<()> {
                     format,
                     baseline: baseline.as_deref().map(PathBuf::from),
                     update_baseline,
+                    retired: &retire_program,
                 })?;
             report::finish_gated(&outcome, output.as_deref(), fail_on_regression)?;
         }

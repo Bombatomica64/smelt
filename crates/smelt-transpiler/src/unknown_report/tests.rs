@@ -949,6 +949,32 @@ fn fixture_baseline(avoidable: usize) -> UnknownReport {
     }
 }
 
+/// A scan of nothing cannot judge, with or without a baseline to compare.
+#[test]
+fn coverage_loss_flags_a_scan_of_no_files() {
+    let empty = fixture_scan(0, &[]).report;
+    assert!(coverage_loss(&empty, None).is_some());
+    assert!(coverage_loss(&empty, Some(&fixture_baseline(0))).is_some());
+}
+
+/// Losing up to a tenth of the baseline's files passes; losing more fails,
+/// though the smaller scan reports lower erasure and passes [`detect_regression`].
+#[test]
+fn coverage_loss_flags_a_large_drop_in_files_scanned() {
+    let mut baseline = fixture_baseline(4);
+    baseline.files_scanned = 100;
+    let mut scan = fixture_scan(0, &[("a.rs", 0)]);
+
+    scan.report.files_scanned = 90;
+    assert_eq!(coverage_loss(&scan.report, Some(&baseline)), None);
+    scan.report.files_scanned = 89;
+    let message = coverage_loss(&scan.report, Some(&baseline)).expect("a large drop cannot judge");
+    assert!(message.contains("89") && message.contains("100"), "{message}");
+    assert!(detect_regression(&scan, &baseline).is_none());
+    scan.report.files_scanned = 150;
+    assert_eq!(coverage_loss(&scan.report, Some(&baseline)), None);
+}
+
 /// A rise above the baseline is a regression naming the delta and the top
 /// offending files, ranked by avoidable count.
 #[test]

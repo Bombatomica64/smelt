@@ -267,6 +267,12 @@ pub enum Command {
         /// Format, destination and baseline gate of the report.
         #[command(flatten)]
         gate: GateArgs,
+
+        /// A baseline program that is gone on purpose: it stops being judged,
+        /// and `--update-baseline` removes its record. Repeatable. Any other
+        /// baseline program that is not measured fails the gate.
+        #[arg(long, value_name = "PROGRAM", requires = "baseline")]
+        retire_program: Vec<String>,
     },
 
     /// Classify list-typed MIR locals as escaping, aliased, or frame-local

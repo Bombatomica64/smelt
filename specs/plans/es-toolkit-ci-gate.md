@@ -35,7 +35,7 @@ New job `es-toolkit-regression` in `ci.yml` (push + PR to main), four sequential
 
 - **Checked-in baseline**: `blocker-logs/es-toolkit-ci-baseline.json` (mirrors smelt-unknown-baseline.json), e.g.
   `{ "ref": "e008a2818c…", "probe_blockers": 9, "check_errors": 0, "test_build_errors": 0, "runtime_passed": 56, "runtime_failed": 89, "runtime_gate": "advisory", "warning_count": 950 }`
-- **Compare script**: `scripts/check_estoolkit_gate.py` reading probe.json, test results, baseline. On failure: run `smelt rust-diagnostics --output gate-diagnostics.md`, print top diagnostic families into `$GITHUB_STEP_SUMMARY`, plus `rust-test-report --baseline-report` naming newly-failing tests. Message format: "es-toolkit gate: cargo check regressed 0 -> 3 errors; largest families: E0308 mismatched types (2, src/compat/...), E0277 (1, ...). See gate-diagnostics.md artifact."
+- **Compare script**: `scripts/check_library_gate.py` reading probe.json, test results, baseline. On failure: run `smelt rust-diagnostics --output gate-diagnostics.md`, print top diagnostic families into `$GITHUB_STEP_SUMMARY`, plus `rust-test-report --baseline-report` naming newly-failing tests. Message format: "es-toolkit gate: cargo check regressed 0 -> 3 errors; largest families: E0308 mismatched types (2, src/compat/...), E0277 (1, ...). See gate-diagnostics.md artifact."
 - **Updates**: improvements pass without a bump (`<=`/`>=`); a push-to-main step (same auto-commit pattern as ci.yml:87-98, `stefanzweifel/git-auto-commit-action@v7`) **auto-tightens** when actuals beat baseline ("chore(ci): ratchet es-toolkit baseline"). Loosening is manual-only with PR justification (mirrors the SmeltUnknown-enforcement rule).
 - Upload probe.json, test report, gate-diagnostics.md as artifacts always.
 
@@ -56,7 +56,7 @@ Read the ref from `.github/compat/libraries.json` (single source of truth). Do n
 - Plus: es-toolkit in `compat.yml` matrix for on-demand reports.
 
 **Full (follow-up PRs):**
-1. Baseline JSON + `scripts/check_estoolkit_gate.py` (probe gate <=9, rust-diagnostics failure messaging, step summary).
+1. Baseline JSON + `scripts/check_library_gate.py` (probe gate <=9, rust-diagnostics failure messaging, step summary).
 2. `actions/cache` for dist-smelt/target exploiting the mtime-preserving emitter; measure warm-vs-cold.
 3. cargo-nextest with per-test slow-timeout; advisory runtime pass-count vs baseline.
 4. Flip runtime gate to blocking + auto-ratchet once the async hangs are fixed and pass count stabilizes.
