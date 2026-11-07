@@ -1029,7 +1029,7 @@ impl FunctionEmitter<'_> {
                         )))
                     } else {
                         Ok(RustExpr::atom_on(&dict_text, format!(
-                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"{SMELT_SYMBOL}\") && !key.starts_with(\"{SMELT_PROTO}:\") && !key.starts_with(\"{SMELT_METHOD}:\") && key != \"{SMELT_CLASS}\").map(|(_, value)| value.clone()).collect::<Vec<_>>()"
+                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"{SMELT_SYMBOL}\") && !key.starts_with(\"{SMELT_PROTO}:\") && !key.starts_with(\"{SMELT_METHOD}:\") && *key != \"{SMELT_CLASS}\").map(|(_, value)| value.clone()).collect::<Vec<_>>()"
                         )))
                     }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
@@ -1063,7 +1063,7 @@ impl FunctionEmitter<'_> {
                         )))
                     } else {
                         Ok(RustExpr::atom_on(&dict_text, format!(
-                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"{SMELT_SYMBOL}\") && !key.starts_with(\"{SMELT_PROTO}:\") && !key.starts_with(\"{SMELT_METHOD}:\") && key != \"{SMELT_CLASS}\").map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
+                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"{SMELT_SYMBOL}\") && !key.starts_with(\"{SMELT_PROTO}:\") && !key.starts_with(\"{SMELT_METHOD}:\") && *key != \"{SMELT_CLASS}\").map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
                         )))
                     }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
