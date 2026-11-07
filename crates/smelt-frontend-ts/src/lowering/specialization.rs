@@ -50,13 +50,19 @@ fn paths_match(frontend: &str, materialized: &str) -> bool {
 }
 
 /// Whether `source` parses as exactly one `function` expression.
+///
+/// A source-mapped callable span can run on to the end of the statement that
+/// holds the expression (`function () { ... };`), so the span is parsed as the
+/// initializer of one declaration, where a trailing `;` ends the statement, and
+/// anything past that one statement rejects it.
 fn source_is_function_expression(source: &str) -> bool {
-    let wrapped = format!("const __smelt_probe = ({source});");
+    let wrapped = format!("const __smelt_probe = {source}");
     let allocator = Allocator::default();
     let parsed = Parser::new(&allocator, &wrapped, SourceType::default().with_typescript(true))
         .with_options(ParseOptions::default())
         .parse();
     parsed.diagnostics.is_empty()
+        && parsed.program.body.len() == 1
         && matches!(
             parsed.program.body.first(),
             Some(Statement::VariableDeclaration(variable))
@@ -732,5 +738,11 @@ mod tests {
         assert!(!source_is_function_expression("functionName => functionName + 1"), "an arrow whose parameter starts with `function`");
         assert!(!source_is_function_expression("(value) => value"));
         assert!(!source_is_function_expression("function () {} + 1"), "a larger expression");
+        assert!(
+            source_is_function_expression("function (this: any, name: string): string {\n    return name;\n};\n"),
+            "a span that runs on to the end of its statement"
+        );
+        assert!(!source_is_function_expression("function () {}; other()"), "a second statement");
+        assert!(!source_is_function_expression("function () {}, 1"), "a sequence expression");
     }
 }
