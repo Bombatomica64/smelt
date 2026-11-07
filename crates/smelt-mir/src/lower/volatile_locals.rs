@@ -22,9 +22,11 @@
 //! snapshotted when a LATER sibling operand can run code: `pair(c.n, inc())`. A
 //! field nothing in the crate can write cannot change, so its read stays a
 //! place; a keyed write with a non-literal key (`o[k] = v`) or an
-//! `Object.assign` can write any field.
-//! A property read on an erased object or record can itself run a getter, so it
-//! counts as running code and is snapshotted ahead of any later sibling.
+//! `Object.assign` can write any field of a receiver of the target's type (of
+//! any receiver when the target is wholly erased).
+//! A property read on a string-keyed record of erased values can itself run a
+//! getter, so it counts as running code and is snapshotted ahead of a later
+//! sibling that runs code or reads a module global.
 //!
 //! [`LoweringCtx::lower_expr`]: super::context::LoweringCtx
 
@@ -155,8 +157,10 @@ fn can_run_code(body: &Body, types: &TypeInterner, id: ExprId, memo: &mut HashMa
 }
 
 /// Whether `kind` is a property read that can run a getter: a field or element
-/// read on an erased value, or on a string-keyed record of erased values (an
-/// object literal stores its `get` there and the read calls it).
+/// read on a string-keyed record of erased values, where an object literal
+/// stores its `get` and the read calls it. A read on a wholly erased value is
+/// left lazy, as it was: snapshotting it would add an erased temporary to
+/// every such read for the rare erased object that carries a getter.
 fn read_may_run_accessor(body: &Body, types: &TypeInterner, kind: &ExprKind) -> bool {
     let (ExprKind::Field { receiver, .. } | ExprKind::Index { receiver, .. }) = kind else {
         return false;
@@ -165,7 +169,6 @@ fn read_may_run_accessor(body: &Body, types: &TypeInterner, kind: &ExprKind) -> 
         return false;
     };
     match types.get(receiver.ty) {
-        Some(Type::Unknown) => true,
         Some(Type::Dict(key, value)) => {
             matches!(types.get(*key), Some(Type::String)) && matches!(types.get(*value), Some(Type::Unknown))
         }
@@ -185,21 +188,38 @@ fn reads_global(body: &Body, id: ExprId) -> bool {
 struct FieldWrites {
     /// Fields written by name: `o.n = v`, or `o["n"] = v` with a literal key.
     names: HashSet<String>,
-    /// A write whose field is not known statically (`o[key] = v`,
-    /// `Object.assign(o, src)`) can write any field.
-    any: bool,
+    /// Receiver types a write whose field is not known statically
+    /// (`o[key] = v`, `Object.assign(o, src)`) can reach: any field of a value
+    /// of such a type can change.
+    any_field_of: HashSet<smelt_hir::TypeId>,
+    /// Such a write into a wholly erased value, which can be any object.
+    any_field_of_anything: bool,
 }
 
 impl FieldWrites {
-    /// Whether the field named `name` can be written.
-    fn may_write(&self, name: &str) -> bool {
-        self.any || self.names.contains(name)
+    /// Whether the field named `name` of a receiver of type `receiver` can be
+    /// written.
+    fn may_write(&self, types: &TypeInterner, receiver: smelt_hir::TypeId, name: &str) -> bool {
+        self.any_field_of_anything
+            || self.names.contains(name)
+            || self.any_field_of.contains(&receiver)
+            || matches!(types.get(receiver), Some(Type::Unknown)) && !self.any_field_of.is_empty()
+    }
+
+    /// Records a write of unknown field into a receiver of type `receiver`.
+    fn any_field(&mut self, types: &TypeInterner, receiver: smelt_hir::TypeId) {
+        if matches!(types.get(receiver), Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))) {
+            self.any_field_of_anything = true;
+        } else {
+            self.any_field_of.insert(receiver);
+        }
     }
 }
 
 /// Every field a statement or `Object.assign` of the crate can write.
 fn assigned_fields(krate: &smelt_hir::Crate) -> FieldWrites {
     let mut writes = FieldWrites::default();
+    let ty_of = |body: &Body, id: ExprId| usize::try_from(id.0).ok().and_then(|index| body.exprs.get(index)).map(|expr| expr.ty);
     for body in &krate.bodies {
         for stmt in &body.stmts {
             let Stmt::Assign { target, .. } = stmt else { continue };
@@ -214,14 +234,22 @@ fn assigned_fields(krate: &smelt_hir::Crate) -> FieldWrites {
                         Some(ExprKind::Literal(smelt_hir::Literal::String(name))) => {
                             writes.names.insert(name.clone());
                         }
-                        _ => writes.any = true,
+                        _ => {
+                            if let Some(ty) = ty_of(body, *receiver) {
+                                writes.any_field(&krate.types, ty);
+                            }
+                        }
                     }
                 }
                 _ => {}
             }
         }
-        if body.exprs.iter().any(|expr| matches!(expr.kind, ExprKind::DictAssign { .. })) {
-            writes.any = true;
+        for expr in &body.exprs {
+            if let ExprKind::DictAssign { target, .. } = expr.kind
+                && let Some(ty) = ty_of(body, target)
+            {
+                writes.any_field(&krate.types, ty);
+            }
         }
     }
     writes
@@ -257,8 +285,11 @@ fn early_reads(body: &Body, krate: &smelt_hir::Crate, assigned_fields: &FieldWri
             }
             later_reads_global |= reads_global(body, child);
             let is_lazy_read = match expr_kind(body, child) {
-                Some(ExprKind::Field { field, .. }) => {
-                    krate.symbols.get(*field).is_some_and(|name| assigned_fields.may_write(name))
+                Some(ExprKind::Field { receiver, field }) => {
+                    let receiver_ty = usize::try_from(receiver.0).ok().and_then(|index| body.exprs.get(index)).map(|expr| expr.ty);
+                    krate.symbols.get(*field).is_some_and(|name| {
+                        receiver_ty.is_some_and(|ty| assigned_fields.may_write(types, ty, name))
+                    })
                 }
                 Some(ExprKind::Index { .. }) => true,
                 _ => false,
