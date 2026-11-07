@@ -232,60 +232,7 @@ impl FunctionEmitter<'_> {
             .params
             .iter()
             .enumerate()
-            .map(|(index, source_param)| {
-                // A source rest parameter receives every target argument from
-                // its position on, as JavaScript binds `...args`: the list of
-                // the remaining arguments, each converted to the element type.
-                // A fixed-arity target cannot say which trailing optional
-                // arguments were omitted, so an omitted one is an `undefined`
-                // element.
-                if let Some((rest, element)) = source_rest
-                    && index == rest
-                {
-                    let elements = target_function
-                        .params
-                        .iter()
-                        .enumerate()
-                        .skip(rest)
-                        .map(|(target_index, target_param)| {
-                            // The list owns its elements, so a parameter the
-                            // adapter receives by reference is cloned first,
-                            // as the packed-vector branch below does.
-                            let base = if target_function.mutable_params.contains(&target_index)
-                                || self.callback_param_is_shared_reference(
-                                    target_function,
-                                    target_index,
-                                    *target_param,
-                                ) {
-                                RustExpr::chain(format!("arg{target_index}.clone()")).ending_in_clone()
-                            } else {
-                                RustExpr::path(format!("arg{target_index}"))
-                            };
-                            self.rendered_at_type(&base, *target_param, element, scope)
-                        })
-                        .collect::<Result<Vec<_>, EmitError>>()?
-                        .join(", ");
-                    let text = format!("SmeltList::from(vec![{elements}])");
-                    return Ok(self.callback_call_arg_expr(source_function, index, *source_param, text));
-                }
-                // The wrapped callback's own parameters carry the by-reference ABI
-                // (`callback_param_is_shared_reference`) just as the declarations
-                // above do for the target's. This adapter forwards a value into
-                // each of them, so each forwarded value is borrowed where the
-                // wrapped signature says `&`; Rust extends the temporary's lifetime
-                // to the end of the statement, so `&(expr)` is valid for a value
-                // with no name.
-                let text = match target_function.params.get(index) {
-                    Some(target_param) => self.rendered_at_type(
-                        &RustExpr::path(format!("arg{index}")),
-                        *target_param,
-                        *source_param,
-                                            scope,
-                    )?,
-                    None => self.default_value(*source_param)?,
-                };
-                Ok(self.callback_call_arg_expr(source_function, index, *source_param, text.into_string()))
-            })
+            .map(|(index, source_param)| self.rendered_adapter_argument(source_function, target_function, source_rest, index, *source_param, scope))
             .collect::<Result<Vec<_>, EmitError>>()?
             .join(", ");
         // An erased-rest source is a `SmeltErasedFunction` value, which is not a
@@ -419,6 +366,70 @@ impl FunctionEmitter<'_> {
             "{{ let smelt_callback = {value_text}.clone(); let smelt_adapted: {target_text} = ::std::rc::Rc::new(move |{}| {returned}); smelt_adapted }}",
             arg_decls.join(", ")
         ))))
+    }
+
+    /// The argument a rendered adapter forwards to source parameter `index`.
+    fn rendered_adapter_argument(
+        &self,
+        source_function: &FunctionType,
+        target_function: &FunctionType,
+        source_rest: Option<(usize, TypeId)>,
+        index: usize,
+        source_param: TypeId,
+        scope: &RenderScope,
+    ) -> Result<RustExpr, EmitError> {
+        // A source rest parameter receives every target argument from
+        // its position on, as JavaScript binds `...args`: the list of
+        // the remaining arguments, each converted to the element type.
+        // A fixed-arity target cannot say which trailing optional
+        // arguments were omitted, so an omitted one is an `undefined`
+        // element.
+        if let Some((rest, element)) = source_rest
+            && index == rest
+        {
+            let elements = target_function
+                .params
+                .iter()
+                .enumerate()
+                .skip(rest)
+                .map(|(target_index, target_param)| {
+                    // The list owns its elements, so a parameter the
+                    // adapter receives by reference is cloned first,
+                    // as the packed-vector branch below does.
+                    let base = if target_function.mutable_params.contains(&target_index)
+                        || self.callback_param_is_shared_reference(
+                            target_function,
+                            target_index,
+                            *target_param,
+                        ) {
+                        RustExpr::chain(format!("arg{target_index}.clone()")).ending_in_clone()
+                    } else {
+                        RustExpr::path(format!("arg{target_index}"))
+                    };
+                    self.rendered_at_type(&base, *target_param, element, scope)
+                })
+                .collect::<Result<Vec<_>, EmitError>>()?
+                .join(", ");
+            let text = format!("SmeltList::from(vec![{elements}])");
+            return Ok(self.callback_call_arg_expr(source_function, index, source_param, text));
+        }
+        // The wrapped callback's own parameters carry the by-reference ABI
+        // (`callback_param_is_shared_reference`) just as the declarations
+        // above do for the target's. This adapter forwards a value into
+        // each of them, so each forwarded value is borrowed where the
+        // wrapped signature says `&`; Rust extends the temporary's lifetime
+        // to the end of the statement, so `&(expr)` is valid for a value
+        // with no name.
+        let text = match target_function.params.get(index) {
+            Some(target_param) => self.rendered_at_type(
+                &RustExpr::path(format!("arg{index}")),
+                *target_param,
+                source_param,
+                                    scope,
+            )?,
+            None => self.default_value(source_param)?,
+        };
+        Ok(self.callback_call_arg_expr(source_function, index, source_param, text.into_string()))
     }
 
     /// The statement appending an adapter's rest parameter, element by element and
@@ -946,160 +957,7 @@ impl FunctionEmitter<'_> {
             .params
             .iter()
             .enumerate()
-            .map(|(index, source_param)| {
-                if source.rest == Some(index)
-                    && target_function.params.len() > source.params.len()
-                    && let Some(Type::List(source_item)) = self.mir.types.get(*source_param)
-                    && target_function.params.get(index).is_some()
-                {
-                    let mut text = String::from("{ let mut smelt_forwarded_args = Vec::new(); ");
-                    for (target_index, target_param) in
-                        target_function.params.iter().enumerate().skip(index)
-                    {
-                        // The rest list this builds OWNS its elements, so a
-                        // parameter the adapter declares by shared reference
-                        // (`callback_param_is_shared_reference`) is copied out
-                        // before it is packed. Without the copy the vector infers
-                        // `SmeltList<&SmeltUnknown>` and the `Into<Vec<_>>` at the
-                        // erased call fails to resolve (E0277).
-                        let arg_text = if self.callback_param_is_shared_reference(
-                            target_function,
-                            target_index,
-                            *target_param,
-                        ) {
-                            RustExpr::chain(format!("arg{target_index}.clone()")).ending_in_clone()
-                        } else {
-                            RustExpr::path(format!("arg{target_index}"))
-                        };
-                        if target_index > index
-                            && let Some(Type::List(target_item)) = self.mir.types.get(*target_param)
-                        {
-                            let item_text = if matches!(
-                                self.mir.types.get(*source_item),
-                                Some(Type::Unknown | Type::Never | Type::None)
-                            ) && self.mir.types.get(*target_item) == Some(&Type::Unknown)
-                            {
-                                "value".to_owned()
-                            } else {
-                                self.rendered_at_type(
-                                    &RustExpr::path("value"),
-                                    *target_item,
-                                    *source_item,
-                                    &self.render_scope(),
-                                )?.into_string()
-                            };
-                            text.push_str(&format!(
-                                "smelt_forwarded_args.extend({arg_text}.into_iter().map(|value| {item_text})); "
-                            ));
-                        } else {
-                            let item_text =
-                                self.rendered_at_type(&arg_text, *target_param, *source_item, &self.render_scope())?;
-                            text.push_str(&format!("smelt_forwarded_args.push({item_text}); "));
-                        }
-                    }
-                    text.push_str("Into::<SmeltList<_>>::into(smelt_forwarded_args) }");
-                    return Ok(text);
-                }
-                // The mirror case: the SLOT packs its trailing arguments into a
-                // rest list (`extractor(response, index, ...params)`), and the
-                // callback names them one by one (`(response, _, word) => ..`).
-                // JavaScript spreads the list into those parameters, so each one
-                // reads its element of the rest list (`undefined` past its end)
-                // instead of receiving the whole list converted to its type.
-                if let Some(rest_index) = target_function.rest
-                    && index >= rest_index
-                    // A callback parameter is positional unless it is itself a
-                    // list-typed rest; a contextually typed closure can carry
-                    // the slot's rest index on a scalar parameter.
-                    && !(source.rest == Some(index)
-                        && matches!(self.mir.types.get(*source_param), Some(Type::List(_))))
-                    && let Some(target_rest) = target_function.params.get(rest_index)
-                    && let Some(Type::List(rest_item)) = self.mir.types.get(*target_rest)
-                {
-                    let offset = index.saturating_sub(rest_index);
-                    let missing = self.element_missing_value(*rest_item)?;
-                    let element = RustExpr::chain(format!(
-                        "arg{rest_index}.borrow().get({offset}).cloned().unwrap_or_else(|| {missing})"
-                    ));
-                    let arg_text =
-                        self.rendered_at_type(&element, *rest_item, *source_param, &self.render_scope())?;
-                    if self.callback_param_is_shared_reference(source, index, *source_param) {
-                        return Ok(format!("&({arg_text})"));
-                    }
-                    return Ok(arg_text.into_string());
-                }
-                if let Some(target_param) = target_function.params.get(index) {
-                    // The adapter's parameter is DECLARED at the substituted
-                    // type (`arg0: f64`, rendered from the same bindings in
-                    // `callback_arg_decls`), so the conversion into the wrapped
-                    // callback's parameter must start from that same type. Using
-                    // the unsubstituted declared `T` here computes the ladder for
-                    // an erased argument -- `match arg0 { SmeltUnknown::Number(v)
-                    // => v, .. }` against an `f64` (E0308). One substitution has
-                    // to drive the declaration and the body alike.
-                    let declared = self.substituted_param_ty(*target_param, callee_bindings);
-                    // Seam 1 (`emitter::seam_assertions`): `declared` is where
-                    // this conversion starts; the declaration it must match was
-                    // rendered above under `substitution`.
-                    #[cfg(debug_assertions)]
-                    self.debug_assert_adapter_param_agrees(
-                        index,
-                        *target_param,
-                        declared,
-                        &substitution,
-                    );
-                    // Both sides of the adapter carry their own by-reference axis
-                    // (`callback_param_is_shared_reference`): the parameter the
-                    // adapter DECLARES, and the parameter of the callback it wraps.
-                    let declares_reference = self.callback_param_is_shared_reference(
-                        target_function,
-                        index,
-                        *target_param,
-                    );
-                    let wrapped_takes_reference =
-                        self.callback_param_is_shared_reference(source, index, *source_param);
-                    // A declared reference an async adapter has already rebound to
-                    // an owned clone is, inside the body, an owned value.
-                    let declared_reference_is_owned_in_body =
-                        declares_reference && body_is_static_future;
-                    // The zero-copy path, and the reason the ABI exists: the same
-                    // by-reference type on both sides forwards the borrow untouched --
-                    // re-borrowing the owned rebinding where there is one.
-                    if declares_reference && wrapped_takes_reference && declared == *source_param {
-                        return Ok(if declared_reference_is_owned_in_body {
-                            format!("&arg{index}")
-                        } else {
-                            format!("arg{index}")
-                        });
-                    }
-                    // Otherwise a conversion runs, and every conversion arm is written
-                    // against an owned value — so a declared reference is copied back
-                    // into one first. That copy is per CALL of the adapter, and only
-                    // where the two sides genuinely disagree about the type; a
-                    // parameter the async rebinding already owns needs no second copy.
-                    let source_text = if declares_reference && !declared_reference_is_owned_in_body
-                    {
-                        RustExpr::chain(format!("arg{index}.clone()")).ending_in_clone()
-                    } else {
-                        RustExpr::path(format!("arg{index}"))
-                    };
-                    let arg_text =
-                        self.rendered_at_type(&source_text, declared, *source_param, &self.render_scope())?;
-                    // The converted value is a temporary, and Rust extends a borrowed
-                    // temporary's lifetime to the end of the statement, so `&(expr)` is
-                    // valid even though the value is unnamed.
-                    if wrapped_takes_reference {
-                        return Ok(format!("&({arg_text})"));
-                    }
-                    Ok(arg_text.into_string())
-                } else {
-                    let default_text = self.default_value(*source_param)?;
-                    if self.callback_param_is_shared_reference(source, index, *source_param) {
-                        return Ok(format!("&({default_text})"));
-                    }
-                    Ok(default_text.into_string())
-                }
-            })
+            .map(|(index, source_param)| self.forwarded_adapter_argument(source, target_function, index, *source_param, callee_bindings, &substitution, body_is_static_future))
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
         let source_is_erased = self.is_erased_unknown_rest_function(source) && !source.may_throw;
@@ -1366,6 +1224,171 @@ impl FunctionEmitter<'_> {
             ))));
         }
         Ok(Some(adapter))
+    }
+
+    /// The argument an adapter forwards to source parameter `index`: its own parameter converted, the rest list, or the default for a surplus parameter.
+    fn forwarded_adapter_argument(
+        &self,
+        source: &FunctionType,
+        target_function: &FunctionType,
+        index: usize,
+        source_param: TypeId,
+        callee_bindings: Option<&CalleeTypeParamBindings>,
+        substitution: &TypeSubstitution<'_>,
+        body_is_static_future: bool,
+    ) -> Result<String, EmitError> {
+        if source.rest == Some(index)
+            && target_function.params.len() > source.params.len()
+            && let Some(Type::List(source_item)) = self.mir.types.get(source_param)
+            && target_function.params.get(index).is_some()
+        {
+            let mut text = String::from("{ let mut smelt_forwarded_args = Vec::new(); ");
+            for (target_index, target_param) in
+                target_function.params.iter().enumerate().skip(index)
+            {
+                // The rest list this builds OWNS its elements, so a
+                // parameter the adapter declares by shared reference
+                // (`callback_param_is_shared_reference`) is copied out
+                // before it is packed. Without the copy the vector infers
+                // `SmeltList<&SmeltUnknown>` and the `Into<Vec<_>>` at the
+                // erased call fails to resolve (E0277).
+                let arg_text = if self.callback_param_is_shared_reference(
+                    target_function,
+                    target_index,
+                    *target_param,
+                ) {
+                    RustExpr::chain(format!("arg{target_index}.clone()")).ending_in_clone()
+                } else {
+                    RustExpr::path(format!("arg{target_index}"))
+                };
+                if target_index > index
+                    && let Some(Type::List(target_item)) = self.mir.types.get(*target_param)
+                {
+                    let item_text = if matches!(
+                        self.mir.types.get(*source_item),
+                        Some(Type::Unknown | Type::Never | Type::None)
+                    ) && self.mir.types.get(*target_item) == Some(&Type::Unknown)
+                    {
+                        "value".to_owned()
+                    } else {
+                        self.rendered_at_type(
+                            &RustExpr::path("value"),
+                            *target_item,
+                            *source_item,
+                            &self.render_scope(),
+                        )?.into_string()
+                    };
+                    text.push_str(&format!(
+                        "smelt_forwarded_args.extend({arg_text}.into_iter().map(|value| {item_text})); "
+                    ));
+                } else {
+                    let item_text =
+                        self.rendered_at_type(&arg_text, *target_param, *source_item, &self.render_scope())?;
+                    text.push_str(&format!("smelt_forwarded_args.push({item_text}); "));
+                }
+            }
+            text.push_str("Into::<SmeltList<_>>::into(smelt_forwarded_args) }");
+            return Ok(text);
+        }
+        // The mirror case: the SLOT packs its trailing arguments into a
+        // rest list (`extractor(response, index, ...params)`), and the
+        // callback names them one by one (`(response, _, word) => ..`).
+        // JavaScript spreads the list into those parameters, so each one
+        // reads its element of the rest list (`undefined` past its end)
+        // instead of receiving the whole list converted to its type.
+        if let Some(rest_index) = target_function.rest
+            && index >= rest_index
+            // A callback parameter is positional unless it is itself a
+            // list-typed rest; a contextually typed closure can carry
+            // the slot's rest index on a scalar parameter.
+            && !(source.rest == Some(index)
+                && matches!(self.mir.types.get(source_param), Some(Type::List(_))))
+            && let Some(target_rest) = target_function.params.get(rest_index)
+            && let Some(Type::List(rest_item)) = self.mir.types.get(*target_rest)
+        {
+            let offset = index.saturating_sub(rest_index);
+            let missing = self.element_missing_value(*rest_item)?;
+            let element = RustExpr::chain(format!(
+                "arg{rest_index}.borrow().get({offset}).cloned().unwrap_or_else(|| {missing})"
+            ));
+            let arg_text =
+                self.rendered_at_type(&element, *rest_item, source_param, &self.render_scope())?;
+            if self.callback_param_is_shared_reference(source, index, source_param) {
+                return Ok(format!("&({arg_text})"));
+            }
+            return Ok(arg_text.into_string());
+        }
+        if let Some(target_param) = target_function.params.get(index) {
+            // The adapter's parameter is DECLARED at the substituted
+            // type (`arg0: f64`, rendered from the same bindings in
+            // `callback_arg_decls`), so the conversion into the wrapped
+            // callback's parameter must start from that same type. Using
+            // the unsubstituted declared `T` here computes the ladder for
+            // an erased argument -- `match arg0 { SmeltUnknown::Number(v)
+            // => v, .. }` against an `f64` (E0308). One substitution has
+            // to drive the declaration and the body alike.
+            let declared = self.substituted_param_ty(*target_param, callee_bindings);
+            // Seam 1 (`emitter::seam_assertions`): `declared` is where
+            // this conversion starts; the declaration it must match was
+            // rendered above under `substitution`.
+            #[cfg(debug_assertions)]
+            self.debug_assert_adapter_param_agrees(
+                index,
+                *target_param,
+                declared,
+                substitution,
+            );
+            // Both sides of the adapter carry their own by-reference axis
+            // (`callback_param_is_shared_reference`): the parameter the
+            // adapter DECLARES, and the parameter of the callback it wraps.
+            let declares_reference = self.callback_param_is_shared_reference(
+                target_function,
+                index,
+                *target_param,
+            );
+            let wrapped_takes_reference =
+                self.callback_param_is_shared_reference(source, index, source_param);
+            // A declared reference an async adapter has already rebound to
+            // an owned clone is, inside the body, an owned value.
+            let declared_reference_is_owned_in_body =
+                declares_reference && body_is_static_future;
+            // The zero-copy path, and the reason the ABI exists: the same
+            // by-reference type on both sides forwards the borrow untouched --
+            // re-borrowing the owned rebinding where there is one.
+            if declares_reference && wrapped_takes_reference && declared == source_param {
+                return Ok(if declared_reference_is_owned_in_body {
+                    format!("&arg{index}")
+                } else {
+                    format!("arg{index}")
+                });
+            }
+            // Otherwise a conversion runs, and every conversion arm is written
+            // against an owned value — so a declared reference is copied back
+            // into one first. That copy is per CALL of the adapter, and only
+            // where the two sides genuinely disagree about the type; a
+            // parameter the async rebinding already owns needs no second copy.
+            let source_text = if declares_reference && !declared_reference_is_owned_in_body
+            {
+                RustExpr::chain(format!("arg{index}.clone()")).ending_in_clone()
+            } else {
+                RustExpr::path(format!("arg{index}"))
+            };
+            let arg_text =
+                self.rendered_at_type(&source_text, declared, source_param, &self.render_scope())?;
+            // The converted value is a temporary, and Rust extends a borrowed
+            // temporary's lifetime to the end of the statement, so `&(expr)` is
+            // valid even though the value is unnamed.
+            if wrapped_takes_reference {
+                return Ok(format!("&({arg_text})"));
+            }
+            Ok(arg_text.into_string())
+        } else {
+            let default_text = self.default_value(source_param)?;
+            if self.callback_param_is_shared_reference(source, index, source_param) {
+                return Ok(format!("&({default_text})"));
+            }
+            Ok(default_text.into_string())
+        }
     }
 
     /// Erased full-arity view of a callback an adapter narrows to fewer parameters.

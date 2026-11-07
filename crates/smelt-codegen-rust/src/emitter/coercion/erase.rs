@@ -549,96 +549,7 @@ impl FunctionEmitter<'_> {
                     value.parenthesized_if_needed()
                 ))))
             }
-            Some(Type::Function(function)) => {
-                if self.is_erased_unknown_rest_function(function) && !function.may_throw {
-                    return Ok(RustExpr::postfix_on(value.expr(), self.carrier_format(format_args!(
-                        "{}.clone().into_smelt_unknown()",
-                        value.parenthesized_if_needed()
-                    ))));
-                }
-                let args = self.function_args_from_smelt_args_text(function, ErasedCallTargetAbi::Declared)?;
-                let call_text = RustExpr::atom(format!("(smelt_function_value)({args})"));
-                let return_text = if self.mir.types.get(function.return_ty) == Some(&Type::None) {
-                    // A `void`-returning callback erased to a callable value
-                    // returns JavaScript `undefined`, not `null`, so `!== undefined`
-                    // guards on the result behave as in JS.
-                    if function.may_throw {
-                        self.carrier_format(format_args!(
-                            "{{ {call_text}?; Ok::<SmeltUnknown, {ERROR_BOX}>(SmeltUnknown::Undefined) }}"
-                        ))
-                    } else {
-                        self.carrier_format(format_args!(
-                            "{{ {call_text}; Ok::<SmeltUnknown, {ERROR_BOX}>(SmeltUnknown::Undefined) }}"
-                        ))
-                    }
-                } else if matches!(self.mir.types.get(function.return_ty), Some(Type::Future(_))) {
-                    // A SYNC function that returns a promise and can throw
-                    // before it does yields `Result<Future, _>`, so the fallible
-                    // call is unwrapped with `?` to recover the bare future
-                    // before it is erased into a promise; erasing the `Result`
-                    // directly would double-wrap it (the promise task would then
-                    // await a `Result<Future, _>`).
-                    //
-                    // An ASYNC function carries its throw INSIDE the future
-                    // (`Future<Output = Result<..>>`) and its call yields the
-                    // future itself, so there is nothing to unwrap: a `?` there
-                    // is applied to a `SmeltFuture`, which does not implement
-                    // `Try` (radash's `async_test.rs`, whose callback became
-                    // future-typed once a block-bodied callback's return type
-                    // came from its own returns). This is the same rule
-                    // `throwing_call_suffix` applies to a direct call.
-                    let future_call = if function.may_throw && !function.is_async {
-                        RustExpr::atom(format!("{call_text}?"))
-                    } else {
-                        call_text
-                    };
-                    let erased_return = self.erase_rendered(&future_call, function.return_ty)?;
-                    self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({erased_return})"))
-                // A returned value skips the erasure step only when its Rust
-                // representation ALREADY IS `SmeltUnknown`. That is what
-                // `is_erased_class_type` answers. This used to ask
-                // `class_has_no_known_fields`, which answers a different
-                // question — "the class declares no fields I can build an
-                // object from" — and is true of every MODELED host class too,
-                // because a modeled class is not in `mir.classes`. So a
-                // callback returning a `Request` or an `ArrayBuffer` had its
-                // concrete `SmeltRequest` / `SmeltArrayBuffer` handed straight
-                // to `Ok::<SmeltUnknown, _>(..)` (E0308, two sites in Hono).
-                // The general arms below already know how each class erases —
-                // a fetch runtime class through `into_smelt_unknown`, a `Date`
-                // through its identity, any other through its fields — and an
-                // erased class's own arm returns the text unchanged, so this
-                // branch keeps doing exactly what it did for those.
-                } else if self.is_erased_class_type(function.return_ty) {
-                    if function.may_throw {
-                        call_text.into_string()
-                    } else {
-                        self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({call_text})"))
-                    }
-                } else if function.may_throw {
-                    let erased_return =
-                        self.erase_rendered(&RustExpr::atom(format!("{call_text}?")), function.return_ty)?;
-                    self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({erased_return})"))
-                } else {
-                    let erased_return = self.erase_rendered(&call_text, function.return_ty)?;
-                    self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({erased_return})"))
-                };
-                // Erasing a function value builds a fresh forwarding closure, so
-                // the allocation address JavaScript `===` would compare is a new
-                // one every time. The adapter and the typed callable it wraps are
-                // ONE JavaScript function, so both must resolve to one canonical
-                // identity: that is what keeps two erasures of the same closure —
-                // a field read through an erased view and the same closure erased
-                // into an object literal — `===` to each other, what lets
-                // `smelt_same_erased_function` see through both wrappers, and what
-                // makes an own property of the function (`f.prototype`) the same
-                // object whichever spelling reads it. The rest-vector adapter in
-                // `coercion/function_adapter.rs` links itself the same way. The identity is taken
-                // before the callable is moved into the adapter.
-                Ok(RustExpr::atom(self.carrier_format(format_args!(
-                    "{{ let smelt_function_value = {value_text}; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) {{ smelt_callable_object }} else {{ let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, {ERROR_BOX}>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) }} }}"
-                ))))
-            }
+            Some(Type::Function(function)) => self.erase_function_value(value_text, function, value),
             Some(Type::Union(_)) if self.concrete_union_members(ty).is_some() => {
                 Ok(RustExpr::postfix_on(&value_text, self.carrier_format(format_args!("{value_text}.into_smelt_unknown()"))))
             }
@@ -953,6 +864,18 @@ impl FunctionEmitter<'_> {
                 "smelt_object_entries.push((\"{marker}\".to_owned(), {value_text})); "
             );
         }
+        self.unknown_object_with_markers(value_text, target, *name, &entries, &host_markers)
+    }
+
+    /// The erased object itself, once its field entries and host markers are rendered.
+    fn unknown_object_with_markers(
+        &self,
+        value_text: &RustExpr,
+        target: TypeId,
+        name: Symbol,
+        entries: &str,
+        host_markers: &str,
+    ) -> Result<RustExpr, EmitError> {
         // The marker VALUE is the class name, not a bare `true`. JavaScript exposes
         // `instance.constructor`, and es-toolkit `isEqualWith` gates instance
         // comparison on `areObjectsEqual(a.constructor, b.constructor)` — with no
@@ -972,7 +895,7 @@ impl FunctionEmitter<'_> {
         let class_marker = if self.is_interface_record_type(target) {
             String::new()
         } else {
-            let class_name = self.symbol_source_name(*name)?;
+            let class_name = self.symbol_source_name(name)?;
             self.carrier_format(format_args!(
                 "smelt_object_entries.push((\"{SMELT_CLASS}\".to_owned(), SmeltUnknown::String({class_name:?}.into()))); "
             ))
@@ -999,7 +922,7 @@ impl FunctionEmitter<'_> {
         // erased call site substituted a fabricated default. Interfaces have no
         // method bodies to bind, so they contribute nothing here — which is why
         // this consults `mir.classes` rather than the record type.
-        let proto_entries = match crate::classes::find_class(self.mir, *name)
+        let proto_entries = match crate::classes::find_class(self.mir, name)
         {
             Some(class)
                 if crate::class_proto::class_has_proto_entries(self.mir, self.context, class) =>
@@ -1014,7 +937,7 @@ impl FunctionEmitter<'_> {
         // A reference-class view forwards property writes to the instance
         // (see `view_write_through`); the generated `into_smelt_unknown`
         // installs the same hook.
-        let write_through = match crate::classes::find_class(self.mir, *name) {
+        let write_through = match crate::classes::find_class(self.mir, name) {
             Some(class) if crate::reference_storage::field_setter_host(self.mir, self.context, class).is_some() => {
                 view_write_through::erased_view_entry_expr(
                     &RustExpr::path("smelt_struct_value"),
@@ -1047,6 +970,105 @@ impl FunctionEmitter<'_> {
         }
         Ok(RustExpr::atom(self.carrier_format(format_args!(
             "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); {entries} {host_markers}{class_marker}{proto_entries}{write_through}SmeltUnknown::Object({object_ctor}) }}"
+        ))))
+    }
+}
+
+impl FunctionEmitter<'_> {
+    /// A function value boxed into the erased carrier.
+    fn erase_function_value(
+        &self,
+        value_text: &RustExpr,
+        function: &FunctionType,
+        value: &RenderedValue,
+    ) -> Result<RustExpr, EmitError> {
+        if self.is_erased_unknown_rest_function(function) && !function.may_throw {
+            return Ok(RustExpr::postfix_on(value.expr(), self.carrier_format(format_args!(
+                "{}.clone().into_smelt_unknown()",
+                value.parenthesized_if_needed()
+            ))));
+        }
+        let args = self.function_args_from_smelt_args_text(function, ErasedCallTargetAbi::Declared)?;
+        let call_text = RustExpr::atom(format!("(smelt_function_value)({args})"));
+        let return_text = if self.mir.types.get(function.return_ty) == Some(&Type::None) {
+            // A `void`-returning callback erased to a callable value
+            // returns JavaScript `undefined`, not `null`, so `!== undefined`
+            // guards on the result behave as in JS.
+            if function.may_throw {
+                self.carrier_format(format_args!(
+                    "{{ {call_text}?; Ok::<SmeltUnknown, {ERROR_BOX}>(SmeltUnknown::Undefined) }}"
+                ))
+            } else {
+                self.carrier_format(format_args!(
+                    "{{ {call_text}; Ok::<SmeltUnknown, {ERROR_BOX}>(SmeltUnknown::Undefined) }}"
+                ))
+            }
+        } else if matches!(self.mir.types.get(function.return_ty), Some(Type::Future(_))) {
+            // A SYNC function that returns a promise and can throw
+            // before it does yields `Result<Future, _>`, so the fallible
+            // call is unwrapped with `?` to recover the bare future
+            // before it is erased into a promise; erasing the `Result`
+            // directly would double-wrap it (the promise task would then
+            // await a `Result<Future, _>`).
+            //
+            // An ASYNC function carries its throw INSIDE the future
+            // (`Future<Output = Result<..>>`) and its call yields the
+            // future itself, so there is nothing to unwrap: a `?` there
+            // is applied to a `SmeltFuture`, which does not implement
+            // `Try` (radash's `async_test.rs`, whose callback became
+            // future-typed once a block-bodied callback's return type
+            // came from its own returns). This is the same rule
+            // `throwing_call_suffix` applies to a direct call.
+            let future_call = if function.may_throw && !function.is_async {
+                RustExpr::atom(format!("{call_text}?"))
+            } else {
+                call_text
+            };
+            let erased_return = self.erase_rendered(&future_call, function.return_ty)?;
+            self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({erased_return})"))
+        // A returned value skips the erasure step only when its Rust
+        // representation ALREADY IS `SmeltUnknown`. That is what
+        // `is_erased_class_type` answers. This used to ask
+        // `class_has_no_known_fields`, which answers a different
+        // question — "the class declares no fields I can build an
+        // object from" — and is true of every MODELED host class too,
+        // because a modeled class is not in `mir.classes`. So a
+        // callback returning a `Request` or an `ArrayBuffer` had its
+        // concrete `SmeltRequest` / `SmeltArrayBuffer` handed straight
+        // to `Ok::<SmeltUnknown, _>(..)` (E0308, two sites in Hono).
+        // The general arms below already know how each class erases —
+        // a fetch runtime class through `into_smelt_unknown`, a `Date`
+        // through its identity, any other through its fields — and an
+        // erased class's own arm returns the text unchanged, so this
+        // branch keeps doing exactly what it did for those.
+        } else if self.is_erased_class_type(function.return_ty) {
+            if function.may_throw {
+                call_text.into_string()
+            } else {
+                self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({call_text})"))
+            }
+        } else if function.may_throw {
+            let erased_return =
+                self.erase_rendered(&RustExpr::atom(format!("{call_text}?")), function.return_ty)?;
+            self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({erased_return})"))
+        } else {
+            let erased_return = self.erase_rendered(&call_text, function.return_ty)?;
+            self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({erased_return})"))
+        };
+        // Erasing a function value builds a fresh forwarding closure, so
+        // the allocation address JavaScript `===` would compare is a new
+        // one every time. The adapter and the typed callable it wraps are
+        // ONE JavaScript function, so both must resolve to one canonical
+        // identity: that is what keeps two erasures of the same closure —
+        // a field read through an erased view and the same closure erased
+        // into an object literal — `===` to each other, what lets
+        // `smelt_same_erased_function` see through both wrappers, and what
+        // makes an own property of the function (`f.prototype`) the same
+        // object whichever spelling reads it. The rest-vector adapter in
+        // `coercion/function_adapter.rs` links itself the same way. The identity is taken
+        // before the callable is moved into the adapter.
+        Ok(RustExpr::atom(self.carrier_format(format_args!(
+            "{{ let smelt_function_value = {value_text}; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) {{ smelt_callable_object }} else {{ let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, {ERROR_BOX}>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) }} }}"
         ))))
     }
 }

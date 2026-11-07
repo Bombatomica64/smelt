@@ -795,6 +795,15 @@ impl FunctionEmitter<'_> {
                 self.call_is_throwing(function),
             ));
         }
+        self.static_call_positional(args, function)
+    }
+
+    /// A call whose callee takes its arguments by position: rest and default parameters filled in.
+    fn static_call_positional(
+        &self,
+        args: &[Operand],
+        function: &MirFunction,
+    ) -> Result<RenderedCall, EmitError> {
         let rust_function_name = self.function_rust_name(function)?;
         let emitted_params =
             self.emitted_function_param_types(&self.emitted_signature_key(function)?)?;

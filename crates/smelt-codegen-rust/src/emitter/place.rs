@@ -1105,6 +1105,16 @@ impl FunctionEmitter<'_> {
                 "smelt_get_unknown_field(&{scrutinee}, {field_name:?})"
             )));
         }
+        self.optional_or_host_field_place_expr(base, field, base_ty)
+    }
+
+    /// A field read through an optional receiver or a host class.
+    fn optional_or_host_field_place_expr(
+        &self,
+        base: LocalId,
+        field: Symbol,
+        base_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
         if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
             && (matches!(
                 self.mir.types.get(*inner),
@@ -1196,6 +1206,16 @@ impl FunctionEmitter<'_> {
                 Ok(RustExpr::postfix_on(&base_text, format!("{base_text}.as_ref().map(|_smelt_value| {read})")))
             };
         }
+        self.named_field_place_expr(base, field, base_ty)
+    }
+
+    /// A field read by name, on function values, strings and classes.
+    fn named_field_place_expr(
+        &self,
+        base: LocalId,
+        field: Symbol,
+        base_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
         // A JavaScript function is an object: a property read on one
         // answers its own-property bag, where `prototype` is
         // materialised on first read and where a source-written member

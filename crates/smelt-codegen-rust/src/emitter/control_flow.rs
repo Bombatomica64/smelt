@@ -512,131 +512,7 @@ impl FunctionEmitter<'_> {
                 arms,
                 default,
             } => self.emit_match(scrutinee, arms, *default, out),
-            Terminator::Return(operand) => {
-                let body_return_ty = self.body_return_ty();
-                // `async function f(): Promise<T> { return p; }` ADOPTS `p` in
-                // JavaScript: the returned promise is awaited and `f`'s promise
-                // settles with *its* result, never with the promise object. Smelt
-                // used to route this through the ordinary return coercion, which
-                // saw a `Future<T>` flowing into a `T` slot and erased it with
-                // `SmeltPromise::from_future` — so `await f()` handed back the
-                // inner promise itself (`[object Promise]`) and a rejection inside
-                // it never surfaced at the caller. That is what made
-                // `withTimeout`, whose whole body is `return Promise.race([...])`,
-                // both resolve with the wrong value and never reject on timeout.
-                // Awaiting here is the general rule, not a promise-library
-                // special case: a `Promise<Promise<T>>` is unspellable in
-                // TypeScript, so an async body whose declared return type is not
-                // itself a future can only mean adoption.
-                if self.function.is_async
-                    && !self.function.is_generator
-                    && !matches!(self.function.origin, HirOrigin::ClassConstructor { .. })
-                    && let Some(&Type::Future(item_ty)) =
-                        self.mir.types.get(self.operand_ty(operand)?)
-                    && !matches!(self.mir.types.get(body_return_ty), Some(Type::Future(_)))
-                {
-                    let future_text = self.operand_expr(operand)?;
-                    out.push_str(&format!(
-                        "    let smelt_adopted = {future_text}.await?;\n"
-                    ));
-                    if body_return_ty == self.none_ty {
-                        out.push_str("    let _ = smelt_adopted;\n");
-                        self.binding_uses.record_early_return();
-                        out.push_str("    return Ok(());\n");
-                    } else {
-                        let value =
-                            self.rendered_at_type(&RustExpr::path("smelt_adopted"), item_ty, body_return_ty, &self.render_scope())?;
-                        self.binding_uses.record_early_return();
-                        out.push_str(&format!("    return Ok({value});\n"));
-                    }
-                    return Ok(());
-                }
-                if matches!(self.function.origin, HirOrigin::ClassConstructor { .. }) {
-                    if self.function.can_throw {
-                        self.binding_uses.record_early_return();
-                        out.push_str(&format!(
-                            "    return Ok({});\n",
-                            self.operand_expr(operand)?
-                        ));
-                    } else {
-                        out.push_str(&format!("    return {};\n", self.operand_expr(operand)?));
-                    }
-                } else if body_return_ty == self.none_ty {
-                    // A `void`/`None` return still evaluates its operand for
-                    // side effects when one is present. The Rust output type is
-                    // `Result<(), _>` whenever the function is fallible *or*
-                    // async (async lowering always produces a `Result` output),
-                    // so wrap the terminator in `Ok(())` in both those cases.
-                    if !matches!(operand, Operand::Const(Constant::None))
-                        && self.operand_ty(operand)? != self.none_ty
-                    {
-                        out.push_str(&format!("    {};\n", self.operand_expr(operand)?));
-                    }
-                    if self.function.can_throw || self.function.is_async {
-                        self.binding_uses.record_early_return();
-                        if self.function.is_generator {
-                            out.push_str(&format!("    return Ok::<(), {ERROR_BOX}>(());\n"));
-                        } else {
-                            out.push_str("    return Ok(());\n");
-                        }
-                    } else {
-                        out.push_str("    return;\n");
-                    }
-                } else if self.function.can_throw || self.function.is_async {
-                    // Fallible and async functions both return `Result<T, _>` in
-                    // Rust, so the returned value must be wrapped in `Ok(..)`.
-                    // Async is the addition here: an `async fn` desugars to a
-                    // future whose `Output` is `Result<T, _>` even when the
-                    // source body never throws, so a bare `return value;` would
-                    // mismatch the `Result` output (E0308).
-                    if matches!(operand, Operand::Const(Constant::None))
-                        && self.has_plain_default_value(body_return_ty)
-                    {
-                        let value = self.default_value(body_return_ty)?;
-                        if self.function.is_generator {
-                            let return_ty_text =
-                                self.rendered_type(body_return_ty)?;
-                            self.binding_uses.record_early_return();
-                            out.push_str(&format!(
-                                "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n"
-                            ));
-                        } else {
-                            self.binding_uses.record_early_return();
-                            out.push_str(&format!("    return Ok({value});\n"));
-                        }
-                    } else {
-                        let value = self.value_at_type(operand, body_return_ty)?;
-                        if self.function.is_generator {
-                            let return_ty_text =
-                                self.rendered_type(body_return_ty)?;
-                            self.binding_uses.record_early_return();
-                            out.push_str(&format!(
-                                "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n"
-                            ));
-                        } else {
-                            self.binding_uses.record_early_return();
-                            out.push_str(&format!("    return Ok({value});\n"));
-                        }
-                    }
-                } else if self.mir.types.get(body_return_ty) == Some(&Type::Unknown)
-                    && let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) =
-                        operand
-                    && let Some(source) = self.single_assignment_unknown_cast_source(*local)
-                    && self.mir.types.get(self.operand_ty(source)?) == Some(&Type::Unknown)
-                {
-                    out.push_str(&format!(
-                        "    return {};\n",
-                        self.value_at_type(source, body_return_ty)?
-                    ));
-                } else {
-                    out.push_str(&format!(
-                        "    return {};\n",
-                        self.value_at_type(operand, body_return_ty)?
-                    ));
-                }
-                self.flow.record(Flow::Diverges);
-                Ok(())
-            }
+            Terminator::Return(operand) => self.emit_return_terminator(operand, out),
             Terminator::Throw(operand) => {
                 // Shared with the closure-body emitter so the two throw paths
                 // cannot drift; see `emitter::throw`.
@@ -767,5 +643,138 @@ pub(super) fn control_flow_successors(terminator: &Terminator) -> Vec<smelt_mir:
             successors
         }
         Terminator::Return(_) | Terminator::Throw(_) => Vec::new(),
+    }
+}
+
+impl FunctionEmitter<'_> {
+    /// A `return`, with the adoption and wrapping the function kind asks of it.
+    fn emit_return_terminator(
+        &self,
+        operand: &Operand,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        let body_return_ty = self.body_return_ty();
+        // `async function f(): Promise<T> { return p; }` ADOPTS `p` in
+        // JavaScript: the returned promise is awaited and `f`'s promise
+        // settles with *its* result, never with the promise object. Smelt
+        // used to route this through the ordinary return coercion, which
+        // saw a `Future<T>` flowing into a `T` slot and erased it with
+        // `SmeltPromise::from_future` — so `await f()` handed back the
+        // inner promise itself (`[object Promise]`) and a rejection inside
+        // it never surfaced at the caller. That is what made
+        // `withTimeout`, whose whole body is `return Promise.race([...])`,
+        // both resolve with the wrong value and never reject on timeout.
+        // Awaiting here is the general rule, not a promise-library
+        // special case: a `Promise<Promise<T>>` is unspellable in
+        // TypeScript, so an async body whose declared return type is not
+        // itself a future can only mean adoption.
+        if self.function.is_async
+            && !self.function.is_generator
+            && !matches!(self.function.origin, HirOrigin::ClassConstructor { .. })
+            && let Some(&Type::Future(item_ty)) =
+                self.mir.types.get(self.operand_ty(operand)?)
+            && !matches!(self.mir.types.get(body_return_ty), Some(Type::Future(_)))
+        {
+            let future_text = self.operand_expr(operand)?;
+            out.push_str(&format!(
+                "    let smelt_adopted = {future_text}.await?;\n"
+            ));
+            if body_return_ty == self.none_ty {
+                out.push_str("    let _ = smelt_adopted;\n");
+                self.binding_uses.record_early_return();
+                out.push_str("    return Ok(());\n");
+            } else {
+                let value =
+                    self.rendered_at_type(&RustExpr::path("smelt_adopted"), item_ty, body_return_ty, &self.render_scope())?;
+                self.binding_uses.record_early_return();
+                out.push_str(&format!("    return Ok({value});\n"));
+            }
+            return Ok(());
+        }
+        if matches!(self.function.origin, HirOrigin::ClassConstructor { .. }) {
+            if self.function.can_throw {
+                self.binding_uses.record_early_return();
+                out.push_str(&format!(
+                    "    return Ok({});\n",
+                    self.operand_expr(operand)?
+                ));
+            } else {
+                out.push_str(&format!("    return {};\n", self.operand_expr(operand)?));
+            }
+        } else if body_return_ty == self.none_ty {
+            // A `void`/`None` return still evaluates its operand for
+            // side effects when one is present. The Rust output type is
+            // `Result<(), _>` whenever the function is fallible *or*
+            // async (async lowering always produces a `Result` output),
+            // so wrap the terminator in `Ok(())` in both those cases.
+            if !matches!(operand, Operand::Const(Constant::None))
+                && self.operand_ty(operand)? != self.none_ty
+            {
+                out.push_str(&format!("    {};\n", self.operand_expr(operand)?));
+            }
+            if self.function.can_throw || self.function.is_async {
+                self.binding_uses.record_early_return();
+                if self.function.is_generator {
+                    out.push_str(&format!("    return Ok::<(), {ERROR_BOX}>(());\n"));
+                } else {
+                    out.push_str("    return Ok(());\n");
+                }
+            } else {
+                out.push_str("    return;\n");
+            }
+        } else if self.function.can_throw || self.function.is_async {
+            // Fallible and async functions both return `Result<T, _>` in
+            // Rust, so the returned value must be wrapped in `Ok(..)`.
+            // Async is the addition here: an `async fn` desugars to a
+            // future whose `Output` is `Result<T, _>` even when the
+            // source body never throws, so a bare `return value;` would
+            // mismatch the `Result` output (E0308).
+            if matches!(operand, Operand::Const(Constant::None))
+                && self.has_plain_default_value(body_return_ty)
+            {
+                let value = self.default_value(body_return_ty)?;
+                if self.function.is_generator {
+                    let return_ty_text =
+                        self.rendered_type(body_return_ty)?;
+                    self.binding_uses.record_early_return();
+                    out.push_str(&format!(
+                        "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n"
+                    ));
+                } else {
+                    self.binding_uses.record_early_return();
+                    out.push_str(&format!("    return Ok({value});\n"));
+                }
+            } else {
+                let value = self.value_at_type(operand, body_return_ty)?;
+                if self.function.is_generator {
+                    let return_ty_text =
+                        self.rendered_type(body_return_ty)?;
+                    self.binding_uses.record_early_return();
+                    out.push_str(&format!(
+                        "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n"
+                    ));
+                } else {
+                    self.binding_uses.record_early_return();
+                    out.push_str(&format!("    return Ok({value});\n"));
+                }
+            }
+        } else if self.mir.types.get(body_return_ty) == Some(&Type::Unknown)
+            && let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) =
+                operand
+            && let Some(source) = self.single_assignment_unknown_cast_source(*local)
+            && self.mir.types.get(self.operand_ty(source)?) == Some(&Type::Unknown)
+        {
+            out.push_str(&format!(
+                "    return {};\n",
+                self.value_at_type(source, body_return_ty)?
+            ));
+        } else {
+            out.push_str(&format!(
+                "    return {};\n",
+                self.value_at_type(operand, body_return_ty)?
+            ));
+        }
+        self.flow.record(Flow::Diverges);
+        Ok(())
     }
 }

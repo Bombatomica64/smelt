@@ -288,9 +288,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Float) => Ok(RustExpr::atom(self.carrier_format(format_args!(
                 "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
             )))),
-            Some(Type::Int) => Ok(RustExpr::atom(self.carrier_format(format_args!(
-                "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }}, SmeltUnknown::String(value) => smelt_string_to_number(&value) as i64, SmeltUnknown::Bool(value) => if value {{ 1_i64 }} else {{ 0_i64 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value) as i64,")
-            )))),
+            Some(Type::Int) => self.extract_int(&smelt_owned_text),
             // Reading an erased value out into a `String` slot is not the JS
             // `String(x)` CONVERSION -- nothing in the source asked for one; the
             // slot's declared type simply says `string`. So absence must not
@@ -400,27 +398,7 @@ impl FunctionEmitter<'_> {
             )))),
             Some(Type::Never | Type::Union(_)) => Ok(text.to_owned()),
             Some(Type::Optional(inner)) => self.extract_optional(text, *inner, scope),
-            Some(Type::Tuple(items)) => {
-                let items_text = items
-                    .iter()
-                    .enumerate()
-                    .map(|(index, item)| {
-                        let value = RustExpr::chain(self.carrier_format(format_args!(
-                            "smelt_tuple_values.get({index}).cloned().unwrap_or(SmeltUnknown::Null)"
-                        )));
-                        self.extract_rendered(&value, *item, scope)
-                    })
-                    .collect::<Result<Vec<_>, _>>()?
-                    .join(", ");
-                let tuple_text = if items.len() == 1 {
-                    format!("({items_text},)")
-                } else {
-                    format!("({items_text})")
-                };
-                Ok(RustExpr::loose(self.carrier_format(format_args!(
-                    "if let SmeltUnknown::Array(smelt_tuple_values) = {smelt_owned_text} {{ {tuple_text} }} else {{ panic!(\"unknown is not tuple\") }}"
-                ))))
-            }
+            Some(Type::Tuple(items)) => self.extract_tuple(&smelt_owned_text, items, scope),
             Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "PropertyKey" => {
                 Ok(text.to_owned())
             }
@@ -455,29 +433,7 @@ impl FunctionEmitter<'_> {
                 Ok(text.to_owned())
             }
             Some(Type::Class { .. }) if self.is_erased_class_type(target) => Ok(text.to_owned()),
-            Some(Type::Class { .. }) if self.can_extract_unknown_object_record(target) => {
-                // Converting to a record type while already converting to it:
-                // a field reaches its own type (`swap(): Pair<T>`). Inlining
-                // again would never end, so call the hoisted helper, which
-                // `hoisted_record_conversion` reserves before rendering its
-                // body. Answering `Default::default()` here dropped the inner
-                // value (`p.swap()` read `0 0`).
-                if self.record_conversion_stack.borrow().contains(&target) {
-                    return match self.hoisted_record_conversion(text, target)? {
-                        Some(call) => Ok(RustExpr::from(call)),
-                        None => self.generated_record_from_unknown_expr(text, target),
-                    };
-                }
-                if self.record_conversion_stack.borrow().is_empty()
-                    && let Some(call) = self.hoisted_record_conversion(text, target)?
-                {
-                    return Ok(RustExpr::chain(call));
-                }
-                match self.inline_record_conversion(text, target, scope)? {
-                    Some(conversion) => Ok(RustExpr::from(conversion)),
-                    None => self.generated_record_from_unknown_expr(text, target),
-                }
-            }
+            Some(Type::Class { .. }) if self.can_extract_unknown_object_record(target) => self.extract_object_record(text, target, scope),
             // A source `Set` recovers through `SmeltJsSet`'s `SmeltFromUnknown`
             // impl, which round-trips the `__smelt_set` marker (rebuilding members
             // and the stable id) and tolerantly accepts a bare array. This is the
@@ -957,5 +913,72 @@ impl FunctionEmitter<'_> {
         Ok(RustExpr::atom(self.carrier_format(format_args!(
             "{{ let smelt_source_value = {smelt_owned_text}; let smelt_function = match smelt_source_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"{SMELT_CALL}\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function); let smelt_callback: {target_text} = if let Some(smelt_original) = smelt_restore_function_origin::<{target_text}>(&smelt_function) {{ if matches!(smelt_source_value, SmeltUnknown::Object(_)) {{ ::std::rc::Rc::new(move |{params}| (smelt_original)({forwarded_args})) }} else {{ smelt_original }} }} else {{ ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let smelt_result = {call_text}; {return_text} }}) }}; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback }} else {{ {default_callback} }} }}"
         ))))
+    }
+}
+
+impl FunctionEmitter<'_> {
+    /// Extraction at an integer.
+    fn extract_int(&self, smelt_owned_text: &RustExpr) -> Result<RustExpr, EmitError> {
+        Ok(RustExpr::atom(self.carrier_format(format_args!(
+            "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }}, SmeltUnknown::String(value) => smelt_string_to_number(&value) as i64, SmeltUnknown::Bool(value) => if value {{ 1_i64 }} else {{ 0_i64 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value) as i64,")
+        ))))
+    }
+
+    /// Extraction at a tuple.
+    fn extract_tuple(
+        &self,
+        smelt_owned_text: &RustExpr,
+        items: &[TypeId],
+        scope: &RenderScope,
+    ) -> Result<RustExpr, EmitError> {
+        let items_text = items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| {
+                let value = RustExpr::chain(self.carrier_format(format_args!(
+                    "smelt_tuple_values.get({index}).cloned().unwrap_or(SmeltUnknown::Null)"
+                )));
+                self.extract_rendered(&value, *item, scope)
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .join(", ");
+        let tuple_text = if items.len() == 1 {
+            format!("({items_text},)")
+        } else {
+            format!("({items_text})")
+        };
+        Ok(RustExpr::loose(self.carrier_format(format_args!(
+            "if let SmeltUnknown::Array(smelt_tuple_values) = {smelt_owned_text} {{ {tuple_text} }} else {{ panic!(\"unknown is not tuple\") }}"
+        ))))
+    }
+
+    /// Extraction of a record from an erased object.
+    fn extract_object_record(
+        &self,
+        text: &RustExpr,
+        target: TypeId,
+        scope: &RenderScope,
+    ) -> Result<RustExpr, EmitError> {
+        // Converting to a record type while already converting to it:
+        // a field reaches its own type (`swap(): Pair<T>`). Inlining
+        // again would never end, so call the hoisted helper, which
+        // `hoisted_record_conversion` reserves before rendering its
+        // body. Answering `Default::default()` here dropped the inner
+        // value (`p.swap()` read `0 0`).
+        if self.record_conversion_stack.borrow().contains(&target) {
+            return match self.hoisted_record_conversion(text, target)? {
+                Some(call) => Ok(RustExpr::from(call)),
+                None => self.generated_record_from_unknown_expr(text, target),
+            };
+        }
+        if self.record_conversion_stack.borrow().is_empty()
+            && let Some(call) = self.hoisted_record_conversion(text, target)?
+        {
+            return Ok(RustExpr::chain(call));
+        }
+        match self.inline_record_conversion(text, target, scope)? {
+            Some(conversion) => Ok(RustExpr::from(conversion)),
+            None => self.generated_record_from_unknown_expr(text, target),
+        }
     }
 }

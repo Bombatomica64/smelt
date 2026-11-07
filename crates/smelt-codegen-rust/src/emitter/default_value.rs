@@ -2,6 +2,7 @@
 //! void result holds before anything is written to it.
 
 use super::*;
+use smelt_hir::FunctionType;
 use crate::rust::RustExpr;
 
 impl FunctionEmitter<'_> {
@@ -229,61 +230,7 @@ impl FunctionEmitter<'_> {
                 .delegating_default())
             }
             Type::Class { .. } => Ok(RustExpr::atom("Default::default()").delegating_default()),
-            Type::Function(function) => {
-                if self.is_erased_unknown_rest_function(function) && !function.may_throw {
-                    return Ok(RustExpr::from(ERASED_FUNCTION_DEFAULT.to_owned()));
-                }
-                // The synthesized default callback is emitted INSIDE the body
-                // that needs it, and it is bound to a handle whose type
-                // (`function_type`, below) renders in that body's lexical scope.
-                // Its parameter declarations must therefore render in the SAME
-                // scope, or a generic function containing a defaulted callback
-                // emits `Rc<dyn Fn(T, ..)> = Rc::new(move |arg0: SmeltUnknown|
-                // ..)` and fails to type-check (E0631/E0308) inside its own
-                // body. This is the same split `param_type` had, in a fifth
-                // renderer; both halves now agree.
-                let scope = self.current_function_type_params();
-                let substitution = TypeSubstitution::lexical(&scope);
-                let params = function
-                    .params
-                    .iter()
-                    .enumerate()
-                    .map(|(index, param)| {
-                        Ok(format!(
-                            "arg{index}: {}",
-                            self.function_type_param(function, index, *param, &substitution)?
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, EmitError>>()?
-                    .join(", ");
-                let return_ty = if let Some(Type::Future(item)) =
-                    self.mir.types.get(function.return_ty)
-                {
-                    format!("SmeltFuture<{}>", self.rendered_type(*item)?)
-                } else if function.may_throw {
-                    format!(
-                        "Result<{}, {ERROR_BOX}>",
-                        self.rendered_type(function.return_ty)?
-                    )
-                } else {
-                    self.rendered_type(function.return_ty)?.into_string()
-                };
-                let return_value = self.default_value(function.return_ty)?;
-                let return_text = if let Some(Type::Future(item)) =
-                    self.mir.types.get(function.return_ty)
-                {
-                    let item_value = self.default_value(*item)?;
-                    format!("SmeltFuture::resolved({item_value})")
-                } else if function.may_throw {
-                    format!("Ok::<_, {ERROR_BOX}>({return_value})")
-                } else {
-                    return_value.into_string()
-                };
-                let function_type = self.rendered_type(ty)?;
-                Ok(RustExpr::atom(format!(
-                    "{{ let smelt_default_callback: {function_type} = ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ {return_text} }}); smelt_default_callback }}"
-                )))
-            }
+            Type::Function(function) => self.function_default_value(function, ty),
             Type::Future(item) => {
                 let item_value = self.default_value(*item)?;
                 Ok(RustExpr::atom(format!("SmeltFuture::resolved({item_value})")).delegating_with([&item_value]))
@@ -407,3 +354,66 @@ impl FunctionEmitter<'_> {
 /// a program value is actually erased, which is what
 /// `smelt smelt-unknown-report` measures.
 const ERASED_FUNCTION_DEFAULT: &str = "SmeltErasedFunction::default()";
+
+impl FunctionEmitter<'_> {
+    /// The default of a function type: a callable answering its own default.
+    fn function_default_value(
+        &self,
+        function: &FunctionType,
+        ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        if self.is_erased_unknown_rest_function(function) && !function.may_throw {
+            return Ok(RustExpr::from(ERASED_FUNCTION_DEFAULT.to_owned()));
+        }
+        // The synthesized default callback is emitted INSIDE the body
+        // that needs it, and it is bound to a handle whose type
+        // (`function_type`, below) renders in that body's lexical scope.
+        // Its parameter declarations must therefore render in the SAME
+        // scope, or a generic function containing a defaulted callback
+        // emits `Rc<dyn Fn(T, ..)> = Rc::new(move |arg0: SmeltUnknown|
+        // ..)` and fails to type-check (E0631/E0308) inside its own
+        // body. This is the same split `param_type` had, in a fifth
+        // renderer; both halves now agree.
+        let scope = self.current_function_type_params();
+        let substitution = TypeSubstitution::lexical(&scope);
+        let params = function
+            .params
+            .iter()
+            .enumerate()
+            .map(|(index, param)| {
+                Ok(format!(
+                    "arg{index}: {}",
+                    self.function_type_param(function, index, *param, &substitution)?
+                ))
+            })
+            .collect::<Result<Vec<_>, EmitError>>()?
+            .join(", ");
+        let return_ty = if let Some(Type::Future(item)) =
+            self.mir.types.get(function.return_ty)
+        {
+            format!("SmeltFuture<{}>", self.rendered_type(*item)?)
+        } else if function.may_throw {
+            format!(
+                "Result<{}, {ERROR_BOX}>",
+                self.rendered_type(function.return_ty)?
+            )
+        } else {
+            self.rendered_type(function.return_ty)?.into_string()
+        };
+        let return_value = self.default_value(function.return_ty)?;
+        let return_text = if let Some(Type::Future(item)) =
+            self.mir.types.get(function.return_ty)
+        {
+            let item_value = self.default_value(*item)?;
+            format!("SmeltFuture::resolved({item_value})")
+        } else if function.may_throw {
+            format!("Ok::<_, {ERROR_BOX}>({return_value})")
+        } else {
+            return_value.into_string()
+        };
+        let function_type = self.rendered_type(ty)?;
+        Ok(RustExpr::atom(format!(
+            "{{ let smelt_default_callback: {function_type} = ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ {return_text} }}); smelt_default_callback }}"
+        )))
+    }
+}

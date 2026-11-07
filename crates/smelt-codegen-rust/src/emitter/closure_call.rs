@@ -263,6 +263,17 @@ impl FunctionEmitter<'_> {
         if !matches!(self.mir.types.get(callee_ty), Some(Type::Function(_))) {
             return self.default_value(dest_ty);
         }
+        self.typed_closure_call_expr(callee, args, dest_ty, callee_ty)
+    }
+
+    /// A call of a value whose static type is a function.
+    fn typed_closure_call_expr(
+        &self,
+        callee: &Operand,
+        args: &[Operand],
+        dest_ty: TypeId,
+        callee_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
         let callee_text = self.operand_expr(callee)?;
         if callee_text.is_unit() {
             return self.default_value(dest_ty);
@@ -409,6 +420,19 @@ impl FunctionEmitter<'_> {
         } else {
             RustExpr::atom(format!("({callee_text})({args_text})"))
         };
+        self.closure_call_result_expr(callee, dest_ty, callee_ty, call_text, callee_is_erased_rest, uses_erased_call_method)
+    }
+
+    /// The rendered call brought to the destination type.
+    fn closure_call_result_expr(
+        &self,
+        callee: &Operand,
+        dest_ty: TypeId,
+        callee_ty: TypeId,
+        call_text: RustExpr,
+        callee_is_erased_rest: bool,
+        uses_erased_call_method: bool,
+    ) -> Result<RustExpr, EmitError> {
         let (source_ty, rendered_call_text) = match self.mir.types.get(callee_ty) {
             Some(Type::Function(function)) => {
                 let returns_future = matches!(
