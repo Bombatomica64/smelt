@@ -123,3 +123,10 @@ fn exception_classes() -> TestResult {
 fn dict_aliasing() -> TestResult {
     verify_python_parity("dict_aliasing")
 }
+
+/// `import asyncio` with `async def`, `await`, `asyncio.run`, `asyncio.gather`
+/// and `asyncio.sleep` builds, and tasks resume in the event loop's order.
+#[test]
+fn asyncio_programs() -> TestResult {
+    verify_python_parity("asyncio_programs")
+}

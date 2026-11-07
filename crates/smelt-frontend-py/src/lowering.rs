@@ -141,6 +141,8 @@ pub(crate) struct ModuleBuilder<'ctx> {
     /// The caught-exception local of each enclosing `except` clause, innermost
     /// last, which a bare `raise` re-raises.
     handled_exceptions: Vec<smelt_hir::LocalId>,
+    /// Whether the module body awaits (`asyncio.run`), which makes it async.
+    module_awaits: bool,
 }
 
 /// What kind of body the lowering cursor is in.
@@ -346,6 +348,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             bindings: analysis.bindings,
             exception_classes: HashMap::new(),
             handled_exceptions: Vec::new(),
+            module_awaits: false,
         }
     }
 
@@ -432,6 +435,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
             return Err(errors);
         }
 
+        if self.module_awaits {
+            hir_module.is_async = true;
+            // MIR requires an async body's await-point metadata.
+            body.finish_async();
+        }
         let body_id = self.ctx.krate.push_body(body);
         hir_module.body = Some(body_id);
         Ok(self.ctx.krate.push_module(hir_module))

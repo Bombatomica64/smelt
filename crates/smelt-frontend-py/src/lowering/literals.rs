@@ -113,11 +113,9 @@ impl ModuleBuilder<'_> {
                         "await expressions require an Awaitable[T] operand",
                     )
                 })?;
-                Ok(body.push_expr(HirExpr {
-                    kind: ExprKind::Await(awaited),
-                    ty,
-                    span: self.span(await_expr.range),
-                }))
+                let span = self.span(await_expr.range);
+                let result = body.push_expr(HirExpr { kind: ExprKind::Await(awaited), ty, span });
+                Ok(self.gather_result_as_list(awaited, result, body))
             }
 
             // --- Attribute access: `obj.field` ---
