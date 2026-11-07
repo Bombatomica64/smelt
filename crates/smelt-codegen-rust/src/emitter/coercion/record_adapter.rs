@@ -421,7 +421,7 @@ impl FunctionEmitter<'_> {
         target: TypeId,
         scope: &RenderScope,
     ) -> Result<Option<RustExpr>, EmitError> {
-        if self.mir.types.get(source_key).is_none_or(|ty| !ty.is_text())
+        if self.mir.types.get(source_key).is_none_or(|candidate| !candidate.is_text())
             || !self.is_structural_record_adapter_target(target)
         {
             return Ok(None);
@@ -622,7 +622,7 @@ impl FunctionEmitter<'_> {
         target_value: TypeId,
         scope: &RenderScope,
     ) -> Result<Option<RustExpr>, EmitError> {
-        if self.mir.types.get(target_key).is_none_or(|ty| !ty.is_text()) {
+        if self.mir.types.get(target_key).is_none_or(|candidate| !candidate.is_text()) {
             return Ok(None);
         }
         let Some(source_fields) = self.structural_record_fields(source) else {

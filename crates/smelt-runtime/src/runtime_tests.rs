@@ -689,3 +689,160 @@ mod thrown_family {
         assert_eq!(smelt_thrown_message(&value), "boom", "its message reads back");
     }
 }
+
+mod js_string_family {
+    use super::*;
+
+    /// Builds a string from its code units.
+    fn units(code_units: &[u16]) -> JsString {
+        JsString::from_units(code_units)
+    }
+
+    /// `"😀".slice(0, 1)` is the lone leading half, and the halves join back.
+    #[test]
+    fn a_cut_pair_leaves_lone_halves() {
+        let emoji = JsString::from("😀");
+        assert_eq!(emoji.len(), 2, "a pair is two code units");
+        let (lead, trail) = (emoji.slice(0, 1), emoji.slice(1, 2));
+        assert_eq!(lead.units(), [0xD83D], "the leading half alone");
+        assert_eq!(trail.units(), [0xDE00], "the trailing half alone");
+        assert_eq!(lead.clone() + &trail, emoji, "the halves join back to the pair");
+        assert_eq!(emoji.char_at(1), Some(units(&[0xDE00])), "s[1] is the trailing half");
+        assert!(!lead.is_well_formed(), "a lone half is not well formed");
+        assert_eq!(lead.to_well_formed(), "\u{FFFD}", "toWellFormed replaces a lone half");
+    }
+
+    /// `length`, `charCodeAt` and `codePointAt` count code units.
+    #[test]
+    fn indices_count_code_units() {
+        let text = JsString::from("aé😀b");
+        assert_eq!(text.len(), 5, "length");
+        assert_eq!(text.unit_at(2), Some(0xD83D), "charCodeAt at a leading half");
+        assert_eq!(text.code_point_at(2), Some(0x1F600), "codePointAt at a leading half is the pair");
+        assert_eq!(text.code_point_at(3), Some(0xDE00), "codePointAt at a trailing half is the unit");
+        assert_eq!(text.unit_at(5), None, "past the end");
+        assert_eq!(text.slice(1, 99), "é😀b", "an end past the length clamps");
+        assert_eq!(text.slice(3, 1), "", "an end before the start is empty");
+        assert_eq!(text.code_point_strings(), vec![JsString::from("a"), JsString::from("é"), JsString::from("😀"), JsString::from("b")], "[...s] keeps pairs whole");
+    }
+
+    /// `indexOf`/`lastIndexOf`, including JavaScript's empty-needle answers.
+    #[test]
+    fn searches_answer_like_javascript() {
+        let text = JsString::from("a😀ba😀b");
+        let needle = JsString::from("😀b");
+        assert_eq!(text.index_of(&needle, 0), Some(1), "first occurrence");
+        assert_eq!(text.index_of(&needle, 2), Some(5), "from skips the first");
+        assert_eq!(text.index_of(&needle, 99), None, "from past the end");
+        assert_eq!(text.index_of(&JsString::new(), 3), Some(3), "an empty needle is found at from");
+        assert_eq!(text.index_of(&JsString::new(), 99), Some(8), "...clamped to the length");
+        assert_eq!(text.last_index_of(&needle, usize::MAX), Some(5), "last occurrence");
+        assert_eq!(text.last_index_of(&needle, 4), Some(1), "at or before from");
+        assert_eq!(text.index_of(&units(&[0xDE00]), 0), Some(2), "a lone half matches inside a pair");
+        assert!(text.contains(&JsString::from("ba")), "includes");
+        assert!(text.starts_with(&JsString::from("a😀")) && text.ends_with(&JsString::from("😀b")), "prefix and suffix");
+    }
+
+    /// Order is by code unit: U+1F600 (`D83D DE00`) sorts before U+FFFF, the
+    /// reverse of code-point order.
+    #[test]
+    fn order_is_by_code_unit() {
+        let mut words: Vec<JsString> = ["\u{FFFF}", "😀", "a", "é"].into_iter().map(JsString::from).collect();
+        words.sort();
+        let sorted: Vec<String> = words.iter().map(|word| word.to_string_lossy()).collect();
+        assert_eq!(sorted, ["a", "é", "😀", "\u{FFFF}"], "JavaScript's sort order");
+        let (emoji, last_bmp) = (JsString::from("😀"), JsString::from("\u{FFFF}"));
+        assert!(emoji < last_bmp, "\"😀\" < \"\\uFFFF\"");
+    }
+
+    /// A map keyed by `JsString` finds a key by a borrowed `&JsStr`, and a lone
+    /// half from `slice` is the same key as a literal one.
+    #[test]
+    fn keys_hash_by_code_unit() {
+        use ::std::hash::{BuildHasher as _, Hash as _};
+        let mut map = ::std::collections::HashMap::new();
+        map.insert(units(&[0xD83D]), 1);
+        let half = JsString::from("😀").slice(0, 1);
+        assert_eq!(map.get(&*half), Some(&1), "lookup by &JsStr");
+        assert_eq!(map.get(&half), Some(&1), "lookup by &JsString");
+        let state = ::std::collections::hash_map::RandomState::new();
+        let hash_of = |value: &dyn Fn(&mut ::std::collections::hash_map::DefaultHasher)| {
+            let mut hasher = state.build_hasher();
+            value(&mut hasher);
+            ::std::hash::Hasher::finish(&hasher)
+        };
+        let owned = JsString::from("key");
+        assert_eq!(hash_of(&|hasher| owned.hash(hasher)), hash_of(&|hasher| (*owned).hash(hasher)), "Borrow requires equal hashes");
+    }
+
+    /// A clone shares the buffer; appending to a shared handle copies it and
+    /// leaves the other handle unchanged.
+    #[test]
+    fn clones_share_and_appends_copy_on_write() {
+        let original = JsString::from("abc");
+        let alias = original.clone();
+        assert_eq!(original.units().as_ptr(), alias.units().as_ptr(), "a clone shares the buffer");
+        let extended = alias + &JsString::from("d");
+        assert_eq!(original, "abc", "the shared handle is unchanged");
+        assert_eq!(extended, "abcd", "the appended copy");
+        assert_ne!(original.units().as_ptr(), extended.units().as_ptr(), "a shared buffer was copied");
+    }
+
+    /// `text = text + &piece` with the only handle appends in place: over many
+    /// appends the buffer moves only when it grows, a logarithmic number of
+    /// times. A copy per append would move it every time and make the loop
+    /// quadratic.
+    #[test]
+    fn a_unique_builder_appends_in_place() {
+        let piece = JsString::from("xy");
+        let mut text = JsString::new();
+        let (mut moves, mut last) = (0, text.units().as_ptr());
+        for _ in 0..10_000 {
+            text = text + &piece;
+            if text.units().as_ptr() != last {
+                moves += 1;
+                last = text.units().as_ptr();
+            }
+        }
+        assert_eq!(text.len(), 20_000, "every append landed");
+        assert!(moves <= 20, "the buffer moved {moves} times: appends are copying");
+    }
+
+    /// stdout is UTF-8: a lone half prints as U+FFFD. `Debug` shows it escaped.
+    #[test]
+    fn display_is_lossy_and_debug_escapes() {
+        let text = units(&[0x61, 0xD83D, 0x62]);
+        assert_eq!(text.to_string(), "a\u{FFFD}b", "Display");
+        assert_eq!(format!("{text:?}"), "\"a\\u{d83d}b\"", "Debug");
+        let long = JsString::from("é".repeat(300).as_str());
+        assert_eq!(long.to_string(), "é".repeat(300), "Display across its chunk buffer");
+        assert_eq!(text.to_str_exact(), None, "no exact UTF-8 for a lone half");
+        assert_eq!(JsString::from("ok").to_str_exact().as_deref(), Some("ok"), "exact UTF-8");
+    }
+
+    /// Case mapping follows Unicode's default rules and passes a lone half
+    /// through.
+    #[test]
+    fn case_mapping_passes_lone_halves_through() {
+        assert_eq!(JsString::from("straße").to_upper_case(), "STRASSE", "special casing");
+        assert_eq!(JsString::from("ΣΑΣ").to_lower_case(), "σας", "final sigma");
+        let mixed = units(&[0x61, 0xD83D, 0x62]);
+        assert_eq!(mixed.to_upper_case().units(), [0x41, 0xD83D, 0x42], "a lone half is unchanged");
+    }
+
+    /// `split`, `replaceAll`, `trim` and `repeat` over code units.
+    #[test]
+    fn transforms_work_on_code_units() {
+        let text = JsString::from("a,b,,c");
+        assert_eq!(text.split(&JsString::from(","), usize::MAX), ["a", "b", "", "c"].map(JsString::from), "split");
+        assert_eq!(text.split(&JsString::from(","), 2), ["a", "b"].map(JsString::from), "split with a limit");
+        assert_eq!(JsString::from("😀").split(&JsString::new(), usize::MAX), vec![units(&[0xD83D]), units(&[0xDE00])], "split(\"\") gives code units");
+        assert_eq!(JsString::from("ab").replace_all(&JsString::new(), &JsString::from("-")), "-a-b-", "an empty pattern");
+        assert_eq!(text.replace_all(&JsString::from(","), &JsString::from(";")), "a;b;;c", "replaceAll");
+        assert_eq!(text.replace_first(&JsString::from(","), &JsString::from(";")), "a;b,,c", "replace");
+        assert_eq!(JsString::from("\u{FEFF}\u{a0} x \n").trim(), "x", "ZWNBSP and NBSP are white space");
+        assert_eq!(JsString::from("\u{85}x").trim(), "\u{85}x", "NEL is not JavaScript white space");
+        assert_eq!(JsString::from("ab").repeat(3), "ababab", "repeat");
+        assert_eq!(JsString::join([JsString::from("a"), JsString::from("b")], &JsString::from(", ")), "a, b", "join");
+    }
+}

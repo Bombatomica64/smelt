@@ -1380,7 +1380,7 @@ impl FunctionEmitter<'_> {
         let haystack_text = self.string_like_operand_expr(haystack, "string chars")?;
         let text = RustExpr::atom_on(&haystack_text, format!("{haystack_text}.chars().map(|ch| ch.to_string()).collect::<Vec<_>>()"));
         if let Some(Type::List(item_ty)) = self.mir.types.get(dest_ty)
-            && self.mir.types.get(*item_ty).is_none_or(|ty| !ty.is_text())
+            && self.mir.types.get(*item_ty).is_none_or(|candidate| !candidate.is_text())
         {
             let item_text =
                 self.rendered_at_type(&RustExpr::path("value"), self.type_id(Type::String)?, *item_ty, &self.render_scope())?;

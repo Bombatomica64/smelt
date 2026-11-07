@@ -151,6 +151,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "math_round" => Need::MathRound,
         "parse_number" => Need::ParseNumber,
         "string_units" => Need::StringUnits,
+        "js_string" => Need::JsString,
         "py_repr" => Need::PyRepr,
         "shared_captures" => Need::SharedCaptures,
         "uri_encode" => Need::UriEncode,

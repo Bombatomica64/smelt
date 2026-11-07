@@ -67,6 +67,8 @@ pub(crate) enum Need {
     ParseNumber,
     /// The UTF-16 index helpers every JavaScript string index goes through.
     StringUnits,
+    /// The `JsString` UTF-16 string type and its borrowed `JsStr` view.
+    JsString,
     /// Python's `repr`, for a container `print` shows.
     PyRepr,
     /// Mutable closure captures shared through the capture registry.

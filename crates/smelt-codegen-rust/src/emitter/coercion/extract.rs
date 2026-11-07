@@ -355,7 +355,7 @@ impl FunctionEmitter<'_> {
                     "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(values) => SmeltRecord::with_id_from_entries(values.id, values.into_iter().map(|(key, value)| (key, {item_text}))), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), {item_text})).collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| {{ let value = SmeltUnknown::String(ch.to_string().into()); (index.to_string(), {item_text}) }}).collect(), _ => SmeltRecord::new() }}"
                 ))))
             }
-            Some(Type::Dict(key, item)) if self.mir.types.get(*key).is_none_or(|ty| !ty.is_text()) => {
+            Some(Type::Dict(key, item)) if self.mir.types.get(*key).is_none_or(|candidate| !candidate.is_text()) => {
                 let key_text = self.rendered_at_type(&RustExpr::path("key"), self.type_id(Type::String)?, *key, scope)?;
                 let item_text = self.extract_rendered(&RustExpr::path("value"), *item, scope)?;
                 if self.dict_uses_js_key_map(*key) {

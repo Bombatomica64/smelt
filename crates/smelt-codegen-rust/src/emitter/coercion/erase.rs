@@ -71,7 +71,7 @@ impl FunctionEmitter<'_> {
                     "{{ let smelt_record = {smelt_owned_text}; SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"
                 ))))
             }
-            Some(Type::Dict(key, item)) if self.mir.types.get(*key).is_none_or(|ty| !ty.is_text()) => {
+            Some(Type::Dict(key, item)) if self.mir.types.get(*key).is_none_or(|candidate| !candidate.is_text()) => {
                 let key_wrap = self.property_key_to_string_expr(&RustExpr::path("key"), *key)?;
                 let value_wrap = self.dict_erased_value_wrap(operand, *item)?;
                 Ok(RustExpr::atom(self.carrier_format(format_args!(

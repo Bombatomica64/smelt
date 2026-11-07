@@ -201,7 +201,7 @@ impl FunctionEmitter<'_> {
             .map(|(key, entry_value)| {
                 let key_text = if let Some((key_ty, _)) = dict_types {
                     if self.mir.types.get(key_ty).is_some_and(Type::is_text)
-                        && self.mir.types.get(self.operand_ty(key)?).is_none_or(|ty| !ty.is_text())
+                        && self.mir.types.get(self.operand_ty(key)?).is_none_or(|candidate| !candidate.is_text())
                     {
                         self.property_key_to_string_expr(
                             &self.operand_expr(key)?,

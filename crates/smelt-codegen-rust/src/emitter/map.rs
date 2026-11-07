@@ -690,8 +690,8 @@ impl FunctionEmitter<'_> {
         else {
             return Ok(None);
         };
-        if self.mir.types.get(*source_key).is_none_or(|ty| !ty.is_text())
-            || self.mir.types.get(*target_key).is_none_or(|ty| !ty.is_text())
+        if self.mir.types.get(*source_key).is_none_or(|candidate| !candidate.is_text())
+            || self.mir.types.get(*target_key).is_none_or(|candidate| !candidate.is_text())
         {
             return Ok(None);
         }
@@ -720,7 +720,7 @@ impl FunctionEmitter<'_> {
                 &self.render_scope(),
             );
         };
-        if self.mir.types.get(*key_ty).is_none_or(|ty| !ty.is_text()) {
+        if self.mir.types.get(*key_ty).is_none_or(|candidate| !candidate.is_text()) {
             return self.rendered_at_type(
                 &self.operand_expr(source)?,
                 self.operand_ty(source)?,
