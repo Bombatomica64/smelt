@@ -113,7 +113,7 @@ pub(crate) fn collect_file_types(converter: &mut Converter<'_>, file: P<SourceFi
         if let Some(key) = span_key(text, node) {
             if is_value_position(node) && !collected.values.contains_key(&key) {
                 let ty = converter.checker().get_type_at_location(node);
-                let id = converter.convert(ty);
+                let id = converter.convert_root(ty);
                 collected.values.insert(key, id);
                 if is_evolved_array(converter, id)
                     && let Some(declaration) = evolving.read_of(converter, text, node)
@@ -122,7 +122,7 @@ pub(crate) fn collect_file_types(converter: &mut Converter<'_>, file: P<SourceFi
                 }
             } else if is_annotation_type_node(node) && !collected.type_nodes.contains_key(&key) {
                 let ty = converter.checker().get_type_from_type_node_exported(node);
-                collected.type_nodes.insert(key, converter.convert(ty));
+                collected.type_nodes.insert(key, converter.convert_root(ty));
             }
         }
         push_children_in_order(node, &mut work);
