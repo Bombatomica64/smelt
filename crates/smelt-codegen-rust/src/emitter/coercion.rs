@@ -697,15 +697,7 @@ impl FunctionEmitter<'_> {
             };
             field_text.push(format!("{}: {value}", sanitize_ident(raw_name)));
         }
-        if self
-            .context
-            .type_param_elision()
-            .emits_phantom(*name, args.len())
-        {
-            field_text.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
-        }
-        let type_name = sanitize_ident(self.symbol_name(*name)?);
-        Ok(Some(RustExpr::loose(format!("{type_name} {{ {} }}", field_text.join(", ")))))
+        self.callable_record_literal(field_text, *name, args.len()).map(Some)
     }
 
     /// Render a function value at a callable interface's `__smelt_call` slot.

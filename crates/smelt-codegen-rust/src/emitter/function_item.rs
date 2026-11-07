@@ -141,11 +141,7 @@ impl FunctionEmitter<'_> {
         };
         out.push_str(&format!(
             "{visibility}{}fn {}{generics}({fn_params}) -> {} {{\n",
-            if self.function.is_async && !self.function.is_generator {
-                "async "
-            } else {
-                ""
-            },
+            self.async_keyword(),
             self.function_rust_name(self.function)?,
             self.return_type(self.function.return_ty)?
         ));
@@ -485,11 +481,7 @@ impl FunctionEmitter<'_> {
         match self.function.origin {
             HirOrigin::ClassConstructor { .. } => {
                 let method_params = self.param_decls_text(0)?;
-                let return_text = if self.function.can_throw {
-                    crate::thrown::RESULT_SELF
-                } else {
-                    "Self"
-                };
+                let return_text = self.self_return_text();
                 if self.is_base_initializer_copy() {
                     // `fn __smelt_init_Base(smelt_receiver: Self, ..) -> Self`:
                     // the same body, handed the instance instead of building it.
@@ -547,11 +539,7 @@ impl FunctionEmitter<'_> {
                 let return_text = if self.role.is_inherited_copy()
                     && self.returns_the_receiver_at_its_own_class()
                 {
-                    if self.function.can_throw {
-                        crate::thrown::RESULT_SELF.to_owned()
-                    } else {
-                        "Self".to_owned()
-                    }
+                    self.self_return_text().to_owned()
                 } else {
                     self.return_type(self.function.return_ty)?.into_string()
                 };
@@ -566,11 +554,7 @@ impl FunctionEmitter<'_> {
                 let method_params = self.param_decls_text(0)?;
                 out.push_str(&format!(
                     "    {}fn {name}({method_params}) -> {} {{\n",
-                    if self.function.is_async && !self.function.is_generator {
-                        "async "
-                    } else {
-                        ""
-                    },
+                    self.async_keyword(),
                     self.return_type(self.function.return_ty)?
                 ));
             }
@@ -610,6 +594,25 @@ impl FunctionEmitter<'_> {
         }
         out.push_str("    }\n");
         Ok(())
+    }
+
+    /// The keyword in front of `fn`: a generator's body is its own coroutine, so
+    /// only a plain async function is declared `async`.
+    const fn async_keyword(&self) -> &'static str {
+        if self.function.is_async && !self.function.is_generator {
+            "async "
+        } else {
+            ""
+        }
+    }
+
+    /// The return type of a function that answers its own class.
+    const fn self_return_text(&self) -> &'static str {
+        if self.function.can_throw {
+            crate::thrown::RESULT_SELF
+        } else {
+            "Self"
+        }
     }
 
     /// Emit Rust's typed `Add<Rhs>` adapter for a Python `__add__` protocol.

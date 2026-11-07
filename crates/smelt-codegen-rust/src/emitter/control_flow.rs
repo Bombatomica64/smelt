@@ -173,6 +173,42 @@ impl FunctionEmitter<'_> {
         Ok(self.flow.last_flow())
     }
 
+    /// Emits a `while` loop headed by `block`, then the region after it at
+    /// `else_block`. The body runs from `then_block` up to the header, or up to
+    /// `latch_block`, whose statements then close each iteration.
+    fn emit_while_region(
+        &self,
+        block: &BasicBlock,
+        cond: &str,
+        cond_statement_idx: usize,
+        then_block: smelt_mir::BlockId,
+        latch_block: Option<smelt_mir::BlockId>,
+        else_block: smelt_mir::BlockId,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        let then = self.block(then_block)?;
+        let latch = latch_block.map(|latch| self.block(latch)).transpose()?;
+        let else_ = self.block(else_block)?;
+        let loop_declared = self.declared_scope();
+        self.open_while_loop(block, cond, cond_statement_idx, out)?;
+        self.emit_block_until_goto(
+            then,
+            latch_block.unwrap_or(block.id),
+            RegionExit::LoopBody {
+                break_block: Some(else_block),
+            },
+            out,
+        )?;
+        if let Some(latch) = latch {
+            for statement in &latch.statements {
+                self.emit_statement(statement, out)?;
+            }
+        }
+        out.push_str("    }\n");
+        loop_declared.close();
+        self.emit_block(else_, out)
+    }
+
     /// Emits a basic block after recursion-depth accounting has been applied.
     fn emit_block_body(&self, block: &BasicBlock, out: &mut String) -> Result<(), EmitError> {
         if let Some((cond, repeat_block, exit_block, repeat_when_true)) =
@@ -216,45 +252,29 @@ impl FunctionEmitter<'_> {
         if let Some((cond, then_block, else_block, cond_statement_idx)) =
             self.while_header(block)?
         {
-            let then = self.block(then_block)?;
-            let else_ = self.block(else_block)?;
-            let loop_declared = self.declared_scope();
-            self.open_while_loop(block, &cond, cond_statement_idx, out)?;
-            self.emit_block_until_goto(
-                then,
-                block.id,
-                RegionExit::LoopBody {
-                    break_block: Some(else_block),
-                },
+            return self.emit_while_region(
+                block,
+                &cond,
+                cond_statement_idx,
+                then_block,
+                None,
+                else_block,
                 out,
-            )?;
-            out.push_str("    }\n");
-            loop_declared.close();
-            return self.emit_block(else_, out);
+            );
         }
 
         if let Some((cond, then_block, latch_block, else_block, cond_statement_idx)) =
             self.while_header_with_latch(block)?
         {
-            let then = self.block(then_block)?;
-            let latch = self.block(latch_block)?;
-            let else_ = self.block(else_block)?;
-            let loop_declared = self.declared_scope();
-            self.open_while_loop(block, &cond, cond_statement_idx, out)?;
-            self.emit_block_until_goto(
-                then,
-                latch_block,
-                RegionExit::LoopBody {
-                    break_block: Some(else_block),
-                },
+            return self.emit_while_region(
+                block,
+                &cond,
+                cond_statement_idx,
+                then_block,
+                Some(latch_block),
+                else_block,
                 out,
-            )?;
-            for statement in &latch.statements {
-                self.emit_statement(statement, out)?;
-            }
-            out.push_str("    }\n");
-            loop_declared.close();
-            return self.emit_block(else_, out);
+            );
         }
 
         for statement in &block.statements {

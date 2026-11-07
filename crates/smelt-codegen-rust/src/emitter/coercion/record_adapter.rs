@@ -245,13 +245,7 @@ impl FunctionEmitter<'_> {
             };
             field_text.push(format!("{field_name}: {value}"));
         }
-        if self
-            .context
-            .type_param_elision()
-            .emits_phantom(*name, args.len())
-        {
-            field_text.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
-        }
+        self.push_phantom_field(&mut field_text, *name, args.len());
         // A reference-class target is a handle newtype over its `Inner` record,
         // so the field-wise value is built as the record and wrapped in a fresh
         // shared cell (a struct literal against the tuple newtype was E0560).
@@ -568,13 +562,7 @@ impl FunctionEmitter<'_> {
             let value = self.record_field_value_at_slot_abi(value.into_string(), target, &field)?;
             field_text.push(format!("{field_name}: {value}"));
         }
-        if self
-            .context
-            .type_param_elision()
-            .emits_phantom(*name, args.len())
-        {
-            field_text.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
-        }
+        self.push_phantom_field(&mut field_text, *name, args.len());
         // A reference class is a `Rc<RefCell<Inner>>` newtype, not a named-field
         // struct. The record round-trip must mint a fresh shared cell around the
         // reconstructed inner record rather than emit a struct literal against a

@@ -1313,31 +1313,12 @@ impl FunctionEmitter<'_> {
             for statement in &block.statements {
                 self.emit_statement(statement, out)?;
             }
-            let branch_declared = self.declared_scope();
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
             // Both branches run inside the generated `loop`, so any MIR `Return`
             // they reach must become an explicit `return` (see `in_loop`). A
             // branch that instead flows back to the header (`stop`) emits nothing
             // and the loop naturally continues.
-            self.emit_closure_block_inner(
-                self.block(*then_block)?,
-                out,
-                active,
-                Some(block.id),
-                true,
-            )?;
-            out.push_str("    } else {\n");
-            branch_declared.reset();
-            self.emit_closure_block_inner(
-                self.block(*else_block)?,
-                out,
-                active,
-                Some(block.id),
-                true,
-            )?;
+            self.emit_closure_if(cond, *then_block, *else_block, out, active, Some(block.id), true)?;
             out.push_str("    }\n");
-            out.push_str("    }\n");
-            branch_declared.close();
             active.pop();
             return Ok(());
         }
@@ -1450,12 +1431,7 @@ impl FunctionEmitter<'_> {
                 }
                 let local = self.local_decl(*dest)?;
                 let call_text = self.closure_call_expr_for_dest(callee, args, local.ty)?;
-                let name = self.local_name(*dest)?;
-                out.push_str(&format!(
-                    "    let {name}: {} = {call_text};\n",
-                    self.rendered_type(local.ty)?
-                ));
-                self.mark_local_declared(*dest);
+                self.emit_closure_binding(*dest, local.ty, &call_text, out)?;
                 self.emit_closure_block_inner(self.block(*target)?, out, active, stop, in_loop)
             }
             Terminator::Await {
@@ -1481,18 +1457,13 @@ impl FunctionEmitter<'_> {
                     );
                 }
                 let local = self.local_decl(*dest)?;
-                let name = self.local_name(*dest)?;
                 // `SmeltFuture<T>` and generated async function calls both
                 // resolve to `Result<T, Box<dyn Error>>`. Closure CFGs already
                 // return `Result`, so propagate the await error exactly as the
                 // ordinary control-flow emitter does instead of assigning the
                 // whole `Result` into the destination's `T` local.
                 let value = format!("{}.await?", self.await_operand_expr(future)?);
-                out.push_str(&format!(
-                    "    let {name}: {} = {value};\n",
-                    self.rendered_type(local.ty)?
-                ));
-                self.mark_local_declared(*dest);
+                self.emit_closure_binding(*dest, local.ty, &value, out)?;
                 self.emit_closure_block_inner(self.block(*target)?, out, active, stop, in_loop)
             }
             Terminator::Switch {
@@ -1508,43 +1479,14 @@ impl FunctionEmitter<'_> {
                 // whole continuation per path (exponential in sequential
                 // branches). Statements follow the `if`, so an arm that returns
                 // must say `return` (the loop-body rule, `in_loop`).
-                let branch_declared = self.declared_scope();
-                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
-                self.emit_closure_block_inner(self.block(*then_block)?, out, active, Some(join), true)?;
-                out.push_str("    } else {\n");
-                branch_declared.reset();
-                self.emit_closure_block_inner(self.block(*else_block)?, out, active, Some(join), true)?;
-                out.push_str("    }\n");
-                branch_declared.close();
+                self.emit_closure_if(cond, *then_block, *else_block, out, active, Some(join), true)?;
                 self.emit_closure_block_inner(self.block(join)?, out, active, stop, in_loop)
             }
             Terminator::Switch {
                 cond,
                 then_block,
                 else_block,
-            } => {
-                let branch_declared = self.declared_scope();
-                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
-                self.emit_closure_block_inner(
-                    self.block(*then_block)?,
-                    out,
-                    active,
-                    stop,
-                    in_loop,
-                )?;
-                out.push_str("    } else {\n");
-                branch_declared.reset();
-                self.emit_closure_block_inner(
-                    self.block(*else_block)?,
-                    out,
-                    active,
-                    stop,
-                    in_loop,
-                )?;
-                out.push_str("    }\n");
-                branch_declared.close();
-                Ok(())
-            }
+            } => self.emit_closure_if(cond, *then_block, *else_block, out, active, stop, in_loop),
             Terminator::Match {
                 scrutinee,
                 arms,
@@ -1558,6 +1500,42 @@ impl FunctionEmitter<'_> {
         };
         active.pop();
         result
+    }
+
+    /// Emits `if cond { then } else { else }` in a closure body, each arm up to `stop`.
+    fn emit_closure_if(
+        &self,
+        cond: &Operand,
+        then_block: smelt_mir::BlockId,
+        else_block: smelt_mir::BlockId,
+        out: &mut String,
+        active: &mut Vec<smelt_mir::BlockId>,
+        stop: Option<smelt_mir::BlockId>,
+        in_loop: bool,
+    ) -> Result<(), EmitError> {
+        let branch_declared = self.declared_scope();
+        out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+        self.emit_closure_block_inner(self.block(then_block)?, out, active, stop, in_loop)?;
+        out.push_str("    } else {\n");
+        branch_declared.reset();
+        self.emit_closure_block_inner(self.block(else_block)?, out, active, stop, in_loop)?;
+        out.push_str("    }\n");
+        branch_declared.close();
+        Ok(())
+    }
+
+    /// Binds a call or `await` result to its destination local in a closure body.
+    fn emit_closure_binding(
+        &self,
+        dest: LocalId,
+        ty: TypeId,
+        value: &dyn std::fmt::Display,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        let name = self.local_name(dest)?;
+        out.push_str(&format!("    let {name}: {} = {value};\n", self.rendered_type(ty)?));
+        self.mark_local_declared(dest);
+        Ok(())
     }
 
     /// The block where the two arms of the closure-body branch at

@@ -372,15 +372,18 @@ impl FunctionEmitter<'_> {
             };
             field_text.push(format!("{field_name}: {value}"));
         }
-        if self
-            .context
-            .type_param_elision()
-            .emits_phantom(type_symbol, type_args.len())
-        {
-            field_text.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
-        }
+        self.callable_record_literal(field_text, type_symbol, type_args.len()).map(Some)
+    }
 
-        let type_name = sanitize_ident(self.symbol_name(type_symbol)?);
-        Ok(Some(RustExpr::loose(format!("{type_name} {{ {} }}", field_text.join(", ")))))
+    /// The struct literal of a callable record, from its rendered `fields`.
+    pub(super) fn callable_record_literal(
+        &self,
+        mut fields: Vec<String>,
+        class: Symbol,
+        type_arg_count: usize,
+    ) -> Result<RustExpr, EmitError> {
+        self.push_phantom_field(&mut fields, class, type_arg_count);
+        let type_name = sanitize_ident(self.symbol_name(class)?);
+        Ok(RustExpr::loose(format!("{type_name} {{ {} }}", fields.join(", "))))
     }
 }

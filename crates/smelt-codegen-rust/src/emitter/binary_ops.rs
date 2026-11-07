@@ -3,6 +3,27 @@
 use crate::rust::RustExpr;
 use super::*;
 
+/// Whether `op` is one of the six equality operators, in either polarity.
+const fn is_equality_op(op: smelt_hir::BinOp) -> bool {
+    matches!(
+        op,
+        smelt_hir::BinOp::Eq
+            | smelt_hir::BinOp::NotEq
+            | smelt_hir::BinOp::StrictEq
+            | smelt_hir::BinOp::StrictNotEq
+            | smelt_hir::BinOp::JsStrictEq
+            | smelt_hir::BinOp::JsStrictNotEq
+    )
+}
+
+/// Whether `op` is an inequality, whose text is the negation of its equality.
+const fn is_negated_equality(op: smelt_hir::BinOp) -> bool {
+    matches!(
+        op,
+        smelt_hir::BinOp::NotEq | smelt_hir::BinOp::StrictNotEq | smelt_hir::BinOp::JsStrictNotEq
+    )
+}
+
 impl FunctionEmitter<'_> {
     /// Emit `xs[i] === undefined` / `rec[k] == null` as a PRESENCE test.
     ///
@@ -136,15 +157,7 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         }
 
-        if matches!(
-            op,
-            smelt_hir::BinOp::Eq
-                | smelt_hir::BinOp::NotEq
-                | smelt_hir::BinOp::StrictEq
-                | smelt_hir::BinOp::StrictNotEq
-                | smelt_hir::BinOp::JsStrictEq
-                | smelt_hir::BinOp::JsStrictNotEq
-        ) {
+        if is_equality_op(op) {
             return self.optional_equality_expr(op, lhs, rhs, lhs_inner, rhs_inner);
         }
 
@@ -250,15 +263,7 @@ impl FunctionEmitter<'_> {
         lhs: &Operand,
         rhs: &Operand,
     ) -> Result<Option<RustExpr>, EmitError> {
-        if !matches!(
-            op,
-            smelt_hir::BinOp::Eq
-                | smelt_hir::BinOp::NotEq
-                | smelt_hir::BinOp::StrictEq
-                | smelt_hir::BinOp::StrictNotEq
-                | smelt_hir::BinOp::JsStrictEq
-                | smelt_hir::BinOp::JsStrictNotEq
-        ) {
+        if !is_equality_op(op) {
             return Ok(None);
         }
         let lhs_ty = self.operand_ty(lhs)?;
@@ -371,12 +376,7 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         Ok(Some(
-            if matches!(
-                op,
-                smelt_hir::BinOp::NotEq
-                    | smelt_hir::BinOp::StrictNotEq
-                    | smelt_hir::BinOp::JsStrictNotEq
-            ) {
+            if is_negated_equality(op) {
                 RustExpr::loose(format!("!({text})"))
             } else {
                 text
@@ -393,12 +393,7 @@ impl FunctionEmitter<'_> {
         lhs_inner: Option<TypeId>,
         rhs_inner: Option<TypeId>,
     ) -> Result<Option<RustExpr>, EmitError> {
-        let negate = matches!(
-            op,
-            smelt_hir::BinOp::NotEq
-                | smelt_hir::BinOp::StrictNotEq
-                | smelt_hir::BinOp::JsStrictNotEq
-        );
+        let negate = is_negated_equality(op);
         let strict = matches!(
             op,
             smelt_hir::BinOp::StrictEq | smelt_hir::BinOp::StrictNotEq
@@ -748,15 +743,7 @@ impl FunctionEmitter<'_> {
         lhs: &Operand,
         rhs: &Operand,
     ) -> Result<Option<RustExpr>, EmitError> {
-        if !matches!(
-            op,
-            smelt_hir::BinOp::Eq
-                | smelt_hir::BinOp::NotEq
-                | smelt_hir::BinOp::StrictEq
-                | smelt_hir::BinOp::StrictNotEq
-                | smelt_hir::BinOp::JsStrictEq
-                | smelt_hir::BinOp::JsStrictNotEq
-        ) {
+        if !is_equality_op(op) {
             return Ok(None);
         }
         let lhs_ty = self.operand_ty(lhs)?;
@@ -776,12 +763,7 @@ impl FunctionEmitter<'_> {
             RustExpr::path("false")
         };
         Ok(Some(
-            if matches!(
-                op,
-                smelt_hir::BinOp::NotEq
-                    | smelt_hir::BinOp::StrictNotEq
-                    | smelt_hir::BinOp::JsStrictNotEq
-            ) {
+            if is_negated_equality(op) {
                 RustExpr::loose(format!("!({equal_text})"))
             } else {
                 equal_text
@@ -806,15 +788,7 @@ impl FunctionEmitter<'_> {
         lhs: &Operand,
         rhs: &Operand,
     ) -> Result<Option<RustExpr>, EmitError> {
-        if !matches!(
-            op,
-            smelt_hir::BinOp::Eq
-                | smelt_hir::BinOp::NotEq
-                | smelt_hir::BinOp::StrictEq
-                | smelt_hir::BinOp::StrictNotEq
-                | smelt_hir::BinOp::JsStrictEq
-                | smelt_hir::BinOp::JsStrictNotEq
-        ) {
+        if !is_equality_op(op) {
             return Ok(None);
         }
         let lhs_ty = self.operand_ty(lhs)?;
@@ -827,12 +801,7 @@ impl FunctionEmitter<'_> {
             lhs_ty,
         )?;
         Ok(Some(
-            if matches!(
-                op,
-                smelt_hir::BinOp::NotEq
-                    | smelt_hir::BinOp::StrictNotEq
-                    | smelt_hir::BinOp::JsStrictNotEq
-            ) {
+            if is_negated_equality(op) {
                 RustExpr::loose(format!("!({equal_text})"))
             } else {
                 equal_text
@@ -1185,15 +1154,7 @@ impl FunctionEmitter<'_> {
         lhs: &Operand,
         rhs: &Operand,
     ) -> Result<Option<RustExpr>, EmitError> {
-        if !matches!(
-            op,
-            smelt_hir::BinOp::Eq
-                | smelt_hir::BinOp::NotEq
-                | smelt_hir::BinOp::StrictEq
-                | smelt_hir::BinOp::StrictNotEq
-                | smelt_hir::BinOp::JsStrictEq
-                | smelt_hir::BinOp::JsStrictNotEq
-        ) {
+        if !is_equality_op(op) {
             return Ok(None);
         }
         let lhs_ty = self.operand_ty(lhs)?;
@@ -1204,12 +1165,7 @@ impl FunctionEmitter<'_> {
         if self.equality_shapes_are_definitely_incompatible(lhs_ty, rhs_ty) {
             let text = RustExpr::path("false");
             return Ok(Some(
-                if matches!(
-                    op,
-                    smelt_hir::BinOp::NotEq
-                        | smelt_hir::BinOp::StrictNotEq
-                        | smelt_hir::BinOp::JsStrictNotEq
-                ) {
+                if is_negated_equality(op) {
                     RustExpr::loose(format!("!({text})"))
                 } else {
                     text

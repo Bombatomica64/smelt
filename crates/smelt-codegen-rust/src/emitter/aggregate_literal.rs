@@ -5,6 +5,14 @@ use super::*;
 use crate::rust::RustExpr;
 
 impl FunctionEmitter<'_> {
+    /// Add the phantom field to a record literal's `fields` when `class`, carrying
+    /// `type_arg_count` arguments, declares one for type parameters no field spells.
+    pub(super) fn push_phantom_field(&self, fields: &mut Vec<String>, class: Symbol, type_arg_count: usize) {
+        if self.context.type_param_elision().emits_phantom(class, type_arg_count) {
+            fields.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
+        }
+    }
+
     /// A list literal at its destination.
     pub(super) fn list_literal_expr(
         &self,
@@ -316,13 +324,7 @@ impl FunctionEmitter<'_> {
                 ));
             }
         }
-        if self
-            .context
-            .type_param_elision()
-            .emits_phantom(mir_class.name, mir_class.type_params.len())
-        {
-            parts.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
-        }
+        self.push_phantom_field(&mut parts, mir_class.name, mir_class.type_params.len());
         // A reference class wraps its inner record in a fresh shared cell.
         // Identity lives in the `Rc`, so the constructor mints one cell;
         // aliasing later clones the handle (`Rc::clone`), sharing it.
@@ -481,13 +483,7 @@ impl FunctionEmitter<'_> {
             };
             field_text.push(format!("{field_name}: {value}"));
         }
-        if self
-            .context
-            .type_param_elision()
-            .emits_phantom(*name, args.len())
-        {
-            field_text.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
-        }
+        self.push_phantom_field(&mut field_text, *name, args.len());
 
         let type_name = sanitize_ident(self.symbol_name(*name)?);
         // A reference-class record is a handle newtype over its `Inner`
