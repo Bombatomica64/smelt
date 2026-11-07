@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import check_ci_gates
 import ci_pin
+import publish_order
 import check_clippy_ratchet
 import check_library_gate
 
@@ -192,6 +193,9 @@ jobs:
     env: {SMELT_REQUIRE_SANDBOX: "1"}
   coverage:
     env: {SMELT_REQUIRE_SANDBOX: "1"}
+  package:
+    steps:
+      - run: scripts/publish-crates.sh
   es-toolkit-regression:
     steps:
       - run: python3 scripts/check_library_gate.py runtime-ratchet
@@ -199,6 +203,41 @@ jobs:
     steps:
       - run: python3 scripts/check_library_gate.py compile-pin
 """
+
+
+def crate(name, *dependencies, publish=None, dev=()):
+    """A `cargo metadata` package."""
+    return {
+        "name": name,
+        "publish": publish,
+        "dependencies": [{"name": dep, "kind": None} for dep in dependencies]
+        + [{"name": dep, "kind": "dev"} for dep in dev],
+    }
+
+
+class PublishOrder(unittest.TestCase):
+    """`publish_order.py`."""
+
+    def test_every_crate_follows_its_path_dependencies(self):
+        order, blocked = publish_order.plan([
+            crate("top", "mid", "serde"), crate("mid", "base"), crate("base")])
+        self.assertEqual(order, ["base", "mid", "top"])
+        self.assertEqual(blocked, {})
+
+    def test_a_dev_dependency_does_not_order_or_block(self):
+        order, blocked = publish_order.plan([crate("a", dev=["b"]), crate("b", "a")])
+        self.assertEqual(order, ["a", "b"])
+        self.assertEqual(blocked, {})
+
+    def test_a_crate_on_an_unpublishable_one_is_blocked_and_so_are_its_users(self):
+        order, blocked = publish_order.plan([
+            crate("private", publish=[]), crate("mid", "private"), crate("top", "mid"), crate("free")])
+        self.assertEqual(order, ["free"])
+        self.assertEqual(blocked, {"mid": "private", "top": "mid"})
+
+    def test_a_cycle_stops(self):
+        with self.assertRaises(SystemExit):
+            publish_order.plan([crate("a", "b"), crate("b", "a")])
 
 
 class CiPin(unittest.TestCase):
@@ -252,7 +291,7 @@ class CiGates(unittest.TestCase):
         self.assertEqual(len(check_ci_gates.workflow_violations("ci.yml", text)), 1)
 
     def test_removing_a_gate_step_is_refused(self):
-        for gate in ("check_clippy_ratchet.py", "runtime-ratchet", "compile-pin"):
+        for gate in ("check_clippy_ratchet.py", "publish-crates.sh", "runtime-ratchet", "compile-pin"):
             found = check_ci_gates.workflow_violations("ci.yml", GOOD_CI.replace(gate, "echo"))
             self.assertEqual(len(found), 1, (gate, found))
 

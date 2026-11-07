@@ -15,9 +15,9 @@ members = [
 ]
 # smelt-gui is intentionally NOT a workspace member: it pulls in gpui (~25 min
 # cold) and is not needed by the transpiler pipeline. It lives in its own
-# workspace (see crates/smelt-gui/Cargo.toml) and consumes the published
-# smelt-* crates from crates.io. Excluded here so `cargo build --workspace`
-# never compiles gpui.
+# workspace (see crates/smelt-gui/Cargo.toml), resolving the smelt-* crates to
+# this repository through `[patch.crates-io]`. Excluded here so
+# `cargo build --workspace` never compiles gpui.
 exclude = ["crates/smelt-gui"]
 default-members = [
     "crates/smelt-frontend-ts",
@@ -35,7 +35,10 @@ resolver = "2"
 [workspace.package]
 version = "0.1.1"
 edition = "2024"
-rust-version = "1.85"
+# Dependencies set the floor: oxc and ty need 1.97, and tsrs, behind the default
+# `ts7` feature, needs 1.99. 1.99.1 is the only version CI builds. Generated
+# crates have their own, lower floor: emitted `extract_if` needs 1.88.
+rust-version = "1.99"
 license = "GPL-3.0-only"
 repository = "https://github.com/Bombatomica64/smelt"
 homepage = "https://github.com/Bombatomica64/smelt"
@@ -86,6 +89,12 @@ variant_size_differences           = "warn"
 all      = { level = "deny", priority = -1 }
 pedantic = { level = "deny", priority = -1 }
 nursery  = { level = "deny", priority = -1 }
+
+# Fire at the true MSRV (let chains, `as_chunks`). Sites in the frontends and the
+# emitter are not fixed yet, so these are warnings the clippy ratchet counts: a
+# new site still fails CI. Back to deny once the count reaches zero.
+collapsible_if            = "warn"
+chunks_exact_to_as_chunks = "warn"
 
 # ---- Restriction lints (opt-in; each one is intentional) -----------------
 # Style / hygiene

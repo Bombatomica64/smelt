@@ -120,6 +120,24 @@ jobs:
             --baseline blocker-logs/clippy-baseline.json \
             --messages clippy.json --cargo-status "$status"
 
+  # Packaging dry run: every publishable crate packages in the derived order, and
+  # the set of crates that cannot be published has not moved. Publishes nothing.
+  package:
+    if: ${{ github.event.action != 'labeled' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          shared-key: build
+          save-if: false
+
+      - name: Package every publishable crate
+        run: scripts/publish-crates.sh
+
   # Slow tier: compile the emitted-Rust corpus. This is a plain (non-instrumented)
   # build on the pinned toolchain, so it runs as its own job in parallel with coverage and shares
   # the "build" cache lane with the other plain-build workflows. It does not need the

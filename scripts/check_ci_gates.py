@@ -100,6 +100,8 @@ def workflow_violations(name, text):
     clippy = jobs.get("clippy", "")
     if "check_clippy_ratchet.py" not in clippy or "cargo clippy --workspace --all-targets" not in clippy:
         found.append("ci.yml: job `clippy` no longer runs the clippy ratchet over every target")
+    if "scripts/publish-crates.sh" not in jobs.get("package", ""):
+        found.append("ci.yml: job `package` no longer dry-runs packaging")
     gate = jobs.get("es-toolkit-regression", "")
     if "runtime-ratchet" not in gate:
         found.append("ci.yml: job `es-toolkit-regression` no longer runs the runtime ratchet")
