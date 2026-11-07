@@ -13,7 +13,9 @@ impl ModuleBuilder<'_> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let (op, source_name) = match &call.callee {
+        // `coerces`: the global `isNaN` converts its argument to a number; the
+        // `Number.*` predicates never do.
+        let (op, source_name, coerces) = match &call.callee {
             Expression::StaticMemberExpression(member) => {
                 let Expression::Identifier(object) = &member.object else {
                     return Ok(None);
@@ -28,7 +30,7 @@ impl ModuleBuilder<'_> {
                     "isNaN" => NumericPredicateOp::IsNaN,
                     _ => return Ok(None),
                 };
-                (op, format!("Number.{}", member.property.name))
+                (op, format!("Number.{}", member.property.name), false)
             }
             Expression::Identifier(identifier) if identifier.name == "isNaN" => {
                 // A value import, module item, or local binding of `isNaN`
@@ -39,7 +41,7 @@ impl ModuleBuilder<'_> {
                 if self.builtin_call_identifier_is_shadowed(identifier.name.as_str()) {
                     return Ok(None);
                 }
-                (NumericPredicateOp::IsNaN, "isNaN".to_owned())
+                (NumericPredicateOp::IsNaN, "isNaN".to_owned(), true)
             }
             _ => return Ok(None),
         };
@@ -61,7 +63,7 @@ impl ModuleBuilder<'_> {
         // `false` when `x` is absent (remeda `when((x) => Number.isNaN(x) ||
         // x === undefined, ..)` asserted presence and panicked). An optional
         // operand is carried through and tested where present.
-        let non_coercing_optional = source_name.starts_with("Number.")
+        let non_coercing_optional = !coerces
             && matches!(
                 self.ctx.krate.types.get(operand_ty),
                 Some(Type::Optional(inner))
