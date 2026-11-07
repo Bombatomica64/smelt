@@ -1,11 +1,13 @@
-type Base = { test: (value: string) => boolean };
-type Methods = { startsWith: (prefix: string) => Check; includes: (part: string) => Check };
-export type Check = Base & Methods;
-function make(test: (value: string) => boolean): Check {
+type Matcher<input> = { test: (value: input) => boolean };
+export type StringChainable<p extends Matcher<string>> = p & {
+  startsWith<prefix extends string>(prefix: prefix): StringChainable<Matcher<string>>;
+  endsWith<suffix extends string>(suffix: suffix): StringChainable<Matcher<string>>;
+};
+function chain(test: (value: string) => boolean): StringChainable<Matcher<string>> {
   return {
     test,
-    startsWith: (prefix) => make((value) => test(value) && value.startsWith(prefix)),
-    includes: (part) => make((value) => test(value) && value.includes(part)),
-  };
+    startsWith: (prefix) => chain((value) => test(value) && value.startsWith(prefix)),
+    endsWith: (suffix) => chain((value) => test(value) && value.endsWith(suffix)),
+  } as StringChainable<Matcher<string>>;
 }
-export const text: Check = make(() => true);
+export const string = chain((value) => typeof value === "string");
