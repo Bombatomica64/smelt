@@ -168,3 +168,28 @@ Restating ~3-4%; 1,539 `///` lines emitted into every generated crate; history n
 - Functions over 200 lines in the emitter 29 -> 15 (32 at audit). `rvalue_expr_for_dest_inner` 2,060 -> 565 and stays one exhaustive match, one arm per op, so a new op fails to compile until it has an arm. Ordered ladders are cut into stages ending in a tail call, so rung order and each `return` stay as written.
 - Left long on purpose: `virtual_method_slot_closure` needs a 14-parameter helper to cut, `primitive_cast_expr` is one ordered 250-line match. Not attempted: `closure_text_with_extra_params` (686), `dict_projection_expr`, `closure_expr_for_type`, `callback_param_escapes_locally`, `optional_index_access_expr`.
 - Open from the split: `smelt-mir/src/list_escape.rs:1126,1157` hold unfulfilled `wildcard_enum_match_arm` expectations (warnings today).
+
+## Re-audit round 1 (at `b0d42485`, read-only, three auditors)
+Verdict: not done in any slice. Structure held: crate boundaries sound, op table justified, no disabled tests. Items are from reading code; each wrong answer needs a real-run comparison first.
+
+Wrong answers:
+- `parseInt` without radix uses Rust's grammar (`primitive_casts.rs:34`, `numbers.rs:221`, `primitive_cast.rs:189`): `parseInt("12px")` gives NaN, Node 12; `parseInt(s)` and `parseInt(s, 10)` disagree. `xs.map(parseInt)` too.
+- Three string index units: `indexOf` bytes, `slice`/`charAt` chars, `search` UTF-16 (`strings.rs:190,1143,211`). `"café!".indexOf("!")` gives 5, Node 4.
+- Out-of-range reads answer a default: `new Uint8Array(2)[5]` gives 0, `[1][5]` gives 0 (`typed_array.rs:322`, `place.rs:~1417`).
+- Absent values become defaults: missing regex group becomes `""` depending on interned types (`coercion.rs:791`); `m.indices`, unmodelled `re.x` answer null (`field_access.rs:527,490`).
+- Python: `for x in NullFile()` drops the loop (`match.rs:10`, `control_flow.rs:465`); `abs`/`len`/`sum`/`max`/`print` ignore a user definition (`call.rs:329-390`, while `name_resolution.rs:350` has the answer).
+- TS: computed getter key containing `SYMBOL` skipped (`object_literals.rs:680`); `process.env.tz` answers `America/Santiago` (`member_access.rs:1268`); user `class URL`/`Date`/`RegExp`/`Array`/error classes may reach the host constructor (`new_expr.rs:222-348`, PLAUSIBLE); `(pick() || backup).run(1)` may call `pick()` twice (`member_call.rs:1012`, PLAUSIBLE).
+- `driver.rs:115` re-derives language from the path, so a laid `.js` typed version is not predeclared (PLAUSIBLE); `volatile_locals.rs:153` misses `o[k] = v` and `Object.assign` (PLAUSIBLE).
+
+Gates that cannot judge:
+- `ci.yml:114` `continue-on-error: true` on clippy, so the job cannot fail; `components: clippy` targets `stable` while `rust-toolchain.toml` picks 1.99.1.
+- `typedness_report.rs:269-297` never judges a baseline program that vanished; `unknown_report/baseline.rs:63` compares totals only, 0 files passes; `check_estoolkit_gate.py:97` defaults a renamed field to 0; es-toolkit runtime baseline 56/89 is advisory twice.
+- `smelt check` never runs the checker (`checker::check` has no transpiler caller); `ts_facts.rs:55` `.ok()` silently changes typing with no diagnostic.
+- 9 silent test skips in 6 files, none via `prereq::missing_prerequisite`.
+
+Release: `publish-crates.sh --execute` is a green no-op at 0.1.1; `smelt-hir` is listed before its dependency `smelt-stdlib`; `smelt-transpiler` needs `smelt-ts-types` (`publish = false`, git `tsrs`), yet `ts7` feeds all lowering, so a published binary without it is an untested configuration; `rust-version = 1.85` is false (let-chains need 1.88); `smelt-gui` publishes with a `[patch]` that won't survive, and `compiler.rs:260-292` is a third driver.
+
+Structure: `postfix_on` 416 sites hand-spell `{x}.m()`, implicit `From<String>` and `Deref<Target=str>` leave text reads unenforced, hand-stated forms already disagree (`list_query.rs:547/552`, `literals.rs:43`/`classes.rs:647`); demand has copies (`console_inspect_used`, `needs_bigint`, `program_reads_this`), composite rules in `flag()` not `REQUIRES`; `runtime_prelude.rs:48` guard cannot fire; trial checkpoint lists minted fields by hand; prelude shells hold only constants; `needs` facts sit in `smelt-hir` but only codegen reads them, and `traversal.rs:194,229` keep `_ =>` beside `DictEntryPush`; TS host constructors are a ladder with 27 hand shadow checks; rest-parameter binder x5; Python lowering is 24 `include!` files; receiver re-lowered in type questions; dead `runtime_symbols` constants and unused `RuleId`s; no composite actions, pins outside `libraries.json`, `AGENTS.md` is a copy of `CLAUDE.md`.
+
+Counts for the comment and test passes: 2,682 comment lines emitted into generated crates; `.contains` 1,326 positive and 194 negative; 134 pins of the runtime's own text; harness copied into 79 files; `part_7_tests.rs` 15.5k lines; 374 frontend tests with no output check.
+
