@@ -1,0 +1,33 @@
+found 2
+finally ok
+not found: ('no such key', 'missing') ('no such key', 'missing')
+finally missing
+invalid or key: bad ('bad',)
+finally bad
+exception: plain value error
+finally value
+other app error:  () [AppError()]
+finally empty
+inner caught, re-raising
+outer caught bad
+base catches subclass: ('no such key', 'missing')
+finally runs before the outer handler
+propagated through finally: plain value error
+bare except catches everything
+unmatched exception propagates: plain value error
+key error 'zz' ('zz',)
+arithmetic division by zero
+no error for 1
+done 1
+caught in function too big
+done 5
+try body
+else raise propagated: raised in else
+from None: with cause
+tick 3
+tick 2
+tick 1
+tick 5
+tick 4
+tick 3
+iterator error propagated: ('countdown broke at', 2)

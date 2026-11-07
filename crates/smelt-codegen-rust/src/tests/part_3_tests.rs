@@ -47,16 +47,16 @@ coord_set: set[int] = set(coords)
     // guarantees no set order of its own, so an ordered container costs it
     // nothing; JavaScript REQUIRES insertion order.
     assert!(source.contains("SmeltPrimSet::new()"));
-    assert!(source.contains("::std::collections::HashMap::from([])"));
+    assert!(source.contains("SmeltRecord::from([])"));
     assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
     assert!(
         source.contains(
-            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol\")).cloned().collect::<Vec<_>>()"
+            ".keys().collect::<Vec<_>>()"
         ),
         "{source}"
     );
     assert!(source.contains(".iter().cloned().collect::<SmeltPrimSet<_>>()"));
-    assert!(source.contains(".iter().cloned().collect::<::std::collections::HashMap<_, _>>()"));
+    assert!(source.contains(".iter().cloned().collect::<SmeltRecord<String, i64>>()"));
     assert!(source.contains("panic!(\"tuple() length mismatch\")"));
     assert!(source.contains("vec!["));
     assert!(source.contains("SmeltPrimSet::from(["));
@@ -155,7 +155,7 @@ fallback: int = mapping.pop("b", 0)
 
     assert!(source.contains("let mut"));
     assert!(source.contains(".remove(&"));
-    assert!(source.contains(".expect(\"dict pop missing key\")"));
+    assert!(source.contains("ok_or_else(|| smelt_py_key_error(&smelt_key))"));
     assert!(source.contains(".unwrap_or(0)"));
 }
 
@@ -170,8 +170,8 @@ fallback: int = mapping.get("b", 0)
     );
 
     assert!(source.contains("let maybe: Option<i64>"));
-    assert!(source.contains(".get(&\"a\".to_owned()).cloned();"));
-    assert!(source.contains(".get(&\"b\".to_owned()).cloned().unwrap_or(0);"));
+    assert!(source.contains(".get(&\"a\".to_owned());"));
+    assert!(source.contains(".get(&\"b\".to_owned()).unwrap_or(0);"));
 }
 
 #[test]
@@ -184,9 +184,7 @@ value: int = mapping.setdefault("b", 2)
     );
 
     assert!(source.contains("let mut"));
-    assert!(source.contains(".entry(\"b\".to_owned())"));
-    assert!(source.contains(".or_insert(2)"));
-    assert!(source.contains(".clone()"));
+    assert!(source.contains("if let Some(value) = mapping.get(&\"b\".to_owned()) { value } else { mapping.insert(\"b\".to_owned(), 2.clone()); 2 }"));
 }
 
 #[test]
@@ -214,8 +212,8 @@ copied: dict[str, int] = mapping.copy()
 "#,
     );
 
-    assert!(source.contains("let mapping: ::std::collections::HashMap<String, i64>"));
-    assert!(source.contains(".clone();"));
+    assert!(source.contains("let mapping: SmeltRecord<String, i64>"));
+    assert!(source.contains("mapping.iter().collect::<SmeltRecord<_, _>>();"));
 }
 
 #[test]
@@ -286,19 +284,19 @@ items: list[tuple[str, int]] = mapping.items()
 
     assert!(
         source.contains(
-            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol\")).cloned().collect::<Vec<_>>()"
+            ".keys().collect::<Vec<_>>()"
         ),
         "{source}"
     );
     assert!(
         source.contains(
-            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(_, value)| value.clone()).collect::<Vec<_>>()"
+            ".values().collect::<Vec<_>>()"
         ),
         "{source}"
     );
     assert!(
         source.contains(
-            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
+            ".iter().collect::<Vec<_>>()"
         ),
         "{source}"
     );

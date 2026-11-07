@@ -113,3 +113,58 @@ fn print_container_repr() -> TestResult {
 fn user_open_shadows_builtin() -> TestResult {
     verify_python_parity("user_open_shadows_builtin")
 }
+
+/// A dict iterates in insertion order through every view of it, and a key
+/// deleted and inserted again moves to the end.
+#[test]
+fn dict_insertion_order() -> TestResult {
+    verify_python_parity("dict_insertion_order")
+}
+
+/// User and builtin exception classes: `raise`, `except` by class, tuple and
+/// base class, bare `except` and `raise`, `else`, `finally`, `e.args`, and an
+/// iterator whose `__next__` raises something other than `StopIteration`.
+#[test]
+fn exception_classes() -> TestResult {
+    verify_python_parity("exception_classes")
+}
+
+/// A dict is a reference value: an alias, a list element and a parameter all
+/// reach the same container; `dict(d)` copies it.
+#[test]
+fn dict_aliasing() -> TestResult {
+    verify_python_parity("dict_aliasing")
+}
+
+/// `import asyncio` with `async def`, `await`, `asyncio.run`, `asyncio.gather`
+/// and `asyncio.sleep` builds, and tasks resume in the event loop's order.
+#[test]
+fn asyncio_programs() -> TestResult {
+    verify_python_parity("asyncio_programs")
+}
+
+/// `str()`, `repr()` and f-strings write Python text for containers,
+/// exceptions and primitives.
+#[test]
+fn python_text() -> TestResult {
+    verify_python_parity("python_text")
+}
+
+/// Negative indexes, clamped and stepped slices, and the `IndexError` and
+/// `ValueError` `CPython` raises.
+#[test]
+fn sequence_indexing() -> TestResult {
+    verify_python_parity("sequence_indexing")
+}
+
+/// `x /= n` rebinds an `int` name to a `float` in straight-line code.
+#[test]
+fn int_rebinds_to_float() -> TestResult {
+    verify_python_parity("int_rebinds_to_float")
+}
+
+/// Destructuring `for` targets, tuple unpacking, `dict.pop` and `popitem`.
+#[test]
+fn dict_destructuring_and_pop() -> TestResult {
+    verify_python_parity("dict_destructuring_and_pop")
+}

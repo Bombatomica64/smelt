@@ -506,7 +506,7 @@ impl ModuleBuilder<'_> {
     /// iterator = obj.__iter__()
     /// while True:
     ///     try: item = iterator.__next__()
-    ///     except e: if e is StopIteration: stop = True else: raise e
+    ///     except e: if isinstance(e, StopIteration): stop = True else: raise e
     ///     if stop: break
     ///     target = item
     ///     body
@@ -545,7 +545,6 @@ impl ModuleBuilder<'_> {
         );
 
         let bool_ty = self.intern_type(Type::Bool);
-        let string_ty = self.intern_type(Type::PyStr);
         let loop_block = body.push_block(span);
         let iterator_read = body.push_expr(HirExpr { kind: ExprKind::Local(iterator), ty: iterator_ty, span });
         let next_value = self.protocol_method_expr(
@@ -565,17 +564,18 @@ impl ModuleBuilder<'_> {
         let try_block = body.push_block(span);
         let item_target = body.push_expr(HirExpr { kind: ExprKind::Local(item), ty: item_ty, span });
         body.push_stmt_to_block(try_block, HirStmt::Assign { target: item_target, value: next_value });
-        // except e: if e == "StopIteration": stop = True else: raise e
-        let caught = body.push_local(self.synthetic_local("__smelt_caught", string_ty, false, span));
+        // except e: if isinstance(e, StopIteration): stop = True else: raise e
+        let exception_ty = self.py_exception_type();
+        let caught = body.push_local(self.synthetic_local("__smelt_caught", exception_ty, false, span));
         let catch_block = body.push_block(span);
-        let caught_read = body.push_expr(HirExpr { kind: ExprKind::Local(caught), ty: string_ty, span });
-        let stop_message = body.push_expr(HirExpr {
-            kind: ExprKind::Literal(Literal::String("StopIteration".to_owned())),
-            ty: string_ty,
-            span,
-        });
+        let caught_read = body.push_expr(HirExpr { kind: ExprKind::Local(caught), ty: exception_ty, span });
+        let stop_iteration = self.intern_name("StopIteration");
         let is_stop = body.push_expr(HirExpr {
-            kind: ExprKind::BinOp { op: BinOp::Eq, lhs: caught_read, rhs: stop_message },
+            kind: ExprKind::PyExceptionCaughtBy {
+                exception: caught_read,
+                classes: vec![stop_iteration],
+                catches_unclassified: false,
+            },
             ty: bool_ty,
             span,
         });
@@ -584,7 +584,7 @@ impl ModuleBuilder<'_> {
         let true_expr = body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::Bool(true)), ty: bool_ty, span });
         body.push_stmt_to_block(stop_block, HirStmt::Assign { target: stop_target, value: true_expr });
         let rethrow_block = body.push_block(span);
-        let rethrown = body.push_expr(HirExpr { kind: ExprKind::Local(caught), ty: string_ty, span });
+        let rethrown = body.push_expr(HirExpr { kind: ExprKind::Local(caught), ty: exception_ty, span });
         body.push_stmt_to_block(rethrow_block, HirStmt::Throw(rethrown));
         body.push_stmt_to_block(
             catch_block,

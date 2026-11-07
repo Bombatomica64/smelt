@@ -142,8 +142,11 @@ def choose() -> int:
 }
 
 #[test]
-fn multiple_except_clauses_are_rejected() -> TestResult {
+fn multiple_except_clauses_lower_to_one_dispatching_handler() -> TestResult {
     let source = py!(r"
+def risky() -> int:
+    return 1
+
 def run() -> int:
     try:
         return risky()
@@ -151,16 +154,19 @@ def run() -> int:
         return 0
     except KeyError:
         return 1
-
-def risky() -> int:
-    return 1
 ");
+    // Each clause is tested in source order against the caught exception's
+    // class chain, so both clauses appear as a class test in the one handler.
     let mut ctx = HirCtx::new();
-    let errors = lower_errors(source, &mut ctx)?;
-    ensure(
-        first_error(&errors)?.message.contains("multiple `except`"),
-        "expected multiple except clauses to be rejected with a specific message",
-    )?;
+    lower_module(source, &mut ctx)?;
+    let tests = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .filter(|expr| matches!(expr.kind, ExprKind::PyExceptionCaughtBy { .. }))
+        .count();
+    ensure(tests == 2, format!("expected one class test per except clause, got {tests}"))?;
     Ok(())
 }
 

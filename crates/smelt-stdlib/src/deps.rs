@@ -87,6 +87,13 @@ pub enum BackendDependency {
     /// `Integer::mod_floor` for `BigInt.asIntN`. A program with no `bigint`
     /// pays for none of them.
     BigInt,
+    /// `indexmap` for the insertion-ordered dictionary.
+    ///
+    /// A Python `dict` iterates in insertion order (guaranteed since 3.7) and a
+    /// JavaScript object or `Map` does too, while a Rust `HashMap` iterates in a
+    /// per-process random order. `IndexMap` keeps the hashed lookup and adds the
+    /// order; it is what `serde_json`'s `preserve_order` uses for the same reason.
+    IndexMap,
 }
 
 impl BackendDependency {
@@ -133,6 +140,7 @@ impl BackendDependency {
             Self::BigInt => {
                 "num-bigint = \"0.4\"\nnum-traits = \"0.2\"\nnum-integer = \"0.1\"\n"
             }
+            Self::IndexMap => "indexmap = \"2\"\n",
         }
     }
 }

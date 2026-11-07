@@ -189,8 +189,10 @@ mod strings_io;
 mod throw;
 mod throwing_join;
 mod truthiness;
+mod py_exception;
 mod tuple;
 mod type_facts;
+pub(crate) use type_facts::{dict_key_uses_smelt_record, dict_renders_as_index_map};
 mod typeof_str_locals;
 mod types;
 mod union;
@@ -1582,6 +1584,8 @@ pub(crate) struct FunctionEmitter<'mir> {
     /// Immediate post-dominator of every block of this function CFG, computed
     /// on first use (see `post_dominance`).
     post_dominators: RefCell<Option<Vec<Option<smelt_mir::BlockId>>>>,
+    /// The same over the paths that do not `throw` (see `post_dominance`).
+    post_dominators_past_throws: RefCell<Option<Vec<Option<smelt_mir::BlockId>>>>,
     /// Cached loop-exit shape queries keyed by block, continue target, and break target.
     loop_exit_cache:
         RefCell<HashMap<(smelt_mir::BlockId, smelt_mir::BlockId, smelt_mir::BlockId), bool>>,

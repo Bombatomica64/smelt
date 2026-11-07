@@ -79,12 +79,20 @@ impl BlockSet {
 
 /// The immediate post-dominator of every block of `function`, indexed by block
 /// id (`None`: the virtual exit, or no path to it).
+///
+/// With `throws_exit` false a `throw` block does not flow into the exit: it
+/// has no successor at all, so it constrains no predecessor, and a block whose
+/// non-throwing paths all meet at `J` is post-dominated by `J`. That is where a
+/// `catch` handler whose unmatched case rethrows rejoins its `try`.
 #[expect(
     clippy::indexing_slicing,
     clippy::arithmetic_side_effects,
     reason = "every index is a node number below `nodes`, the length of both tables"
 )]
-pub(super) fn immediate_post_dominators(function: &MirFunction) -> Vec<Option<smelt_mir::BlockId>> {
+pub(super) fn immediate_post_dominators(
+    function: &MirFunction,
+    throws_exit: bool,
+) -> Vec<Option<smelt_mir::BlockId>> {
     let blocks = function.blocks.len();
     let exit = blocks;
     let nodes = blocks + 1;
@@ -100,7 +108,8 @@ pub(super) fn immediate_post_dominators(function: &MirFunction) -> Vec<Option<sm
                 .into_iter()
                 .filter_map(|id| usize::try_from(id.0).ok().filter(|index| *index < blocks))
                 .collect::<Vec<_>>();
-            if next.is_empty() {
+            let throws = matches!(block.terminator, Some(Terminator::Throw(_)));
+            if next.is_empty() && (throws_exit || !throws) {
                 next.push(exit);
             }
             next
@@ -156,7 +165,21 @@ impl FunctionEmitter<'_> {
         block: smelt_mir::BlockId,
     ) -> Option<smelt_mir::BlockId> {
         let mut cache = self.post_dominators.borrow_mut();
-        let table = cache.get_or_insert_with(|| immediate_post_dominators(self.function));
+        let table = cache.get_or_insert_with(|| immediate_post_dominators(self.function, true));
+        usize::try_from(block.0)
+            .ok()
+            .and_then(|index| table.get(index).copied().flatten())
+    }
+
+    /// The immediate post-dominator of `block` over the paths that do not
+    /// `throw` (see [`immediate_post_dominators`]); cached like
+    /// [`Self::immediate_post_dominator`].
+    pub(super) fn immediate_post_dominator_past_throws(
+        &self,
+        block: smelt_mir::BlockId,
+    ) -> Option<smelt_mir::BlockId> {
+        let mut cache = self.post_dominators_past_throws.borrow_mut();
+        let table = cache.get_or_insert_with(|| immediate_post_dominators(self.function, false));
         usize::try_from(block.0)
             .ok()
             .and_then(|index| table.get(index).copied().flatten())

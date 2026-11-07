@@ -1,6 +1,6 @@
 // The property store behind every erased object: the field hash and the ordered entry store.
 
-// @smelt:item use_hash when unknown
+// @smelt:item use_hash when record
 use ::std::hash::Hash;
 
 //~ JavaScript object property lookup goes through these maps on EVERY field
@@ -291,7 +291,7 @@ impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltFieldStore<K, V> {
 
 // @smelt:item-end
 
-// @smelt:item SmeltPendingFill when reference_origins & unknown
+// @smelt:item SmeltPendingFill when reference_origins & record
 /// A snapshot an erased view builds the first time its store is read.
 struct SmeltPendingFill<K, V> {
     build: Box<dyn FnOnce() -> Vec<(K, V)>>,

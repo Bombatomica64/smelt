@@ -243,6 +243,7 @@ impl ModuleBuilder<'_> {
                     span,
                 })))
             }
+            AsyncioApi::Run => self.asyncio_run_expression(call, span, body).map(Some),
             AsyncioApi::Queue | AsyncioApi::Lock => {
                 Err(SmeltError::unsupported(
                     span,
@@ -345,6 +346,70 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// `await asyncio.gather(..)` answers a `list` of the results; when every
+    /// result has one type that is a typed list (`TupleToList` of the tuple
+    /// the gather completes with). Results of different types stay the tuple,
+    /// since no list type holds them.
+    fn gather_result_as_list(
+        &mut self,
+        awaited: smelt_hir::ExprId,
+        result: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let is_gather = body
+            .exprs
+            .get(usize::try_from(awaited.0).unwrap_or(usize::MAX))
+            .is_some_and(|expr| matches!(expr.kind, ExprKind::AsyncOp { op: AsyncOp::All, .. }));
+        let Some(Type::Tuple(items)) = self.ctx.krate.types.get(Self::expr_ty(body, result)).cloned() else {
+            return result;
+        };
+        let Some(first) = items.first().copied() else {
+            return result;
+        };
+        if !is_gather || items.iter().any(|item| *item != first) {
+            return result;
+        }
+        let ty = self.intern_type(Type::List(first));
+        let span = Self::expr_span(body, result);
+        body.push_expr(HirExpr { kind: ExprKind::TupleToList { tuple: result }, ty, span })
+    }
+
+    /// Lower `asyncio.run(coroutine)` at module level: the module body awaits
+    /// the coroutine, which makes it the program's async entry point and runs
+    /// the event loop until the coroutine finishes, as `asyncio.run` does.
+    ///
+    /// Inside a function the call would start a second event loop, which a
+    /// program run from `asyncio.run` cannot do either, so it is rejected
+    /// there.
+    fn asyncio_run_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if self.scope.kind != FnKind::Module {
+            return Err(SmeltError::unsupported(
+                span,
+                "asyncio.run is only supported at module level",
+            ));
+        }
+        let [coroutine_expr] = call.arguments.args.as_ref() else {
+            return Err(SmeltError::unsupported(
+                span,
+                "asyncio.run requires exactly one coroutine argument",
+            ));
+        };
+        if !call.arguments.keywords.is_empty() {
+            return Err(SmeltError::unsupported(span, "asyncio.run keyword arguments are not supported"));
+        }
+        let coroutine = self.expression(coroutine_expr, body)?;
+        let ty = self
+            .future_inner_type(Self::expr_ty(body, coroutine))
+            .ok_or_else(|| SmeltError::unsupported(span, "asyncio.run requires a coroutine argument"))?;
+        self.module_awaits = true;
+        Ok(body.push_expr(HirExpr { kind: ExprKind::Await(coroutine), ty, span }))
+    }
+
     // Member lowering continues in `member.rs`.
 }
 
@@ -355,6 +420,8 @@ enum AsyncioApi {
     CreateTask,
     /// `asyncio.gather`.
     Gather,
+    /// `asyncio.run`.
+    Run,
     /// `asyncio.sleep`.
     Sleep,
     /// `asyncio.wait_for`.
@@ -374,6 +441,7 @@ fn classify_asyncio_attr(name: &str) -> AsyncioApi {
     match name {
         "create_task" => AsyncioApi::CreateTask,
         "gather" => AsyncioApi::Gather,
+        "run" => AsyncioApi::Run,
         "sleep" => AsyncioApi::Sleep,
         "wait_for" => AsyncioApi::WaitFor,
         "Queue" => AsyncioApi::Queue,

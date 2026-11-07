@@ -75,6 +75,7 @@ impl<'mir> FunctionEmitter<'mir> {
             termination_cache: RefCell::new(HashMap::new()),
             local_write_index: std::cell::OnceCell::new(),
             post_dominators: RefCell::new(None),
+            post_dominators_past_throws: RefCell::new(None),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
             by_reference_param_locals: HashSet::new(),

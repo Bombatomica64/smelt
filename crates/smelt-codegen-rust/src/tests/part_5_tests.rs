@@ -10,7 +10,7 @@ import pytest
 
 def test_raises():
     with pytest.raises(Exception):
-        raise "boom"
+        raise ValueError("boom")
 "#,
         "tests/test_raises.py",
     );
@@ -31,7 +31,7 @@ import pytest
 
 def test_raises_match():
     with pytest.raises(Exception, match="bo+m"):
-        raise "booom"
+        raise ValueError("booom")
 "#,
         "tests/test_raises_match.py",
     );

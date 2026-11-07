@@ -53,6 +53,11 @@ impl FunctionEmitter<'_> {
     /// through `smelt_throw`, and a program with no erased values keeps the plain
     /// string `std::io::Error` form.
     pub(super) fn thrown_payload_expr(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
+        // A Python exception is its own error type, recovered by downcasting.
+        if self.is_py_exception_type(self.operand_ty(operand)?) {
+            let value = self.operand_expr(operand)?;
+            return Ok(RustExpr::postfix_on(&value, format!("{value}.into_error()")));
+        }
         let _boundary = self.context.carrier_boundary();
         if !self.context.demand().has(Need::Unknown) {
             return Ok(RustExpr::atom(format!(
@@ -90,6 +95,9 @@ impl FunctionEmitter<'_> {
         exception_ty: TypeId,
         error_text: &RustExpr,
     ) -> Result<RustExpr, EmitError> {
+        if self.is_py_exception_type(exception_ty) {
+            return Ok(RustExpr::atom(format!("SmeltPyException::from_error(&*{error_text})")));
+        }
         match self.mir.types.get(exception_ty) {
             Some(Type::String) => Ok(RustExpr::chain(format!("JsString::from({error_text}.to_string())"))),
             Some(Type::PyStr) => Ok(RustExpr::postfix_on(&error_text, format!("{error_text}.to_string()"))),

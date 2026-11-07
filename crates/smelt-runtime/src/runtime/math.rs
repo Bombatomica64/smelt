@@ -34,20 +34,19 @@ fn smelt_py_floor_div_float(lhs: f64, rhs: f64) -> f64 { let mut remainder = lhs
 /// Python `float / float`, the unchecked half of a checked true division.
 fn smelt_py_true_div(lhs: f64, rhs: f64) -> f64 { lhs / rhs }
 /// Run a Python division, raising `ZeroDivisionError` on a zero divisor.
-fn smelt_py_checked_division<T: PartialEq + Default>(lhs: T, rhs: T, divide: fn(T, T) -> T) -> Result<T, Box<dyn ::std::error::Error>> { if rhs == T::default() { return Err(Box::new(::std::io::Error::other("division by zero"))); } Ok(divide(lhs, rhs)) }
+fn smelt_py_checked_division<T: PartialEq + Default>(lhs: T, rhs: T, divide: fn(T, T) -> T) -> Result<T, Box<dyn ::std::error::Error>> { if rhs == T::default() { return Err(SmeltPyException::new(&["ZeroDivisionError", "ArithmeticError", "Exception", "BaseException"], vec![SmeltPyException::arg(&"division by zero".to_owned())]).into_error()); } Ok(divide(lhs, rhs)) }
 
 // @smelt:item-end
 
 // @smelt:item smelt_py_list_read when python_list_read
 /// Python's `xs[i]`: a negative `i` counts from the end, and an `i` out of range
 /// raises `IndexError`.
-fn smelt_py_list_read<T: Clone>(list: &SmeltList<T>, index: i64) -> Result<T, Box<dyn ::std::error::Error>> { let items = list.borrow(); let at = if index < 0 { index.saturating_add(i64::try_from(items.len()).unwrap_or(i64::MAX)) } else { index }; usize::try_from(at).ok().and_then(|at| items.get(at).cloned()).ok_or_else(|| Box::new(::std::io::Error::other("list index out of range")) as Box<dyn ::std::error::Error>) }
+fn smelt_py_list_read<T: Clone>(list: &SmeltList<T>, index: i64) -> Result<T, Box<dyn ::std::error::Error>> { let items = list.borrow(); let at = if index < 0 { index.saturating_add(i64::try_from(items.len()).unwrap_or(i64::MAX)) } else { index }; usize::try_from(at).ok().and_then(|at| items.get(at).cloned()).ok_or_else(|| smelt_py_index_error("list index out of range")) }
 
 // @smelt:item-end
 
 // @smelt:item smelt_py_key_error when python_dict_read
-/// The `KeyError` of a missing `d[key]`, worded as `str(error)` words it: the
-/// key's `repr`.
-fn smelt_py_key_error<K: ::std::fmt::Debug>(key: &K) -> Box<dyn ::std::error::Error> { let text = format!("{key:?}"); let repr = match text.strip_prefix('"').and_then(|inner| inner.strip_suffix('"')) { Some(inner) => format!("'{inner}'"), None => text }; Box::new(::std::io::Error::other(repr)) }
+/// The `KeyError` of a missing `d[key]`, whose one argument is the key.
+fn smelt_py_key_error<K: SmeltPyRepr>(key: &K) -> Box<dyn ::std::error::Error> { SmeltPyException::new(&["KeyError", "LookupError", "Exception", "BaseException"], vec![SmeltPyException::arg(key)]).into_error() }
 
 // @smelt:item-end

@@ -139,6 +139,12 @@ pub(crate) enum Need {
     PythonDictRead,
     /// Python's raising `xs[i]` read.
     PythonListRead,
+    /// A raised Python exception, `SmeltPyException`.
+    PyException,
+    /// The shared, ordered `SmeltRecord` dict and its property store.
+    Record,
+    /// A Python program: dicts keep plain insertion order.
+    PyDictOrder,
     /// A class read as a value.
     ClassValue,
     /// `globalThis` as a value.
@@ -211,6 +217,8 @@ pub(crate) enum Need {
     DepHmac,
     /// The `md-5` crate.
     DepMd5,
+    /// The `indexmap` crate, which the insertion-ordered dictionary renders as.
+    DepIndexMap,
 }
 
 /// The declared dependency graph: a family on the left is written against every
@@ -228,6 +236,7 @@ const REQUIRES: &[(Need, &[Need])] = &[
         Need::Unknown,
         &[
             Need::SmeltList,
+            Need::Record,
             Need::PanicRoute,
             Need::DepRegex,
             Need::DepChrono,
@@ -240,6 +249,11 @@ const REQUIRES: &[(Need, &[Need])] = &[
     ),
     (Need::SmeltList, &[Need::ObjectIds]),
     (Need::PyRepr, &[Need::PythonNumberFormat]),
+    (Need::PyException, &[Need::PyRepr]),
+    (Need::Record, &[Need::ObjectIds]),
+    (Need::PythonDivision, &[Need::PyException]),
+    (Need::PythonDictRead, &[Need::PyException]),
+    (Need::PythonListRead, &[Need::PyException]),
     (Need::PrimSet, &[Need::ObjectIds]),
     (Need::DepRegex, &[Need::ObjectIds, Need::StringUnits, Need::JsString]),
     (Need::Date, &[Need::ObjectIds, Need::HostOrigins]),
@@ -328,6 +342,9 @@ impl RuntimeDemand {
             if function.language == smelt_hir::Language::TypeScript {
                 demand.scan_string_units(mir, &function.locals, &function.blocks);
             }
+            if function.language == smelt_hir::Language::Python {
+                demand.add(Need::PyDictOrder);
+            }
         }
         for closure in &mir.closures {
             demand.scan_body(mir, &closure.locals, &closure.blocks, closure.return_ty);
@@ -336,6 +353,13 @@ impl RuntimeDemand {
             }
         }
         demand.close();
+        // Which container a dict renders as depends on whether the carrier is
+        // present, so this reads the closed demand and adds a leaf need.
+        if mir.types.all().iter().any(|ty| {
+            matches!(ty, Type::Dict(key, _) if crate::emitter::dict_renders_as_index_map(mir, &demand, *key))
+        }) {
+            demand.add(Need::DepIndexMap);
+        }
         demand
     }
 
@@ -465,6 +489,9 @@ impl RuntimeDemand {
                     }
                 }
                 Type::BigInt => self.add(Need::BigInt),
+                Type::Dict(key, _) if crate::emitter::dict_key_uses_smelt_record(mir, *key) => {
+                    self.add(Need::Record);
+                }
                 Type::Generator { .. } => self.add(Need::Generator),
                 Type::Optional(inner) => {
                     if matches!(mir.types.get(*inner), Some(Type::Unknown)) {
@@ -491,6 +518,7 @@ impl RuntimeDemand {
         }
         match class {
             StdlibClass::Headers => self.add(Need::Headers),
+            StdlibClass::PyException | StdlibClass::PyExceptionArgs => self.add(Need::PyException),
             StdlibClass::Response => self.add(Need::Response),
             StdlibClass::Request => self.add(Need::Request),
             StdlibClass::EventEmitter => self.add(Need::EventEmitter),
@@ -811,6 +839,7 @@ pub(crate) fn backend_dependencies(demand: &RuntimeDemand) -> Vec<BackendDepende
         (Need::Base64, BackendDependency::Base64),
         (Need::BigInt, BackendDependency::BigInt),
         (Need::DepMd5, BackendDependency::Md5),
+        (Need::DepIndexMap, BackendDependency::IndexMap),
     ]
     .into_iter()
     .filter_map(|(need, dependency)| demand.has(need).then_some(dependency))

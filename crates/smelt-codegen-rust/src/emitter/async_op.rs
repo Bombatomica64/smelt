@@ -509,7 +509,12 @@ impl FunctionEmitter<'_> {
                 format!("({value},)")
             }
             _ => {
-                let joined = format!("tokio::join!({})", rendered_args.join(", "));
+                // `biased;`: each wake polls the branches in argument order.
+                // The default rotates the first branch per poll for fairness,
+                // so two tasks resuming at the same `await` ran in a
+                // different order than Python's FIFO event loop (and than
+                // JavaScript's microtask queue) runs them.
+                let joined = format!("tokio::join!(biased; {})", rendered_args.join(", "));
                 let values = (0..rendered_args.len())
                     .map(|index| {
                         flatten(

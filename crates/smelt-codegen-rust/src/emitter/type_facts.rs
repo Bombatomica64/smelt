@@ -102,34 +102,9 @@ impl FunctionEmitter<'_> {
 
     /// Returns whether a dictionary must use JavaScript `Map` key equality.
     ///
-    /// Rust `HashMap` is correct for primitive key spaces, but JavaScript Map
-    /// compares objects and functions by identity and treats `NaN` as equal to
-    /// itself. Dictionaries keyed by erased, generic, or object-like values
-    /// therefore use the generated linear `SmeltJsMap` runtime container.
+    /// See [`dict_key_uses_js_key_map`].
     pub(super) fn dict_uses_js_key_map(&self, key_ty: TypeId) -> bool {
-        match self.mir.types.get(key_ty) {
-            // A bigint key hashes by value, which is SameValueZero for bigints.
-            Some(Type::Bool | Type::Int | Type::FixedInt(_) | Type::BigInt | Type::String | Type::PyStr) => false,
-            Some(Type::Float) => true,
-            Some(Type::Optional(inner) | Type::Future(inner)) => self.dict_uses_js_key_map(*inner),
-            Some(Type::Union(items)) => items.iter().any(|item| self.dict_uses_js_key_map(*item)),
-            Some(
-                Type::Unknown
-                | Type::TypeParam { .. }
-                | Type::Never
-                | Type::List(_)
-                | Type::Set(_)
-                | Type::Dict(_, _)
-                | Type::JsMap(_, _)
-                | Type::Tuple(_)
-                | Type::Function(_)
-                | Type::Generator { .. }
-                | Type::GeneratorResult { .. }
-                | Type::Class { .. },
-            )
-            | None => true,
-            Some(Type::None) => false,
-        }
+        dict_key_uses_js_key_map(self.mir, key_ty)
     }
 
     /// Returns whether a string-keyed dictionary should carry object identity.
@@ -139,8 +114,7 @@ impl FunctionEmitter<'_> {
     /// original object identity for Map/Set keys. `SmeltRecord` preserves that
     /// identity while keeping structural equality for assertions.
     pub(super) fn dict_uses_smelt_record(&self, key_ty: TypeId) -> bool {
-        self.context.demand().has(Need::Unknown)
-            && self.mir.types.get(key_ty).is_some_and(Type::is_text)
+        dict_key_uses_smelt_record(self.mir, key_ty)
     }
 
     /// Returns whether a Map/dict operation must use the `SmeltRecord` backing.
@@ -619,4 +593,63 @@ impl FunctionEmitter<'_> {
         self.symbol_name(name)
             .is_ok_and(|class_name| smelt_stdlib::host_object_marker(class_name).is_some())
     }
+}
+
+/// Returns whether a dictionary keyed by `key_ty` must use JavaScript `Map` key
+/// equality.
+///
+/// A hashed map is correct for primitive key spaces, but JavaScript Map
+/// compares objects and functions by identity and treats `NaN` as equal to
+/// itself. Dictionaries keyed by erased, generic, or object-like values
+/// therefore use the generated linear `SmeltJsMap` runtime container.
+pub(crate) fn dict_key_uses_js_key_map(mir: &Mir, key_ty: TypeId) -> bool {
+    match mir.types.get(key_ty) {
+        // A bigint key hashes by value, which is SameValueZero for bigints.
+        Some(Type::Bool | Type::Int | Type::FixedInt(_) | Type::BigInt | Type::String | Type::PyStr) => false,
+        Some(Type::Float) => true,
+        Some(Type::Optional(inner) | Type::Future(inner)) => dict_key_uses_js_key_map(mir, *inner),
+        Some(Type::Union(items)) => items.iter().any(|item| dict_key_uses_js_key_map(mir, *item)),
+        Some(
+            Type::Unknown
+            | Type::TypeParam { .. }
+            | Type::Never
+            | Type::List(_)
+            | Type::Set(_)
+            | Type::Dict(_, _)
+            | Type::JsMap(_, _)
+            | Type::Tuple(_)
+            | Type::Function(_)
+            | Type::Generator { .. }
+            | Type::GeneratorResult { .. }
+            | Type::Class { .. },
+        )
+        | None => true,
+        Some(Type::None) => false,
+    }
+}
+
+/// Returns whether a `Type::Dict` keyed by `key_ty` renders as the
+/// insertion-ordered `indexmap::IndexMap`.
+///
+/// That is every dict that is neither the identity-bearing `SmeltRecord` (a
+/// string-keyed dict in a program carrying the erased carrier) nor the
+/// `SmeltJsMap` of a non-primitive key space. Both of those are already
+/// insertion-ordered; this is the hashed container for the rest, and it must
+/// keep the same order, since Python dicts and JavaScript objects both iterate
+/// in insertion order.
+pub(crate) fn dict_renders_as_index_map(mir: &Mir, _demand: &RuntimeDemand, key_ty: TypeId) -> bool {
+    !dict_key_uses_js_key_map(mir, key_ty) && !dict_key_uses_smelt_record(mir, key_ty)
+}
+
+/// Returns whether a `Type::Dict` keyed by `key_ty` renders as `SmeltRecord`.
+///
+/// A dict keyed by a string, an integer or a boolean is a JavaScript object or a Python `dict`, and both are
+/// reference values: `a = d` aliases one container, and a write through
+/// either name is seen through the other, as a function that mutates its dict
+/// argument is seen by its caller. `SmeltRecord` is the shared, ordered,
+/// `Rc`-backed container, as `SmeltList` is for lists. Its key order is the
+/// program's: JavaScript own-key order, or a Python program's insertion order
+/// (the runtime's `js_key_order` flag).
+pub(crate) fn dict_key_uses_smelt_record(mir: &Mir, key_ty: TypeId) -> bool {
+    matches!(mir.types.get(key_ty), Some(Type::String | Type::PyStr | Type::Int | Type::Bool))
 }

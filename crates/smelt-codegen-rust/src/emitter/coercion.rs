@@ -832,6 +832,13 @@ impl FunctionEmitter<'_> {
         if source == target && !matches!(self.mir.types.get(target), Some(Type::Function(_))) {
             return Ok(value_text.to_owned());
         }
+        // A Python exception (or its `args`) at a `str` slot is its `str`: the
+        // pytest `raises` lowering keeps the caught message as a string.
+        if (self.is_py_exception_type(source) || self.is_py_exception_args_type(source))
+            && matches!(self.mir.types.get(target), Some(Type::PyStr))
+        {
+            return Ok(RustExpr::postfix_on(value_text, format!("{value_text}.to_string()")));
+        }
         // A value asked for at `bool` is a TRUTHINESS test, not a cast: that is
         // what JavaScript does wherever a boolean is expected, and it is the
         // only reading of a class instance, a list, a string or a number in a

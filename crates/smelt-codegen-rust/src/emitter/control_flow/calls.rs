@@ -225,6 +225,10 @@ impl FunctionEmitter<'_> {
                     Some(Type::Unknown) => {
                         crate::thrown::caught_panic_error_value_expr("__smelt_panic")
                     }
+                    // A panic is an error the runtime raised without a Python class.
+                    _ if self.is_py_exception_type(exception_decl.ty) => {
+                        RustExpr::atom("SmeltPyException::from_message(__smelt_error)")
+                    }
                     _ => self.default_value(exception_decl.ty)?,
                 };
                 out.push_str(&self.exception_binding_expr(exception_local, &exception_name, &value));
@@ -319,6 +323,10 @@ impl FunctionEmitter<'_> {
                 // terminator; see `thrown::emit_panic_route_support`.
                 Some(Type::Unknown) => {
                     crate::thrown::caught_panic_error_value_expr("__smelt_panic")
+                }
+                // A panic is an error the runtime raised without a Python class.
+                _ if self.is_py_exception_type(exception_decl.ty) => {
+                    RustExpr::atom("SmeltPyException::from_message(__smelt_error)")
                 }
                 _ => self.default_value(exception_decl.ty)?,
             };

@@ -3886,7 +3886,7 @@ console.log(user.name);
     );
 
     assert!(
-        source.contains("let mut user: ::std::collections::HashMap<JsString, JsString>"),
+        source.contains("let mut user: SmeltRecord<JsString, JsString>"),
         "{source}"
     );
     assert!(
@@ -3894,7 +3894,7 @@ console.log(user.name);
         "{source}"
     );
     assert!(
-        source.contains("user.get(&JsString::from(\"name\")).cloned().expect(\"missing field\")"),
+        source.contains("user.get(&JsString::from(\"name\")).expect(\"missing field\")"),
         "{source}"
     );
 }
@@ -4473,7 +4473,7 @@ console.log(user[key]);
         "{source}"
     );
     assert!(
-        source.contains("user.get(&key.clone()).cloned().unwrap_or(JsString::new())"),
+        source.contains("user.get(&key.clone()).unwrap_or(JsString::new())"),
         "{source}"
     );
 }
@@ -5958,7 +5958,7 @@ def read(values: dict[str, Optional[int]]) -> Optional[int]:
     );
 
     assert!(
-        source.contains("values: ::std::collections::HashMap<String, Option<i64>>"),
+        source.contains("values: SmeltRecord<String, Option<i64>>"),
         "{source}"
     );
     assert!(!source.contains("Option<Option<i64>>"), "{source}");

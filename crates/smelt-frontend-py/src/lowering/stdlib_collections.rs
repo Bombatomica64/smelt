@@ -192,6 +192,37 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower Python `dict.popitem()`: the last-inserted `(key, value)` pair.
+    pub(super) fn dict_popitem_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        if attr.attr.as_str() != "popitem" {
+            return Ok(None);
+        }
+        let dict = self.expression(&attr.value, body)?;
+        let dict_ty = Self::expr_ty(body, dict);
+        let Some(Type::Dict(key_ty, value_ty)) = self.ctx.krate.types.get(dict_ty).cloned() else {
+            return Ok(None);
+        };
+        if !call.arguments.args.is_empty() || !call.arguments.keywords.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.range()),
+                "dict.popitem() takes no arguments",
+            ));
+        }
+        let ty = self.intern_type(Type::Tuple(vec![key_ty, value_ty]));
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::DictPopItem { dict },
+            ty,
+            span: self.span(call.range()),
+        })))
+    }
+
     /// Lower Python `dict.get(key[, default])` calls.
     pub(super) fn dict_get_call_expression(
         &mut self,

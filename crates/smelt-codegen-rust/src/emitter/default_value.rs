@@ -47,12 +47,12 @@ impl FunctionEmitter<'_> {
             ))),
             Type::Set(item) => Ok({ let receiver = self.set_container_name(*item); RustExpr::atom_on(&receiver, format!("{receiver}::new()")) }),
             Type::Dict(key, _) if self.dict_uses_smelt_record(*key) => {
-                Ok(self.carrier_expr(&RustExpr::atom("SmeltRecord::new()")))
+                Ok(RustExpr::atom("SmeltRecord::new()"))
             }
             Type::Dict(key, _) if self.dict_uses_js_key_map(*key) => {
                 Ok(self.carrier_expr(&RustExpr::atom("SmeltJsMap::new()")))
             }
-            Type::Dict(_, _) => Ok(RustExpr::loose("::std::collections::HashMap::new()")),
+            Type::Dict(_, _) => Ok(RustExpr::loose("::indexmap::IndexMap::new()")),
             Type::JsMap(_, _) => Ok(self.carrier_expr(&RustExpr::atom("SmeltJsMap::new()"))),
             Type::Optional(inner) => Ok(RustExpr::opaque(format!(
                 "None::<{}>",
@@ -82,6 +82,9 @@ impl FunctionEmitter<'_> {
                 Ok(RustExpr::atom(format!("{}::M0({arm})", union::union_name(ty))).delegating_with([&arm]))
             }
             Type::TypeParam { .. } | Type::Union(_) => Ok(self.null_value()),
+            Type::Class { .. } if self.is_py_exception_type(ty) => {
+                Ok(RustExpr::atom("SmeltPyException::default()"))
+            }
             Type::Class { name, .. } if self.is_regexp_class_symbol(*name)? => {
                 Ok(RustExpr::atom("SmeltRegExp::new(String::new(), String::new())"))
             }

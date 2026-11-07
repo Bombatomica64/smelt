@@ -162,9 +162,22 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::UrlOp { op, url, args } => self.url_op_expr(*op, url, args, dest_ty),
             Rvalue::PythonDivision { op, lhs, rhs, .. } => self.python_division_expr(*op, lhs, rhs),
+            Rvalue::PyExceptionNew { classes, args } => self.py_exception_new_expr(classes, args),
+            Rvalue::PyStr { value: text_of } => self.py_text_expr(text_of, "py_str"),
+            Rvalue::PyRepr { value: text_of } => self.py_text_expr(text_of, "py_repr"),
+            Rvalue::PyExceptionArgs { exception } => {
+                let exception_text = self.operand_expr(exception)?;
+                Ok(RustExpr::postfix_on(&exception_text, format!("{exception_text}.args()")))
+            }
+            Rvalue::PyExceptionCaughtBy { exception, classes, catches_unclassified } => {
+                self.py_exception_caught_by_expr(exception, classes, *catches_unclassified)
+            }
             // Lowering gives each of these a call terminator (`fallible_op`).
             Rvalue::Base64Transcode { .. }
             | Rvalue::PythonDictRead { .. }
+            | Rvalue::DictPopItem { .. }
+            | Rvalue::PythonSequenceRead { .. }
+            | Rvalue::PythonStepSlice { .. }
             | Rvalue::PythonListRead { .. }
             | Rvalue::RegExpCompile { .. }
             | Rvalue::DataViewAccess { .. }
