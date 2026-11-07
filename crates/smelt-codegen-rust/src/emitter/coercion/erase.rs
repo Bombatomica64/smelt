@@ -680,7 +680,7 @@ impl FunctionEmitter<'_> {
     /// erase paths need not spell the variant.
     pub(in crate::emitter) fn erase_object_expr(&self, entries_text: &RustExpr) -> RustExpr {
         RustExpr::atom(self.carrier_format(format_args!(
-            "SmeltUnknown::Object(SmeltObject::new(Vec::<({}, SmeltUnknown)>::from([{entries_text}])))",
+            "SmeltUnknown::Object(SmeltObject::new(Vec::<({}, _)>::from([{entries_text}])))",
             self.text_type_name(),
         )))
     }
@@ -970,7 +970,7 @@ impl FunctionEmitter<'_> {
             ))));
         }
         Ok(RustExpr::atom(self.carrier_format(format_args!(
-            "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); {entries} {host_markers}{class_marker}{proto_entries}{write_through}SmeltUnknown::Object({object_ctor}) }}"
+            "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::<(String, _)>::new(); {entries} {host_markers}{class_marker}{proto_entries}{write_through}SmeltUnknown::Object({object_ctor}) }}"
         ))))
     }
 

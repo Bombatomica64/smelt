@@ -64,7 +64,8 @@ export function cloneSlice(obj: unknown): unknown {
     // `smelt_slice_value` tag match). The tag-dispatch above proves that path
     // is gone.
     assert!(
-        source.contains("SmeltUnknown::String(value) => { let chars ="),
+        source.contains("SmeltUnknown::String(value) => { let smelt_slice_len = value.len() as i64;")
+            && source.contains("SmeltUnknown::String(value.slice(smelt_start_index as usize, smelt_end_index as usize))"),
         "erased slice must string-slice via the value-tag match, not a ToString coercion"
     );
 }
@@ -306,7 +307,7 @@ function wrap(call: (...args: string[]) => void): unknown {
     );
 
     assert!(
-        source.contains("smelt_object.push((\"__smelt_call\".to_owned()"),
+        source.contains("smelt_object.push((JsString::from(\"__smelt_call\")"),
         "{source}"
     );
     assert!(

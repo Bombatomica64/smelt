@@ -610,7 +610,11 @@ impl FunctionEmitter<'_> {
                     ))
                 };
                 let array_some = if result_is_string {
-                    self.carrier_expr(&RustExpr::chain("values.get(index).cloned().map(|value| match value { SmeltUnknown::String(value) => value.to_string(), other => other.to_string() })"))
+                    self.carrier_expr(&RustExpr::chain(format!(
+                        "values.get(index).cloned().map(|value| match value {{ SmeltUnknown::String(value) => {}, other => {} }})",
+                        self.text_from_unknown_string("value"),
+                        self.text_from_string("other.to_string()"),
+                    )))
                 } else if result_is_erased {
                     RustExpr::chain("values.get(index).cloned()")
                 } else {
@@ -629,7 +633,9 @@ impl FunctionEmitter<'_> {
                 let object_field = format!("smelt_get_object_field(&values, &{key_text})");
                 let object_some = if result_is_string {
                     self.carrier_format(format_args!(
-                        "match {object_field} {{ SmeltUnknown::Undefined => None, SmeltUnknown::String(value) => Some(value.to_string()), other => Some(other.to_string()) }}"
+                        "match {object_field} {{ SmeltUnknown::Undefined => None, SmeltUnknown::String(value) => Some({}), other => Some({}) }}",
+                        self.text_from_unknown_string("value"),
+                        self.text_from_string("other.to_string()"),
                     ))
                 } else if result_is_erased {
                     self.carrier_format(format_args!("match {object_field} {{ SmeltUnknown::Undefined => None, value => Some(value) }}"))

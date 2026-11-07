@@ -3023,14 +3023,16 @@ fn smelt_blob_record_from_parts(parts: SmeltUnknown, blob_type: String, file_nam
     smelt_blob_record(smelt_next_object_id(), &bytes, &blob_type, file_name, last_modified.unwrap_or(0.0))
 }
 
-fn smelt_index_assign(target: &mut SmeltUnknown, key: String, value: SmeltUnknown) {
+fn smelt_index_assign(target: &mut SmeltUnknown, key: impl Into<JsString>, value: SmeltUnknown) {
+    let key: JsString = key.into();
     match target {
-        SmeltUnknown::Object(map) if smelt_host_buffer_set_element(map, &key, value.clone()) => {}
+        SmeltUnknown::Object(map) if smelt_host_buffer_set_element(map, &key.to_string_lossy(), value.clone()) => {}
         SmeltUnknown::Object(map) => { map.insert(key, value); }
-        SmeltUnknown::Function(function) => { smelt_set_function_property(function, &key, value); }
+        SmeltUnknown::Function(function) => { smelt_set_function_property(function, &key.to_string_lossy(), value); }
         SmeltUnknown::Array(array) => {
-            if let Ok(index) = key.parse::<usize>() { array.set_index(index, value); }
-            else { array.set_named_property(key, value); }
+            let key_text = key.to_string_lossy();
+            if let Ok(index) = key_text.parse::<usize>() { array.set_index(index, value); }
+            else { array.set_named_property(key_text, value); }
         }
         other => { *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([(key, value)]))); }
     }
@@ -4590,7 +4592,7 @@ impl ::std::fmt::Debug for Counter {
 }
 impl IntoSmeltUnknown for Counter {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, SmeltUnknown)>::from([
+        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("label".to_owned(), SmeltUnknown::String(self.label.into())),
         ("builds".to_owned(), SmeltUnknown::Number(self.builds as f64)),
         ("describe".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = self.describe.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),

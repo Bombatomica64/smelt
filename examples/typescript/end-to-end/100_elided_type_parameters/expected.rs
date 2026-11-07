@@ -2926,14 +2926,16 @@ fn smelt_blob_record_from_parts(parts: SmeltUnknown, blob_type: String, file_nam
     smelt_blob_record(smelt_next_object_id(), &bytes, &blob_type, file_name, last_modified.unwrap_or(0.0))
 }
 
-fn smelt_index_assign(target: &mut SmeltUnknown, key: String, value: SmeltUnknown) {
+fn smelt_index_assign(target: &mut SmeltUnknown, key: impl Into<JsString>, value: SmeltUnknown) {
+    let key: JsString = key.into();
     match target {
-        SmeltUnknown::Object(map) if smelt_host_buffer_set_element(map, &key, value.clone()) => {}
+        SmeltUnknown::Object(map) if smelt_host_buffer_set_element(map, &key.to_string_lossy(), value.clone()) => {}
         SmeltUnknown::Object(map) => { map.insert(key, value); }
-        SmeltUnknown::Function(function) => { smelt_set_function_property(function, &key, value); }
+        SmeltUnknown::Function(function) => { smelt_set_function_property(function, &key.to_string_lossy(), value); }
         SmeltUnknown::Array(array) => {
-            if let Ok(index) = key.parse::<usize>() { array.set_index(index, value); }
-            else { array.set_named_property(key, value); }
+            let key_text = key.to_string_lossy();
+            if let Ok(index) = key_text.parse::<usize>() { array.set_index(index, value); }
+            else { array.set_named_property(key_text, value); }
         }
         other => { *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([(key, value)]))); }
     }
@@ -4476,7 +4478,7 @@ struct Route {
 }
 impl IntoSmeltUnknown for Route {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, SmeltUnknown)>::from([
+        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("path".to_owned(), SmeltUnknown::String(self.path.into())),
         ])))
     }
@@ -4591,7 +4593,7 @@ impl<T> PartialEq for Cell<T> where T: PartialEq {
 }
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSmeltUnknown for Cell<T> {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, SmeltUnknown)>::from([
+        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("value".to_owned(), (self.value).into_smelt_unknown()),
         ])))
     }
@@ -4644,7 +4646,7 @@ impl<Carried> PartialEq for Pair<Carried> where Cell<Carried>: PartialEq {
 }
 impl<Carried: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSmeltUnknown for Pair<Carried> {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, SmeltUnknown)>::from([
+        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("left".to_owned(), (self.left).into_smelt_unknown()),
         ("right".to_owned(), (self.right).into_smelt_unknown()),
         ])))

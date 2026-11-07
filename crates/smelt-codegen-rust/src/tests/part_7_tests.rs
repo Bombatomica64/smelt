@@ -818,7 +818,7 @@ const isoFromUnknown = new Date(value).toISOString();
     );
     assert!(
         source.contains(
-            "SmeltUnknown::String(value) => chrono::DateTime::parse_from_rfc3339(&value)"
+            "SmeltUnknown::String(value) => { let value = value.to_string_lossy(); chrono::DateTime::parse_from_rfc3339(&value)"
         ),
         "{source}"
     );
@@ -4654,7 +4654,7 @@ export function collate(a: string, b: string): number {
     );
 
     assert!(
-        source.contains("smelt_locale_compare(a.clone().as_str(), b.clone().as_str())"),
+        source.contains("smelt_locale_compare(&a.clone(), &b.clone())"),
         "{source}"
     );
     assert!(
@@ -11183,7 +11183,7 @@ fn erased_reads_and_writes_reach_a_byte_buffers_bytes() {
     );
     let assign = source_for("export function f(value: any): void { value[1] = 2; }");
     assert!(
-        assign.contains("smelt_host_buffer_set_element(map, &key, value.clone())"),
+        assign.contains("smelt_host_buffer_set_element(map, &key.to_string_lossy(), value.clone())"),
         "an erased index write must offer the byte storage the write first:\n{assign}"
     );
 }

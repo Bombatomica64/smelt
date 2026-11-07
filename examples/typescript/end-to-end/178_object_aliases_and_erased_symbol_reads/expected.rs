@@ -2859,14 +2859,16 @@ fn smelt_blob_record_from_parts(parts: SmeltUnknown, blob_type: String, file_nam
     smelt_blob_record(smelt_next_object_id(), &bytes, &blob_type, file_name, last_modified.unwrap_or(0.0))
 }
 
-fn smelt_index_assign(target: &mut SmeltUnknown, key: String, value: SmeltUnknown) {
+fn smelt_index_assign(target: &mut SmeltUnknown, key: impl Into<JsString>, value: SmeltUnknown) {
+    let key: JsString = key.into();
     match target {
-        SmeltUnknown::Object(map) if smelt_host_buffer_set_element(map, &key, value.clone()) => {}
+        SmeltUnknown::Object(map) if smelt_host_buffer_set_element(map, &key.to_string_lossy(), value.clone()) => {}
         SmeltUnknown::Object(map) => { map.insert(key, value); }
-        SmeltUnknown::Function(function) => { smelt_set_function_property(function, &key, value); }
+        SmeltUnknown::Function(function) => { smelt_set_function_property(function, &key.to_string_lossy(), value); }
         SmeltUnknown::Array(array) => {
-            if let Ok(index) = key.parse::<usize>() { array.set_index(index, value); }
-            else { array.set_named_property(key, value); }
+            let key_text = key.to_string_lossy();
+            if let Ok(index) = key_text.parse::<usize>() { array.set_index(index, value); }
+            else { array.set_named_property(key_text, value); }
         }
         other => { *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([(key, value)]))); }
     }
@@ -4412,7 +4414,7 @@ struct Options {
 impl IntoSmeltUnknown for Options {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let smelt_absent_keys: [&str; 3] = ["label", "limit", "tags"];
-        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, SmeltUnknown)>::from([
+        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("label".to_owned(), self.label.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
         ("limit".to_owned(), self.limit.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
         ("tags".to_owned(), self.tags.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Array(value.into_iter().map(|value| SmeltUnknown::String(value.into())).collect()))),
@@ -4445,7 +4447,7 @@ struct Tagged<T, N> {
 }
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, N: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSmeltUnknown for Tagged<T, N> {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, SmeltUnknown)>::from([
+        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("value".to_owned(), (self.value).into_smelt_unknown()),
         ("count".to_owned(), (self.count).into_smelt_unknown()),
         ])))
@@ -4473,7 +4475,7 @@ struct Request {
 }
 impl IntoSmeltUnknown for Request {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, SmeltUnknown)>::from([
+        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ])))
     }
 }

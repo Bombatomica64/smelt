@@ -3013,14 +3013,16 @@ fn smelt_blob_record_from_parts(parts: SmeltUnknown, blob_type: String, file_nam
     smelt_blob_record(smelt_next_object_id(), &bytes, &blob_type, file_name, last_modified.unwrap_or(0.0))
 }
 
-fn smelt_index_assign(target: &mut SmeltUnknown, key: String, value: SmeltUnknown) {
+fn smelt_index_assign(target: &mut SmeltUnknown, key: impl Into<JsString>, value: SmeltUnknown) {
+    let key: JsString = key.into();
     match target {
-        SmeltUnknown::Object(map) if smelt_host_buffer_set_element(map, &key, value.clone()) => {}
+        SmeltUnknown::Object(map) if smelt_host_buffer_set_element(map, &key.to_string_lossy(), value.clone()) => {}
         SmeltUnknown::Object(map) => { map.insert(key, value); }
-        SmeltUnknown::Function(function) => { smelt_set_function_property(function, &key, value); }
+        SmeltUnknown::Function(function) => { smelt_set_function_property(function, &key.to_string_lossy(), value); }
         SmeltUnknown::Array(array) => {
-            if let Ok(index) = key.parse::<usize>() { array.set_index(index, value); }
-            else { array.set_named_property(key, value); }
+            let key_text = key.to_string_lossy();
+            if let Ok(index) = key_text.parse::<usize>() { array.set_index(index, value); }
+            else { array.set_named_property(key_text, value); }
         }
         other => { *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([(key, value)]))); }
     }
@@ -5410,7 +5412,7 @@ struct Circle {
 }
 impl IntoSmeltUnknown for Circle {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, SmeltUnknown)>::from([
+        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("kind".to_owned(), SmeltUnknown::String(self.kind.into())),
         ("radius".to_owned(), SmeltUnknown::Number(self.radius as f64)),
         ])))
@@ -5438,7 +5440,7 @@ struct Square {
 }
 impl IntoSmeltUnknown for Square {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, SmeltUnknown)>::from([
+        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("kind".to_owned(), SmeltUnknown::String(self.kind.into())),
         ("side".to_owned(), SmeltUnknown::Number(self.side as f64)),
         ])))
@@ -5466,7 +5468,7 @@ struct Tree {
 }
 impl IntoSmeltUnknown for Tree {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, SmeltUnknown)>::from([
+        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("label".to_owned(), SmeltUnknown::String(self.label.into())),
         ("children".to_owned(), SmeltUnknown::Array(self.children.into_iter().map(|value| (value).into_smelt_unknown()).collect())),
         ])))
@@ -5500,7 +5502,7 @@ struct Order {
 impl IntoSmeltUnknown for Order {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let smelt_absent_keys: [&str; 1] = ["note"];
-        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, SmeltUnknown)>::from([
+        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("id".to_owned(), SmeltUnknown::Number(self.id as f64)),
         ("note".to_owned(), self.note.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
         ("priority".to_owned(), SmeltUnknown::String(self.priority.into())),
@@ -5549,8 +5551,8 @@ pub enum SmeltUnion2 {
 impl IntoSmeltUnknown for SmeltUnion2 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         match self {
-            Self::M0(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("kind".to_owned(), SmeltUnknown::String(smelt_object_value.kind.into()))); smelt_object_entries.push(("radius".to_owned(), SmeltUnknown::Number(smelt_object_value.radius as f64))); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) },
-            Self::M1(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("kind".to_owned(), SmeltUnknown::String(smelt_object_value.kind.into()))); smelt_object_entries.push(("side".to_owned(), SmeltUnknown::Number(smelt_object_value.side as f64))); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) },
+            Self::M0(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::<(String, _)>::new(); smelt_object_entries.push(("kind".to_owned(), SmeltUnknown::String(smelt_object_value.kind.into()))); smelt_object_entries.push(("radius".to_owned(), SmeltUnknown::Number(smelt_object_value.radius as f64))); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) },
+            Self::M1(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::<(String, _)>::new(); smelt_object_entries.push(("kind".to_owned(), SmeltUnknown::String(smelt_object_value.kind.into()))); smelt_object_entries.push(("side".to_owned(), SmeltUnknown::Number(smelt_object_value.side as f64))); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) },
         }
     }
 }

@@ -1416,7 +1416,10 @@ impl FunctionEmitter<'_> {
                 numeric.parenthesized_if_needed()
             )),
             Some(Type::Float) => numeric,
-            Some(Type::String | Type::PyStr) => {
+            Some(Type::String) => {
+                RustExpr::chain(format!("JsString::from({}.to_string())", numeric.parenthesized_if_needed()))
+            }
+            Some(Type::PyStr) => {
                 { let receiver = numeric.parenthesized_if_needed(); RustExpr::postfix_on(&receiver, format!("{receiver}.to_string()")) }
             }
             // The erased target is already an `f64` value in argument position

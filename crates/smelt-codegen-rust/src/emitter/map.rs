@@ -823,7 +823,7 @@ impl FunctionEmitter<'_> {
         ) {
             return match op {
                 smelt_hir::DictProjectionOp::FromEntries => Ok(RustExpr::atom(self.carrier_format(format_args!(
-                    "match {dict_text} {{ SmeltUnknown::Array(entries) => entries.into_iter().filter_map(|entry| match entry {{ SmeltUnknown::Array(values) if values.len() >= 2 => {{ let mut values = values.into_iter(); let key = match values.next()? {{ SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), _ => return None }}; Some((key, values.next()?)) }}, _ => None }}).collect::<SmeltRecord<JsString, SmeltUnknown>>(), _ => SmeltRecord::new() }}"
+                    "match {dict_text} {{ SmeltUnknown::Array(entries) => entries.into_iter().filter_map(|entry| match entry {{ SmeltUnknown::Array(values) if values.len() >= 2 => {{ let mut values = values.into_iter(); let key = match values.next()? {{ SmeltUnknown::String(value) => value, SmeltUnknown::Number(value) => JsString::from(smelt_number_to_string(value)), SmeltUnknown::Bool(value) => JsString::from(value.to_string()), _ => return None }}; Some((key, values.next()?)) }}, _ => None }}).collect::<SmeltRecord<JsString, SmeltUnknown>>(), _ => SmeltRecord::new() }}"
                 )))),
                 // A byte-backed host record's own enumerable properties are its
                 // *element indices*: `Object.keys(new Uint8Array(1))` is `['0']`,
@@ -871,7 +871,7 @@ impl FunctionEmitter<'_> {
                     elements = smelt_stdlib::runtime_symbols::byte_buffer::OWN_ELEMENTS,
                 )))),
                 smelt_hir::DictProjectionOp::Entries => Ok(RustExpr::atom(self.carrier_format(format_args!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => {elements}(&SmeltUnknown::Object(map.clone())).map_or_else(|| map.clone().into_iter().filter(|(key, _)| !key.starts_with(\"{SMELT_SYMBOL}\") && !key.starts_with(\"{SMELT_PROTO}:\") && !key.starts_with(\"{SMELT_METHOD}:\") && key != \"{SMELT_CLASS}\").collect::<Vec<_>>(), |values| values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect::<Vec<_>>()), SmeltUnknown::Array(values) => values.own_entries(), _ => Vec::new() }}",
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => {elements}(&SmeltUnknown::Object(map.clone())).map_or_else(|| map.clone().into_iter().filter(|(key, _)| !key.starts_with(\"{SMELT_SYMBOL}\") && !key.starts_with(\"{SMELT_PROTO}:\") && !key.starts_with(\"{SMELT_METHOD}:\") && key != \"{SMELT_CLASS}\").collect::<Vec<_>>(), |values| values.into_iter().enumerate().map(|(index, value)| (JsString::from(index.to_string()), value)).collect::<Vec<_>>()), SmeltUnknown::Array(values) => values.own_entries(), _ => Vec::new() }}",
                     elements = smelt_stdlib::runtime_symbols::byte_buffer::OWN_ELEMENTS,
                 )))),
             };
@@ -993,8 +993,9 @@ impl FunctionEmitter<'_> {
                 // `String`-keyed backing stores them prefixed, a `SmeltUnknown`-keyed
                 // one stores the tag directly, and both hand back the tag.
                 if self.mir.types.get(*key_ty).is_some_and(Type::is_text) {
+                    let key_text = self.host_utf8_text(RustExpr::path("key"));
                     Ok(RustExpr::atom_on(&dict_text, format!(
-                        "{dict_text}.keys().filter_map(|key| smelt_own_symbol_key_value(&key)).collect::<Vec<_>>()"
+                        "{dict_text}.keys().filter_map(|key| smelt_own_symbol_key_value(&{key_text})).collect::<Vec<_>>()"
                     )))
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     // The mirror image of the `Keys` arm: the same own-entry
@@ -1054,7 +1055,7 @@ impl FunctionEmitter<'_> {
                         // its decoded elements; see the `Keys` arm above.
                         if self.dict_holds_erased_values(self.operand_ty(dict)?) {
                             return Ok(RustExpr::chain(format!(
-                                "{helper}(&{dict_text}).map_or_else(|| {dict_text}.iter().filter(|(key, _)| !key.starts_with(\"{SMELT_SYMBOL}\") && !key.starts_with(\"{SMELT_PROTO}:\") && !key.starts_with(\"{SMELT_METHOD}:\") && key != \"{SMELT_CLASS}\").collect::<Vec<_>>(), |values| values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect::<Vec<_>>())",
+                                "{helper}(&{dict_text}).map_or_else(|| {dict_text}.iter().filter(|(key, _)| !key.starts_with(\"{SMELT_SYMBOL}\") && !key.starts_with(\"{SMELT_PROTO}:\") && !key.starts_with(\"{SMELT_METHOD}:\") && key != \"{SMELT_CLASS}\").collect::<Vec<_>>(), |values| values.into_iter().enumerate().map(|(index, value)| (JsString::from(index.to_string()), value)).collect::<Vec<_>>())",
                                 helper = smelt_stdlib::runtime_symbols::byte_buffer::RECORD_ELEMENTS,
                             )));
                         }

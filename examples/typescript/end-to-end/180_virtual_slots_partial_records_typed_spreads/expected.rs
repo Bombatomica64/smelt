@@ -2958,14 +2958,16 @@ fn smelt_blob_record_from_parts(parts: SmeltUnknown, blob_type: String, file_nam
     smelt_blob_record(smelt_next_object_id(), &bytes, &blob_type, file_name, last_modified.unwrap_or(0.0))
 }
 
-fn smelt_index_assign(target: &mut SmeltUnknown, key: String, value: SmeltUnknown) {
+fn smelt_index_assign(target: &mut SmeltUnknown, key: impl Into<JsString>, value: SmeltUnknown) {
+    let key: JsString = key.into();
     match target {
-        SmeltUnknown::Object(map) if smelt_host_buffer_set_element(map, &key, value.clone()) => {}
+        SmeltUnknown::Object(map) if smelt_host_buffer_set_element(map, &key.to_string_lossy(), value.clone()) => {}
         SmeltUnknown::Object(map) => { map.insert(key, value); }
-        SmeltUnknown::Function(function) => { smelt_set_function_property(function, &key, value); }
+        SmeltUnknown::Function(function) => { smelt_set_function_property(function, &key.to_string_lossy(), value); }
         SmeltUnknown::Array(array) => {
-            if let Ok(index) = key.parse::<usize>() { array.set_index(index, value); }
-            else { array.set_named_property(key, value); }
+            let key_text = key.to_string_lossy();
+            if let Ok(index) = key_text.parse::<usize>() { array.set_index(index, value); }
+            else { array.set_named_property(key_text, value); }
         }
         other => { *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([(key, value)]))); }
     }
@@ -4509,7 +4511,7 @@ struct Parsed<T> {
 }
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSmeltUnknown for Parsed<T> {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, SmeltUnknown)>::from([
+        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("value".to_owned(), (self.value).into_smelt_unknown()),
         ])))
     }
@@ -4535,7 +4537,7 @@ struct Options {
 impl IntoSmeltUnknown for Options {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let smelt_absent_keys: [&str; 2] = ["credentials", "maxAge"];
-        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, SmeltUnknown)>::from([
+        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("origin".to_owned(), SmeltUnknown::String(self.origin.into())),
         ("credentials".to_owned(), self.credentials.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Bool(value))),
         ("maxAge".to_owned(), self.max_age.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
@@ -4569,7 +4571,7 @@ struct PartialOptions {
 impl IntoSmeltUnknown for PartialOptions {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let smelt_absent_keys: [&str; 3] = ["origin", "credentials", "maxAge"];
-        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, SmeltUnknown)>::from([
+        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("origin".to_owned(), self.origin.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
         ("credentials".to_owned(), self.credentials.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Bool(value))),
         ("maxAge".to_owned(), self.max_age.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
@@ -4619,7 +4621,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> ::std::
 }
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSmeltUnknown for Pair<T> {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, SmeltUnknown)>::from([
+        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("left".to_owned(), (self.left).into_smelt_unknown()),
         ("right".to_owned(), (self.right).into_smelt_unknown()),
         ("swap".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn() -> Pair<T>> = self.swap.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)()).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
@@ -5176,7 +5178,7 @@ struct Lists {
 }
 impl IntoSmeltUnknown for Lists {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, SmeltUnknown)>::from([
+        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("items".to_owned(), SmeltUnknown::Array(self.items.into_iter().map(|value| SmeltUnknown::Array(value.into_iter().map(|value| SmeltUnknown::String(value.into())).collect())).collect())),
         ])))
     }

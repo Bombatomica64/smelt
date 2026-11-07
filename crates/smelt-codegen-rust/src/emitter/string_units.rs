@@ -45,6 +45,13 @@ impl FunctionEmitter<'_> {
         if self.indexes_utf16() { RustExpr::postfix_on(&text, format!("{text}.to_string_lossy()")) } else { text }
     }
 
+    /// `payload`, the `JsString` an erased `SmeltUnknown::String` holds, as a
+    /// value of this body's string type: itself in a TypeScript body, its
+    /// UTF-8 text in a Python one.
+    pub(super) fn text_from_unknown_string(&self, payload: &str) -> String {
+        if self.indexes_utf16() { payload.to_owned() } else { format!("{payload}.to_string()") }
+    }
+
     /// The constant `value` as a value of this body's string type.
     pub(super) fn text_literal(&self, value: &str) -> RustExpr {
         if self.indexes_utf16() { RustExpr::js_string_literal(value) } else { RustExpr::string_literal(value) }

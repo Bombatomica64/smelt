@@ -498,7 +498,7 @@ impl FunctionEmitter<'_> {
                 RustExpr::atom(format!("(*{receiver_text}.last_index.borrow() as f64)"))
             }
             "constructor" => {
-                RustExpr::atom("SmeltUnknown::Object(SmeltObject::new(Vec::<(JsString, SmeltUnknown)>::new()))")
+                RustExpr::atom("SmeltUnknown::Object(SmeltObject::new(Vec::<(JsString, _)>::new()))")
             }
             // A property a RegExp does not have reads `undefined`.
             _ => self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined")),

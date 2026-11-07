@@ -235,7 +235,8 @@ fn smelt_vitest_restore_all_mocks() { let spies = SMELT_VITEST_SPIES.with(|spies
 /// behaviour still runs; its `mockRestore` puts the member back. A target
 /// that is not an object has no member to replace, so it yields a bare
 /// recording mock rather than failing the program.
-fn smelt_vitest_spy_on(target: &SmeltUnknown, name: &str) -> SmeltUnknown {
+fn smelt_vitest_spy_on(target: &SmeltUnknown, name: &(impl SmeltHostText + ?Sized)) -> SmeltUnknown {
+    let name = name.host_text(); let name: &str = &name;
     let SmeltUnknown::Object(object) = target else { return smelt_vitest_mock_new(None); };
     let own = object.get(name);
     let original = smelt_host_method(object, name).or_else(|| own.clone());

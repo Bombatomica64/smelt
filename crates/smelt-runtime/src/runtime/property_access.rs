@@ -8,27 +8,29 @@
 // Centralizing this keeps each call site a single call instead of an
 // inline `match` that repeats `SmeltUnknown` at every assignment.
 // @smelt:item smelt_index_assign when unknown
-fn smelt_index_assign(target: &mut SmeltUnknown, key: String, value: SmeltUnknown) {
+fn smelt_index_assign(target: &mut SmeltUnknown, key: impl Into<JsString>, value: SmeltUnknown) {
+    let key: JsString = key.into();
     match target {
         //~ A byte-backed host object's indexed slots are its bytes, not ordinary
         //~ record properties: `view[i] = byte` has to land in `bytes` so a later
         //~ `view[i]` read and a `slice()` observe it. Writes to any other key, or to
         //~ a record without byte storage, fall through to the property insert.
-        SmeltUnknown::Object(map) if smelt_host_buffer_set_element(map, &key, value.clone()) => {}
+        SmeltUnknown::Object(map) if smelt_host_buffer_set_element(map, &key.to_string_lossy(), value.clone()) => {}
         SmeltUnknown::Object(map) => { map.insert(key, value); }
         //~ A JavaScript function is an object, so a keyed write onto one is a
         //~ real store into its own-property bag (`function_object_prelude`) --
         //~ not a reason to replace the function with a record, which is what the
         //~ fallback arm below would do and which loses the callable.
-        SmeltUnknown::Function(function) => { smelt_set_function_property(function, &key, value); }
+        SmeltUnknown::Function(function) => { smelt_set_function_property(function, &key.to_string_lossy(), value); }
         //~ A JS array keeps being an array when a non-index key is written to it:
         //~ `a[0] = x` sets an element, `a.x = v` sets a named property in the
         //~ array's side table (`SmeltArray::props`). Replacing the array with a
         //~ one-property object — what this used to do — lost every element and made
         //~ `Array.isArray(a)` answer `false`.
         SmeltUnknown::Array(array) => {
-            if let Ok(index) = key.parse::<usize>() { array.set_index(index, value); }
-            else { array.set_named_property(key, value); }
+            let key_text = key.to_string_lossy();
+            if let Ok(index) = key_text.parse::<usize>() { array.set_index(index, value); }
+            else { array.set_named_property(key_text, value); }
         }
         other => { *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([(key, value)]))); }
     }

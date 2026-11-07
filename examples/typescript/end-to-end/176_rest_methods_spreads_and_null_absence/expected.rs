@@ -2982,14 +2982,16 @@ fn smelt_blob_record_from_parts(parts: SmeltUnknown, blob_type: String, file_nam
     smelt_blob_record(smelt_next_object_id(), &bytes, &blob_type, file_name, last_modified.unwrap_or(0.0))
 }
 
-fn smelt_index_assign(target: &mut SmeltUnknown, key: String, value: SmeltUnknown) {
+fn smelt_index_assign(target: &mut SmeltUnknown, key: impl Into<JsString>, value: SmeltUnknown) {
+    let key: JsString = key.into();
     match target {
-        SmeltUnknown::Object(map) if smelt_host_buffer_set_element(map, &key, value.clone()) => {}
+        SmeltUnknown::Object(map) if smelt_host_buffer_set_element(map, &key.to_string_lossy(), value.clone()) => {}
         SmeltUnknown::Object(map) => { map.insert(key, value); }
-        SmeltUnknown::Function(function) => { smelt_set_function_property(function, &key, value); }
+        SmeltUnknown::Function(function) => { smelt_set_function_property(function, &key.to_string_lossy(), value); }
         SmeltUnknown::Array(array) => {
-            if let Ok(index) = key.parse::<usize>() { array.set_index(index, value); }
-            else { array.set_named_property(key, value); }
+            let key_text = key.to_string_lossy();
+            if let Ok(index) = key_text.parse::<usize>() { array.set_index(index, value); }
+            else { array.set_named_property(key_text, value); }
         }
         other => { *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([(key, value)]))); }
     }
@@ -4731,7 +4733,7 @@ impl ::std::fmt::Debug for Label {
 }
 impl IntoSmeltUnknown for Label {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, SmeltUnknown)>::from([
+        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("__smelt_call".to_owned(), { let smelt_function_value: ::std::rc::Rc<dyn Fn(JsString, Option<JsString>) -> JsString> = self.__smelt_call.clone(); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_function_value)(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)))).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }),
         ])))
     }
@@ -4756,7 +4758,7 @@ struct Entry {
 }
 impl IntoSmeltUnknown for Entry {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, SmeltUnknown)>::from([
+        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("key".to_owned(), SmeltUnknown::String(self.key.into())),
         ("value".to_owned(), self.value.map_or(SmeltUnknown::Null, |smelt_present| SmeltUnknown::String(smelt_present.into()))),
         ])))
@@ -4953,7 +4955,7 @@ fn main() {
     let _smelt_tmp_46: JsString = describe(Some(JsString::from("y")));
     _smelt_tmp_47 = pending.clone().unwrap_or(JsString::from("null"));
     _smelt_tmp_48 = Entry { key: JsString::from("c"), value: None::<JsString> };
-    _smelt_tmp_49 = JsString::from(serde_json::to_string(&{ let smelt_object_value = _smelt_tmp_48; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("key".to_owned(), SmeltUnknown::String(smelt_object_value.key.into()))); smelt_object_entries.push(("value".to_owned(), match smelt_object_value.value.clone() { Some(value) => SmeltUnknown::String(value.into()), None => SmeltUnknown::Null })); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) }).expect("JSON serialization failed"));
+    _smelt_tmp_49 = JsString::from(serde_json::to_string(&{ let smelt_object_value = _smelt_tmp_48; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::<(String, _)>::new(); smelt_object_entries.push(("key".to_owned(), SmeltUnknown::String(smelt_object_value.key.into()))); smelt_object_entries.push(("value".to_owned(), match smelt_object_value.value.clone() { Some(value) => SmeltUnknown::String(value.into()), None => SmeltUnknown::Null })); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) }).expect("JSON serialization failed"));
     let _ = { println!("{} {} {} {}", _smelt_tmp_45, _smelt_tmp_46, _smelt_tmp_47, _smelt_tmp_49); };
     pending = Some(JsString::from("done"));
     _smelt_tmp_51 = pending.clone().expect("optional value was absent after narrowing");

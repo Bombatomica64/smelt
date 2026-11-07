@@ -1146,6 +1146,9 @@ impl FunctionEmitter<'_> {
                 Some(Type::Bool | Type::Int | Type::Float)
             )
         {
+            if self.mir.types.get(target) == Some(&Type::String) {
+                return Ok(RustExpr::chain(format!("JsString::from({value_text}.to_string())")));
+            }
             return Ok(RustExpr::postfix_on(&value_text, format!("{value_text}.to_string()")));
         }
         if matches!(

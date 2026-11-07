@@ -782,7 +782,7 @@ const asValue = encodeURI;
     // Both the direct call and the first-class value form route through the
     // shared percent-encoding runtime helper.
     assert!(source.contains("fn smelt_encode_uri("), "{source}");
-    assert!(source.contains("= smelt_encode_uri("), "{source}");
+    assert!(source.contains("= JsString::from(smelt_encode_uri("), "{source}");
 }
 
 #[test]

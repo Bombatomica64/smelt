@@ -51,9 +51,10 @@ impl FunctionEmitter<'_> {
             smelt_hir::StringNormalizeForm::Nfkc => "nfkc",
             smelt_hir::StringNormalizeForm::Nfkd => "nfkd",
         };
-        Ok(RustExpr::opaque(format!(
-            "unicode_normalization::UnicodeNormalization::{method_name}({receiver_text}.as_str()).collect::<String>()"
-        )))
+        let host_text = self.host_utf8_text(receiver_text);
+        Ok(RustExpr::opaque(self.text_from_string(&format!(
+            "unicode_normalization::UnicodeNormalization::{method_name}({host_text}.as_str()).collect::<String>()"
+        ))))
     }
 
     /// Converts one of the four JavaScript URI transcoding globals to a call to
@@ -93,7 +94,8 @@ impl FunctionEmitter<'_> {
                 "internal: fallible `{name}` reached the infallible rvalue path"
             )));
         }
-        Ok(RustExpr::chain(format!("{helper}({receiver_text}.as_str())")))
+        // The encoders answer UTF-8 `String`; the value is this body's string.
+        Ok(RustExpr::chain(self.text_from_string(&format!("{helper}(&{receiver_text})"))))
     }
 
     /// Converts JavaScript `left.localeCompare(right)` to a call to the runtime
@@ -111,7 +113,7 @@ impl FunctionEmitter<'_> {
         let left_text = self.string_like_operand_expr(left, "localeCompare")?;
         let right_text = self.string_like_operand_expr(right, "localeCompare")?;
         Ok(RustExpr::chain(format!(
-            "{locale_compare}({left_text}.as_str(), {right_text}.as_str())",
+            "{locale_compare}(&{left_text}, &{right_text})",
             locale_compare = smelt_stdlib::runtime_symbols::strings::LOCALE_COMPARE,
         )))
     }

@@ -2982,14 +2982,16 @@ fn smelt_blob_record_from_parts(parts: SmeltUnknown, blob_type: String, file_nam
     smelt_blob_record(smelt_next_object_id(), &bytes, &blob_type, file_name, last_modified.unwrap_or(0.0))
 }
 
-fn smelt_index_assign(target: &mut SmeltUnknown, key: String, value: SmeltUnknown) {
+fn smelt_index_assign(target: &mut SmeltUnknown, key: impl Into<JsString>, value: SmeltUnknown) {
+    let key: JsString = key.into();
     match target {
-        SmeltUnknown::Object(map) if smelt_host_buffer_set_element(map, &key, value.clone()) => {}
+        SmeltUnknown::Object(map) if smelt_host_buffer_set_element(map, &key.to_string_lossy(), value.clone()) => {}
         SmeltUnknown::Object(map) => { map.insert(key, value); }
-        SmeltUnknown::Function(function) => { smelt_set_function_property(function, &key, value); }
+        SmeltUnknown::Function(function) => { smelt_set_function_property(function, &key.to_string_lossy(), value); }
         SmeltUnknown::Array(array) => {
-            if let Ok(index) = key.parse::<usize>() { array.set_index(index, value); }
-            else { array.set_named_property(key, value); }
+            let key_text = key.to_string_lossy();
+            if let Ok(index) = key_text.parse::<usize>() { array.set_index(index, value); }
+            else { array.set_named_property(key_text, value); }
         }
         other => { *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([(key, value)]))); }
     }
@@ -5811,7 +5813,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_57 = JsString::from(_smelt_tmp_56.pathname());
     let _ = { println!("{}", _smelt_tmp_57); };
     _smelt_tmp_59 = JsString::from(relative.href());
-    _smelt_tmp_60 = SmeltRequest::from_parts_with_init(&_smelt_tmp_59, ("GET".to_owned()).to_string(), SmeltHeaders::new(), SmeltBody::empty(), SmeltRequestInit::default());
+    _smelt_tmp_60 = SmeltRequest::from_parts_with_init(&_smelt_tmp_59, (JsString::from("GET")).to_string(), SmeltHeaders::new(), SmeltBody::empty(), SmeltRequestInit::default());
     _smelt_tmp_61 = JsString::from(_smelt_tmp_60.url());
     let _ = { println!("{}", _smelt_tmp_61); };
     _smelt_tmp_63 = JsString::new() + &JsString::from(relative.href());

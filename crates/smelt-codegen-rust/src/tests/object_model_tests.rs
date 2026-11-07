@@ -38,7 +38,7 @@ export function tagArray(): unknown {
         "a named write on an array receiver must store into the array:\n{body}"
     );
     assert!(
-        source.contains("else { array.set_named_property(key, value); }"),
+        source.contains("else { array.set_named_property(key_text, value); }"),
         "the runtime index-assign helper must keep the array for a non-index key"
     );
     assert!(
