@@ -279,7 +279,19 @@ impl ModuleBuilder<'_> {
                 "string prefix/suffix methods require one needle and an optional position argument",
             ));
         }
+        let mark = self.speculation_mark(body);
         let mut haystack = self.expression(&member.object, body)?;
+        let method = self.intern_source_name(member.property.name.as_str());
+        // An erased receiver the checker types as something other than a
+        // string (ts-pattern's `P.string`, a namespace member) is not a string.
+        let haystack_ty = Self::expr_ty(body, haystack);
+        if self.receiver_owns_member(haystack_ty, method)
+            || (self.type_contains_unknown(haystack_ty)
+                && self.checker_types_as_non_string(member.object.span().start, member.object.span().end))
+        {
+            self.roll_back_to(mark, body);
+            return Ok(None);
+        }
         let Some(needle_argument) = call.arguments.first() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
@@ -1073,8 +1085,14 @@ impl ModuleBuilder<'_> {
         // o.includes(x)` over an untyped parameter (Hono's CORS `origin`). The
         // call is left to the runtime `includes`, which dispatches on the
         // value; asserting it to `String` searched `"[object Object]"`.
-        if self.type_contains_unknown(haystack_ty)
-            && self.checker_types_as_array(member.object.span().start, member.object.span().end)
+        // The same holds for any erased receiver the checker types as something
+        // that cannot be a string (ts-pattern's `P.string` pattern object), and
+        // for a receiver whose own type declares `includes`.
+        let (start, end) = (member.object.span().start, member.object.span().end);
+        let method = self.intern_source_name("includes");
+        if (self.type_contains_unknown(haystack_ty)
+            && (self.checker_types_as_array(start, end) || self.checker_types_as_non_string(start, end)))
+            || self.receiver_owns_member(haystack_ty, method)
         {
             return Ok(None);
         }

@@ -178,6 +178,12 @@ fn string_bound_needle() -> TestResult {
     verify_node_parity("string_bound_needle")
 }
 
+/// A receiver's own `startsWith`/`includes` wins over the string methods.
+#[test]
+fn member_named_like_string_method() -> TestResult {
+    verify_node_parity_with("member_named_like_string_method", &["pattern.ts"])
+}
+
 /// A parameter does not hide a module constant from other functions.
 #[test]
 fn parameter_shadows_module_const() -> TestResult {
