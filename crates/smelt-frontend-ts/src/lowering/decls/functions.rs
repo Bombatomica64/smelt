@@ -1682,6 +1682,7 @@ impl ModuleBuilder<'_> {
         if materialized.is_some() {
             self.validate_specialization_adapters(self.span(class.span.start, class.span.end))?;
         }
+        let statics_depth = self.classes.statics_in_flight_depth();
         let item = self.with_type_parameter_scope(class.type_parameters.as_deref(), |this, type_params| {
             let class_type_args = type_params
                 .iter()
@@ -1980,6 +1981,7 @@ impl ModuleBuilder<'_> {
                     static_fields.push(static_field);
                 }
             }
+            this.classes.push_statics_in_flight(class_source_name.clone(), static_fields.clone());
             let method_sigs = this.class_method_signatures(&class.body.body)?;
             let virtual_method_fields =
                 this.virtual_method_field_names(&class.body.body, class.r#abstract);
@@ -2427,7 +2429,9 @@ impl ModuleBuilder<'_> {
                 protocols: Vec::new(),
             }));
             Ok(item)
-        })?;
+        });
+        self.classes.truncate_statics_in_flight(statics_depth);
+        let item = item?;
         self.classes.register(class_source_name, item);
         self.validate_implements(item)?;
         Ok(item)

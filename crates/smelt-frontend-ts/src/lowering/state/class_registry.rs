@@ -88,6 +88,9 @@ pub(in crate::lowering) enum ClassState {
 pub(in crate::lowering) struct ClassRegistry {
     /// Every class name the module knows: its declaration and its item.
     names: HashMap<String, ClassName>,
+    /// The static fields of the classes being lowered, innermost last: a method
+    /// reads its own class's statics before the class has an item.
+    statics_in_flight: Vec<(String, Vec<smelt_hir::StaticField>)>,
     /// The class scopes local declarations shadowed, innermost last.
     shadows: Vec<ClassScopeSnapshot>,
     /// How many function and closure bodies enclose the code being lowered.
@@ -230,6 +233,34 @@ impl ClassRegistry {
     /// yet or not).
     pub(in crate::lowering) fn is_pending(&self, name: &str) -> bool {
         self.names.get(name).is_some_and(|entry| entry.declared.is_some())
+    }
+
+    /// Publish the static fields of class `name` for its own method bodies.
+    pub(in crate::lowering) fn push_statics_in_flight(
+        &mut self,
+        name: String,
+        fields: Vec<smelt_hir::StaticField>,
+    ) {
+        self.statics_in_flight.push((name, fields));
+    }
+
+    /// How many classes are publishing their statics.
+    pub(in crate::lowering) fn statics_in_flight_depth(&self) -> usize {
+        self.statics_in_flight.len()
+    }
+
+    /// End every [`Self::push_statics_in_flight`] past `depth`.
+    pub(in crate::lowering) fn truncate_statics_in_flight(&mut self, depth: usize) {
+        self.statics_in_flight.truncate(depth);
+    }
+
+    /// The static fields of `name`, when it is a class still being lowered.
+    pub(in crate::lowering) fn statics_in_flight(&self, name: &str) -> Option<&[smelt_hir::StaticField]> {
+        self.statics_in_flight
+            .iter()
+            .rev()
+            .find(|(class, _)| class == name)
+            .map(|(_, fields)| fields.as_slice())
     }
 
     /// Return whether a class is registered under `name`.

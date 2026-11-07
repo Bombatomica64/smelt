@@ -370,18 +370,24 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(class_name) = &member.object else {
             return Ok(None);
         };
-        let Some(class_item) = self.classes.item(class_name.name.as_str()) else {
-            return Ok(None);
-        };
-        let Item::Class(class) = self.item_ref(class_item) else {
-            return Ok(None);
+        let in_flight = self.classes.statics_in_flight(class_name.name.as_str());
+        let static_fields = match in_flight {
+            Some(fields) => fields,
+            None => {
+                let Some(class_item) = self.classes.item(class_name.name.as_str()) else {
+                    return Ok(None);
+                };
+                let Item::Class(class) = self.item_ref(class_item) else {
+                    return Ok(None);
+                };
+                class.static_fields.as_slice()
+            }
         };
         // Static field names are interned through the source-name path, which
         // case-folds camelCase to snake_case (`PI` -> `pi`). Compare against the
         // same folded spelling so qualified reads like `Class.PI` resolve.
         let member_symbol = crate::camel_to_snake(member.property.name.as_str());
-        let Some(field) = class
-            .static_fields
+        let Some(field) = static_fields
             .iter()
             .find(|field| self.ctx.krate.symbols.get(field.name) == Some(member_symbol.as_str()))
             .cloned()

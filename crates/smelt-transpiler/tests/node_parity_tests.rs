@@ -118,6 +118,12 @@ fn class_function_field_by_key() -> TestResult {
     verify_node_parity("class_function_field_by_key")
 }
 
+/// A class reads its own static fields from its method bodies.
+#[test]
+fn local_class_static_self_read() -> TestResult {
+    verify_node_parity("local_class_static_self_read")
+}
+
 /// A parameter does not hide a module constant from other functions.
 #[test]
 fn parameter_shadows_module_const() -> TestResult {
