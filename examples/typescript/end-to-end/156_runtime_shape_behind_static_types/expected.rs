@@ -1988,7 +1988,6 @@ pub struct SmeltObject {
 }
 
 impl Clone for SmeltObject { fn clone(&self) -> Self { Self { id: self.id, store: self.store.clone() } } }
-
 impl<V> SmeltRecord<JsString, V> {
     /// Whether the record has the key spelled by the runtime text `key`.
     #[allow(dead_code)]
@@ -1997,7 +1996,6 @@ impl<V> SmeltRecord<JsString, V> {
     #[allow(dead_code)]
     fn get_text(&self, key: &str) -> Option<V> where V: Clone { key.with_js_key(|key| self.store.borrow().get(key).cloned()) }
 }
-
 /// A key an erased object is read by: a JavaScript string as it is, and the
 /// runtime's own `&str` keys (markers, spec property names) encoded on the
 /// stack when they are short, so a marker probe allocates nothing.

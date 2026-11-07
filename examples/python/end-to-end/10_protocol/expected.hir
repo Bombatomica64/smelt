@@ -7,9 +7,9 @@ module examples/python/end-to-end/10_protocol/input.py (ModuleId(0))
     fn area owner ClassMethod { class: Symbol(7), method: Symbol(4) }
     fn label owner ClassMethod { class: Symbol(7), method: Symbol(6) }
     class Square fields [Public side: Int, Public name: PyStr] constructor Some(ItemId(5)) methods [ItemId(3), ItemId(4)] implements []
-    fn __init__ owner Constructor { class: Symbol(11) }
-    fn area owner ClassMethod { class: Symbol(11), method: Symbol(4) }
-    fn label owner ClassMethod { class: Symbol(11), method: Symbol(6) }
+    fn __init__ owner Constructor { class: Symbol(12) }
+    fn area owner ClassMethod { class: Symbol(12), method: Symbol(4) }
+    fn label owner ClassMethod { class: Symbol(12), method: Symbol(6) }
     class Rect fields [Public w: Int, Public h: Int, Public name: PyStr] constructor Some(ItemId(9)) methods [ItemId(7), ItemId(8)] implements []
     fn describe owner Module
     fn biggest owner Module
@@ -29,8 +29,9 @@ interned types
   t5 = fn() -> Int
   t6 = fn(PyStr) -> PyStr
   t7 = Square
-  t8 = Rect
-  t9 = Bool
-  t10 = fn(Shape) -> PyStr
-  t11 = fn(Shape, Shape) -> Shape
-  t12 = fn() -> None
+  t8 = __SmeltPyException
+  t9 = Rect
+  t10 = Bool
+  t11 = fn(Shape) -> PyStr
+  t12 = fn(Shape, Shape) -> Shape
+  t13 = fn() -> None

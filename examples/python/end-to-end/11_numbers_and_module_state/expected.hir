@@ -29,7 +29,8 @@ interned types
   t1 = PyStr
   t2 = Counter
   t3 = Int
-  t4 = Float
-  t5 = Bool
-  t6 = fn() -> Int
-  t7 = fn() -> None
+  t4 = __SmeltPyException
+  t5 = Float
+  t6 = Bool
+  t7 = fn() -> Int
+  t8 = fn() -> None

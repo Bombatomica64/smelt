@@ -12,7 +12,11 @@ pub struct SmeltObject {
 }
 
 impl Clone for SmeltObject { fn clone(&self) -> Self { Self { id: self.id, store: self.store.clone() } } }
+// @smelt:item-end
 
+//~ Typed JavaScript records read source property names through these, with
+//~ or without the erased object in the program.
+// @smelt:item impl_SmeltRecord_JsString_V when record & js_string
 impl<V> SmeltRecord<JsString, V> {
     /// Whether the record has the key spelled by the runtime text `key`.
     #[allow(dead_code)]
@@ -21,7 +25,9 @@ impl<V> SmeltRecord<JsString, V> {
     #[allow(dead_code)]
     fn get_text(&self, key: &str) -> Option<V> where V: Clone { key.with_js_key(|key| self.store.borrow().get(key).cloned()) }
 }
+// @smelt:item-end
 
+// @smelt:item SmeltObjectKey when js_string
 /// A key an erased object is read by: a JavaScript string as it is, and the
 /// runtime's own `&str` keys (markers, spec property names) encoded on the
 /// stack when they are short, so a marker probe allocates nothing.
@@ -44,6 +50,9 @@ impl SmeltObjectKey for String { fn with_js_key<R>(&self, read: impl FnOnce(&JsS
 impl SmeltObjectKey for JsStr { fn with_js_key<R>(&self, read: impl FnOnce(&Self) -> R) -> R { read(self) } }
 impl SmeltObjectKey for JsString { fn with_js_key<R>(&self, read: impl FnOnce(&JsStr) -> R) -> R { read(self) } }
 impl<T: SmeltObjectKey + ?Sized> SmeltObjectKey for &T { fn with_js_key<R>(&self, read: impl FnOnce(&JsStr) -> R) -> R { (**self).with_js_key(read) } }
+// @smelt:item-end
+
+// @smelt:item impl_SmeltObject when unknown
 impl SmeltObject {
     //~ A JavaScript object is a REFERENCE value, so recovering an erased one
     //~ at its record type must not copy it: `SmeltObject` and

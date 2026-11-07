@@ -35,7 +35,7 @@ fn area (FuncId(3)) -> Int
     %0 param self: Rect
     %1 temp: Int
   bb0:
-    %1 = copy %0.field12 * copy %0.field13
+    %1 = copy %0.field13 * copy %0.field14
     return move %1
 
 fn label (FuncId(4)) -> PyStr
@@ -52,10 +52,10 @@ fn label (FuncId(4)) -> PyStr
   bb0:
     %2 = copy %1 + copy %0.field2
     %3 = move %2 + " "
-    %4 = primitive_cast_string copy %0.field12
+    %4 = primitive_cast_string copy %0.field13
     %5 = move %3 + move %4
     %6 = move %5 + "x"
-    %7 = primitive_cast_string copy %0.field13
+    %7 = primitive_cast_string copy %0.field14
     %8 = move %6 + move %7
     return move %8
 
@@ -65,9 +65,9 @@ fn __init__ (FuncId(5)) -> None
     %1 param w: Int
     %2 param h: Int
   bb0:
-    %0 = struct11 {}
-    %0.field12 = copy %1
-    %0.field13 = copy %2
+    %0 = struct12 {}
+    %0.field13 = copy %1
+    %0.field14 = copy %2
     %0.field2 = "rect"
     return move %0
 

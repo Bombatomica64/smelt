@@ -760,6 +760,28 @@ fn smelt_panic_message(panic: &(dyn ::std::any::Any + Send)) -> String { if let 
 fn smelt_panic_class(panic: &(dyn ::std::any::Any + Send)) -> String { panic.downcast_ref::<SmeltPanic>().map_or_else(|| "Error".to_owned(), |payload| payload.class.clone()) }
 /// Build the unwind payload for a crate with no erased values.
 fn smelt_panic_payload(error: &(dyn ::std::error::Error + 'static)) -> SmeltPanic { SmeltPanic { class: "Error".to_owned(), message: error.to_string() } }
+/// A key an erased object is read by: a JavaScript string as it is, and the
+/// runtime's own `&str` keys (markers, spec property names) encoded on the
+/// stack when they are short, so a marker probe allocates nothing.
+pub trait SmeltObjectKey {
+    /// Calls `read` with the key as a JavaScript string.
+    fn with_js_key<R>(&self, read: impl FnOnce(&JsStr) -> R) -> R;
+}
+
+impl SmeltObjectKey for str {
+    fn with_js_key<R>(&self, read: impl FnOnce(&JsStr) -> R) -> R {
+        let mut buffer = [0u16; 64];
+        if self.len() <= buffer.len() && self.is_ascii() {
+            for (slot, byte) in buffer.iter_mut().zip(self.bytes()) { *slot = u16::from(byte); }
+            return read(JsStr::from_units(&buffer[..self.len()]));
+        }
+        read(&JsString::from(self))
+    }
+}
+impl SmeltObjectKey for String { fn with_js_key<R>(&self, read: impl FnOnce(&JsStr) -> R) -> R { self.as_str().with_js_key(read) } }
+impl SmeltObjectKey for JsStr { fn with_js_key<R>(&self, read: impl FnOnce(&Self) -> R) -> R { read(self) } }
+impl SmeltObjectKey for JsString { fn with_js_key<R>(&self, read: impl FnOnce(&JsStr) -> R) -> R { read(self) } }
+impl<T: SmeltObjectKey + ?Sized> SmeltObjectKey for &T { fn with_js_key<R>(&self, read: impl FnOnce(&JsStr) -> R) -> R { (**self).with_js_key(read) } }
 
 // @smelt:prelude-end — generated program below
 
