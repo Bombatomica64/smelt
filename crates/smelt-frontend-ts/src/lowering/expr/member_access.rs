@@ -1264,9 +1264,8 @@ impl ModuleBuilder<'_> {
             let span = self.span(member.span.start, member.span.end);
             let optional_ty =
                 smelt_hir::type_normalize::optional_of(&mut self.ctx.krate.types, string_ty);
-            let kind = if Self::is_process_env_field(member, "TZ")
-                || Self::is_process_env_field(member, "tz")
-            {
+            // Environment names are case-sensitive: only `TZ` is the zone.
+            let kind = if Self::is_process_env_field(member, "TZ") {
                 ExprKind::Literal(Literal::String(smelt_stdlib::NODE_PROFILE_TIMEZONE.to_owned()))
             } else {
                 ExprKind::ProcessEnvRead {

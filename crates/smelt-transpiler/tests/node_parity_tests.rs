@@ -292,3 +292,9 @@ fn element_read_misses() -> TestResult {
 fn regexp_absent_values() -> TestResult {
     verify_node_parity("regexp_absent_values")
 }
+
+/// Environment variable names are case-sensitive: only `TZ` is the zone.
+#[test]
+fn env_names_case_sensitive() -> TestResult {
+    verify_node_parity("env_names_case_sensitive")
+}
