@@ -91,7 +91,9 @@ impl ModuleBuilder<'_> {
             }
             Statement::ClassDeclaration(class) => {
                 self.shadow_outer_class(class);
-                self.class_declaration(class)?;
+                if !self.conditional_class_declaration(class)? {
+                    self.class_declaration(class)?;
+                }
                 Ok(())
             }
             Statement::TSTypeAliasDeclaration(alias) => {

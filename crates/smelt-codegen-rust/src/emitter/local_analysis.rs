@@ -98,6 +98,11 @@ impl FunctionEmitter<'_> {
             {
                 index.unwind_written.insert(local);
             }
+            if let Some(Terminator::Call { callee: Callee::Op(op, Some(_)), .. }) = &block.terminator {
+                for mutated in self.rvalue_mutable_locals(op) {
+                    index.mutated.insert(mutated);
+                }
+            }
             if let Some(Terminator::Call {
                 callee: Callee::Static(function_id),
                 args,

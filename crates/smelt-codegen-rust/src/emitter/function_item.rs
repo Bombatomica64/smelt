@@ -500,7 +500,10 @@ impl FunctionEmitter<'_> {
                 }
             }
             HirOrigin::ClassMethod { method, .. } => {
-                let name = sanitize_ident(self.symbol_name(method)?);
+                let name = match &self.method_name {
+                    Some(name) => name.clone(),
+                    None => sanitize_ident(self.symbol_name(method)?),
+                };
                 let method_params = self.param_decls_text(1)?;
                 // Reference classes carry interior mutability, so every method
                 // takes `&self` uniformly; the `&mut self` decision only applies

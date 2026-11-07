@@ -162,6 +162,7 @@ impl FunctionEmitter<'_> {
             // Lowering gives each of these a call terminator (`fallible_op`).
             Rvalue::Base64Transcode { .. }
             | Rvalue::PythonDictRead { .. }
+            | Rvalue::PythonListRead { .. }
             | Rvalue::RegExpCompile { .. }
             | Rvalue::DataViewAccess { .. }
             | Rvalue::BigIntCall { .. }
@@ -269,6 +270,7 @@ impl FunctionEmitter<'_> {
                 self.instance_of_value(value, target)
             }
             Rvalue::Construct { callee, args } => self.construct_expr(callee, args, dest_ty),
+            Rvalue::ConstructLike { value, args } => self.construct_like_expr(value, args, dest_ty),
             Rvalue::UnknownIs {
                 value: unknown_value,
                 kind,
@@ -444,6 +446,7 @@ impl FunctionEmitter<'_> {
             Rvalue::Closure { id, .. } => self.closure_value_expr(*id, dest_ty),
             Rvalue::ClosureCall { callee, args } => self.closure_call_rvalue_expr(callee, args, dest_ty),
             Rvalue::ClosureCallSpread { callee, args } => self.closure_call_spread_expr(callee, args, dest_ty),
+            Rvalue::ClosureCallRest { callee, items } => self.closure_call_rest_expr(callee, items, dest_ty),
             Rvalue::ListCallback { op, list, callback } => {
                 self.list_callback_expr(*op, list, callback, dest_ty)
             }
@@ -634,6 +637,11 @@ impl FunctionEmitter<'_> {
                 self.host_construct_expr(class_name, args, dest_ty)
             }
             Rvalue::BuiltinNamespace { name } => self.builtin_namespace_expr(name, dest_ty),
+            Rvalue::UnmodeledImport => {
+                let unknown_ty = self.type_id(Type::Unknown)?;
+                let stub = self.carrier_expr(&RustExpr::chain("smelt_unmodeled_import()"));
+                self.rendered_at_type(&stub, unknown_ty, dest_ty, &self.render_scope())
+            }
             Rvalue::ArgumentsObject { fixed, rest } => {
                 self.arguments_object_expr(fixed, rest.as_ref(), dest_ty)
             }

@@ -330,6 +330,11 @@ impl ModuleBuilder<'_> {
         let Expression::CallExpression(call) = expression else {
             return None;
         };
+        if matches!(&call.callee, Expression::Identifier(callee)
+            if self.functions.is_imported_predicate(callee.name.as_str()))
+        {
+            return None;
+        }
         let (name, target) = self.call_type_predicate(call, body, PredicateKind::Guard)?;
         let local = self.scope.lookup(&name)?;
         let ty = self

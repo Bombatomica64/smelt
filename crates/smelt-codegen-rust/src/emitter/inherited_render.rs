@@ -26,6 +26,20 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(emitter)
     }
 
+    /// [`Self::inherited_copy`] emitted as the method a `super` call reaches,
+    /// named by `classes::super_copy_name`.
+    pub(crate) fn super_copy(
+        mir: &'mir Mir,
+        context: &'mir EmitContext,
+        function: &'mir MirFunction,
+        owner: Symbol,
+        name: String,
+    ) -> Result<Self, EmitError> {
+        let mut emitter = Self::inherited_copy(mir, context, function, owner)?;
+        emitter.method_name = Some(name);
+        Ok(emitter)
+    }
+
     /// An emitter for an ancestor CONSTRUCTOR rendered as the base initializer
     /// copy that runs inside `owner`'s `impl` (see `crate::base_init` and
     /// [`emit_role::EmitRole::BaseInitializerCopy`]).

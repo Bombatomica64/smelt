@@ -96,7 +96,8 @@ impl FunctionEmitter<'_> {
                 };
                 Ok(RustExpr::atom(format!("{{ {macro_name}!(\"{format_spec}\", {value}); }}")).into())
             }
-            Callee::Op(op) => Ok(self.fallible_op_call(op)?.text),
+            Callee::Op(op, Some(ty)) => Ok(self.rvalue_expr_for_dest(op, *ty)?.into()),
+            Callee::Op(op, None) => Ok(self.fallible_op_call(op)?.text),
             Callee::BaseInit(func) => self.base_initializer_call(*func, args),
             Callee::Static(func) => self.static_call(*func, args),
             Callee::Indirect(indirect_callee) => self.indirect_call(indirect_callee, args),
@@ -502,7 +503,8 @@ impl FunctionEmitter<'_> {
             Callee::Builtin(
                 BuiltinFn::ConsoleLog { .. } | BuiltinFn::ConsoleWrite | BuiltinFn::ConsoleErrorWrite,
             ) => self.none_ty,
-            Callee::Op(op) => return Ok(self.fallible_op_call(op)?.source_ty),
+            Callee::Op(_, Some(ty)) => return Ok(*ty),
+            Callee::Op(op, None) => return Ok(self.fallible_op_call(op)?.source_ty),
             Callee::Static(func) | Callee::BaseInit(func) => {
                 let function = self
                     .mir
@@ -644,9 +646,21 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("method receiver cannot be a constant"));
                 }
             };
-            let method_name = sanitize_ident(self.symbol_name(method)?);
-            if let Some(field_call) =
-                self.call_virtual_function_field_expr(receiver, &method_name, rest)?
+            // `super.method()` reaches the ancestor's copy, not the override
+            // the receiver's own method and slot hold.
+            let super_copy = match self.mir.types.get(self.operand_ty(receiver)?) {
+                Some(Type::Class { name, .. }) if crate::classes::is_super_call(self.mir, *name, func) => {
+                    crate::classes::super_copy_name(self.mir, function)
+                }
+                _ => None,
+            };
+            let method_name = match &super_copy {
+                Some(name) => name.clone(),
+                None => sanitize_ident(self.symbol_name(method)?),
+            };
+            if super_copy.is_none()
+                && let Some(field_call) =
+                    self.call_virtual_function_field_expr(receiver, &method_name, rest)?
             {
                 return Ok(field_call.into());
             }

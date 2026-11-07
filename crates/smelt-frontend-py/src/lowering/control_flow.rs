@@ -364,10 +364,25 @@ impl ModuleBuilder<'_> {
         if matches!(self.ctx.krate.types.get(target_ty), Some(Type::Int))
             && matches!(self.ctx.krate.types.get(compound_ty), Some(Type::Float))
         {
-            return Err(SmeltError::unsupported(
-                span,
-                "this augmented assignment makes an `int` variable a `float`; declare it `float`",
-            ));
+            // `x /= 2` rebinds `x` to a `float`. On the straight line of a body a
+            // new binding is exactly that. Under a branch or loop, `x` is an `int`
+            // on the paths that skip it, which one Rust type cannot say.
+            if block.0 != 0 || !matches!(aug.target.as_ref(), Expr::Name(_)) {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "this augmented assignment makes an `int` variable a `float` only on some paths; declare it `float`",
+                ));
+            }
+            let pat = self.binding_pattern_from_target(&aug.target, body, Some(compound_ty))?;
+            body.push_stmt_to_block(
+                block,
+                HirStmt::Let {
+                    pat,
+                    ty: compound_ty,
+                    value: Some(compound),
+                },
+            );
+            return Ok(());
         }
         let target = Self::subscript_store_target(target, body);
         body.push_stmt_to_block(

@@ -86,7 +86,7 @@ pub(super) fn validate_callee_exists(
         Callee::Indirect(operand) => {
             validate_operand_exists(function, operand, errors);
         }
-        Callee::Op(op) => op.reads(|operand| validate_operand_exists(function, operand, errors)),
+        Callee::Op(op, _) => op.reads(|operand| validate_operand_exists(function, operand, errors)),
         Callee::Builtin(_) => {}
     }
 }

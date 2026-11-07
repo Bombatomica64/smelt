@@ -174,6 +174,13 @@ impl ModuleBuilder<'_> {
                         dict: receiver,
                         key: index,
                     }
+                } else if matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::List(_)))
+                    && matches!(self.ctx.krate.types.get(Self::expr_ty(body, index)), Some(Type::Int))
+                {
+                    ExprKind::PythonListRead {
+                        list: receiver,
+                        index,
+                    }
                 } else {
                     ExprKind::Index { receiver, index }
                 };
@@ -660,7 +667,7 @@ impl ModuleBuilder<'_> {
     ) -> smelt_hir::ExprId {
         let index = usize::try_from(target.0).unwrap_or(usize::MAX);
         let read = &body.exprs[index];
-        let ExprKind::PythonDictRead { dict, key } = read.kind else {
+        let (ExprKind::PythonDictRead { dict, key } | ExprKind::PythonListRead { list: dict, index: key }) = read.kind else {
             return target;
         };
         let (ty, span) = (read.ty, read.span);

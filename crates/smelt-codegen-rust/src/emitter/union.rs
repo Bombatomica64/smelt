@@ -157,20 +157,25 @@ impl FunctionEmitter<'_> {
         let union = union_name(receiver_ty);
         let mut arms = Vec::with_capacity(members.len());
         for (index, member) in members.iter().copied().enumerate() {
-            let return_ty = self.union_member_method_return_type(member, method)?;
-            let call = RustExpr::chain(format!("value.{method_name}({args_text})"));
+            let (return_ty, can_throw) = self.union_member_method_return_type(member, method)?;
+            // An arm's method that can throw returns `Result`. Its error leaves
+            // as a panic, which the enclosing `try` catches (the call has an
+            // unwind edge there) or the caller's channel carries on.
+            let thrown = if can_throw { ".unwrap_or_else(|error| smelt_panic_throw(error))" } else { "" };
+            let call = RustExpr::chain(format!("value.{method_name}({args_text}){thrown}"));
             let converted = self.rendered_at_type(&call, return_ty, dest_ty, &self.render_scope())?;
             arms.push(format!("{union}::M{index}(value) => {converted}"));
         }
         Ok(RustExpr::atom(format!("match {receiver_text} {{ {} }}", arms.join(", "))))
     }
 
-    /// Resolve and instantiate one union member's declared method return type.
+    /// Resolve and instantiate one union member's declared method return type,
+    /// with whether that method can throw.
     fn union_member_method_return_type(
         &self,
         member_ty: TypeId,
         method: Symbol,
-    ) -> Result<TypeId, EmitError> {
+    ) -> Result<(TypeId, bool), EmitError> {
         let Some(Type::Class { name, args }) = self.mir.types.get(member_ty) else {
             return Err(EmitError::new("union method member must be a class value"));
         };
@@ -188,7 +193,10 @@ impl FunctionEmitter<'_> {
             .zip(args.iter().copied())
             .map(|(param, arg)| (param.name, arg))
             .collect::<HashMap<_, _>>();
-        Ok(crate::generic_bindings::substitute_existing_type(self.mir, function.return_ty, &substitutions))
+        Ok((
+            crate::generic_bindings::substitute_existing_type(self.mir, function.return_ty, &substitutions),
+            function.can_throw,
+        ))
     }
 
     /// Return canonical members when a union has fully concrete Rust storage.
@@ -1194,10 +1202,16 @@ impl FunctionEmitter<'_> {
         let union_enum_name = union_name(base_ty);
         let field_name = sanitize_ident(self.symbol_name(field)?);
         let mut arms = Vec::with_capacity(field_types.len());
-        for (index, field_ty) in field_types.into_iter().enumerate() {
+        for (index, (field_ty, member)) in field_types.into_iter().zip(members).enumerate() {
             let rendered_value = self.rvalue_expr_for_dest(value, field_ty)?;
+            // A reference class keeps its fields in its shared cell.
+            let slot = if self.is_reference_class_type(*member) {
+                format!("smelt_union_arm.0.borrow_mut().{field_name}")
+            } else {
+                format!("smelt_union_arm.{field_name}")
+            };
             arms.push(format!(
-                "{union_enum_name}::M{index}(smelt_union_arm) => {{ smelt_union_arm.{field_name} = {rendered_value}; }}"
+                "{union_enum_name}::M{index}(smelt_union_arm) => {{ {slot} = {rendered_value}; }}"
             ));
         }
         Ok(Some(RustExpr::atom(format!(
@@ -1229,13 +1243,16 @@ impl FunctionEmitter<'_> {
         let Some(members) = self.concrete_union_members(base_ty) else {
             return Ok(None);
         };
-        let member_count = members.len();
         let union_enum_name = union_name(base_ty);
         let field_name = sanitize_ident(self.symbol_name(field)?);
-        let arms = (0..member_count)
-            .map(|index| {
+        let arms = members
+            .iter()
+            .enumerate()
+            .map(|(index, member)| {
+                // A reference class keeps its fields in its shared cell.
+                let cell = if self.is_reference_class_type(*member) { ".0.borrow()" } else { "" };
                 format!(
-                    "{union_enum_name}::M{index}(smelt_union_arm) => smelt_union_arm.{field_name}.clone()"
+                    "{union_enum_name}::M{index}(smelt_union_arm) => smelt_union_arm{cell}.{field_name}.clone()"
                 )
             })
             .collect::<Vec<_>>()

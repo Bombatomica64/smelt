@@ -38,6 +38,13 @@ fn smelt_py_checked_division<T: PartialEq + Default>(lhs: T, rhs: T, divide: fn(
 
 // @smelt:item-end
 
+// @smelt:item smelt_py_list_read when python_list_read
+/// Python's `xs[i]`: a negative `i` counts from the end, and an `i` out of range
+/// raises `IndexError`.
+fn smelt_py_list_read<T: Clone>(list: &SmeltList<T>, index: i64) -> Result<T, Box<dyn ::std::error::Error>> { let items = list.borrow(); let at = if index < 0 { index.saturating_add(i64::try_from(items.len()).unwrap_or(i64::MAX)) } else { index }; usize::try_from(at).ok().and_then(|at| items.get(at).cloned()).ok_or_else(|| Box::new(::std::io::Error::other("list index out of range")) as Box<dyn ::std::error::Error>) }
+
+// @smelt:item-end
+
 // @smelt:item smelt_py_key_error when python_dict_read
 /// The `KeyError` of a missing `d[key]`, worded as `str(error)` words it: the
 /// key's `repr`.

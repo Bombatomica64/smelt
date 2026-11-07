@@ -104,8 +104,10 @@ const fn runs_code_or_stores(kind: &ExprKind) -> bool {
         ExprKind::Call { .. }
             | ExprKind::ClosureCall { .. }
             | ExprKind::ClosureCallSpread { .. }
+            | ExprKind::ClosureCallRest { .. }
             | ExprKind::Method { .. }
             | ExprKind::Construct { .. }
+            | ExprKind::ConstructLike { .. }
             | ExprKind::New { .. }
             | ExprKind::Block(_)
             | ExprKind::Await(_)

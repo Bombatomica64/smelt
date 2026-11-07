@@ -231,8 +231,8 @@ interned types
   t25 = Parser<Float>
   t26 = Unknown
   t27 = Options
-  t28 = Dict<String, Unknown>
-  t29 = Dict<String, Bool>
+  t28 = Dict<String, Bool>
+  t29 = Dict<String, Unknown>
   t30 = Optional<Unknown>
   t31 = T
   t32 = Pair<T>

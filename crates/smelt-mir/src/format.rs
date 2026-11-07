@@ -384,7 +384,7 @@ fn terminator_text(terminator: &Terminator) -> String {
             unwind,
         } => {
             let mut arg_texts = args.iter().map(operand_text).collect::<Vec<_>>();
-            if let Callee::Op(op) = callee {
+            if let Callee::Op(op, _) = callee {
                 op.reads(|operand| arg_texts.push(operand_text(operand)));
             }
             let arg_list = arg_texts.join(", ");
@@ -471,7 +471,8 @@ fn callee_text(callee: &Callee) -> String {
         Callee::Builtin(BuiltinFn::ConsoleLog { .. }) => "@console_log".to_owned(),
         Callee::Builtin(BuiltinFn::ConsoleWrite) => "@console_write".to_owned(),
         Callee::Builtin(BuiltinFn::ConsoleErrorWrite) => "@console_error_write".to_owned(),
-        Callee::Op(op) => op_call_text(op),
+        Callee::Op(_, Some(_)) => "@callback_op".to_owned(),
+        Callee::Op(op, None) => op_call_text(op),
     }
 }
 

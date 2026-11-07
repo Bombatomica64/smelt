@@ -783,7 +783,7 @@ impl<'a> BodyWalk<'a> {
                 None
             }
             // An op's operands are its arguments, and no summary models it.
-            Callee::Op(op) => {
+            Callee::Op(op, _) => {
                 op.reads(|operand| self.escape_operand(operand, EscapeReason::CallArgument));
                 None
             }

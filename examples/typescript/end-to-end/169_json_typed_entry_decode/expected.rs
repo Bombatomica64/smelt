@@ -1830,7 +1830,7 @@ fn smelt_function_value_property(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknow
 /// `@@toStringTag`-bearing `name` becomes the tag, matching `[object JSON]` /
 /// `[object Math]`). Class instances and unmarked records are plain
 /// `[object Object]`, exactly like JavaScript objects without a custom tag.
-fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String { match value { SmeltUnknown::Null => "[object Null]".to_owned(), SmeltUnknown::Undefined => "[object Undefined]".to_owned(), SmeltUnknown::Bool(_) => "[object Boolean]".to_owned(), SmeltUnknown::Number(_) => "[object Number]".to_owned(), SmeltUnknown::String(_) => "[object String]".to_owned(), SmeltUnknown::Symbol(_) => "[object Symbol]".to_owned(), SmeltUnknown::Array(_) => "[object Array]".to_owned(), SmeltUnknown::Function(_) => "[object Function]".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned(), SmeltUnknown::Object(map) => { if let Some(SmeltUnknown::String(tag)) = map.get("__smelt_symbol_to_string_tag") { return format!("[object {tag}]"); } if map.contains_key("__smelt_date") { return "[object Date]".to_owned(); } if map.contains_key("__smelt_regexp") { return "[object RegExp]".to_owned(); } if map.contains_key("__smelt_error") { return "[object Error]".to_owned(); } if map.contains_key("__smelt_global_object") { return "[object global]".to_owned(); } if map.contains_key("__smelt_map") { return "[object Map]".to_owned(); } if map.contains_key("__smelt_set") { return "[object Set]".to_owned(); } if map.contains_key("__smelt_arguments") { return "[object Arguments]".to_owned(); } if map.contains_key("__smelt_abortcontroller") { return "[object AbortController]".to_owned(); } if map.contains_key("__smelt_abortsignal") { return "[object AbortSignal]".to_owned(); } if map.contains_key("__smelt_arraybuffer") { return "[object ArrayBuffer]".to_owned(); } if map.contains_key("__smelt_sharedarraybuffer") { return "[object SharedArrayBuffer]".to_owned(); } if map.contains_key("__smelt_int8array") { return "[object Int8Array]".to_owned(); } if map.contains_key("__smelt_uint8array") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_uint8clampedarray") { return "[object Uint8ClampedArray]".to_owned(); } if map.contains_key("__smelt_int16array") { return "[object Int16Array]".to_owned(); } if map.contains_key("__smelt_uint16array") { return "[object Uint16Array]".to_owned(); } if map.contains_key("__smelt_int32array") { return "[object Int32Array]".to_owned(); } if map.contains_key("__smelt_uint32array") { return "[object Uint32Array]".to_owned(); } if map.contains_key("__smelt_float32array") { return "[object Float32Array]".to_owned(); } if map.contains_key("__smelt_float64array") { return "[object Float64Array]".to_owned(); } if map.contains_key("__smelt_bigint64array") { return "[object BigInt64Array]".to_owned(); } if map.contains_key("__smelt_biguint64array") { return "[object BigUint64Array]".to_owned(); } if map.contains_key("__smelt_buffer") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_dataview") { return "[object DataView]".to_owned(); } if map.contains_key("__smelt_weakmap") { return "[object WeakMap]".to_owned(); } if map.contains_key("__smelt_weakset") { return "[object WeakSet]".to_owned(); } if map.contains_key("__smelt_file") { return "[object File]".to_owned(); } if map.contains_key("__smelt_blob") { return "[object Blob]".to_owned(); } if map.contains_key("__smelt_headers") { return "[object Headers]".to_owned(); } if map.contains_key("__smelt_urlsearchparams") { return "[object URLSearchParams]".to_owned(); } if map.contains_key("__smelt_url") { return "[object URL]".to_owned(); } if map.contains_key("__smelt_crypto_key") { return "[object CryptoKey]".to_owned(); } if map.contains_key("__smelt_request") { return "[object Request]".to_owned(); } if map.contains_key("__smelt_response") { return "[object Response]".to_owned(); } if map.contains_key("__smelt_textencoder") { return "[object TextEncoder]".to_owned(); } if map.contains_key("__smelt_textdecoder") { return "[object TextDecoder]".to_owned(); } if map.contains_key("__smelt_eventemitter") { return "[object EventEmitter]".to_owned(); } if map.contains_key("__smelt_httpserver") { return "[object Server]".to_owned(); } if map.contains_key("__smelt_incomingmessage") { return "[object IncomingMessage]".to_owned(); } if map.contains_key("__smelt_serverresponse") { return "[object ServerResponse]".to_owned(); } if map.contains_key("__smelt_formdata") { return "[object FormData]".to_owned(); } if map.contains_key("__smelt_databasesync") { return "[object DatabaseSync]".to_owned(); } if map.contains_key("__smelt_statementsync") { return "[object StatementSync]".to_owned(); } if map.contains_key("__smelt_readablestream") { return "[object ReadableStream]".to_owned(); } if map.contains_key("__smelt_domexception") { return "[object DOMException]".to_owned(); } if map.contains_key("__smelt_intl_collator") { return "[object Intl.Collator]".to_owned(); } if map.contains_key("__smelt_intl_displaynames") { return "[object Intl.DisplayNames]".to_owned(); } if map.contains_key("__smelt_intl_durationformat") { return "[object Intl.DurationFormat]".to_owned(); } if map.contains_key("__smelt_intl_listformat") { return "[object Intl.ListFormat]".to_owned(); } if map.contains_key("__smelt_intl_locale") { return "[object Intl.Locale]".to_owned(); } if map.contains_key("__smelt_intl_numberformat") { return "[object Intl.NumberFormat]".to_owned(); } if map.contains_key("__smelt_intl_pluralrules") { return "[object Intl.PluralRules]".to_owned(); } if map.contains_key("__smelt_intl_segmenter") { return "[object Intl.Segmenter]".to_owned(); } if map.contains_key("__smelt_number") { return "[object Number]".to_owned(); } if map.contains_key("__smelt_boolean") { return "[object Boolean]".to_owned(); } if map.contains_key("__smelt_string") { return "[object String]".to_owned(); } if map.contains_key("__smelt_symbol") { return "[object Symbol]".to_owned(); } if map.contains_key("__smelt_builtin_namespace") { if let Some(SmeltUnknown::String(name)) = map.get("name") { return format!("[object {name}]"); } } "[object Object]".to_owned() } } }
+fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String { match value { SmeltUnknown::Null => "[object Null]".to_owned(), SmeltUnknown::Undefined => "[object Undefined]".to_owned(), SmeltUnknown::Bool(_) => "[object Boolean]".to_owned(), SmeltUnknown::Number(_) => "[object Number]".to_owned(), SmeltUnknown::String(_) => "[object String]".to_owned(), SmeltUnknown::Symbol(_) => "[object Symbol]".to_owned(), SmeltUnknown::Array(_) => "[object Array]".to_owned(), SmeltUnknown::Function(_) => "[object Function]".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned(), SmeltUnknown::Object(map) => { if map.contains_key("__smelt_unmodeled") { return "[object Unmodeled]".to_owned(); } if let Some(SmeltUnknown::String(tag)) = map.get("__smelt_symbol_to_string_tag") { return format!("[object {tag}]"); } if map.contains_key("__smelt_date") { return "[object Date]".to_owned(); } if map.contains_key("__smelt_regexp") { return "[object RegExp]".to_owned(); } if map.contains_key("__smelt_error") { return "[object Error]".to_owned(); } if map.contains_key("__smelt_global_object") { return "[object global]".to_owned(); } if map.contains_key("__smelt_map") { return "[object Map]".to_owned(); } if map.contains_key("__smelt_set") { return "[object Set]".to_owned(); } if map.contains_key("__smelt_arguments") { return "[object Arguments]".to_owned(); } if map.contains_key("__smelt_abortcontroller") { return "[object AbortController]".to_owned(); } if map.contains_key("__smelt_abortsignal") { return "[object AbortSignal]".to_owned(); } if map.contains_key("__smelt_arraybuffer") { return "[object ArrayBuffer]".to_owned(); } if map.contains_key("__smelt_sharedarraybuffer") { return "[object SharedArrayBuffer]".to_owned(); } if map.contains_key("__smelt_int8array") { return "[object Int8Array]".to_owned(); } if map.contains_key("__smelt_uint8array") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_uint8clampedarray") { return "[object Uint8ClampedArray]".to_owned(); } if map.contains_key("__smelt_int16array") { return "[object Int16Array]".to_owned(); } if map.contains_key("__smelt_uint16array") { return "[object Uint16Array]".to_owned(); } if map.contains_key("__smelt_int32array") { return "[object Int32Array]".to_owned(); } if map.contains_key("__smelt_uint32array") { return "[object Uint32Array]".to_owned(); } if map.contains_key("__smelt_float32array") { return "[object Float32Array]".to_owned(); } if map.contains_key("__smelt_float64array") { return "[object Float64Array]".to_owned(); } if map.contains_key("__smelt_bigint64array") { return "[object BigInt64Array]".to_owned(); } if map.contains_key("__smelt_biguint64array") { return "[object BigUint64Array]".to_owned(); } if map.contains_key("__smelt_buffer") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_dataview") { return "[object DataView]".to_owned(); } if map.contains_key("__smelt_weakmap") { return "[object WeakMap]".to_owned(); } if map.contains_key("__smelt_weakset") { return "[object WeakSet]".to_owned(); } if map.contains_key("__smelt_file") { return "[object File]".to_owned(); } if map.contains_key("__smelt_blob") { return "[object Blob]".to_owned(); } if map.contains_key("__smelt_headers") { return "[object Headers]".to_owned(); } if map.contains_key("__smelt_urlsearchparams") { return "[object URLSearchParams]".to_owned(); } if map.contains_key("__smelt_url") { return "[object URL]".to_owned(); } if map.contains_key("__smelt_crypto_key") { return "[object CryptoKey]".to_owned(); } if map.contains_key("__smelt_request") { return "[object Request]".to_owned(); } if map.contains_key("__smelt_response") { return "[object Response]".to_owned(); } if map.contains_key("__smelt_textencoder") { return "[object TextEncoder]".to_owned(); } if map.contains_key("__smelt_textdecoder") { return "[object TextDecoder]".to_owned(); } if map.contains_key("__smelt_eventemitter") { return "[object EventEmitter]".to_owned(); } if map.contains_key("__smelt_httpserver") { return "[object Server]".to_owned(); } if map.contains_key("__smelt_incomingmessage") { return "[object IncomingMessage]".to_owned(); } if map.contains_key("__smelt_serverresponse") { return "[object ServerResponse]".to_owned(); } if map.contains_key("__smelt_formdata") { return "[object FormData]".to_owned(); } if map.contains_key("__smelt_databasesync") { return "[object DatabaseSync]".to_owned(); } if map.contains_key("__smelt_statementsync") { return "[object StatementSync]".to_owned(); } if map.contains_key("__smelt_readablestream") { return "[object ReadableStream]".to_owned(); } if map.contains_key("__smelt_domexception") { return "[object DOMException]".to_owned(); } if map.contains_key("__smelt_intl_collator") { return "[object Intl.Collator]".to_owned(); } if map.contains_key("__smelt_intl_displaynames") { return "[object Intl.DisplayNames]".to_owned(); } if map.contains_key("__smelt_intl_durationformat") { return "[object Intl.DurationFormat]".to_owned(); } if map.contains_key("__smelt_intl_listformat") { return "[object Intl.ListFormat]".to_owned(); } if map.contains_key("__smelt_intl_locale") { return "[object Intl.Locale]".to_owned(); } if map.contains_key("__smelt_intl_numberformat") { return "[object Intl.NumberFormat]".to_owned(); } if map.contains_key("__smelt_intl_pluralrules") { return "[object Intl.PluralRules]".to_owned(); } if map.contains_key("__smelt_intl_segmenter") { return "[object Intl.Segmenter]".to_owned(); } if map.contains_key("__smelt_number") { return "[object Number]".to_owned(); } if map.contains_key("__smelt_boolean") { return "[object Boolean]".to_owned(); } if map.contains_key("__smelt_string") { return "[object String]".to_owned(); } if map.contains_key("__smelt_symbol") { return "[object Symbol]".to_owned(); } if map.contains_key("__smelt_builtin_namespace") { if let Some(SmeltUnknown::String(name)) = map.get("name") { return format!("[object {name}]"); } } "[object Object]".to_owned() } } }
 
 impl PartialEq for SmeltObject { fn eq(&self, other: &Self) -> bool { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_eq(self, other, &mut smelt_seen) } }
 impl Eq for SmeltObject {}
@@ -2814,6 +2814,12 @@ fn smelt_throw_builtin_error(class: &str, message: String) -> ! { smelt_panic_th
 ///
 /// `callee` is the source spelling of what was called (`x.map`), as V8 words it.
 fn smelt_throw_not_callable(callee: &str) -> ! { smelt_throw_builtin_error("TypeError", format!("{callee} is not a function")) }
+/// Throw JavaScript's `TypeError` for a call of a value that holds no function,
+/// where the source spelling of the callee is not known.
+fn smelt_value_not_callable() -> ! { smelt_throw_not_callable("value") }
+/// The value of an import with no model: every call answers it, and so does every
+/// member read (see `smelt_get_unknown_field`).
+fn smelt_unmodeled_import() -> SmeltUnknown { SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_unmodeled".to_owned(), SmeltUnknown::Bool(true)), ("__smelt_call".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(|_smelt_args: Vec<SmeltUnknown>| Ok(smelt_unmodeled_import()))))]))) }
 
 /// Read a property off an erased JavaScript array (`arr.k` / `arr[k]`).
 fn smelt_get_array_field(values: &SmeltArray, field: &str) -> SmeltUnknown {
@@ -2825,6 +2831,7 @@ fn smelt_get_array_field(values: &SmeltArray, field: &str) -> SmeltUnknown {
 /// Read a property off any erased value (JS `value.field`).
 fn smelt_get_unknown_field(value: &SmeltUnknown, field: &str) -> SmeltUnknown {
     match value {
+        SmeltUnknown::Object(object) if object.contains_key("__smelt_unmodeled") => value.clone(),
         SmeltUnknown::Object(map) => match smelt_host_method(map, field).unwrap_or_else(|| smelt_get_object_field(map, field)) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
         SmeltUnknown::Array(values) => smelt_get_array_field(values, field),
         SmeltUnknown::String(marker) if &**marker == "__smelt_proto:object" => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined),
@@ -4952,31 +4959,31 @@ fn smelt_json_decode_1(text: &str) -> Result<Square, Box<dyn ::std::error::Error
 }
 
 /// `JSON.parse` into `Order`: parse, then decode strictly, throwing a catchable `TypeError` on a mismatch.
-fn smelt_json_decode_6(text: &str) -> Result<Order, Box<dyn ::std::error::Error>> {
+fn smelt_json_decode_5(text: &str) -> Result<Order, Box<dyn ::std::error::Error>> {
     let value = smelt_json_parse(text)?;
     let path = &mut String::new();
-    smelt_decode_6(&value, path).map_err(smelt_decode_throw)
+    smelt_decode_5(&value, path).map_err(smelt_decode_throw)
 }
 
 /// `JSON.parse` into `[string, boolean]`: parse, then decode strictly, throwing a catchable `TypeError` on a mismatch.
-fn smelt_json_decode_8(text: &str) -> Result<(String, bool), Box<dyn ::std::error::Error>> {
+fn smelt_json_decode_7(text: &str) -> Result<(String, bool), Box<dyn ::std::error::Error>> {
     let value = smelt_json_parse(text)?;
     let path = &mut String::new();
-    smelt_decode_8(&value, path).map_err(smelt_decode_throw)
+    smelt_decode_7(&value, path).map_err(smelt_decode_throw)
 }
 
 /// `JSON.parse` into `number`: parse, then decode strictly, throwing a catchable `TypeError` on a mismatch.
-fn smelt_json_decode_9(text: &str) -> Result<f64, Box<dyn ::std::error::Error>> {
+fn smelt_json_decode_8(text: &str) -> Result<f64, Box<dyn ::std::error::Error>> {
     let value = smelt_json_parse(text)?;
     let path = &mut String::new();
     smelt_decode_number(&value, path).map_err(smelt_decode_throw)
 }
 
 /// `JSON.parse` into `number[]`: parse, then decode strictly, throwing a catchable `TypeError` on a mismatch.
-fn smelt_json_decode_10(text: &str) -> Result<SmeltList<f64>, Box<dyn ::std::error::Error>> {
+fn smelt_json_decode_9(text: &str) -> Result<SmeltList<f64>, Box<dyn ::std::error::Error>> {
     let value = smelt_json_parse(text)?;
     let path = &mut String::new();
-    smelt_decode_10(&value, path).map_err(smelt_decode_throw)
+    smelt_decode_9(&value, path).map_err(smelt_decode_throw)
 }
 
 /// Strict JSON decoder for `Circle`.
@@ -5008,7 +5015,7 @@ fn smelt_decode_1(value: &SmeltUnknown, path: &mut String) -> Result<Square, Sme
 }
 
 /// Strict JSON decoder for `Order`.
-fn smelt_decode_6(value: &SmeltUnknown, path: &mut String) -> Result<Order, SmeltDecodeIssue> {
+fn smelt_decode_5(value: &SmeltUnknown, path: &mut String) -> Result<Order, SmeltDecodeIssue> {
     let SmeltUnknown::Object(object) = value else { return smelt_decode_fail(path, "Order", value); };
     let mark = smelt_decode_enter_key(path, "id");
     let at = path.len();
@@ -5024,25 +5031,25 @@ fn smelt_decode_6(value: &SmeltUnknown, path: &mut String) -> Result<Order, Smel
     path.truncate(mark);
     let mark = smelt_decode_enter_key(path, "shapes");
     let at = path.len();
-    let field_3 = match object.get("shapes") { Some(field) => { smelt_decode_22(&field, path)? }, None => return smelt_decode_fail(path, "(Circle | Square)[]", &SmeltUnknown::Undefined) };
+    let field_3 = match object.get("shapes") { Some(field) => { smelt_decode_21(&field, path)? }, None => return smelt_decode_fail(path, "(Circle | Square)[]", &SmeltUnknown::Undefined) };
     path.truncate(mark);
     let mark = smelt_decode_enter_key(path, "totals");
     let at = path.len();
-    let field_4 = match object.get("totals") { Some(field) => { smelt_decode_23(&field, path)? }, None => return smelt_decode_fail(path, "Record<string, number>", &SmeltUnknown::Undefined) };
+    let field_4 = match object.get("totals") { Some(field) => { smelt_decode_22(&field, path)? }, None => return smelt_decode_fail(path, "Record<string, number>", &SmeltUnknown::Undefined) };
     path.truncate(mark);
     let mark = smelt_decode_enter_key(path, "range");
     let at = path.len();
-    let field_5 = match object.get("range") { Some(field) => { smelt_decode_24(&field, path)? }, None => return smelt_decode_fail(path, "[number, number]", &SmeltUnknown::Undefined) };
+    let field_5 = match object.get("range") { Some(field) => { smelt_decode_23(&field, path)? }, None => return smelt_decode_fail(path, "[number, number]", &SmeltUnknown::Undefined) };
     path.truncate(mark);
     let mark = smelt_decode_enter_key(path, "tree");
     let at = path.len();
-    let field_6 = match object.get("tree") { Some(field) => { smelt_decode_12(&field, path)? }, None => return smelt_decode_fail(path, "Tree", &SmeltUnknown::Undefined) };
+    let field_6 = match object.get("tree") { Some(field) => { smelt_decode_11(&field, path)? }, None => return smelt_decode_fail(path, "Tree", &SmeltUnknown::Undefined) };
     path.truncate(mark);
     Ok(Order { id: field_0, note: field_1, priority: field_2, shapes: field_3, totals: field_4, range: field_5, tree: field_6 })
 }
 
 /// Strict JSON decoder for `[string, boolean]`.
-fn smelt_decode_8(value: &SmeltUnknown, path: &mut String) -> Result<(String, bool), SmeltDecodeIssue> {
+fn smelt_decode_7(value: &SmeltUnknown, path: &mut String) -> Result<(String, bool), SmeltDecodeIssue> {
     let SmeltUnknown::Array(items) = value else { return smelt_decode_fail(path, "[string, boolean]", value); };
     if items.len() != 2 { return smelt_decode_arity_fail(path, "[string, boolean]", items.len()); }
     let item_0 = items.get(0).unwrap_or(SmeltUnknown::Undefined);
@@ -5053,7 +5060,7 @@ fn smelt_decode_8(value: &SmeltUnknown, path: &mut String) -> Result<(String, bo
 }
 
 /// Strict JSON decoder for `number[]`.
-fn smelt_decode_10(value: &SmeltUnknown, path: &mut String) -> Result<SmeltList<f64>, SmeltDecodeIssue> {
+fn smelt_decode_9(value: &SmeltUnknown, path: &mut String) -> Result<SmeltList<f64>, SmeltDecodeIssue> {
     let SmeltUnknown::Array(items) = value else { return smelt_decode_fail(path, "number[]", value); };
     let mut decoded = Vec::with_capacity(items.len());
     for (index, item) in items.iter().enumerate() { let mark = smelt_decode_enter_index(path, index); decoded.push(smelt_decode_number(&item, path)?); path.truncate(mark); }
@@ -5061,7 +5068,7 @@ fn smelt_decode_10(value: &SmeltUnknown, path: &mut String) -> Result<SmeltList<
 }
 
 /// Strict JSON decoder for `(Circle | Square)[]`.
-fn smelt_decode_22(value: &SmeltUnknown, path: &mut String) -> Result<SmeltList<SmeltUnion2>, SmeltDecodeIssue> {
+fn smelt_decode_21(value: &SmeltUnknown, path: &mut String) -> Result<SmeltList<SmeltUnion2>, SmeltDecodeIssue> {
     let SmeltUnknown::Array(items) = value else { return smelt_decode_fail(path, "(Circle | Square)[]", value); };
     let mut decoded = Vec::with_capacity(items.len());
     for (index, item) in items.iter().enumerate() { let mark = smelt_decode_enter_index(path, index); decoded.push(smelt_decode_2(&item, path)?); path.truncate(mark); }
@@ -5069,7 +5076,7 @@ fn smelt_decode_22(value: &SmeltUnknown, path: &mut String) -> Result<SmeltList<
 }
 
 /// Strict JSON decoder for `Record<string, number>`.
-fn smelt_decode_23(value: &SmeltUnknown, path: &mut String) -> Result<SmeltRecord<String, f64>, SmeltDecodeIssue> {
+fn smelt_decode_22(value: &SmeltUnknown, path: &mut String) -> Result<SmeltRecord<String, f64>, SmeltDecodeIssue> {
     let SmeltUnknown::Object(object) = value else { return smelt_decode_fail(path, "Record<string, number>", value); };
     let mut entries = Vec::with_capacity(object.len());
     for (key, item) in object.iter() { let mark = smelt_decode_enter_key(path, &key); let decoded = smelt_decode_number(&item, path)?; path.truncate(mark); entries.push((key, decoded)); }
@@ -5077,7 +5084,7 @@ fn smelt_decode_23(value: &SmeltUnknown, path: &mut String) -> Result<SmeltRecor
 }
 
 /// Strict JSON decoder for `[number, number]`.
-fn smelt_decode_24(value: &SmeltUnknown, path: &mut String) -> Result<(f64, f64), SmeltDecodeIssue> {
+fn smelt_decode_23(value: &SmeltUnknown, path: &mut String) -> Result<(f64, f64), SmeltDecodeIssue> {
     let SmeltUnknown::Array(items) = value else { return smelt_decode_fail(path, "[number, number]", value); };
     if items.len() != 2 { return smelt_decode_arity_fail(path, "[number, number]", items.len()); }
     let item_0 = items.get(0).unwrap_or(SmeltUnknown::Undefined);
@@ -5088,7 +5095,7 @@ fn smelt_decode_24(value: &SmeltUnknown, path: &mut String) -> Result<(f64, f64)
 }
 
 /// Strict JSON decoder for `Tree`.
-fn smelt_decode_12(value: &SmeltUnknown, path: &mut String) -> Result<Tree, SmeltDecodeIssue> {
+fn smelt_decode_11(value: &SmeltUnknown, path: &mut String) -> Result<Tree, SmeltDecodeIssue> {
     let SmeltUnknown::Object(object) = value else { return smelt_decode_fail(path, "Tree", value); };
     let mark = smelt_decode_enter_key(path, "label");
     let at = path.len();
@@ -5096,7 +5103,7 @@ fn smelt_decode_12(value: &SmeltUnknown, path: &mut String) -> Result<Tree, Smel
     path.truncate(mark);
     let mark = smelt_decode_enter_key(path, "children");
     let at = path.len();
-    let field_1 = match object.get("children") { Some(field) => { smelt_decode_20(&field, path)? }, None => return smelt_decode_fail(path, "Tree[]", &SmeltUnknown::Undefined) };
+    let field_1 = match object.get("children") { Some(field) => { smelt_decode_19(&field, path)? }, None => return smelt_decode_fail(path, "Tree[]", &SmeltUnknown::Undefined) };
     path.truncate(mark);
     Ok(Tree { label: field_0, children: field_1 })
 }
@@ -5111,10 +5118,10 @@ fn smelt_decode_2(value: &SmeltUnknown, path: &mut String) -> Result<SmeltUnion2
 }
 
 /// Strict JSON decoder for `Tree[]`.
-fn smelt_decode_20(value: &SmeltUnknown, path: &mut String) -> Result<SmeltList<Tree>, SmeltDecodeIssue> {
+fn smelt_decode_19(value: &SmeltUnknown, path: &mut String) -> Result<SmeltList<Tree>, SmeltDecodeIssue> {
     let SmeltUnknown::Array(items) = value else { return smelt_decode_fail(path, "Tree[]", value); };
     let mut decoded = Vec::with_capacity(items.len());
-    for (index, item) in items.iter().enumerate() { let mark = smelt_decode_enter_index(path, index); decoded.push(smelt_decode_12(&item, path)?); path.truncate(mark); }
+    for (index, item) in items.iter().enumerate() { let mark = smelt_decode_enter_index(path, index); decoded.push(smelt_decode_11(&item, path)?); path.truncate(mark); }
     Ok(SmeltList::new(decoded))
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -5169,18 +5176,18 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_24: f64 = count_nodes(order.tree.clone());
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_23), smelt_console_number(_smelt_tmp_24)); };
     _smelt_tmp_26 = text.replacen(&"\"id\":42".to_owned(), &"\"id\":7,\"note\":\"rush\"".to_owned(), 1);
-    let _smelt_tmp_27: Order = smelt_json_decode_6(&_smelt_tmp_26)?;
+    let _smelt_tmp_27: Order = smelt_json_decode_5(&_smelt_tmp_26)?;
     noted = _smelt_tmp_27;
     let _ = { println!("{} {}", smelt_console_number(noted.id), match &noted.note.clone() { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    let _smelt_tmp_29: f64 = smelt_json_decode_9(&"21".to_owned())?;
+    let _smelt_tmp_29: f64 = smelt_json_decode_8(&"21".to_owned())?;
     let _smelt_tmp_30: f64 = double(_smelt_tmp_29);
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_30)); };
-    let _smelt_tmp_32: (String, bool) = smelt_json_decode_8(&"[\"left\",true]".to_owned())?;
+    let _smelt_tmp_32: (String, bool) = smelt_json_decode_7(&"[\"left\",true]".to_owned())?;
     pair = _smelt_tmp_32;
     _smelt_tmp_33 = pair.clone().0.clone();
     _smelt_tmp_34 = pair.1.clone();
     let _ = { println!("{} {}", _smelt_tmp_33, _smelt_tmp_34); };
-    let _smelt_tmp_36: SmeltList<f64> = smelt_json_decode_10(&"[3,1,2]".to_owned())?;
+    let _smelt_tmp_36: SmeltList<f64> = smelt_json_decode_9(&"[3,1,2]".to_owned())?;
     counts = Into::<SmeltList<_>>::into(_smelt_tmp_36);
     _smelt_tmp_37 = counts.len() as f64;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_37), smelt_console_number(counts.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0))); };
@@ -5255,7 +5262,7 @@ pub(crate) fn count_nodes(tree: Tree) -> f64 {
 }
 
 pub(crate) fn load_order(text: String) -> Result<Order, Box<dyn std::error::Error>> {
-    let _smelt_tmp_1: Order = smelt_json_decode_6(&text.clone())?;
+    let _smelt_tmp_1: Order = smelt_json_decode_5(&text.clone())?;
     return Ok(_smelt_tmp_1);
 }
 

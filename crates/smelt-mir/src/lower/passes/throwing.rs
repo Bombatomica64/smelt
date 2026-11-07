@@ -335,7 +335,7 @@ fn terminator_can_throw(terminator: &Terminator, throwing: &[bool]) -> bool {
         // through its error channel, so the enclosing function throws. Being a
         // callee at all is what says the op can throw.
         Terminator::Call {
-            callee: Callee::Op(_),
+            callee: Callee::Op(_, None),
             unwind: None,
             ..
         } => true,

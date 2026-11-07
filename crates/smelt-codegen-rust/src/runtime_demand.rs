@@ -135,6 +135,8 @@ pub(crate) enum Need {
     PythonDivision,
     /// Python's raising `d[k]` read.
     PythonDictRead,
+    /// Python's raising `xs[i]` read.
+    PythonListRead,
     /// A class read as a value.
     ClassValue,
     /// `globalThis` as a value.
@@ -619,7 +621,7 @@ impl RuntimeDemand {
         if unwind.is_some() {
             self.add(Need::PanicRoute);
         }
-        if let Callee::Op(op) = callee {
+        if let Callee::Op(op, _) = callee {
             self.scan_rvalue(op);
         }
     }

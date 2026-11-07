@@ -5,7 +5,7 @@
 //! by a call terminator; this module is that rule, once, for every entry of
 //! `smelt_hir::for_each_transcribed_op!`.
 
-use smelt_hir::{Expr, ExprKind};
+use smelt_hir::{Expr, ExprKind, Span, Type, TypeId};
 
 use crate::{Callee, MirListSpliceItem, Operand, Place, Rvalue, Terminator};
 
@@ -118,12 +118,12 @@ impl LoweringCtx<'_> {
     /// the throwing pass sees the same terminator and marks the function.
     fn finish_op(&mut self, expr: &Expr, value: Rvalue) -> Result<Operand, LowerError> {
         if !value.is_fallible() {
-            return self.assign_temp(expr.ty, expr.span, value);
+            return self.place_callback_op(expr.ty, expr.span, value);
         }
         let dest = self.push_temp(expr.ty, expr.span);
         let target = self.function.push_block(expr.span);
         self.terminate(Terminator::Call {
-            callee: Callee::Op(Box::new(value)),
+            callee: Callee::Op(Box::new(value), None),
             args: Vec::new(),
             dest,
             target,
@@ -131,5 +131,56 @@ impl LoweringCtx<'_> {
         })?;
         self.switch_to(target);
         Ok(Operand::Copy(Place::Local(dest)))
+    }
+
+    /// Places an op that cannot throw by itself: an assignment, unless it runs a
+    /// function value inside a `try`. A callback's throw leaves through such an
+    /// op, so there it takes a call terminator for the handler's unwind edge.
+    pub(super) fn place_callback_op(
+        &mut self,
+        ty: TypeId,
+        span: Span,
+        value: Rvalue,
+    ) -> Result<Operand, LowerError> {
+        if !self.takes_function(&value) {
+            return self.assign_temp(ty, span, value);
+        }
+        self.place_source_call_op(ty, span, value)
+    }
+
+    /// Places an op that runs source code: inside a `try`, a call terminator
+    /// whose unwind edge is the handler; elsewhere an assignment.
+    pub(super) fn place_source_call_op(
+        &mut self,
+        ty: TypeId,
+        span: Span,
+        value: Rvalue,
+    ) -> Result<Operand, LowerError> {
+        let Some(unwind) = self.current_exception_handler() else {
+            return self.assign_temp(ty, span, value);
+        };
+        let dest = self.push_temp(ty, span);
+        let target = self.function.push_block(span);
+        self.terminate(Terminator::Call {
+            callee: Callee::Op(Box::new(value), Some(ty)),
+            args: Vec::new(),
+            dest,
+            target,
+            unwind: Some(unwind),
+        })?;
+        self.switch_to(target);
+        Ok(Operand::Copy(Place::Local(dest)))
+    }
+
+    /// Whether `value` reads a local holding a function.
+    fn takes_function(&self, value: &Rvalue) -> bool {
+        let mut takes_function = false;
+        value.reads(|operand| {
+            takes_function |= operand
+                .local()
+                .and_then(|local| self.function.locals.get(usize::try_from(local.0).unwrap_or(usize::MAX)))
+                .is_some_and(|decl| matches!(self.krate.types.get(decl.ty), Some(Type::Function(_))));
+        });
+        takes_function
     }
 }

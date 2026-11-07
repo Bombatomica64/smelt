@@ -40,7 +40,5 @@ interned types
   t0 = String
   t1 = fn(String) -> String
   t2 = Router
-  t3 = Unknown
-  t4 = Dict<String, Unknown>
-  t5 = fn(String) -> String
-  t6 = None
+  t3 = fn(String) -> String
+  t4 = None

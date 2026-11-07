@@ -238,7 +238,9 @@ fn may_run_code(statement: &Statement, body: Body<'_>, types: &TypeInterner) -> 
         value,
         Rvalue::ClosureCall { .. }
             | Rvalue::ClosureCallSpread { .. }
+            | Rvalue::ClosureCallRest { .. }
             | Rvalue::Construct { .. }
+            | Rvalue::ConstructLike { .. }
             | Rvalue::Await { .. }
             | Rvalue::GeneratorYield { .. }
     ) {

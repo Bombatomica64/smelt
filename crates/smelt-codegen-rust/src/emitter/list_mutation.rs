@@ -973,8 +973,14 @@ impl FunctionEmitter<'_> {
             self.rendered_at_type(&RustExpr::chain("right.clone()").ending_in_clone(), element_ty, right_param_ty, &self.render_scope())?.into_string(),
         );
         let ordering_coercion = if coerce_result { ".smelt_into_f64()" } else { "" };
+        // `sort_by`'s closure has no error channel: a throw leaves as a panic.
+        let thrown = if function_ty.may_throw {
+            ".unwrap_or_else(|error: Box<dyn ::std::error::Error>| smelt_panic_throw(error))"
+        } else {
+            ""
+        };
         Ok(RustExpr::postfix_on(&list_text, format!(
-            "{list_text}.sort_by(|left, right| {{ let ordering = ({comparator_ident})({left_arg}, {right_arg}){ordering_coercion}; if ordering < 0.0 {{ std::cmp::Ordering::Less }} else if ordering > 0.0 {{ std::cmp::Ordering::Greater }} else {{ std::cmp::Ordering::Equal }} }})"
+            "{list_text}.sort_by(|left, right| {{ let ordering = ({comparator_ident})({left_arg}, {right_arg}){thrown}{ordering_coercion}; if ordering < 0.0 {{ std::cmp::Ordering::Less }} else if ordering > 0.0 {{ std::cmp::Ordering::Greater }} else {{ std::cmp::Ordering::Equal }} }})"
         )))
     }
 
