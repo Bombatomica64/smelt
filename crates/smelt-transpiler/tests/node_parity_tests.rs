@@ -324,3 +324,10 @@ fn object_literal_getters() -> TestResult {
 fn erased_string_joins_arrays() -> TestResult {
     verify_node_parity("erased_string_joins_arrays")
 }
+
+/// A field read keeps its value when a later argument writes the field through
+/// a computed key or `Object.assign`.
+#[test]
+fn field_read_before_keyed_write() -> TestResult {
+    verify_node_parity("field_read_before_keyed_write")
+}

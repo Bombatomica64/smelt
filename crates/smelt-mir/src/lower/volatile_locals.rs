@@ -20,7 +20,9 @@
 //! A field or element read is the same lazy place, but any call can reach the
 //! object through another name, so no set of locals answers it. Such a read is
 //! snapshotted when a LATER sibling operand can run code: `pair(c.n, inc())`. A
-//! field nothing in the crate assigns cannot change, so its read stays a place.
+//! field nothing in the crate can write cannot change, so its read stays a
+//! place; a keyed write with a non-literal key (`o[k] = v`) or an
+//! `Object.assign` can write any field.
 //! A property read on an erased object or record can itself run a getter, so it
 //! counts as running code and is snapshotted ahead of any later sibling.
 //!
@@ -28,7 +30,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use smelt_hir::{Body, BodyId, ClosureExpr, ExprId, ExprKind, LocalId, Stmt, Symbol, Type, TypeInterner};
+use smelt_hir::{Body, BodyId, ClosureExpr, ExprId, ExprKind, LocalId, Stmt, Type, TypeInterner};
 
 /// The volatile locals of every HIR body; see the module docs.
 #[derive(Debug, Default)]
@@ -60,9 +62,9 @@ impl VolatileLocals {
             by_body.insert(body.id, volatile);
         }
         spread_into_captures(&krate.bodies, &mut by_body);
-        let assigned_fields = assigned_fields(&krate.bodies);
+        let assigned_fields = assigned_fields(krate);
         let early_reads =
-            krate.bodies.iter().map(|body| (body.id, early_reads(body, &krate.types, &assigned_fields))).collect();
+            krate.bodies.iter().map(|body| (body.id, early_reads(body, krate, &assigned_fields))).collect();
         Self { by_body, early_reads }
     }
 
@@ -178,22 +180,65 @@ fn reads_global(body: &Body, id: ExprId) -> bool {
     })
 }
 
-/// Every field name a statement of the crate assigns.
-fn assigned_fields(all: &[Body]) -> HashSet<Symbol> {
-    all.iter()
-        .flat_map(|body| body.stmts.iter().map(move |stmt| (body, stmt)))
-        .filter_map(|(body, stmt)| match stmt {
-            Stmt::Assign { target, .. } => match expr_kind(body, *target)? {
-                ExprKind::Field { field, .. } => Some(*field),
-                _ => None,
-            },
-            _ => None,
-        })
-        .collect()
+/// Which fields the statements of the crate can write.
+#[derive(Debug, Default)]
+struct FieldWrites {
+    /// Fields written by name: `o.n = v`, or `o["n"] = v` with a literal key.
+    names: HashSet<String>,
+    /// A write whose field is not known statically (`o[key] = v`,
+    /// `Object.assign(o, src)`) can write any field.
+    any: bool,
+}
+
+impl FieldWrites {
+    /// Whether the field named `name` can be written.
+    fn may_write(&self, name: &str) -> bool {
+        self.any || self.names.contains(name)
+    }
+}
+
+/// Every field a statement or `Object.assign` of the crate can write.
+fn assigned_fields(krate: &smelt_hir::Crate) -> FieldWrites {
+    let mut writes = FieldWrites::default();
+    for body in &krate.bodies {
+        for stmt in &body.stmts {
+            let Stmt::Assign { target, .. } = stmt else { continue };
+            match expr_kind(body, *target) {
+                Some(ExprKind::Field { field, .. }) => {
+                    if let Some(name) = krate.symbols.get(*field) {
+                        writes.names.insert(name.to_owned());
+                    }
+                }
+                Some(ExprKind::Index { receiver, index }) if receiver_has_fields(body, &krate.types, *receiver) => {
+                    match expr_kind(body, *index) {
+                        Some(ExprKind::Literal(smelt_hir::Literal::String(name))) => {
+                            writes.names.insert(name.clone());
+                        }
+                        _ => writes.any = true,
+                    }
+                }
+                _ => {}
+            }
+        }
+        if body.exprs.iter().any(|expr| matches!(expr.kind, ExprKind::DictAssign { .. })) {
+            writes.any = true;
+        }
+    }
+    writes
+}
+
+/// Whether a keyed write into `receiver` can land on a named field: anything
+/// but a list, tuple or typed array, whose keys are element indices.
+fn receiver_has_fields(body: &Body, types: &TypeInterner, receiver: ExprId) -> bool {
+    usize::try_from(receiver.0)
+        .ok()
+        .and_then(|index| body.exprs.get(index))
+        .is_none_or(|expr| !matches!(types.get(expr.ty), Some(Type::List(_) | Type::Tuple(_))))
 }
 
 /// The field and element reads of `body` followed by a sibling that can run code.
-fn early_reads(body: &Body, types: &TypeInterner, assigned_fields: &HashSet<Symbol>) -> HashSet<ExprId> {
+fn early_reads(body: &Body, krate: &smelt_hir::Crate, assigned_fields: &FieldWrites) -> HashSet<ExprId> {
+    let types = &krate.types;
     let mut memo = HashMap::new();
     let mut reads = HashSet::new();
     for expr in &body.exprs {
@@ -212,7 +257,9 @@ fn early_reads(body: &Body, types: &TypeInterner, assigned_fields: &HashSet<Symb
             }
             later_reads_global |= reads_global(body, child);
             let is_lazy_read = match expr_kind(body, child) {
-                Some(ExprKind::Field { field, .. }) => assigned_fields.contains(field),
+                Some(ExprKind::Field { field, .. }) => {
+                    krate.symbols.get(*field).is_some_and(|name| assigned_fields.may_write(name))
+                }
                 Some(ExprKind::Index { .. }) => true,
                 _ => false,
             };
