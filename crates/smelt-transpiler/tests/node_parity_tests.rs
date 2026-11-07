@@ -106,6 +106,12 @@ fn try_around_raising_callback() -> TestResult {
     verify_node_parity("try_around_raising_callback")
 }
 
+/// `+` on erased operands concatenates where the checker says it does.
+#[test]
+fn heterogeneous_object_constant() -> TestResult {
+    verify_node_parity("heterogeneous_object_constant")
+}
+
 /// A parameter does not hide a module constant from other functions.
 #[test]
 fn parameter_shadows_module_const() -> TestResult {

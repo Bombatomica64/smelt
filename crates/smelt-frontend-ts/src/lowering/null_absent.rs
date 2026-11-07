@@ -52,6 +52,14 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Whether the TS7 checker types the expression at `start..end` as a string.
+    /// `false` without facts.
+    pub(in crate::lowering) fn checker_types_as_string(&self, start: u32, end: u32) -> bool {
+        self.ts_facts
+            .and_then(|facts| facts.type_at(&self.path, start, end))
+            .is_some_and(|ty| matches!(ty.kind, TsTypeKind::String | TsTypeKind::StringLiteral(_)))
+    }
+
     /// Whether the TS7 checker types the expression at `start..end` as an
     /// array or a tuple (every member, for a union). `false` without facts.
     pub(in crate::lowering) fn checker_types_as_array(&self, start: u32, end: u32) -> bool {
