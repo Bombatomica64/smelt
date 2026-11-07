@@ -61,7 +61,7 @@ The frontend rejects anything that fails these checks with a source-located erro
 
 ## Implementation Notes
 
-- Parse with `tree-sitter-python`.
+- Parse with Ruff's `ruff_python_parser`.
 - Use `ty` for type information. Either embed it (it's Rust!) or shell out — decide early in the milestone. Embedding is preferred.
 - The walker produces `smelt_hir::Module` — the same type the TS frontend produces. If a construct doesn't fit, that's a signal HIR needs to grow, not that Python needs its own IR.
 - Naming: Python is already snake_case, so the HIR canonical form needs no conversion. Class names stay PascalCase as in HIR.

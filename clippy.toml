@@ -1,8 +1,8 @@
 # Strictest possible Clippy configuration.
 # Thresholds are tightened well below the defaults.
 
-# Minimum Supported Rust Version — kept in sync with workspace edition 2024 (MSRV 1.85).
-msrv = "1.85.0"
+# Minimum Supported Rust Version: the workspace `rust-version` in Cargo.toml.
+msrv = "1.99.0"
 
 # Lower the cognitive-complexity ceiling (default: 25).
 cognitive-complexity-threshold = 10

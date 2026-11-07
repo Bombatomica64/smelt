@@ -63,8 +63,15 @@ pub enum Command {
         /// (`all` for every reason). Repeatable; overrides `[erasure]`.
         #[arg(long = "erasure", value_name = "REASON=LEVEL")]
         erasure: Vec<String>,
+
+        /// Fail when the TypeScript checker reports an error. Off by default:
+        /// the checker sees only the dependency closure, so a project without
+        /// `@types/node` or with ambient test globals gets errors its real
+        /// `tsc` setup does not.
+        #[arg(long)]
+        deny_type_errors: bool,
     },
-    /// Scaffold a new smelt project (not implemented yet)
+    /// Scaffold a new smelt project in a directory of that name
     New {
         /// Project name
         name: String,
@@ -267,6 +274,12 @@ pub enum Command {
         /// Format, destination and baseline gate of the report.
         #[command(flatten)]
         gate: GateArgs,
+
+        /// A baseline program that is gone on purpose: it stops being judged,
+        /// and `--update-baseline` removes its record. Repeatable. Any other
+        /// baseline program that is not measured fails the gate.
+        #[arg(long, value_name = "PROGRAM", requires = "baseline")]
+        retire_program: Vec<String>,
     },
 
     /// Classify list-typed MIR locals as escaping, aliased, or frame-local
@@ -305,8 +318,12 @@ pub enum Command {
         top: usize,
     },
 
-    /// Remove the output target directory (not implemented yet)
-    Clean,
+    /// Remove the output target directory
+    Clean {
+        /// Remove files smelt did not write without asking
+        #[arg(long)]
+        force: bool,
+    },
     /// Print the JSON Schema for Smelt.toml
     DumpSchema,
 }

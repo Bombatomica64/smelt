@@ -1,0 +1,35 @@
+name: Set up test tools
+description: Install what tool-backed tests need, at the versions pinned in libraries.json.
+
+runs:
+  using: composite
+  steps:
+    - name: Read pins
+      id: pins
+      shell: bash
+      run: |
+        echo "node=$(python3 scripts/ci_pin.py tool node)" >> "$GITHUB_OUTPUT"
+        echo "typescript=$(python3 scripts/ci_pin.py tool typescript)" >> "$GITHUB_OUTPUT"
+
+    # The end-to-end corpus checks every golden stdout against real Node
+    # (`ensure_node_agrees` in crates/smelt-transpiler/tests/common/mod.rs), and
+    # Node is the oracle, so its version is pinned: the runner image's default
+    # Node is older than the 22.7 that `--experimental-transform-types` needs,
+    # and Node releases disagree on observable behaviour
+    # (`92_request_init_members` records one such difference between Node 22 and
+    # 24). Bump the pin deliberately and re-check the goldens when it moves.
+    - name: Install Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ steps.pins.outputs.node }}
+
+    - name: Install sandbox prerequisites
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install --yes bubblewrap python3-django
+        # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor,
+        # which bubblewrap needs. The key is absent on older images, so this
+        # must not fail the job.
+        sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+        npm install --global "typescript@${{ steps.pins.outputs.typescript }}"

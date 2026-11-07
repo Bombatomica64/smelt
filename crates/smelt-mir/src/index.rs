@@ -213,7 +213,7 @@ mod tests {
         };
         assert_eq!(callers(&program, 0), [FuncId(1), FuncId(2)]);
         assert_eq!(callers(&program, 1), [FuncId(3)]);
-        assert!(callers(&program, 3).is_empty());
+        assert_eq!(callers(&program, 3), [] as [FuncId; 0]);
     }
 
     /// A clone and a cleared index both answer from the MIR as it stands, so a

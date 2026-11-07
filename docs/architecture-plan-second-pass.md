@@ -1,5 +1,10 @@
 # Smelt architecture plan — the second pass
 
+> **Superseded.** This is the plan as measured on 2026-08-19; its numbers
+> describe that commit, not the code today. What landed and what stayed open is
+> recorded in [`docs/untangle-decision-log.md`](untangle-decision-log.md), which
+> is the current record. Read this file for the reasoning, not for the state.
+
 Measured 2026-08-19 on `claude/estoolkit-utilities-wxhb0t` @ `d07be02`.
 Successor to `docs/architecture-review.html` (2026-06-04).
 

@@ -1,7 +1,9 @@
 # smelt-gui is its own workspace, deliberately split out of the main Smelt
 # workspace: it depends on gpui (a very slow cold build) and is not part of the
-# transpiler pipeline. It consumes the published smelt-* crates from crates.io
-# rather than path deps, so building the main workspace never touches gpui.
+# transpiler pipeline. It names the smelt-* crates by version and
+# `[patch.crates-io]` resolves them to this repository, so building the main
+# workspace never touches gpui. It cannot be published: a `[patch]` does not
+# survive packaging, and the published 0.1.1 crates lack `smelt_mir::compile`.
 #
 # Build it explicitly from the repository root:
 #   cargo run --manifest-path crates/smelt-gui/Cargo.toml
@@ -11,7 +13,8 @@
 name = "smelt-gui"
 version = "0.1.1"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.99"
+publish = false
 license = "GPL-3.0-only"
 repository = "https://github.com/Bombatomica64/smelt"
 homepage = "https://github.com/Bombatomica64/smelt"
@@ -25,7 +28,7 @@ name = "smelt-gui"
 path = "src/main.rs"
 
 [features]
-# Python frontend support. ON by default; the complete frontend is publishable.
+# Python frontend support. ON by default.
 default = ["python"]
 python = ["dep:smelt-frontend-py"]
 

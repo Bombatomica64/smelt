@@ -586,11 +586,11 @@ fn unmodeled_host_namespace_members_block() -> Result<(), String> {
 fn shadowed_host_namespace_call_is_not_blocked() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function dir(process: { cwd(): string }): string {
   return process.cwd();
 }
-"#),
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -652,10 +652,10 @@ export const named = tz("Europe/Rome");
 fn sinon_rule_requires_the_import() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 const sinon = { useFakeTimers: (): number => 1 };
 export const clock = sinon.useFakeTimers();
-"#),
+"),
         &mut ctx,
     )?;
     let is_fake_timers = |expr: &smelt_hir::Expr| {

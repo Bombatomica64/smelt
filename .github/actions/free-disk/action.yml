@@ -1,0 +1,11 @@
+name: Free runner disk
+description: Remove the preinstalled Android SDK, .NET and GHC images, about 20 GB.
+
+runs:
+  using: composite
+  steps:
+    - name: Free runner disk
+      shell: bash
+      run: |
+        sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+        df -h /

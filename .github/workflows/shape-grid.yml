@@ -35,11 +35,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
         with:
           shared-key: build
           # Nightly runs must never write the lane the PR jobs read: a cache
@@ -64,9 +61,9 @@ jobs:
         run: |
           SMELT_GRID_DUMP="${RUNNER_TEMP}/shape-grid-src" \
             cargo test -p smelt-codegen-rust --test shape_grid grid_is_enumerable
-          # `npx typescript@5 tsc` looks for a bin named `typescript`, which
+          # `npx typescript tsc` looks for a bin named `typescript`, which
           # the package does not ship (its bins are `tsc` and `tsserver`), so
           # npx exits 1 with "could not determine executable to run". Name the
           # package with --package and the bin after `--`.
-          npx --yes --package typescript@5 -- tsc --strict --noEmit --target es2020 \
+          npx --yes --package "typescript@$(python3 scripts/ci_pin.py tool typescript)" -- tsc --strict --noEmit --target es2020 \
             "${RUNNER_TEMP}"/shape-grid-src/*.ts

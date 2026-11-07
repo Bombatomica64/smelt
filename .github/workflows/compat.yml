@@ -29,72 +29,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: remeda
-            url: https://github.com/remeda/remeda.git
-            ref: 3c80f28bb394edbf89f1fc9978571dec8ed20edc
-            manifest: Smelt.toml
-            generated_manifest: dist-smelt/Cargo.toml
-          - name: es-toolkit
-            url: https://github.com/toss/es-toolkit.git
-            ref: e008a2818cd8d07469a5cc12ee0c02405d523e07
-            manifest: Smelt.toml
-            generated_manifest: dist-smelt/Cargo.toml
+        name: [remeda, es-toolkit]
     steps:
       - name: Checkout Smelt
         uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
         with:
           shared-key: build
 
       - name: Get smelt binary (prebuilt only if it matches this commit)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # The smelt-nightly asset is published on demand (see
-          # .github/workflows/publish-smelt.yml), so it can be arbitrarily older
-          # than the commit checked out here. This workflow commits COMPAT.md, so
-          # a stale binary would publish compatibility numbers that describe some
-          # other commit. The asset is therefore only usable when its `smelt.sha`
-          # sidecar matches $GITHUB_SHA exactly; stale asset, missing sidecar, or
-          # download failure all fall back to a from-source build.
-          mkdir -p .smelt-bin
-          asset_sha=""
-          if gh release download smelt-nightly \
-               --pattern smelt --pattern smelt.sha \
-               --dir .smelt-bin --clobber 2>/dev/null; then
-            asset_sha="$(tr -d '[:space:]' < .smelt-bin/smelt.sha 2>/dev/null || true)"
-          fi
+        uses: ./.github/actions/smelt-binary
+        with:
+          token: ${{ github.token }}
 
-          if [ -n "$asset_sha" ] && [ "$asset_sha" = "$GITHUB_SHA" ]; then
-            chmod +x .smelt-bin/smelt
-            echo "SMELT_BIN=$PWD/.smelt-bin/smelt" >> "$GITHUB_ENV"
-            echo "::notice::Using PREBUILT smelt from smelt-nightly (asset commit $asset_sha matches this commit)."
-          else
-            echo "::notice::Building smelt FROM SOURCE: smelt-nightly asset commit '${asset_sha:-<none>}' does not match this commit $GITHUB_SHA."
-            cargo build --release --bin smelt
-            echo "SMELT_BIN=$PWD/target/release/smelt" >> "$GITHUB_ENV"
-          fi
-
-      - name: Checkout compatibility repo
-        run: |
-          repo_dir="target/compat-repos/${{ matrix.name }}"
-          rm -rf "$repo_dir"
-          git clone --no-tags --filter=blob:none "${{ matrix.url }}" "$repo_dir"
-          git -C "$repo_dir" checkout "${{ matrix.ref }}"
-
-      - name: Copy Smelt fixtures
-        run: |
-          fixture_dir=".github/compat/${{ matrix.name }}"
-          repo_dir="target/compat-repos/${{ matrix.name }}"
-          if [ -d "$fixture_dir" ]; then
-            cp -R "$fixture_dir"/. "$repo_dir"/
-          fi
+      - name: Check out the library
+        id: library
+        uses: ./.github/actions/checkout-library
+        with:
+          name: ${{ matrix.name }}
 
       - name: Build and run generated Rust tests
         id: generated-tests
@@ -102,8 +56,8 @@ jobs:
         run: |
           mkdir -p "target/compat-reports"
           "$SMELT_BIN" rust-test-report \
-            --build-manifest "target/compat-repos/${{ matrix.name }}/${{ matrix.manifest }}" \
-            --cargo-manifest "target/compat-repos/${{ matrix.name }}/${{ matrix.generated_manifest }}" \
+            --build-manifest "target/compat-repos/${{ matrix.name }}/Smelt.toml" \
+            --cargo-manifest "target/compat-repos/${{ matrix.name }}/dist-smelt/Cargo.toml" \
             --full \
             --diagnostics \
             --suppress-warnings \
@@ -123,8 +77,8 @@ jobs:
           fi
           {
             echo "name=${{ matrix.name }}"
-            echo "url=${{ matrix.url }}"
-            echo "ref=${{ matrix.ref }}"
+            echo "url=${{ steps.library.outputs.url }}"
+            echo "ref=${{ steps.library.outputs.ref }}"
             echo "run_url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             echo "status=${{ steps.generated-tests.outcome }}"
           } > "$result_dir/metadata.env"

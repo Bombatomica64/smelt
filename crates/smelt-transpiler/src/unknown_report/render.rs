@@ -1,37 +1,40 @@
 //! The Markdown rendering of a report.
 
-use std::fmt::Write as _;
 
 use super::{Category, UnknownReport};
-use crate::report::escape_cell;
+use crate::report::{escape_cell, push_fmt};
 
 /// Render the report as Markdown, optionally with a baseline delta section.
 pub(super) fn render_markdown(report: &UnknownReport, baseline: Option<&UnknownReport>) -> String {
     let mut out = String::new();
-    let _ = writeln!(out, "# SmeltUnknown usage report");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "- Files scanned: {}", report.files_scanned);
-    let _ = writeln!(out, "- Total `SmeltUnknown` occurrences: {}", report.total);
-    let _ = writeln!(
-        out,
-        "- Avoidable erasure: **{}** (the number this metric is designed to drive down)",
-        report.category_total(Category::AvoidableErasure)
+    push_fmt(&mut out, format_args!("# SmeltUnknown usage report\n"));
+    out.push('\n');
+    push_fmt(&mut out, format_args!("- Files scanned: {}\n", report.files_scanned));
+    push_fmt(&mut out, format_args!("- Total `SmeltUnknown` occurrences: {}\n", report.total));
+    push_fmt(
+        &mut out,
+        format_args!(
+            "- Avoidable erasure: **{}** (the number this metric is designed to drive down)\n",
+            report.category_total(Category::AvoidableErasure)
+        ),
     );
-    let _ = writeln!(out);
+    out.push('\n');
 
-    let _ = writeln!(out, "## Occurrences by category");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "| Category | Occurrences |");
-    let _ = writeln!(out, "| --- | ---: |");
+    push_fmt(&mut out, format_args!("## Occurrences by category\n"));
+    out.push('\n');
+    push_fmt(&mut out, format_args!("| Category | Occurrences |\n"));
+    push_fmt(&mut out, format_args!("| --- | ---: |\n"));
     for category in Category::all() {
-        let _ = writeln!(
-            out,
-            "| {} | {} |",
-            category.label(),
-            report.category_total(category)
+        push_fmt(
+            &mut out,
+            format_args!(
+                "| {} | {} |\n",
+                category.label(),
+                report.category_total(category)
+            ),
         );
     }
-    let _ = writeln!(out);
+    out.push('\n');
 
     if let Some(baseline_report) = baseline {
         render_baseline_delta(&mut out, report, baseline_report);
@@ -53,43 +56,49 @@ pub(super) fn render_markdown(report: &UnknownReport, baseline: Option<&UnknownR
 /// boundary additions (which raise the legitimate-boundary count) never block a
 /// build or CI step.
 fn render_baseline_delta(out: &mut String, report: &UnknownReport, baseline: &UnknownReport) {
-    let _ = writeln!(out, "## Change vs baseline");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "| Category | Baseline | Current | Delta |");
-    let _ = writeln!(out, "| --- | ---: | ---: | ---: |");
+    push_fmt(out, format_args!("## Change vs baseline\n"));
+    out.push('\n');
+    push_fmt(out, format_args!("| Category | Baseline | Current | Delta |\n"));
+    push_fmt(out, format_args!("| --- | ---: | ---: | ---: |\n"));
     for category in Category::all() {
         let before = baseline.category_total(category);
         let after = report.category_total(category);
-        let _ = writeln!(
+        push_fmt(
             out,
-            "| {} | {} | {} | {} |",
-            category.label(),
-            before,
-            after,
-            format_delta(before, after),
+            format_args!(
+                "| {} | {} | {} | {} |\n",
+                category.label(),
+                before,
+                after,
+                format_delta(before, after)
+            ),
         );
     }
-    let _ = writeln!(out);
+    out.push('\n');
     let avoidable_delta = report
         .category_total(Category::AvoidableErasure)
         .checked_sub(baseline.category_total(Category::AvoidableErasure));
     match avoidable_delta {
         Some(0) | None => {
-            let _ = writeln!(
+            push_fmt(
                 out,
-                "Avoidable erasure did not increase versus the baseline.",
+                format_args!(
+                    "Avoidable erasure did not increase versus the baseline.\n"
+                ),
             );
         }
         Some(increase) => {
-            let _ = writeln!(
+            push_fmt(
                 out,
-                "> **Regression to review:** avoidable erasure rose by {increase}. \
-                 Confirm each new `SmeltUnknown` marks a genuine dynamic boundary \
-                 (see the `SmeltUnknown enforcement` policy in `AGENTS.md`).",
+                format_args!(
+                    "> **Regression to review:** avoidable erasure rose by {increase}. \
+                    Confirm each new `SmeltUnknown` marks a genuine dynamic boundary \
+                    (see the `SmeltUnknown enforcement` policy in `AGENTS.md`).\n"
+                ),
             );
         }
     }
-    let _ = writeln!(out);
+    out.push('\n');
 }
 
 /// Format a signed delta between two counts for a Markdown table cell.
@@ -103,24 +112,26 @@ fn format_delta(before: usize, after: usize) -> String {
 
 /// Render the per-shape breakdown table.
 fn render_shape_table(out: &mut String, report: &UnknownReport) {
-    let _ = writeln!(out, "## Occurrence shapes");
-    let _ = writeln!(out);
+    push_fmt(out, format_args!("## Occurrence shapes\n"));
+    out.push('\n');
     if report.shapes.is_empty() {
-        let _ = writeln!(out, "No `SmeltUnknown` occurrences were found.");
+        push_fmt(out, format_args!("No `SmeltUnknown` occurrences were found.\n"));
         return;
     }
-    let _ = writeln!(out, "| Occurrences | Files | Category | Shape | Example |");
-    let _ = writeln!(out, "| ---: | ---: | --- | --- | --- |");
+    push_fmt(out, format_args!("| Occurrences | Files | Category | Shape | Example |\n"));
+    push_fmt(out, format_args!("| ---: | ---: | --- | --- | --- |\n"));
     for shape in &report.shapes {
-        let _ = writeln!(
+        push_fmt(
             out,
-            "| {} | {} | {} | `{}` | `{}` |",
-            shape.occurrences,
-            shape.files,
-            shape.category.label(),
-            escape_cell(&shape.shape),
-            escape_cell(&shape.example),
+            format_args!(
+                "| {} | {} | {} | `{}` | `{}` |\n",
+                shape.occurrences,
+                shape.files,
+                shape.category.label(),
+                escape_cell(&shape.shape),
+                escape_cell(&shape.example)
+            ),
         );
     }
-    let _ = writeln!(out);
+    out.push('\n');
 }

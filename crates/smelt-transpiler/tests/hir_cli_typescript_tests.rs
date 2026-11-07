@@ -7,7 +7,7 @@ use std::fs;
 use common::{
     TempProject, TestResult, cargo_run_manifest, cargo_run_manifest_with_env, cargo_test_manifest,
     ensure, ensure_eq, smelt,
-    smelt_in, smelt_with_env,
+    smelt_in, smelt_with_env, tool_missing,
     utf8_path,
 };
 
@@ -17,16 +17,7 @@ use common::{
     reason = "end-to-end CLI fixture: the inline project sources and the assertions over the\n             generated output belong to one scenario, and splitting them into helpers would\n             hide what this test actually builds"
 )]
 fn build_specializes_decorators_and_reuses_packaged_manifest() -> TestResult {
-    if !std::path::Path::new("/usr/bin/bwrap").is_file()
-        || std::process::Command::new("node")
-            .arg("--version")
-            .output()
-            .is_err()
-        || std::process::Command::new("tsc")
-            .arg("--version")
-            .output()
-            .is_err()
-    {
+    if tool_missing("build_specializes_decorators", &["bwrap", "node", "tsc"])? {
         return Ok(());
     }
     let project = TempProject::new()?;

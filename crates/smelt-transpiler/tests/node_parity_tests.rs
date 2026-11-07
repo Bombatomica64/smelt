@@ -94,7 +94,7 @@ fn parameter_shadows_module_const() -> TestResult {
     verify_node_parity("parameter_shadows_module_const")
 }
 
-/// `replace` substitutes ToString of the replacer's answer.
+/// `replace` substitutes `ToString` of the replacer's answer.
 #[test]
 fn replace_callback_tostring() -> TestResult {
     verify_node_parity("replace_callback_tostring")

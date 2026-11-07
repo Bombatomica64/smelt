@@ -3,7 +3,7 @@
 //! Parses arguments, loads configuration and routes each subcommand to the
 //! frontend, codegen and report pipelines.
 
-use std::{io, io::Write as _, path::PathBuf};
+use std::{io, io::Write as _, path::{Path, PathBuf}};
 
 use clap::Parser as _;
 
@@ -20,6 +20,8 @@ use crate::{
 #[cfg(feature = "ts7")]
 use crate::ts7_parity_report;
 use crate::lowering::ManifestLowering;
+use crate::scaffold;
+use crate::clean;
 
 /// CLI entry point: one dispatch over every subcommand.
 ///
@@ -91,6 +93,7 @@ pub fn run() -> CliResult<()> {
             paths,
             define,
             gate: GateArgs { format, baseline, fail_on_regression, update_baseline, output },
+            retire_program,
         } => {
             let input_paths = paths.iter().map(PathBuf::from).collect::<Vec<_>>();
             let outcome =
@@ -100,6 +103,7 @@ pub fn run() -> CliResult<()> {
                     format,
                     baseline: baseline.as_deref().map(PathBuf::from),
                     update_baseline,
+                    retired: &retire_program,
                 })?;
             report::finish_gated(&outcome, output.as_deref(), fail_on_regression)?;
         }
@@ -122,19 +126,22 @@ pub fn run() -> CliResult<()> {
             })?;
             report::finish_gated(&outcome, output.as_deref(), fail_on_regression)?;
         }
-        Command::Check { message_format, define, erasure } => {
+        Command::Check { message_format, define, erasure, deny_type_errors } => {
             let mut config = load_config(&manifest_path)?;
             config.extend_defines(define.values);
             let settings = erasure::ErasureSettings::new(config.erasure(), &erasure)?;
             match message_format {
                 MessageFormat::Human => {
-                    pipeline::check_manifest(&config, &manifest_path, &settings)?;
+                    pipeline::check_manifest(&config, &manifest_path, &settings, deny_type_errors)?;
                 }
                 MessageFormat::Json => {
                     let diagnostics = ManifestLowering::for_manifest(&config, &manifest_path)?
                         .diagnostics(Some(&settings))?;
                     let mut stdout = io::stdout().lock();
                     writeln!(stdout, "{}", serde_json::to_string_pretty(&diagnostics)?)?;
+                    if deny_type_errors {
+                        crate::ts_facts::fail_on_type_errors(&diagnostics)?;
+                    }
                 }
             }
         }
@@ -150,10 +157,10 @@ pub fn run() -> CliResult<()> {
             }
         }
         Command::New { name, python } => {
-            return Err(format!(
-                "`smelt new` is not implemented yet: name={name}, python={python}"
-            )
-            .into());
+            let language =
+                if python { scaffold::EntryLanguage::Python } else { scaffold::EntryLanguage::TypeScript };
+            let root = scaffold::new_project(Path::new("."), &name, language)?;
+            writeln!(io::stdout().lock(), "Created `{}`. Run `smelt build` there.", root.display())?;
         }
         Command::DumpHir { file, debug } => {
             let (krate, modules) = ManifestLowering::for_file(&file)?.lower()?;
@@ -183,13 +190,44 @@ pub fn run() -> CliResult<()> {
             })?;
             write_report(output.as_deref(), &report)?;
         }
-        Command::Clean => return Err("`smelt clean` is not implemented yet".into()),
+        Command::Clean { force } => {
+            let config = load_config(&manifest_path)?;
+            let message = match clean::clean(&config, &manifest_path, force, confirm_removal)? {
+                clean::Cleaned::Nothing(target) => format!("Nothing to clean: `{}` does not exist.", target.display()),
+                clean::Cleaned::Removed(target) => format!("Removed `{}`.", target.display()),
+            };
+            writeln!(io::stdout().lock(), "{message}")?;
+        }
     }
     Ok(())
 }
 
+/// Asks on the terminal before `smelt clean` removes files smelt did not
+/// write. Without a terminal there is nobody to ask, so the answer is no and
+/// the error tells the user about `--force`.
+fn confirm_removal(foreign: &[PathBuf]) -> io::Result<bool> {
+    use std::io::{BufRead as _, IsTerminal as _};
+    let mut stderr = io::stderr().lock();
+    writeln!(stderr, "These files were not written by smelt:")?;
+    for path in foreign.iter().take(10) {
+        writeln!(stderr, "  {}", path.display())?;
+    }
+    if foreign.len() > 10 {
+        writeln!(stderr, "  ... and {} more", foreign.len().saturating_sub(10))?;
+    }
+    if !io::stdin().is_terminal() {
+        writeln!(stderr, "Not a terminal: pass --force to remove them.")?;
+        return Ok(false);
+    }
+    write!(stderr, "Remove them too? [y/N] ")?;
+    stderr.flush()?;
+    let mut answer = String::new();
+    io::stdin().lock().read_line(&mut answer)?;
+    Ok(matches!(answer.trim(), "y" | "Y" | "yes"))
+}
+
 /// Parse the `Smelt.toml` at `path`.
-fn load_config(path: &std::path::Path) -> CliResult<Config> {
+fn load_config(path: &Path) -> CliResult<Config> {
     config_parser::parse_path(path)
 }
 

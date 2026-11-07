@@ -1234,6 +1234,10 @@ impl FunctionEmitter<'_> {
         index: usize,
         source_param: TypeId,
         callee_bindings: Option<&CalleeTypeParamBindings>,
+        #[cfg_attr(
+            not(debug_assertions),
+            expect(unused_variables, reason = "read only by the debug-build adapter assertion")
+        )]
         substitution: &TypeSubstitution<'_>,
         body_is_static_future: bool,
     ) -> Result<String, EmitError> {

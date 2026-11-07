@@ -190,10 +190,8 @@ fn assert_specialized_parity(source: &str, fixture_name: &str) -> ParityResult {
         smelt_version: "parity-test".to_owned(),
         python_executable: python,
         project_root: project.path().to_path_buf(),
-        modules: vec![PythonModule {
-            name: "fixture".to_owned(),
-            path: source_path.clone(),
-        }],
+        import_paths: Vec::new(),
+        modules: vec![PythonModule { name: "fixture".to_owned(), path: source_path.clone() }],
         hashes: fixture_hashes(fixture_name),
         sandbox_policy: fixture_policy(project.path()),
     })?;

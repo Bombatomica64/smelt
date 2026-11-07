@@ -1,4 +1,4 @@
-//! Valid Python whose generated Rust must print what CPython prints.
+//! Valid Python whose generated Rust must print what `CPython` prints.
 //!
 //! Each `fixtures/python-parity/<name>.py` runs through a full `smelt build` and a
 //! compile of the generated crate, and its stdout is compared with the committed
@@ -11,15 +11,18 @@ use std::fs;
 use std::process::Command;
 
 use common::{
-    TempProject, TestResult, cargo_run_manifest, ensure, ensure_eq, smelt_in, workspace_root,
+    PYTHON_ORACLE, TempProject, TestResult, cargo_run_manifest, ensure, ensure_eq,
+    python_runs_corpus, smelt_in, workspace_root,
 };
+use smelt_specialize::prereq::missing_prerequisite;
 
-/// Build fixture `name` and check its stdout against the golden and CPython.
+/// Build fixture `name` and check its stdout against the golden and `CPython`.
 fn verify_python_parity(name: &str) -> TestResult {
     let fixtures = workspace_root()?.join("crates/smelt-transpiler/tests/fixtures/python-parity");
     let script = fixtures.join(format!("{name}.py"));
     let expected = fs::read_to_string(fixtures.join(format!("{name}.stdout")))?;
-    if let Ok(output) = Command::new("python3").arg("-I").arg(&script).output() {
+    if python_runs_corpus() {
+        let output = Command::new("python3").arg("-I").arg(&script).output()?;
         let python_stdout = String::from_utf8(output.stdout)?;
         ensure(
             python_stdout == expected,
@@ -27,6 +30,8 @@ fn verify_python_parity(name: &str) -> TestResult {
                 "{name}: the golden stdout is not what `python3` prints for the same source\n--- python3\n{python_stdout}--- golden\n{expected}"
             ),
         )?;
+    } else {
+        missing_prerequisite::<Box<dyn std::error::Error>>(name, PYTHON_ORACLE)?;
     }
     let project = TempProject::new()?;
     let root = project.path();

@@ -806,10 +806,10 @@ const count = keyCount(new GetterBox());
 #[test]
 fn emits_date_to_iso_string_for_erased_datearg_surfaces() {
     let source = source_for(
-        r#"
+        r"
 declare const value: unknown;
 const isoFromUnknown = new Date(value).toISOString();
-"#,
+",
     );
 
     assert!(

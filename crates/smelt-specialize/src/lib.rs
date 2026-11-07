@@ -38,7 +38,7 @@ pub use python::{
 pub use sandbox::{
     BackendAvailability, LinuxBubblewrapBackend, MacOsSandboxBackend, OciSandboxBackend,
     PreparedCommand, SandboxBackend, SandboxError, SandboxOutput, SandboxRequest, SandboxRunner,
-    WindowsAppContainerBackend, default_platform_backend,
+    WindowsAppContainerBackend, default_platform_backend, platform_backend,
 };
 
 /// Current specialization manifest schema version.

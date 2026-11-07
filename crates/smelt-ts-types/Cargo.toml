@@ -2,9 +2,7 @@
 name = "smelt-ts-types"
 version.workspace = true
 edition.workspace = true
-# tsrs pins its own toolchain (1.99.1) and `rust-version = "1.99"`; this crate
-# cannot build on the workspace MSRV.
-rust-version = "1.99"
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true

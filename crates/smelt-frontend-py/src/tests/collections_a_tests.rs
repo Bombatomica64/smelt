@@ -651,7 +651,7 @@ def combine(values: list[int], a: int, b: int, c: int, d: int, e: int, f: int) -
         Ok(format!("{:?}", ctx.krate.bodies))
     };
     let first = render()?;
-    for _ in 0..24 {
+    for _ in 0_i32..24_i32 {
         ensure(render()? == first, "capture order changed between lowerings")?;
     }
     Ok(())

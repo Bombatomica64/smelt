@@ -317,13 +317,13 @@ impl TsTypeTable {
 
     /// Number of stored types.
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.types.len()
     }
 
     /// Whether the table is empty.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.types.is_empty()
     }
 

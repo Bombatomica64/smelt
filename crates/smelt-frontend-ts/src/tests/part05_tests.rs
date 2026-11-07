@@ -1672,10 +1672,10 @@ it("checks", () => {
 fn a_future_is_an_instance_of_promise() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 async function run(): Promise<void> {}
 export function check(): boolean { return run() instanceof Promise; }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(ctx.krate.bodies.iter().flat_map(|body| &body.exprs).any(|expr| matches!(

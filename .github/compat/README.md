@@ -7,12 +7,12 @@ how far Smelt can transpile real-world "bug libraries".
 `remeda/` and `radash/` are curated compatibility targets wired into the main
 CI workflow as blocking generated-Rust test gates. The Radash gate compiles
 the full configured source/test crate and runs its 387 currently discovered
-tests (384 pass, 3 pinned failures). All targets, including those two, are also probed daily by the
+tests (383 pass, 4 pinned failures). All targets, including those two, are also probed daily by the
 [`Library Probes`](../workflows/library-probes.yml) workflow, which refreshes
 the report at
 [`blocker-logs/library-probes.md`](../../blocker-logs/library-probes.md).
 
-The probe set, pinned refs, and per-library source roots live in
+The probe set, pinned refs, tool versions, and per-library source roots live in
 [`libraries.json`](./libraries.json); the driver is
 [`scripts/probe_libraries.py`](../../scripts/probe_libraries.py). Bump a `ref`
 deliberately to re-baseline a probe against a newer library version.

@@ -1,6 +1,8 @@
 {
-  "_comment": "Libraries probed by the daily library-probes workflow. Refs are pinned so the report tracks Smelt's progress, not upstream drift. Bump a ref deliberately to re-baseline against a newer library version. `roots` are the source roots scanned for blockers and must match the fixture Smelt.toml.",
+  "_comment": "Every pin CI reads, through scripts/ci_pin.py: `tools` are tool versions, `libraries` the libraries the regression gates and the daily library-probes workflow check out. Refs are pinned so the report tracks Smelt's progress, not upstream drift. Bump a ref deliberately to re-baseline against a newer library version. `roots` are the source roots scanned for blockers and must match the fixture Smelt.toml.",
+  "tools": { "node": "24.21.0", "typescript": "5.9.3" },
   "libraries": [
+    { "name": "remeda",         "repo": "remeda/remeda",                   "ref": "3c80f28bb394edbf89f1fc9978571dec8ed20edc", "lang": "ts", "roots": ["packages/remeda/src"] },
     { "name": "es-toolkit",     "repo": "toss/es-toolkit",                 "ref": "e008a2818cd8d07469a5cc12ee0c02405d523e07", "lang": "ts", "roots": ["src"] },
     { "name": "hono",           "repo": "honojs/hono",                     "ref": "0f5ad7b6bf0c5973a1bcad2b954ede5cc7e224a2", "lang": "ts", "roots": ["src"] },
     { "name": "radash",         "repo": "sodiray/radash",                  "ref": "4cab1900d08e0997abc4f17aec3cbfe18958d766", "lang": "ts", "roots": ["src"] },

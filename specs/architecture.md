@@ -9,7 +9,7 @@ Source (.ts / .py)
       │
       ▼
 ┌──────────────┐
-│   Frontend   │   tree-sitter parse + ty/tsgo type info
+│   Frontend   │   oxc/ruff parse + tsrs/ty type info
 │ (per-lang)   │   normalize into shared HIR
 └──────┬───────┘
        │
@@ -25,7 +25,7 @@ Source (.ts / .py)
        │   - resolve cross-language imports
        ▼
 ┌──────────────┐
-│     MIR      │   SSA-ish, basic blocks, naive ownership (clone everything)
+│     MIR      │   CFG over mutable locals, naive ownership (clone everything)
 └──────┬───────┘
        │
        ▼
