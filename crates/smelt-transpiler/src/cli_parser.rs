@@ -71,7 +71,7 @@ pub enum Command {
         #[arg(long)]
         deny_type_errors: bool,
     },
-    /// Scaffold a new smelt project (not implemented yet)
+    /// Scaffold a new smelt project in a directory of that name
     New {
         /// Project name
         name: String,

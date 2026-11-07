@@ -3,7 +3,7 @@
 //! Parses arguments, loads configuration and routes each subcommand to the
 //! frontend, codegen and report pipelines.
 
-use std::{io, io::Write as _, path::PathBuf};
+use std::{io, io::Write as _, path::{Path, PathBuf}};
 
 use clap::Parser as _;
 
@@ -20,6 +20,7 @@ use crate::{
 #[cfg(feature = "ts7")]
 use crate::ts7_parity_report;
 use crate::lowering::ManifestLowering;
+use crate::scaffold;
 
 /// CLI entry point: one dispatch over every subcommand.
 ///
@@ -155,10 +156,11 @@ pub fn run() -> CliResult<()> {
             }
         }
         Command::New { name, python } => {
-            return Err(format!(
-                "`smelt new` is not implemented yet: name={name}, python={python}"
-            )
-            .into());
+            if python {
+                return Err("`smelt new --python` is not implemented yet".into());
+            }
+            let root = scaffold::new_project(Path::new("."), &name, scaffold::EntryLanguage::TypeScript)?;
+            writeln!(io::stdout().lock(), "Created `{}`. Run `smelt build` there.", root.display())?;
         }
         Command::DumpHir { file, debug } => {
             let (krate, modules) = ManifestLowering::for_file(&file)?.lower()?;
@@ -194,7 +196,7 @@ pub fn run() -> CliResult<()> {
 }
 
 /// Parse the `Smelt.toml` at `path`.
-fn load_config(path: &std::path::Path) -> CliResult<Config> {
+fn load_config(path: &Path) -> CliResult<Config> {
     config_parser::parse_path(path)
 }
 
