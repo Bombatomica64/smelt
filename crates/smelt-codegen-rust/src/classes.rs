@@ -515,7 +515,7 @@ pub(crate) fn returns_the_receiver_at_its_own_class(mir: &Mir, function: &MirFun
 
 /// The already-interned type of a class instantiated at its own parameters
 /// (`Middle<T>` inside `Middle`'s `impl`), if the program spells it.
-fn class_self_type(mir: &Mir, class: Symbol) -> Option<TypeId> {
+pub(crate) fn class_self_type(mir: &Mir, class: Symbol) -> Option<TypeId> {
     let declared = find_class(mir, class)?;
     let args = declared
         .type_params

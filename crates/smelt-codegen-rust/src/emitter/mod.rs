@@ -253,6 +253,10 @@ pub(crate) struct EmitContext {
     /// Whether each union asked about so far is stored as a generated enum; a
     /// pure function of the MIR that every read of a union member asks.
     pub(crate) concrete_unions: std::cell::RefCell<HashMap<TypeId, bool>>,
+    /// Whether the program builds through `new value.constructor()` anywhere
+    /// (`Rvalue::ConstructLike`), which is what a class's erased `constructor`
+    /// entry is for; computed on first ask.
+    pub(crate) constructs_like: std::cell::OnceCell<bool>,
     /// See [`crate::generic_lifting::ErasedArgumentMemo`].
     pub(crate) erased_arguments: crate::generic_lifting::ErasedArgumentMemo,
     /// What this program demands of the runtime, computed once.
@@ -557,6 +561,7 @@ impl EmitContext {
             function_return_types,
             owned_callback_params,
             concrete_unions: ::std::cell::RefCell::default(),
+            constructs_like: ::std::cell::OnceCell::new(),
             erased_arguments: ::std::cell::RefCell::default(),
             function_item_accessors: ::std::cell::RefCell::new(
                 ::std::collections::BTreeMap::new(),
