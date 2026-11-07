@@ -473,10 +473,12 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(value_ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) && self.concrete_union_members(value_ty).is_none();
-        if (self.dict_uses_smelt_record(key_ty)
-            || self.dict_uses_js_key_map(key_ty))
-            && value_is_unknownish
-        {
+        if self.dict_uses_smelt_record(key_ty) && value_is_unknownish {
+            // A keyed read is a property read like a dotted one: a stored
+            // accessor (an object literal's `get`) is called, and a miss
+            // consults the prototype entries before answering `undefined`.
+            Ok(RustExpr::chain(format!("smelt_record_property(&{base_text}, &{key_text})")))
+        } else if self.dict_uses_js_key_map(key_ty) && value_is_unknownish {
             Ok(RustExpr::postfix_on(&base_text, self.carrier_format(format_args!(
                 "{base_text}.get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Undefined)"
             ))))
@@ -1001,9 +1003,10 @@ impl FunctionEmitter<'_> {
                 // property read, so a miss consults the prototype entries
                 // an erased class instance carries before answering
                 // `undefined` (`err.getResponse` after `'getResponse' in
-                // err` narrowed an erased error to a record arm).
-                return Ok(RustExpr::postfix_on(&base_text, format!(
-                    "{base_text}.get(&{key_text}).unwrap_or_else(|| smelt_record_inherited(&{base_text}, &{key_text}))"
+                // err` narrowed an erased error to a record arm). A stored
+                // accessor (an object literal's `get`) is called.
+                return Ok(RustExpr::chain(format!(
+                    "smelt_record_property(&{base_text}, &{key_text})"
                 )));
             }
             if self.dict_uses_smelt_record(*key) || self.dict_uses_js_key_map(*key) {

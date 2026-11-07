@@ -667,18 +667,14 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Return true for computed symbol keys that getter/method enumeration ignores.
+    /// Return true for a computed key that is a fresh `Symbol(...)` call, whose
+    /// getter no code can name again, so the literal may leave it out. Any
+    /// other computed key (a constant holding a string or a symbol) lowers
+    /// like a data property's key.
     pub(in crate::lowering) fn is_computed_symbol_key(
         object_property: &oxc::ast::ast::ObjectProperty<'_>,
     ) -> bool {
-        if !object_property.computed {
-            return false;
-        }
         Self::is_direct_computed_symbol_call_key(object_property)
-            || matches!(
-                &object_property.key,
-                PropertyKey::Identifier(identifier) if identifier.name.contains("SYMBOL")
-            )
     }
 
     /// Return true when a computed key is a direct `Symbol(...)` expression.

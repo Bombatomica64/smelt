@@ -311,3 +311,10 @@ fn declared_class_shadows_host() -> TestResult {
 fn reflect_has_is_in() -> TestResult {
     verify_node_parity("reflect_has_is_in")
 }
+
+/// An object literal's getter runs on every read, at its point of evaluation,
+/// whatever spells its key.
+#[test]
+fn object_literal_getters() -> TestResult {
+    verify_node_parity("object_literal_getters")
+}

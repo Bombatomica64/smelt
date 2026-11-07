@@ -21,6 +21,8 @@
 //! object through another name, so no set of locals answers it. Such a read is
 //! snapshotted when a LATER sibling operand can run code: `pair(c.n, inc())`. A
 //! field nothing in the crate assigns cannot change, so its read stays a place.
+//! A property read on an erased object or record can itself run a getter, so it
+//! counts as running code and is snapshotted ahead of any later sibling.
 //!
 //! [`LoweringCtx::lower_expr`]: super::context::LoweringCtx
 
@@ -142,11 +144,38 @@ fn can_run_code(body: &Body, types: &TypeInterner, id: ExprId, memo: &mut HashMa
     };
     let kids = children(kind);
     let answer = runs_code_or_stores(kind)
+        || read_may_run_accessor(body, types, kind)
         || (!matches!(kind, ExprKind::ListLit(_) | ExprKind::DictLit(_) | ExprKind::TupleLit(_))
             && kids.iter().any(takes_function))
         || kids.into_iter().any(|child| can_run_code(body, types, child, memo));
     memo.insert(id, answer);
     answer
+}
+
+/// Whether `kind` is a property read that can run a getter: a field or element
+/// read on an erased value, or on a string-keyed record of erased values (an
+/// object literal stores its `get` there and the read calls it).
+fn read_may_run_accessor(body: &Body, types: &TypeInterner, kind: &ExprKind) -> bool {
+    let (ExprKind::Field { receiver, .. } | ExprKind::Index { receiver, .. }) = kind else {
+        return false;
+    };
+    let Some(receiver) = usize::try_from(receiver.0).ok().and_then(|index| body.exprs.get(index)) else {
+        return false;
+    };
+    match types.get(receiver.ty) {
+        Some(Type::Unknown) => true,
+        Some(Type::Dict(key, value)) => {
+            matches!(types.get(*key), Some(Type::String)) && matches!(types.get(*value), Some(Type::Unknown))
+        }
+        _ => false,
+    }
+}
+
+/// Whether evaluating `id` reads a module global, itself or in a child.
+fn reads_global(body: &Body, id: ExprId) -> bool {
+    expr_kind(body, id).is_some_and(|kind| {
+        matches!(kind, ExprKind::GlobalGet { .. }) || children(kind).into_iter().any(|child| reads_global(body, child))
+    })
 }
 
 /// Every field name a statement of the crate assigns.
@@ -170,7 +199,18 @@ fn early_reads(body: &Body, types: &TypeInterner, assigned_fields: &HashSet<Symb
     for expr in &body.exprs {
         let siblings = children(&expr.kind);
         let mut later_runs_code = false;
+        let mut later_reads_global = false;
         for &child in siblings.iter().rev() {
+            // A read that can run a getter happens where it is evaluated: ahead
+            // of a later sibling that runs code, or that reads a module global
+            // (a global read is taken at its own point, so a lazy read placed
+            // after it would run the getter too late).
+            if (later_runs_code || later_reads_global)
+                && expr_kind(body, child).is_some_and(|kind| read_may_run_accessor(body, types, kind))
+            {
+                reads.insert(child);
+            }
+            later_reads_global |= reads_global(body, child);
             let is_lazy_read = match expr_kind(body, child) {
                 Some(ExprKind::Field { field, .. }) => assigned_fields.contains(field),
                 Some(ExprKind::Index { .. }) => true,
