@@ -242,8 +242,8 @@ fn a_callback_handle_rebuilt_in_a_nested_closure_is_cloned_not_moved() {
     // captured variable away at all (E0507, Hono `main.rs:11023` and `:11077`).
     //
     // The handle is cloned in front of the wrapper instead, which is the clone
-    // discipline `function_shape_adapter_text` and
-    // `rendered_function_shape_adapter_text` already apply to the callable they
+    // discipline `function_shape_adapter` and
+    // `rendered_function_shape_adapter` already apply to the callable they
     // bind. One `Rc` bump per evaluation, not per invocation.
     //
     // NON-VACUOUS: without the fix the argument reads

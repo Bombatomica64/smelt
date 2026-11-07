@@ -371,17 +371,16 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let in_flight = self.classes.statics_in_flight(class_name.name.as_str());
-        let static_fields = match in_flight {
-            Some(fields) => fields,
-            None => {
-                let Some(class_item) = self.classes.item(class_name.name.as_str()) else {
-                    return Ok(None);
-                };
-                let Item::Class(class) = self.item_ref(class_item) else {
-                    return Ok(None);
-                };
-                class.static_fields.as_slice()
-            }
+        let static_fields = if let Some(fields) = in_flight {
+            fields
+        } else {
+            let Some(class_item) = self.classes.item(class_name.name.as_str()) else {
+                return Ok(None);
+            };
+            let Item::Class(class) = self.item_ref(class_item) else {
+                return Ok(None);
+            };
+            class.static_fields.as_slice()
         };
         // Static field names are interned through the source-name path, which
         // case-folds camelCase to snake_case (`PI` -> `pi`). Compare against the

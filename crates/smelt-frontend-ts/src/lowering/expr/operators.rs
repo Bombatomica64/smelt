@@ -88,11 +88,12 @@ impl ModuleBuilder<'_> {
 
         let lhs_ty = Self::expr_ty(body, lhs);
         let rhs_ty = Self::expr_ty(body, rhs);
-        let mut ty = self.binary_result_type(op, lhs_ty, rhs_ty);
         // Erased operands say nothing about `+`; the checker may know it concatenates.
-        if op == BinOp::Add && self.checker_types_as_string(binary.span.start, binary.span.end) {
-            ty = self.ctx.krate.types.intern(Type::String);
-        }
+        let ty = if op == BinOp::Add && self.checker_types_as_string(binary.span.start, binary.span.end) {
+            self.ctx.krate.types.intern(Type::String)
+        } else {
+            self.binary_result_type(op, lhs_ty, rhs_ty)
+        };
         let span = self.span(binary.span.start, binary.span.end);
         if let Some(call) = self.bigint_fallible_binary(op, lhs, rhs, span, body) {
             return Ok(call);

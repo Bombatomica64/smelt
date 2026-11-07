@@ -485,7 +485,7 @@ macro_rules! define_op_call_text {
         => $display:tt;
     )*) => {
         /// How a call terminator names the fallible operation it carries.
-        #[allow(
+        #[expect(
             unused_variables,
             reason = "each arm binds every field; a fact reads the ones it needs"
         )]

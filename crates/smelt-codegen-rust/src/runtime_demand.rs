@@ -581,7 +581,7 @@ macro_rules! define_scan_rvalue {
         impl RuntimeDemand {
             /// Records what one rvalue demands, whether it is assigned or is the
             /// callee of a call terminator.
-            #[allow(
+            #[expect(
                 unused_variables,
                 reason = "each arm binds every field; a fact reads the ones it needs"
             )]

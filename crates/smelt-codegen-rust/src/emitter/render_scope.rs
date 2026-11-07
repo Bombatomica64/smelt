@@ -5,8 +5,8 @@
 //! one and every nested type position inherits it, so a class's `T` is spelled
 //! `T` inside the `impl<T>` block that declares it and erased everywhere else.
 //!
-//! Value rendering had no such thing. `value_at_type_text` and
-//! `extract_value_text` each re-derived the answer from the emitter's *ambient*
+//! Value rendering had no such thing. `rendered_at_type` and
+//! `extract_rendered` each re-derived the answer from the emitter's *ambient*
 //! state at whatever depth they happened to be called, and they derived it
 //! differently:
 //!

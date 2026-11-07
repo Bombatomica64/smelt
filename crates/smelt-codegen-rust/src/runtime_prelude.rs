@@ -27,9 +27,11 @@ use smelt_runtime::order::Entry;
 use smelt_runtime::order::ORDER;
 use smelt_runtime::source::{RenderedLine, holds, item_enabled, render_item};
 
-use crate::emitter::EmitContext;
+use crate::crate_builder::CRATE_HEADER;
+use crate::emitter::{self, EmitContext};
 use crate::runtime_demand::Need;
-use crate::{EmitError, rust::CodeWriter, stdlib};
+use crate::rust::CodeWriter;
+use crate::{EmitError, GeneratedAllocator, stdlib};
 
 /// Writes `entries` under the program's flags.
 ///
@@ -217,4 +219,34 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "dep_md5" => Need::DepMd5,
         _ => return None,
     })
+}
+
+/// Emit the runtime prelude: every runtime type and helper the program needs,
+/// up to (not including) the prelude end marker. Also answers whether the
+/// crate carries the erased `SmeltUnknown` carrier.
+pub(crate) fn emit_runtime_prelude(
+    mir: &Mir,
+    context: &EmitContext,
+    allocator: GeneratedAllocator,
+) -> Result<(String, bool), EmitError> {
+    let mut writer = CodeWriter::new();
+    let demand = context.demand();
+    let needs_unknown = demand.has(Need::Unknown);
+    for line in CRATE_HEADER.lines() {
+        writer.line(line);
+    }
+    // A `#[global_allocator]` is an ordinary item, not an inner attribute, so it
+    // does not have to lead the file — the module-mapped root emits the `#[path]`
+    // declarations ahead of everything here, and this lands below them. See
+    // `GeneratedAllocator` for why a generated program installs one at all.
+    if allocator == GeneratedAllocator::Mimalloc {
+        writer.line("#[global_allocator]");
+        writer.line("static SMELT_GLOBAL_ALLOCATOR: ::mimalloc::MiMalloc = ::mimalloc::MiMalloc;");
+        writer.blank_line();
+    }
+    emit_entries(&mut writer, smelt_runtime::order::ORDER, mir, context)?;
+    if !context.weak_receivers().is_empty() {
+        emitter::weak_receiver::emit_prelude(&mut writer, needs_unknown, context.demand().has(Need::ErasedFunction));
+    }
+    Ok((writer.finish(), needs_unknown))
 }

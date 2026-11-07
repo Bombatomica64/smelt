@@ -31,7 +31,7 @@
 //!
 //! # Same predicates as codegen
 //!
-//! The classification renders each type through [`FunctionEmitter::type_text`]
+//! The classification renders each type through [`FunctionEmitter::rendered_type`]
 //! with the function's real generic decision applied
 //! ([`FunctionEmitter::apply_crate_generic_decision`], the one `emit` uses), so
 //! union concreteness, erased type parameters, unresolved classes and `never`
@@ -502,10 +502,10 @@ impl FunctionEmitter<'_> {
 
     /// Classify one type as the Rust output renders it in this function.
     pub(crate) fn typedness_of(&self, ty: TypeId) -> Typedness {
-        let Ok(text) = self.signature_type_text(ty) else {
+        let Ok(rendered) = self.lexical_rust_type(ty, true) else {
             return Typedness::Erased;
         };
-        if mentions_erased(&text) {
+        if rendered.spells_erased() {
             Typedness::Erased
         } else if self.type_mentions_param(ty, 0) {
             Typedness::Generic
@@ -549,34 +549,10 @@ impl FunctionEmitter<'_> {
     }
 }
 
-/// Whether rendered Rust type text mentions the erased runtime value.
-pub(crate) fn mentions_erased(text: &str) -> bool {
-    ["SmeltUnknown", "SmeltErasedFunction"].iter().any(|erased| {
-        text.match_indices(erased).any(|(at, _)| {
-            let after = text[at + erased.len()..].chars().next();
-            let before = text[..at].chars().next_back();
-            !after.is_some_and(|ch| ch.is_alphanumeric() || ch == '_')
-                && !before.is_some_and(|ch| ch.is_alphanumeric() || ch == '_')
-        })
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Erasure is detected as a whole identifier, nested or not.
-    #[test]
-    fn mentions_erased_matches_whole_identifiers() {
-        assert!(mentions_erased("SmeltUnknown"));
-        assert!(mentions_erased("SmeltList<SmeltUnknown>"));
-        assert!(mentions_erased("Option<SmeltErasedFunction>"));
-        assert!(!mentions_erased("SmeltUnknownish"));
-        assert!(!mentions_erased("SmeltList<f64>"));
-        assert!(!mentions_erased("i32"));
-    }
-
-    /// Counting and totals.
     #[test]
     fn kind_counts_add_and_total() {
         let mut counts = KindCounts::default();

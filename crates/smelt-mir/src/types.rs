@@ -71,6 +71,9 @@ pub struct Mir {
     /// [`smelt_hir::Crate::accessor_fields`].
     #[serde(default)]
     pub accessor_fields: Vec<(Symbol, Symbol)>,
+    /// Name and call-site lookups, built on first use; see [`crate::index`].
+    #[serde(skip)]
+    pub index: crate::index::MirIndex,
 }
 
 /// A module-level mutable global lowered from a source `let`/`var` binding.
@@ -122,6 +125,7 @@ impl Mir {
             symbols,
             names,
             accessor_fields: Vec::new(),
+            index: crate::index::MirIndex::default(),
         }
     }
 

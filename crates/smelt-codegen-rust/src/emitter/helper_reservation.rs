@@ -10,7 +10,7 @@
 //! body can fail (`?`) or decline; either way the reservation must not stay
 //! behind, or the crate would flush a helper whose body is the placeholder
 //! `Default::default()`. Closure rendering errors ARE caught and fallen back
-//! from (`closure_operand_text_for_declared_type`), so such a leak would reach
+//! from (`closure_operand_expr_for_declared_type`), so such a leak would reach
 //! emitted output. [`HelperReservation`] removes the entry on drop unless
 //! [`HelperReservation::commit`] stored the real body.
 //!

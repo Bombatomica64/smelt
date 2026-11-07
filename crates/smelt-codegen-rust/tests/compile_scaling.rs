@@ -382,11 +382,11 @@ fn interface_extends_chain_scales_linearly() {
 /// * inheritance is FLATTENED -- every subclass re-emits every inherited
 ///   field and method (`effective_class_methods`), so the output itself is
 ///   O(n^2);
-/// * each emitted field access re-derives the class layout by linear scans
-///   over the O(n) flattened fields and the class list (`place_ty`,
+/// * each emitted field access re-derives the class layout by a scan over the
+///   O(n) flattened fields (`effective_class_fields` from `place_ty`,
 ///   `structural_record_fields`, `class_index_store_types`,
-///   `storage_field_is_function`, `descriptor_for_field`, `base_class`),
-///   adding a further O(n) factor per access.
+///   `storage_field_is_function`, `descriptor_for_field`), adding a further O(n)
+///   factor per access. The class lookups under it are indexed now.
 ///
 /// `effective_class_fields`' quadratic override lookup is fixed (map-indexed);
 /// the remaining fix is a per-class layout cache in `EmitContext`.
@@ -401,17 +401,17 @@ fn string_literal_union_scales_linearly() {
     assert_linear("string-literal union", 32, string_literal_union);
 }
 
-/// IGNORED: cubic. Measured growth 29 at n=64 (output growth 4.0): frontend
-/// 38 ms -> 1.27 s, codegen 41 ms -> 1.02 s. Every `s.v{k}` read asks each of
-/// the n members for its field type, and each ask is a linear scan:
-/// `ModuleBuilder::find_interface` walks all HIR items (from
-/// `class_field_type`), and codegen's `is_erased_class_type` walks every MIR
-/// class and interface (from `concrete_union_members` ->
-/// `union_member_is_concrete`). n reads x n members x n items. The fix is a
-/// symbol -> item index; the HIR crate's `items` is a public `Vec` several
-/// passes rewrite in place, so that index is not a local change.
+/// IGNORED: superlinear in the frontend. Measured growth 20 at n=64 (output
+/// growth 4.0): frontend 31 ms -> 900 ms, codegen 39 ms -> 372 ms. Every `s.v{k}`
+/// read asks each of the n members for its field type, and
+/// `ModuleBuilder::find_interface` walks all HIR items for each ask. Codegen's
+/// class lookups are indexed (`Mir::class_named`) and a union's concreteness is
+/// memoized; what remains there is `union_member_declares_field` asking every
+/// member per read. The frontend fix is a symbol -> item index; the HIR crate's
+/// `items` is a public `Vec` several passes rewrite in place, so that index is
+/// not a local change.
 #[test]
-#[ignore = "cubic: per-member linear item lookups; see the comment"]
+#[ignore = "superlinear frontend: per-member item lookups; see the comment"]
 fn discriminated_object_union_scales_linearly() {
     assert_linear("discriminated object union", 8, discriminated_object_union);
 }
@@ -434,16 +434,7 @@ fn array_literal_lines_scale_linearly() {
     assert_linear("array literal, one element per line", 64, array_literal_lines);
 }
 
-/// IGNORED: quadratic in codegen. Measured growth 11.4 at n=1024 (output
-/// growth 4.05, codegen 86 ms -> 1.26 s). Every emitted statement asks
-/// whole-function questions about its locals, each a scan over every
-/// statement: `local_binding_needs_mut` (via `local_assignment_count`,
-/// `rvalue_mutates_local`, `local_may_be_assigned_after_assignment`,
-/// `local_uses_shared_capture_storage`), plus `list_alias_origin` per `push`.
-/// The fix is one per-function pass that indexes statements by the locals
-/// they touch -- a rework of `emitter::local_analysis`, not a local change.
 #[test]
-#[ignore = "quadratic codegen local analysis; see the comment"]
 fn array_push_statements_scale_linearly() {
     assert_linear("array filled by push statements", 64, array_push_statements);
 }
@@ -465,14 +456,7 @@ fn generic_call_chain_scales_linearly() {
     assert_linear_up_to("nested generic call chain", 8, MAX_NESTING, generic_call_chain);
 }
 
-/// IGNORED: quadratic in codegen, same cause as `array_push_statements`.
-/// Measured growth 11.7 at n=512 (output growth 4.2, codegen 67 ms ->
-/// 941 ms; `local_binding_needs_mut` and the capture-storage scan). The
-/// frontend half is fixed: `predeclare_forward_referenced_locals` re-walked
-/// the whole statement prefix for every declaration (frontend 44 ms -> 660 ms
-/// at n=256 before, 14 ms -> 99 ms at n=512 after).
 #[test]
-#[ignore = "quadratic codegen local analysis; see the comment"]
 fn long_function_scales_linearly() {
     assert_linear("long function body", 64, long_function);
 }

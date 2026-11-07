@@ -255,6 +255,7 @@ mod tests {
             symbols: smelt_hir::SymbolInterner::default(),
             names: smelt_hir::OriginalNameTable::default(),
             accessor_fields: Vec::default(),
+            index: crate::index::MirIndex::default(),
         }
     }
 

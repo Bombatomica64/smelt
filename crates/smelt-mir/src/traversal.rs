@@ -180,11 +180,11 @@ macro_rules! define_rvalue_is_fallible {
             /// Whether this rvalue can throw a catchable error, and so has to be
             /// the callee of a call terminator rather than an assignment.
             #[must_use]
-            #[allow(
+            #[expect(
                 unused_variables,
                 reason = "each arm binds every field; a fact reads the ones it needs"
             )]
-            pub fn is_fallible(&self) -> bool {
+            pub const fn is_fallible(&self) -> bool {
                 match self {
                     $(
                         Self::$name $({ $($field,)* })? => {
@@ -214,7 +214,7 @@ macro_rules! define_rvalue_mutated_receiver {
             /// Copies and non-mutating projections (`DictCopy`, `SetCopy`, a
             /// non-mutating `ListSplice`) answer `None`.
             #[must_use]
-            #[allow(
+            #[expect(
                 unused_variables,
                 reason = "each arm binds every field; a fact reads the ones it needs"
             )]

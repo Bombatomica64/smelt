@@ -35,6 +35,14 @@ runtime narrowing. It is **not** the default carrier for values that still have 
 useful static shape — prefer concrete Rust types, then scoped generics, then
 `SmeltUnknown` only at real dynamic boundaries.
 
+## Rendered Rust
+
+- **RustExpr** — a rendered expression: its text, how it binds (`Precedence`) and
+  what its producer knows about it. The emitter asks the value; it never reads
+  the text. A `RustExpr` with `Precedence::Unstated` is treated as loose.
+- **RenderedValue** — a `RustExpr` with the MIR type it evaluates to.
+- **RustType** — a rendered type and what it spells (`shape`, carrier, generics).
+
 ## Coercion
 
 The one **seam** that converts a value between its static Rust type and the
@@ -43,11 +51,11 @@ crossing goes through one of its named verbs; callers express intent, never the
 per-`Type` mechanics.
 
 - **Verbs (public)** —
-  - `value_at_type(operand, target)` / `value_at_type_text(text, src, target)` —
+  - `value_at_type(operand, target)` / `rendered_at_type(expr, src, target)` —
     coerce to a concrete target type; the general entry, dispatches internally.
-  - `erase(operand)` / `erase_value_text(text, src)` — box a typed value into
+  - `erase(operand)` / `erase_rendered(expr, src)` — box a typed value into
     `SmeltUnknown`.
-  - `extract(operand, target)` / `extract_value_text(text, target)` — pull a
+  - `extract(operand, target)` / `extract_rendered(expr, target)` — pull a
     typed value back out of `SmeltUnknown`.
   - `tag_check(operand, kind)` — runtime *narrowing* ("is this tag a String?"),
     a guard, not value coercion.
@@ -57,4 +65,7 @@ per-`Type` mechanics.
 - **Behind the seam (private)** — the structural-record / function-shape
   adapters and the per-`Type` match arms that decide the concrete Rust text.
 
-Lives in `crates/smelt-codegen-rust/src/emitter/coercion.rs`.
+Lives in `crates/smelt-codegen-rust/src/emitter/coercion.rs`, with the `erase`, `extract`
+and `tag_check` verbs in `emitter/coercion/{erase,extract,tag}.rs`. The private adapters sit
+behind the same seam: a record's field-by-field crossings in `coercion/record.rs` and
+`coercion/record_adapter.rs`, function shapes in `coercion/function_adapter.rs`.

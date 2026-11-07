@@ -48,8 +48,10 @@
 //! never reached, so "it is green" is not evidence and must not be treated as
 //! such when a new seam is added here.
 
+use crate::rust::RustType;
 use super::*;
-use call::CallMonomorphization;
+use crate::rust::RustShape;
+use call_generics::CallMonomorphization;
 
 impl FunctionEmitter<'_> {
     /// The Rust name of the function currently being emitted, for messages.
@@ -75,15 +77,15 @@ impl FunctionEmitter<'_> {
     /// them the declared side reads `SmeltUnknown` and the substituted side
     /// reads `f64`, which is the contrast. The lexical scope is preserved, so a
     /// non-monomorphizing site still spells the caller's own parameters.
-    fn seam_type_text(&self, ty: TypeId, substitution: &TypeSubstitution<'_>) -> String {
-        self.rust_type(ty, false, &substitution.without_bindings())
-            .map_or_else(|_| "<unrenderable>".to_owned(), RustType::into_string)
+    fn seam_type(&self, ty: TypeId, substitution: &TypeSubstitution<'_>) -> RustType {
+        RustType::from(self.rust_type(ty, false, &substitution.without_bindings())
+            .map_or_else(|_| "<unrenderable>".to_owned(), RustType::into_string))
     }
 
     /// Seam 1: a callback adapter's parameter *declaration* and its body
     /// conversion must start from one type.
     ///
-    /// `function_shape_adapter_text` emits `|arg{index}: D| inner(convert(arg{index}))`.
+    /// `function_shape_adapter` emits `|arg{index}: D| inner(convert(arg{index}))`.
     /// `D` comes from `callback_arg_decls` rendering the callee's declared
     /// parameter under `substitution`; the conversion starts from `body_ty`,
     /// resolved through the call site's bindings. When the site monomorphized
@@ -110,8 +112,8 @@ impl FunctionEmitter<'_> {
              (declared parameter type {declared_param_ty:?}): the declaration environment and the \
              body substitution disagree",
             self.seam_context_name(),
-            self.seam_type_text(decl_ty, substitution),
-            self.seam_type_text(body_ty, substitution),
+            self.seam_type(decl_ty, substitution),
+            self.seam_type(body_ty, substitution),
         );
     }
 
@@ -136,15 +138,15 @@ impl FunctionEmitter<'_> {
              (declared return type {declared_return_ty:?}): the parameter declarations and the \
              return conversion resolve in different environments",
             self.seam_context_name(),
-            self.seam_type_text(decl_ty, substitution),
-            self.seam_type_text(conversion_return_ty, substitution),
+            self.seam_type(decl_ty, substitution),
+            self.seam_type(conversion_return_ty, substitution),
         );
     }
 
     /// Seam 2: one call site monomorphizes its arguments and its return under
     /// one decision.
     ///
-    /// `call_text_for_dest` renders the arguments (inside `call_text`) and then
+    /// `call_expr_for_dest` renders the arguments (inside `rendered_call`) and then
     /// the return (inside `call_emitted_source_ty`), and each recomputes
     /// `static_call_monomorphization` for itself. The whole design rests on that
     /// recomputation being a pure function of `(function, args)`: if emitter
@@ -202,8 +204,8 @@ impl FunctionEmitter<'_> {
             "call in `{}` coerces its result from the DECLARED return `{}` but the emitted call \
              evaluates to `{}`: use `call_emitted_source_ty` at this site",
             self.seam_context_name(),
-            self.seam_type_text(declared_return_ty, &substitution),
-            self.seam_type_text(emitted, &substitution),
+            self.seam_type(declared_return_ty, &substitution),
+            self.seam_type(emitted, &substitution),
         );
     }
 
@@ -212,7 +214,7 @@ impl FunctionEmitter<'_> {
     ///
     /// A generic free function renders a direct required borrowed callback
     /// parameter as `&F{n}` with an `F{n}: Fn(..) + ?Sized` bound. Only
-    /// `borrowed_function_argument_text` produces a `&dyn Fn`-shaped argument
+    /// `borrowed_function_argument_expr` produces a `&dyn Fn`-shaped argument
     /// that binds such a parameter; the monomorphization passthrough renders an
     /// owned `Rc<..>` handle and the ordinary coercion renders a value, either
     /// of which is `E0308`/`E0277` against `&F{n}`. That is the shipped defect
@@ -241,11 +243,12 @@ impl FunctionEmitter<'_> {
         let Some(target_param) = param else {
             return;
         };
-        let generated = crate::classes::callback_generic_params(
+        let generated = crate::generic_lifting::callback_generic_params(
             self.mir,
             function,
             &self.context.owned_callback_params,
             &self.context.bound_traits,
+            &self.context.erased_arguments,
         )
         .unwrap_or_default();
         let bound = generated
@@ -292,7 +295,7 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(bound),
             Some(Type::Unknown | Type::Never | Type::Union(_) | Type::Class { .. })
         );
-        let dropped_binding = rendered.as_str() == "SmeltUnknown" && !faithfully_unknown;
+        let dropped_binding = rendered.shape() == RustShape::Erased && !faithfully_unknown;
         debug_assert!(
             !dropped_binding,
             "type parameter `{}` was reported Concrete at type {bound:?} while emitting `{}`, but \

@@ -595,7 +595,7 @@ result: None = values.append(3)
     assert!(source.contains("let mut"));
     assert!(source.contains("Vec<i64>"));
     // The pushed item is materialized before the write borrow is taken, so the
-    // call reads `push(smelt_push_item)`; see `list_push_text`.
+    // call reads `push(smelt_push_item)`; see `list_push_expr`.
     assert!(source.contains("let smelt_push_item = 3;"));
     assert!(source.contains(".push(smelt_push_item);"));
     assert!(source.contains("()"));

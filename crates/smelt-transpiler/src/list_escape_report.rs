@@ -293,6 +293,17 @@ fn render_markdown(
         product.total(),
     );
 
+    render_reasons_and_top_bodies(&mut out, bodies, &all, options);
+    out
+}
+
+/// The sections on why lists escape, the top bodies, and any requested functions.
+fn render_reasons_and_top_bodies(
+    out: &mut String,
+    bodies: &[BodyListEscape],
+    all: &ClassCounts,
+    options: &ListEscapeReportOptions<'_>,
+) {
     let _ = writeln!(out, "## Why the escaping lists escape\n");
     let _ = writeln!(out, "| reason | kind | count |\n|---|---|---:|");
     let mut reasons: BTreeMap<&'static str, (bool, usize)> = BTreeMap::new();
@@ -391,7 +402,6 @@ fn render_markdown(
             }
         }
     }
-    out
 }
 
 /// Render the JSON form: totals plus one entry per body.

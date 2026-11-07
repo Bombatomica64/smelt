@@ -51,7 +51,7 @@ pub(crate) fn stdlib_class_of_class_symbol(
     mir: &Mir,
     name: smelt_hir::Symbol,
 ) -> Option<smelt_stdlib::StdlibClass> {
-    if mir.classes.iter().any(|class| class.name == name) {
+    if mir.has_class(name) {
         return None;
     }
     // The RENDERING decides this, not the recorded original name: a class

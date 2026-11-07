@@ -5,14 +5,14 @@
 )]
 #![allow(
     clippy::redundant_pub_crate,
-    reason = "the private emitter module still exposes helpers to its parent codegen module"
+    reason = "the private emitter module exposes helpers to its parent codegen module"
 )]
 
+use crate::rust::RustExpr;
 use crate::classes::{NominalStorage, type_holds_function};
 use crate::generic_bindings::CalleeTypeParamBindings;
 use crate::runtime_demand::{Need, RuntimeDemand};
 use smelt_stdlib::runtime_symbols::markers::*;
-use crate::rust::RustType;
 use crate::thrown::ERROR_BOX;
 use crate::type_substitution::{Resolved, TypeSubstitution};
 use render_scope::RenderScope;
@@ -101,23 +101,32 @@ impl Drop for HoistedModuleItemScope<'_, '_> {
 /// in a couple of instructions and removes that cost without changing behavior.
 pub(crate) type BlockIdSet = rustc_hash::FxHashSet<smelt_mir::BlockId>;
 
+mod aggregate_literal;
 mod backend_erasure;
 pub(crate) mod bound_dispatch;
 mod bigint;
 pub(crate) mod typedness;
 mod binary_ops;
+mod async_op;
 mod call;
-mod call_runtime;
+mod call_generics;
+mod callable_object;
+mod callback_handle;
+mod callback_signature;
 mod class_keyed_write;
 mod capture_analysis;
 mod cfg_queries;
+mod closure_call;
 mod closures;
 mod coercion;
+pub(crate) use coercion::record as record_coercion;
 mod control_flow;
 mod console_inspect;
 mod construct;
 mod control_flow_match;
 mod core;
+mod date_clock;
+mod default_value;
 mod dict_entry_update;
 pub(crate) mod emit_role;
 mod flow_state;
@@ -125,10 +134,14 @@ mod local_binding;
 mod helper_reservation;
 mod blob;
 mod fetch_types;
+mod field_access;
 /// Emission of the operations that can throw.
 mod fallible_op;
 mod url;
 mod fixed_int;
+mod function_item;
+mod generator;
+mod generic_trial;
 mod abort_signal;
 mod crypto;
 mod host_module;
@@ -137,6 +150,8 @@ mod text_codec;
 mod typed_array;
 mod host_member_read;
 mod host_interop;
+mod inherited_render;
+mod instance_of;
 mod json_decode;
 mod http_server;
 mod list;
@@ -145,15 +160,22 @@ mod list_ordering;
 mod list_query;
 pub(crate) mod literals;
 mod local_analysis;
+mod local_declaration;
+mod local_use;
 mod map;
+mod mut_list_call;
 mod numeric;
+mod operand;
 mod optional_access;
 mod place;
+mod place_type;
+mod primitive_cast;
 mod post_dominance;
 mod receiver_bound_slot;
 mod record_slot_abi;
 mod render_scope;
 mod rendered_value;
+mod rvalue;
 /// Debug-only emitter self-consistency checks; the module does not exist in a
 /// release build, so neither do its assertions or their call sites.
 #[cfg(debug_assertions)]
@@ -165,22 +187,26 @@ mod strings;
 mod strings_io;
 mod throw;
 mod throwing_join;
+mod truthiness;
 mod tuple;
+mod type_facts;
 mod typeof_str_locals;
 mod types;
 mod union;
+mod vitest_mock;
+mod virtual_slots;
 /// Property writes through an erased view of a reference-class instance.
 pub(crate) mod view_write_through;
 pub(crate) mod weak_receiver;
 
 pub(crate) use literals::method_mutates_this;
-use literals::{assigned_locals, constant_text};
-use rendered_value::{Precedence, RenderedValue};
+use literals::{assigned_locals, constant_expr};
+use rendered_value::RenderedValue;
 use types::MutablePrefix;
 pub(crate) use union::emit_union_definitions;
 pub(crate) use json_decode::emit_json_decoders;
 pub(crate) use console_inspect::emit_console_inspect_support;
-pub(crate) use core::is_erased_unknown_rest_function_in;
+pub(crate) use callback_handle::is_erased_unknown_rest_function_in;
 
 /// Process-wide runtime state an emitted native test resets before its body,
 /// so mock state one test installs does not leak into the next.
@@ -215,9 +241,20 @@ impl FreeFunctionVisibility {
     }
 }
 
+/// Proof that [`EmitContext::populate_generic_functions`] has run.
+///
+/// Only that method constructs one, and the crate builder cannot start without
+/// it, so no body renders before the generic decision is made.
+pub(crate) struct GenericsDecided(());
+
 pub(crate) struct EmitContext {
     /// The type ID of the None type.
     pub(crate) none_ty: TypeId,
+    /// Whether each union asked about so far is stored as a generated enum; a
+    /// pure function of the MIR that every read of a union member asks.
+    pub(crate) concrete_unions: std::cell::RefCell<HashMap<TypeId, bool>>,
+    /// See [`crate::generic_lifting::ErasedArgumentMemo`].
+    pub(crate) erased_arguments: crate::generic_lifting::ErasedArgumentMemo,
     /// What this program demands of the runtime, computed once.
     demand: RuntimeDemand,
     /// Whether the render under trial touched the erased carrier; see
@@ -293,7 +330,7 @@ pub(crate) struct EmitContext {
     /// spelled at EVERY site that recovered the class: Hono's CORS test module
     /// repeated `Hono`'s conversion about a thousand times and reached 28 MB,
     /// past what one rustc can compile in a capped build. Only outermost
-    /// conversions are hoisted (see `extract_value_text`), so a helper's body
+    /// conversions are hoisted (see `extract_rendered`), so a helper's body
     /// is exactly the text that was inlined before.
     ///
     /// Keyed by the module-level Rust spelling of the type; the value is
@@ -489,7 +526,7 @@ impl EmitContext {
             // Keyed by the emitted-signature key, not the bare Rust name: a
             // method's name is unique only inside its own `impl` block (see
             // `FunctionEmitter::emitted_signature_key_in`).
-            let signature_key = core::emitted_signature_key_in(
+            let signature_key = function_item::emitted_signature_key_in(
                 function,
                 &rust_name,
                 |symbol| mir.symbols.get(symbol).map(str::to_owned),
@@ -519,6 +556,8 @@ impl EmitContext {
             function_param_types,
             function_return_types,
             owned_callback_params,
+            concrete_unions: ::std::cell::RefCell::default(),
+            erased_arguments: ::std::cell::RefCell::default(),
             function_item_accessors: ::std::cell::RefCell::new(
                 ::std::collections::BTreeMap::new(),
             ),
@@ -677,7 +716,7 @@ impl EmitContext {
     /// predicate: a callee's answer changes how its callers render), so the loop is capped and falls back to
     /// the first round's answer — the historical one — if it oscillates. In
     /// practice both compat corpora settle in two rounds.
-    pub(crate) fn populate_generic_functions(&self, mir: &Mir) -> Result<(), EmitError> {
+    pub(crate) fn populate_generic_functions(&self, mir: &Mir) -> Result<GenericsDecided, EmitError> {
         /// Bound on the demotion rounds; each round holds out at least one more
         /// function, so the bound is never reached by a finite crate in
         /// practice and only caps a pathological one.
@@ -688,11 +727,12 @@ impl EmitContext {
             .iter()
             .filter(|function| matches!(function.origin, HirOrigin::Body(_)))
             .filter(|function| {
-                crate::classes::function_emits_rust_generics(
+                crate::generic_lifting::function_emits_rust_generics(
                     mir,
                     function,
                     &self.owned_callback_params,
                     &self.bound_traits,
+                    &self.erased_arguments,
                 )
             })
             .collect();
@@ -708,7 +748,7 @@ impl EmitContext {
             self.demote_unforwardable_bounded_callees(mir, &mut settled);
             if settled.len() == before {
                 *self.generic_functions.borrow_mut() = settled;
-                return Ok(());
+                return Ok(GenericsDecided(()));
             }
             // A demoted callee changes how its lifted callers render their
             // calls, so the trials are rerun with it held out.
@@ -721,7 +761,7 @@ impl EmitContext {
             );
             *self.generic_functions.borrow_mut() = settled;
         }
-        Ok(())
+        Ok(GenericsDecided(()))
     }
 
     /// The body-cleanliness trial iterated to a fixed point (see
@@ -801,16 +841,17 @@ impl EmitContext {
                     let Some(function) = usize::try_from(id.0).ok().and_then(|index| mir.functions.get(index)) else {
                         return false;
                     };
-                    crate::classes::bound_forwarding_callers(mir, function)
+                    crate::generic_lifting::bound_forwarding_callers(mir, function)
                         .into_iter()
                         .any(|(caller_id, caller_param)| {
                             !generic.contains(&caller_id)
                                 || usize::try_from(caller_id.0).ok().and_then(|index| mir.functions.get(index)).is_none_or(|caller| {
-                                    !crate::classes::liftable_type_params(
+                                    !crate::generic_lifting::liftable_type_params(
                                         mir,
                                         caller,
                                         &self.owned_callback_params,
                                         &self.bound_traits,
+                                        &self.erased_arguments,
                                     )
                                     .contains(&caller_param)
                                 })
@@ -1560,9 +1601,9 @@ pub(crate) struct FunctionEmitter<'mir> {
     ///
     /// Two coercions rebuild a value out of its parts and can therefore ask for
     /// a nested coercion of a component type: the field-wise record adapter
-    /// ([`FunctionEmitter::structural_record_adapter_text`]) and the
+    /// ([`FunctionEmitter::structural_record_adapter`]) and the
     /// callable-object `__smelt_call` read
-    /// ([`FunctionEmitter::callable_object_call_slot_text`], whose slot coercion
+    /// ([`FunctionEmitter::callable_object_call_slot_expr`], whose slot coercion
     /// goes on to adapt the call signature's return value). TypeScript callable
     /// interfaces routinely make those two mutually recursive — es-toolkit's
     /// `CurriedFunction1<T1, R>` has a call signature returning
@@ -1608,14 +1649,14 @@ pub(crate) struct FunctionEmitter<'mir> {
 /// read receiver has to take its own short-lived borrow. The returned `Ref`
 /// guard lives to the end of the enclosing statement, which is safe because
 /// emitted code is three-address — see the invariant on
-/// [`FunctionEmitter::local_value_text`].
+/// [`FunctionEmitter::local_value`].
 ///
-/// Use this, never [`list_write_text`], for a *read*: an index expression such
+/// Use this, never [`list_write_expr`], for a *read*: an index expression such
 /// as `arr.get({ .. arr.len() .. })` takes two simultaneous borrows of one cell,
 /// and two shared borrows are allowed where a second mutable one panics with
 /// "already borrowed".
-pub(super) fn list_read_text(list_text: &str) -> String {
-    format!("{list_text}.borrow()")
+pub(super) fn list_read_expr(list_text: &RustExpr) -> RustExpr {
+    RustExpr::postfix_on(&list_text, format!("{list_text}.borrow()"))
 }
 
 /// Wraps a list-valued expression so it reads as its backing `Vec`, mutably.
@@ -1626,10 +1667,10 @@ pub(super) fn list_read_text(list_text: &str) -> String {
 /// The receiver itself is only borrowed immutably (`RefCell` is interior
 /// mutability), so this composes with a receiver held behind `&`.
 ///
-/// Never combine this with [`list_read_text`] on the same list inside one
+/// Never combine this with [`list_read_expr`] on the same list inside one
 /// expression: the two guards would coexist and panic "already borrowed".
-pub(super) fn list_write_text(list_text: &str) -> String {
-    format!("{list_text}.borrow_mut()")
+pub(super) fn list_write_expr(list_text: &RustExpr) -> RustExpr {
+    RustExpr::postfix_on(&list_text, format!("{list_text}.borrow_mut()"))
 }
 
 /// How to compute the default end bound for a slice.

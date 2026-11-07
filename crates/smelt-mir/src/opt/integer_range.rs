@@ -1124,24 +1124,45 @@ impl Analysis<'_> {
         entry_states: &[State],
         definitions: &Definitions,
     ) -> HashMap<LocalId, Interval> {
-        let mut hulls = HashMap::new();
+        // Each block is swept once, stopping at its definitions in statement
+        // order: replaying the prefix per definition is quadratic in a long block.
+        let mut by_block: HashMap<usize, Vec<DefinitionStop>> = HashMap::new();
+        let mut values: Vec<Vec<DefinitionValue>> = Vec::with_capacity(self.candidates.locals.len());
         for (position, local) in self.candidates.locals.iter().enumerate() {
-            let mut hull = self.user_bindings[position].then(|| Interval::point(0));
-            for definition in definitions.get(local).into_iter().flatten() {
-                let Some(mut state) = entry_states[definition.block].clone() else {
-                    continue;
-                };
-                let statements = &self.blocks[definition.block].statements;
-                for statement in &statements[..definition.statement] {
-                    self.apply(statement, &mut state);
+            let local_definitions = definitions.get(local).map_or(&[][..], Vec::as_slice);
+            values.push(vec![None; local_definitions.len()]);
+            for (ordinal, definition) in local_definitions.iter().enumerate() {
+                by_block
+                    .entry(definition.block)
+                    .or_default()
+                    .push((definition.statement, position, ordinal));
+            }
+        }
+        for (block, mut stops) in by_block {
+            let Some(mut state) = entry_states[block].clone() else {
+                continue;
+            };
+            stops.sort_unstable();
+            let statements = &self.blocks[block].statements;
+            let mut swept = 0;
+            for (statement, position, ordinal) in stops {
+                for earlier in &statements[swept..statement] {
+                    self.apply(earlier, &mut state);
                 }
-                let value = match &statements[definition.statement] {
+                swept = statement;
+                values[position][ordinal] = Some(match &statements[statement] {
                     Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => {
                         self.evaluate(value, &state)
                     }
                     Statement::DictEntryUpdate { .. } => None,
-                };
-                hull = join_value(hull, value);
+                });
+            }
+        }
+        let mut hulls = HashMap::new();
+        for (position, local) in self.candidates.locals.iter().enumerate() {
+            let mut hull = self.user_bindings[position].then(|| Interval::point(0));
+            for value in values[position].iter().flatten() {
+                hull = join_value(hull, *value);
             }
             if let Some(hull) = hull {
                 hulls.insert(*local, hull);
@@ -1150,6 +1171,12 @@ impl Analysis<'_> {
         hulls
     }
 }
+
+/// A definition's statement, then its candidate's position and its ordinal there.
+type DefinitionStop = (usize, usize, usize);
+
+/// One definition's interval: `None` until a reachable sweep has evaluated it.
+type DefinitionValue = Option<Option<Interval>>;
 
 /// A `switch` condition resolved to the comparison it tests.
 struct Guard {

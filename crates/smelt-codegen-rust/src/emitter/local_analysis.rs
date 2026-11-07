@@ -35,6 +35,10 @@ impl FunctionEmitter<'_> {
                             );
                         }
                         bump_u32(&mut index.writes, *dest);
+                        index.last_write_block.insert(*dest, block.id);
+                        if let Rvalue::Use(source) = value {
+                            index.use_sources.entry(*dest).or_default().push(source.clone());
+                        }
                         bump_usize(&mut index.assignments, *dest);
                         index.assign_blocks.entry(*dest).or_default().push(block.id);
                         // The rvalue's own mutation of a local is only judged
@@ -50,6 +54,7 @@ impl FunctionEmitter<'_> {
                     Statement::AssignPlace { place, .. } => {
                         if let Place::Local(local) = place {
                             bump_u32(&mut index.writes, *local);
+                            index.last_write_block.insert(*local, block.id);
                             bump_usize(&mut index.assignments, *local);
                         }
                         if let Place::Local(candidate)
@@ -70,6 +75,7 @@ impl FunctionEmitter<'_> {
                     // rule as a single `Assign` destination.
                     Statement::DictEntryUpdate { base, current, .. } => {
                         bump_u32(&mut index.writes, *current);
+                        index.last_write_block.insert(*current, block.id);
                         bump_usize(&mut index.assignments, *current);
                         index.assign_blocks.entry(*current).or_default().push(block.id);
                         if self.dict_entry_update_needs_mut_base(*base) {
@@ -441,10 +447,23 @@ impl FunctionEmitter<'_> {
         // The walk below can only answer `true` at a write, so a local with no
         // statement write (a call destination, say) is answered from
         // the index without walking every path of the function.
-        if !self.local_write_index().writes.contains_key(&local) {
+        let index = self.local_write_index();
+        let Some(writes) = index.writes.get(&local) else {
+            return false;
+        };
+        let assigned = self.function.params.contains(&local);
+        // One write that no path can reach twice cannot be a second assignment,
+        // and answering here keeps this lookup from walking the whole function
+        // for every local of a straight-line body.
+        if *writes == 1
+            && !assigned
+            && index
+                .last_write_block
+                .get(&local)
+                .is_some_and(|block| !index.repeat_reachable.contains(block))
+        {
             return false;
         }
-        let assigned = self.function.params.contains(&local);
         self.block_may_assign_local_after_assignment(
             self.function.entry,
             local,
@@ -691,6 +710,11 @@ pub(super) struct LocalWriteIndex {
     /// `AssignPlace` targets and `DictEntryUpdate` bindings. A local absent
     /// here is never written by a statement.
     writes: HashMap<LocalId, u32>,
+    /// The block of each local's last statement write, which for a local written
+    /// once is its only one.
+    last_write_block: HashMap<LocalId, smelt_mir::BlockId>,
+    /// Sources of each local's plain-copy `Assign`s, in statement order.
+    pub(super) use_sources: HashMap<LocalId, Vec<Operand>>,
     /// Direct assignments per local.
     assignments: HashMap<LocalId, usize>,
     /// Blocks holding an `Assign` to the local or a `DictEntryUpdate` binding

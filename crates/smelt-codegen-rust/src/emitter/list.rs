@@ -1,5 +1,6 @@
 //! List emission helpers.
 
+use crate::rust::RustExpr;
 use super::*;
 
 /// The block-local recursive flattener both erased `flat` renderings emit.
@@ -18,12 +19,12 @@ impl FunctionEmitter<'_> {
     /// ordinary typed coercion (identity when `Y == T`), instead of erasing the
     /// generator to its tagged iterator-protocol object. Returns `None` when the
     /// source is not a sync generator or the target is not a list.
-    pub(super) fn generator_items_text(
+    pub(super) fn generator_items_expr(
         &self,
-        value_text: &str,
+        value_text: &RustExpr,
         source: TypeId,
         target: TypeId,
-    ) -> Result<Option<String>, EmitError> {
+    ) -> Result<Option<RustExpr>, EmitError> {
         let Some(&Type::Generator {
             is_async: false,
             yield_ty,
@@ -37,27 +38,27 @@ impl FunctionEmitter<'_> {
         };
         let collected = format!("({value_text}).collect_yields()");
         if yield_ty == item_ty {
-            return Ok(Some(format!("SmeltList::new({collected})")));
+            return Ok(Some(RustExpr::atom(format!("SmeltList::new({collected})"))));
         }
         let item_text =
-            self.value_at_type_text("value", yield_ty, item_ty, &self.render_scope())?;
-        Ok(Some(format!(
+            self.rendered_at_type(&RustExpr::path("value"), yield_ty, item_ty, &self.render_scope())?;
+        Ok(Some(RustExpr::atom(format!(
             "SmeltList::new({collected}.into_iter().map(|value| {item_text}).collect::<Vec<_>>())"
-        )))
+        ))))
     }
 
     /// Converts a list containment operation to Rust text.
-    pub(super) fn list_contains_text(
+    pub(super) fn list_contains_expr(
         &self,
         list: &Operand,
         item: &Operand,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let Some((receiver_text, item_ty)) = self.list_receiver_surface(list)? else {
-            return Ok("false".to_owned());
+            return Ok(RustExpr::path("false"));
         };
         // Every use below is a `Vec` receiver (`.iter().any(..)`, `.contains(..)`),
         // so the elements are read out of the list's shared buffer.
-        let list_text = list_read_text(&receiver_text);
+        let list_text = list_read_expr(&receiver_text);
         let needle_ty = self.operand_ty(item)?;
         if needle_ty != item_ty {
             // A `T | undefined` needle (e.g. `array.includes(sample(array))`)
@@ -75,15 +76,15 @@ impl FunctionEmitter<'_> {
                     // An erased needle (`unknown | undefined`) compares against
                     // each element after the element is erased to the runtime
                     // `SmeltUnknown` value, matching JS `includes` semantics.
-                    let erased_item = self.erase_value_text("item.clone()", item_ty)?;
+                    let erased_item = self.erase_rendered(&RustExpr::chain("item.clone()").ending_in_clone(), item_ty)?;
                     self.carrier_format(format_args!("({erased_item}).same_js_key(&smelt_needle)"))
                 } else {
-                    return Ok("false".to_owned());
+                    return Ok(RustExpr::path("false"));
                 };
-                let item_text = self.operand_text(item)?;
-                return Ok(format!(
+                let item_text = self.operand_expr(item)?;
+                return Ok(RustExpr::atom(format!(
                     "{{ match {item_text} {{ Some(smelt_needle) => {list_text}.iter().any(|item| {compare}), None => false }} }}"
-                ));
+                )));
             }
             // A needle that is one member of a union element type
             // (`(number | string)[]` searched for `"x"`) is injected into the
@@ -91,25 +92,25 @@ impl FunctionEmitter<'_> {
             // constant `false` here answered every such `includes` wrongly.
             if self.union_has_member(item_ty, needle_ty) {
                 let item_text =
-                    self.value_at_type_text(&self.operand_text(item)?, needle_ty, item_ty, &self.render_scope())?;
-                return Ok(self.carrier_format(format_args!(
+                    self.rendered_at_type(&self.operand_expr(item)?, needle_ty, item_ty, &self.render_scope())?;
+                return Ok(RustExpr::atom(self.carrier_format(format_args!(
                     "{{ let smelt_needle = {item_text}; {list_text}.iter().any(|item| item.same_js_key(&smelt_needle)) }}"
-                )));
+                ))));
             }
-            return Ok("false".to_owned());
+            return Ok(RustExpr::path("false"));
         }
-        let item_text = self.operand_text(item)?;
+        let item_text = self.operand_expr(item)?;
         if self.list_item_uses_same_value_zero(item_ty) {
             if self.mir.types.get(item_ty) == Some(&Type::Float) {
-                return Ok(format!(
+                return Ok(RustExpr::atom(format!(
                     "{{ let smelt_needle = {item_text}; {list_text}.iter().any(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())) }}"
-                ));
+                )));
             }
-            return Ok(self.carrier_format(format_args!(
+            return Ok(RustExpr::atom(self.carrier_format(format_args!(
                 "{{ let smelt_needle = {item_text}; {list_text}.iter().any(|item| item.same_js_key(&smelt_needle)) }}"
-            )));
+            ))));
         }
-        Ok(format!("{list_text}.contains(&{item_text})"))
+        Ok(RustExpr::postfix_on(&list_text, format!("{list_text}.contains(&{item_text})")))
     }
 
     /// Whether `union` is a union type with `member` among its members.
@@ -132,34 +133,37 @@ impl FunctionEmitter<'_> {
     /// ten specs, all silently wrong rather than failing.
     ///
     /// The projection is safe precisely because the frontend established the
-    /// narrowing: `project_union_value_text` emits an `unreachable!` guard on the
+    /// narrowing: `project_union_value` emits an `unreachable!` guard on the
     /// other arms, so a receiver that somehow held a different member would abort
     /// rather than answer a wrong `false`. A union with more than one list member is
     /// ambiguous and still yields `None`.
     fn list_receiver_surface(
         &self,
         list: &Operand,
-    ) -> Result<Option<(String, TypeId)>, EmitError> {
+    ) -> Result<Option<(RustExpr, TypeId)>, EmitError> {
         let list_ty = self.operand_ty(list)?;
         // The plain-list fast path reads by borrow: the only caller,
-        // `list_contains_text`, uses that text solely as an `.iter().any(..)` /
+        // `list_contains_expr`, uses that text solely as an `.iter().any(..)` /
         // `.contains(&..)` receiver. The optional/union path below keeps an owned read
         // because `Option::expect` consumes `self` and the union projection may too.
         if let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) {
-            return Ok(Some((self.operand_borrow_text(list)?, *item_ty)));
+            return Ok(Some((self.operand_borrow_expr(list)?, *item_ty)));
         }
         // An optional receiver is unwrapped first: the narrowing that selected the
         // list arm also proved the value present, and the `expect` message matches
         // the one the optional-narrowing paths already emit.
         let (text, inner_ty) = match self.mir.types.get(list_ty) {
-            Some(Type::Optional(inner)) => (
-                format!(
-                    "{}.expect(\"optional value was absent after narrowing\")",
-                    self.operand_text(list)?
-                ),
-                *inner,
-            ),
-            _ => (self.operand_text(list)?, list_ty),
+            Some(Type::Optional(inner)) => {
+                let optional = self.operand_expr(list)?;
+                (
+                    RustExpr::postfix_on(
+                        &optional,
+                        format!("{optional}.expect(\"optional value was absent after narrowing\")"),
+                    ),
+                    *inner,
+                )
+            }
+            _ => (self.operand_expr(list)?, list_ty),
         };
         let Some(members) = self.concrete_union_members(inner_ty) else {
             return Ok(None);
@@ -175,10 +179,10 @@ impl FunctionEmitter<'_> {
         let Some((member_ty, item_ty)) = surface else {
             return Ok(None);
         };
-        let Some(projected) = self.project_union_value_text(&text, inner_ty, member_ty)? else {
+        let Some(projected) = self.project_union_value(&text, inner_ty, member_ty)? else {
             return Ok(None);
         };
-        Ok(Some((format!("({projected})"), item_ty)))
+        Ok(Some((RustExpr::from(format!("({projected})")), item_ty)))
     }
 
     /// Per-element comparison predicate against a bound `smelt_needle` value.    /// Per-element comparison predicate against a bound `smelt_needle` value.
@@ -201,11 +205,11 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a list-to-set constructor conversion to Rust text.
-    pub(super) fn list_to_set_text(
+    pub(super) fn list_to_set_expr(
         &self,
         list: &Operand,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list-to-set source must be a list"));
@@ -223,20 +227,20 @@ impl FunctionEmitter<'_> {
         // unions, generics, and object-like elements. Both are
         // insertion-ordered and both dedup on `FromIterator`, so
         // `new Set(array)` keeps first-appearance order as JS requires.
-        Ok(format!(
+        Ok(RustExpr::opaque(format!(
             "{}.iter().cloned().collect::<{}<_>>()",
-            list_read_text(&self.operand_text(list)?),
+            list_read_expr(&self.operand_expr(list)?),
             self.set_container_name(set_item_ty)
-        ))
+        )))
     }
 
     /// Converts a list of key/value pair tuples to a Rust `HashMap`.
     /// Converts a list of key/value pair tuples to a Rust `HashMap`.
-    pub(super) fn list_pairs_to_dict_text(
+    pub(super) fn list_pairs_to_dict_expr(
         &self,
         list: &Operand,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("dict() pair source must be a list"));
@@ -259,19 +263,19 @@ impl FunctionEmitter<'_> {
                 "dict() destination must match pair key and value types",
             ));
         }
-        Ok(format!(
+        Ok(RustExpr::loose(format!(
             "{}.iter().cloned().collect::<::std::collections::HashMap<_, _>>()",
-            list_read_text(&self.operand_text(list)?)
-        ))
+            list_read_expr(&self.operand_expr(list)?)
+        )))
     }
 
     /// Converts a list concatenation operation to Rust text.
     /// Converts a list concatenation operation to Rust text.
-    pub(super) fn list_concat_text(
+    pub(super) fn list_concat_expr(
         &self,
         left: &Operand,
         right: &Operand,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let left_ty = self.operand_ty(left)?;
         let right_ty = self.operand_ty(right)?;
         let left_erased = self.has_dynamic_shape(left_ty);
@@ -283,14 +287,14 @@ impl FunctionEmitter<'_> {
             // the erased side's elements are unwrapped to the concrete element type
             // and `List<Unknown>` need not be interned for this function.
             let list_ty = self.concat_result_list_ty(left, right)?;
-            let left_text = self.value_at_type_text(&self.operand_text(left)?, left_ty, list_ty, &self.render_scope())?;
+            let left_text = self.rendered_at_type(&self.operand_expr(left)?, left_ty, list_ty, &self.render_scope())?;
             let right_text =
-                self.value_at_type_text(&self.operand_text(right)?, right_ty, list_ty, &self.render_scope())?;
-            let left_read = list_read_text(&left_text);
-            let right_read = list_read_text(&right_text);
-            return Ok(format!(
+                self.rendered_at_type(&self.operand_expr(right)?, right_ty, list_ty, &self.render_scope())?;
+            let left_read = list_read_expr(&left_text);
+            let right_read = list_read_expr(&right_text);
+            return Ok(RustExpr::atom_on(&left_read, format!(
                 "{left_read}.iter().cloned().chain({right_read}.iter().cloned()).collect::<Vec<_>>()"
-            ));
+            )));
         }
         // A concatenation the emitter cannot type must be an error, never a
         // plausible value: `Default::default()` for a list type is the EMPTY
@@ -310,12 +314,12 @@ impl FunctionEmitter<'_> {
         if matches!(self.mir.types.get(*left_item), Some(Type::Never))
             && self.is_empty_list_operand(left)?
         {
-            return Ok(format!("{}.fresh_copy()", self.operand_text(right)?));
+            return Ok({ let receiver = self.operand_expr(right)?; RustExpr::postfix_on(&receiver, format!("{receiver}.fresh_copy()")) });
         }
         if matches!(self.mir.types.get(*right_item), Some(Type::Never))
             && self.is_empty_list_operand(right)?
         {
-            return Ok(format!("{}.fresh_copy()", self.operand_text(left)?));
+            return Ok({ let receiver = self.operand_expr(left)?; RustExpr::postfix_on(&receiver, format!("{receiver}.fresh_copy()")) });
         }
         let has_never_item = matches!(self.mir.types.get(*left_item), Some(Type::Never))
             || matches!(self.mir.types.get(*right_item), Some(Type::Never));
@@ -328,19 +332,19 @@ impl FunctionEmitter<'_> {
             // EMPTY list, which is how es-toolkit's `copyProperties` silently lost
             // every string key once symbols stopped arriving as bare descriptions.
             if let Some(unknown_ty) = self.find_type_id(&Type::Unknown) {
-                let left_text = list_read_text(&self.operand_text(left)?);
-                let right_text = list_read_text(&self.operand_text(right)?);
+                let left_text = list_read_expr(&self.operand_expr(left)?);
+                let right_text = list_read_expr(&self.operand_expr(right)?);
                 if *right_item == unknown_ty {
-                    let item = self.erase_value_text("item", *left_item)?;
-                    return Ok(format!(
+                    let item = self.erase_rendered(&RustExpr::path("item"), *left_item)?;
+                    return Ok(RustExpr::atom_on(&left_text, format!(
                         "{left_text}.iter().cloned().map(|item| {item}).chain({right_text}.iter().cloned()).collect::<Vec<_>>()"
-                    ));
+                    )));
                 }
                 if *left_item == unknown_ty {
-                    let item = self.erase_value_text("item", *right_item)?;
-                    return Ok(format!(
+                    let item = self.erase_rendered(&RustExpr::path("item"), *right_item)?;
+                    return Ok(RustExpr::atom_on(&left_text, format!(
                         "{left_text}.iter().cloned().chain({right_text}.iter().cloned().map(|item| {item})).collect::<Vec<_>>()"
-                    ));
+                    )));
                 }
             }
             // Neither element type absorbs the other directly, but the crate
@@ -349,14 +353,10 @@ impl FunctionEmitter<'_> {
             // different concrete unions is exactly that shape.
             if let Some(list_ty) = self.narrowest_common_list_ty(*left_item, *right_item) {
                 let left_text =
-                    self.value_at_type_text(&self.operand_text(left)?, left_ty, list_ty, &self.render_scope())?;
+                    self.rendered_at_type(&self.operand_expr(left)?, left_ty, list_ty, &self.render_scope())?;
                 let right_text =
-                    self.value_at_type_text(&self.operand_text(right)?, right_ty, list_ty, &self.render_scope())?;
-                return Ok(format!(
-                    "{}.iter().cloned().chain({}.iter().cloned()).collect::<Vec<_>>()",
-                    list_read_text(&left_text),
-                    list_read_text(&right_text)
-                ));
+                    self.rendered_at_type(&self.operand_expr(right)?, right_ty, list_ty, &self.render_scope())?;
+                return Ok({ let receiver = list_read_expr(&left_text); RustExpr::atom_on(&receiver, format!("{receiver}.iter().cloned().chain({}.iter().cloned()).collect::<Vec<_>>()", list_read_expr(&right_text))) });
             }
             // Same rule as above: neither element type can absorb the other, so
             // there is no correct text — an empty list is a wrong answer, not a
@@ -367,11 +367,7 @@ impl FunctionEmitter<'_> {
                 self.mir.types.get(*right_item)
             )));
         }
-        Ok(format!(
-            "{}.iter().cloned().chain({}.iter().cloned()).collect::<Vec<_>>()",
-            list_read_text(&self.operand_text(left)?),
-            list_read_text(&self.operand_text(right)?)
-        ))
+        Ok({ let receiver = list_read_expr(&self.operand_expr(left)?); RustExpr::atom_on(&receiver, format!("{receiver}.iter().cloned().chain({}.iter().cloned()).collect::<Vec<_>>()", list_read_expr(&self.operand_expr(right)?))) })
     }
 
     /// Find the narrowest already-interned `List<E>` whose element type `E`
@@ -501,10 +497,10 @@ impl FunctionEmitter<'_> {
 
     /// Inline a local list-concat temporary when it is consumed as a spread
     /// argument vector before regular statement emission preserved it.
-    pub(super) fn inline_list_concat_operand_text(
+    pub(super) fn inline_list_concat_operand_expr(
         &self,
         operand: &Operand,
-    ) -> Result<Option<String>, EmitError> {
+    ) -> Result<Option<RustExpr>, EmitError> {
         let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = operand
         else {
             return Ok(None);
@@ -518,7 +514,7 @@ impl FunctionEmitter<'_> {
                     continue;
                 }
                 if let Rvalue::ListConcat { left, right } = value {
-                    return self.list_concat_text(left, right).map(Some);
+                    return self.list_concat_expr(left, right).map(Some);
                 }
             }
         }
@@ -526,17 +522,17 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a list slice operation to Rust text.
-    pub(super) fn list_slice_text(
+    pub(super) fn list_slice_expr(
         &self,
         list: &Operand,
         start: Option<&Operand>,
         end: Option<&Operand>,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
         if self.has_dynamic_shape(list_ty)
         {
-            return self.unknown_list_slice_text(list, start, end, dest_ty);
+            return self.unknown_list_slice_expr(list, start, end, dest_ty);
         }
         let Some(Type::List(source_item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list slice receiver must be a list"));
@@ -547,14 +543,14 @@ impl FunctionEmitter<'_> {
         // so this reads the list by borrow. Cloning here copied the whole backing
         // `Vec` up to three times per slice, which inside a loop over the same list
         // turned a linear algorithm quadratic.
-        let list_text = self.operand_borrow_text(list)?;
-        let len_source = format!("{list_text}.len()");
-        let start_text = self.slice_start_text(start, &len_source)?;
-        let len_text = self.slice_len_text(&list_text, start, end, SliceLenKind::Len)?;
+        let list_text = self.operand_borrow_expr(list)?;
+        let len_source = RustExpr::postfix_on(&list_text, format!("{list_text}.len()"));
+        let start_text = self.slice_start_expr(start, &len_source)?;
+        let len_expr = self.slice_len_expr(&list_text, start, end, SliceLenKind::Len)?;
         // `.len()` is the list's own inherent method (its own short-lived borrow);
         // `.iter()` needs the backing `Vec`, so it reads through the shared cell.
         // Both are shared borrows, so they may coexist inside one expression.
-        let list_read = list_read_text(&list_text);
+        let list_read = list_read_expr(&list_text);
         let Some(Type::List(dest_item_ty)) = self.mir.types.get(dest_ty) else {
             // The destination is not a concrete list (e.g. an erased
             // `SmeltUnknown` slot, as in `ary`'s rest-argument capping).
@@ -562,34 +558,34 @@ impl FunctionEmitter<'_> {
             // `slice` returns a new array) and coerce it to the destination so
             // it is erased, rather than leaking a bare `Vec` into a
             // `SmeltUnknown` place (E0308).
-            let sliced = format!(
-                "SmeltList::with_id(smelt_next_object_id(), {list_read}.iter().skip({start_text}).take({len_text}).cloned().collect::<Vec<_>>())"
-            );
-            return self.value_at_type_text(&sliced, list_ty, dest_ty, &self.render_scope());
+            let sliced = RustExpr::atom(format!(
+                "SmeltList::with_id(smelt_next_object_id(), {list_read}.iter().skip({start_text}).take({len_expr}).cloned().collect::<Vec<_>>())"
+            ));
+            return self.rendered_at_type(&sliced, list_ty, dest_ty, &self.render_scope());
         };
         if source_item_ty == dest_item_ty {
-            return Ok(format!(
-                "{list_read}.iter().skip({start_text}).take({len_text}).cloned().collect::<Vec<_>>()"
-            ));
+            return Ok(RustExpr::atom_on(&list_read, format!(
+                "{list_read}.iter().skip({start_text}).take({len_expr}).cloned().collect::<Vec<_>>()"
+            )));
         }
-        let item_text = { self.value_at_type_text("value", *source_item_ty, *dest_item_ty, &self.render_scope())? };
-        Ok(format!(
-            "{list_read}.iter().skip({start_text}).take({len_text}).cloned().map(|value| {item_text}).collect::<Vec<_>>()"
-        ))
+        let item_text = { self.rendered_at_type(&RustExpr::path("value"), *source_item_ty, *dest_item_ty, &self.render_scope())? };
+        Ok(RustExpr::atom_on(&list_read, format!(
+            "{list_read}.iter().skip({start_text}).take({len_expr}).cloned().map(|value| {item_text}).collect::<Vec<_>>()"
+        )))
     }
 
     /// Converts `.slice(...)` on an erased value to Rust text.
-    fn unknown_list_slice_text(
+    fn unknown_list_slice_expr(
         &self,
         list: &Operand,
         start: Option<&Operand>,
         end: Option<&Operand>,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let float_ty = self.type_id(Type::Float)?;
         let list_text = self.erase(list)?;
         let start_text = start.map_or_else(
-            || Ok("0.0".to_owned()),
+            || Ok(RustExpr::chain("0.0")),
             |operand| self.value_at_type(operand, float_ty),
         )?;
         let end_text = end.map_or_else(
@@ -610,19 +606,19 @@ impl FunctionEmitter<'_> {
             // (`return obj.slice(0)`) depends on to hand back a distinct object —
             // and any other value is forwarded unchanged so `.slice()` tolerates
             // it rather than panicking or ToString-coercing it.
-            return Ok(self.carrier_format(format_args!(
+            return Ok(RustExpr::atom(self.carrier_format(format_args!(
                 "{{ let smelt_slice_value = {list_text}; let smelt_slice_start = {start_text} as i64; let smelt_slice_end = {end_text}.map(|end| end as i64); if let Some(smelt_sliced) = {host_slice}(&smelt_slice_value, smelt_slice_start, smelt_slice_end) {{ smelt_sliced }} else {{ match smelt_slice_value {{ SmeltUnknown::Array(values) => {{ let values = values.into_vec(); let smelt_slice_len = values.len() as i64; let smelt_start_index = (if smelt_slice_start < 0 {{ smelt_slice_len + smelt_slice_start }} else {{ smelt_slice_start }}).clamp(0, smelt_slice_len); let smelt_end_index = smelt_slice_end.map_or(smelt_slice_len, |end| if end < 0 {{ smelt_slice_len + end }} else {{ end }}).clamp(0, smelt_slice_len); let smelt_take_len = smelt_end_index.saturating_sub(smelt_start_index) as usize; SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), values.into_iter().skip(smelt_start_index as usize).take(smelt_take_len).collect::<Vec<_>>())) }}, SmeltUnknown::String(value) => {{ let chars = value.chars().collect::<Vec<char>>(); let smelt_slice_len = chars.len() as i64; let smelt_start_index = (if smelt_slice_start < 0 {{ smelt_slice_len + smelt_slice_start }} else {{ smelt_slice_start }}).clamp(0, smelt_slice_len); let smelt_end_index = smelt_slice_end.map_or(smelt_slice_len, |end| if end < 0 {{ smelt_slice_len + end }} else {{ end }}).clamp(0, smelt_slice_len); let smelt_take_len = smelt_end_index.saturating_sub(smelt_start_index) as usize; SmeltUnknown::String(chars.into_iter().skip(smelt_start_index as usize).take(smelt_take_len).collect::<String>().into()) }}, smelt_other => smelt_other }} }} }}",
                 host_slice = smelt_stdlib::runtime_symbols::byte_buffer::SLICE,
-            )));
+            ))));
         }
         let sliced_values_text = "smelt_slice_values.into_iter().skip(smelt_start_index as usize).take(smelt_take_len).collect::<Vec<_>>()";
-        Ok(self.carrier_format(format_args!(
+        Ok(RustExpr::atom(self.carrier_format(format_args!(
             "{{ let smelt_slice_value = {list_text}; let smelt_slice_start = {start_text}; let smelt_slice_end = {end_text}; let smelt_slice_values = match smelt_slice_value {{ SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string().into())).collect::<Vec<_>>(), _ => Vec::new() }}; let smelt_slice_len = smelt_slice_values.len() as i64; let smelt_start_index = smelt_slice_start as i64; let smelt_start_index = if smelt_start_index < 0 {{ smelt_slice_len + smelt_start_index }} else {{ smelt_start_index }}.clamp(0, smelt_slice_len); let smelt_end_index = smelt_slice_end.map_or(smelt_slice_len, |end| {{ let end = end as i64; if end < 0 {{ smelt_slice_len + end }} else {{ end }} }}).clamp(0, smelt_slice_len); let smelt_take_len = smelt_end_index.saturating_sub(smelt_start_index) as usize; {sliced_values_text} }}"
-        )))
+        ))))
     }
 
     /// Converts an array splice or toSpliced operation to Rust text.
-    pub(super) fn list_splice_text(
+    pub(super) fn list_splice_expr(
         &self,
         list: &Operand,
         start: &Operand,
@@ -630,7 +626,7 @@ impl FunctionEmitter<'_> {
         items: &[MirListSpliceItem],
         mutate: bool,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("array splice receiver must be a list"));
@@ -648,7 +644,7 @@ impl FunctionEmitter<'_> {
         if dest_ty != list_ty {
             return Err(EmitError::new("array splice destination must be a list"));
         }
-        let list_text = self.operand_text(list)?;
+        let list_text = self.operand_expr(list)?;
         // Parenthesize the coerced index so a bare `x as f64` does not parse as
         // `x as f64 < 0.0` (rustc reads `<` as generic args after a type).
         let start_text = format!(
@@ -658,8 +654,8 @@ impl FunctionEmitter<'_> {
         let delete_count_text = delete_count
             .map(|count| self.value_at_type(count, self.type_id(Type::Float)?))
             .transpose()?
-            .unwrap_or_else(|| "splice_len as f64".to_owned());
-        let replacement_text = self.list_splice_replacement_text(items)?;
+            .unwrap_or_else(|| RustExpr::cast("splice_len as f64"));
+        let replacement_text = self.list_splice_replacement_expr(items)?;
         let receiver_text = if mutate {
             let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list
             else {
@@ -667,38 +663,38 @@ impl FunctionEmitter<'_> {
                     "array splice receiver must be a mutable local for now",
                 ));
             };
-            list_write_text(&self.local_value_text(*local)?)
+            list_write_expr(&self.local_value(*local)?)
         } else {
-            format!("{list_text}.to_vec()")
+            RustExpr::postfix_on(&list_text, format!("{list_text}.to_vec()"))
         };
         let delete_count_float_text = format!("({delete_count_text} as f64)");
         if mutate {
-            Ok(format!(
+            Ok(RustExpr::atom(format!(
                 "{{ let splice_len = {receiver_text}.len(); let splice_start = if {start_text} < 0.0 {{ splice_len.saturating_sub((-{start_text}) as usize) }} else {{ ({start_text} as usize).min(splice_len) }}; let splice_delete = (({delete_count_float_text}).max(0.0) as usize).min(splice_len.saturating_sub(splice_start)); {receiver_text}.splice(splice_start..splice_start + splice_delete, {replacement_text}).collect::<Vec<_>>() }}"
-            ))
+            )))
         } else {
-            Ok(format!(
+            Ok(RustExpr::atom(format!(
                 "{{ let mut spliced = {receiver_text}; let splice_len = spliced.len(); let splice_start = if {start_text} < 0.0 {{ splice_len.saturating_sub((-{start_text}) as usize) }} else {{ ({start_text} as usize).min(splice_len) }}; let splice_delete = (({delete_count_float_text}).max(0.0) as usize).min(splice_len.saturating_sub(splice_start)); spliced.splice(splice_start..splice_start + splice_delete, {replacement_text}).for_each(drop); spliced }}"
-            ))
+            )))
         }
     }
 
     /// Converts scalar and spread splice replacements into a Rust vector expression.
-    fn list_splice_replacement_text(
+    fn list_splice_replacement_expr(
         &self,
         items: &[MirListSpliceItem],
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         if items.iter().all(|item| !item.spread) {
             let items_text = items
                 .iter()
-                .map(|item| self.operand_text(&item.value))
+                .map(|item| self.operand_expr(&item.value))
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ");
-            return Ok(format!("vec![{items_text}]"));
+            return Ok(RustExpr::atom(format!("vec![{items_text}]")));
         }
         let mut statements = Vec::new();
         for item in items {
-            let value_text = self.operand_text(&item.value)?;
+            let value_text = self.operand_expr(&item.value)?;
             if item.spread {
                 statements.push(format!(
                     "splice_replacements.extend(({value_text}).borrow().iter().cloned());"
@@ -707,21 +703,21 @@ impl FunctionEmitter<'_> {
                 statements.push(format!("splice_replacements.push({value_text});"));
             }
         }
-        Ok(format!(
+        Ok(RustExpr::atom(format!(
             "{{ let mut splice_replacements = Vec::new(); {} splice_replacements }}",
             statements.join(" ")
-        ))
+        )))
     }
 
     /// Converts an array fill operation to Rust text.
-    pub(super) fn list_fill_text(
+    pub(super) fn list_fill_expr(
         &self,
         list: &Operand,
         value: &Operand,
         start: Option<&Operand>,
         end: Option<&Operand>,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("array fill receiver must be a list"));
@@ -736,33 +732,33 @@ impl FunctionEmitter<'_> {
                 "array fill receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_value_text(*local)?;
-        let value_text = self.operand_text(value)?;
+        let list_text = self.local_value(*local)?;
+        let value_text = self.operand_expr(value)?;
         let start_text = start
-            .map(|operand| self.operand_text(operand).map(|text| format!("({text})")))
+            .map(|operand| self.operand_expr(operand).map(|text| format!("({text})")))
             .transpose()?
             .unwrap_or_else(|| "0.0".to_owned());
         let end_text = end
-            .map(|operand| self.operand_text(operand).map(|text| format!("({text})")))
+            .map(|operand| self.operand_expr(operand).map(|text| format!("({text})")))
             .transpose()?
             .unwrap_or_else(|| "(fill_len as f64)".to_owned());
         // The fill value is bound once, before the loop, so the write borrow of
         // the shared buffer never coexists with a read borrow of the same cell.
-        let list_mut = list_write_text(&list_text);
-        Ok(format!(
+        let list_mut = list_write_expr(&list_text);
+        Ok(RustExpr::atom(format!(
             "{{ let fill_len = {list_text}.len(); let fill_value = {value_text}; let fill_start = if {start_text} < 0.0 {{ fill_len.saturating_sub((-{start_text}) as usize) }} else {{ ({start_text} as usize).min(fill_len) }}; let fill_end = if {end_text} < 0.0 {{ fill_len.saturating_sub((-{end_text}) as usize) }} else {{ ({end_text} as usize).min(fill_len) }}; for fill_index in fill_start..fill_end {{ {list_mut}[fill_index] = fill_value.clone(); }} {list_text}.clone() }}"
-        ))
+        )))
     }
 
     /// Converts an array copyWithin operation to Rust text.
-    pub(super) fn list_copy_within_text(
+    pub(super) fn list_copy_within_expr(
         &self,
         list: &Operand,
         target: &Operand,
         start: &Operand,
         end: Option<&Operand>,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
         if !matches!(self.mir.types.get(list_ty), Some(Type::List(_))) || dest_ty != list_ty {
             return Err(EmitError::new(
@@ -774,28 +770,28 @@ impl FunctionEmitter<'_> {
                 "array copyWithin receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_value_text(*local)?;
-        let target_text = format!("({})", self.operand_text(target)?);
-        let start_text = format!("({})", self.operand_text(start)?);
+        let list_text = self.local_value(*local)?;
+        let target_text = format!("({})", self.operand_expr(target)?);
+        let start_text = format!("({})", self.operand_expr(start)?);
         let end_text = end
-            .map(|operand| self.operand_text(operand).map(|text| format!("({text})")))
+            .map(|operand| self.operand_expr(operand).map(|text| format!("({text})")))
             .transpose()?
             .unwrap_or_else(|| "(copy_len as f64)".to_owned());
         // `copy_items` is snapshotted into its own `let`, so the read borrow of
         // the shared buffer is released before the write loop takes its own.
-        let list_read = list_read_text(&list_text);
-        let list_mut = list_write_text(&list_text);
-        Ok(format!(
+        let list_read = list_read_expr(&list_text);
+        let list_mut = list_write_expr(&list_text);
+        Ok(RustExpr::atom(format!(
             "{{ let copy_len = {list_text}.len(); let copy_target = if {target_text} < 0.0 {{ copy_len.saturating_sub((-{target_text}) as usize) }} else {{ ({target_text} as usize).min(copy_len) }}; let copy_start = if {start_text} < 0.0 {{ copy_len.saturating_sub((-{start_text}) as usize) }} else {{ ({start_text} as usize).min(copy_len) }}; let copy_end = if {end_text} < 0.0 {{ copy_len.saturating_sub((-{end_text}) as usize) }} else {{ ({end_text} as usize).min(copy_len) }}; let copy_items = {list_read}.iter().skip(copy_start).take(copy_end.saturating_sub(copy_start)).cloned().collect::<Vec<_>>(); for (offset, item) in copy_items.into_iter().enumerate() {{ if copy_target + offset < copy_len {{ {list_mut}[copy_target + offset] = item; }} }} {list_text}.clone() }}"
-        ))
+        )))
     }
 
     /// Converts a list copy operation to Rust text.
-    pub(super) fn list_copy_text(
+    pub(super) fn list_copy_expr(
         &self,
         list: &Operand,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
         if !matches!(self.mir.types.get(list_ty), Some(Type::List(_))) {
             return Err(EmitError::new("list copy receiver must be a list"));
@@ -807,17 +803,17 @@ impl FunctionEmitter<'_> {
         }
         // A JS array copy produces a NEW reference, so mint a fresh id rather
         // than sharing the source list's identity (`SmeltList::clone` shares it).
-        Ok(format!("{}.fresh_copy()", self.operand_text(list)?))
+        Ok({ let receiver = self.operand_expr(list)?; RustExpr::postfix_on(&receiver, format!("{receiver}.fresh_copy()")) })
     }
 
     /// Converts an array `with` operation to Rust text.
-    pub(super) fn list_with_text(
+    pub(super) fn list_with_expr(
         &self,
         list: &Operand,
         index: &Operand,
         value: &Operand,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("array with receiver must be a list"));
@@ -829,12 +825,12 @@ impl FunctionEmitter<'_> {
         }
         // Read by borrow: the emitted body appends its own `.clone()` to get the
         // mutable copy it edits, so cloning here made it `x.clone().clone()`.
-        let list_text = self.operand_borrow_text(list)?;
-        let index_text = format!("({})", self.operand_text(index)?);
-        let value_text = self.operand_text(value)?;
-        Ok(format!(
+        let list_text = self.operand_borrow_expr(list)?;
+        let index_text = format!("({})", self.operand_expr(index)?);
+        let value_text = self.operand_expr(value)?;
+        Ok(RustExpr::atom(format!(
             "{{ let mut with_items = {list_text}.clone(); let with_len = with_items.len(); let with_index = if {index_text} < 0.0 {{ with_len.saturating_sub((-{index_text}) as usize) }} else {{ {index_text} as usize }}; if with_index >= with_len {{ panic!(\"array with index out of bounds\"); }} with_items[with_index] = {value_text}; with_items }}"
-        ))
+        )))
     }
 
     /// Converts JavaScript array flattening to Rust text.
@@ -842,12 +838,12 @@ impl FunctionEmitter<'_> {
     /// Nested typed lists retain the simple depth-one representation. Arrays
     /// crossing an erased `unknown` boundary need runtime recursion because
     /// their nested shape and requested depth are only available at execution.
-    pub(super) fn list_flat_text(
+    pub(super) fn list_flat_expr(
         &self,
         list: &Operand,
         depth: Option<&Operand>,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
         if self.has_dynamic_shape(list_ty)
         {
@@ -859,7 +855,7 @@ impl FunctionEmitter<'_> {
                     "erased array flat destination must be list[unknown]",
                 ));
             }
-            let depth_text = self.flat_depth_text(depth)?;
+            let depth_text = self.flat_depth_expr(depth)?;
             // Read by borrow: the emitted call appends its own
             // `.clone().into_vec()`, so cloning here made it `x.clone().clone()`.
             // The `match` below is written against a REFERENCE scrutinee
@@ -867,10 +863,10 @@ impl FunctionEmitter<'_> {
             // place read is owned or is itself a borrowed callback parameter
             // (`callback_param_is_shared_reference`); moving out of the latter is
             // E0507.
-            let list_text = self.operand_borrow_text(list)?;
-            return Ok(self.carrier_format(format_args!(
+            let list_text = self.operand_borrow_expr(list)?;
+            return Ok(RustExpr::atom(self.carrier_format(format_args!(
                 "{{ {SMELT_FLAT_VALUES_FN} let smelt_flat_depth = (({depth_text}) as f64).max(0.0).floor() as i64; let smelt_flat_input = match &({list_text}) {{ SmeltUnknown::Array(values) => values.clone().into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string().into())).collect::<Vec<_>>(), _ => Vec::new() }}; smelt_flat_values(smelt_flat_input, smelt_flat_depth) }}"
-            )));
+            ))));
         }
         let Some(Type::List(nested_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list flat receiver must be a list"));
@@ -878,11 +874,11 @@ impl FunctionEmitter<'_> {
         if self.mir.types.get(*nested_ty) == Some(&Type::Unknown)
             && self.mir.types.get(dest_ty) == Some(&Type::List(*nested_ty))
         {
-            let depth_text = self.flat_depth_text(depth)?;
-            return Ok(format!(
+            let depth_text = self.flat_depth_expr(depth)?;
+            return Ok(RustExpr::atom(format!(
                 "{{ {SMELT_FLAT_VALUES_FN} let smelt_flat_depth = (({depth_text}) as f64).max(0.0).floor() as i64; smelt_flat_values({}.clone().into_vec(), smelt_flat_depth) }}",
-                self.operand_text(list)?
-            ));
+                self.operand_expr(list)?
+            )));
         }
         if let Some(Type::Tuple(items)) = self.mir.types.get(*nested_ty) {
             if depth.is_some() {
@@ -897,8 +893,8 @@ impl FunctionEmitter<'_> {
                 .iter()
                 .enumerate()
                 .map(|(index, item_ty)| {
-                    self.value_at_type_text(
-                        &format!("items.{index}.clone()"),
+                    self.rendered_at_type(
+                        &RustExpr::chain(format!("items.{index}.clone()")).ending_in_clone(),
                         *item_ty,
                         *dest_item_ty,
                         &self.render_scope(),
@@ -906,13 +902,10 @@ impl FunctionEmitter<'_> {
                 })
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ");
-            return Ok(format!(
-                "{}.iter().flat_map(|items| vec![{item_texts}]).collect::<Vec<_>>()",
-                list_read_text(&self.operand_text(list)?)
-            ));
+            return Ok({ let receiver = list_read_expr(&self.operand_expr(list)?); RustExpr::atom_on(&receiver, format!("{receiver}.iter().flat_map(|items| vec![{item_texts}]).collect::<Vec<_>>()")) });
         }
         if matches!(self.mir.types.get(*nested_ty), Some(Type::Union(_))) {
-            return self.union_list_flat_text(list, *nested_ty, depth, dest_ty);
+            return self.union_list_flat_expr(list, *nested_ty, depth, dest_ty);
         }
         let Some(Type::List(item_ty)) = self.mir.types.get(*nested_ty) else {
             // `flat` leaves an item that is not an array as it is.
@@ -931,10 +924,7 @@ impl FunctionEmitter<'_> {
         // The outer list and each inner one are separate cells, and both reads
         // are shared borrows, so the nested `borrow()` is safe even when an inner
         // list aliases the outer one.
-        Ok(format!(
-            "{}.iter().flat_map(|items| items.borrow().clone().into_iter()).collect::<Vec<_>>()",
-            list_read_text(&self.operand_text(list)?)
-        ))
+        Ok({ let receiver = list_read_expr(&self.operand_expr(list)?); RustExpr::atom_on(&receiver, format!("{receiver}.iter().flat_map(|items| items.borrow().clone().into_iter()).collect::<Vec<_>>()")) })
     }
 
     /// `flat` over a list whose element type is a union with array arms
@@ -947,37 +937,37 @@ impl FunctionEmitter<'_> {
     /// element is erased to its tagged value at the input boundary and each
     /// flattened value is checked back into the typed result element at the
     /// output boundary, so the value stays typed on both sides.
-    fn union_list_flat_text(
+    fn union_list_flat_expr(
         &self,
         list: &Operand,
         item_ty: TypeId,
         depth: Option<&Operand>,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let Some(Type::List(dest_item_ty)) = self.mir.types.get(dest_ty) else {
             return Err(EmitError::new("array flat destination must be a list"));
         };
         let unknown_ty = self.type_id(Type::Unknown)?;
-        let erased_item = self.erase_value_text("item.clone()", item_ty)?;
-        let typed_value = self.value_at_type_text("value", unknown_ty, *dest_item_ty, &self.render_scope())?;
-        let depth_text = self.flat_depth_text(depth)?;
-        Ok(format!(
+        let erased_item = self.erase_rendered(&RustExpr::chain("item.clone()").ending_in_clone(), item_ty)?;
+        let typed_value = self.rendered_at_type(&RustExpr::path("value"), unknown_ty, *dest_item_ty, &self.render_scope())?;
+        let depth_text = self.flat_depth_expr(depth)?;
+        Ok(RustExpr::atom(format!(
             "{{ {SMELT_FLAT_VALUES_FN} let smelt_flat_depth = (({depth_text}) as f64).max(0.0).floor() as i64; let smelt_flat_input = {list_text}.iter().map(|item| {erased_item}).collect::<Vec<_>>(); smelt_flat_values(smelt_flat_input, smelt_flat_depth).into_iter().map(|value| {typed_value}).collect::<Vec<_>>() }}",
-            list_text = list_read_text(&self.operand_text(list)?),
-        ))
+            list_text = list_read_expr(&self.operand_expr(list)?),
+        )))
     }
 
     /// Emits the JavaScript `Array.flat` depth expression as a runtime number.
-    fn flat_depth_text(&self, depth: Option<&Operand>) -> Result<String, EmitError> {
+    fn flat_depth_expr(&self, depth: Option<&Operand>) -> Result<RustExpr, EmitError> {
         match depth {
-            None => Ok("1.0_f64".to_owned()),
+            None => Ok(RustExpr::path("1.0_f64")),
             Some(depth_operand) => {
-                let text = self.operand_text(depth_operand)?;
+                let text = self.operand_expr(depth_operand)?;
                 match self.mir.types.get(self.operand_ty(depth_operand)?) {
                     Some(Type::Optional(inner))
                         if self.mir.types.get(*inner) == Some(&Type::Float) =>
                     {
-                        Ok(format!("{text}.clone().unwrap_or(1.0)"))
+                        Ok(RustExpr::postfix_on(&text, format!("{text}.clone().unwrap_or(1.0)")))
                     }
                     Some(Type::Float) => Ok(text),
                     _ => Err(EmitError::new("array flat depth must be numeric")),
@@ -987,16 +977,16 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts array keys, values, and entries projections to Rust text.
-    pub(super) fn list_projection_text(
+    pub(super) fn list_projection_expr(
         &self,
         op: smelt_hir::ListProjectionOp,
         list: &Operand,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
         // Read by borrow: every arm below is `match {list_text}.clone() { .. }`, which
         // appends its own clone, so cloning here made it `x.clone().clone()`.
-        let list_text = self.operand_borrow_text(list)?;
+        let list_text = self.operand_borrow_expr(list)?;
         if matches!(
             self.mir.types.get(list_ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
@@ -1007,9 +997,9 @@ impl FunctionEmitter<'_> {
                     if self.mir.types.get(dest_ty) != Some(&Type::List(int_ty)) {
                         return Err(EmitError::new("array keys destination must be int list"));
                     }
-                    Ok(self.carrier_format(format_args!(
+                    Ok(RustExpr::atom(self.carrier_format(format_args!(
                         "match {list_text}.clone() {{ SmeltUnknown::Array(values) => (0..values.len()).map(|idx| idx as i64).collect::<Vec<_>>(), _ => Vec::new() }}"
-                    )))
+                    ))))
                 }
                 smelt_hir::ListProjectionOp::Values => {
                     let Some(Type::List(value_ty)) = self.mir.types.get(dest_ty) else {
@@ -1017,10 +1007,10 @@ impl FunctionEmitter<'_> {
                             "dynamic array values destination must be a list",
                         ));
                     };
-                    let item_text = self.extract_value_text("item", *value_ty, &self.render_scope())?;
-                    Ok(self.carrier_format(format_args!(
+                    let item_text = self.extract_rendered(&RustExpr::path("item"), *value_ty, &self.render_scope())?;
+                    Ok(RustExpr::atom(self.carrier_format(format_args!(
                         "match {list_text}.clone() {{ SmeltUnknown::Array(values) => values.into_iter().map(|item| {item_text}).collect::<Vec<_>>(), _ => Vec::new() }}"
-                    )))
+                    ))))
                 }
                 smelt_hir::ListProjectionOp::Entries => {
                     let int_ty = self.type_id(Type::Int)?;
@@ -1040,10 +1030,10 @@ impl FunctionEmitter<'_> {
                             "dynamic array entries destination must contain an item type",
                         ));
                     };
-                    let item_text = self.extract_value_text("item", item_ty, &self.render_scope())?;
-                    Ok(self.carrier_format(format_args!(
+                    let item_text = self.extract_rendered(&RustExpr::path("item"), item_ty, &self.render_scope())?;
+                    Ok(RustExpr::atom(self.carrier_format(format_args!(
                         "match {list_text}.clone() {{ SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(idx, item)| (idx as i64, {item_text})).collect::<Vec<_>>(), _ => Vec::new() }}"
-                    )))
+                    ))))
                 }
             };
         }
@@ -1056,9 +1046,9 @@ impl FunctionEmitter<'_> {
                 if self.mir.types.get(dest_ty) != Some(&Type::List(int_ty)) {
                     return Err(EmitError::new("array keys destination must be int list"));
                 }
-                Ok(format!(
+                Ok(RustExpr::atom(format!(
                     "(0..{list_text}.len()).map(|idx| idx as i64).collect::<Vec<_>>()"
-                ))
+                )))
             }
             smelt_hir::ListProjectionOp::Values => {
                 if dest_ty != list_ty {
@@ -1066,7 +1056,7 @@ impl FunctionEmitter<'_> {
                         "array values destination must match receiver",
                     ));
                 }
-                Ok(format!("{list_text}.clone()"))
+                Ok(RustExpr::postfix_on(&list_text, format!("{list_text}.clone()")).ending_in_clone())
             }
             smelt_hir::ListProjectionOp::Entries => {
                 let int_ty = self.type_id(Type::Int)?;
@@ -1082,25 +1072,25 @@ impl FunctionEmitter<'_> {
                     ));
                 }
                 if type_holds_function(self.mir, *item_ty, NominalStorage::Opaque) {
-                    Ok(format!(
+                    Ok(RustExpr::atom_on(&list_text, format!(
                         "{list_text}.into_iter().enumerate().map(|(idx, item)| (idx as i64, item)).collect::<Vec<_>>()"
-                    ))
+                    )))
                 } else {
-                    let list_read = list_read_text(&list_text);
-                    Ok(format!(
+                    let list_read = list_read_expr(&list_text);
+                    Ok(RustExpr::atom_on(&list_read, format!(
                         "{list_read}.iter().cloned().enumerate().map(|(idx, item)| (idx as i64, item)).collect::<Vec<_>>()"
-                    ))
+                    )))
                 }
             }
         }
     }
 
     /// Converts a list-to-tuple constructor conversion to Rust text.
-    pub(super) fn list_to_tuple_text(
+    pub(super) fn list_to_tuple_expr(
         &self,
         list: &Operand,
         dest_ty: TypeId,
-    ) -> Result<String, EmitError> {
+    ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list-to-tuple source must be a list"));
@@ -1122,11 +1112,11 @@ impl FunctionEmitter<'_> {
         } else {
             format!("({items_text})")
         };
-        Ok(format!(
+        Ok(RustExpr::atom(format!(
             "{{ let tuple_items = {}; if tuple_items.len() != {} {{ panic!(\"tuple() length mismatch\"); }} {tuple_text} }}",
-            self.operand_text(list)?,
+            self.operand_expr(list)?,
             items.len()
-        ))
+        )))
     }
 
 }

@@ -580,6 +580,7 @@ impl ModuleBuilder<'_> {
     /// an `i64` meet an `f64`. `/` is true division, a `float` even for two `int`s
     /// (`7 / 2 == 3.5`). `//` and `%` floor toward negative infinity and stay `int`
     /// for two `int`s; all three raise `ZeroDivisionError` on a zero divisor.
+    #[expect(clippy::too_many_arguments, reason = "one operation, its operands and its lowering position")]
     fn python_arithmetic(
         &mut self,
         op: PythonArithmetic,

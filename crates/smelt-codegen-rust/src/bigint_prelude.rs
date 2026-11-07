@@ -38,6 +38,8 @@
 
 
 /// The Rust type a JavaScript `bigint` is carried as.
+use crate::rust::RustExpr;
+
 pub(crate) const BIGINT_TYPE: &str = "::num_bigint::BigInt";
 
 /// Renders the bigint constant whose canonical decimal digits are `digits`.
@@ -45,10 +47,10 @@ pub(crate) const BIGINT_TYPE: &str = "::num_bigint::BigInt";
 /// A value that fits `i64` is built with `From<i64>`, the spelling a
 /// hand-written port uses; anything wider is parsed from its digits, which are
 /// already validated by the frontend (only an optional `-` and ASCII digits).
-pub(crate) fn literal_text(digits: &str) -> String {
+pub(crate) fn literal_expr(digits: &str) -> RustExpr {
     if let Ok(small) = digits.parse::<i64>() {
-        format!("{BIGINT_TYPE}::from({small}_i64)")
+        RustExpr::atom(format!("{BIGINT_TYPE}::from({small}_i64)"))
     } else {
-        format!("{digits:?}.parse::<{BIGINT_TYPE}>().expect(\"bigint literal digits\")")
+        RustExpr::atom(format!("{digits:?}.parse::<{BIGINT_TYPE}>().expect(\"bigint literal digits\")"))
     }
 }

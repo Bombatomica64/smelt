@@ -65,8 +65,8 @@ impl FunctionEmitter<'_> {
     /// already matches Node and keeps the generated text free of a trait call
     /// for the common case; a `SmeltUnknown` keeps `Display`, because an
     /// operand typed `unknown` does not always emit the erased carrier (see
-    /// `console_arg_text`).
-    pub(super) fn console_inspects(&self, ty: TypeId, absent: AbsentSpelling) -> bool {
+    /// `console_arg`).
+    fn console_inspects(&self, ty: TypeId, absent: AbsentSpelling) -> bool {
         if absent != AbsentSpelling::Undefined {
             return false;
         }
@@ -105,7 +105,7 @@ impl FunctionEmitter<'_> {
 
     /// Whether every Rust type a value of `ty` can hold implements
     /// `SmeltInspect`. See the module docs for what is rejected and why.
-    pub(super) fn type_is_console_inspectable(&self, ty: TypeId) -> bool {
+    fn type_is_console_inspectable(&self, ty: TypeId) -> bool {
         let records = inspect_records(self.mir, self.context);
         self.inspectable_in(ty, &records, &mut HashSet::new())
     }
@@ -354,4 +354,296 @@ pub(crate) fn emit_console_inspect_support(
         ));
     }
     Ok(text)
+}
+
+impl FunctionEmitter<'_> {
+    /// Converts an operand to console.log argument format and returns format string and value.
+    /// Python's `repr` of the value `reference` borrows, as a `String`, for a type
+    /// built of primitives, lists, tuples and options; `None` for any other type.
+    fn python_repr_expr(&self, reference: &RustExpr, ty: TypeId) -> Option<RustExpr> {
+        let item = RustExpr::path("smelt_item");
+        Some(match self.mir.types.get(ty)? {
+            Type::String => RustExpr::chain(format!("smelt_py_str_repr({reference})")),
+            Type::Int => RustExpr::chain(format!("({reference}).to_string()")),
+            Type::Float => RustExpr::chain(format!(
+                "{}({reference})",
+                crate::number_format_prelude::PY_FLOAT_REPR_FN
+            )),
+            Type::Bool => RustExpr::atom(format!(
+                "(if *{reference} {{ \"True\" }} else {{ \"False\" }}).to_owned()"
+            )),
+            Type::Optional(inner) => {
+                let inner = self.python_repr_expr(&item, *inner)?;
+                RustExpr::atom(format!(
+                    "match {reference} {{ Some(smelt_item) => {inner}, None => \"None\".to_owned() }}"
+                ))
+            }
+            Type::List(inner) => {
+                let inner = self.python_repr_expr(&item, *inner)?;
+                RustExpr::chain(format!(
+                    "format!(\"[{{}}]\", ({reference}).borrow().iter().map(|smelt_item| {inner}).collect::<Vec<String>>().join(\", \"))"
+                ))
+            }
+            Type::Tuple(members) => {
+                let parts = members
+                    .iter()
+                    .enumerate()
+                    .map(|(index, member)| {
+                        self.python_repr_expr(&RustExpr::atom(format!("&({reference}).{index}")), *member)
+                            .map(RustExpr::into_string)
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                let trailing = if parts.len() == 1 { "," } else { "" };
+                RustExpr::chain(format!(
+                    "format!(\"({{}}{trailing})\", [{}].join(\", \"))",
+                    parts.join(", ")
+                ))
+            }
+            _ => return None,
+        })
+    }
+
+    pub(super) fn console_arg(
+        &self,
+        operand: &Operand,
+        absent: AbsentSpelling,
+    ) -> Result<(&'static str, String), EmitError> {
+        let ty = self.operand_ty(operand)?;
+        if ty == self.none_ty {
+            // The language's own word for the null value: `console.log(null)`
+            // is `null`, Python's `print(None)` is `None`.
+            Ok(("{}", format!("{:?}", absent.null_text())))
+        } else if absent == AbsentSpelling::None
+            && matches!(self.mir.types.get(ty), Some(Type::Bool))
+        {
+            // Python's `print` writes `str(value)`, and `str(True)` is `True`;
+            // Rust's `Display` (and JavaScript) write `true`. `AbsentSpelling`
+            // is the console's language: `None` is Python's `print`.
+            Ok((
+                "{}",
+                format!(
+                    "if {} {{ \"True\" }} else {{ \"False\" }}",
+                    self.operand_expr(operand)?
+                ),
+            ))
+        } else if self.console_inspects(ty, absent) {
+            // A container, record or union prints the way Node's
+            // `util.inspect` draws it (`[ 1, 2 ]`, `{ x: 1 }`, `Map(1) { .. }`),
+            // through the trait impl of the value's own Rust type; see
+            // `console_inspect_prelude`.
+            Ok((
+                "{}",
+                format!(
+                    "{}::{}(&{})",
+                    console_inspect_prelude::INSPECT_TRAIT,
+                    console_inspect_prelude::CONSOLE_TEXT_METHOD,
+                    self.operand_expr(operand)?
+                ),
+            ))
+        } else if absent == AbsentSpelling::Undefined
+            && matches!(self.mir.types.get(ty), Some(Type::GeneratorResult { .. }))
+        {
+            // An iterator result is the `{ value, done }` object, and the erased
+            // carrier is what draws an object.
+            self.context.mark_console_inspect_used();
+            Ok((
+                "{}",
+                format!(
+                    "{}::{}(&{})",
+                    console_inspect_prelude::INSPECT_TRAIT,
+                    console_inspect_prelude::CONSOLE_TEXT_METHOD,
+                    self.erase(operand)?
+                ),
+            ))
+        } else if absent == AbsentSpelling::Undefined
+            && (matches!(self.mir.types.get(ty), Some(Type::TypeParam { .. }))
+                || matches!(
+                    self.mir.types.get(ty),
+                    Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))
+                ) && self.type_mentions_any(ty, &self.current_function_type_params()))
+        {
+            // A container of a Rust generic has no `SmeltInspect` impl: its
+            // elements print through the erased carrier their bound provides.
+            self.context.mark_console_inspect_used();
+            Ok((
+                "{}",
+                format!(
+                    "{}::{}(&{})",
+                    console_inspect_prelude::INSPECT_TRAIT,
+                    console_inspect_prelude::CONSOLE_TEXT_METHOD,
+                    self.erase(operand)?
+                ),
+            ))
+        } else if absent == AbsentSpelling::None
+            && matches!(self.mir.types.get(ty), Some(Type::List(_) | Type::Tuple(_)))
+            && let Some(repr) = self.python_repr_expr(&RustExpr::atom(format!("&{}", self.operand_expr(operand)?)), ty)
+        {
+            Ok(("{}", repr.into_string()))
+        } else if matches!(
+            self.mir.types.get(ty),
+            Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))
+        ) {
+            Ok(("{:?}", self.operand_expr(operand)?.into_string()))
+        } else if matches!(self.mir.types.get(ty), Some(Type::Optional(_))) {
+            // An `Optional<T>` prints the value INSIDE it, never the Rust
+            // wrapper. `{:?}` on an `Option` put `Some("ada")` / `None` into
+            // program output, which is a shape no JavaScript runtime prints.
+            Ok(("{}", self.console_optional_expr(operand, absent)?.into_string()))
+        } else if matches!(self.mir.types.get(ty), Some(Type::BigInt)) {
+            // `console.log(10n)` prints `10n`: the console shows a bigint with
+            // its suffix, where `String(10n)` (and a template) is `"10"`.
+            Ok(("{}n", self.operand_expr(operand)?.into_string()))
+        } else if absent == AbsentSpelling::None && matches!(self.mir.types.get(ty), Some(Type::Int))
+        {
+            // Python's `int` is an integer, not a JavaScript number: `print`
+            // writes its decimal digits, exactly (no `f64` round trip).
+            Ok(("{}", self.operand_expr(operand)?.into_string()))
+        } else if absent == AbsentSpelling::None
+            && matches!(self.mir.types.get(ty), Some(Type::Float))
+        {
+            // Python's `print(12.0)` writes `repr(12.0)`, `12.0`.
+            Ok((
+                "{}",
+                format!(
+                    "{fn_name}({})",
+                    self.operand_expr(operand)?,
+                    fn_name = crate::number_format_prelude::PY_FLOAT_REPR_FN,
+                ),
+            ))
+        } else if matches!(self.mir.types.get(ty), Some(Type::Int | Type::Float)) {
+            // A NUMBER goes through the console's own formatter, not Rust's
+            // `Display`: JavaScript switches to exponential notation at both
+            // ends of the range (`1e+21`, `1e-7`), prints `Infinity` where Rust
+            // prints `inf`, and — this being `util.inspect` rather than
+            // `String()` — shows a negative zero as `-0`.
+            let width = if matches!(self.mir.types.get(ty), Some(Type::Int)) {
+                " as f64"
+            } else {
+                ""
+            };
+            Ok((
+                "{}",
+                format!(
+                    "{fn_name}({}{width})",
+                    self.operand_expr(operand)?,
+                    fn_name = crate::number_format_prelude::CONSOLE_NUMBER_FN,
+                ),
+            ))
+        } else if matches!(self.mir.types.get(ty), Some(Type::Bool | Type::String | Type::Unknown)) {
+            // These render through their own `Display` impl, which matches
+            // JavaScript: a bool and a string print as themselves, and
+            // `Display for SmeltUnknown` routes its number tag through the
+            // spec's rule.
+            //
+            // An erased value takes the SPEC's rule rather than the console's,
+            // which differs for exactly one value: `console.log(-0)` prints
+            // `-0` in Node and this prints `0`. Distinguishing them here is not
+            // possible — an operand typed `Unknown` does not always emit a
+            // `SmeltUnknown` expression (a typed-array element read is an
+            // `f64`), so the console formatter cannot be applied on the static
+            // type alone. A `SmeltConsoleFormat` trait with one impl per
+            // reachable Rust type would close it; see
+            // `blocker-logs/hono-fetch-demand.md`.
+            Ok(("{}", self.operand_expr(operand)?.into_string()))
+        } else {
+            // A class instance, generic type parameter, union, function, or set
+            // has no Rust `Display` impl, so `{}` would fail to compile (E0277).
+            // Erase to the runtime `SmeltUnknown` form, which does implement
+            // `Display`, matching how the same values stringify everywhere
+            // else. NOT wrapped in the console formatter: `erase_rendered`
+            // is the identity for a type that is already erased at runtime, so
+            // the text here is not always a `SmeltUnknown` (a typed-array
+            // element read is an `f64`), and none of the shapes that reach this
+            // arm is a number needing the `-0` spelling.
+            Ok(("{}", self.erase_rendered(&self.operand_expr(operand)?, ty)?.into_string()))
+        }
+    }
+
+    /// Render an `Optional<T>` console argument as a `String` expression.
+    ///
+    /// The present arm renders the inner value the way `console.log` renders
+    /// that type on its own, so the wrapper is invisible: a `string | undefined`
+    /// holding `"ada"` prints `ada`, and a `number[] | undefined` holding
+    /// `[1, 2]` prints through the container's `{:?}`.
+    ///
+    /// # Why the absent arm prints `undefined`
+    ///
+    /// TypeScript's `null` and `undefined` both intern to `Type::None` (see the
+    /// annotation lowering for `TSNullKeyword`/`TSUndefinedKeyword`), so
+    /// `string | null` and `string | undefined` are the *same*
+    /// `Optional(String)` here. Node prints `null` for the first and
+    /// `undefined` for the second, and this layer cannot tell them apart, so
+    /// one word has to be chosen and it is wrong for the other spelling.
+    ///
+    /// `undefined` is chosen because it is what nearly every operation that
+    /// *produces* an `Optional` in TypeScript returns: `find`, `pop`,
+    /// `Map.get`, an optional property or parameter, an index read, `?.`, and
+    /// `process.env.X`. `null` arrives mostly from annotations spelled `T |
+    /// null` (and from `headers.get`), and a value annotated as plain `null`
+    /// keeps printing `null` through the `Type::None` branch above. The
+    /// end-to-end fixture `33_console_optional_value` pins this against Node
+    /// 22, whose `find()` miss prints `undefined`.
+    ///
+    /// Printing the right word for both spellings needs a distinct
+    /// `Type::Undefined` carried down from the annotation — a type-table
+    /// change, not a console change.
+    fn console_optional_expr(
+        &self,
+        operand: &Operand,
+        absent: AbsentSpelling,
+    ) -> Result<RustExpr, EmitError> {
+        let ty = self.operand_ty(operand)?;
+        let Some(&Type::Optional(inner)) = self.mir.types.get(ty) else {
+            return Err(EmitError::new(
+                "console optional rendering requires an optional operand",
+            ));
+        };
+        let present = self.console_value(&RustExpr::path("value"), inner, absent)?;
+        Ok(RustExpr::atom(format!(
+            "match &{} {{ Some(value) => {present}, None => {:?}.to_owned() }}",
+            self.operand_expr(operand)?,
+            absent.text()
+        )))
+    }
+
+    /// Render `value_text` of type `ty` as a `String` expression, console-style.
+    ///
+    /// The same three cases as [`Self::console_arg`], but producing an
+    /// owned `String` rather than a format-spec pair, so it can be used inside a
+    /// match arm. `value_text` names a *reference* to the value.
+    fn console_value(
+        &self,
+        value_text: &RustExpr,
+        ty: TypeId,
+        absent: AbsentSpelling,
+    ) -> Result<RustExpr, EmitError> {
+        if ty == self.none_ty {
+            return Ok(RustExpr::chain("\"null\".to_owned()"));
+        }
+        if matches!(
+            self.mir.types.get(ty),
+            Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))
+        ) {
+            return Ok(RustExpr::atom(format!("format!(\"{{:?}}\", {value_text})")));
+        }
+        if matches!(
+            self.mir.types.get(ty),
+            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::Unknown)
+        ) {
+            return Ok(RustExpr::atom(format!("format!(\"{{}}\", {value_text})")));
+        }
+        // A nested optional recurses, so `Array<string | undefined>`'s element
+        // prints its own inner value rather than a wrapper.
+        if let Some(&Type::Optional(inner)) = self.mir.types.get(ty) {
+            let present = self.console_value(value_text, inner, absent)?;
+            return Ok(RustExpr::atom(format!(
+                "match {value_text} {{ Some(value) => {present}, None => {:?}.to_owned() }}",
+                absent.text()
+            )));
+        }
+        // Every remaining non-`Display` type takes the same erasure route the
+        // top-level argument takes.
+        let erased = self.erase_rendered(&RustExpr::postfix_on(&value_text, format!("{value_text}.clone()")).ending_in_clone(), ty)?;
+        Ok(RustExpr::atom(format!("format!(\"{{}}\", {erased})")))
+    }
 }
