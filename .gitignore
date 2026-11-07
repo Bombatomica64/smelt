@@ -351,3 +351,6 @@ target-*/
 
 # Coverage tracefile: a CI artifact, 7.5 MB per revision if committed.
 lcov.info
+
+# Python bytecode
+__pycache__/

@@ -17,7 +17,6 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fmt::Write as _,
     path::Path,
 };
 
@@ -25,7 +24,7 @@ use smelt_mir::{BodyKey, BodyListEscape, EscapeReason, ListLocalClass};
 
 use crate::{
     lowering, pipeline,
-    report::{ReportFormat, count_share},
+    report::{ReportFormat, count_share, push_fmt},
 };
 
 /// Inputs for one report run.
@@ -153,19 +152,23 @@ fn render_markdown(
     let buffers = tally_buffers(bodies, |_| true);
     let product_buffers = tally_buffers(bodies, |body| !body.is_test);
 
-    let _ = writeln!(out, "# List escape report — `{project}`\n");
-    let _ = writeln!(
-        out,
-        "Every list-typed MIR local in every function and closure body, classified by \
-         whether a plain `Vec<T>` could replace its `Rc<RefCell<Vec<T>>>`. Unprovable \
-         cases are counted as `escaping`; see the `smelt_mir::list_escape` module \
-         docs for exactly which constructs that covers.\n"
+    push_fmt(&mut out, format_args!("# List escape report — `{project}`\n\n"));
+    push_fmt(
+        &mut out,
+        format_args!(
+            "Every list-typed MIR local in every function and closure body, classified by \
+            whether a plain `Vec<T>` could replace its `Rc<RefCell<Vec<T>>>`. Unprovable \
+            cases are counted as `escaping`; see the `smelt_mir::list_escape` module \
+            docs for exactly which constructs that covers.\n\n"
+        ),
     );
 
-    let _ = writeln!(out, "## Population\n");
-    let _ = writeln!(
-        out,
-        "| class | all bodies | functions | closures |\n|---|---:|---:|---:|"
+    push_fmt(&mut out, format_args!("## Population\n\n"));
+    push_fmt(
+        &mut out,
+        format_args!(
+            "| class | all bodies | functions | closures |\n|---|---:|---:|---:|\n"
+        ),
     );
     for (label, pick) in [
         (
@@ -190,41 +193,51 @@ fn render_markdown(
             ),
         ),
     ] {
-        let _ = writeln!(
-            out,
-            "| {label} | {} | {} | {} |",
-            count_share(pick.0, all.total()),
-            count_share(pick.1, functions.total()),
-            count_share(pick.2, closures.total()),
+        push_fmt(
+            &mut out,
+            format_args!(
+                "| {label} | {} | {} | {} |\n",
+                count_share(pick.0, all.total()),
+                count_share(pick.1, functions.total()),
+                count_share(pick.2, closures.total())
+            ),
         );
     }
-    let _ = writeln!(
-        out,
-        "| **total** | {} | {} | {} |\n",
-        all.total(),
-        functions.total(),
-        closures.total()
+    push_fmt(
+        &mut out,
+        format_args!(
+            "| **total** | {} | {} | {} |\n\n",
+            all.total(),
+            functions.total(),
+            closures.total()
+        ),
     );
-    let _ = writeln!(
-        out,
-        "Confined (`local-*`, the tierable population): **{}** of {} list locals.\n",
-        count_share(all.confined(), all.total()),
-        all.total()
+    push_fmt(
+        &mut out,
+        format_args!(
+            "Confined (`local-*`, the tierable population): **{}** of {} list locals.\n\n",
+            count_share(all.confined(), all.total()),
+            all.total()
+        ),
     );
 
     // One buffer can be named by several MIR locals, because lowering moves a
     // value through a chain of temporaries. Allocations track buffers, so this
     // is the number that prices the optimization.
-    let _ = writeln!(out, "### Per buffer, not per local\n");
-    let _ = writeln!(
-        out,
-        "One `Rc<RefCell<Vec<T>>>` can be named by several MIR locals (lowering moves a \
-         value through a chain of temporaries; every local in a group shares a class). \
-         Collapsing each group to one row gives the allocation-site count.\n"
+    push_fmt(&mut out, format_args!("### Per buffer, not per local\n\n"));
+    push_fmt(
+        &mut out,
+        format_args!(
+            "One `Rc<RefCell<Vec<T>>>` can be named by several MIR locals (lowering moves a \
+            value through a chain of temporaries; every local in a group shares a class). \
+            Collapsing each group to one row gives the allocation-site count.\n\n"
+        ),
     );
-    let _ = writeln!(
-        out,
-        "| class | all buffers | non-test buffers |\n|---|---:|---:|"
+    push_fmt(
+        &mut out,
+        format_args!(
+            "| class | all buffers | non-test buffers |\n|---|---:|---:|\n"
+        ),
     );
     for (label, everywhere, non_test) in [
         ("escaping", buffers.escaping, product_buffers.escaping),
@@ -240,28 +253,34 @@ fn render_markdown(
             product_buffers.local_immutable,
         ),
     ] {
-        let _ = writeln!(
-            out,
-            "| {label} | {} | {} |",
-            count_share(everywhere, buffers.total()),
-            count_share(non_test, product_buffers.total()),
+        push_fmt(
+            &mut out,
+            format_args!(
+                "| {label} | {} | {} |\n",
+                count_share(everywhere, buffers.total()),
+                count_share(non_test, product_buffers.total())
+            ),
         );
     }
-    let _ = writeln!(
-        out,
-        "| **total** | {} | {} |\n",
-        buffers.total(),
-        product_buffers.total()
+    push_fmt(
+        &mut out,
+        format_args!(
+            "| **total** | {} | {} |\n\n",
+            buffers.total(),
+            product_buffers.total()
+        ),
     );
 
     // Test bodies dominate a library corpus by line count, and a confined list
     // inside a `#[test]` is not code any runtime optimization would speed up.
     // Splitting them keeps the headline number honest. Closure bodies are not
     // attributable to a test, so they land in the non-test column.
-    let _ = writeln!(out, "## Product code vs test code\n");
-    let _ = writeln!(
-        out,
-        "| class | non-test bodies | `#[test]` bodies |\n|---|---:|---:|"
+    push_fmt(&mut out, format_args!("## Product code vs test code\n\n"));
+    push_fmt(
+        &mut out,
+        format_args!(
+            "| class | non-test bodies | `#[test]` bodies |\n|---|---:|---:|\n"
+        ),
     );
     for (label, non_test, test) in [
         ("escaping", product.escaping, tests.escaping),
@@ -273,24 +292,30 @@ fn render_markdown(
             tests.local_immutable,
         ),
     ] {
-        let _ = writeln!(
-            out,
-            "| {label} | {} | {} |",
-            count_share(non_test, product.total()),
-            count_share(test, tests.total()),
+        push_fmt(
+            &mut out,
+            format_args!(
+                "| {label} | {} | {} |\n",
+                count_share(non_test, product.total()),
+                count_share(test, tests.total())
+            ),
         );
     }
-    let _ = writeln!(
-        out,
-        "| **total** | {} | {} |\n",
-        product.total(),
-        tests.total()
+    push_fmt(
+        &mut out,
+        format_args!(
+            "| **total** | {} | {} |\n\n",
+            product.total(),
+            tests.total()
+        ),
     );
-    let _ = writeln!(
-        out,
-        "Confined outside tests: **{}** of {} non-test list locals.\n",
-        count_share(product.confined(), product.total()),
-        product.total(),
+    push_fmt(
+        &mut out,
+        format_args!(
+            "Confined outside tests: **{}** of {} non-test list locals.\n\n",
+            count_share(product.confined(), product.total()),
+            product.total()
+        ),
     );
 
     render_reasons_and_top_bodies(&mut out, bodies, &all, options);
@@ -304,8 +329,8 @@ fn render_reasons_and_top_bodies(
     all: &ClassCounts,
     options: &ListEscapeReportOptions<'_>,
 ) {
-    let _ = writeln!(out, "## Why the escaping lists escape\n");
-    let _ = writeln!(out, "| reason | kind | count |\n|---|---|---:|");
+    push_fmt(out, format_args!("## Why the escaping lists escape\n\n"));
+    push_fmt(out, format_args!("| reason | kind | count |\n|---|---|---:|\n"));
     let mut reasons: BTreeMap<&'static str, (bool, usize)> = BTreeMap::new();
     for body in bodies {
         for reason in body.locals.iter().filter_map(|fact| fact.reason) {
@@ -329,21 +354,25 @@ fn render_reasons_and_top_bodies(
         } else {
             "conservative"
         };
-        let _ = writeln!(out, "| {label} | {kind} | {count} |");
+        push_fmt(out, format_args!("| {label} | {kind} | {count} |\n"));
     }
-    let _ = writeln!(
+    push_fmt(
         out,
-        "\n{} of {} escapes are genuine; the remaining {} are conservative — a more \
-         precise analysis could in principle recover some of them.\n",
-        genuine,
-        all.escaping,
-        all.escaping.saturating_sub(genuine),
+        format_args!(
+            "\n{} of {} escapes are genuine; the remaining {} are conservative — a more \
+            precise analysis could in principle recover some of them.\n\n",
+            genuine,
+            all.escaping,
+            all.escaping.saturating_sub(genuine)
+        ),
     );
 
-    let _ = writeln!(out, "## Top non-test bodies by confined list locals\n");
-    let _ = writeln!(
+    push_fmt(out, format_args!("## Top non-test bodies by confined list locals\n\n"));
+    push_fmt(
         out,
-        "| body | local-mutated | local-immutable | aliased | escaping |\n|---|---:|---:|---:|---:|"
+        format_args!(
+            "| body | local-mutated | local-immutable | aliased | escaping |\n|---|---:|---:|---:|---:|\n"
+        ),
     );
     let mut ranked = bodies
         .iter()
@@ -357,45 +386,54 @@ fn render_reasons_and_top_bodies(
             .then_with(|| left.name.cmp(&right.name))
     });
     for body in ranked.iter().take(options.top) {
-        let _ = writeln!(
+        push_fmt(
             out,
-            "| `{}` | {} | {} | {} | {} |",
-            body.name,
-            body.count(ListLocalClass::LocalMutated),
-            body.count(ListLocalClass::LocalImmutable),
-            body.count(ListLocalClass::Aliased),
-            body.count(ListLocalClass::Escaping),
+            format_args!(
+                "| `{}` | {} | {} | {} | {} |\n",
+                body.name,
+                body.count(ListLocalClass::LocalMutated),
+                body.count(ListLocalClass::LocalImmutable),
+                body.count(ListLocalClass::Aliased),
+                body.count(ListLocalClass::Escaping)
+            ),
         );
     }
     if ranked.is_empty() {
-        let _ = writeln!(out, "| _(none)_ | 0 | 0 | 0 | 0 |");
+        push_fmt(out, format_args!("| _(none)_ | 0 | 0 | 0 | 0 |\n"));
     }
     out.push('\n');
 
     if !options.functions.is_empty() {
-        let _ = writeln!(out, "## Requested functions\n");
+        push_fmt(out, format_args!("## Requested functions\n\n"));
         for wanted in options.functions {
             let matches = bodies
                 .iter()
                 .filter(|body| body.name == *wanted)
                 .collect::<Vec<_>>();
-            let _ = writeln!(out, "### `{wanted}`\n");
+            push_fmt(out, format_args!("### `{wanted}`\n\n"));
             if matches.is_empty() {
-                let _ = writeln!(out, "_no body with that name, or it has no list locals._\n");
+                push_fmt(
+                    out,
+                    format_args!(
+                        "_no body with that name, or it has no list locals._\n\n"
+                    ),
+                );
                 continue;
             }
             for body in matches {
-                let _ = writeln!(out, "| local | name | class | reason | mutated |");
-                let _ = writeln!(out, "|---|---|---|---|---|");
+                push_fmt(out, format_args!("| local | name | class | reason | mutated |\n"));
+                push_fmt(out, format_args!("|---|---|---|---|---|\n"));
                 for fact in &body.locals {
-                    let _ = writeln!(
+                    push_fmt(
                         out,
-                        "| `%{}` | {} | {} | {} | {} |",
-                        fact.local.0,
-                        fact.name.as_deref().unwrap_or("_(temp)_"),
-                        fact.class.label(),
-                        fact.reason.map_or("—", EscapeReason::label),
-                        if fact.mutated { "yes" } else { "no" },
+                        format_args!(
+                            "| `%{}` | {} | {} | {} | {} |\n",
+                            fact.local.0,
+                            fact.name.as_deref().unwrap_or("_(temp)_"),
+                            fact.class.label(),
+                            fact.reason.map_or("—", EscapeReason::label),
+                            if fact.mutated { "yes" } else { "no" }
+                        ),
                     );
                 }
                 out.push('\n');

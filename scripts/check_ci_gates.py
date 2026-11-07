@@ -140,6 +140,8 @@ def main():
             continue
         with open(path, encoding="utf-8") as handle:
             violations += test_source_violations(os.path.relpath(path, root), handle.read())
+    if not os.path.islink(os.path.join(root, "CLAUDE.md")):
+        violations.append("CLAUDE.md is not a symlink to AGENTS.md, so the two can drift")
     for violation in violations:
         print(violation)
     print(f"{len(violations)} violation(s).")

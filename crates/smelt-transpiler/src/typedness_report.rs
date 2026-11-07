@@ -49,7 +49,6 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fmt::Write as _,
     path::{Path, PathBuf},
 };
 
@@ -59,7 +58,7 @@ use smelt_codegen_rust::{KindCounts, TypednessCounts};
 use crate::{
     CliResult, config_parser, lowering,
     pipeline,
-    report::{self, GatedOutcome, ReportFormat},
+    report::{self, GatedOutcome, ReportFormat, push_fmt},
     source_files::{exclusion_base, manifest_relative_path},
 };
 
@@ -227,7 +226,7 @@ fn regression_message(worsened: &[Worsening]) -> Option<String> {
         worsened.len()
     );
     for worsening in worsened {
-        let _ = write!(message, "\n  {}: {}", worsening.program, worsening.detail);
+        push_fmt(&mut message, format_args!("\n  {}: {}", worsening.program, worsening.detail));
     }
     message.push_str(
         "\nMake the program at least as typed again, or (only for a documented, \
@@ -373,49 +372,73 @@ fn render_markdown(
     worsened: &[Worsening],
 ) -> String {
     let mut out = String::new();
-    let _ = writeln!(out, "# Typedness report");
-    let _ = writeln!(out);
+    push_fmt(&mut out, format_args!("# Typedness report\n"));
+    out.push('\n');
     let measured = report.programs.values().filter(|record| record.is_some()).count();
-    let _ = writeln!(
-        out,
-        "- Programs: {} ({measured} measured, {} refused)",
-        report.programs.len(),
-        report.programs.len().saturating_sub(measured)
+    push_fmt(
+        &mut out,
+        format_args!(
+            "- Programs: {} ({measured} measured, {} refused)\n",
+            report.programs.len(),
+            report.programs.len().saturating_sub(measured)
+        ),
     );
-    let _ = writeln!(out);
-    let _ = writeln!(out, "| Kind | Concrete | Generic | Erased | Typed share |");
-    let _ = writeln!(out, "| --- | ---: | ---: | ---: | ---: |");
+    out.push('\n');
+    push_fmt(&mut out, format_args!("| Kind | Concrete | Generic | Erased | Typed share |\n"));
+    push_fmt(&mut out, format_args!("| --- | ---: | ---: | ---: | ---: |\n"));
     for (kind, counts) in kinds(&report.total) {
-        let _ = writeln!(
-            out,
-            "| {kind} | {} | {} | {} | {} |",
-            counts.concrete,
-            counts.generic,
-            counts.erased,
-            share(counts)
+        push_fmt(
+            &mut out,
+            format_args!(
+                "| {kind} | {} | {} | {} | {} |\n",
+                counts.concrete,
+                counts.generic,
+                counts.erased,
+                share(counts)
+            ),
         );
     }
-    let _ = writeln!(out);
+    out.push('\n');
     if let Some(baseline) = baseline {
-        let _ = writeln!(out, "## Change vs baseline");
-        let _ = writeln!(out);
-        let _ = writeln!(out, "| Kind | Baseline share | Current share | Erased delta |");
-        let _ = writeln!(out, "| --- | ---: | ---: | ---: |");
+        push_fmt(&mut out, format_args!("## Change vs baseline\n"));
+        out.push('\n');
+        push_fmt(
+            &mut out,
+            format_args!(
+                "| Kind | Baseline share | Current share | Erased delta |\n"
+            ),
+        );
+        push_fmt(&mut out, format_args!("| --- | ---: | ---: | ---: |\n"));
         for ((kind, now), (_, then)) in kinds(&report.total).into_iter().zip(kinds(&baseline.total)) {
             let delta = i128::from(now.erased as u64) - i128::from(then.erased as u64);
-            let _ = writeln!(out, "| {kind} | {} | {} | {delta:+} |", share(then), share(now));
+            push_fmt(
+                &mut out,
+                format_args!(
+                    "| {kind} | {} | {} | {delta:+} |\n", share(then), share(now)
+                ),
+            );
         }
-        let _ = writeln!(out);
+        out.push('\n');
         if worsened.is_empty() {
-            let _ = writeln!(out, "No program became less typed than its baseline record.");
+            push_fmt(
+                &mut out,
+                format_args!(
+                    "No program became less typed than its baseline record.\n"
+                ),
+            );
         } else {
-            let _ = writeln!(out, "**Less typed than the baseline:**");
-            let _ = writeln!(out);
+            push_fmt(&mut out, format_args!("**Less typed than the baseline:**\n"));
+            out.push('\n');
             for worsening in worsened {
-                let _ = writeln!(out, "- `{}`: {}", worsening.program, worsening.detail);
+                push_fmt(
+                    &mut out,
+                    format_args!(
+                        "- `{}`: {}\n", worsening.program, worsening.detail
+                    ),
+                );
             }
         }
-        let _ = writeln!(out);
+        out.push('\n');
     }
     out
 }

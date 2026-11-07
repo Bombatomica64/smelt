@@ -27,7 +27,6 @@
 //! `.ts` file (lowered with its relative-import closure).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -35,7 +34,7 @@ use serde::Serialize;
 use smelt_hir::{Crate, FileId, Language};
 use smelt_ts_types::{SourceInput, TsDiagnosticCategory, TsTypeFacts};
 
-use crate::report::{ReportFormat, ratio_percent};
+use crate::report::{ReportFormat, push_fmt, ratio_percent};
 use crate::ts7_parity::{self, Verdict};
 use crate::{CliResult, config_parser, lowering};
 
@@ -378,12 +377,17 @@ fn top_groups(groups: GroupMap) -> Vec<Group> {
 /// Renders the Markdown report.
 fn render_markdown(report: &ParityReport) -> String {
     let mut out = String::new();
-    let _ = writeln!(out, "# TypeScript {} type parity\n", report.typescript);
-    let _ = writeln!(out, "Inputs: {}\n", report.inputs.join(", "));
+    push_fmt(&mut out, format_args!("# TypeScript {} type parity\n\n", report.typescript));
+    push_fmt(&mut out, format_args!("Inputs: {}\n\n", report.inputs.join(", ")));
     let totals = &report.totals;
     let parity = totals.parity_percent().map_or_else(|| "n/a".to_owned(), |percent| format!("{percent:.1}%"));
-    let _ = writeln!(out, "**Parity: {parity}** ({} of {} statically typed expressions agree)\n", totals.agree, totals.typed());
-    let _ = writeln!(out, "| verdict | count |\n| --- | ---: |");
+    push_fmt(
+        &mut out,
+        format_args!(
+            "**Parity: {parity}** ({} of {} statically typed expressions agree)\n\n", totals.agree, totals.typed()
+        ),
+    );
+    push_fmt(&mut out, format_args!("| verdict | count |\n| --- | ---: |\n"));
     for (name, count) in [
         ("agree", totals.agree),
         ("smelt-erased", totals.smelt_erased),
@@ -393,7 +397,7 @@ fn render_markdown(report: &ParityReport) -> String {
         ("ts-deferred", totals.ts_deferred),
         ("no-checker-node", totals.no_checker_node),
     ] {
-        let _ = writeln!(out, "| {name} | {count} |");
+        push_fmt(&mut out, format_args!("| {name} | {count} |\n"));
     }
     render_groups(&mut out, "Smelt-erased families (HIR ← TypeScript)", &report.erased);
     render_groups(&mut out, "Wider-type families (HIR ← TypeScript)", &report.wider);
@@ -406,21 +410,31 @@ fn render_markdown(report: &ParityReport) -> String {
 
 /// Renders one grouped table.
 fn render_groups(out: &mut String, title: &str, groups: &[Group]) {
-    let _ = writeln!(out, "\n## {title}\n");
+    push_fmt(out, format_args!("\n## {title}\n\n"));
     if groups.is_empty() {
-        let _ = writeln!(out, "None.");
+        push_fmt(out, format_args!("None.\n"));
         return;
     }
-    let _ = writeln!(out, "| count | shape | first example |\n| ---: | --- | --- |");
+    push_fmt(out, format_args!("| count | shape | first example |\n| ---: | --- | --- |\n"));
     for group in groups {
-        let _ = writeln!(out, "| {} | `{}` | {} |", group.count, group.key.replace('|', "\\|"), group.example.replace('|', "\\|"));
+        push_fmt(
+            out,
+            format_args!(
+                "| {} | `{}` | {} |\n", group.count, group.key.replace('|', "\\|"), group.example.replace('|', "\\|")
+            ),
+        );
     }
 }
 
 /// Renders the per-file table, lowest parity first.
 fn render_files(out: &mut String, files: &BTreeMap<String, Counts>) {
-    let _ = writeln!(out, "\n## Files (lowest parity first)\n");
-    let _ = writeln!(out, "| file | parity | agree | erased | wider | mismatch | dynamic |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |");
+    push_fmt(out, format_args!("\n## Files (lowest parity first)\n\n"));
+    push_fmt(
+        out,
+        format_args!(
+            "| file | parity | agree | erased | wider | mismatch | dynamic |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n"
+        ),
+    );
     let mut rows: Vec<(&String, &Counts)> = files.iter().filter(|(_, counts)| counts.typed() > 0).collect();
     rows.sort_by(|left, right| {
         let left_parity = left.1.parity_percent().unwrap_or(100.0_f64);
@@ -429,10 +443,12 @@ fn render_files(out: &mut String, files: &BTreeMap<String, Counts>) {
     });
     for (file, counts) in rows.into_iter().take(TOP_GROUPS) {
         let parity = counts.parity_percent().unwrap_or(100.0_f64);
-        let _ = writeln!(
+        push_fmt(
             out,
-            "| {file} | {parity:.1}% | {} | {} | {} | {} | {} |",
-            counts.agree, counts.smelt_erased, counts.wider, counts.mismatch, counts.ts_dynamic
+            format_args!(
+                "| {file} | {parity:.1}% | {} | {} | {} | {} | {} |\n",
+                counts.agree, counts.smelt_erased, counts.wider, counts.mismatch, counts.ts_dynamic
+            ),
         );
     }
 }
@@ -442,23 +458,23 @@ fn render_refused(out: &mut String, refused: &[(String, String)]) {
     if refused.is_empty() {
         return;
     }
-    let _ = writeln!(out, "\n## Refused inputs (Smelt could not lower them)\n");
+    push_fmt(out, format_args!("\n## Refused inputs (Smelt could not lower them)\n\n"));
     for (input, error) in refused {
         let short: String = error.chars().take(400).collect();
-        let _ = writeln!(out, "- `{input}`: {}", short.replace('|', "\\|"));
+        push_fmt(out, format_args!("- `{input}`: {}\n", short.replace('|', "\\|")));
     }
 }
 
 /// Renders the checker error tally.
 fn render_checker_errors(out: &mut String, errors: &BTreeMap<String, (usize, String)>) {
-    let _ = writeln!(out, "\n## TypeScript checker errors\n");
+    push_fmt(out, format_args!("\n## TypeScript checker errors\n\n"));
     if errors.is_empty() {
-        let _ = writeln!(out, "None: every input type-checks under TypeScript 7.");
+        push_fmt(out, format_args!("None: every input type-checks under TypeScript 7.\n"));
         return;
     }
-    let _ = writeln!(out, "| code | count | first message |\n| --- | ---: | --- |");
+    push_fmt(out, format_args!("| code | count | first message |\n| --- | ---: | --- |\n"));
     for (code, (count, message)) in errors {
         let first_line = message.lines().next().unwrap_or_default().replace('|', "\\|");
-        let _ = writeln!(out, "| {code} | {count} | {first_line} |");
+        push_fmt(out, format_args!("| {code} | {count} | {first_line} |\n"));
     }
 }

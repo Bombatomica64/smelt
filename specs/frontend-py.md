@@ -97,7 +97,7 @@ finally:
     f.__exit__(None, None, None)
 ```
 
-The desugarer runs as a tree-sitter rewrite step. The HIR walker only ever sees the desugared form.
+The desugarer runs as an AST rewrite step. The HIR walker only ever sees the desugared form.
 
 #### Comprehensions
 
@@ -176,7 +176,7 @@ Same `SmeltError` type as the TS frontend. Errors carry file/line/col from `ty`'
 
 ### Pre-HIR rewrites
 
-- [ ] Write the `with` → `try/finally` desugarer over tree-sitter. Round-trip tested against handwritten equivalents.
+- [ ] Write the `with` → `try/finally` desugarer over the Ruff AST. Round-trip tested against handwritten equivalents.
 - [ ] Write the `@dataclass` materializer that synthesizes an explicit `__init__` in HIR.
 
 ### HIR construction

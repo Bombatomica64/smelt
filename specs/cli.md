@@ -137,7 +137,7 @@ Telemetry: none. Ever.
 
 ## Current Gaps (state of the code → what's missing)
 
-- `smelt new` and `smelt clean` are still unimplemented in `main.rs`.
+- `smelt new` and `smelt clean` are still unimplemented in `crates/smelt-transpiler/src/cli.rs`.
 - `smelt-frontend-ts`'s `checker.rs` shells out to `tsc` and `oxlint` via `npx` and has no caller; type errors come from the embedded checker (see `smelt check`).
 - No call to `smelt-hir`, `smelt-mir`, or `smelt-codegen-rust` exists from the CLI yet.
 - Manifest validator does not enforce the missing-entries check.
@@ -151,7 +151,7 @@ The list below is the v1.0 roadmap for `smelt-cli`, ordered by dependency. Items
 ### Foundation (M0/M1 follow-ups)
 
 - [ ] Add a `SmeltError` type in `smelt-cli` that carries `Option<Span>`, `code: &'static str`, `message: String`. Implement `Display` to produce the canonical format.
-- [ ] Replace every `Box<dyn Error>` in `main.rs`, `config_parser.rs`, and `checker.rs` with `SmeltError`.
+- [ ] Replace every `Box<dyn Error>` in `cli.rs`, `config_parser.rs`, and `checker.rs` with `SmeltError`.
 - [ ] Set process exit code based on error kind (1 vs 2).
 - [ ] Implement `--verbose` / `--quiet` global flags.
 

@@ -17,7 +17,7 @@ MIR is where the language-translation work actually happens. HIR still looks lik
 ### MIR Definition
 
 - Functions as control-flow graphs of basic blocks.
-- SSA-ish form: every assignment introduces a fresh local.
+- Not SSA: mutable locals and no phi nodes (see `specs/mir.md`).
 - Statements are simple: assignments, calls, no nested expressions.
 - Terminators: `Return`, `Branch`, `SwitchInt`, `Call`, `Unreachable`.
 - Locals carry their type and (in v1.0) are always owned.
@@ -60,4 +60,4 @@ A MIR validator analogous to the HIR validator:
 
 ## Notes
 
-The phrase "SSA-ish" in this issue is deliberate. Strict SSA with phi nodes is overkill for v1.0 — we just want enough single-assignment discipline that future optimization passes have a chance. Decide on the exact form (basic-block arguments vs phi nodes vs neither) early in the milestone and document the choice.
+MIR is not SSA: strict SSA with phi nodes is overkill, and `specs/mir.md` states what it is.

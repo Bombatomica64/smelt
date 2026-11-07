@@ -19,16 +19,18 @@ would refuse to merge. See "Type lowering".
 
 ## always run
 Tight loop (`--lib` skips compiling inline tests):
-cargo check --lib
-cargo clippy --lib
+corgi check --workspace --lib
+corgi clippy --workspace --lib
 When working ONLY on the TypeScript path (not Python), add `--no-default-features`
 to drop the whole `ty` Python stack (ty_python_semantic/core/module_resolver +
 ruff + smelt-frontend-py):
-cargo check --lib --no-default-features
-cargo clippy --lib --no-default-features
-Full check before a commit only (compiles + type-checks all tests):
-cargo clippy --all-targets
+corgi check --workspace --lib --no-default-features
+corgi clippy --workspace --lib --no-default-features
+Full check before a commit only (compiles + type-checks all tests), in the two commands corgi cannot run:
+cargo clippy --workspace --all-targets
 cargo test
+
+CI's clippy job fails on any deny-level lint and on a rise in `blocker-logs/clippy-baseline.json`, a per-crate, per-lint count of warnings that may only fall. To run it locally: `cargo clippy --workspace --all-targets --keep-going --message-format=json > clippy.json`, then `python3 scripts/check_clippy_ratchet.py --baseline blocker-logs/clippy-baseline.json --messages clippy.json --cargo-status $?`. Add `--update` when a count fell.
 
 ## corgi (required for builds)
 Agents MUST use [corgi](https://corgi.build/) instead of `cargo` for every build, check, clippy and run. It keeps one shared build cache per machine (`~/.local/share/corgi`) instead of a `target/` per worktree, so parallel worktrees and subagents stop duplicating multi-GB artifacts. Install once with `cargo install corgi-build`, then run from the workspace root:
@@ -48,7 +50,7 @@ corgi sandboxes rustc, so any non-`.rs` file read at compile time (`include_str!
 
 ## Generated Rust diagnostics
 when working on generated Rust warnings or blockers, use:
-`cargo run --bin smelt -- rust-diagnostics --cargo-manifest <generated-crate>/Cargo.toml --output blocker-logs/<name>.md`
+`corgi run -p smelt-transpiler --bin smelt -- rust-diagnostics --cargo-manifest <generated-crate>/Cargo.toml --output blocker-logs/<name>.md`
 This produces a grouped Markdown report sorted by diagnostic count so LLMs can start with the biggest warning/error classes.
 
 ## Generated Rust incremental builds
@@ -95,12 +97,12 @@ Measure it: `smelt smelt-unknown-report <generated-crate>/src --baseline blocker
 
 Every erasure site names its reason (`ErasureReason`, see `docs/erasure-reasons.md`): use `erase(reason)` in the frontends, never a bare `intern(Type::Unknown)`; `unknown_type()` is only for comparisons and already-erased propagation. `smelt build` writes `<output>/smelt-erasure.json` and the unknown report explains avoidable erasure by reason and source line from it.
 
-Three committed baselines: `blocker-logs/smelt-unknown-baseline.json` (examples corpus) is a hard invariant — avoidable stays 0, and CI enforces it with `--fail-on-regression`; `blocker-logs/smelt-unknown-baseline-es-toolkit.json` is a ratchet — avoidable may only stay equal or fall, also blocking; `blocker-logs/smelt-unknown-baseline-remeda.json` is advisory — it exists so remeda's report has something meaningful to diff against, and it never blocks. Any PR that regenerates a corpus must include the report delta. `avoidable(current) > avoidable(baseline)` blocks merge (CI runs the es-toolkit report with `--fail-on-regression`) unless the PR (1) documents the genuine dynamic boundary in a code comment at the emit site and (2) adds a regression test proving concrete types/unions/scoped generics cannot represent it — then reclassify via `classify_line` in `crates/smelt-transpiler/src/unknown_report/classify.rs` and re-snapshot the baseline in the same commit rather than accepting the increase. legitimate-boundary increases never block; avoidable decreases re-snapshot in the same commit. The comparison also fails on a scan of zero files, or one that lost more than 10% of the baseline's `files_scanned`, and such a scan never rewrites the baseline. The comparison also fails on a scan of zero files, or one that lost more than 10% of the baseline's `files_scanned`, and such a scan never rewrites the baseline.
+Three committed baselines: `blocker-logs/smelt-unknown-baseline.json` (examples corpus) is a hard invariant — avoidable stays 0, and CI enforces it with `--fail-on-regression`; `blocker-logs/smelt-unknown-baseline-es-toolkit.json` is a ratchet — avoidable may only stay equal or fall, also blocking; `blocker-logs/smelt-unknown-baseline-remeda.json` is advisory — it exists so remeda's report has something meaningful to diff against, and it never blocks. Any PR that regenerates a corpus must include the report delta. `avoidable(current) > avoidable(baseline)` blocks merge (CI runs the es-toolkit report with `--fail-on-regression`) unless the PR (1) documents the genuine dynamic boundary in a code comment at the emit site and (2) adds a regression test proving concrete types/unions/scoped generics cannot represent it — then reclassify via `classify_line` in `crates/smelt-transpiler/src/unknown_report/classify.rs` and re-snapshot the baseline in the same commit rather than accepting the increase. legitimate-boundary increases never block; avoidable decreases re-snapshot in the same commit. The comparison also fails on a scan of zero files, or one that lost more than 10% of the baseline's `files_scanned`, and such a scan never rewrites the baseline.
 
 ## Typedness ratchet
 The positive counterpart of the SmeltUnknown report (design adapted from Bun's `--aot` typedness tests, oven-sh/bun#45631): `smelt typedness-report` counts, on optimized MIR and through the Rust emitter's own type rendering, how many values (locals), property reads and calls of each program are concrete, generic (a type parameter carried as a real Rust generic) or erased (`SmeltUnknown`/`SmeltErasedFunction` anywhere in the Rust type). `smelt build` writes `<output>/smelt-typedness.json`; the examples are measured by lowering each `input.ts` in-process.
 
-A program may never become less typed: for every kind (values, reads, calls) its erased count may not rise; the corpus total is judged the same way. The typed share `(concrete+generic)/total` is reported but does not judge. Old requirement (Bun's `isNoLessTyped`): erased may not rise *and* typed share may not fall. Why it changed: counts are per MIR entry, so removing redundant concrete temporaries (let-temp elision) lowers the share with types unchanged; the erased count is the quantity the north star asks to minimise, and a value that loses its type moves into it. Three baselines mirror the SmeltUnknown ones: `blocker-logs/typedness-baseline.json` (examples) and `blocker-logs/typedness-baseline-es-toolkit.json` block in CI with `--fail-on-regression`; `blocker-logs/typedness-baseline-remeda.json` is advisory. When a program gets more typed, re-snapshot with `--update-baseline` in the same commit; that rewrite only takes records whose erased counts did not rise, so a regression can never be snapshotted. A baseline program that is no longer measured fails the gate and survives `--update-baseline`; one that is gone on purpose is named with `--retire-program` in the commit that removes it. A baseline program that is no longer measured fails the gate and survives `--update-baseline`; one that is gone on purpose is named with `--retire-program` in the commit that removes it. A real regression is fixed at its source, never by editing the baseline. Methodology: `blocker-logs/typedness-report.md`.
+A program may never become less typed: for every kind (values, reads, calls) its erased count may not rise; the corpus total is judged the same way. The typed share `(concrete+generic)/total` is reported but does not judge. Old requirement (Bun's `isNoLessTyped`): erased may not rise *and* typed share may not fall. Why it changed: counts are per MIR entry, so removing redundant concrete temporaries (let-temp elision) lowers the share with types unchanged; the erased count is the quantity the north star asks to minimise, and a value that loses its type moves into it. Three baselines mirror the SmeltUnknown ones: `blocker-logs/typedness-baseline.json` (examples) and `blocker-logs/typedness-baseline-es-toolkit.json` block in CI with `--fail-on-regression`; `blocker-logs/typedness-baseline-remeda.json` is advisory. When a program gets more typed, re-snapshot with `--update-baseline` in the same commit; that rewrite only takes records whose erased counts did not rise, so a regression can never be snapshotted. A baseline program that is no longer measured fails the gate and survives `--update-baseline`; one that is gone on purpose is named with `--retire-program` in the commit that removes it. A real regression is fixed at its source, never by editing the baseline. Methodology: `blocker-logs/typedness-report.md`.
 
 ## Verification contracts and generated output
 Treat expected source behavior and type preservation as requirements independent of the implementation. Never make a fix pass by weakening assertions, deleting coverage, broadening erasure classifications, or relaxing a baseline. If an expectation is wrong, document the old and new requirement, the source-language evidence, and why the correction preserves the intended guarantee. Follow the specific baseline-update rules above.

@@ -1,9 +1,9 @@
 //! The committed baseline: detecting a regression against it and writing an
 //! updated snapshot, which can never take a rise in avoidable erasure.
 
-use std::fmt::Write as _;
 
 use super::{Category, ScanResult, TOP_OFFENDER_LIMIT, UnknownReport};
+use crate::report::push_fmt;
 
 /// A detected avoidable-erasure regression versus a baseline.
 ///
@@ -31,7 +31,7 @@ pub(super) fn regression_message(regression: &Regression) -> String {
     if !regression.top_files.is_empty() {
         message.push_str("\ntop offending files:");
         for (file, count) in &regression.top_files {
-            let _ = write!(message, "\n  {count:>6}  {file}");
+            push_fmt(&mut message, format_args!("\n  {count:>6}  {file}"));
         }
     }
     message.push_str(

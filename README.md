@@ -96,7 +96,7 @@ crates/
   smelt-frontend-ts/    TypeScript parser → HIR
   smelt-frontend-py/    Python parser → HIR
   smelt-hir/            High-level IR types and validation
-  smelt-mir/            Mid-level IR (SSA-ish, ownership-naive)
+  smelt-mir/            Mid-level IR (CFG over mutable locals, ownership-naive)
   smelt-codegen-rust/   MIR → Rust source
   smelt-runtime/        Runtime helpers that transpiled code depends on
   smelt-transpiler/     The `smelt` binary
