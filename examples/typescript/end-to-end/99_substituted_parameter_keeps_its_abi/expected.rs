@@ -118,19 +118,21 @@ fn smelt_utf16_byte_of(text: &str, unit: usize) -> Result<usize, usize> {
     Ok(bytes.len())
 }
 
+/// The byte offset of the cut at UTF-16 index `unit` of `text`: a cut inside
+/// a surrogate pair falls after the pair.
+#[allow(dead_code)]
+fn smelt_utf16_cut(text: &str, unit: usize) -> usize {
+    smelt_utf16_byte_of(text, unit).unwrap_or_else(|byte| byte + 4)
+}
+
 /// The code units `start..end` of `text` (clamped; empty when `end <= start`),
-/// a cut surrogate half becoming U+FFFD.
+/// a pair cut at either end belonging to the piece on the cut's left.
 #[allow(dead_code)]
 fn smelt_utf16_slice(text: &str, start: usize, end: usize) -> String {
     if end <= start { return String::new(); }
-    match (smelt_utf16_byte_of(text, start), smelt_utf16_byte_of(text, end)) {
-        (Ok(from), Ok(to)) => text[from..to].to_owned(),
-        _ => {
-            let units: Vec<u16> = text.encode_utf16().collect();
-            let end = end.min(units.len());
-            String::from_utf16_lossy(&units[start.min(end)..end])
-        }
-    }
+    let from = smelt_utf16_cut(text, start);
+    let to = smelt_utf16_cut(text, end);
+    text.get(from..to.max(from)).unwrap_or("").to_owned()
 }
 
 /// The code unit at UTF-16 index `unit` of `text` (`charCodeAt`), if any.
@@ -144,15 +146,16 @@ fn smelt_utf16_unit_at(text: &str, unit: usize) -> Option<u16> {
     text[byte..].chars().next().map(|ch| ch.encode_utf16(&mut units)[half])
 }
 
-/// The one-unit string at UTF-16 index `unit` of `text` (`charAt`, `s[i]`), if any.
+/// The string at UTF-16 index `unit` of `text` (`charAt`, `s[i]`), if any:
+/// one unit, or a whole pair at its first unit and `""` at its second.
 #[allow(dead_code)]
 fn smelt_utf16_char_at(text: &str, unit: usize) -> Option<String> {
     if let Some(prefix) = text.as_bytes().get(..=unit) {
         if prefix.is_ascii() { return Some(char::from(prefix[unit]).to_string()); }
     }
     match smelt_utf16_byte_of(text, unit) {
-        Ok(byte) => text[byte..].chars().next().map(|ch| if ch.len_utf16() == 1 { ch.to_string() } else { '\u{fffd}'.to_string() }),
-        Err(_) => Some('\u{fffd}'.to_string()),
+        Ok(byte) => text[byte..].chars().next().map(String::from),
+        Err(_) => Some(String::new()),
     }
 }
 
@@ -166,11 +169,16 @@ fn smelt_utf16_code_point_at(text: &str, unit: usize) -> Option<u32> {
     }
 }
 
-/// Each code unit of `text` as a one-unit string (`s.split("")`).
+/// One string per code unit of `text` (`s.split("")`): a pair is its whole
+/// character followed by `""`.
 #[allow(dead_code)]
 fn smelt_utf16_units(text: &str) -> Vec<String> {
-    if text.is_ascii() { return text.chars().map(String::from).collect(); }
-    text.encode_utf16().map(|code| String::from_utf16_lossy(&[code])).collect()
+    let mut units = Vec::with_capacity(text.len());
+    for ch in text.chars() {
+        units.push(ch.to_string());
+        if ch.len_utf16() == 2 { units.push(String::new()); }
+    }
+    units
 }
 
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
@@ -2680,9 +2688,10 @@ fn smelt_erased_units_find(haystack: &[u16], needle: &[u16], from: usize) -> Opt
 
 /// Pad `text` to `target` code units with repetitions of `fill` (`padStart`/`padEnd`).
 fn smelt_erased_padding(len: usize, target: f64, fill: &str) -> String {
-    let fill: Vec<u16> = fill.encode_utf16().collect();
-    if fill.is_empty() || target <= len as f64 { return String::new(); }
-    String::from_utf16_lossy(&(0..target as usize - len).map(|index| fill[index % fill.len()]).collect::<Vec<u16>>())
+    let fill_len = smelt_utf16_len(fill);
+    if fill_len == 0 || target <= len as f64 { return String::new(); }
+    let needed = target as usize - len;
+    smelt_utf16_slice(&fill.repeat(needed.div_ceil(fill_len)), 0, needed)
 }
 
 /// Apply `String.prototype[name]` to an erased string receiver.
@@ -2694,7 +2703,7 @@ fn smelt_string_prototype_apply(text: &str, name: &str, args: Vec<SmeltUnknown>)
     let units: Vec<u16> = text.encode_utf16().collect();
     let len = units.len();
     let string = |value: String| SmeltUnknown::String(value.into());
-    let range = |start: usize, end: usize| String::from_utf16_lossy(&units[start..end.max(start)]);
+    let range = |start: usize, end: usize| smelt_utf16_slice(text, start, end);
     match name {
         "at" => smelt_erased_at_index(args.first(), len).map_or(SmeltUnknown::Undefined, |index| string(range(index, index + 1))),
         "charAt" => { let index = smelt_erased_integer(&arg(0)); if index >= 0.0 && index < len as f64 { string(range(index as usize, index as usize + 1)) } else { string(String::new()) } }

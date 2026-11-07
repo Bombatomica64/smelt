@@ -291,9 +291,10 @@ fn smelt_erased_units_find(haystack: &[u16], needle: &[u16], from: usize) -> Opt
 
 /// Pad `text` to `target` code units with repetitions of `fill` (`padStart`/`padEnd`).
 fn smelt_erased_padding(len: usize, target: f64, fill: &str) -> String {
-    let fill: Vec<u16> = fill.encode_utf16().collect();
-    if fill.is_empty() || target <= len as f64 { return String::new(); }
-    String::from_utf16_lossy(&(0..target as usize - len).map(|index| fill[index % fill.len()]).collect::<Vec<u16>>())
+    let fill_len = smelt_utf16_len(fill);
+    if fill_len == 0 || target <= len as f64 { return String::new(); }
+    let needed = target as usize - len;
+    smelt_utf16_slice(&fill.repeat(needed.div_ceil(fill_len)), 0, needed)
 }
 
 /// Apply `String.prototype[name]` to an erased string receiver.
@@ -305,7 +306,7 @@ fn smelt_string_prototype_apply(text: &str, name: &str, args: Vec<SmeltUnknown>)
     let units: Vec<u16> = text.encode_utf16().collect();
     let len = units.len();
     let string = |value: String| SmeltUnknown::String(value.into());
-    let range = |start: usize, end: usize| String::from_utf16_lossy(&units[start..end.max(start)]);
+    let range = |start: usize, end: usize| smelt_utf16_slice(text, start, end);
     match name {
         "at" => smelt_erased_at_index(args.first(), len).map_or(SmeltUnknown::Undefined, |index| string(range(index, index + 1))),
         "charAt" => { let index = smelt_erased_integer(&arg(0)); if index >= 0.0 && index < len as f64 { string(range(index as usize, index as usize + 1)) } else { string(String::new()) } }

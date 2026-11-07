@@ -8,8 +8,12 @@
 // reads ASCII text byte for byte, since there a byte is a code unit.
 //
 // A Rust string cannot hold a lone surrogate. A cut that falls inside a
-// surrogate pair (`"😀".slice(0, 1)`, `"😀"[1]`) yields U+FFFD for the cut
-// half: one code unit, as in JavaScript, but a different one.
+// surrogate pair gives the whole character to the piece on its LEFT:
+// `"😀".slice(0, 1)` and `"😀"[0]` are `"😀"`, `"😀".slice(1)` and `"😀"[1]`
+// are `""`. Every index and length still counts code units, and joining the
+// pieces of a cut string gives back the string (`s[0] + s.slice(1) === s`),
+// which is what code that cuts at an index relies on; what differs from
+// JavaScript is a lone half looked at on its own.
 
 // @smelt:item smelt_utf16_len when string_units
 /// The JavaScript `length` of `text`: its UTF-16 code units.
@@ -70,19 +74,21 @@ fn smelt_utf16_byte_of(text: &str, unit: usize) -> Result<usize, usize> {
     Ok(bytes.len())
 }
 
+/// The byte offset of the cut at UTF-16 index `unit` of `text`: a cut inside
+/// a surrogate pair falls after the pair.
+#[allow(dead_code)]
+fn smelt_utf16_cut(text: &str, unit: usize) -> usize {
+    smelt_utf16_byte_of(text, unit).unwrap_or_else(|byte| byte + 4)
+}
+
 /// The code units `start..end` of `text` (clamped; empty when `end <= start`),
-/// a cut surrogate half becoming U+FFFD.
+/// a pair cut at either end belonging to the piece on the cut's left.
 #[allow(dead_code)]
 fn smelt_utf16_slice(text: &str, start: usize, end: usize) -> String {
     if end <= start { return String::new(); }
-    match (smelt_utf16_byte_of(text, start), smelt_utf16_byte_of(text, end)) {
-        (Ok(from), Ok(to)) => text[from..to].to_owned(),
-        _ => {
-            let units: Vec<u16> = text.encode_utf16().collect();
-            let end = end.min(units.len());
-            String::from_utf16_lossy(&units[start.min(end)..end])
-        }
-    }
+    let from = smelt_utf16_cut(text, start);
+    let to = smelt_utf16_cut(text, end);
+    text.get(from..to.max(from)).unwrap_or("").to_owned()
 }
 
 /// The code unit at UTF-16 index `unit` of `text` (`charCodeAt`), if any.
@@ -96,15 +102,16 @@ fn smelt_utf16_unit_at(text: &str, unit: usize) -> Option<u16> {
     text[byte..].chars().next().map(|ch| ch.encode_utf16(&mut units)[half])
 }
 
-/// The one-unit string at UTF-16 index `unit` of `text` (`charAt`, `s[i]`), if any.
+/// The string at UTF-16 index `unit` of `text` (`charAt`, `s[i]`), if any:
+/// one unit, or a whole pair at its first unit and `""` at its second.
 #[allow(dead_code)]
 fn smelt_utf16_char_at(text: &str, unit: usize) -> Option<String> {
     if let Some(prefix) = text.as_bytes().get(..=unit) {
         if prefix.is_ascii() { return Some(char::from(prefix[unit]).to_string()); }
     }
     match smelt_utf16_byte_of(text, unit) {
-        Ok(byte) => text[byte..].chars().next().map(|ch| if ch.len_utf16() == 1 { ch.to_string() } else { '\u{fffd}'.to_string() }),
-        Err(_) => Some('\u{fffd}'.to_string()),
+        Ok(byte) => text[byte..].chars().next().map(String::from),
+        Err(_) => Some(String::new()),
     }
 }
 
@@ -118,11 +125,16 @@ fn smelt_utf16_code_point_at(text: &str, unit: usize) -> Option<u32> {
     }
 }
 
-/// Each code unit of `text` as a one-unit string (`s.split("")`).
+/// One string per code unit of `text` (`s.split("")`): a pair is its whole
+/// character followed by `""`.
 #[allow(dead_code)]
 fn smelt_utf16_units(text: &str) -> Vec<String> {
-    if text.is_ascii() { return text.chars().map(String::from).collect(); }
-    text.encode_utf16().map(|code| String::from_utf16_lossy(&[code])).collect()
+    let mut units = Vec::with_capacity(text.len());
+    for ch in text.chars() {
+        units.push(ch.to_string());
+        if ch.len_utf16() == 2 { units.push(String::new()); }
+    }
+    units
 }
 
 // @smelt:item-end

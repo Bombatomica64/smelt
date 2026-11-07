@@ -502,7 +502,13 @@ mod number_family {
             assert_eq!(smelt_utf16_unit_at(&text, unit), units.get(unit).copied(), "unit {unit}");
         }
         assert_eq!(smelt_utf16_slice("a😀b", 1, 3), "😀", "a whole pair");
-        assert_eq!(smelt_utf16_slice("a😀b", 2, 4), "\u{fffd}b", "a cut pair");
+        assert_eq!(smelt_utf16_slice("a😀b", 2, 4), "b", "a pair cut at the start belongs to the left");
+        assert_eq!(smelt_utf16_slice("a😀b", 0, 2), "a😀", "a pair cut at the end belongs to the left");
+        assert_eq!(smelt_utf16_char_at("😀", 1).as_deref(), Some(""), "the second unit of a pair");
+        let text = "x😀y";
+        for cut in 0..=4 {
+            assert_eq!(smelt_utf16_slice(text, 0, cut) + &smelt_utf16_slice(text, cut, 4), text, "cut {cut}");
+        }
         assert_eq!(smelt_utf16_index_of_byte("é😀x", 6), 3, "bytes to units");
     }
 
