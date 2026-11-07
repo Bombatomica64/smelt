@@ -331,3 +331,9 @@ fn erased_string_joins_arrays() -> TestResult {
 fn field_read_before_keyed_write() -> TestResult {
     verify_node_parity("field_read_before_keyed_write")
 }
+
+/// `a ?? b!` evaluates the asserted fallback only when it is selected.
+#[test]
+fn coalesce_asserted_fallback_is_lazy() -> TestResult {
+    verify_node_parity("coalesce_asserted_fallback_is_lazy")
+}

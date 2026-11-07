@@ -1112,13 +1112,27 @@ impl LoweringCtx<'_> {
     }
 
     /// Whether evaluating `expr_id` eagerly is unobservable: it reads values
-    /// and builds literals, and calls nothing.
+    /// and builds literals, calls nothing, and asserts nothing that can fail.
     ///
     /// The whitelist is deliberately small; anything outside it (a call, a
     /// method, a construction, a block) counts as work that a short-circuiting
     /// operator must not perform when its operand is not selected.
     fn hir_expr_is_eager_safe(&self, expr_id: ExprId) -> Result<bool, LowerError> {
-        let kind = self.hir_expr(expr_id)?.kind.clone();
+        let expr = self.hir_expr(expr_id)?;
+        let kind = expr.kind.clone();
+        // An assertion that narrows an absent or erased value (`b!`, `x as T`
+        // over `unknown`) is a runtime check that can fail, not a free read.
+        if let ExprKind::TypeAssert { value } = kind {
+            let from = self.hir_expr(value)?.ty;
+            if from != expr.ty
+                && matches!(
+                    self.krate.types.get(from),
+                    Some(Type::Optional(_) | Type::Unknown | Type::Union(_))
+                )
+            {
+                return Ok(false);
+            }
+        }
         let leaf_or_read = matches!(
             kind,
             ExprKind::Literal(_)
