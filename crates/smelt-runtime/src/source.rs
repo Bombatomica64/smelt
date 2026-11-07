@@ -248,6 +248,10 @@ const MODULES: &[RuntimeModule] = &[
         source: include_str!("runtime/property_access.rs"),
     },
     RuntimeModule {
+        name: "py_repr",
+        source: include_str!("runtime/py_repr.rs"),
+    },
+    RuntimeModule {
         name: "record",
         source: include_str!("runtime/record.rs"),
     },

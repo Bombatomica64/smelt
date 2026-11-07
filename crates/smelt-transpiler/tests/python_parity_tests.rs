@@ -89,3 +89,9 @@ fn builtin_names_shadowed() -> TestResult {
 fn builtin_method_names_on_classes() -> TestResult {
     verify_python_parity("builtin_method_names_on_classes")
 }
+
+/// `print` of a container writes each element's Python `repr`.
+#[test]
+fn print_container_repr() -> TestResult {
+    verify_python_parity("print_container_repr")
+}

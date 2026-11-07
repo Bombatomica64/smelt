@@ -67,6 +67,8 @@ pub(crate) enum Need {
     ParseNumber,
     /// The UTF-16 index helpers every JavaScript string index goes through.
     StringUnits,
+    /// Python's `repr`, for a container `print` shows.
+    PyRepr,
     /// Mutable closure captures shared through the capture registry.
     SharedCaptures,
     /// `encodeURI` and friends.
@@ -231,6 +233,7 @@ const REQUIRES: &[(Need, &[Need])] = &[
         ],
     ),
     (Need::SmeltList, &[Need::ObjectIds]),
+    (Need::PyRepr, &[Need::PythonNumberFormat]),
     (Need::PrimSet, &[Need::ObjectIds]),
     (Need::DepRegex, &[Need::ObjectIds, Need::StringUnits]),
     (Need::Date, &[Need::ObjectIds, Need::HostOrigins]),
@@ -374,6 +377,15 @@ impl RuntimeDemand {
             }
             if function.language == smelt_hir::Language::Python {
                 self.add(Need::PythonNumberFormat);
+                // A container `print` may show is drawn by Python's `repr`.
+                if function.locals.iter().any(|local| {
+                    matches!(
+                        mir.types.get(local.ty),
+                        Some(Type::List(_) | Type::Tuple(_) | Type::Dict(_, _) | Type::Set(_))
+                    )
+                }) {
+                    self.add(Need::PyRepr);
+                }
             }
             if function.is_generator {
                 self.add(Need::Generator);
