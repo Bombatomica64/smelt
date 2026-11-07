@@ -760,6 +760,10 @@ struct ModuleBuilder<'ctx> {
     source: String,
     /// The member calls being dispatched, innermost last.
     receiver_frames: Vec<stdlib::call_dispatch::ReceiverFrame>,
+    /// One slot per call being lowered, innermost last: the receiver its
+    /// owned-member probe lowered and kept (see
+    /// [`stdlib::call_dispatch::KeptReceiver`]).
+    kept_receivers: Vec<Option<stdlib::call_dispatch::KeptReceiver>>,
     /// Declarations and reads of this module, from its AST.
     source_facts: source_facts::SourceFacts,
     /// Mutable reference to the HIR context.

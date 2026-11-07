@@ -721,6 +721,9 @@ impl ModuleBuilder<'_> {
         expression: &Expression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if let Some(kept) = self.kept_receiver(expression, body) {
+            return Ok(kept);
+        }
         let lowered = self.expression_with_hint(expression, body, None)?;
         if !self.array_view_receivers.is_empty()
             && self

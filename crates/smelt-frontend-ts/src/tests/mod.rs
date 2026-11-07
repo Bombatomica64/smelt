@@ -260,3 +260,4 @@ mod promise_resolution_tests;
 mod erasure_tests;
 mod fn_ctx_tests;
 mod anonymous_record_tests;
+mod receiver_reuse_tests;

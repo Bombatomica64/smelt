@@ -57,6 +57,27 @@ enum DispatchedReceiver {
     Value(smelt_hir::ExprId),
 }
 
+/// The receiver of a member call, lowered once by the probe that asks whether
+/// the receiver declares the called member, and reused by every later
+/// unhinted lowering of that receiver node while the same call lowers.
+///
+/// Every route the call can take after the probe (the builtin handlers,
+/// `callable_static_member_call`, `member_call`) lowers the receiver again at
+/// the same program point, so the probe's lowering is the value they would
+/// build. Rolling the probe back and
+/// lowering again would make each level of a method chain `a.f().f().f()` lower
+/// the whole chain below it twice or more: exponential in the chain's length.
+#[derive(Debug, Clone, Copy)]
+pub(in crate::lowering) struct KeptReceiver {
+    /// Address of the receiver's AST node.
+    node: usize,
+    /// The lowered receiver.
+    expr: smelt_hir::ExprId,
+    /// Expressions of the body once the receiver was lowered; a roll-back
+    /// below this count discards the receiver.
+    exprs_after: usize,
+}
+
 impl ReceiverFrame {
     /// The empty frame of `call`.
     fn of(call: &oxc::ast::ast::CallExpression<'_>) -> Self {
@@ -338,7 +359,35 @@ impl<'builder> ModuleBuilder<'builder> {
         }))
     }
 
+    /// Lower one call with its own [`KeptReceiver`] slot.
     fn call_expression_lowering(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        self.kept_receivers.push(None);
+        let lowered = self.call_expression_routes(call, body);
+        self.kept_receivers.pop();
+        lowered
+    }
+
+    /// The receiver the innermost call's probe kept, when `expression` is its node.
+    pub(in crate::lowering) fn kept_receiver(&self, expression: &Expression<'_>, body: &Body) -> Option<smelt_hir::ExprId> {
+        let kept = self.kept_receivers.last().copied().flatten()?;
+        (kept.node == std::ptr::from_ref(expression).addr() && body.exprs.len() >= kept.exprs_after).then_some(kept.expr)
+    }
+
+    /// Drop every kept receiver a roll-back to `exprs` expressions discards.
+    pub(in crate::lowering) fn discard_kept_receivers_after(&mut self, exprs: usize) {
+        for slot in &mut self.kept_receivers {
+            if slot.is_some_and(|kept| kept.exprs_after > exprs) {
+                *slot = None;
+            }
+        }
+    }
+
+    /// Try each route a call can lower through, in priority order.
+    fn call_expression_routes(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -616,14 +665,23 @@ impl<'builder> ModuleBuilder<'builder> {
         }
         let mark = self.speculation_mark(body);
         let receiver = self.dispatched_receiver(&member.object, body)?;
-        let receiver_ty = receiver.map(|receiver| Self::expr_ty(body, receiver));
-        self.roll_back_to(mark, body);
+        let owned = receiver.is_some_and(|receiver| {
+            let receiver_ty = self.optional_receiver_inner_type(Self::expr_ty(body, receiver));
+            self.receiver_owns_member(receiver_ty, method)
+        });
+        match receiver {
+            Some(expr) => {
+                let node = std::ptr::from_ref(&member.object).addr();
+                if let Some(slot) = self.kept_receivers.last_mut() {
+                    *slot = Some(KeptReceiver { node, expr, exprs_after: body.exprs.len() });
+                }
+            }
+            _ => {
+                self.roll_back_to(mark, body);
+            }
+        }
         self.forget_dispatched_receiver();
-        let Some(receiver_ty) = receiver_ty else {
-            return Ok(false);
-        };
-        let receiver_ty = self.optional_receiver_inner_type(receiver_ty);
-        Ok(self.receiver_owns_member(receiver_ty, method))
+        Ok(owned)
     }
 
     /// Whether a source declaration of the receiver's type names `member`.

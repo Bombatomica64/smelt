@@ -543,6 +543,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             tuple_rest_arrows: HashMap::new(),
             type_param_owners: HashMap::new(),
             receiver_frames: Vec::new(),
+            kept_receivers: Vec::new(),
             source_facts: super::source_facts::SourceFacts::default(),
             asserted_call_return: None,
             erasure_anchor: Span::new(file_id, 0, 0),
