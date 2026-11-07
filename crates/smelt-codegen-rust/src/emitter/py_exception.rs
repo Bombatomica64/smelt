@@ -12,6 +12,16 @@ use smelt_mir::Operand;
 use super::{EmitError, FunctionEmitter};
 
 impl FunctionEmitter<'_> {
+    /// `SmeltPyRepr::py_str(&value)` or `py_repr`: Python's `str` or `repr`
+    /// of a value whose type the runtime's `SmeltPyRepr` writes.
+    pub(super) fn py_text_expr(&self, value: &Operand, method: &str) -> Result<RustExpr, EmitError> {
+        if !self.type_has_py_repr(self.operand_ty(value)?) {
+            return Err(EmitError::new("Python str()/repr() of a value with no Python text"));
+        }
+        let text = self.operand_borrow_expr(value)?;
+        Ok(RustExpr::atom(format!("SmeltPyRepr::{method}(&{text})")))
+    }
+
     /// Whether `ty` is a Python exception, rendered as `SmeltPyException`.
     pub(super) fn is_py_exception_type(&self, ty: TypeId) -> bool {
         self.py_stdlib_class_of(ty) == Some(smelt_stdlib::StdlibClass::PyException)

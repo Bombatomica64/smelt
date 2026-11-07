@@ -152,6 +152,12 @@ impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V> SmeltRecord<K, V> 
     fn keys(&self) -> ::std::vec::IntoIter<K> { self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect::<Vec<_>>().into_iter() }
     fn values(&self) -> ::std::vec::IntoIter<V> where V: Clone { self.store.borrow().entries().iter().map(|entry| entry.value.clone()).collect::<Vec<_>>().into_iter() }
     fn extend<I: IntoIterator<Item = (K, V)>>(&self, iter: I) { for (key, value) in iter { self.insert(key, value); } }
+// @smelt:if js_key_order
+// @smelt:else
+    //~ Remove and return the last entry (Python `dict.popitem()`); only a
+    //~ Python program can ask for it.
+//=     fn pop_last(&self) -> Option<(K, V)> { let key = self.store.borrow().entries().last()?.key.clone(); let value = self.remove(&key)?; Some((key, value)) }
+// @smelt:end
     //~ The default is a CLOSURE, not a value. A JavaScript accumulator loop
     //~ (`groupBy`, `countBy`, `uniqBy`) calls this once per element and the key
     //~ is already present for all but the first, so a by-value default built an

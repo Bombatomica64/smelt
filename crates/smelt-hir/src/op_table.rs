@@ -1577,7 +1577,21 @@ macro_rules! op_group_transcribed {
                 default: opt,
             }
                 mutates(Some(dict))
+                fallible(default.is_none())
+                call("@dict_pop".to_owned())
+                needs(PythonDictRead if default.is_none())
                 => (format!("dict_pop {}, {}, {}", dict, key, opt(&default)));
+            /// Python `dict.popitem()`: remove and return the last-inserted
+            /// `(key, value)` pair, raising `KeyError` on an empty dict.
+            DictPopItem {
+                /// Dictionary value to mutate.
+                dict: one,
+            }
+                mutates(Some(dict))
+                fallible(true)
+                call("@dict_popitem".to_owned())
+                needs(PythonDictRead)
+                => (format!("dict_popitem {dict}"));
             /// Extend a dictionary with entries from another dictionary and return `None`.
             DictUpdate {
                 /// Dictionary value to mutate.
@@ -2374,6 +2388,21 @@ macro_rules! op_group_transcribed {
             }
                 needs(PyException)
                 => (format!("py_exception_new {classes:?} [{}]", args.join(", ")));
+            /// Python's `str(value)` of a value whose Python text the runtime
+            /// writes: a container, an exception, `None`.
+            PyStr {
+                /// The value.
+                value: one,
+            }
+                needs(PyRepr)
+                => (format!("py_str {value}"));
+            /// Python's `repr(value)`.
+            PyRepr {
+                /// The value.
+                value: one,
+            }
+                needs(PyRepr)
+                => (format!("py_repr {value}"));
             /// `e.args`: the constructor arguments of an exception, as the
             /// runtime's `SmeltPyExceptionArgs`.
             PyExceptionArgs {
@@ -2394,6 +2423,36 @@ macro_rules! op_group_transcribed {
             }
                 needs(PyException)
                 => (format!("py_exception_caught_by {exception}, {classes:?}, {catches_unclassified}"));
+            /// Python's `xs[i]` read of a `list` or `str`: a negative index
+            /// counts from the end, and one past either end raises
+            /// `IndexError`.
+            PythonSequenceRead {
+                /// The list or string.
+                sequence: one,
+                /// The `int` index.
+                index: one,
+            }
+                fallible(true)
+                call("@python_sequence_read".to_owned())
+                needs(PyException)
+                => (format!("python_sequence_read {sequence}, {index}"));
+            /// Python's `xs[start:end:step]` on a `list` or `str` with an explicit
+            /// step: the positions `slice.indices` picks, in step order. A zero
+            /// step raises `ValueError`.
+            PythonStepSlice {
+                /// The list or string.
+                sequence: one,
+                /// Optional start bound.
+                start: opt,
+                /// Optional end bound.
+                end: opt,
+                /// The step.
+                step: one,
+            }
+                fallible(true)
+                call("@python_step_slice".to_owned())
+                needs(PyException)
+                => (format!("python_step_slice {sequence}, {}, {}, {step}", opt(&start), opt(&end)));
             /// `btoa` / `atob`: the base64 transcoders of the web platform.
             ///
             /// Fallible in both directions: `btoa` refuses a code point above U+00FF

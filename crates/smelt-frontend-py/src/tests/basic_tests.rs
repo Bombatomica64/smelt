@@ -487,10 +487,12 @@ def render(value: float) -> str:
 }
 
 #[test]
-fn fstring_repr_conversion_is_rejected() -> TestResult {
+fn fstring_ascii_conversion_is_rejected() -> TestResult {
+    // `!r` lowers to `repr` (see the python_text parity fixture); `!a`, which
+    // escapes non-ASCII text, is still a named deferral.
     let source = py!(r#"
 def render(value: int) -> str:
-    return f"{value!r}"
+    return f"{value!a}"
 "#);
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;

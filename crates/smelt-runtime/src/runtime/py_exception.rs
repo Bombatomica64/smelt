@@ -106,6 +106,33 @@ impl ::std::fmt::Display for SmeltPyExceptionArgs {
     }
 }
 
+/// The `IndexError` of a sequence read past either end.
+#[allow(dead_code)]
+fn smelt_py_index_error(message: &str) -> Box<dyn ::std::error::Error> {
+    SmeltPyException::new(&["IndexError", "LookupError", "Exception", "BaseException"], vec![SmeltPyException::arg(&message.to_owned())]).into_error()
+}
+
+/// The positions `xs[start:end:step]` reads from a sequence of `len`
+/// elements: `CPython`'s `slice.indices` clamping, then its `range`. A zero
+/// step raises `ValueError`.
+#[allow(dead_code)]
+fn smelt_py_slice_positions(len: usize, start: Option<i64>, end: Option<i64>, step: i64) -> Result<Vec<usize>, Box<dyn ::std::error::Error>> {
+    if step == 0 {
+        return Err(SmeltPyException::new(&["ValueError", "Exception", "BaseException"], vec![SmeltPyException::arg(&"slice step cannot be zero".to_owned())]).into_error());
+    }
+    let len = i64::try_from(len).unwrap_or(i64::MAX);
+    let (lower, upper) = if step < 0 { (-1, len - 1) } else { (0, len) };
+    let clamp = |bound: i64| if bound < 0 { (bound + len).max(lower) } else { bound.min(upper) };
+    let mut position = start.map_or(if step < 0 { upper } else { lower }, clamp);
+    let limit = end.map_or(if step < 0 { lower } else { upper }, clamp);
+    let mut positions = Vec::new();
+    while (step > 0 && position < limit) || (step < 0 && position > limit) {
+        positions.extend(usize::try_from(position).ok());
+        position += step;
+    }
+    Ok(positions)
+}
+
 impl ::std::fmt::Display for SmeltPyException {
     /// `str(e)`: nothing for no argument, the argument's `str` for one (its
     /// `repr` for a `KeyError`, whose `__str__` says so), the arguments'

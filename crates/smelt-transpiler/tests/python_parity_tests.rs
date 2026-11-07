@@ -130,3 +130,29 @@ fn dict_aliasing() -> TestResult {
 fn asyncio_programs() -> TestResult {
     verify_python_parity("asyncio_programs")
 }
+
+/// `str()`, `repr()` and f-strings write Python text for containers,
+/// exceptions and primitives.
+#[test]
+fn python_text() -> TestResult {
+    verify_python_parity("python_text")
+}
+
+/// Negative indexes, clamped and stepped slices, and the `IndexError` and
+/// `ValueError` `CPython` raises.
+#[test]
+fn sequence_indexing() -> TestResult {
+    verify_python_parity("sequence_indexing")
+}
+
+/// `x /= n` rebinds an `int` name to a `float` in straight-line code.
+#[test]
+fn int_rebinds_to_float() -> TestResult {
+    verify_python_parity("int_rebinds_to_float")
+}
+
+/// Destructuring `for` targets, tuple unpacking, `dict.pop` and `popitem`.
+#[test]
+fn dict_destructuring_and_pop() -> TestResult {
+    verify_python_parity("dict_destructuring_and_pop")
+}

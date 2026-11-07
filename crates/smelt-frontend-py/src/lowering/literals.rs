@@ -170,13 +170,14 @@ impl ModuleBuilder<'_> {
                 }
                 let index_ty = self.index_type(receiver_ty)?;
                 let index = self.expression(&sub.slice, body)?;
-                let kind = if matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Dict(..))) {
-                    ExprKind::PythonDictRead {
-                        dict: receiver,
-                        key: index,
+                let index_is_int =
+                    matches!(self.ctx.krate.types.get(Self::expr_ty(body, index)), Some(Type::Int));
+                let kind = match self.ctx.krate.types.get(receiver_ty) {
+                    Some(Type::Dict(..)) => ExprKind::PythonDictRead { dict: receiver, key: index },
+                    Some(Type::List(_) | Type::String) if index_is_int => {
+                        ExprKind::PythonSequenceRead { sequence: receiver, index }
                     }
-                } else {
-                    ExprKind::Index { receiver, index }
+                    _ => ExprKind::Index { receiver, index },
                 };
                 Ok(body.push_expr(HirExpr {
                     kind,
@@ -402,17 +403,29 @@ impl ModuleBuilder<'_> {
                                         "f-string format specifications (a `:` conversion suffix) are not supported",
                                     ));
                                 }
-                                if !matches!(
-                                    interp.conversion,
-                                    ruff_python_ast::ConversionFlag::None
-                                        | ruff_python_ast::ConversionFlag::Str
-                                ) {
+                                if interp.conversion == ruff_python_ast::ConversionFlag::Ascii {
                                     return Err(SmeltError::unsupported(
                                         self.span(interp.range),
-                                        "f-string `!r`/`!a` conversions are not supported",
+                                        "f-string `!a` conversions are not supported",
                                     ));
                                 }
-                                let expr = self.expression(&interp.expression, body)?;
+                                let interpolated = self.expression(&interp.expression, body)?;
+                                // `!r` is `repr(x)`; a container or an exception
+                                // formats as its `str`, which is Python text the
+                                // string `+` fold below would spell the
+                                // JavaScript way.
+                                let expr_ty = Self::expr_ty(body, interpolated);
+                                let expr = if interp.conversion == ruff_python_ast::ConversionFlag::Repr {
+                                    self.python_text_expr(interpolated, true, self.span(interp.range), body)?
+                                } else if !matches!(
+                                    self.ctx.krate.types.get(expr_ty),
+                                    Some(Type::Bool | Type::Int | Type::Float | Type::String)
+                                ) && self.has_python_text(expr_ty)
+                                {
+                                    self.python_text_expr(interpolated, false, self.span(interp.range), body)?
+                                } else {
+                                    interpolated
+                                };
                                 // `f"{x}"` formats `x` with `format(x, "")`, which
                                 // for `int`, `float` and `bool` is `str(x)`: the
                                 // same `ToString` cast `str(x)` lowers to, so a
@@ -654,15 +667,18 @@ impl ModuleBuilder<'_> {
     }
 
     /// The place a lowered subscript writes to: reading `d[k]` raises on a missing
-    /// key, storing to it inserts one.
+    /// key, storing to it inserts one; reading `xs[i]` raises past the end,
+    /// storing to it is the plain indexed store.
     fn subscript_store_target(
         target: smelt_hir::ExprId,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
-        let index = usize::try_from(target.0).unwrap_or(usize::MAX);
-        let read = &body.exprs[index];
-        let ExprKind::PythonDictRead { dict, key } = read.kind else {
-            return target;
+        let read_index = usize::try_from(target.0).unwrap_or(usize::MAX);
+        let read = &body.exprs[read_index];
+        let (dict, key) = match read.kind {
+            ExprKind::PythonDictRead { dict, key } => (dict, key),
+            ExprKind::PythonSequenceRead { sequence, index } => (sequence, index),
+            _ => return target,
         };
         let (ty, span) = (read.ty, read.span);
         body.push_expr(HirExpr {

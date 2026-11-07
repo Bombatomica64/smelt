@@ -205,21 +205,64 @@ impl ModuleBuilder<'_> {
         Ok(())
     }
 
-    /// Whether a value of type `ty` can be an exception constructor argument:
-    /// one whose `str` and `repr` the runtime knows how to write.
-    fn is_exception_argument_type(&self, ty: TypeId) -> bool {
+    /// Whether the runtime writes Python's `str` and `repr` of a value of type
+    /// `ty` (its `SmeltPyRepr`): a number, a string, a boolean, `None`, an
+    /// exception or its `args`, and a list, tuple, set or dict of those. Such a
+    /// value can be an exception constructor argument and the operand of
+    /// `str()`, `repr()` and an f-string interpolation.
+    fn has_python_text(&self, ty: TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Int | Type::Float | Type::Bool | Type::String | Type::None) => true,
-            Some(Type::Optional(item) | Type::List(item)) => self.is_exception_argument_type(*item),
+            Some(Type::Optional(item) | Type::List(item)) => self.has_python_text(*item),
             // The runtime writes a tuple's `repr` for one to six elements.
             Some(Type::Tuple(items)) => {
-                (1..=6).contains(&items.len()) && items.iter().all(|item| self.is_exception_argument_type(*item))
+                (1..=6).contains(&items.len()) && items.iter().all(|item| self.has_python_text(*item))
             }
-            Some(Type::Class { name, .. }) => {
-                self.ctx.krate.symbols.get(*name) == Some(smelt_stdlib::PY_EXCEPTION_CLASS_NAME)
+            Some(Type::Set(item)) => matches!(
+                self.ctx.krate.types.get(*item),
+                Some(Type::Int | Type::Bool | Type::String)
+            ),
+            Some(Type::Dict(key, value)) => {
+                matches!(self.ctx.krate.types.get(*key), Some(Type::Int | Type::Bool | Type::String))
+                    && self.has_python_text(*value)
             }
+            Some(Type::Class { name, .. }) => matches!(
+                self.ctx.krate.symbols.get(*name),
+                Some(smelt_stdlib::PY_EXCEPTION_CLASS_NAME | smelt_stdlib::PY_EXCEPTION_ARGS_CLASS_NAME)
+            ),
             _ => false,
         }
+    }
+
+    /// `str(value)` or `repr(value)` of a lowered value with Python text:
+    /// a primitive `str()` stays the `ToString` cast every other path uses.
+    fn python_text_expr(
+        &mut self,
+        value: smelt_hir::ExprId,
+        repr: bool,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let value_ty = Self::expr_ty(body, value);
+        let str_ty = self.intern_type(Type::String);
+        if !repr && value_ty == str_ty {
+            return Ok(value);
+        }
+        if !repr && matches!(self.ctx.krate.types.get(value_ty), Some(Type::Bool | Type::Int | Type::Float)) {
+            return Ok(body.push_expr(HirExpr {
+                kind: ExprKind::PrimitiveCast { op: PrimitiveCastOp::ToString, operand: value },
+                ty: str_ty,
+                span,
+            }));
+        }
+        if !self.has_python_text(value_ty) {
+            return Err(SmeltError::unsupported(
+                span,
+                "str()/repr() needs a str, int, float, bool, None, an exception, or a list, tuple, set or dict of those",
+            ));
+        }
+        let kind = if repr { ExprKind::PyRepr { value } } else { ExprKind::PyStr { value } };
+        Ok(body.push_expr(HirExpr { kind, ty: str_ty, span }))
     }
 
     /// An instance of the exception class whose chain is `chain`, built from
@@ -240,7 +283,7 @@ impl ModuleBuilder<'_> {
                 ));
             }
             let value = self.expression(arg, body)?;
-            if !self.is_exception_argument_type(Self::expr_ty(body, value)) {
+            if !self.has_python_text(Self::expr_ty(body, value)) {
                 return Err(SmeltError::unsupported(
                     self.span(arg.range()),
                     "an exception constructor argument must be a str, int, float, bool, None, an exception, or a list or tuple of those",

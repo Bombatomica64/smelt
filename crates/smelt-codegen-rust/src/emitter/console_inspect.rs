@@ -359,7 +359,7 @@ impl FunctionEmitter<'_> {
     /// Whether a value of type `ty` has a `SmeltPyRepr` impl
     /// (`runtime/py_repr.rs`): Python's scalars, `None`, and lists, tuples,
     /// hash-map dicts and primitive sets of such values.
-    fn type_has_py_repr(&self, ty: TypeId) -> bool {
+    pub(super) fn type_has_py_repr(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
             Some(Type::Int | Type::Float | Type::Bool | Type::String | Type::None) => true,
             Some(Type::Optional(inner) | Type::List(inner)) => self.type_has_py_repr(*inner),

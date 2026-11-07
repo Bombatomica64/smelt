@@ -155,7 +155,7 @@ fallback: int = mapping.pop("b", 0)
 
     assert!(source.contains("let mut"));
     assert!(source.contains(".remove(&"));
-    assert!(source.contains(".expect(\"dict pop missing key\")"));
+    assert!(source.contains("ok_or_else(|| smelt_py_key_error(&smelt_key))"));
     assert!(source.contains(".unwrap_or(0)"));
 }
 

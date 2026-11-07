@@ -508,7 +508,7 @@ impl FunctionEmitter<'_> {
     /// the hole; `shift_remove` keeps the order, so a key deleted and inserted
     /// again iterates last, as in Python and JavaScript. `SmeltRecord` and
     /// `SmeltJsMap` already keep order under their own `remove`.
-    fn dict_remove_method(&self, dict_ty: TypeId, key_ty: TypeId) -> &'static str {
+    pub(super) fn dict_remove_method(&self, dict_ty: TypeId, key_ty: TypeId) -> &'static str {
         if matches!(self.mir.types.get(dict_ty), Some(Type::Dict(_, _)))
             && dict_renders_as_index_map(self.mir, self.context.demand(), key_ty)
         {

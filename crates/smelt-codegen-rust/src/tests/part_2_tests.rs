@@ -548,8 +548,11 @@ last_char: str = word[-1]
     );
 
     assert!(source.contains("let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }"));
-    assert!(source.contains(".get({ let smelt_len = values.len() as i64;"));
-    assert!(source.contains(".chars().nth({ let smelt_len = word.chars().count() as i64;"));
+    // A read past either end raises `IndexError` (it used to read a default).
+    assert!(source.contains("let smelt_len = smelt_items.len() as i64;"));
+    assert!(source.contains("let smelt_len = smelt_text.chars().count() as i64;"));
+    assert!(source.contains("smelt_py_index_error(\"list index out of range\")"));
+    assert!(source.contains("smelt_py_index_error(\"string index out of range\")"));
 }
 
 #[test]
