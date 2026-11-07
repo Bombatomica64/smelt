@@ -160,6 +160,12 @@ fn inherited_statics() -> TestResult {
     verify_node_parity("inherited_statics")
 }
 
+/// A union of classes dispatches throwing methods and reference fields.
+#[test]
+fn union_of_classes() -> TestResult {
+    verify_node_parity("union_of_classes")
+}
+
 /// A parameter does not hide a module constant from other functions.
 #[test]
 fn parameter_shadows_module_const() -> TestResult {

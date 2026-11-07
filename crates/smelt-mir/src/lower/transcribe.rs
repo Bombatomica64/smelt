@@ -142,12 +142,23 @@ impl LoweringCtx<'_> {
         span: Span,
         value: Rvalue,
     ) -> Result<Operand, LowerError> {
-        let Some(unwind) = self.current_exception_handler() else {
-            return self.assign_temp(ty, span, value);
-        };
         if !self.takes_function(&value) {
             return self.assign_temp(ty, span, value);
         }
+        self.place_source_call_op(ty, span, value)
+    }
+
+    /// Places an op that runs source code: inside a `try`, a call terminator
+    /// whose unwind edge is the handler; elsewhere an assignment.
+    pub(super) fn place_source_call_op(
+        &mut self,
+        ty: TypeId,
+        span: Span,
+        value: Rvalue,
+    ) -> Result<Operand, LowerError> {
+        let Some(unwind) = self.current_exception_handler() else {
+            return self.assign_temp(ty, span, value);
+        };
         let dest = self.push_temp(ty, span);
         let target = self.function.push_block(span);
         self.terminate(Terminator::Call {

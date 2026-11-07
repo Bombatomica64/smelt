@@ -499,7 +499,9 @@ impl LoweringCtx<'_> {
                         .iter()
                         .map(|arg| self.lower_expr(*arg))
                         .collect::<Result<Vec<_>, _>>()?;
-                    self.assign_temp(
+                    // Each arm runs a method body, so inside `try` the call needs
+                    // an unwind edge, as a callback op does.
+                    self.place_source_call_op(
                         expr.ty,
                         expr.span,
                         Rvalue::UnionMethod {
