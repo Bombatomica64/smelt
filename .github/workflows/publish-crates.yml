@@ -28,16 +28,13 @@ jobs:
       - name: Checkout the selected ref
         uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
       - name: Install GUI build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install --yes libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev
 
-      - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
         with:
           shared-key: crates-io-publish
 

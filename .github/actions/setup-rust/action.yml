@@ -1,0 +1,28 @@
+name: Set up Rust
+description: Install the toolchain rust-toolchain.toml pins and restore the cargo cache.
+
+inputs:
+  shared-key:
+    description: Cache lane.
+    required: true
+  save-if:
+    description: Whether this job may write the lane.
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    # The default matters as much as the install: tests build generated crates
+    # in temporary directories, outside the reach of rust-toolchain.toml.
+    - name: Install the pinned toolchain
+      shell: bash
+      run: |
+        rustup toolchain install --no-self-update
+        rustup default "$(rustup show active-toolchain | cut -d' ' -f1)"
+        echo "CARGO_TERM_COLOR=always" >> "$GITHUB_ENV"
+
+    - name: Cache cargo
+      uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: ${{ inputs.shared-key }}
+        save-if: ${{ inputs.save-if }}

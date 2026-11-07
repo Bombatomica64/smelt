@@ -13,6 +13,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import check_ci_gates
+import ci_pin
 import check_clippy_ratchet
 import check_library_gate
 
@@ -200,6 +201,30 @@ jobs:
 """
 
 
+class CiPin(unittest.TestCase):
+    """`ci_pin.py`."""
+
+    CONFIG = {"tools": {"node": "1.2.3"},
+              "libraries": [{"name": "lib", "repo": "o/lib", "ref": "abc"}]}
+
+    def test_reads_each_kind(self):
+        self.assertEqual(ci_pin.pin(self.CONFIG, "tool", "node"), "1.2.3")
+        self.assertEqual(ci_pin.pin(self.CONFIG, "ref", "lib"), "abc")
+        self.assertEqual(ci_pin.pin(self.CONFIG, "repo", "lib"), "o/lib")
+
+    def test_an_unknown_name_is_an_error(self):
+        with self.assertRaises(KeyError):
+            ci_pin.pin(self.CONFIG, "ref", "missing")
+
+    def test_the_real_file_holds_what_ci_asks_for(self):
+        with open(ci_pin.CONFIG, encoding="utf-8") as handle:
+            config = json.load(handle)
+        for tool in ("node", "typescript"):
+            self.assertTrue(ci_pin.pin(config, "tool", tool))
+        for library in ("remeda", "radash", "hono", "es-toolkit"):
+            self.assertRegex(ci_pin.pin(config, "ref", library), r"^[0-9a-f]{40}$")
+
+
 class CiGates(unittest.TestCase):
     """`check_ci_gates.py`."""
 
@@ -230,6 +255,26 @@ class CiGates(unittest.TestCase):
         for gate in ("check_clippy_ratchet.py", "runtime-ratchet", "compile-pin"):
             found = check_ci_gates.workflow_violations("ci.yml", GOOD_CI.replace(gate, "echo"))
             self.assertEqual(len(found), 1, (gate, found))
+
+    def test_literal_pins_are_refused(self):
+        for text in ("run: npm install --global typescript@5.9.3\n",
+                     "        node-version: '24.21.0'\n",
+                     "run: git checkout 3c80f28bb394edbf89f1fc9978571dec8ed20edc\n",
+                     "uses: dtolnay/rust-toolchain@stable\n"):
+            self.assertEqual(len(check_ci_gates.pin_violations("x.yml", text)), 1, text)
+        self.assertEqual(check_ci_gates.pin_violations(
+            "x.yml", "node-version: ${{ steps.pins.outputs.node }}\n"), [])
+
+    def test_a_tier_nothing_runs_is_refused(self):
+        matrix = "jobs:\n  # c_runtime runs elsewhere.\n  tests: >-\n    a_runtime b_runtime\n"
+        ci = "cargo test --test c_runtime -- --ignored\n"
+        tiers = check_ci_gates.tier_violations
+        self.assertEqual(tiers(["a_runtime", "b_runtime", "c_runtime"], matrix, ci), [])
+        self.assertIn("run by no job", tiers(["a_runtime", "b_runtime", "c_runtime", "new_runtime"],
+                                             matrix, ci)[0])
+        self.assertIn("no test file", tiers(["a_runtime", "c_runtime"], matrix, ci)[0])
+        self.assertIn("named twice", tiers(["a_runtime", "b_runtime", "c_runtime"],
+                                           matrix + "    a_runtime\n", ci)[0])
 
     def test_silent_skips_are_found(self):
         for source in (

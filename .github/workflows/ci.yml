@@ -102,13 +102,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      # Reads rust-toolchain.toml, components included: the toolchain the
-      # workspace builds with is the one that has to carry clippy.
-      - name: Install the pinned toolchain
-        run: rustup toolchain install
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      # rust-toolchain.toml carries the components: the toolchain the workspace
+      # builds with is the one that has to have clippy.
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
         with:
           shared-key: build
           save-if: false
@@ -124,7 +121,7 @@ jobs:
             --messages clippy.json --cargo-status "$status"
 
   # Slow tier: compile the emitted-Rust corpus. This is a plain (non-instrumented)
-  # build on stable, so it runs as its own job in parallel with coverage and shares
+  # build on the pinned toolchain, so it runs as its own job in parallel with coverage and shares
   # the "build" cache lane with the other plain-build workflows. It does not need the
   # nightly toolchain, cargo-llvm-cov, or the GUI native libs (it only builds
   # smelt-codegen-rust and its dependencies, not smelt-gui).
@@ -136,11 +133,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
         with:
           shared-key: build
 
@@ -202,8 +196,7 @@ jobs:
             --baseline blocker-logs/smelt-unknown-baseline.json \
             --fail-on-regression
 
-      # `update-schema.yml` regenerates the schema only after a merge, so a PR that
-      # changes the manifest types could otherwise land with it stale.
+      # A change to the manifest types has to carry the regenerated schema.
       - name: smelt-schema.json matches `dump-schema`
         run: target/debug/smelt dump-schema | diff - smelt-schema.json
 
@@ -239,22 +232,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
         with:
           shared-key: build
 
-      - name: Install sandbox prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes bubblewrap python3-django
-          # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor,
-          # which bubblewrap needs. The key is absent on older images.
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-          npm install --global typescript@5.9.3
+      - name: Install test tools
+        uses: ./.github/actions/setup-test-tools
 
       # Fails the job early with a readable message if the runner cannot create
       # the namespaces bubblewrap needs, instead of leaving that to a Rust test.
@@ -281,8 +265,8 @@ jobs:
             --test python_specialization_parity \
             --test typescript_specialization_parity
 
-  # PR test gate: runs only the tests a change can affect, on stable with a
-  # warm cache. The instrumented nightly run below (`coverage`) is main-only.
+  # PR test gate: runs only the tests a change can affect, on the pinned
+  # toolchain with a warm cache. The instrumented nightly run below (`coverage`) is main-only.
   #
   # Selection is per workspace package (scripts/ci_affected_packages.py): the
   # packages that own a changed file plus every package that depends on them,
@@ -316,41 +300,23 @@ jobs:
         run: |
           git diff --name-only HEAD^1 HEAD | python3 scripts/ci_affected_packages.py -
 
-      - name: Install Rust
-        if: ${{ steps.affected.outputs.mode != 'none' }}
-        uses: dtolnay/rust-toolchain@stable
-
       # Own lane, not `build`: the corpus/sandbox jobs save `build` with only
       # the subset of the workspace they compile, and whichever job finishes
       # first wins the save.
-      - name: Cache cargo
+      - name: Set up Rust
         if: ${{ steps.affected.outputs.mode != 'none' }}
-        uses: Swatinem/rust-cache@v2
+        uses: ./.github/actions/setup-rust
         with:
           shared-key: test
 
-      # Same pinned oracle as the coverage job; see the note there.
-      - name: Install Node (pinned oracle for the end-to-end goldens)
+      - name: Install test tools
         if: ${{ steps.affected.outputs.mode != 'none' }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24.21.0'
+        uses: ./.github/actions/setup-test-tools
 
-      - name: Install sandbox prerequisites
-        if: ${{ steps.affected.outputs.mode != 'none' }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes bubblewrap python3-django
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-          npm install --global typescript@5.9.3
-
-      # Same reclaim as runtime-tiers.yml: the preinstalled Android SDK, .NET
-      # and GHC images take ~20 GB the workspace test build needs.
+      # The workspace test build needs the room.
       - name: Free runner disk
         if: ${{ steps.affected.outputs.mode != 'none' }}
-        run: |
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
-          df -h /
+        uses: ./.github/actions/free-disk
 
       # Build and run are separate steps so the log says which one is slow,
       # and `df` after each shows which one is eating the disk.
@@ -377,11 +343,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: llvm-tools-preview
 
       - name: Install nightly Rust (for branch coverage)
         uses: dtolnay/rust-toolchain@nightly
@@ -418,31 +379,11 @@ jobs:
         with:
           tool: cargo-llvm-cov
 
-      # The end-to-end corpus checks every golden stdout against real Node
-      # (`ensure_node_agrees` in crates/smelt-transpiler/tests/common/mod.rs),
-      # and Node is the oracle, so its version is pinned: the runner image's
-      # default Node is older than the 22.7 that `--experimental-transform-types`
-      # needs (the oracle would silently skip), and Node releases disagree on
-      # observable behaviour (`92_request_init_members` records one such
-      # difference between Node 22 and 24). Bump this deliberately and
-      # re-check the goldens when it moves.
-      - name: Install Node (pinned oracle for the end-to-end goldens)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24.21.0'
-
       # Without these the sandbox-backed specialization tests cannot run, and
       # `smelt-specialize` would report ~50% line / ~36% branch coverage for code
       # that never ran.
-      - name: Install sandbox prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes bubblewrap python3-django
-          # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor,
-          # which bubblewrap needs. The key is absent on older images, so this
-          # must not fail the job.
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-          npm install --global typescript@5.9.3
+      - name: Install test tools
+        uses: ./.github/actions/setup-test-tools
 
       - name: Test with coverage
         env:
@@ -499,7 +440,8 @@ jobs:
   # from-source build on mismatch, so an out-of-date asset can never be used
   # silently.
 
-  # Regression gate: transpile the Remeda library at a pinned ref with the smelt
+  # Regression gate: transpile the Remeda library at the ref pinned in
+  # .github/compat/libraries.json with the smelt
   # built from THIS commit, then compile and run its generated Rust test suite.
   # The corpus currently has 1789 tests, all passing; this job fails if a codegen,
   # frontend, or MIR change regresses any of them. Builds smelt from source (not
@@ -513,12 +455,12 @@ jobs:
   #
   # If your PR touches the frontend, HIR, MIR, specializer, or the Rust emitter,
   # add the `run-regressions` label and wait for them. A green PR without that
-  # label has NOT been checked against Remeda (1789 tests), Radash (387 tests) or
-  # the es-toolkit ratchet, and main is not branch-protected, so nothing else
+  # label has NOT been checked against Remeda (1789 tests), Radash (387 tests),
+  # Hono or the es-toolkit ratchet, and main is not branch-protected, so nothing else
   # will stop a regression from landing.
   #
   # Once applied, the label sticks: every later push to the PR re-runs them.
-  # Rationale: ~7 min of runner time per PR run for three jobs that sit well
+  # Rationale: ~7 min of runner time per PR run for four jobs that sit well
   # inside the test/coverage critical path, so skipping them saves runner minutes on
   # docs/CI-only PRs without making anyone wait longer.
   # ==========================================================================
@@ -531,24 +473,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
         with:
           shared-key: build
 
       - name: Build smelt
         run: cargo build --bin smelt
 
-      - name: Check out Remeda at the pinned ref + copy Smelt fixtures
-        run: |
-          repo_dir="target/compat-repos/remeda"
-          rm -rf "$repo_dir"
-          git clone --no-tags --filter=blob:none https://github.com/remeda/remeda.git "$repo_dir"
-          git -C "$repo_dir" checkout 3c80f28bb394edbf89f1fc9978571dec8ed20edc
-          cp -R .github/compat/remeda/. "$repo_dir"/
+      - name: Check out Remeda
+        uses: ./.github/actions/checkout-library
+        with:
+          name: remeda
 
       - name: Transpile Remeda to Rust
         run: target/debug/smelt --manifest-path target/compat-repos/remeda/Smelt.toml build
@@ -631,26 +567,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
         with:
           shared-key: build
 
       - name: Build smelt
         run: cargo build --bin smelt
 
-      - name: Check out Radash at the pinned ref + copy Smelt fixtures
-        run: |
-          ref="$(python3 -c "import json; libs=json.load(open('.github/compat/libraries.json'))['libraries']; print(next(l['ref'] for l in libs if l['name']=='radash'))")"
-          echo "Radash ref: $ref"
-          repo_dir="target/compat-repos/radash"
-          rm -rf "$repo_dir"
-          git clone --no-tags --filter=blob:none https://github.com/sodiray/radash.git "$repo_dir"
-          git -C "$repo_dir" checkout "$ref"
-          cp -R .github/compat/radash/. "$repo_dir"/
+      - name: Check out Radash
+        uses: ./.github/actions/checkout-library
+        with:
+          name: radash
 
       - name: Expose ambient Radash tests to Smelt discovery
         run: |
@@ -666,11 +594,8 @@ jobs:
           RUSTFLAGS=-Awarnings cargo test \
             --manifest-path target/compat-repos/radash/dist-smelt/Cargo.toml \
             --no-fail-fast 2>&1 | tee radash-tests.log || true
-          # Pinned-failure ratchet: 3 known failures (`boil({} as any)` and
-          # `inRange(0, 1, null as any)` pass type-violating inputs `tsc` only
-          # admits through `as any`; `callable` needs `Proxy` traps). The pin
-          # fails on any other failure or a changed total; the target is
-          # `ok. 387 passed; 0 failed;` once Proxy lands.
+          # Pinned-failure ratchet: the four known failures listed above the
+          # job. The pin fails on any other failure or a changed total.
           grep -F "test result: FAILED. 383 passed; 4 failed;" radash-tests.log
 
   # Regression gate for the Hono campaign (blocker-logs/hono-campaign-plan.md).
@@ -696,26 +621,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
         with:
           shared-key: build
 
       - name: Build smelt
         run: cargo build --bin smelt
 
-      - name: Check out Hono at the pinned ref + copy Smelt fixtures
-        run: |
-          ref="$(python3 -c "import json; libs=json.load(open('.github/compat/libraries.json'))['libraries']; print(next(l['ref'] for l in libs if l['name']=='hono'))")"
-          echo "Hono ref: $ref"
-          repo_dir="target/compat-repos/hono"
-          rm -rf "$repo_dir"
-          git clone --no-tags --filter=blob:none https://github.com/honojs/hono.git "$repo_dir"
-          git -C "$repo_dir" checkout "$ref"
-          cp -R .github/compat/hono/. "$repo_dir"/
+      - name: Check out Hono
+        uses: ./.github/actions/checkout-library
+        with:
+          name: hono
 
       - name: Report Hono source-lowering blockers (advisory)
         run: |
@@ -789,29 +706,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
         with:
           shared-key: build
 
       - name: Build smelt
         run: cargo build --bin smelt
 
-      - name: Check out es-toolkit at the pinned ref + copy Smelt fixtures
-        run: |
-          # Single source of truth for the ref: .github/compat/libraries.json.
-          # Do NOT rely on the third_party/es-toolkit gitlink (no .gitmodules
-          # entry; a submodule checkout silently skips it).
-          ref="$(python3 -c "import json; libs=json.load(open('.github/compat/libraries.json'))['libraries']; print(next(l['ref'] for l in libs if l['name']=='es-toolkit'))")"
-          echo "es-toolkit ref: $ref"
-          repo_dir="target/compat-repos/es-toolkit"
-          rm -rf "$repo_dir"
-          git clone --no-tags --filter=blob:none https://github.com/toss/es-toolkit.git "$repo_dir"
-          git -C "$repo_dir" checkout "$ref"
-          cp -R .github/compat/es-toolkit/. "$repo_dir"/
+      - name: Check out es-toolkit
+        uses: ./.github/actions/checkout-library
+        with:
+          name: es-toolkit
 
       # G1: probe how far es-toolkit transpiles and gate the blocker count.
       # `smelt probe` runs the whole-crate build itself, so dist-smelt exists

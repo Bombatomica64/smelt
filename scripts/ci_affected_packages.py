@@ -60,7 +60,6 @@ IGNORED = (
     ".github/workflows/publish-smelt.yml",
     ".github/workflows/runtime-tiers.yml",
     ".github/workflows/shape-grid.yml",
-    ".github/workflows/update-schema.yml",
 )
 
 #: Non-crate paths read by a specific member's tests. Directory entries end
