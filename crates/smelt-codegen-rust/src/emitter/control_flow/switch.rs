@@ -142,12 +142,14 @@ impl FunctionEmitter<'_> {
             return self.emit_block(self.block(*then_target)?, out);
         }
 
-        // This reconstruction runs the then-branch's statements, `break`s out of
-        // the synthetic label, then resumes at `else_target` — so it models
-        // `if cond { then… } else { else… }` where BOTH arms rejoin at
-        // `else_target`. It silently discards the then-branch's own `Goto`
-        // target. That is only sound when the then-branch actually rejoins the
-        // else continuation; when the then-branch instead diverges into its own
+        // This reconstruction runs the then-branch's region up to `else_target`,
+        // `break`s out of the synthetic label, then resumes at `else_target` —
+        // so it models `if cond { then… } else { else… }` where BOTH arms rejoin
+        // at `else_target`. The then-branch's region is every block its `Goto`
+        // reaches before `else_target` (a `catch` handler a `throw` inside a
+        // `try` jumps to, say), and it is emitted in full inside the arm. That
+        // is only sound when the then-branch actually rejoins the else
+        // continuation; when the then-branch instead diverges into its own
         // terminating region (e.g. a `for` loop that always `return`s, as in
         // es-toolkit `some`'s non-array branch), dropping `then_target` deletes
         // that whole region and control wrongly falls through into the else
@@ -169,9 +171,7 @@ impl FunctionEmitter<'_> {
             let branch_declared = self.declared_scope();
             out.push_str(&format!("    {branch_label}: {{\n"));
             out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
-            for statement in &then.statements {
-                self.emit_statement(statement, out)?;
-            }
+            self.emit_block_until_goto(then, *else_target, RegionExit::Join, out)?;
             out.push_str(&format!("    break {branch_label};\n"));
             out.push_str("    }\n");
             branch_declared.reset();
