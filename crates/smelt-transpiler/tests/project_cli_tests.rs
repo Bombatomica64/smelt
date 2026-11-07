@@ -35,6 +35,21 @@ fn new_scaffolds_a_typescript_project_that_runs() -> TestResult {
     ensure_eq(&greeting, &"Hello from hello-app!\n".to_owned(), "the scaffolded program's output")
 }
 
+/// `--python` scaffolds `src/main.py` instead, and that project runs too.
+#[test]
+fn new_python_scaffolds_a_python_project_that_runs() -> TestResult {
+    let temp = TempProject::new()?;
+    fs::create_dir_all(temp.path())?;
+    let (created, _, failure) = run(temp.path(), &["new", "py_app", "--python"])?;
+    ensure(created, failure)?;
+    let root = temp.path().join("py_app");
+    ensure(root.join("src/main.py").is_file() && !root.join("src/main.ts").exists(), "wrong entry")?;
+    let (built, _, build_errors) = run(&root, &["build"])?;
+    ensure(built, build_errors)?;
+    let greeting = cargo_run_manifest(&root.join("dist/Cargo.toml"))?;
+    ensure_eq(&greeting, &"Hello from py_app!\n".to_owned(), "the scaffolded program's output")
+}
+
 /// An existing non-empty directory and an invalid name are refused, and
 /// nothing is written.
 #[test]

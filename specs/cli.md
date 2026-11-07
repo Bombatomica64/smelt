@@ -137,7 +137,7 @@ Telemetry: none. Ever.
 
 ## Current Gaps (state of the code → what's missing)
 
-- `smelt clean` and `smelt new --python` are still unimplemented in `crates/smelt-transpiler/src/cli.rs`.
+- `smelt clean` is still unimplemented in `crates/smelt-transpiler/src/cli.rs`.
 - `smelt-frontend-ts`'s `checker.rs` shells out to `tsc` and `oxlint` via `npx` and has no caller; type errors come from the embedded checker (see `smelt check`).
 - No call to `smelt-hir`, `smelt-mir`, or `smelt-codegen-rust` exists from the CLI yet.
 - Manifest validator does not enforce the missing-entries check.
@@ -165,7 +165,6 @@ The list below is the v1.0 roadmap for `smelt-cli`, ordered by dependency. Items
 
 ### Commands
 
-- [ ] `smelt new <name> --python` — the same scaffold with `src/main.py`. (`smelt new` itself is done.)
 - [ ] `smelt clean` — remove `output.target`, with confirmation prompt unless `--force`.
 - [x] `smelt check` — reports the embedded TypeScript checker's diagnostics; `--deny-type-errors` fails on them.
 - [ ] `smelt build` — wire HIR → MIR → codegen once those crates exist; invoke `cargo build` if `output.build = true`.

@@ -156,10 +156,9 @@ pub fn run() -> CliResult<()> {
             }
         }
         Command::New { name, python } => {
-            if python {
-                return Err("`smelt new --python` is not implemented yet".into());
-            }
-            let root = scaffold::new_project(Path::new("."), &name, scaffold::EntryLanguage::TypeScript)?;
+            let language =
+                if python { scaffold::EntryLanguage::Python } else { scaffold::EntryLanguage::TypeScript };
+            let root = scaffold::new_project(Path::new("."), &name, language)?;
             writeln!(io::stdout().lock(), "Created `{}`. Run `smelt build` there.", root.display())?;
         }
         Command::DumpHir { file, debug } => {

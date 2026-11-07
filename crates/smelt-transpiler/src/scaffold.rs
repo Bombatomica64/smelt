@@ -14,6 +14,8 @@ use std::{
 pub(crate) enum EntryLanguage {
     /// `src/main.ts`.
     TypeScript,
+    /// `src/main.py`.
+    Python,
 }
 
 impl EntryLanguage {
@@ -21,6 +23,7 @@ impl EntryLanguage {
     const fn entry(self) -> &'static str {
         match self {
             Self::TypeScript => "src/main.ts",
+            Self::Python => "src/main.py",
         }
     }
 
@@ -28,6 +31,7 @@ impl EntryLanguage {
     fn source(self, name: &str) -> String {
         match self {
             Self::TypeScript => format!("console.log(\"Hello from {name}!\");\n"),
+            Self::Python => format!("print(\"Hello from {name}!\")\n"),
         }
     }
 }
@@ -106,5 +110,7 @@ mod tests {
         let text = manifest("My-App", EntryLanguage::TypeScript);
         assert!(text.contains("crate-name = \"my_app\""), "{text}");
         assert!(text.contains("entries = [\"src/main.ts\"]"), "{text}");
+        let python = manifest("app", EntryLanguage::Python);
+        assert!(python.contains("entries = [\"src/main.py\"]"), "{python}");
     }
 }
