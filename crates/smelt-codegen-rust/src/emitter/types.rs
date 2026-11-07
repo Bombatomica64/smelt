@@ -322,9 +322,10 @@ impl FunctionEmitter<'_> {
                 let item = self.rust_type(*item, false, substitution)?;
                 Ok(RustType::composed(format!("{container}<{item}>"), [&item]))
             }
-            Type::Dict(key, value) if self.dict_uses_smelt_record(*key) => {
-                let value = self.rust_type(*value, false, substitution)?;
-                Ok(RustType::composed(self.carrier_format(format_args!("SmeltRecord<String, {value}>")), [&value]).on_carrier())
+            Type::Dict(key_ty, value_ty) if self.dict_uses_smelt_record(*key_ty) => {
+                let key = self.rust_type(*key_ty, false, substitution)?;
+                let value = self.rust_type(*value_ty, false, substitution)?;
+                Ok(RustType::composed(format!("SmeltRecord<{key}, {value}>"), [&key, &value]))
             }
             Type::Dict(key, value) if self.dict_uses_js_key_map(*key) => {
                 let key = self.rust_type(*key, false, substitution)?;

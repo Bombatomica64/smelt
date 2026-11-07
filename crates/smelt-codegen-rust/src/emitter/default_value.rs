@@ -46,7 +46,7 @@ impl FunctionEmitter<'_> {
             ))),
             Type::Set(item) => Ok({ let receiver = self.set_container_name(*item); RustExpr::atom_on(&receiver, format!("{receiver}::new()")) }),
             Type::Dict(key, _) if self.dict_uses_smelt_record(*key) => {
-                Ok(self.carrier_expr(&RustExpr::atom("SmeltRecord::new()")))
+                Ok(RustExpr::atom("SmeltRecord::new()"))
             }
             Type::Dict(key, _) if self.dict_uses_js_key_map(*key) => {
                 Ok(self.carrier_expr(&RustExpr::atom("SmeltJsMap::new()")))

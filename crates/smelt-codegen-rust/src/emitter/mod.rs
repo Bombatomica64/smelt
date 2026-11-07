@@ -192,7 +192,7 @@ mod truthiness;
 mod py_exception;
 mod tuple;
 mod type_facts;
-pub(crate) use type_facts::dict_renders_as_index_map;
+pub(crate) use type_facts::{dict_key_uses_smelt_record, dict_renders_as_index_map};
 mod typeof_str_locals;
 mod types;
 mod union;

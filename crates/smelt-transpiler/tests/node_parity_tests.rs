@@ -361,3 +361,10 @@ fn throw_in_branch_reaches_catch() -> TestResult {
 fn code_after_nested_try_with_loop() -> TestResult {
     verify_node_parity("code_after_nested_try_with_loop")
 }
+
+/// A record is an object: an alias, an array element and a parameter all
+/// reach the same object.
+#[test]
+fn record_aliasing() -> TestResult {
+    verify_node_parity("record_aliasing")
+}

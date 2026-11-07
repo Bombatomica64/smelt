@@ -129,6 +129,9 @@ pub(crate) fn flag(context: &EmitContext, name: &str) -> Option<bool> {
         "callable_of" => Some(demand.has(Need::Construct) || demand.has(Need::InstanceOfValue)),
         "write_through" => Some(context.erased_view_write_through()),
         "reads_this" => Some(context.program_reads_this()),
+        // A Python program's dicts keep insertion order; JavaScript's own-key
+        // order moves array-index keys to the front.
+        "js_key_order" => Some(!demand.has(Need::PyDictOrder)),
         _ => need_of_flag(name).map(|need| demand.has(need)),
     }
 }
@@ -186,6 +189,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "python_division" => Need::PythonDivision,
         "python_dict_read" => Need::PythonDictRead,
         "py_exception" => Need::PyException,
+        "record" => Need::Record,
         "global_object" => Need::GlobalObject,
         "unknown_assign" => Need::UnknownAssign,
         "reg_exp_compile" => Need::RegExpCompile,

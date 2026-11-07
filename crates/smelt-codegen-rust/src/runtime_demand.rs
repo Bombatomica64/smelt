@@ -137,6 +137,10 @@ pub(crate) enum Need {
     PythonDictRead,
     /// A raised Python exception, `SmeltPyException`.
     PyException,
+    /// The shared, ordered `SmeltRecord` dict and its property store.
+    Record,
+    /// A Python program: dicts keep plain insertion order.
+    PyDictOrder,
     /// A class read as a value.
     ClassValue,
     /// `globalThis` as a value.
@@ -228,6 +232,7 @@ const REQUIRES: &[(Need, &[Need])] = &[
         Need::Unknown,
         &[
             Need::SmeltList,
+            Need::Record,
             Need::PanicRoute,
             Need::DepRegex,
             Need::DepChrono,
@@ -239,6 +244,7 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::SmeltList, &[Need::ObjectIds]),
     (Need::PyRepr, &[Need::PythonNumberFormat]),
     (Need::PyException, &[Need::PyRepr]),
+    (Need::Record, &[Need::ObjectIds]),
     (Need::PythonDivision, &[Need::PyException]),
     (Need::PythonDictRead, &[Need::PyException]),
     (Need::PrimSet, &[Need::ObjectIds]),
@@ -322,6 +328,9 @@ impl RuntimeDemand {
             demand.scan_body(mir, &function.locals, &function.blocks, function.return_ty);
             if function.language == smelt_hir::Language::TypeScript {
                 demand.scan_string_units(mir, &function.locals, &function.blocks);
+            }
+            if function.language == smelt_hir::Language::Python {
+                demand.add(Need::PyDictOrder);
             }
         }
         for closure in &mir.closures {
@@ -467,6 +476,9 @@ impl RuntimeDemand {
                     }
                 }
                 Type::BigInt => self.add(Need::BigInt),
+                Type::Dict(key, _) if crate::emitter::dict_key_uses_smelt_record(mir, *key) => {
+                    self.add(Need::Record);
+                }
                 Type::Generator { .. } => self.add(Need::Generator),
                 Type::Optional(inner) => {
                     if matches!(mir.types.get(*inner), Some(Type::Unknown)) {

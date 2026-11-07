@@ -55,6 +55,13 @@ fn smelt_py_repr_items<'a, T: SmeltPyRepr + 'a>(items: impl IntoIterator<Item = 
 
 impl<T: SmeltPyRepr> SmeltPyRepr for Vec<T> { fn py_repr(&self) -> String { format!("[{}]", smelt_py_repr_items(self)) } }
 
+// @smelt:if record
+impl<K: SmeltPyRepr + Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V: SmeltPyRepr + Clone> SmeltPyRepr for SmeltRecord<K, V> {
+    fn py_repr(&self) -> String {
+        format!("{{{}}}", self.iter().map(|(key, value)| format!("{}: {}", key.py_repr(), value.py_repr())).collect::<Vec<_>>().join(", "))
+    }
+}
+// @smelt:end
 // @smelt:if dep_indexmap
 impl<K: SmeltPyRepr, V: SmeltPyRepr> SmeltPyRepr for ::indexmap::IndexMap<K, V> {
     fn py_repr(&self) -> String {

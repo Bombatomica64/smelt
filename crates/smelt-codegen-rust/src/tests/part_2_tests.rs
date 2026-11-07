@@ -693,7 +693,7 @@ function read(parsers: Record<string, Parser>, key: string): number {
 ",
     );
 
-    assert!(source.contains(".get(&key.clone()).cloned()"), "{source}");
+    assert!(source.contains(".get(&key.clone());"), "{source}");
     assert!(
         !source.contains("expect(\"index out of bounds\")"),
         "{source}"

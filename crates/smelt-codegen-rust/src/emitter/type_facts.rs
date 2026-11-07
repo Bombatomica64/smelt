@@ -114,8 +114,7 @@ impl FunctionEmitter<'_> {
     /// original object identity for Map/Set keys. `SmeltRecord` preserves that
     /// identity while keeping structural equality for assertions.
     pub(super) fn dict_uses_smelt_record(&self, key_ty: TypeId) -> bool {
-        self.context.demand().has(Need::Unknown)
-            && self.mir.types.get(key_ty) == Some(&Type::String)
+        dict_key_uses_smelt_record(self.mir, key_ty)
     }
 
     /// Returns whether a Map/dict operation must use the `SmeltRecord` backing.
@@ -638,7 +637,19 @@ pub(crate) fn dict_key_uses_js_key_map(mir: &Mir, key_ty: TypeId) -> bool {
 /// insertion-ordered; this is the hashed container for the rest, and it must
 /// keep the same order, since Python dicts and JavaScript objects both iterate
 /// in insertion order.
-pub(crate) fn dict_renders_as_index_map(mir: &Mir, demand: &RuntimeDemand, key_ty: TypeId) -> bool {
-    let is_smelt_record = demand.has(Need::Unknown) && mir.types.get(key_ty) == Some(&Type::String);
-    !dict_key_uses_js_key_map(mir, key_ty) && !is_smelt_record
+pub(crate) fn dict_renders_as_index_map(mir: &Mir, _demand: &RuntimeDemand, key_ty: TypeId) -> bool {
+    !dict_key_uses_js_key_map(mir, key_ty) && !dict_key_uses_smelt_record(mir, key_ty)
+}
+
+/// Returns whether a `Type::Dict` keyed by `key_ty` renders as `SmeltRecord`.
+///
+/// A dict keyed by a string, an integer or a boolean is a JavaScript object or a Python `dict`, and both are
+/// reference values: `a = d` aliases one container, and a write through
+/// either name is seen through the other, as a function that mutates its dict
+/// argument is seen by its caller. `SmeltRecord` is the shared, ordered,
+/// `Rc`-backed container, as `SmeltList` is for lists. Its key order is the
+/// program's: JavaScript own-key order, or a Python program's insertion order
+/// (the runtime's `js_key_order` flag).
+pub(crate) fn dict_key_uses_smelt_record(mir: &Mir, key_ty: TypeId) -> bool {
+    matches!(mir.types.get(key_ty), Some(Type::String | Type::Int | Type::Bool))
 }

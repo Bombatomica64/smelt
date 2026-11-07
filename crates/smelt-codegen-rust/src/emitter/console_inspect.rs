@@ -365,8 +365,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Optional(inner) | Type::List(inner)) => self.type_has_py_repr(*inner),
             Some(Type::Tuple(items)) => !items.is_empty() && items.len() <= 6 && items.iter().all(|item| self.type_has_py_repr(*item)),
             Some(Type::Dict(key, value)) => {
-                !self.dict_uses_smelt_record(*key)
-                    && !self.dict_uses_js_key_map(*key)
+                !self.dict_uses_js_key_map(*key)
                     && self.type_has_py_repr(*key)
                     && self.type_has_py_repr(*value)
             }

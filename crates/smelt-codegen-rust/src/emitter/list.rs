@@ -263,8 +263,11 @@ impl FunctionEmitter<'_> {
                 "dict() destination must match pair key and value types",
             ));
         }
+        // Collected into the destination's own container, whichever the dict
+        // renders as.
+        let container = self.rendered_type(dest_ty)?;
         Ok(RustExpr::loose(format!(
-            "{}.iter().cloned().collect::<::indexmap::IndexMap<_, _>>()",
+            "{}.iter().cloned().collect::<{container}>()",
             list_read_expr(&self.operand_expr(list)?)
         )))
     }

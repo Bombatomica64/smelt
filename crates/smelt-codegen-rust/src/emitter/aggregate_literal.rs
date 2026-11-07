@@ -235,7 +235,7 @@ impl FunctionEmitter<'_> {
         }
         if let Some((key_ty, _)) = dict_types {
             if self.dict_uses_smelt_record(key_ty) {
-                return Ok(RustExpr::atom(self.carrier_format(format_args!("SmeltRecord::from([{entries_text}])"))));
+                return Ok(RustExpr::atom(format!("SmeltRecord::from([{entries_text}])")));
             }
             if self.dict_uses_js_key_map(key_ty) {
                 return Ok(RustExpr::atom(self.carrier_format(format_args!("SmeltJsMap::from([{entries_text}])"))));

@@ -116,3 +116,10 @@ fn dict_insertion_order() -> TestResult {
 fn exception_classes() -> TestResult {
     verify_python_parity("exception_classes")
 }
+
+/// A dict is a reference value: an alias, a list element and a parameter all
+/// reach the same container; `dict(d)` copies it.
+#[test]
+fn dict_aliasing() -> TestResult {
+    verify_python_parity("dict_aliasing")
+}
