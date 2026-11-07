@@ -183,6 +183,7 @@ mod seam_assertions;
 mod static_call_args;
 mod set;
 mod sqlite;
+mod string_units;
 mod strings;
 mod strings_io;
 mod throw;
@@ -1679,15 +1680,6 @@ pub(super) fn list_read_expr(list_text: &RustExpr) -> RustExpr {
 /// expression: the two guards would coexist and panic "already borrowed".
 pub(super) fn list_write_expr(list_text: &RustExpr) -> RustExpr {
     RustExpr::postfix_on(&list_text, format!("{list_text}.borrow_mut()"))
-}
-
-/// How to compute the default end bound for a slice.
-#[derive(Clone, Copy)]
-enum SliceLenKind {
-    /// Use `.len()`.
-    Len,
-    /// Use `.chars().count()`.
-    Chars,
 }
 
 /// Which ABI the callee behind an erased `smelt_args` adapter was rendered with.

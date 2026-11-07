@@ -96,7 +96,7 @@ crates/
   smelt-frontend-ts/    TypeScript parser → HIR
   smelt-frontend-py/    Python parser → HIR
   smelt-hir/            High-level IR types and validation
-  smelt-mir/            Mid-level IR (SSA-ish, ownership-naive)
+  smelt-mir/            Mid-level IR (CFG over mutable locals, ownership-naive)
   smelt-codegen-rust/   MIR → Rust source
   smelt-runtime/        Runtime helpers that transpiled code depends on
   smelt-transpiler/     The `smelt` binary
@@ -130,28 +130,29 @@ Fork the repo and submit a pr :)
 
 | Metric | Coverage |
 | --- | ---: |
-| Functions | 78.45% |
-| Lines | 80.61% |
-| Regions | 73.86% |
-| Branches | 68.04% |
+| Functions | 78.48% |
+| Lines | 80.67% |
+| Regions | 73.97% |
+| Branches | 68.08% |
 
 ### Per Crate
 
 | Crate | Functions | Lines | Branches |
 | --- | ---: | ---: | ---: |
 | `smelt-codegen-rust` | 89.32% | 83.70% | 69.61% |
-| `smelt-frontend-py` | 85.35% | 78.97% | 70.98% |
-| `smelt-frontend-ts` | 89.01% | 81.73% | 70.47% |
+| `smelt-frontend-py` | 85.35% | 78.96% | 70.98% |
+| `smelt-frontend-ts` | 89.01% | 81.73% | 70.48% |
 | `smelt-hir` | 84.71% | 79.59% | 70.33% |
-| `smelt-mir` | 93.31% | 91.81% | 75.86% |
+| `smelt-mir` | 93.30% | 91.81% | 75.86% |
 | `smelt-py-types` | 82.05% | 90.53% | 70.83% |
 | `smelt-runtime` | 24.39% | 31.99% | 29.72% |
-| `smelt-specialize` | 65.99% | 73.66% | 58.90% |
-| `smelt-stdlib` | 88.37% | 85.90% | 92.00% |
-| `smelt-transpiler` | 80.60% | 79.96% | 67.90% |
+| `smelt-specialize` | 66.75% | 77.41% | 59.63% |
+| `smelt-stdlib` | 88.37% | 85.78% | 92.00% |
+| `smelt-transpiler` | 81.11% | 79.89% | 69.26% |
 | `smelt-ts-model` | 87.50% | 88.89% | 50.00% |
-| `smelt-ts-types` | 90.00% | 93.02% | 85.85% |
+| `smelt-ts-types` | 91.11% | 93.87% | 85.85% |
 <!-- COVERAGE:END -->
+
 
 
 

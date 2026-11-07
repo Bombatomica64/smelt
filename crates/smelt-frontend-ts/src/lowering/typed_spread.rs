@@ -255,12 +255,14 @@ impl ModuleBuilder<'_> {
             && interface.extends.is_empty()
             && self.ctx.interface_call_signatures.get(&name).is_none_or(Vec::is_empty)
             && self.interfaces.index_value(name).is_none()
+            // A synthetic member (`__smelt_call` of a callable interface) is a
+            // runtime marker key, named by the marker registry.
             && !interface.fields.iter().any(|field| {
                 self.ctx
                     .krate
                     .symbols
                     .get(field.name)
-                    .is_some_and(|text| text.starts_with("__smelt"))
+                    .is_some_and(|text| smelt_stdlib::runtime_symbols::markers::ALL.contains(&text))
             });
         if !plain {
             return Ok(None);

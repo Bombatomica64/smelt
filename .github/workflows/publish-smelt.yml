@@ -15,8 +15,7 @@ name: Publish smelt-nightly binary
 # against their own checked-out commit and build from source on any mismatch, so
 # a stale asset degrades to "slower", never to "wrong". If you change the
 # mechanism here, update every consumer:
-#   - .github/workflows/library-probes.yml
-#   - .github/workflows/compat.yml
+#   - .github/actions/smelt-binary
 
 on:
   workflow_dispatch: {}
@@ -46,11 +45,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
         with:
           # Own lane: a release build must not share the debug-profile target
           # cache used by the corpus/compat/probes "build" lane.

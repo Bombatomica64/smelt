@@ -200,13 +200,14 @@ impl ModuleBuilder<'_> {
     /// through to ordinary lowering instead of guessing.
     pub(in crate::lowering) fn global_contains_key_probe(
         &mut self,
-        binary: &oxc::ast::ast::BinaryExpression<'_>,
+        key: &Expression<'_>,
+        receiver: &Expression<'_>,
         body: &mut Body,
     ) -> Option<smelt_hir::ExprId> {
-        if !self.expr_is_global_alias(&binary.right) {
+        if !self.expr_is_global_alias(receiver) {
             return None;
         }
-        let Expression::StringLiteral(key_lit) = &binary.left else {
+        let Expression::StringLiteral(key_lit) = key else {
             return None;
         };
         let presence = smelt_stdlib::global_member_presence(&js_str_text(key_lit.value));
@@ -220,7 +221,7 @@ impl ModuleBuilder<'_> {
         Some(body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::Bool(value)),
             ty: bool_ty,
-            span: self.span(binary.span.start, binary.span.end),
+            span: self.span(key.span().start, receiver.span().end.max(key.span().end)),
         }))
     }
 
@@ -263,10 +264,22 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(binary.span.start, binary.span.end);
+        self.key_in_expression(&binary.left, &binary.right, span, body)
+    }
+
+    /// Lower `key in receiver`: whether `receiver` (or its prototype chain) has
+    /// the property `key`. Shared by the `in` operator and `Reflect.has`.
+    pub(in crate::lowering) fn key_in_expression(
+        &mut self,
+        key_expr: &Expression<'_>,
+        receiver_expr: &Expression<'_>,
+        span: smelt_hir::Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let string_ty = self.ctx.krate.types.intern(Type::String);
 
-        if let Some(expr) = self.global_contains_key_probe(binary, body) {
+        if let Some(expr) = self.global_contains_key_probe(key_expr, receiver_expr, body) {
             return Ok(expr);
         }
 
@@ -278,23 +291,23 @@ impl ModuleBuilder<'_> {
         // would silently evaluate against the empty marker record and answer
         // `false` for members the real global actually has. Presence of the
         // global object as a value does not make its full key set known.
-        if self.expr_is_global_alias(&binary.right) {
+        if self.expr_is_global_alias(receiver_expr) {
             return Err(SmeltError::unsupported(
                 span,
                 "`in` on the global object is only lowered for registry-decidable string-literal keys",
             ));
         }
 
-        if let Expression::Identifier(receiver_ident) = &binary.right
+        if let Expression::Identifier(receiver_ident) = &receiver_expr
             && let Some(object_const) = self.consts.object(receiver_ident.name.as_str())
                 .cloned()
         {
-            let mut key = self.expression(&binary.left, body)?;
+            let mut key = self.expression(key_expr, body)?;
             if Self::expr_ty(body, key) != string_ty {
                 key = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: key },
                     ty: string_ty,
-                    span: self.span(binary.left.span().start, binary.left.span().end),
+                    span: self.span(key_expr.span().start, key_expr.span().end),
                 });
             }
             let mut condition = None;
@@ -334,13 +347,13 @@ impl ModuleBuilder<'_> {
             }));
         }
 
-        let receiver = self.expression(&binary.right, body)?;
+        let receiver = self.expression(receiver_expr, body)?;
         let receiver_ty = Self::expr_ty(body, receiver);
-        let mut key = self.expression(&binary.left, body)?;
+        let mut key = self.expression(key_expr, body)?;
         // An iterator result's own properties are fixed by the protocol, so a
         // literal key is answered without erasing the typed result.
         if matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::GeneratorResult { .. }))
-            && let Expression::StringLiteral(name) = &binary.left
+            && let Expression::StringLiteral(name) = &key_expr
         {
             let present = name.value == "done" || name.value == "value";
             return Ok(body.push_expr(Expr {
@@ -366,7 +379,7 @@ impl ModuleBuilder<'_> {
         if matches!(
             self.ctx.krate.types.get(receiver_ty),
             Some(Type::Union(_) | Type::Class { .. })
-        ) && matches!(&binary.left, Expression::StringLiteral(_))
+        ) && matches!(&key_expr, Expression::StringLiteral(_))
         {
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::DictContainsKey {

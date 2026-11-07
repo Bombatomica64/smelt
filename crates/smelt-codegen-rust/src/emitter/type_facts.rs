@@ -330,8 +330,8 @@ impl FunctionEmitter<'_> {
     /// `place_expr`'s `Place::Index` arm lowers almost every receiver shape to an
     /// expression that CONSTRUCTS its result rather than projecting to a place:
     /// a list reads `.get(i).cloned().unwrap_or(missing)`, a dict
-    /// `.get(&key).cloned().unwrap_or(default)`, a string
-    /// `.chars().nth(i).map(..).expect(..)`, an erased receiver a `match` whose
+    /// `.get(&key).cloned().unwrap_or(default)`, a string a fresh one-unit
+    /// `String` (`emitter/string_units.rs`), an erased receiver a `match` whose
     /// every arm builds a fresh `SmeltUnknown`, and a class index store an
     /// `.unwrap_or(default)`. Each of those is already owned, so the `.clone()`
     /// `operand_expr` appends to a `Copy` read is a SECOND whole-value copy of
@@ -427,10 +427,9 @@ impl FunctionEmitter<'_> {
     /// runtime shim; the identity lookup lives in the shared `smelt-stdlib`
     /// registry instead of inline name comparisons.
     pub(super) fn is_regexp_class_symbol(&self, name: Symbol) -> Result<bool, EmitError> {
-        Ok(
-            smelt_stdlib::typescript_stdlib_class(self.symbol_name(name)?)
-                == Some(smelt_stdlib::StdlibClass::RegExp),
-        )
+        // A class the program declares under the name is its own class.
+        Ok(crate::stdlib::stdlib_class_of_class_symbol(self.mir, name)
+            == Some(smelt_stdlib::StdlibClass::RegExp))
     }
 
     /// Returns the synthetic match-result class identity named by a symbol, if any.

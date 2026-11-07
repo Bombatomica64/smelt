@@ -1,4 +1,4 @@
-//! Valid Python whose generated Rust must print what CPython prints.
+//! Valid Python whose generated Rust must print what `CPython` prints.
 //!
 //! Each `fixtures/python-parity/<name>.py` runs through a full `smelt build` and a
 //! compile of the generated crate, and its stdout is compared with the committed
@@ -11,15 +11,18 @@ use std::fs;
 use std::process::Command;
 
 use common::{
-    TempProject, TestResult, cargo_run_manifest, ensure, ensure_eq, smelt_in, workspace_root,
+    PYTHON_ORACLE, TempProject, TestResult, cargo_run_manifest, ensure, ensure_eq,
+    python_runs_corpus, smelt_in, workspace_root,
 };
+use smelt_specialize::prereq::missing_prerequisite;
 
-/// Build fixture `name` and check its stdout against the golden and CPython.
+/// Build fixture `name` and check its stdout against the golden and `CPython`.
 fn verify_python_parity(name: &str) -> TestResult {
     let fixtures = workspace_root()?.join("crates/smelt-transpiler/tests/fixtures/python-parity");
     let script = fixtures.join(format!("{name}.py"));
     let expected = fs::read_to_string(fixtures.join(format!("{name}.stdout")))?;
-    if let Ok(output) = Command::new("python3").arg("-I").arg(&script).output() {
+    if python_runs_corpus() {
+        let output = Command::new("python3").arg("-I").arg(&script).output()?;
         let python_stdout = String::from_utf8(output.stdout)?;
         ensure(
             python_stdout == expected,
@@ -27,6 +30,8 @@ fn verify_python_parity(name: &str) -> TestResult {
                 "{name}: the golden stdout is not what `python3` prints for the same source\n--- python3\n{python_stdout}--- golden\n{expected}"
             ),
         )?;
+    } else {
+        missing_prerequisite::<Box<dyn std::error::Error>>(name, PYTHON_ORACLE)?;
     }
     let project = TempProject::new()?;
     let root = project.path();
@@ -71,4 +76,40 @@ fn try_around_raising_callback() -> TestResult {
 #[test]
 fn list_semantics() -> TestResult {
     verify_python_parity("list_semantics")
+}
+
+/// A `str` index counts code points, in `len`, `find`, `rfind` and slicing.
+#[test]
+fn str_code_point_indices() -> TestResult {
+    verify_python_parity("str_code_point_indices")
+}
+
+/// A class with `__iter__`/`__next__` drives `for` until `StopIteration`.
+#[test]
+fn iterator_protocol() -> TestResult {
+    verify_python_parity("iterator_protocol")
+}
+
+/// A `def` or parameter spelled like a builtin shadows it.
+#[test]
+fn builtin_names_shadowed() -> TestResult {
+    verify_python_parity("builtin_names_shadowed")
+}
+
+/// A user method spelled like a builtin collection method is the user's.
+#[test]
+fn builtin_method_names_on_classes() -> TestResult {
+    verify_python_parity("builtin_method_names_on_classes")
+}
+
+/// `print` of a container writes each element's Python `repr`.
+#[test]
+fn print_container_repr() -> TestResult {
+    verify_python_parity("print_container_repr")
+}
+
+/// A user `open` is the user's function, not the builtin.
+#[test]
+fn user_open_shadows_builtin() -> TestResult {
+    verify_python_parity("user_open_shadows_builtin")
 }

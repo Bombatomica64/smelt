@@ -115,7 +115,9 @@ impl ModuleBuilder<'_> {
         let Expr::Name(module) = attr.value.as_ref() else {
             return Ok(None);
         };
-        if module.id.as_str() != "asyncio" {
+        // The name must denote the `asyncio` module (`import asyncio`, or
+        // `import asyncio as aio`), not whatever a program binds under it.
+        if !self.name_denotes_module(module.id.as_str(), "asyncio") {
             return Ok(None);
         }
 

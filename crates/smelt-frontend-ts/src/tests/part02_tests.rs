@@ -664,6 +664,23 @@ function parseValues(value: any): number[] {
     Ok(())
 }
 
+/// The radix of each `ParseIntRadix` op in `body`, in order: `Some(n)` for an
+/// integer literal radix, `None` for any other radix expression.
+fn parse_int_radices(body: &smelt_hir::Body) -> Vec<Option<i64>> {
+    body.exprs
+        .iter()
+        .filter_map(|expr| match expr.kind {
+            ExprKind::ParseIntRadix { radix, .. } => {
+                Some(match body.exprs.get(radix.0 as usize).map(|radix| &radix.kind) {
+                    Some(ExprKind::Literal(smelt_hir::Literal::Int(value))) => Some(*value),
+                    _ => None,
+                })
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 #[test]
 fn lowers_number_parse_int_call() -> Result<(), String> {
     let mut ctx = HirCtx::new();
@@ -677,28 +694,9 @@ const decimalValue = Number.parseInt("42", 10);
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
 
-    // `parseInt("42")` casts to int; `parseInt("42", 10)` honors the radix via
-    // the dedicated `ParseIntRadix` op.
-    let to_int_count = body
-        .exprs
-        .iter()
-        .filter(|expr| {
-            matches!(
-                expr.kind,
-                ExprKind::PrimitiveCast {
-                    op: PrimitiveCastOp::ToInt,
-                    ..
-                }
-            )
-        })
-        .count();
-    let radix_count = body
-        .exprs
-        .iter()
-        .filter(|expr| matches!(expr.kind, ExprKind::ParseIntRadix { .. }))
-        .count();
-    ensure_eq!(to_int_count, 1);
-    ensure_eq!(radix_count, 1);
+    // `Number.parseInt` lowers like `parseInt`: one `ParseIntRadix` op whose
+    // absent radix is the literal `0`.
+    ensure_eq!(parse_int_radices(body), vec![Some(0), None]);
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
@@ -3967,28 +3965,17 @@ const floatValue = parseFloat("42.5");
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
 
-    // `parseInt("42")` casts to int; `parseInt("42", 10)` honors the radix via
-    // `ParseIntRadix`; `parseFloat` casts to float.
-    let int_parse_count = body
-        .exprs
-        .iter()
-        .filter(|expr| {
-            matches!(
-                expr.kind,
-                ExprKind::PrimitiveCast {
-                    op: PrimitiveCastOp::ToInt,
-                    ..
-                }
-            )
-        })
-        .count();
-    let radix_parse_count = body
-        .exprs
-        .iter()
-        .filter(|expr| matches!(expr.kind, ExprKind::ParseIntRadix { .. }))
-        .count();
-    ensure_eq!(int_parse_count, 1);
-    ensure_eq!(radix_parse_count, 1);
+    // Both `parseInt` calls lower to `ParseIntRadix`, the absent radix as the
+    // literal `0` (JavaScript's `undefined` radix), so neither goes through a
+    // Rust integer grammar; `parseFloat` casts to float.
+    ensure_eq!(parse_int_radices(body), vec![Some(0), None]);
+    ensure!(!body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::PrimitiveCast {
+            op: PrimitiveCastOp::ToInt,
+            ..
+        }
+    )));
     ensure!(body.exprs.iter().any(|expr| matches!(
         expr.kind,
         ExprKind::PrimitiveCast {

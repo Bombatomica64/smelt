@@ -819,15 +819,15 @@ export function containsFrom(haystack: string, needle: string, from: number): bo
     );
 
     // The `position` argument is truncated toward zero, clamped to `[0, len]`,
-    // then the search starts from that character offset over the remaining
-    // suffix (matching the char-based convention shared with the other string
-    // helpers). A position past the end only ever matches the empty needle.
+    // then the search starts from that UTF-16 offset (past a surrogate pair it
+    // falls inside) over the remaining suffix. A position past the end only
+    // ever matches the empty needle.
     assert!(
         source.contains("let smelt_from = (") && source.contains("as i64).max(0) as usize"),
         "{source}"
     );
     assert!(
-        source.contains("char_indices().nth(smelt_from)"),
+        source.contains("let smelt_prefix_bytes = smelt_utf16_byte_of(&smelt_haystack, smelt_from).unwrap_or_else(|smelt_byte| smelt_byte + 4);"),
         "{source}"
     );
     assert!(

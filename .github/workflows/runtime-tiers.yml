@@ -13,10 +13,9 @@ permissions:
 # invisible to every other gate.
 #
 # Each tier is `#[ignore]`d because it is slow, which means a plain `cargo test`
-# NEVER REACHES ANY OF THEM. Before this workflow, `ci.yml` ran exactly two
-# (set_membership, map_lookup) plus the compile-only corpus, leaving ~35 tiers
-# that nothing checked on a pull request -- and that no contributor would run
-# locally, because they do not appear in a default test run.
+# NEVER REACHES ANY OF THEM. The matrix below names every tier but the two
+# `ci.yml` runs (set_membership, map_lookup), and scripts/check_ci_gates.py fails
+# when a tier on disk is named by neither, so a new tier cannot be forgotten.
 #
 # They are sharded rather than run in one step because each test spawns a
 # nested cargo build with its own scratch target directory (~250 MB). Running
@@ -31,6 +30,8 @@ on:
       - 'crates/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.github/actions/**'
       - '.github/workflows/runtime-tiers.yml'
   pull_request:
     branches: [ main ]
@@ -38,6 +39,8 @@ on:
       - 'crates/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.github/actions/**'
       - '.github/workflows/runtime-tiers.yml'
 
 concurrency:
@@ -101,14 +104,8 @@ jobs:
               define_properties_runtime proto_accessor_runtime
               ambient_declaration_runtime object_model_runtime
               stdlib_boundary_runtime class_accessor_runtime
-          # Twelve tiers existed on disk and were named by NO shard, so nothing
-          # ran them: a `cargo test` skips every `#[ignore]`d tier, and this
-          # matrix is the only place they are reached. Two new shards rather
-          # than growing the existing ones, because each tier spawns a nested
-          # cargo build with its own ~250 MB scratch target dir and the shard
-          # sizes above are what keeps a runner inside its disk budget.
-          # (`map_lookup_runtime` and `set_membership_runtime` are absent on
-          # purpose -- `ci.yml` runs those two.)
+          # `map_lookup_runtime` and `set_membership_runtime` are absent on
+          # purpose: `ci.yml` runs those two.
           - shard: server
             tests: >-
               request_runtime response_runtime fetch_init_runtime
@@ -124,11 +121,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
         with:
           # Same lane as the other plain-build jobs so the workspace build is
           # shared rather than rebuilt per shard.
@@ -138,9 +132,7 @@ jobs:
       # nested cargo build wants its own target dir, so headroom here is what
       # keeps an ENOSPC from being misread as a failing assertion.
       - name: Free runner disk
-        run: |
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
-          df -h /
+        uses: ./.github/actions/free-disk
 
       - name: Run runtime tiers
         run: |

@@ -35,7 +35,6 @@
 
 use std::{
     collections::{BTreeMap, HashMap},
-    fmt::Write as _,
     io::Write as _,
     path::{Path, PathBuf},
 };
@@ -44,6 +43,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use smelt_hir::{ErasureReason, ErasureRecord, ErasureSeverity};
 
+use crate::report::push_fmt;
 use crate::source_files::{exclusion_base, manifest_relative_path, path_matches_glob};
 
 /// File name of the sidecar written next to the generated crate's `src/`.
@@ -550,45 +550,51 @@ fn class_of(reason: &str) -> &'static str {
 
 /// Render the breakdown as the report's Markdown section.
 pub(crate) fn render_breakdown_markdown(out: &mut String, breakdown: &ErasureBreakdown) {
-    let _ = writeln!(out, "## Avoidable erasure by reason and source line");
-    let _ = writeln!(out);
-    let _ = writeln!(
+    push_fmt(out, format_args!("## Avoidable erasure by reason and source line\n"));
+    out.push('\n');
+    push_fmt(
         out,
-        "From the `{SIDECAR_FILE_NAME}` sidecar: {} erasure decision(s) recorded where lowering \
-         chose the tagged runtime value, {} of them avoidable.",
-        breakdown.records, breakdown.avoidable
+        format_args!(
+            "From the `{SIDECAR_FILE_NAME}` sidecar: {} erasure decision(s) recorded where lowering \
+            chose the tagged runtime value, {} of them avoidable.\n",
+            breakdown.records, breakdown.avoidable
+        ),
     );
-    let _ = writeln!(out);
-    let _ = writeln!(out, "| Reason | Class | Decisions |");
-    let _ = writeln!(out, "| --- | --- | ---: |");
+    out.push('\n');
+    push_fmt(out, format_args!("| Reason | Class | Decisions |\n"));
+    push_fmt(out, format_args!("| --- | --- | ---: |\n"));
     for row in &breakdown.by_reason {
-        let _ = writeln!(out, "| `{}` | {} | {} |", row.reason, row.class, row.count);
+        push_fmt(out, format_args!("| `{}` | {} | {} |\n", row.reason, row.class, row.count));
     }
-    let _ = writeln!(out);
+    out.push('\n');
     if breakdown.avoidable_lines.is_empty() {
         return;
     }
-    let _ = writeln!(
+    push_fmt(
         out,
-        "Avoidable source lines (top {} of {}):",
-        breakdown.avoidable_lines.len(),
-        breakdown.avoidable_lines_total
+        format_args!(
+            "Avoidable source lines (top {} of {}):\n",
+            breakdown.avoidable_lines.len(),
+            breakdown.avoidable_lines_total
+        ),
     );
-    let _ = writeln!(out);
-    let _ = writeln!(out, "| Source line | Reason | Decisions | Detail |");
-    let _ = writeln!(out, "| --- | --- | ---: | --- |");
+    out.push('\n');
+    push_fmt(out, format_args!("| Source line | Reason | Decisions | Detail |\n"));
+    push_fmt(out, format_args!("| --- | --- | ---: | --- |\n"));
     for row in &breakdown.avoidable_lines {
-        let _ = writeln!(
+        push_fmt(
             out,
-            "| `{}:{}` | `{}` | {} | {} |",
-            row.file,
-            row.line,
-            row.reason,
-            row.count,
-            row.detail.replace('|', "\\|")
+            format_args!(
+                "| `{}:{}` | `{}` | {} | {} |\n",
+                row.file,
+                row.line,
+                row.reason,
+                row.count,
+                row.detail.replace('|', "\\|")
+            ),
         );
     }
-    let _ = writeln!(out);
+    out.push('\n');
 }
 
 /// A short human summary of records per reason, for messages.
@@ -596,7 +602,7 @@ pub(crate) fn render_breakdown_markdown(out: &mut String, breakdown: &ErasureBre
 fn summary(records: &[ResolvedErasure]) -> String {
     let mut out = String::new();
     for (reason, count) in sidecar(records).totals {
-        let _ = writeln!(out, "{reason}: {count}");
+        push_fmt(&mut out, format_args!("{reason}: {count}\n"));
     }
     out
 }

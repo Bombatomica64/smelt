@@ -186,16 +186,6 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::String) => Ok(RustExpr::atom_on(&operand_expr, format!(
                 "{operand_expr}.parse::<i64>().expect(\"int() parse failed\")"
             ))),
-            (smelt_hir::PrimitiveCastOp::ToInt, Type::Float, Type::String) => Ok(RustExpr::atom_on(&operand_expr, format!(
-                "{operand_expr}.parse::<i64>().map(|value| value as f64).unwrap_or(f64::NAN)"
-            ))),
-            (smelt_hir::PrimitiveCastOp::ToInt, Type::Float, Type::Optional(inner))
-                if matches!(self.mir.types.get(*inner), Some(Type::String)) =>
-            {
-                Ok(RustExpr::atom_on(&operand_expr, format!(
-                    "{operand_expr}.unwrap_or_default().parse::<i64>().map(|value| value as f64).unwrap_or(f64::NAN)"
-                )))
-            }
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Bool) => {
                 Ok(RustExpr::loose(format!("if {operand_expr} {{ 1.0 }} else {{ 0.0 }}")))
             }
@@ -210,8 +200,8 @@ impl FunctionEmitter<'_> {
                 Type::String,
                 Type::List(_),
             ) => self.primitive_cast_list_expr(op, &operand_expr, operand_ty),
-            (smelt_hir::PrimitiveCastOp::ParseFloat, Type::Float, Type::String) => Ok(RustExpr::atom_on(&operand_expr, format!(
-                "{operand_expr}.parse::<f64>().unwrap_or(f64::NAN)"
+            (smelt_hir::PrimitiveCastOp::ParseFloat, Type::Float, Type::String) => Ok(RustExpr::chain(format!(
+                "smelt_parse_float(&{operand_expr})"
             ))),
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Optional(inner))
                 if matches!(self.mir.types.get(*inner), Some(Type::Float)) =>

@@ -477,8 +477,8 @@ impl ModuleBuilder<'_> {
         }
 
         let raw_iter = self.expression(&for_stmt.iter, body)?;
-        if self.is_empty_static_protocol_iterable(Self::expr_ty(body, raw_iter)) {
-            return Ok(());
+        if self.class_method_dispatch(Self::expr_ty(body, raw_iter), "__iter__").is_some() {
+            return self.protocol_for_statement(for_stmt, raw_iter, body, block);
         }
         let iter = self.for_iterable(raw_iter, body);
         let iter_ty = Self::expr_ty(body, iter);
@@ -497,6 +497,131 @@ impl ModuleBuilder<'_> {
             },
         );
         Ok(())
+    }
+
+    /// `for target in obj` where `obj`'s class defines `__iter__`: Python's
+    /// iterator protocol, lowered as
+    ///
+    /// ```text
+    /// iterator = obj.__iter__()
+    /// while True:
+    ///     try: item = iterator.__next__()
+    ///     except e: if e is StopIteration: stop = True else: raise e
+    ///     if stop: break
+    ///     target = item
+    ///     body
+    /// ```
+    ///
+    /// Only the `__next__` call is protected, so an exception from the body,
+    /// or one other than `StopIteration` from `__next__`, propagates.
+    fn protocol_for_statement(
+        &mut self,
+        for_stmt: &StmtFor,
+        iterable: smelt_hir::ExprId,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        let span = self.span(for_stmt.range);
+        let iterator_value = self.protocol_method_expr(
+            ProtocolMethodCall {
+                receiver: iterable,
+                method: "__iter__".to_owned(),
+                args: Vec::new(),
+            },
+            body,
+        )?;
+        let iterator_ty = Self::expr_ty(body, iterator_value);
+        if self.class_method_dispatch(iterator_ty, "__next__").is_none() {
+            return Err(SmeltError::unsupported(
+                self.span(for_stmt.iter.range()),
+                "`__iter__` must return an object whose class defines `__next__`",
+            ));
+        }
+        let iterator = body.push_local(self.synthetic_local("__smelt_iterator", iterator_ty, false, span));
+        let iterator_pat = body.push_pattern(HirPattern::Binding(iterator));
+        body.push_stmt_to_block(
+            block,
+            HirStmt::Let { pat: iterator_pat, ty: iterator_ty, value: Some(iterator_value) },
+        );
+
+        let bool_ty = self.intern_type(Type::Bool);
+        let string_ty = self.intern_type(Type::String);
+        let loop_block = body.push_block(span);
+        let iterator_read = body.push_expr(HirExpr { kind: ExprKind::Local(iterator), ty: iterator_ty, span });
+        let next_value = self.protocol_method_expr(
+            ProtocolMethodCall { receiver: iterator_read, method: "__next__".to_owned(), args: Vec::new() },
+            body,
+        )?;
+        let item_ty = Self::expr_ty(body, next_value);
+        let item = body.push_local(self.synthetic_local("__smelt_item", item_ty, true, span));
+        let item_pat = body.push_pattern(HirPattern::Binding(item));
+        body.push_stmt_to_block(loop_block, HirStmt::Let { pat: item_pat, ty: item_ty, value: None });
+        let stop = body.push_local(self.synthetic_local("__smelt_stop", bool_ty, true, span));
+        let stop_pat = body.push_pattern(HirPattern::Binding(stop));
+        let false_expr = body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::Bool(false)), ty: bool_ty, span });
+        body.push_stmt_to_block(loop_block, HirStmt::Let { pat: stop_pat, ty: bool_ty, value: Some(false_expr) });
+
+        // try: item = iterator.__next__()
+        let try_block = body.push_block(span);
+        let item_target = body.push_expr(HirExpr { kind: ExprKind::Local(item), ty: item_ty, span });
+        body.push_stmt_to_block(try_block, HirStmt::Assign { target: item_target, value: next_value });
+        // except e: if e == "StopIteration": stop = True else: raise e
+        let caught = body.push_local(self.synthetic_local("__smelt_caught", string_ty, false, span));
+        let catch_block = body.push_block(span);
+        let caught_read = body.push_expr(HirExpr { kind: ExprKind::Local(caught), ty: string_ty, span });
+        let stop_message = body.push_expr(HirExpr {
+            kind: ExprKind::Literal(Literal::String("StopIteration".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let is_stop = body.push_expr(HirExpr {
+            kind: ExprKind::BinOp { op: BinOp::Eq, lhs: caught_read, rhs: stop_message },
+            ty: bool_ty,
+            span,
+        });
+        let stop_block = body.push_block(span);
+        let stop_target = body.push_expr(HirExpr { kind: ExprKind::Local(stop), ty: bool_ty, span });
+        let true_expr = body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::Bool(true)), ty: bool_ty, span });
+        body.push_stmt_to_block(stop_block, HirStmt::Assign { target: stop_target, value: true_expr });
+        let rethrow_block = body.push_block(span);
+        let rethrown = body.push_expr(HirExpr { kind: ExprKind::Local(caught), ty: string_ty, span });
+        body.push_stmt_to_block(rethrow_block, HirStmt::Throw(rethrown));
+        body.push_stmt_to_block(
+            catch_block,
+            HirStmt::If { cond: is_stop, then_block: stop_block, else_block: Some(rethrow_block) },
+        );
+        body.push_stmt_to_block(
+            loop_block,
+            HirStmt::TryCatch {
+                body: try_block,
+                catch_binding: Some(caught),
+                catch_body: Some(catch_block),
+                finally_body: None,
+            },
+        );
+        // if stop: break
+        let break_block = body.push_block(span);
+        body.push_stmt_to_block(break_block, HirStmt::Break);
+        let stop_read = body.push_expr(HirExpr { kind: ExprKind::Local(stop), ty: bool_ty, span });
+        body.push_stmt_to_block(
+            loop_block,
+            HirStmt::If { cond: stop_read, then_block: break_block, else_block: None },
+        );
+        // target = item; body
+        let item_read = body.push_expr(HirExpr { kind: ExprKind::Local(item), ty: item_ty, span });
+        let pat = self.binding_pattern_from_target(&for_stmt.target, body, Some(item_ty))?;
+        body.push_stmt_to_block(loop_block, HirStmt::Let { pat, ty: item_ty, value: Some(item_read) });
+        for stmt in &for_stmt.body {
+            self.statement_in_block(stmt, body, loop_block)?;
+        }
+        let true_cond = body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::Bool(true)), ty: bool_ty, span });
+        body.push_stmt_to_block(block, HirStmt::While { cond: true_cond, body: loop_block });
+        Ok(())
+    }
+
+    /// The declaration of a local the frontend synthesizes, named `name`.
+    fn synthetic_local(&mut self, name: &str, ty: TypeId, mutable: bool, span: Span) -> LocalDecl {
+        LocalDecl { name: Some(self.intern_name(name)), ty, mutable, span }
     }
 
     // Iterator protocol helpers continue in `match.rs`.

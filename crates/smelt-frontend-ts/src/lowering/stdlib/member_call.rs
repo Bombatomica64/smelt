@@ -1003,7 +1003,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
         let callee_ty = Self::expr_ty(body, callee);
-        let has_spread = self.call_has_spread_arguments_or_source_spread(call);
+        let has_spread = Self::call_has_spread_arguments(call);
         // A spread call dispatches through the runtime `SmeltUnknown` call ABI
         // whenever *either* the callee field value or the receiving object is
         // erased to `SmeltUnknown` at codegen. That ABI flattens the whole

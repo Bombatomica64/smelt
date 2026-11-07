@@ -37,6 +37,11 @@ pub struct PythonSpecializationRequest {
     pub python_executable: PathBuf,
     /// Import root for the resolved source graph.
     pub project_root: PathBuf,
+    /// Directories the guest imports installed packages from, searched after
+    /// `project_root` in this order. The guest runs `-I -S`, so no `site`
+    /// directory is on its path unless named here. Each must lie inside a
+    /// read-only root of the sandbox policy.
+    pub import_paths: Vec<PathBuf>,
     /// Candidate modules in dependency/import order.
     pub modules: Vec<PythonModule>,
     /// Precomputed invalidation hashes.
@@ -169,6 +174,7 @@ impl<B: SandboxBackend> PythonSpecializer<B> {
             smelt_version: &request.smelt_version,
             schema_version: MANIFEST_SCHEMA_VERSION,
             project_root: &request.project_root,
+            import_paths: &request.import_paths,
             modules: &request.modules,
             hashes: &request.hashes,
             sandbox_policy: &manifest_policy,
@@ -208,6 +214,8 @@ struct PythonGuestInput<'a> {
     schema_version: u32,
     /// Canonical source import root.
     project_root: &'a Path,
+    /// Installed-package directories, after `project_root`.
+    import_paths: &'a [PathBuf],
     /// Candidate modules in import order.
     modules: &'a [PythonModule],
     /// Cache invalidation hashes.
@@ -248,6 +256,19 @@ fn validate_python_request(
         return Err(PythonSpecializationError::InvalidRequest(
             "at least one candidate module is required".to_owned(),
         ));
+    }
+    for path in &request.import_paths {
+        let readable = request
+            .sandbox_policy
+            .read_only_roots
+            .iter()
+            .any(|root| path.starts_with(root));
+        if !path.is_dir() || !readable {
+            return Err(PythonSpecializationError::InvalidRequest(format!(
+                "import path '{}' must be a directory inside a read-only sandbox root",
+                path.display()
+            )));
+        }
     }
     let canonical_root = fs::canonicalize(&request.project_root)?;
     for module in &request.modules {
@@ -429,6 +450,185 @@ mod tests {
         Ok(())
     }
 
+    /// Runs the guest unsandboxed over one module `fixture` with `source`, plus
+    /// `extra` modules placed in a directory passed as an import path.
+    fn run_source_guest(
+        python: &Path,
+        source: &str,
+        extra: &[(&str, &str)],
+    ) -> Result<std::process::Output, String> {
+        let scratch = ScratchDirectory::create().map_err(|error| error.to_string())?;
+        let project = scratch.path().join("project");
+        let installed = scratch.path().join("site");
+        fs::create_dir(&project).map_err(|error| error.to_string())?;
+        fs::create_dir(&installed).map_err(|error| error.to_string())?;
+        for (name, text) in extra {
+            fs::write(installed.join(format!("{name}.py")), text).map_err(|error| error.to_string())?;
+        }
+        let module_path = project.join("fixture.py");
+        fs::write(&module_path, source).map_err(|error| error.to_string())?;
+        let policy = fixture_policy(&project, scratch.path());
+        let hashes = fixture_hashes();
+        let modules = vec![PythonModule { name: "fixture".to_owned(), path: module_path }];
+        let import_paths = vec![installed];
+        let input = PythonGuestInput {
+            smelt_version: "test",
+            schema_version: MANIFEST_SCHEMA_VERSION,
+            project_root: &project,
+            import_paths: &import_paths,
+            modules: &modules,
+            hashes: &hashes,
+            sandbox_policy: &policy,
+        };
+        let request_path = scratch.path().join("request.json");
+        write_if_changed(&request_path, &serde_json::to_vec(&input).map_err(|error| error.to_string())?)
+            .map_err(|error| error.to_string())?;
+        std::process::Command::new(python)
+            .args(["-I", "-S", "-c"])
+            .arg(PYTHON_GUEST)
+            .arg(&request_path)
+            .output()
+            .map_err(|error| error.to_string())
+    }
+
+    /// The binding names of the one module in a guest's manifest output.
+    fn binding_names(output: &std::process::Output) -> Result<Vec<String>, String> {
+        if !output.status.success() {
+            return Err(format!("guest failed: {}", String::from_utf8_lossy(&output.stderr)));
+        }
+        let manifest = decode_manifest(&output.stdout).map_err(|error| error.to_string())?;
+        Ok(manifest
+            .modules
+            .iter()
+            .flat_map(|module| &module.definitions)
+            .map(|definition| definition.binding_name.clone())
+            .collect())
+    }
+
+    /// A stdlib module that reads the clock as it loads still imports, and so
+    /// does a class subclassing a guarded one (as `ssl` does); an instance imported from outside the graph is not
+    /// this module's definition; an import path makes a package importable.
+    #[test]
+    fn guest_imports_logging_guarded_subclasses_and_import_paths() -> Result<(), String> {
+        let Some(python) = discovered_python() else {
+            return missing_prerequisite("guest_imports_logging_guarded_subclasses_and_import_paths", "python3 interpreter");
+        };
+        let source = "import logging\nimport socket\nclass _Connection(socket.socket):\n    pass\nfrom logging import root\nfrom extlib import LIMIT\nvalue: int = LIMIT\n";
+        let output = run_source_guest(&python, source, &[("extlib", "LIMIT = 7\n")])?;
+        let names = binding_names(&output)?;
+        if names.iter().any(|name| name == "value") && !names.iter().any(|name| name == "root") {
+            return Ok(());
+        }
+        Err(format!("expected `value` and no imported `root`, got {names:?}"))
+    }
+
+    /// Opening a socket at definition time stays rejected after the guard
+    /// became a class, directly or through a subclass.
+    #[test]
+    fn guest_still_rejects_sockets() -> Result<(), String> {
+        let Some(python) = discovered_python() else {
+            return missing_prerequisite("guest_still_rejects_sockets", "python3 interpreter");
+        };
+        for source in [
+            "import socket\nconnection = socket.socket()\n",
+            "import socket\nclass Mine(socket.socket):\n    pass\nconnection = Mine()\n",
+        ] {
+            let output = run_source_guest(&python, source, &[])?;
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if output.status.success() || !stderr.contains("'network'") {
+                return Err(format!("a socket was opened at definition time:\n{source}\n{stderr}"));
+            }
+        }
+        Ok(())
+    }
+
+    /// An import path outside every read-only root is refused before the guest
+    /// starts: the sandbox could not read it anyway.
+    #[test]
+    fn an_import_path_outside_the_read_only_roots_is_refused() -> Result<(), String> {
+        let scratch = ScratchDirectory::create().map_err(|error| error.to_string())?;
+        let project = scratch.path().join("project");
+        fs::create_dir(&project).map_err(|error| error.to_string())?;
+        let module_path = project.join("fixture.py");
+        fs::write(&module_path, "value: int = 7\n").map_err(|error| error.to_string())?;
+        let mut policy = fixture_policy(&project, scratch.path());
+        policy.read_only_roots = vec![project.display().to_string()];
+        let request = PythonSpecializationRequest {
+            smelt_version: "test".to_owned(),
+            python_executable: std::env::current_exe().map_err(|error| error.to_string())?,
+            project_root: project,
+            import_paths: vec![scratch.path().to_path_buf()],
+            modules: vec![PythonModule { name: "fixture".to_owned(), path: module_path }],
+            hashes: fixture_hashes(),
+            sandbox_policy: policy,
+        };
+        match validate_python_request(&request) {
+            Err(PythonSpecializationError::InvalidRequest(message)) if message.contains("import path") => Ok(()),
+            other => Err(format!("an unreadable import path was accepted: {other:?}")),
+        }
+    }
+
+    /// The OCI fallback runs the real guest in a container: the host's
+    /// interpreter is bound into a digest-pinned image, and the manifest comes
+    /// back as from the native sandbox.
+    #[test]
+    fn oci_fallback_runs_the_guest_in_a_container() -> Result<(), String> {
+        const TEST: &str = "oci_fallback_runs_the_guest_in_a_container";
+        let Some(python) = discovered_python() else {
+            return missing_prerequisite(TEST, "python3 interpreter");
+        };
+        let Some(docker) = crate::prereq::locate_executable("docker", &[]) else {
+            return missing_prerequisite(TEST, "docker");
+        };
+        let daemon = std::process::Command::new(&docker).arg("info").output();
+        if !daemon.is_ok_and(|output| output.status.success()) {
+            return missing_prerequisite(TEST, "a reachable docker daemon");
+        }
+        let pulled = std::process::Command::new(&docker).args(["pull", "-q", OCI_TEST_IMAGE]).output();
+        if !pulled.is_ok_and(|output| output.status.success()) {
+            return missing_prerequisite(TEST, "the pinned test image (docker pull)");
+        }
+        let backend = crate::OciSandboxBackend::new(docker, OCI_TEST_IMAGE.to_owned());
+        let scratch = ScratchDirectory::create().map_err(|error| error.to_string())?;
+        let project = scratch.path().join("oci-project");
+        fs::create_dir(&project).map_err(|error| error.to_string())?;
+        let module_path = project.join("fixture.py");
+        fs::write(&module_path, "value: int = 7\n").map_err(|error| error.to_string())?;
+        let mut policy = fixture_policy(&project, scratch.path());
+        policy.read_only_roots = runtime_roots(&project, &python);
+        policy.writable_roots.clear();
+        policy.memory_bytes = 512 * 1024 * 1024;
+        // Container start-up is part of the guest's time on a busy runner.
+        policy.wall_time_ms = 30_000;
+        let request = PythonSpecializationRequest {
+            smelt_version: "test".to_owned(),
+            python_executable: python,
+            project_root: project,
+            import_paths: Vec::new(),
+            modules: vec![PythonModule { name: "fixture".to_owned(), path: module_path }],
+            hashes: fixture_hashes(),
+            sandbox_policy: policy,
+        };
+        let manifest = PythonSpecializer::new(Box::new(backend))
+            .specialize(&request)
+            .map_err(|error| error.to_string())?;
+        let names = manifest
+            .modules
+            .iter()
+            .flat_map(|module| &module.definitions)
+            .map(|definition| definition.binding_name.as_str())
+            .collect::<Vec<_>>();
+        if manifest.sandbox_policy.backend == "oci-container" && names == ["value"] {
+            return Ok(());
+        }
+        Err(format!("backend {}, definitions {names:?}", manifest.sandbox_policy.backend))
+    }
+
+    /// Ubuntu 24.04, pinned: a merged-`/usr` image the host's interpreter is
+    /// bound into; nothing of its own runs.
+    const OCI_TEST_IMAGE: &str =
+        "ubuntu@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852";
+
     #[test]
     fn sandboxed_specializer_runs_when_backend_is_available() -> Result<(), String> {
         const TEST: &str = "sandboxed_specializer_runs_when_backend_is_available";
@@ -451,6 +651,7 @@ mod tests {
             smelt_version: "test".to_owned(),
             python_executable: python,
             project_root: project,
+            import_paths: Vec::new(),
             modules: vec![PythonModule {
                 name: "fixture".to_owned(),
                 path: module_path,
@@ -522,6 +723,7 @@ mod tests {
             smelt_version: "test",
             schema_version: MANIFEST_SCHEMA_VERSION,
             project_root: &project,
+            import_paths: &[],
             modules: &modules,
             hashes: &hashes,
             sandbox_policy: &policy,
@@ -561,6 +763,7 @@ mod tests {
             smelt_version: "test",
             schema_version: MANIFEST_SCHEMA_VERSION,
             project_root: &project,
+            import_paths: &[],
             modules: &modules,
             hashes: &hashes,
             sandbox_policy: &policy,
@@ -613,6 +816,7 @@ mod tests {
             smelt_version: "test",
             schema_version: MANIFEST_SCHEMA_VERSION,
             project_root: &project,
+            import_paths: &[],
             modules: &modules,
             hashes: &hashes,
             sandbox_policy: &policy,

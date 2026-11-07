@@ -102,7 +102,7 @@ pub use expr::{
     ByteArrayOp,
     BlobOp,
     StringNormalizeForm,
-    StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp,
+    StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringSliceKind, StringTrimSide, UnaryOp,
     UnknownKind, UriTranscodeOp, UrlField, UrlOp, bin_op_text,
 };
 pub use erasure::{

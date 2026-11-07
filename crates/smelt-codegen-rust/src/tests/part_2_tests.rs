@@ -59,7 +59,7 @@ function parseValue(value: any): number {
         "expected erased input to pass through JavaScript string coercion: {program}"
     );
     assert!(
-        program.contains(".parse::<f64>().unwrap_or(f64::NAN)"),
+        program.contains("smelt_parse_float(&"),
         "expected the coerced string to feed parseFloat: {program}"
     );
 }
@@ -72,7 +72,8 @@ const value = Number.parseInt("42");
 "#,
     );
 
-    assert!(source.contains(".parse::<i64>().map(|value| value as f64).unwrap_or(f64::NAN)"));
+    assert!(source.contains("fn smelt_parse_int(text: &str, radix: f64) -> f64"), "{source}");
+    assert!(source.contains("smelt_parse_int(&\"42\".to_owned(), (0 as f64).trunc())"), "{source}");
 }
 
 #[test]
@@ -172,8 +173,8 @@ const floatValue = parseFloat("42.5");
 "#,
     );
 
-    assert!(source.contains(".parse::<i64>().map(|value| value as f64).unwrap_or(f64::NAN)"));
-    assert!(source.contains(".parse::<f64>().unwrap_or(f64::NAN)"));
+    assert!(source.contains("smelt_parse_int(&\"42\".to_owned(), (0 as f64).trunc())"), "{source}");
+    assert!(source.contains("smelt_parse_float(&\"42.5\".to_owned())"), "{source}");
 }
 
 #[test]
@@ -192,8 +193,8 @@ export function leadingNumber(pattern: RegExp, text: string): number {
 ",
     );
 
-    assert!(source.contains("Some(smelt_present) => { let smelt_src = smelt_present;"));
-    assert!(source.contains("None => { let smelt_src = \"undefined\".to_owned();"));
+    assert!(source.contains("Some(smelt_present) => smelt_parse_int(&smelt_present, "), "{source}");
+    assert!(source.contains("None => smelt_parse_int(&\"undefined\".to_owned(), "), "{source}");
 }
 
 #[test]
@@ -532,7 +533,7 @@ last_text: str = word[-3:]
     assert!(source.contains(".cloned().collect::<Vec<_>>()"));
     assert!(source.contains(".chars().skip(0usize).take("));
     assert!(source.matches("if smelt_index < 0").count() >= 2);
-    assert!(source.contains(".collect::<String>();"));
+    assert!(source.contains(".collect::<String>() };"), "{source}");
 }
 
 #[test]

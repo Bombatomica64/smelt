@@ -102,7 +102,7 @@ const letters = word.length;
     );
 
     assert!(source.contains(".len() as f64;"));
-    assert!(source.contains(".chars().count() as f64;"));
+    assert!(source.contains("smelt_utf16_len(&word) as f64;"), "{source}");
 }
 
 #[test]
@@ -1017,11 +1017,11 @@ for (let ch: string of word) {
     // shapes are asserted together because they are the two halves of the same
     // rule and must not drift into each other.
     assert!(source.contains("let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }"));
-    assert!(source.contains(".chars().nth({ let smelt_normalized = 0.0 as i64;"));
+    assert!(source.contains("smelt_utf16_char_at(&word, { let smelt_normalized = 0.0 as i64;"), "{source}");
     // The `for...of` index counter is proven a `usize` (integer range
     // analysis), so the string length is read as one, with no `f64` cast.
-    assert!(source.contains(".chars().count();"), "{source}");
-    assert!(!source.contains(".chars().count() as f64"), "{source}");
+    assert!(source.contains("smelt_utf16_len(&word);"), "{source}");
+    assert!(!source.contains("smelt_utf16_len(&word) as f64"), "{source}");
     assert!(source.contains("let smelt_index = _smelt_tmp_"));
 }
 
@@ -1138,8 +1138,8 @@ const bounded = word.lastIndexOf("t", 2);
 
     assert!(source.contains(".find(&"));
     assert!(source.contains(".rfind(&"));
-    assert!(source.contains(".map_or(-1.0"));
-    assert!(source.contains("let smelt_end_char = smelt_from.saturating_add("));
+    assert!(source.contains(".map_or(-1.0, |idx| smelt_utf16_index_of_byte(&smelt_haystack, idx) as f64)"), "{source}");
+    assert!(source.contains("let smelt_end_index = smelt_from.saturating_add(smelt_utf16_len(&smelt_needle));"), "{source}");
 }
 
 #[test]
@@ -1220,7 +1220,7 @@ const paddedEnd = word.padEnd(3);
 "#,
     );
 
-    assert!(source.contains("pad.chars().cycle().take(needed).collect()"));
+    assert!(source.contains("smelt_utf16_slice(&pad.repeat(needed.div_ceil(smelt_utf16_len(pad))), 0, needed)"), "{source}");
     assert!(source.contains("format!(\"{}{}\", padding, value)"));
     assert!(source.contains("format!(\"{}{}\", value, padding)"));
 }
@@ -1235,14 +1235,13 @@ const code = word.charCodeAt(2);
 "#,
     );
 
+    // Both read UTF-16 code units, a negative index reading nothing.
     assert!(
-        source.contains(".chars().nth(1.0 as usize).map(|ch| ch.to_string()).unwrap_or_default();")
+        source.contains("{ let smelt_index = 1.0 as f64; if smelt_index < 0.0 { None } else { smelt_utf16_char_at(&word, smelt_index as usize) } }.unwrap_or_default();"),
+        "{source}"
     );
-    // `charCodeAt` reads the byte directly while the prefix through the index
-    // is ASCII and otherwise decodes exactly as before; both arms are emitted.
-    assert!(source.contains("Some(smelt_prefix) if smelt_prefix.is_ascii() => f64::from(smelt_prefix[smelt_index])"));
-    assert!(source.contains("smelt_text.chars().nth(smelt_index).map_or(f64::NAN, |ch| ch as u32 as f64)"));
-    assert!(source.contains("(&word, 2.0 as usize);"));
+    assert!(source.contains("smelt_utf16_unit_at(smelt_text, smelt_index).map_or(f64::NAN, f64::from)"), "{source}");
+    assert!(source.contains("(&word, 2.0 as f64);"), "{source}");
 }
 
 #[test]
@@ -1679,7 +1678,7 @@ export function measure(str: string, chars?: string | string[]): number {
     );
     assert!(
         source.contains("into_smelt_unknown()")
-            && source.contains("SmeltUnknown::String(value) => value.chars().count()"),
+            && source.contains("SmeltUnknown::String(value) => smelt_utf16_len(&value)"),
         "optional union `.length` did not inspect the erased value: {source}"
     );
 }

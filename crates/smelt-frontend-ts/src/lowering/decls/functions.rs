@@ -534,7 +534,7 @@ impl ModuleBuilder<'_> {
                         function.params.items.len()
                     });
                 for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
-                    if this.is_super_call_statement(statement) {
+                    if Self::is_super_call_statement(statement) {
                         continue;
                     }
                     if let Err(error) = this.statement(statement, &mut body) {
@@ -3850,7 +3850,7 @@ impl ModuleBuilder<'_> {
                         && function_body
                             .statements
                             .iter()
-                            .any(|statement| this.is_super_call_statement(statement));
+                            .any(|statement| Self::is_super_call_statement(statement));
                     if is_constructor && !defer_own_initializers {
                         this.emit_class_field_initializers(
                             this_local,
@@ -3914,7 +3914,7 @@ impl ModuleBuilder<'_> {
                         // `super(...)` has no callee to defer to once inheritance is flattened
                         // into the derived struct, so it lowers to the base's initialization
                         // applied to `this` instead of running as an ordinary call.
-                        if this.is_super_call_statement(statement) {
+                        if Self::is_super_call_statement(statement) {
                             if let Err(error) = this.lower_super_call_statement(
                                 statement,
                                 this_local,
@@ -3999,21 +3999,11 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a constructor statement is a bare `super(...)` call.
-    pub(in crate::lowering) fn is_super_call_statement(&self, statement: &Statement<'_>) -> bool {
+    pub(in crate::lowering) fn is_super_call_statement(statement: &Statement<'_>) -> bool {
         let Statement::ExpressionStatement(statement) = statement else {
             return false;
         };
-        if self
-            .source
-            .get(
-                usize::try_from(statement.span.start).unwrap_or(usize::MAX)
-                    ..usize::try_from(statement.span.end).unwrap_or(usize::MAX),
-            )
-            .is_some_and(|text| text.trim_start().starts_with("super("))
-        {
-            return true;
-        }
-        let Expression::CallExpression(call) = &statement.expression else {
+        let Expression::CallExpression(call) = statement.expression.without_parentheses() else {
             return false;
         };
         matches!(call.callee, Expression::Super(_))

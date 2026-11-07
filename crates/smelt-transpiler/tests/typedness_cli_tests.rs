@@ -109,6 +109,78 @@ fn ratchet_rejects_less_typed_programs() -> TestResult {
     ensure(ok, stderr)
 }
 
+/// A baseline program that stops being measured fails the gate, survives
+/// `--update-baseline`, and only `--retire-program` lets it go.
+#[test]
+fn ratchet_rejects_a_vanished_program() -> TestResult {
+    let project = TempProject::new()?;
+    let dir = project.path();
+    fs::create_dir_all(dir)?;
+    let source = "const n: number = 2;\nconsole.log(n);\n";
+    fs::write(dir.join("kept.ts"), source)?;
+    fs::write(dir.join("gone.ts"), source)?;
+    let baseline = ["--baseline", "base.json"];
+    let (ok, _, stderr) = run(
+        dir,
+        &["typedness-report", "kept.ts", "gone.ts", baseline[0], baseline[1], "--update-baseline"],
+    )?;
+    ensure(ok, stderr)?;
+
+    let gate = ["typedness-report", "kept.ts", baseline[0], baseline[1], "--fail-on-regression"];
+    let (ok, _, stderr) = run(dir, &gate)?;
+    ensure(!ok, "a vanished program passed the ratchet")?;
+    ensure(stderr.contains("gone.ts"), stderr.clone())?;
+
+    let (ok, _, stderr) =
+        run(dir, &["typedness-report", "kept.ts", baseline[0], baseline[1], "--update-baseline"])?;
+    ensure(ok, stderr)?;
+    let (ok, _, _) = run(dir, &gate)?;
+    ensure(!ok, "--update-baseline erased a vanished program")?;
+
+    let retire = ["--retire-program", "gone.ts"];
+    let (ok, _, stderr) = run(dir, &[&gate[..], &retire[..]].concat())?;
+    ensure(ok, stderr)?;
+    let (ok, _, stderr) = run(
+        dir,
+        &["typedness-report", "kept.ts", baseline[0], baseline[1], "--update-baseline", retire[0], retire[1]],
+    )?;
+    ensure(ok, stderr)?;
+    let (ok, _, stderr) = run(dir, &gate)?;
+    ensure(ok, stderr)
+}
+
+/// The `SmeltUnknown` gate fails on a scan that cannot judge its baseline: no
+/// file at all, or far fewer files than the baseline covered. Neither scan
+/// rewrites the baseline, and a scan of the same corpus still passes.
+#[test]
+fn unknown_gate_rejects_a_scan_that_lost_its_corpus() -> TestResult {
+    let project = TempProject::new()?;
+    let dir = project.path();
+    fs::create_dir_all(dir.join("src"))?;
+    let snapshot = "{\"files_scanned\":5,\"total\":0,\"category_totals\":{},\"shapes\":[]}";
+    fs::write(dir.join("base.json"), snapshot)?;
+    let gate = ["smelt-unknown-report", "src", "--baseline", "base.json", "--fail-on-regression"];
+
+    let (ok, _, stderr) = run(dir, &gate)?;
+    ensure(!ok, "a scan of no file passed the gate")?;
+    ensure(stderr.contains("no generated Rust file"), stderr.clone())?;
+
+    fs::write(dir.join("src/one.rs"), "fn main() {}\n")?;
+    let (ok, _, stderr) = run(dir, &gate)?;
+    ensure(!ok, "a scan of one file in five passed the gate")?;
+    ensure(stderr.contains("drop of more than"), stderr.clone())?;
+    let (ok, _, stderr) =
+        run(dir, &["smelt-unknown-report", "src", "--baseline", "base.json", "--update-baseline"])?;
+    ensure(ok, stderr)?;
+    ensure(fs::read_to_string(dir.join("base.json"))? == snapshot, "a lost corpus was snapshotted")?;
+
+    for name in ["two", "three", "four", "five"] {
+        fs::write(dir.join("src").join(format!("{name}.rs")), "fn main() {}\n")?;
+    }
+    let (ok, _, stderr) = run(dir, &gate)?;
+    ensure(ok, stderr)
+}
+
 /// `smelt build` writes a sidecar the report reads from the output directory.
 #[test]
 fn build_writes_a_typedness_sidecar() -> TestResult {

@@ -27,10 +27,14 @@
 //! A program is *no less typed* than its baseline record when, for every kind
 //! (values, reads, calls), its erased count did not rise. The corpus total is
 //! judged the same way. A program with no baseline record is not judged; a
-//! program the baseline measured that is now refused is a regression. With
+//! program the baseline measured that is now refused is a regression, and so
+//! is a baseline program that was not measured at all: a program that vanished
+//! from the inputs left the ratchet without anyone deciding it should. With
 //! `--update-baseline`, the baseline is rewritten taking each program's new
 //! record only when it is no less typed, so a record whose erased count rose
-//! can never be snapshotted silently.
+//! can never be snapshotted silently, and a vanished program keeps its record.
+//! A program that is gone on purpose is named with `--retire-program`, which
+//! stops judging it and, with `--update-baseline`, removes its record.
 //!
 //! The typed share `(concrete + generic) / total` is still reported, but it no
 //! longer judges. Old requirement (Bun's `isNoLessTyped`): erased may not rise
@@ -44,8 +48,7 @@
 //! A value that loses its type moves to erased and is still caught.
 
 use std::{
-    collections::BTreeMap,
-    fmt::Write as _,
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
 };
 
@@ -55,7 +58,7 @@ use smelt_codegen_rust::{KindCounts, TypednessCounts};
 use crate::{
     CliResult, config_parser, lowering,
     pipeline,
-    report::{self, GatedOutcome, ReportFormat},
+    report::{self, GatedOutcome, ReportFormat, push_fmt},
     source_files::{exclusion_base, manifest_relative_path},
 };
 
@@ -103,6 +106,8 @@ pub(crate) struct TypednessReportOptions<'a> {
     pub(crate) baseline: Option<PathBuf>,
     /// Rewrite the baseline with every record that is no less typed.
     pub(crate) update_baseline: bool,
+    /// Baseline programs that are gone on purpose.
+    pub(crate) retired: &'a [String],
 }
 
 /// One thing that got less typed.
@@ -130,12 +135,12 @@ pub(crate) fn typedness_report(options: &TypednessReportOptions<'_>) -> CliResul
     };
     let worsened = baseline
         .as_ref()
-        .map(|baseline| compare(&measured, baseline))
+        .map(|baseline| compare(&measured, baseline, options.retired))
         .unwrap_or_default();
     if options.update_baseline
         && let Some(path) = &options.baseline
     {
-        let updated = updated_baseline(&measured, baseline.as_ref());
+        let updated = updated_baseline(&measured, baseline.as_ref(), options.retired);
         write_report_if_changed(path, &updated)?;
     }
     let rendered = match options.format {
@@ -221,7 +226,7 @@ fn regression_message(worsened: &[Worsening]) -> Option<String> {
         worsened.len()
     );
     for worsening in worsened {
-        let _ = write!(message, "\n  {}: {}", worsening.program, worsening.detail);
+        push_fmt(&mut message, format_args!("\n  {}: {}", worsening.program, worsening.detail));
     }
     message.push_str(
         "\nMake the program at least as typed again, or (only for a documented, \
@@ -265,9 +270,36 @@ pub(crate) fn worsening(now: &TypednessCounts, then: &TypednessCounts) -> Vec<St
         .collect()
 }
 
-/// Compare a report with its baseline: every judged program and the total.
-pub(crate) fn compare(report: &TypednessReport, baseline: &TypednessReport) -> Vec<Worsening> {
+/// Baseline programs absent from `report` and not named in `retired`.
+fn vanished<'baseline>(
+    report: &TypednessReport,
+    baseline: &'baseline TypednessReport,
+    retired: &[String],
+) -> impl Iterator<Item = (&'baseline String, &'baseline ProgramRecord)> {
+    let measured = report.programs.keys().collect::<BTreeSet<_>>();
+    let retired = retired.iter().collect::<BTreeSet<_>>();
+    baseline
+        .programs
+        .iter()
+        .filter(move |(program, _)| !measured.contains(program) && !retired.contains(program))
+}
+
+/// Compare a report with its baseline: every judged program, every baseline
+/// program that vanished without being retired, and the total.
+pub(crate) fn compare(
+    report: &TypednessReport,
+    baseline: &TypednessReport,
+    retired: &[String],
+) -> Vec<Worsening> {
     let mut worsened = Vec::new();
+    for (program, _) in vanished(report, baseline, retired) {
+        worsened.push(Worsening {
+            program: program.clone(),
+            detail: "in the baseline but no longer measured (retire it with --retire-program if \
+                     it is gone on purpose)"
+                .to_owned(),
+        });
+    }
     for (program, record) in &report.programs {
         let Some(then) = baseline.programs.get(program) else {
             continue;
@@ -299,12 +331,14 @@ pub(crate) fn compare(report: &TypednessReport, baseline: &TypednessReport) -> V
 
 /// The baseline rewritten with every record that is no less typed (Bun's
 /// `AOT_PROGRAMS_UPDATE=1`): a worsened program keeps its old record, a new
-/// program gets one, a program no longer measured is dropped.
+/// program gets one, a program no longer measured keeps its record until it is
+/// named in `retired`, which alone removes one.
 pub(crate) fn updated_baseline(
     report: &TypednessReport,
     baseline: Option<&TypednessReport>,
+    retired: &[String],
 ) -> TypednessReport {
-    let programs = report
+    let mut programs: BTreeMap<String, ProgramRecord> = report
         .programs
         .iter()
         .map(|(program, record)| {
@@ -318,6 +352,11 @@ pub(crate) fn updated_baseline(
             (program.clone(), kept.copied().unwrap_or(*record))
         })
         .collect();
+    if let Some(baseline) = baseline {
+        programs.extend(
+            vanished(report, baseline, retired).map(|(program, record)| (program.clone(), *record)),
+        );
+    }
     TypednessReport::from_programs(programs)
 }
 
@@ -333,49 +372,73 @@ fn render_markdown(
     worsened: &[Worsening],
 ) -> String {
     let mut out = String::new();
-    let _ = writeln!(out, "# Typedness report");
-    let _ = writeln!(out);
+    push_fmt(&mut out, format_args!("# Typedness report\n"));
+    out.push('\n');
     let measured = report.programs.values().filter(|record| record.is_some()).count();
-    let _ = writeln!(
-        out,
-        "- Programs: {} ({measured} measured, {} refused)",
-        report.programs.len(),
-        report.programs.len().saturating_sub(measured)
+    push_fmt(
+        &mut out,
+        format_args!(
+            "- Programs: {} ({measured} measured, {} refused)\n",
+            report.programs.len(),
+            report.programs.len().saturating_sub(measured)
+        ),
     );
-    let _ = writeln!(out);
-    let _ = writeln!(out, "| Kind | Concrete | Generic | Erased | Typed share |");
-    let _ = writeln!(out, "| --- | ---: | ---: | ---: | ---: |");
+    out.push('\n');
+    push_fmt(&mut out, format_args!("| Kind | Concrete | Generic | Erased | Typed share |\n"));
+    push_fmt(&mut out, format_args!("| --- | ---: | ---: | ---: | ---: |\n"));
     for (kind, counts) in kinds(&report.total) {
-        let _ = writeln!(
-            out,
-            "| {kind} | {} | {} | {} | {} |",
-            counts.concrete,
-            counts.generic,
-            counts.erased,
-            share(counts)
+        push_fmt(
+            &mut out,
+            format_args!(
+                "| {kind} | {} | {} | {} | {} |\n",
+                counts.concrete,
+                counts.generic,
+                counts.erased,
+                share(counts)
+            ),
         );
     }
-    let _ = writeln!(out);
+    out.push('\n');
     if let Some(baseline) = baseline {
-        let _ = writeln!(out, "## Change vs baseline");
-        let _ = writeln!(out);
-        let _ = writeln!(out, "| Kind | Baseline share | Current share | Erased delta |");
-        let _ = writeln!(out, "| --- | ---: | ---: | ---: |");
+        push_fmt(&mut out, format_args!("## Change vs baseline\n"));
+        out.push('\n');
+        push_fmt(
+            &mut out,
+            format_args!(
+                "| Kind | Baseline share | Current share | Erased delta |\n"
+            ),
+        );
+        push_fmt(&mut out, format_args!("| --- | ---: | ---: | ---: |\n"));
         for ((kind, now), (_, then)) in kinds(&report.total).into_iter().zip(kinds(&baseline.total)) {
             let delta = i128::from(now.erased as u64) - i128::from(then.erased as u64);
-            let _ = writeln!(out, "| {kind} | {} | {} | {delta:+} |", share(then), share(now));
+            push_fmt(
+                &mut out,
+                format_args!(
+                    "| {kind} | {} | {} | {delta:+} |\n", share(then), share(now)
+                ),
+            );
         }
-        let _ = writeln!(out);
+        out.push('\n');
         if worsened.is_empty() {
-            let _ = writeln!(out, "No program became less typed than its baseline record.");
+            push_fmt(
+                &mut out,
+                format_args!(
+                    "No program became less typed than its baseline record.\n"
+                ),
+            );
         } else {
-            let _ = writeln!(out, "**Less typed than the baseline:**");
-            let _ = writeln!(out);
+            push_fmt(&mut out, format_args!("**Less typed than the baseline:**\n"));
+            out.push('\n');
             for worsening in worsened {
-                let _ = writeln!(out, "- `{}`: {}", worsening.program, worsening.detail);
+                push_fmt(
+                    &mut out,
+                    format_args!(
+                        "- `{}`: {}\n", worsening.program, worsening.detail
+                    ),
+                );
             }
         }
-        let _ = writeln!(out);
+        out.push('\n');
     }
     out
 }
@@ -429,8 +492,34 @@ mod tests {
             "p.ts".to_owned(),
             Some(counts(1, 0, 2)),
         )]));
-        assert_eq!(compare(&report, &baseline), Vec::new());
-        assert_eq!(updated_baseline(&report, Some(&baseline)).programs["p.ts"], Some(counts(1, 0, 2)));
+        assert_eq!(compare(&report, &baseline, &[]), Vec::new());
+        assert_eq!(updated_baseline(&report, Some(&baseline), &[]).programs["p.ts"], Some(counts(1, 0, 2)));
+    }
+
+    /// A baseline program that is no longer measured fails the gate, and keeps
+    /// its record through `--update-baseline`, until it is retired by name.
+    #[test]
+    fn a_vanished_program_is_judged_and_never_erased_silently() {
+        let baseline = TypednessReport::from_programs(BTreeMap::from([
+            ("kept.ts".to_owned(), Some(counts(5, 0, 1))),
+            ("gone.ts".to_owned(), Some(counts(5, 0, 1))),
+        ]));
+        let report = TypednessReport::from_programs(BTreeMap::from([(
+            "kept.ts".to_owned(),
+            Some(counts(5, 0, 1)),
+        )]));
+
+        let worsened = compare(&report, &baseline, &[]);
+        assert_eq!(worsened.len(), 1, "{worsened:?}");
+        assert_eq!(worsened[0].program, "gone.ts");
+        let updated = updated_baseline(&report, Some(&baseline), &[]);
+        assert_eq!(updated.programs["gone.ts"], Some(counts(5, 0, 1)));
+        assert_eq!(updated.total, baseline.total, "a kept record still counts in the total");
+
+        let retired = ["gone.ts".to_owned()];
+        assert_eq!(compare(&report, &baseline, &retired), Vec::new());
+        let updated = updated_baseline(&report, Some(&baseline), &retired);
+        assert!(!updated.programs.contains_key("gone.ts"), "{updated:?}");
     }
 
     /// A generic value counts as typed, exactly like a concrete one.
@@ -453,14 +542,15 @@ mod tests {
             ("b.ts".to_owned(), None),
             ("new.ts".to_owned(), Some(counts(0, 0, 9))),
         ]));
-        let worsened = compare(&report, &baseline);
+        let worsened = compare(&report, &baseline, &[]);
         let programs = worsened.iter().map(|w| w.program.as_str()).collect::<Vec<_>>();
         assert!(programs.contains(&"a.ts"));
         assert!(programs.contains(&"b.ts"));
         assert!(!programs.contains(&"new.ts"));
     }
 
-    /// The update keeps a worsened program's old record and takes the rest.
+    /// The update keeps the old record of a worsened or vanished program and
+    /// takes the rest.
     #[test]
     fn update_never_snapshots_a_regression() {
         let baseline = TypednessReport::from_programs(BTreeMap::from([
@@ -473,10 +563,10 @@ mod tests {
             ("better.ts".to_owned(), Some(counts(6, 0, 0))),
             ("new.ts".to_owned(), Some(counts(2, 0, 0))),
         ]));
-        let updated = updated_baseline(&report, Some(&baseline));
+        let updated = updated_baseline(&report, Some(&baseline), &[]);
         assert_eq!(updated.programs["worse.ts"], Some(counts(5, 0, 1)));
         assert_eq!(updated.programs["better.ts"], Some(counts(6, 0, 0)));
         assert_eq!(updated.programs["new.ts"], Some(counts(2, 0, 0)));
-        assert!(!updated.programs.contains_key("gone.ts"));
+        assert_eq!(updated.programs["gone.ts"], Some(counts(1, 0, 0)));
     }
 }

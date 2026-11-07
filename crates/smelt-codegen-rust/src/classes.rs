@@ -569,7 +569,7 @@ pub(crate) fn own_virtual_slot_names(mir: &Mir, class: &MirClass) -> Vec<Symbol>
 /// typed-array family became concrete. Shared by the emitter and by the
 /// prelude's "does this crate need the carrier" question, which must agree.
 pub(crate) fn class_name_renders_erased(mir: &Mir, name: Symbol) -> bool {
-    if mir.symbols.get(name).is_some_and(|type_name| {
+    if !mir.has_class(name) && mir.symbols.get(name).is_some_and(|type_name| {
         smelt_stdlib::typescript_stdlib_class(type_name)
             .is_some_and(smelt_stdlib::StdlibClass::has_concrete_runtime_type)
     }) {

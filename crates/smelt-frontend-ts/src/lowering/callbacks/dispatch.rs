@@ -101,6 +101,20 @@ impl ModuleBuilder<'_> {
                 return_ty: param_ty,
             });
         }
+        // `parseInt` takes a radix as its second argument, so a caller that
+        // passes a second number (`xs.map(parseInt)` passes the index) parses
+        // in that radix, as JavaScript does.
+        if name == "parseInt"
+            && !self.builtin_call_identifier_is_shadowed(name)
+            && expected_param_tys.get(1).is_some_and(|&ty| {
+                matches!(self.ctx.krate.types.get(ty), Some(Type::Int | Type::Float))
+            })
+        {
+            let span = self.span(span_start, span_end);
+            let expr = self.builtin_parse_int_closure_expression(true, span, body);
+            let return_ty = self.closure_value_return_ty(expr, body);
+            return Ok(ClosureCallback { expr, return_ty });
+        }
         // Recognized global builtin *functions* passed as callbacks
         // (`xs.map(Number)`, `xs.filter(Boolean)`, `xs.map(parseInt)`).
         // Lower them to the same concrete single-argument closures used in

@@ -136,15 +136,17 @@ pub(crate) fn build_rust_crate_with_erasure(
 
 /// Checks manifest entries and emits declaration stubs without Rust generation.
 ///
-/// Prints the frontend erasures `settings` marks `warn`/`deny` (the backend's
-/// erasures are only known to `build`); any `deny` fails the check.
+/// Prints the TypeScript checker's report and the frontend erasures `settings`
+/// marks `warn`/`deny` (the backend's erasures are only known to `build`). Any
+/// `deny` fails the check, and so does a checker error with `deny_type_errors`.
 pub(crate) fn check_manifest(
     config: &Config,
     manifest_path: &Path,
     settings: &erasure::ErasureSettings,
+    deny_type_errors: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (krate, modules) = timing::measure("manifest.lower", || {
-        lowering::ManifestLowering::for_manifest(config, manifest_path)?.lower()
+    let ((krate, modules), type_check) = timing::measure("manifest.lower", || {
+        lowering::ManifestLowering::for_manifest(config, manifest_path)?.lower_checked()
     })?;
     timing::measure("stubs.emit", || {
         stubs::emit_type_declarations(&krate, &modules)
@@ -152,8 +154,12 @@ pub(crate) fn check_manifest(
     let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
     let erasures = erasure::resolve(&krate, &[], manifest_dir, settings);
     let denied = erasure::print_diagnostics(&erasures);
+    crate::ts_facts::print_diagnostics(&type_check, deny_type_errors);
     if denied > 0 {
         return Err(erasure::denied_error(denied));
+    }
+    if deny_type_errors {
+        crate::ts_facts::fail_on_type_errors(&type_check)?;
     }
     Ok(())
 }

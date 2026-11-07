@@ -20,13 +20,19 @@
 //! A field or element read is the same lazy place, but any call can reach the
 //! object through another name, so no set of locals answers it. Such a read is
 //! snapshotted when a LATER sibling operand can run code: `pair(c.n, inc())`. A
-//! field nothing in the crate assigns cannot change, so its read stays a place.
+//! field nothing in the crate can write cannot change, so its read stays a
+//! place; a keyed write with a non-literal key (`o[k] = v`) or an
+//! `Object.assign` can write any field of a receiver of the target's type (of
+//! any receiver when the target is wholly erased).
+//! A property read on a string-keyed record of erased values can itself run a
+//! getter, so it counts as running code and is snapshotted ahead of a later
+//! sibling that runs code or reads a module global.
 //!
 //! [`LoweringCtx::lower_expr`]: super::context::LoweringCtx
 
 use std::collections::{HashMap, HashSet};
 
-use smelt_hir::{Body, BodyId, ClosureExpr, ExprId, ExprKind, LocalId, Stmt, Symbol, Type, TypeInterner};
+use smelt_hir::{Body, BodyId, ClosureExpr, ExprId, ExprKind, LocalId, Stmt, Type, TypeInterner};
 
 /// The volatile locals of every HIR body; see the module docs.
 #[derive(Debug, Default)]
@@ -58,9 +64,9 @@ impl VolatileLocals {
             by_body.insert(body.id, volatile);
         }
         spread_into_captures(&krate.bodies, &mut by_body);
-        let assigned_fields = assigned_fields(&krate.bodies);
+        let assigned_fields = assigned_fields(krate);
         let early_reads =
-            krate.bodies.iter().map(|body| (body.id, early_reads(body, &krate.types, &assigned_fields))).collect();
+            krate.bodies.iter().map(|body| (body.id, early_reads(body, krate, &assigned_fields))).collect();
         Self { by_body, early_reads }
     }
 
@@ -144,6 +150,7 @@ fn can_run_code(body: &Body, types: &TypeInterner, id: ExprId, memo: &mut HashMa
     };
     let kids = children(kind);
     let answer = runs_code_or_stores(kind)
+        || read_may_run_accessor(body, types, kind)
         || (!matches!(kind, ExprKind::ListLit(_) | ExprKind::DictLit(_) | ExprKind::TupleLit(_))
             && kids.iter().any(takes_function))
         || kids.into_iter().any(|child| can_run_code(body, types, child, memo));
@@ -151,30 +158,141 @@ fn can_run_code(body: &Body, types: &TypeInterner, id: ExprId, memo: &mut HashMa
     answer
 }
 
-/// Every field name a statement of the crate assigns.
-fn assigned_fields(all: &[Body]) -> HashSet<Symbol> {
-    all.iter()
-        .flat_map(|body| body.stmts.iter().map(move |stmt| (body, stmt)))
-        .filter_map(|(body, stmt)| match stmt {
-            Stmt::Assign { target, .. } => match expr_kind(body, *target)? {
-                ExprKind::Field { field, .. } => Some(*field),
-                _ => None,
-            },
-            _ => None,
-        })
-        .collect()
+/// Whether `kind` is a property read that can run a getter: a field or element
+/// read on a string-keyed record of erased values, where an object literal
+/// stores its `get` and the read calls it. A read on a wholly erased value is
+/// left lazy, as it was: snapshotting it would add an erased temporary to
+/// every such read for the rare erased object that carries a getter.
+fn read_may_run_accessor(body: &Body, types: &TypeInterner, kind: &ExprKind) -> bool {
+    let (ExprKind::Field { receiver, .. } | ExprKind::Index { receiver, .. }) = kind else {
+        return false;
+    };
+    let Some(receiver) = usize::try_from(receiver.0).ok().and_then(|index| body.exprs.get(index)) else {
+        return false;
+    };
+    match types.get(receiver.ty) {
+        Some(Type::Dict(key, value)) => {
+            matches!(types.get(*key), Some(Type::String)) && matches!(types.get(*value), Some(Type::Unknown))
+        }
+        _ => false,
+    }
+}
+
+/// Whether evaluating `id` reads a module global, itself or in a child.
+fn reads_global(body: &Body, id: ExprId) -> bool {
+    expr_kind(body, id).is_some_and(|kind| {
+        matches!(kind, ExprKind::GlobalGet { .. }) || children(kind).into_iter().any(|child| reads_global(body, child))
+    })
+}
+
+/// Which fields the statements of the crate can write.
+#[derive(Debug, Default)]
+struct FieldWrites {
+    /// Fields written by name: `o.n = v`, or `o["n"] = v` with a literal key.
+    names: HashSet<String>,
+    /// Receiver types a write whose field is not known statically
+    /// (`o[key] = v`, `Object.assign(o, src)`) can reach: any field of a value
+    /// of such a type can change.
+    any_field_of: HashSet<smelt_hir::TypeId>,
+    /// Such a write into a wholly erased value, which can be any object.
+    any_field_of_anything: bool,
+}
+
+impl FieldWrites {
+    /// Whether the field named `name` of a receiver of type `receiver` can be
+    /// written.
+    fn may_write(&self, types: &TypeInterner, receiver: smelt_hir::TypeId, name: &str) -> bool {
+        self.any_field_of_anything
+            || self.names.contains(name)
+            || self.any_field_of.contains(&receiver)
+            || matches!(types.get(receiver), Some(Type::Unknown)) && !self.any_field_of.is_empty()
+    }
+
+    /// Records a write of unknown field into a receiver of type `receiver`.
+    fn any_field(&mut self, types: &TypeInterner, receiver: smelt_hir::TypeId) {
+        if matches!(types.get(receiver), Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))) {
+            self.any_field_of_anything = true;
+        } else {
+            self.any_field_of.insert(receiver);
+        }
+    }
+}
+
+/// Every field a statement or `Object.assign` of the crate can write.
+fn assigned_fields(krate: &smelt_hir::Crate) -> FieldWrites {
+    let mut writes = FieldWrites::default();
+    let ty_of = |body: &Body, id: ExprId| usize::try_from(id.0).ok().and_then(|index| body.exprs.get(index)).map(|expr| expr.ty);
+    for body in &krate.bodies {
+        for stmt in &body.stmts {
+            let Stmt::Assign { target, .. } = stmt else { continue };
+            match expr_kind(body, *target) {
+                Some(ExprKind::Field { field, .. }) => {
+                    if let Some(name) = krate.symbols.get(*field) {
+                        writes.names.insert(name.to_owned());
+                    }
+                }
+                Some(ExprKind::Index { receiver, index }) if receiver_has_fields(body, &krate.types, *receiver) => {
+                    match expr_kind(body, *index) {
+                        Some(ExprKind::Literal(smelt_hir::Literal::String(name))) => {
+                            writes.names.insert(name.clone());
+                        }
+                        _ => {
+                            if let Some(ty) = ty_of(body, *receiver) {
+                                writes.any_field(&krate.types, ty);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        for expr in &body.exprs {
+            if let ExprKind::DictAssign { target, .. } = expr.kind
+                && let Some(ty) = ty_of(body, target)
+            {
+                writes.any_field(&krate.types, ty);
+            }
+        }
+    }
+    writes
+}
+
+/// Whether a keyed write into `receiver` can land on a named field: anything
+/// but a list, tuple or typed array, whose keys are element indices.
+fn receiver_has_fields(body: &Body, types: &TypeInterner, receiver: ExprId) -> bool {
+    usize::try_from(receiver.0)
+        .ok()
+        .and_then(|index| body.exprs.get(index))
+        .is_none_or(|expr| !matches!(types.get(expr.ty), Some(Type::List(_) | Type::Tuple(_))))
 }
 
 /// The field and element reads of `body` followed by a sibling that can run code.
-fn early_reads(body: &Body, types: &TypeInterner, assigned_fields: &HashSet<Symbol>) -> HashSet<ExprId> {
+fn early_reads(body: &Body, krate: &smelt_hir::Crate, assigned_fields: &FieldWrites) -> HashSet<ExprId> {
+    let types = &krate.types;
     let mut memo = HashMap::new();
     let mut reads = HashSet::new();
     for expr in &body.exprs {
         let siblings = children(&expr.kind);
         let mut later_runs_code = false;
+        let mut later_reads_global = false;
         for &child in siblings.iter().rev() {
+            // A read that can run a getter happens where it is evaluated: ahead
+            // of a later sibling that runs code, or that reads a module global
+            // (a global read is taken at its own point, so a lazy read placed
+            // after it would run the getter too late).
+            if (later_runs_code || later_reads_global)
+                && expr_kind(body, child).is_some_and(|kind| read_may_run_accessor(body, types, kind))
+            {
+                reads.insert(child);
+            }
+            later_reads_global |= reads_global(body, child);
             let is_lazy_read = match expr_kind(body, child) {
-                Some(ExprKind::Field { field, .. }) => assigned_fields.contains(field),
+                Some(ExprKind::Field { receiver, field }) => {
+                    let receiver_ty = usize::try_from(receiver.0).ok().and_then(|index| body.exprs.get(index)).map(|expr| expr.ty);
+                    krate.symbols.get(*field).is_some_and(|name| {
+                        receiver_ty.is_some_and(|ty| assigned_fields.may_write(types, ty, name))
+                    })
+                }
                 Some(ExprKind::Index { .. }) => true,
                 _ => false,
             };

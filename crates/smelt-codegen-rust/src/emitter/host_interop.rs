@@ -338,7 +338,7 @@ impl FunctionEmitter<'_> {
         args: &[Operand],
     ) -> Result<RustExpr, EmitError> {
         let class_name = self.symbol_name(class)?;
-        if smelt_stdlib::typescript_stdlib_class(class_name)
+        if crate::stdlib::stdlib_class_of_class_symbol(self.mir, class)
             == Some(smelt_stdlib::StdlibClass::RegExp)
         {
             let pattern = args.first().map_or_else(

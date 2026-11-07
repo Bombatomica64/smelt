@@ -1280,7 +1280,7 @@ impl FunctionEmitter<'_> {
             let length = match self.mir.types.get(*member) {
                 Some(Type::List(_)) => "(smelt_union_arm.len() as f64)".to_owned(),
                 Some(Type::Tuple(items)) => format!("{}.0", items.len()),
-                Some(Type::String) => "(smelt_union_arm.chars().count() as f64)".to_owned(),
+                Some(Type::String) => format!("({} as f64)", self.string_len_text("smelt_union_arm")),
                 _ => return Ok(None),
             };
             arms.push(format!("{}::M{position}(smelt_union_arm) => {length}", union_name(base_ty)));

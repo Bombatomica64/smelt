@@ -1,9 +1,9 @@
 //! The committed baseline: detecting a regression against it and writing an
 //! updated snapshot, which can never take a rise in avoidable erasure.
 
-use std::fmt::Write as _;
 
 use super::{Category, ScanResult, TOP_OFFENDER_LIMIT, UnknownReport};
+use crate::report::push_fmt;
 
 /// A detected avoidable-erasure regression versus a baseline.
 ///
@@ -31,7 +31,7 @@ pub(super) fn regression_message(regression: &Regression) -> String {
     if !regression.top_files.is_empty() {
         message.push_str("\ntop offending files:");
         for (file, count) in &regression.top_files {
-            let _ = write!(message, "\n  {count:>6}  {file}");
+            push_fmt(&mut message, format_args!("\n  {count:>6}  {file}"));
         }
     }
     message.push_str(
@@ -52,6 +52,30 @@ pub(super) fn updated_baseline<'report>(
 ) -> &'report UnknownReport {
     let avoidable = |report: &UnknownReport| report.category_total(Category::AvoidableErasure);
     baseline.filter(|prior| avoidable(scanned) > avoidable(prior)).unwrap_or(scanned)
+}
+
+/// The largest share of the baseline's files a scan may lose, in percent. A
+/// few files come and go with ordinary work; losing more means the scan no
+/// longer covers the corpus the baseline measured, and its counts prove nothing.
+const MAX_SCAN_DROP_PERCENT: usize = 10;
+
+/// Why the scan cannot judge anything: it saw no file at all, or lost more than
+/// [`MAX_SCAN_DROP_PERCENT`] of the files `baseline` scanned. Such a scan also
+/// reports a lower erasure total, so without this check it passes the gate.
+pub(super) fn coverage_loss(scanned: &UnknownReport, baseline: Option<&UnknownReport>) -> Option<String> {
+    if scanned.files_scanned == 0 {
+        return Some("the scan found no generated Rust file, so it judged nothing".to_owned());
+    }
+    let prior = baseline?.files_scanned;
+    let floor = prior.saturating_mul(100_usize.saturating_sub(MAX_SCAN_DROP_PERCENT));
+    (scanned.files_scanned.saturating_mul(100) < floor).then(|| {
+        format!(
+            "the scan covered {} file(s) where the baseline covered {prior}, a drop of more than \
+             {MAX_SCAN_DROP_PERCENT}%. If the corpus shrank on purpose, delete the baseline and \
+             write it again in the same commit.",
+            scanned.files_scanned,
+        )
+    })
 }
 
 /// Compute an avoidable-erasure [`Regression`] versus `baseline`, if any.

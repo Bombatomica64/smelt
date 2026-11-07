@@ -806,10 +806,10 @@ const count = keyCount(new GetterBox());
 #[test]
 fn emits_date_to_iso_string_for_erased_datearg_surfaces() {
     let source = source_for(
-        r#"
+        r"
 declare const value: unknown;
 const isoFromUnknown = new Date(value).toISOString();
-"#,
+",
     );
 
     assert!(
@@ -1219,23 +1219,17 @@ export function pick(options: Record<string, unknown>): unknown {
 ",
     );
 
-    // A missing field falls back instead of panicking. The fallback is
-    // `.unwrap_or_else(|| smelt_record_inherited(..))` since a destructuring
-    // read, like any property read, consults the prototype entries an erased
-    // object carries before answering `undefined`; the requirement here is
-    // only that it does not `expect` the field.
-    assert!(
-        source.contains(".get(&\"leading\".to_owned()).unwrap_or"),
-        "{source}"
-    );
-    assert!(
-        source.contains(".get(&\"trailing\".to_owned()).unwrap_or"),
-        "{source}"
-    );
-    assert!(
-        source.contains(".get(&\"maxWait\".to_owned()).unwrap_or"),
-        "{source}"
-    );
+    // A missing field falls back instead of panicking: a destructuring read,
+    // like any property read, goes through `smelt_record_property`, which
+    // consults the prototype entries an erased object carries and answers
+    // `undefined` on a miss; the requirement here is only that it does not
+    // `expect` the field.
+    for field in ["leading", "trailing", "maxWait"] {
+        assert!(
+            source.contains(&format!("smelt_record_property(&options, &\"{field}\".to_owned())")),
+            "{field}: {source}"
+        );
+    }
     assert!(!source.contains("expect(\"missing field\")"), "{source}");
 }
 
@@ -3037,7 +3031,7 @@ function first<S extends string>(value: S): string {
     );
 
     assert!(source.contains("SmeltUnknown::String(value)"), "{source}");
-    assert!(source.contains("value.chars().nth(index)"), "{source}");
+    assert!(source.contains("smelt_utf16_char_at(&value, index)"), "{source}");
     assert!(!source.contains("SmeltUnknown::Null.clone()"), "{source}");
 }
 
@@ -3245,7 +3239,7 @@ function initialCaps<T extends string>(values: T[]): string[] {
     );
 
     assert!(source.contains("SmeltUnknown::String(value)"), "{source}");
-    assert!(source.contains("value.chars().nth(index)"), "{source}");
+    assert!(source.contains("smelt_utf16_char_at(&value, index)"), "{source}");
     assert!(source.contains(".to_uppercase()"), "{source}");
     assert!(!source.contains("String::new().to_uppercase()"), "{source}");
 }
@@ -6544,7 +6538,7 @@ export function run(): unknown[] {
 
     assert!(
         source.contains(
-            "SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64)"
+            "SmeltUnknown::String(value) => SmeltUnknown::Number(smelt_utf16_len(&value) as f64)"
         ),
         "{source}"
     );
@@ -11832,7 +11826,7 @@ export function trimIt(str: string, chars?: string | string[]): string {
         .split_once("@smelt:prelude-end")
         .map_or(generated.as_str(), |(_, program)| program);
     assert!(
-        program.contains(".contains(&str.chars().nth("),
+        program.contains(".contains(&smelt_utf16_char_at(&str, "),
         "containment must compare against the projected `Vec`:\n{generated}"
     );
 }
@@ -13023,7 +13017,7 @@ export function pick(value: unknown, index: number): unknown {
     );
     assert!(
         source.contains(
-            "value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string().into()))).unwrap_or(SmeltUnknown::Undefined)"
+            "smelt_utf16_char_at(&value, index).map(|ch| SmeltUnknown::String(ch.into()))).unwrap_or(SmeltUnknown::Undefined)"
         ),
         "a missing string character on an erased receiver is `undefined`:\n{source}"
     );

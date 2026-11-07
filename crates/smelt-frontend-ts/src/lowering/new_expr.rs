@@ -92,14 +92,20 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.construct_like_expression(new_expr, body)? {
             return Ok(expr);
         }
-        if let Some(expr) = self.set_constructor_expression(new_expr, body, type_hint)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.map_constructor_expression(new_expr, body, type_hint)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.promise_constructor_expression(new_expr, body, type_hint)? {
-            return Ok(expr);
+        // `Set`, `Map` and `Promise` are host constructors too, so a class the
+        // program declares under one of those names skips them.
+        let declared_class = matches!(&new_expr.callee, Expression::Identifier(callee)
+            if self.classes.contains(callee.name.as_str()));
+        if !declared_class {
+            if let Some(expr) = self.set_constructor_expression(new_expr, body, type_hint)? {
+                return Ok(expr);
+            }
+            if let Some(expr) = self.map_constructor_expression(new_expr, body, type_hint)? {
+                return Ok(expr);
+            }
+            if let Some(expr) = self.promise_constructor_expression(new_expr, body, type_hint)? {
+                return Ok(expr);
+            }
         }
         let Expression::Identifier(callee) = &new_expr.callee else {
             if let Some(expr) = self.intl_namespace_constructor_expression(new_expr, body)? {
@@ -271,134 +277,16 @@ impl ModuleBuilder<'_> {
         {
             return self.wrap_host_global_new(callee.name.as_str(), new_expr, native, body);
         }
-        if callee.name == "Date" {
-            return self.new_date_expression(new_expr, body);
-        }
-        if callee.name == "RegExp" {
-            return self.regexp_constructor_expression(new_expr, body);
-        }
-        if callee.name == "Array" {
-            return self.array_constructor_expression(new_expr, body);
-        }
-        if callee.name == "String" && !self.classes.contains("String") {
-            return self.boxed_primitive_constructor_expression(
-                new_expr,
-                body,
-                "__smelt_string",
-                Literal::String(String::new()),
-            );
-        }
-        if callee.name == "Object" && !self.classes.contains("Object") {
-            return self.object_constructor_expression(new_expr, body, type_hint);
-        }
-        // The concrete typed-array family — the eleven views,
-        // `ArrayBuffer`/`SharedArrayBuffer` and `DataView` — constructs its own
-        // Rust value. Asked BEFORE the erased byte-buffer path below, which now
-        // owns only Node's `Buffer` (see `stdlib::typed_array`).
-        if self.is_typed_array_family_name(callee.name.as_str()) {
-            let class_name = callee.name.to_string();
-            return self.typed_array_constructor_expression(new_expr, &class_name, body);
-        }
-        // The byte-backed host objects other than Node's `Buffer` (which keeps its
-        // own `Buffer.from`/`alloc`/`concat`-shaped lowering) construct through the
-        // shared host constructor so their records carry real byte storage.
-        if callee.name != "Buffer"
-            && smelt_stdlib::byte_buffer_role(callee.name.as_str()).is_some()
-            && !self.classes.contains(callee.name.as_str())
+        // A class the program declares is that class, whatever host
+        // constructor its name spells (`class URL`, `class Date`, `class Map`):
+        // the host constructors are consulted only for an undeclared name.
+        if !self.classes.contains(callee.name.as_str())
+            && let Some(expr) = self.host_constructor_expression(callee, new_expr, body, type_hint)?
         {
-            let class_name = callee.name.to_string();
-            return self.byte_buffer_constructor_expression(new_expr, &class_name, body);
-        }
-        if callee.name == "Buffer" && !self.classes.contains("Buffer") {
-            return self.buffer_constructor_expression(new_expr, body);
-        }
-        if callee.name == "Blob" && !self.classes.contains("Blob") {
-            return self.blob_constructor_expression(new_expr, body);
-        }
-        if callee.name == "File" && !self.classes.contains("File") {
-            return self.file_constructor_expression(new_expr, body);
-        }
-        if callee.name == "Number" && !self.classes.contains("Number") {
-            return self.boxed_primitive_constructor_expression(
-                new_expr,
-                body,
-                "__smelt_number",
-                Literal::Float(0.0),
-            );
-        }
-        if callee.name == "Boolean" && !self.classes.contains("Boolean") {
-            return self.boxed_primitive_constructor_expression(
-                new_expr,
-                body,
-                "__smelt_boolean",
-                Literal::Bool(false),
-            );
-        }
-        if callee.name == "Proxy" && !self.classes.contains("Proxy") {
-            return self.proxy_constructor_expression(new_expr, body);
-        }
-        if callee.name == "Function" && !self.classes.contains("Function") {
-            return self.function_constructor_expression(new_expr, body);
-        }
-        if callee.name == "AbortController" && !self.classes.contains("AbortController") {
-            return self.abort_controller_constructor_expression(new_expr, body);
-        }
-        // The numeric typed-array views are byte-backed host objects. The family
-        // dispatch above routes them to `typed_array_constructor_expression`, so
-        // this branch is not the live path for them.
-        if smelt_stdlib::is_typed_array_class_name(callee.name.as_str())
-            && !self.classes.contains(callee.name.as_str())
-        {
-            return self.byte_buffer_constructor_expression(new_expr, callee.name.as_str(), body);
-        }
-        // A WHATWG `Headers` is a modeled concrete runtime type. A user class
-        // named `Headers` still wins: the registry models the host name, not the
-        // spelling.
-        // The text codecs, gated the same way: the registry models the host
-        // name, and a user class of that name still wins.
-        if callee.name == "TextEncoder" && !self.classes.contains("TextEncoder") {
-            return self.text_encoder_constructor_expression(new_expr, body);
-        }
-        if callee.name == "TextDecoder" && !self.classes.contains("TextDecoder") {
-            return self.text_decoder_constructor_expression(new_expr, body);
-        }
-        if callee.name == "Headers" && !self.classes.contains("Headers") {
-            return self.headers_constructor_expression(new_expr, body);
-        }
-        if callee.name == "URLSearchParams" && !self.classes.contains("URLSearchParams") {
-            return self.url_search_params_constructor_expression(new_expr, body);
-        }
-        if callee.name == "FormData" && !self.classes.contains("FormData") {
-            return self.form_data_constructor_expression(new_expr, body);
-        }
-        if callee.name == "Response" && !self.classes.contains("Response") {
-            return self.response_constructor_expression(new_expr, body);
-        }
-        if callee.name == "Request" && !self.classes.contains("Request") {
-            return self.request_constructor_expression(new_expr, body);
-        }
-        if let Some(database) = self.sqlite_database_constructor_expression(new_expr, body)? {
-            return Ok(database);
-        }
-        if callee.name == "EventEmitter" && !self.classes.contains("EventEmitter") {
-            return self.event_emitter_constructor_expression(new_expr, body);
-        }
-        if let Some(marker) = Self::marker_only_builtin_marker(callee.name.as_str()) {
-            if !self.classes.contains(callee.name.as_str()) {
-                return self.marker_only_builtin_constructor_expression(new_expr, body, marker);
-            }
-        }
-        if callee.name == "DOMException" && !self.classes.contains("DOMException") {
-            return self.domexception_object_constructor_expression(new_expr, body);
-        }
-        if smelt_stdlib::is_error_class_name(callee.name.as_str()) {
-            return self.error_object_constructor_expression(new_expr, body);
+            return Ok(expr);
         }
         if let Some(expr) = self.dynamic_identifier_constructor_expression(new_expr, body)? {
             return Ok(expr);
-        }
-        if callee.name == "URL" {
-            return self.url_constructor_expression(new_expr, body);
         }
         // A class name bound in THIS module's lexical scope wins over a
         // crate-wide item of the same spelling.
@@ -3035,9 +2923,17 @@ impl ModuleBuilder<'_> {
             peel(&conditional.alternate, Wrappers::Parens),
             Expression::ArrayExpression(array) if !array.elements.is_empty()
         );
+        // A primitive consequent says nothing about the alternate either, and
+        // hinting it would convert a different primitive arm to it
+        // (`c ? s : Number(s)` turned the number into a string).
+        let then_is_primitive = matches!(
+            self.ctx.krate.types.get(then_ty),
+            Some(Type::String | Type::Float | Type::Int | Type::Bool)
+        );
         let branch_hint = if self.ctx.krate.types.get(then_ty) == Some(&Type::None)
             || self.function_returns_never(then_ty)
             || alternate_has_own_shape
+            || then_is_primitive
         {
             type_hint
         } else {
@@ -4311,5 +4207,135 @@ impl ModuleBuilder<'_> {
         }
         Ok(acc)
     }
-}
 
+    /// `new X(args)` for a host constructor `X` the runtime models (`Date`,
+    /// `RegExp`, `Array`, the boxed primitives, typed arrays and byte buffers,
+    /// the fetch and codec classes, errors, `URL`, ...), or `None` when `X`
+    /// names none. The caller asks only for a name the program does not
+    /// declare as a class.
+    fn host_constructor_expression(
+        &mut self,
+        callee: &oxc::ast::ast::IdentifierReference<'_>,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if callee.name == "Date" {
+            return self.new_date_expression(new_expr, body).map(Some);
+        }
+        if callee.name == "RegExp" {
+            return self.regexp_constructor_expression(new_expr, body).map(Some);
+        }
+        if callee.name == "Array" {
+            return self.array_constructor_expression(new_expr, body).map(Some);
+        }
+        if callee.name == "String" {
+            return self.boxed_primitive_constructor_expression(
+                new_expr,
+                body,
+                "__smelt_string",
+                Literal::String(String::new()),
+            ).map(Some);
+        }
+        if callee.name == "Object" {
+            return self.object_constructor_expression(new_expr, body, type_hint).map(Some);
+        }
+        // The concrete typed-array family — the eleven views,
+        // `ArrayBuffer`/`SharedArrayBuffer` and `DataView` — constructs its own
+        // Rust value. Asked BEFORE the erased byte-buffer path below, which now
+        // owns only Node's `Buffer` (see `stdlib::typed_array`).
+        if self.is_typed_array_family_name(callee.name.as_str()) {
+            let class_name = callee.name.to_string();
+            return self.typed_array_constructor_expression(new_expr, &class_name, body).map(Some);
+        }
+        // The byte-backed host objects other than Node's `Buffer` (which keeps its
+        // own `Buffer.from`/`alloc`/`concat`-shaped lowering) construct through the
+        // shared host constructor so their records carry real byte storage.
+        if callee.name != "Buffer"
+            && smelt_stdlib::byte_buffer_role(callee.name.as_str()).is_some()
+        {
+            let class_name = callee.name.to_string();
+            return self.byte_buffer_constructor_expression(new_expr, &class_name, body).map(Some);
+        }
+        if callee.name == "Buffer" {
+            return self.buffer_constructor_expression(new_expr, body).map(Some);
+        }
+        if callee.name == "Blob" {
+            return self.blob_constructor_expression(new_expr, body).map(Some);
+        }
+        if callee.name == "File" {
+            return self.file_constructor_expression(new_expr, body).map(Some);
+        }
+        if callee.name == "Number" {
+            return self.boxed_primitive_constructor_expression(
+                new_expr,
+                body,
+                "__smelt_number",
+                Literal::Float(0.0),
+            ).map(Some);
+        }
+        if callee.name == "Boolean" {
+            return self.boxed_primitive_constructor_expression(
+                new_expr,
+                body,
+                "__smelt_boolean",
+                Literal::Bool(false),
+            ).map(Some);
+        }
+        if callee.name == "Proxy" {
+            return self.proxy_constructor_expression(new_expr, body).map(Some);
+        }
+        if callee.name == "Function" {
+            return self.function_constructor_expression(new_expr, body).map(Some);
+        }
+        if callee.name == "AbortController" {
+            return self.abort_controller_constructor_expression(new_expr, body).map(Some);
+        }
+        // The numeric typed-array views are byte-backed host objects. The family
+        // dispatch above routes them to `typed_array_constructor_expression`, so
+        // this branch is not the live path for them.
+        if smelt_stdlib::is_typed_array_class_name(callee.name.as_str()) {
+            return self.byte_buffer_constructor_expression(new_expr, callee.name.as_str(), body).map(Some);
+        }
+        if callee.name == "TextEncoder" {
+            return self.text_encoder_constructor_expression(new_expr, body).map(Some);
+        }
+        if callee.name == "TextDecoder" {
+            return self.text_decoder_constructor_expression(new_expr, body).map(Some);
+        }
+        if callee.name == "Headers" {
+            return self.headers_constructor_expression(new_expr, body).map(Some);
+        }
+        if callee.name == "URLSearchParams" {
+            return self.url_search_params_constructor_expression(new_expr, body).map(Some);
+        }
+        if callee.name == "FormData" {
+            return self.form_data_constructor_expression(new_expr, body).map(Some);
+        }
+        if callee.name == "Response" {
+            return self.response_constructor_expression(new_expr, body).map(Some);
+        }
+        if callee.name == "Request" {
+            return self.request_constructor_expression(new_expr, body).map(Some);
+        }
+        if let Some(database) = self.sqlite_database_constructor_expression(new_expr, body)? {
+            return Ok(Some(database));
+        }
+        if callee.name == "EventEmitter" {
+            return self.event_emitter_constructor_expression(new_expr, body).map(Some);
+        }
+        if let Some(marker) = Self::marker_only_builtin_marker(callee.name.as_str()) {
+            return self.marker_only_builtin_constructor_expression(new_expr, body, marker).map(Some);
+        }
+        if callee.name == "DOMException" {
+            return self.domexception_object_constructor_expression(new_expr, body).map(Some);
+        }
+        if smelt_stdlib::is_error_class_name(callee.name.as_str()) {
+            return self.error_object_constructor_expression(new_expr, body).map(Some);
+        }
+        if callee.name == "URL" {
+            return self.url_constructor_expression(new_expr, body).map(Some);
+        }
+        Ok(None)
+    }
+}

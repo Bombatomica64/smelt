@@ -1,9 +1,11 @@
-//! Prerequisite probing for sandbox-backed tests.
+//! Prerequisite probing for tests that need a real external tool.
 //!
 //! Sandbox-backed tests need a real hard-sandbox backend (`bwrap` plus
 //! `prlimit`) and a real guest runtime (`node`, `tsc`, `python3`) present on the
-//! host. Developer machines routinely have none of them, so these tests are
-//! written to skip when a prerequisite is missing.
+//! host, and the end-to-end tests compare against real Node and `CPython`.
+//! Developer machines routinely lack some of them, so these tests are written
+//! to skip when a prerequisite is missing. Every such skip goes through
+//! [`missing_prerequisite`], whatever crate the test lives in.
 //!
 //! The problem is that a skip spelled `return Ok(())` is indistinguishable from
 //! a pass. That is how the sandbox — the fail-closed security boundary — came to
@@ -34,14 +36,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// Environment variable that forbids skipping sandbox-backed tests.
+/// Environment variable that forbids skipping a test for a missing tool.
 ///
 /// Set it to any value other than `0`, `false`, `no`, `off`, or the empty string
 /// to make a missing prerequisite fail instead of skip. The value is matched
 /// case-insensitively, ignoring surrounding whitespace.
 pub const REQUIRE_SANDBOX_ENV: &str = "SMELT_REQUIRE_SANDBOX";
 
-/// Reports whether sandbox-backed tests are forbidden from skipping.
+/// Reports whether tool-backed tests are forbidden from skipping.
 ///
 /// This is the only reader of the process environment in this module.
 #[must_use]

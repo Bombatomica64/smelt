@@ -2449,6 +2449,16 @@ impl ModuleBuilder<'_> {
                 members.push(none_ty);
                 Ok(self.ctx.krate.types.intern(Type::Union(members)))
             }
+            // `RegExpMatchArray` and `RegExpExecArray` are the lib's names for
+            // the value `match`/`exec` return, which Smelt models as the match
+            // class. Left opaque, an annotated parameter was a nominal class the
+            // match value erased into, and `m[1]` read `undefined`. A source
+            // declaration of the name wins.
+            (lib_name @ ("RegExpMatchArray" | "RegExpExecArray"), [])
+                if !self.source_declares_type(lib_name) =>
+            {
+                Ok(self.match_result_type())
+            }
             ("Capitalize" | "Uncapitalize" | "Uppercase" | "Lowercase", [_]) => {
                 Ok(self.ctx.krate.types.intern(Type::String))
             }
@@ -3894,6 +3904,15 @@ impl ModuleBuilder<'_> {
                     "length" => Some(self.ctx.krate.types.intern(Type::Float)),
                     "input" => Some(self.ctx.krate.types.intern(Type::String)),
                     "groups" => Some(self.match_groups_type()),
+                    // `[start, end]` per group (absent group `undefined`), or
+                    // `undefined` without the `d` flag.
+                    "indices" => {
+                        let float_ty = self.ctx.krate.types.intern(Type::Float);
+                        let span_ty = self.ctx.krate.types.intern(Type::Tuple(vec![float_ty, float_ty]));
+                        let group_ty = self.ctx.krate.types.intern(Type::Optional(span_ty));
+                        let list_ty = self.ctx.krate.types.intern(Type::List(group_ty));
+                        Some(self.ctx.krate.types.intern(Type::Optional(list_ty)))
+                    }
                     _ => None,
                 };
             }
@@ -4495,7 +4514,7 @@ impl ModuleBuilder<'_> {
             "source" | "flags" => Type::String,
             "lastIndex" | "last_index" => Type::Float,
             "global" | "ignoreCase" | "ignore_case" | "multiline" | "sticky" | "unicode"
-            | "dotAll" | "dot_all" => Type::Bool,
+            | "dotAll" | "dot_all" | "hasIndices" | "has_indices" | "unicodeSets" | "unicode_sets" => Type::Bool,
             _ => return None,
         };
         Some(self.ctx.krate.types.intern(ty))

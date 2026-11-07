@@ -1,0 +1,39 @@
+name: Get the smelt binary
+description: Set SMELT_BIN to a smelt built from this commit, prebuilt only when the nightly asset matches it.
+
+inputs:
+  token:
+    description: Token that can read releases.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # The smelt-nightly asset is published on demand (see
+    # .github/workflows/publish-smelt.yml), so it can be arbitrarily older than
+    # this commit. Both consumers commit reports, and an old binary would publish
+    # numbers describing some other commit, so the asset is only usable when its
+    # `smelt.sha` sidecar matches $GITHUB_SHA exactly. Anything else (stale asset,
+    # missing sidecar, download failure) builds from source.
+    - name: Get smelt
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        mkdir -p .smelt-bin
+        asset_sha=""
+        if gh release download smelt-nightly \
+             --pattern smelt --pattern smelt.sha \
+             --dir .smelt-bin --clobber 2>/dev/null; then
+          asset_sha="$(tr -d '[:space:]' < .smelt-bin/smelt.sha 2>/dev/null || true)"
+        fi
+
+        if [ -n "$asset_sha" ] && [ "$asset_sha" = "$GITHUB_SHA" ]; then
+          chmod +x .smelt-bin/smelt
+          echo "SMELT_BIN=$PWD/.smelt-bin/smelt" >> "$GITHUB_ENV"
+          echo "::notice::Using PREBUILT smelt from smelt-nightly (asset commit $asset_sha matches this commit)."
+        else
+          echo "::notice::Building smelt FROM SOURCE: smelt-nightly asset commit '${asset_sha:-<none>}' does not match this commit $GITHUB_SHA."
+          cargo build --release --bin smelt
+          echo "SMELT_BIN=$PWD/target/release/smelt" >> "$GITHUB_ENV"
+        fi

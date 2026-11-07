@@ -18,10 +18,11 @@ mod common;
 use std::{fs, path::Path, process::Command};
 
 use common::{
-    TempProject, TestResult, cargo_run_manifest, ensure, ensure_eq, node_runs_typescript,
-    node_typescript_stdout, utf8_path,
+    NODE_ORACLE, TempProject, TestResult, cargo_run_manifest, ensure, ensure_eq,
+    node_runs_typescript, node_typescript_stdout, utf8_path,
 };
 use sha2::{Digest, Sha256};
+use smelt_specialize::prereq::missing_prerequisite;
 
 /// The installed package: JavaScript as npm ships it.
 const INDEX_JS: &str = "export function makePoint(x, y) {
@@ -303,7 +304,7 @@ fn ensure_generated_program_matches_node(root: &Path) -> TestResult {
     let stdout = cargo_run_manifest(&root.join("dist/Cargo.toml"))?;
     ensure_eq(&stdout, &"25\n55\n".to_owned(), "generated program stdout")?;
     if !node_runs_typescript() {
-        return Ok(());
+        return missing_prerequisite("typed package oracle", NODE_ORACLE);
     }
     let node = node_typescript_stdout(
         &[

@@ -23,8 +23,22 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use smelt_specialize::prereq::{locate_executable, missing_prerequisite};
+
 /// Result type used by integration tests.
 pub(crate) type TestResult<T = ()> = Result<T, Box<dyn Error>>;
+
+/// Whether `test` must stop because one of `tools` is not on `PATH`.
+///
+/// The missing tool goes through [`missing_prerequisite`], so `Ok(true)` is a
+/// reported skip and strict mode makes it an error instead.
+pub(crate) fn tool_missing(test: &str, tools: &[&str]) -> TestResult<bool> {
+    let Some(tool) = tools.iter().find(|tool| locate_executable(tool, &[]).is_none()) else {
+        return Ok(false);
+    };
+    missing_prerequisite::<Box<dyn Error>>(test, tool)?;
+    Ok(true)
+}
 
 /// Returns the workspace root for the integration tests.
 pub(crate) fn workspace_root() -> Result<&'static Path, io::Error> {
@@ -322,6 +336,9 @@ pub(crate) fn node_runs_typescript() -> bool {
     })
 }
 
+/// What [`node_runs_typescript`] looks for, as a skip names it.
+pub(crate) const NODE_ORACLE: &str = "a `node` that runs TypeScript";
+
 /// Whether `npm` is on `PATH`, probed once per test binary.
 ///
 /// Needed only by an oracle program with npm dependencies (see
@@ -431,10 +448,10 @@ pub(crate) fn ensure_node_agrees(
     name: &str,
 ) -> TestResult {
     if !node_runs_typescript() {
-        return Ok(());
+        return missing_prerequisite(name, NODE_ORACLE);
     }
     if files.iter().any(|(relative, _)| *relative == "package.json") && !npm_available() {
-        return Ok(());
+        return missing_prerequisite(name, "npm");
     }
     let node_stdout = node_typescript_stdout(files, entry)?;
     ensure(
@@ -655,6 +672,9 @@ clone-strategy = "aggressive"
 /// the Python corpus uses.
 const PYTHON_MIN: (u32, u32) = (3, 10);
 
+/// What [`python_runs_corpus`] looks for, as a skip names it.
+pub(crate) const PYTHON_ORACLE: &str = "a `python3` able to run the corpus";
+
 /// Whether a `python3` able to run the corpus is on `PATH`, probed once.
 ///
 /// Skip-if-absent, like [`node_runs_typescript`]: a missing or too-old
@@ -691,7 +711,7 @@ pub(crate) fn python_runs_corpus() -> bool {
 /// prints.
 pub(crate) fn ensure_python_agrees(source: &str, expected_stdout: &str, name: &str) -> TestResult {
     if !python_runs_corpus() {
-        return Ok(());
+        return missing_prerequisite(name, PYTHON_ORACLE);
     }
     let project = TempProject::new()?;
     let root = project.path().join("python-oracle");

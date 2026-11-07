@@ -61,6 +61,33 @@ pub struct Config {
     /// Erasure-reason severities (`[erasure]`); see `crate::erasure`.
     #[serde(default)]
     erasure: Option<crate::erasure::ErasureConfig>,
+    /// Definition-time specialization options (`[specialization]`).
+    #[serde(default)]
+    specialization: Specialization,
+}
+
+/// Definition-time specialization configuration from the [specialization] section.
+#[derive(Default, Deserialize, Debug, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Specialization {
+    /// A container to run specialization in when the native hard sandbox
+    /// (bubblewrap on Linux) is unavailable. Without it, specialization fails
+    /// closed on such a host.
+    oci_fallback: Option<OciFallback>,
+}
+
+/// `[specialization.oci-fallback]`: a Docker- or Podman-compatible runtime and
+/// an image pinned by digest.
+#[derive(Deserialize, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OciFallback {
+    /// The runtime: a path, or a name looked up on `PATH` (`docker`, `podman`).
+    runtime: String,
+    /// The image, pinned by digest (`name@sha256:...`). The host's interpreter
+    /// and libraries are bound into it read-only at their canonical paths, so
+    /// the image needs nothing but a merged-`/usr` layout (`/lib -> usr/lib`),
+    /// as current Debian and Ubuntu images have.
+    image: String,
 }
 
 impl Config {
@@ -145,6 +172,16 @@ impl Config {
     #[must_use]
     pub fn source_excludes(&self) -> &[String] {
         self.sources.exclude.as_deref().unwrap_or(&[])
+    }
+
+    /// The OCI fallback's runtime and image, when `[specialization.oci-fallback]`
+    /// is configured.
+    #[must_use]
+    pub fn oci_fallback(&self) -> Option<(&str, &str)> {
+        self.specialization
+            .oci_fallback
+            .as_ref()
+            .map(|fallback| (fallback.runtime.as_str(), fallback.image.as_str()))
     }
 
     /// Get the output target directory path.

@@ -6,17 +6,12 @@ use std::fs;
 
 use common::{
     TempProject, TestResult, cargo_run_manifest, cargo_test_manifest, ensure, ensure_eq, smelt,
-    smelt_in, utf8_path,
+    smelt_in, tool_missing, utf8_path,
 };
 
 #[test]
 fn build_specializes_python_decorators_and_emits_package_artifact() -> TestResult {
-    if !std::path::Path::new("/usr/bin/bwrap").is_file()
-        || std::process::Command::new("python3")
-            .arg("--version")
-            .output()
-            .is_err()
-    {
+    if tool_missing("build_specializes_python_decorators", &["bwrap", "python3"])? {
         return Ok(());
     }
     let project = TempProject::new()?;

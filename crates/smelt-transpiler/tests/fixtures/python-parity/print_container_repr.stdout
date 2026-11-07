@@ -1,0 +1,7 @@
+['kiwi', 'apple', 'banana']
+['kiwi', 'apple', 'banana']
+[True, False] [1.5, 2.0, 1e+16] [] (7,) (1, 'a', False)
+{'a': 1} {'x': [1, 2]} {3: 'three'}
+["it's", 'say "hi"', 'tab\there', 'back\\slash', 'é']
+[1, None, 3] [[1, 2], [3]] ('nested', [True])
+plain 3 2.5 True None

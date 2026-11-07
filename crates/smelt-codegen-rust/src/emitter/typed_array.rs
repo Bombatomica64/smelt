@@ -301,10 +301,12 @@ impl FunctionEmitter<'_> {
     /// Emit an indexed element READ on a typed-array view, if the base is one.
     ///
     /// `None` when the base is not a view, so the caller falls through to its
-    /// own arms. The element is decoded at the view's width; a missing one
-    /// answers the same zero a typed list's missing element does, because both
-    /// are reads of a concrete numeric collection whose Rust type has no
-    /// `undefined`.
+    /// own arms. The element is decoded at the view's width. This is the
+    /// TOTAL read, for a destination typed `number`: a missing element answers
+    /// zero, as a `number[]`'s total read answers its missing value. A read
+    /// whose destination can hold `undefined` (an optional or erased slot)
+    /// takes `optional_element_read_expr` / `erased_element_read_expr`, which
+    /// keep the miss.
     pub(super) fn typed_array_index_read_expr(
         &self,
         base_ty: TypeId,

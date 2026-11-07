@@ -40,10 +40,13 @@ pub struct SmeltMatch {
     groups: ::std::rc::Rc<Vec<Option<String>>>,
     /// Named capture groups keyed by name (plus a snake_case alias).
     named: ::std::rc::Rc<::std::collections::HashMap<String, Option<String>>>,
-    /// Zero-based offset of the match within `input` (`.index`).
+    /// Zero-based UTF-16 offset of the match within `input` (`.index`).
     match_index: usize,
     /// The full string that was searched (`.input`).
     input: ::std::rc::Rc<str>,
+    /// Each numbered group's UTF-16 `[start, end)` (`.indices`), kept only
+    /// when the regexp has the `d` flag; an absent group is `None`.
+    spans: Option<::std::rc::Rc<Vec<Option<(f64, f64)>>>>,
 }
 
 //~ `id` is reference identity, not content: two matches produced by separate
@@ -52,12 +55,16 @@ pub struct SmeltMatch {
 //~ `SmeltRegExp` `PartialEq`, which excludes its `id` for the same reason;
 //~ the derived impl used to make every clone unequal to its source.
 /// Structural equality over the match content, ignoring reference identity.
-impl PartialEq for SmeltMatch { fn eq(&self, other: &Self) -> bool { self.groups == other.groups && self.named == other.named && self.match_index == other.match_index && self.input == other.input } }
+impl PartialEq for SmeltMatch { fn eq(&self, other: &Self) -> bool { self.groups == other.groups && self.named == other.named && self.match_index == other.match_index && self.input == other.input && self.spans == other.spans } }
 
 #[allow(dead_code)]
 impl SmeltMatch {
-    /// Build a `SmeltMatch` from a compiled regex and its captures.
-    fn from_captures(regex: &fancy_regex::Regex, captures: &fancy_regex::Captures<'_>, match_index: usize, input: &str) -> Self {
+    /// Build a `SmeltMatch` from a compiled regex and its captures, found in
+    /// `input[offset..]`; `spans` keeps the group indices (the `d` flag).
+    fn from_captures(regex: &fancy_regex::Regex, captures: &fancy_regex::Captures<'_>, input: &str, offset: usize, spans: bool) -> Self {
+        let unit_of = |byte: usize| smelt_utf16_index_of_byte(input, offset + byte) as f64;
+        let match_index = captures.get(0).map_or(0, |whole| smelt_utf16_index_of_byte(input, offset + whole.start()));
+        let spans = spans.then(|| ::std::rc::Rc::new((0..captures.len()).map(|index| captures.get(index).map(|group| (unit_of(group.start()), unit_of(group.end())))).collect::<Vec<_>>()));
         let groups = (0..captures.len()).map(|index| captures.get(index).map(|value| value.as_str().to_owned())).collect::<Vec<_>>();
         let mut named = ::std::collections::HashMap::new();
         for name in regex.capture_names().flatten() {
@@ -69,7 +76,7 @@ impl SmeltMatch {
             }
             named.insert(snake, value);
         }
-        Self { id: smelt_next_object_id(), groups: ::std::rc::Rc::new(groups), named: ::std::rc::Rc::new(named), match_index, input: input.into() }
+        Self { id: smelt_next_object_id(), groups: ::std::rc::Rc::new(groups), named: ::std::rc::Rc::new(named), match_index, input: input.into(), spans }
     }
     /// Build the array a GLOBAL `String.prototype.match` answers.
     ///
@@ -80,7 +87,7 @@ impl SmeltMatch {
     /// groups, and `index` is 0 with `input` the searched string, which a
     /// global match's reader does not consult.
     fn from_global_matches(matches: Vec<String>, input: &str) -> Self {
-        Self { id: smelt_next_object_id(), groups: ::std::rc::Rc::new(matches.into_iter().map(Some).collect()), named: ::std::rc::Rc::default(), match_index: 0, input: input.into() }
+        Self { id: smelt_next_object_id(), groups: ::std::rc::Rc::new(matches.into_iter().map(Some).collect()), named: ::std::rc::Rc::default(), match_index: 0, input: input.into(), spans: None }
     }
 // @smelt:if smelt_list
     //~ The array view names `SmeltList`, which only exists when the
@@ -94,6 +101,11 @@ impl SmeltMatch {
     /// (writes to a match are not lowered through it).
     pub fn to_array_view(&self) -> SmeltList<Option<String>> {
         SmeltList::with_id(self.id, self.groups.as_ref().clone())
+    }
+    /// `match.indices`: each group's `[start, end]` when the regexp has the
+    /// `d` flag (an absent group `undefined`), else `undefined`.
+    pub fn indices(&self) -> Option<SmeltList<Option<(f64, f64)>>> {
+        self.spans.as_ref().map(|spans| SmeltList::new(spans.as_ref().clone()))
     }
 // @smelt:end
     /// Read a numbered capture group (`match[n]`).
@@ -199,7 +211,7 @@ impl SmeltFromUnknown for SmeltMatch {
                 let match_index = match values.named_property("index") { Some(SmeltUnknown::Number(index)) if index.is_finite() && index >= 0.0 => index as usize, _ => 0 };
                 let input = match values.named_property("input") { Some(SmeltUnknown::String(input)) => input, _ => ::std::rc::Rc::default() };
                 let id = values.id;
-                Self { id, groups: ::std::rc::Rc::new(values.into_vec().into_iter().map(group_of).collect()), named: ::std::rc::Rc::new(named), match_index, input }
+                Self { id, groups: ::std::rc::Rc::new(values.into_vec().into_iter().map(group_of).collect()), named: ::std::rc::Rc::new(named), match_index, input, spans: None }
             }
             SmeltUnknown::Object(map) => {
                 let mut groups = Vec::new();
@@ -208,7 +220,7 @@ impl SmeltFromUnknown for SmeltMatch {
                 if let Some(SmeltUnknown::Object(entries)) = map.get("groups") { for (name, entry) in entries.iter() { named.insert(name, group_of(entry)); } }
                 let match_index = match map.get("index") { Some(SmeltUnknown::Number(index)) if index.is_finite() && index >= 0.0 => index as usize, _ => 0 };
                 let input = match map.get("input") { Some(SmeltUnknown::String(input)) => input, _ => ::std::rc::Rc::default() };
-                Self { id: map.id, groups: ::std::rc::Rc::new(groups), named: ::std::rc::Rc::new(named), match_index, input }
+                Self { id: map.id, groups: ::std::rc::Rc::new(groups), named: ::std::rc::Rc::new(named), match_index, input, spans: None }
             }
             _ => Self::default(),
         }

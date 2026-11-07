@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Gate the es-toolkit regression job against a checked-in baseline.
+"""Gate the library regression jobs against checked-in baselines.
 
-Two modes back the two ratchets in `.github/workflows/ci.yml`:
+Three modes back the ratchets in `.github/workflows/ci.yml`. Each one blocks:
+a mode that cannot read what it judges fails rather than passing.
 
 * ``probe-gate`` — read ``smelt probe --format json`` output and fail (exit 1)
   when the number of source files with at least one blocker rises above
@@ -10,14 +11,18 @@ Two modes back the two ratchets in `.github/workflows/ci.yml`:
   supplied via ``--diagnostics``, folds its top diagnostic families into the
   message. All output is echoed to stdout and appended to ``$GITHUB_STEP_SUMMARY``.
 
-* ``runtime-ratchet`` — parse libtest ``test result:`` lines from a captured
-  ``cargo test`` log, sum passed/failed across every test binary, and compare
-  to ``baseline.runtime_passed`` / ``baseline.runtime_failed``. This mode is
-  advisory by default (exit 0 regardless) because known async hangs make the
-  suite non-deterministic; pass ``--blocking`` to make a regression fail, and the baseline runtime_gate is not advisory.
+* ``runtime-ratchet`` — parse a captured ``cargo test`` log. Every failing test
+  must be pinned in ``baseline.runtime_known_failures`` and the passed count may
+  not fall below ``baseline.runtime_passed``, so a new failure fails even when
+  another test was fixed, and a killed or uncompiled suite fails on its count.
 
-The comparisons are ``<=`` / ``>=`` so improvements pass without a baseline
-bump; loosening the baseline is a deliberate, PR-reviewed edit.
+* ``compile-pin`` — count the rustc errors in a captured ``cargo test`` log and
+  fail unless it equals ``baseline.test_compile_errors``. The pin is exact: a
+  suite that does not build runs nothing, so a fall is a change to act on, the
+  next pin being its test results.
+
+Improvements of a ratchet pass without a baseline bump; loosening a baseline is
+a deliberate, PR-reviewed edit.
 """
 
 import argparse
@@ -31,6 +36,13 @@ def _load_baseline(path):
     """Load the checked-in baseline JSON."""
     with open(path, encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def _required(document, field, source):
+    """Read `field` of `document`; a renamed or missing field stops the gate."""
+    if field not in document:
+        raise SystemExit(f"{source} has no `{field}` field; refusing to judge without it.")
+    return document[field]
 
 
 def _emit(text):
@@ -93,8 +105,8 @@ def probe_gate(args):
     with open(args.probe, encoding="utf-8") as handle:
         probe = json.load(handle)
 
-    limit = int(baseline["probe_blockers"])
-    actual = int(probe.get("files_with_blockers", 0))
+    limit = int(_required(baseline, "probe_blockers", args.baseline))
+    actual = int(_required(probe, "files_with_blockers", args.probe))
 
     _emit("## es-toolkit probe gate")
     _emit("")
@@ -138,113 +150,103 @@ _TEST_RESULT_RE = re.compile(
     r"test result:\s+\w+\.\s+(\d+)\s+passed;\s+(\d+)\s+failed", re.IGNORECASE
 )
 
+# libtest per-test line: "test module::name ... FAILED"
+_TEST_FAILED_RE = re.compile(r"^test (\S+)(?: - .*)? \.\.\. FAILED\s*$")
 
-def _parse_runtime(log_path):
-    """Sum passed/failed across all libtest summary lines in a captured log."""
-    passed = failed = 0
+# rustc diagnostic head: "error[E0308]: ..." or "error: ...". The closing
+# "could not compile" and "aborting due to" lines count nothing new.
+_RUSTC_ERROR_RE = re.compile(r"^error(\[E\d+\])?: (?!could not compile|aborting due to)")
+
+
+# Terminal colour: the CI jobs set CARGO_TERM_COLOR=always, so a captured log
+# can carry escapes inside the text the patterns above match.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _plain_lines(log_path):
+    """Yield the lines of a captured log with terminal colour removed."""
     with open(log_path, encoding="utf-8", errors="replace") as handle:
         for line in handle:
-            match = _TEST_RESULT_RE.search(line)
-            if match:
-                passed += int(match.group(1))
-                failed += int(match.group(2))
-    return passed, failed
+            yield _ANSI_RE.sub("", line)
+
+
+def _parse_runtime(log_path):
+    """Return (passed, failed, failing names, whether any summary line exists)."""
+    passed = failed = 0
+    failing = set()
+    summarized = False
+    for line in _plain_lines(log_path):
+        match = _TEST_RESULT_RE.search(line)
+        if match:
+            summarized = True
+            passed += int(match.group(1))
+            failed += int(match.group(2))
+        match = _TEST_FAILED_RE.match(line)
+        if match:
+            failing.add(match.group(1))
+    return passed, failed, failing, summarized
 
 
 def runtime_ratchet(args):
-    """Advisory (or blocking) runtime pass-count ratchet against the baseline."""
+    """Fail on an unpinned failing test or a fall in the passed count."""
     baseline = _load_baseline(args.baseline)
-    passed, failed = _parse_runtime(args.log)
+    base_passed = int(_required(baseline, "runtime_passed", args.baseline))
+    known = set(_required(baseline, "runtime_known_failures", args.baseline))
+    passed, failed, failing, summarized = _parse_runtime(args.log)
 
-    base_passed = int(baseline["runtime_passed"])
-    base_failed = int(baseline["runtime_failed"])
-    gate = baseline.get("runtime_gate", "advisory")
-    blocking = args.blocking and gate != "advisory"
-
-    _emit("## es-toolkit runtime ratchet"
-          + ("" if blocking else " (advisory)"))
+    _emit("## Runtime ratchet")
     _emit("")
-    _emit(f"Runtime: **{passed} passed / {failed} failed** "
-          f"(baseline {base_passed} passed / {base_failed} failed).")
-
-    regressed = passed < base_passed
-    if regressed:
-        _emit("")
-        _emit(
-            f"es-toolkit runtime: pass count regressed {base_passed} -> {passed}."
-        )
-    elif passed > base_passed:
-        _emit(f"Improvement: {passed - base_passed} more passing test(s).")
-
-    if regressed and blocking:
+    if not summarized:
+        _emit(f"No `test result:` line in {args.log}: the suite did not finish.")
         _emit("Runtime ratchet: **FAIL**.")
         return 1
-    _emit("Runtime ratchet: **{}**.".format(
-        "PASS" if not regressed else "advisory (not blocking)"))
+
+    _emit(f"Runtime: **{passed} passed / {failed} failed** "
+          f"(floor {base_passed} passed, {len(known)} pinned failures).")
+    new = sorted(failing - known)
+    if len(failing) != failed:
+        _emit(f"The log names {len(failing)} failing test(s) but its summaries "
+              f"count {failed}.")
+    for name in new:
+        _emit(f"- new failure: `{name}`")
+    fixed = sorted(known - failing)
+    for name in fixed:
+        _emit(f"- pinned failure now passes, remove it from the baseline: `{name}`")
+    if passed < base_passed:
+        _emit(f"Pass count regressed {base_passed} -> {passed}.")
+    elif passed > base_passed:
+        _emit(f"Improvement: {passed - base_passed} more passing test(s); "
+              "raise `runtime_passed`.")
+
+    if new or passed < base_passed or len(failing) != failed:
+        _emit("Runtime ratchet: **FAIL**.")
+        return 1
+    _emit("Runtime ratchet: **PASS**.")
     return 0
 
 
-def _selftest():
-    """Fabricated-fixture self-test; run with `--selftest`. Returns exit code."""
-    import tempfile
+def compile_pin(args):
+    """Fail unless the rustc error count of a test build equals the pin."""
+    baseline = _load_baseline(args.baseline)
+    pinned = int(_required(baseline, "test_compile_errors", args.baseline))
+    errors = sum(1 for line in _plain_lines(args.log) if _RUSTC_ERROR_RE.match(line))
 
-    ok = True
-    with tempfile.TemporaryDirectory() as tmp:
-        base = os.path.join(tmp, "baseline.json")
-        with open(base, "w", encoding="utf-8") as handle:
-            json.dump({
-                "probe_blockers": 9,
-                "runtime_passed": 56,
-                "runtime_failed": 89,
-                "runtime_gate": "advisory",
-            }, handle)
-
-        # Probe within baseline -> pass.
-        probe_ok = os.path.join(tmp, "probe_ok.json")
-        with open(probe_ok, "w", encoding="utf-8") as handle:
-            json.dump({"files_with_blockers": 9, "blockers": []}, handle)
-        rc = probe_gate(argparse.Namespace(
-            baseline=base, probe=probe_ok, diagnostics=None))
-        ok &= (rc == 0)
-
-        # Probe regressed -> fail, names families.
-        probe_bad = os.path.join(tmp, "probe_bad.json")
-        with open(probe_bad, "w", encoding="utf-8") as handle:
-            json.dump({
-                "files_with_blockers": 12,
-                "blockers": [{
-                    "category": "lowering", "code": "E-LOWER",
-                    "shape": "unsupported const item expression",
-                    "occurrences": 4, "files": 3,
-                    "example_file": "src/predicate/isEqualWith.spec.ts",
-                }],
-            }, handle)
-        rc = probe_gate(argparse.Namespace(
-            baseline=base, probe=probe_bad, diagnostics=None))
-        ok &= (rc == 1)
-
-        # Runtime advisory regression -> exit 0 despite fewer passes.
-        log = os.path.join(tmp, "test.log")
-        with open(log, "w", encoding="utf-8") as handle:
-            handle.write("test result: FAILED. 40 passed; 5 failed; 0 ignored\n")
-            handle.write("test result: ok. 10 passed; 2 failed; 0 ignored\n")
-        rc = runtime_ratchet(argparse.Namespace(
-            baseline=base, log=log, blocking=False))
-        ok &= (rc == 0)
-
-        # Parsing sums across binaries.
-        passed, failed = _parse_runtime(log)
-        ok &= (passed == 50 and failed == 7)
-
-    print("SELFTEST:", "PASS" if ok else "FAIL")
-    return 0 if ok else 1
+    _emit("## Test build pin")
+    _emit("")
+    _emit(f"Rustc errors building the tests: **{errors}** (pinned {pinned}).")
+    if errors == pinned:
+        _emit("Test build pin: **PASS**.")
+        return 0
+    if errors < pinned:
+        _emit("Fewer errors than pinned: lower `test_compile_errors`. At zero the "
+              "tests run, so pin their results then.")
+    _emit("Test build pin: **FAIL**.")
+    return 1
 
 
 def main(argv=None):
     """CLI entry point."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--selftest", action="store_true",
-                        help="Run the fabricated-fixture self-test and exit.")
     sub = parser.add_subparsers(dest="mode")
 
     p_probe = sub.add_parser("probe-gate", help="Gate probe blocker count.")
@@ -255,17 +257,19 @@ def main(argv=None):
                          help="Optional rust-diagnostics Markdown report.")
     p_probe.set_defaults(func=probe_gate)
 
-    p_run = sub.add_parser("runtime-ratchet", help="Advisory runtime ratchet.")
+    p_run = sub.add_parser("runtime-ratchet", help="Pinned-failure runtime ratchet.")
     p_run.add_argument("--baseline", required=True)
     p_run.add_argument("--log", required=True,
                        help="Captured `cargo test` output.")
-    p_run.add_argument("--blocking", action="store_true",
-                       help="Fail on regression (only if baseline gate!=advisory).")
     p_run.set_defaults(func=runtime_ratchet)
 
+    p_pin = sub.add_parser("compile-pin", help="Exact pin of a test build's errors.")
+    p_pin.add_argument("--baseline", required=True)
+    p_pin.add_argument("--log", required=True,
+                       help="Captured `cargo test` output.")
+    p_pin.set_defaults(func=compile_pin)
+
     args = parser.parse_args(argv)
-    if args.selftest:
-        return _selftest()
     if not getattr(args, "func", None):
         parser.print_help()
         return 2

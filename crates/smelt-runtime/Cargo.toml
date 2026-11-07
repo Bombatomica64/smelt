@@ -60,6 +60,12 @@ allow_attributes_without_reason = "allow"
 # a deliberate emitted-text change rather than to this source-of-truth move.
 type_complexity = "allow"
 clone_on_ref_ptr = "allow"
+# Three more apply at the workspace MSRV but not to a generated crate, whose floor
+# is lower, and rewriting them changes the same bytes. Kept as warnings so the
+# clippy ratchet still counts them.
+collapsible_if = "warn"
+chunks_exact_to_as_chunks = "warn"
+manual_is_multiple_of = "warn"
 dbg_macro = "deny"
 todo = "deny"
 unimplemented = "deny"

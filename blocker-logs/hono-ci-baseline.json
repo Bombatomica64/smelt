@@ -1,0 +1,4 @@
+{
+  "_comment": "Hono's generated test target does not build: `test_compile_errors` is the exact rustc error count of `cargo test` on it (scripts/check_library_gate.py compile-pin, .github/workflows/ci.yml `hono`). All six are E0308 in src/router_test_2.rs. At zero the tests run, and their results get pinned here the way es-toolkit's are.",
+  "test_compile_errors": 6
+}

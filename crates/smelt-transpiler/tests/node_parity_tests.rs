@@ -190,7 +190,7 @@ fn parameter_shadows_module_const() -> TestResult {
     verify_node_parity("parameter_shadows_module_const")
 }
 
-/// `replace` substitutes ToString of the replacer's answer.
+/// `replace` substitutes `ToString` of the replacer's answer.
 #[test]
 fn replace_callback_tostring() -> TestResult {
     verify_node_parity("replace_callback_tostring")
@@ -357,4 +357,91 @@ fn regex_replace_uppercase_callback() -> TestResult {
 #[test]
 fn dict_entry_push_in_place() -> TestResult {
     verify_node_parity("dict_entry_push_in_place")
+}
+
+/// `parseInt` and `parseFloat` read the longest valid prefix, `parseInt`
+/// detects `0x` without a radix, and `xs.map(parseInt)` parses in the index radix.
+#[test]
+fn parse_number_prefix() -> TestResult {
+    verify_node_parity("parse_number_prefix")
+}
+
+/// Every string index counts UTF-16 code units: the ones `indexOf`, `search`,
+/// a match's `index` and `lastIndex` answer and the ones `slice`, `substring`,
+/// `substr`, `charAt`, `s[i]` and `padEnd` take, for non-ASCII and astral text.
+#[test]
+fn string_utf16_indices() -> TestResult {
+    verify_node_parity("string_utf16_indices")
+}
+
+/// A list or typed-array element read past the end is `undefined` wherever
+/// the reader's type can hold `undefined`, and in range it is the element.
+#[test]
+fn element_read_misses() -> TestResult {
+    verify_node_parity("element_read_misses")
+}
+
+/// A regexp's absent values: a non-participating group is `undefined`,
+/// `indices` exists with the `d` flag, a missing property is `undefined`, and
+/// `RegExpMatchArray`/`RegExpExecArray` annotations name the match value.
+#[test]
+fn regexp_absent_values() -> TestResult {
+    verify_node_parity("regexp_absent_values")
+}
+
+/// Environment variable names are case-sensitive: only `TZ` is the zone.
+#[test]
+fn env_names_case_sensitive() -> TestResult {
+    verify_node_parity("env_names_case_sensitive")
+}
+
+/// A class the program declares under a host constructor's name is that class,
+/// for `new` and for `instanceof`.
+#[test]
+fn declared_class_shadows_host() -> TestResult {
+    verify_node_parity("declared_class_shadows_host")
+}
+
+/// `Reflect.has(target, key)` answers like `key in target`.
+#[test]
+fn reflect_has_is_in() -> TestResult {
+    verify_node_parity("reflect_has_is_in")
+}
+
+/// An object literal's getter runs on every read, at its point of evaluation,
+/// whatever spells its key.
+#[test]
+fn object_literal_getters() -> TestResult {
+    verify_node_parity("object_literal_getters")
+}
+
+/// `String` of an erased array joins its elements.
+#[test]
+fn erased_string_joins_arrays() -> TestResult {
+    verify_node_parity("erased_string_joins_arrays")
+}
+
+/// A field read keeps its value when a later argument writes the field through
+/// a computed key or `Object.assign`.
+#[test]
+fn field_read_before_keyed_write() -> TestResult {
+    verify_node_parity("field_read_before_keyed_write")
+}
+
+/// `a ?? b!` evaluates the asserted fallback only when it is selected.
+#[test]
+fn coalesce_asserted_fallback_is_lazy() -> TestResult {
+    verify_node_parity("coalesce_asserted_fallback_is_lazy")
+}
+
+/// A primitive consequent does not convert a different primitive alternate.
+#[test]
+fn conditional_primitive_arms() -> TestResult {
+    verify_node_parity("conditional_primitive_arms")
+}
+
+/// An argument is spread only when the call writes `...arg`.
+#[test]
+fn spread_is_syntax() -> TestResult {
+    verify_node_parity("spread_is_syntax")
 }

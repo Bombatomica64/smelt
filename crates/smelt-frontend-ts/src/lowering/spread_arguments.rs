@@ -11,7 +11,6 @@
 use crate::SmeltError;
 use crate::lowering::{ModuleBuilder, RestParam};
 use oxc::ast::ast::{Argument, Expression};
-use oxc::span::GetSpan;
 use smelt_hir::{BinOp, Body, Expr, ExprKind, FunctionType, Literal, Span, Stmt, Type};
 
 /// One argument of a call, after spreads have been interpreted.
@@ -713,41 +712,5 @@ impl ModuleBuilder<'_> {
         call.arguments
             .iter()
             .any(|argument| matches!(argument, Argument::SpreadElement(_)))
-    }
-
-    /// Return whether a call contains JavaScript spread syntax.
-    ///
-    /// Some parser surfaces can preserve the argument expression while hiding
-    /// the spread wrapper after TypeScript-specific normalization. The source
-    /// span probe keeps spread-call lowering tied to source syntax instead of
-    /// treating the argument as an ordinary array value.
-    pub(in crate::lowering) fn call_has_spread_arguments_or_source_spread(
-        &self,
-        call: &oxc::ast::ast::CallExpression<'_>,
-    ) -> bool {
-        Self::call_has_spread_arguments(call)
-            || self
-                .source
-                .get(
-                    usize::try_from(call.span.start).unwrap_or(0)
-                        ..usize::try_from(call.span.end).unwrap_or(0),
-                )
-                .is_some_and(|text| text.contains("..."))
-            || call.arguments.iter().any(|argument| {
-                let span = argument.span();
-                let start = usize::try_from(call.span.start).unwrap_or(0);
-                let argument_start = usize::try_from(span.start).unwrap_or(start);
-                if self
-                    .source
-                    .get(argument_start..)
-                    .is_some_and(|suffix| suffix.starts_with("..."))
-                {
-                    return true;
-                }
-                let end = argument_start;
-                self.source
-                    .get(start..end)
-                    .is_some_and(|prefix| prefix.trim_end().ends_with("..."))
-            })
     }
 }

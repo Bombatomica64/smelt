@@ -58,13 +58,32 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'labeled' }}
 
 jobs:
+  # The gate scripts and the rules they hold each other to: seconds of Python,
+  # and the one job that notices another gate being switched off.
+  ci-gates:
+    if: ${{ github.event.action != 'labeled' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Gate script tests
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
+
+      - name: Workflows and test helpers keep their gates
+        run: python3 scripts/check_ci_gates.py
+
   # Lint gate. The lint policy itself lives in the repo, not here:
-  # `[workspace.lints.rust]` / `[workspace.lints.clippy]` in Cargo.toml already
-  # set clippy::{all,pedantic,nursery} to "deny" plus a large hand-picked
-  # restriction set, and clippy.toml tightens the thresholds. This job just runs
-  # that policy over every target (`--all-targets`, i.e. including the inline
-  # test modules that `--lib` skips) and escalates the remaining "warn"-level
-  # lints with `-D warnings`.
+  # `[workspace.lints.rust]` / `[workspace.lints.clippy]` in Cargo.toml set
+  # clippy::{all,pedantic,nursery} to "deny" plus a large hand-picked restriction
+  # set, `crates/smelt-runtime/Cargo.toml` demotes the style groups for text that
+  # is emitted verbatim, and clippy.toml tightens the thresholds. This job runs
+  # that policy over every target of every workspace member.
+  #
+  # Deny-level lints fail through cargo's exit code. Warn-level lints are a
+  # ratchet: a count per crate and lint in blocker-logs/clippy-baseline.json that
+  # may only fall. See scripts/check_clippy_ratchet.py for why `-D warnings` is
+  # not the form of this gate.
   #
   # Cache: restores the plain "build" lane but never saves it (`save-if: false`).
   # `cargo clippy` compiles *dependencies* with real rustc — only workspace
@@ -74,48 +93,53 @@ jobs:
   # target dir would force the corpus/regression jobs to recompile.
   clippy:
     # Skip on `labeled`: that event exists only to let a maintainer opt a PR into
-    # the regression jobs below, and re-running this 1-2 min lint (plus coverage
-    # and corpus) for every unrelated label added to any PR is pure waste. On
-    # `push` there is no `action`, so the expression is true and the job runs.
+    # the regression jobs below, and re-running this lint (plus coverage and
+    # corpus) for every unrelated label added to any PR is pure waste. On `push`
+    # there is no `action`, so the expression is true and the job runs.
     if: ${{ github.event.action != 'labeled' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      # rust-toolchain.toml carries the components: the toolchain the workspace
+      # builds with is the one that has to have clippy.
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
         with:
           shared-key: build
           save-if: false
 
-      # ADVISORY UNTIL THE WARNING BACKLOG IS CLEARED — then delete the
-      # `continue-on-error` line below and this comment, nothing else.
-      #
-      # `cargo clippy --all-targets` reports 0 ERRORS as of the commit that added
-      # this job, and Cargo.toml's deny levels keep it that way: any new denied
-      # lint fails the step regardless of `-D warnings`. What is not yet clean is
-      # the pre-existing warn-level backlog — 418 sites, led by as_conversions
-      # (100), indexing_slicing (68), expect_used (64), the shadow_* family (120)
-      # and arithmetic_side_effects (42). None of it was ever enforced, because
-      # until now no CI job ran clippy at all.
-      #
-      # Failing here immediately would leave main red with no branch protection to
-      # stop anyone merging through it, which makes a genuine regression
-      # indistinguishable from the backlog. So the step reports and does not gate:
-      # the full list stays visible in the job log, and the ratchet becomes real
-      # once the cleanup lands.
-      - name: Clippy (all targets, warnings are errors)
-        continue-on-error: true
-        run: cargo clippy --all-targets -- -D warnings
+      - name: Clippy (deny-level fails, warn-level may only fall)
+        run: |
+          set +e
+          cargo clippy --workspace --all-targets --keep-going --message-format=json > clippy.json
+          status=$?
+          set -e
+          python3 scripts/check_clippy_ratchet.py \
+            --baseline blocker-logs/clippy-baseline.json \
+            --messages clippy.json --cargo-status "$status"
+
+  # Packaging dry run: every publishable crate packages in the derived order, and
+  # the set of crates that cannot be published has not moved. Publishes nothing.
+  package:
+    if: ${{ github.event.action != 'labeled' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          shared-key: build
+          save-if: false
+
+      - name: Package every publishable crate
+        run: scripts/publish-crates.sh
 
   # Slow tier: compile the emitted-Rust corpus. This is a plain (non-instrumented)
-  # build on stable, so it runs as its own job in parallel with coverage and shares
+  # build on the pinned toolchain, so it runs as its own job in parallel with coverage and shares
   # the "build" cache lane with the other plain-build workflows. It does not need the
   # nightly toolchain, cargo-llvm-cov, or the GUI native libs (it only builds
   # smelt-codegen-rust and its dependencies, not smelt-gui).
@@ -127,11 +151,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
         with:
           shared-key: build
 
@@ -193,8 +214,7 @@ jobs:
             --baseline blocker-logs/smelt-unknown-baseline.json \
             --fail-on-regression
 
-      # `update-schema.yml` regenerates the schema only after a merge, so a PR that
-      # changes the manifest types could otherwise land with it stale.
+      # A change to the manifest types has to carry the regenerated schema.
       - name: smelt-schema.json matches `dump-schema`
         run: target/debug/smelt dump-schema | diff - smelt-schema.json
 
@@ -218,10 +238,10 @@ jobs:
   # one of these tests reported success in CI while never launching a guest
   # process. See gap 3 of blocker-logs/test-coverage-analysis.md.
   #
-  # `SMELT_REQUIRE_SANDBOX=1` turns a missing prerequisite into a failure, so
-  # this job is red exactly when the boundary is not being exercised. It is a
-  # separate job on purpose: a runner-side sandbox regression should surface as
-  # one clearly-named failure rather than taking coverage and clippy with it.
+  # `SMELT_REQUIRE_SANDBOX=1` turns a missing prerequisite into a failure, in
+  # this job and in every other job that runs tool-backed tests (`test`,
+  # `coverage`). It is a separate job on purpose: a runner-side sandbox regression
+  # should surface as one clearly-named failure, on every push and pull request.
   sandbox:
     # See the note on `clippy`: never re-run just because a label was added.
     if: ${{ github.event.action != 'labeled' }}
@@ -230,22 +250,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
         with:
           shared-key: build
 
-      - name: Install sandbox prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes bubblewrap
-          # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor,
-          # which bubblewrap needs. The key is absent on older images.
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-          npm install --global typescript@5.9.3
+      - name: Install test tools
+        uses: ./.github/actions/setup-test-tools
 
       # Fails the job early with a readable message if the runner cannot create
       # the namespaces bubblewrap needs, instead of leaving that to a Rust test.
@@ -272,8 +283,8 @@ jobs:
             --test python_specialization_parity \
             --test typescript_specialization_parity
 
-  # PR test gate: runs only the tests a change can affect, on stable with a
-  # warm cache. The instrumented nightly run below (`coverage`) is main-only.
+  # PR test gate: runs only the tests a change can affect, on the pinned
+  # toolchain with a warm cache. The instrumented nightly run below (`coverage`) is main-only.
   #
   # Selection is per workspace package (scripts/ci_affected_packages.py): the
   # packages that own a changed file plus every package that depends on them,
@@ -307,41 +318,23 @@ jobs:
         run: |
           git diff --name-only HEAD^1 HEAD | python3 scripts/ci_affected_packages.py -
 
-      - name: Install Rust
-        if: ${{ steps.affected.outputs.mode != 'none' }}
-        uses: dtolnay/rust-toolchain@stable
-
       # Own lane, not `build`: the corpus/sandbox jobs save `build` with only
       # the subset of the workspace they compile, and whichever job finishes
       # first wins the save.
-      - name: Cache cargo
+      - name: Set up Rust
         if: ${{ steps.affected.outputs.mode != 'none' }}
-        uses: Swatinem/rust-cache@v2
+        uses: ./.github/actions/setup-rust
         with:
           shared-key: test
 
-      # Same pinned oracle as the coverage job; see the note there.
-      - name: Install Node (pinned oracle for the end-to-end goldens)
+      - name: Install test tools
         if: ${{ steps.affected.outputs.mode != 'none' }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24.21.0'
+        uses: ./.github/actions/setup-test-tools
 
-      - name: Install sandbox prerequisites
-        if: ${{ steps.affected.outputs.mode != 'none' }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes bubblewrap
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-          npm install --global typescript@5.9.3
-
-      # Same reclaim as runtime-tiers.yml: the preinstalled Android SDK, .NET
-      # and GHC images take ~20 GB the workspace test build needs.
+      # The workspace test build needs the room.
       - name: Free runner disk
         if: ${{ steps.affected.outputs.mode != 'none' }}
-        run: |
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
-          df -h /
+        uses: ./.github/actions/free-disk
 
       # Build and run are separate steps so the log says which one is slow,
       # and `df` after each shows which one is eating the disk.
@@ -353,6 +346,8 @@ jobs:
 
       - name: Test affected packages
         if: ${{ steps.affected.outputs.mode != 'none' }}
+        env:
+          SMELT_REQUIRE_SANDBOX: "1"
         run: |
           cargo test ${{ steps.affected.outputs.args }}
           df -h / | tail -1
@@ -366,11 +361,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: llvm-tools-preview
 
       - name: Install nightly Rust (for branch coverage)
         uses: dtolnay/rust-toolchain@nightly
@@ -407,35 +397,15 @@ jobs:
         with:
           tool: cargo-llvm-cov
 
-      # The end-to-end corpus checks every golden stdout against real Node
-      # (`ensure_node_agrees` in crates/smelt-transpiler/tests/common/mod.rs),
-      # and Node is the oracle, so its version is pinned: the runner image's
-      # default Node is older than the 22.7 that `--experimental-transform-types`
-      # needs (the oracle would silently skip), and Node releases disagree on
-      # observable behaviour (`92_request_init_members` records one such
-      # difference between Node 22 and 24). Bump this deliberately and
-      # re-check the goldens when it moves.
-      - name: Install Node (pinned oracle for the end-to-end goldens)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24.21.0'
-
-      # Without these the sandbox-backed specialization tests skip themselves,
-      # and `smelt-specialize` reports ~50% line / ~36% branch coverage for code
-      # that never ran. `SMELT_REQUIRE_SANDBOX` is deliberately NOT set here: a
-      # runner-side sandbox quirk should not blank the coverage badge. The
-      # `sandbox` job above is the one that enforces non-skipping.
-      - name: Install sandbox prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes bubblewrap
-          # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor,
-          # which bubblewrap needs. The key is absent on older images, so this
-          # must not fail the job.
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-          npm install --global typescript@5.9.3
+      # Without these the sandbox-backed specialization tests cannot run, and
+      # `smelt-specialize` would report ~50% line / ~36% branch coverage for code
+      # that never ran.
+      - name: Install test tools
+        uses: ./.github/actions/setup-test-tools
 
       - name: Test with coverage
+        env:
+          SMELT_REQUIRE_SANDBOX: "1"
         run: |
           cargo +nightly llvm-cov --workspace --branch --lcov --output-path lcov.info
 
@@ -488,7 +458,8 @@ jobs:
   # from-source build on mismatch, so an out-of-date asset can never be used
   # silently.
 
-  # Regression gate: transpile the Remeda library at a pinned ref with the smelt
+  # Regression gate: transpile the Remeda library at the ref pinned in
+  # .github/compat/libraries.json with the smelt
   # built from THIS commit, then compile and run its generated Rust test suite.
   # The corpus currently has 1789 tests, all passing; this job fails if a codegen,
   # frontend, or MIR change regresses any of them. Builds smelt from source (not
@@ -502,12 +473,12 @@ jobs:
   #
   # If your PR touches the frontend, HIR, MIR, specializer, or the Rust emitter,
   # add the `run-regressions` label and wait for them. A green PR without that
-  # label has NOT been checked against Remeda (1789 tests), Radash (387 tests) or
-  # the es-toolkit ratchet, and main is not branch-protected, so nothing else
+  # label has NOT been checked against Remeda (1789 tests), Radash (387 tests),
+  # Hono or the es-toolkit ratchet, and main is not branch-protected, so nothing else
   # will stop a regression from landing.
   #
   # Once applied, the label sticks: every later push to the PR re-runs them.
-  # Rationale: ~7 min of runner time per PR run for three jobs that sit well
+  # Rationale: ~7 min of runner time per PR run for four jobs that sit well
   # inside the test/coverage critical path, so skipping them saves runner minutes on
   # docs/CI-only PRs without making anyone wait longer.
   # ==========================================================================
@@ -520,24 +491,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
         with:
           shared-key: build
 
       - name: Build smelt
         run: cargo build --bin smelt
 
-      - name: Check out Remeda at the pinned ref + copy Smelt fixtures
-        run: |
-          repo_dir="target/compat-repos/remeda"
-          rm -rf "$repo_dir"
-          git clone --no-tags --filter=blob:none https://github.com/remeda/remeda.git "$repo_dir"
-          git -C "$repo_dir" checkout 3c80f28bb394edbf89f1fc9978571dec8ed20edc
-          cp -R .github/compat/remeda/. "$repo_dir"/
+      - name: Check out Remeda
+        uses: ./.github/actions/checkout-library
+        with:
+          name: remeda
 
       - name: Transpile Remeda to Rust
         run: target/debug/smelt --manifest-path target/compat-repos/remeda/Smelt.toml build
@@ -620,26 +585,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
         with:
           shared-key: build
 
       - name: Build smelt
         run: cargo build --bin smelt
 
-      - name: Check out Radash at the pinned ref + copy Smelt fixtures
-        run: |
-          ref="$(python3 -c "import json; libs=json.load(open('.github/compat/libraries.json'))['libraries']; print(next(l['ref'] for l in libs if l['name']=='radash'))")"
-          echo "Radash ref: $ref"
-          repo_dir="target/compat-repos/radash"
-          rm -rf "$repo_dir"
-          git clone --no-tags --filter=blob:none https://github.com/sodiray/radash.git "$repo_dir"
-          git -C "$repo_dir" checkout "$ref"
-          cp -R .github/compat/radash/. "$repo_dir"/
+      - name: Check out Radash
+        uses: ./.github/actions/checkout-library
+        with:
+          name: radash
 
       - name: Expose ambient Radash tests to Smelt discovery
         run: |
@@ -655,11 +612,8 @@ jobs:
           RUSTFLAGS=-Awarnings cargo test \
             --manifest-path target/compat-repos/radash/dist-smelt/Cargo.toml \
             --no-fail-fast 2>&1 | tee radash-tests.log || true
-          # Pinned-failure ratchet: 3 known failures (`boil({} as any)` and
-          # `inRange(0, 1, null as any)` pass type-violating inputs `tsc` only
-          # admits through `as any`; `callable` needs `Proxy` traps). The pin
-          # fails on any other failure or a changed total; the target is
-          # `ok. 387 passed; 0 failed;` once Proxy lands.
+          # Pinned-failure ratchet: the four known failures listed above the
+          # job. The pin fails on any other failure or a changed total.
           grep -F "test result: FAILED. 383 passed; 4 failed;" radash-tests.log
 
   # Regression gate for the Hono campaign (blocker-logs/hono-campaign-plan.md).
@@ -671,11 +625,9 @@ jobs:
   # errors and linking (`blocker-logs/hono-current.md`), so `smelt build` +
   # `cargo check` on `dist-smelt` are now a HARD gate, mirroring the radash job
   # above. Phase 3 (bringing Hono's own `*.test.ts` files into scope) is in
-  # progress and its pass/fail baseline is not yet established, so
-  # `cargo test` stays ADVISORY (`continue-on-error: true`) until that baseline
-  # is stable, as this job's `cargo test` assertion becomes stable too — at
-  # which point it should be promoted to a hard `grep` assertion the way
-  # radash's is.
+  # progress: the generated test target does not build yet, and the exact count
+  # of its rustc errors is pinned in blocker-logs/hono-ci-baseline.json. At zero
+  # the tests run, and their results get pinned there.
   hono:
     # Opt-in on PRs via the `run-regressions` label; always on for main pushes.
     # See the banner above `remeda-regression`.
@@ -687,26 +639,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
         with:
           shared-key: build
 
       - name: Build smelt
         run: cargo build --bin smelt
 
-      - name: Check out Hono at the pinned ref + copy Smelt fixtures
-        run: |
-          ref="$(python3 -c "import json; libs=json.load(open('.github/compat/libraries.json'))['libraries']; print(next(l['ref'] for l in libs if l['name']=='hono'))")"
-          echo "Hono ref: $ref"
-          repo_dir="target/compat-repos/hono"
-          rm -rf "$repo_dir"
-          git clone --no-tags --filter=blob:none https://github.com/honojs/hono.git "$repo_dir"
-          git -C "$repo_dir" checkout "$ref"
-          cp -R .github/compat/hono/. "$repo_dir"/
+      - name: Check out Hono
+        uses: ./.github/actions/checkout-library
+        with:
+          name: hono
 
       - name: Report Hono source-lowering blockers (advisory)
         run: |
@@ -718,7 +662,8 @@ jobs:
           python3 -c "
           import json
           rows = json.load(open('hono-blockers.json'))
-          print(f'hono blockers: {len(rows)}')
+          blockers = [row for row in rows if row['category'] != 'type-check']
+          print(f'hono blockers: {len(blockers)}; checker diagnostics: {len(rows) - len(blockers)}')
           "
 
       - name: Transpile Hono to Rust + compile the generated crate (regression gate)
@@ -728,17 +673,19 @@ jobs:
           target/debug/smelt --manifest-path target/compat-repos/hono/Smelt.toml build
           cargo check --manifest-path target/compat-repos/hono/dist-smelt/Cargo.toml
 
-      - name: Run generated Hono tests (advisory)
-        # ADVISORY: phase 3 (bringing Hono's own *.test.ts files into scope,
-        # blocker-logs/hono-phase3-brief.md) is in progress and has not yet
-        # established a stable pass/fail baseline. Promote this to a hard
-        # `grep`-asserted pass count, like radash's, once that baseline holds.
-        # The time limit keeps an uncompilable or slow test build (the test
-        # crate is ~90 MB of generated Rust) from holding the job for hours.
-        continue-on-error: true
+      - name: Generated Hono test build (pinned error count)
+        # The time limit keeps a slow test build (the test crate is ~90 MB of
+        # generated Rust) from holding the job for hours.
         timeout-minutes: 45
         run: |
-          cargo test --manifest-path target/compat-repos/hono/dist-smelt/Cargo.toml --no-fail-fast
+          set +e
+          cargo test --manifest-path target/compat-repos/hono/dist-smelt/Cargo.toml \
+            --no-fail-fast 2>&1 | tee hono-tests.log
+          echo "cargo test exit status: ${PIPESTATUS[0]}"
+          set -e
+          python3 scripts/check_library_gate.py compile-pin \
+            --baseline blocker-logs/hono-ci-baseline.json \
+            --log hono-tests.log
 
       # Advisory SmeltUnknown metric, remeda-style: a regression never blocks,
       # but a missing blocker-logs/smelt-unknown-baseline-hono.json does, because
@@ -760,10 +707,10 @@ jobs:
   # ratchet against checked-in high-water marks in
   # blocker-logs/es-toolkit-ci-baseline.json. Cloned from `remeda-regression`
   # but split into explicit gates because es-toolkit is still mid-campaign:
-  #   G1 probe blockers <= baseline (scripts/check_estoolkit_gate.py),
+  #   G1 probe blockers <= baseline (scripts/check_library_gate.py),
   #   G2 `cargo check` errors == 0 (hard zero, cargo exit code),
   #   G3 `cargo test --no-run` errors == 0 (hard zero, cargo exit code),
-  #   G4 runtime pass-count (advisory ratchet; hangs are known so non-blocking).
+  #   G4 runtime: no failure outside the pinned set, passes >= the pinned floor.
   # RUSTFLAGS=-Awarnings keeps the ~950 residual warnings from drowning the log
   # or gating; the warning count is tracked in the baseline as advisory only.
   es-toolkit-regression:
@@ -777,29 +724,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
         with:
           shared-key: build
 
       - name: Build smelt
         run: cargo build --bin smelt
 
-      - name: Check out es-toolkit at the pinned ref + copy Smelt fixtures
-        run: |
-          # Single source of truth for the ref: .github/compat/libraries.json.
-          # Do NOT rely on the third_party/es-toolkit gitlink (no .gitmodules
-          # entry; a submodule checkout silently skips it).
-          ref="$(python3 -c "import json; libs=json.load(open('.github/compat/libraries.json'))['libraries']; print(next(l['ref'] for l in libs if l['name']=='es-toolkit'))")"
-          echo "es-toolkit ref: $ref"
-          repo_dir="target/compat-repos/es-toolkit"
-          rm -rf "$repo_dir"
-          git clone --no-tags --filter=blob:none https://github.com/toss/es-toolkit.git "$repo_dir"
-          git -C "$repo_dir" checkout "$ref"
-          cp -R .github/compat/es-toolkit/. "$repo_dir"/
+      - name: Check out es-toolkit
+        uses: ./.github/actions/checkout-library
+        with:
+          name: es-toolkit
 
       # G1: probe how far es-toolkit transpiles and gate the blocker count.
       # `smelt probe` runs the whole-crate build itself, so dist-smelt exists
@@ -813,7 +749,7 @@ jobs:
       - name: Probe blocker gate (blockers <= baseline)
         run: |
           cargo_manifest="target/compat-repos/es-toolkit/dist-smelt/Cargo.toml"
-          if ! python3 scripts/check_estoolkit_gate.py probe-gate \
+          if ! python3 scripts/check_library_gate.py probe-gate \
               --baseline blocker-logs/es-toolkit-ci-baseline.json \
               --probe probe.json; then
             echo "Probe gate failed; grouping Rust diagnostics by family..."
@@ -823,7 +759,7 @@ jobs:
                 --output gate-diagnostics.md || true
             fi
             # Re-run to fold the top diagnostic families into the step summary.
-            python3 scripts/check_estoolkit_gate.py probe-gate \
+            python3 scripts/check_library_gate.py probe-gate \
               --baseline blocker-logs/es-toolkit-ci-baseline.json \
               --probe probe.json \
               --diagnostics gate-diagnostics.md || true
@@ -850,12 +786,9 @@ jobs:
             --manifest-path target/compat-repos/es-toolkit/dist-smelt/Cargo.toml \
             2>&1 | tee /tmp/es-toolkit-testcheck.log
 
-      # G4: advisory runtime pass-count ratchet. The suite has known async
-      # hangs (attemptAsync/combinations), so it runs under a hard wall-clock
-      # kill and is deliberately non-blocking (`continue-on-error`); the gate
-      # script only reports pass/fail vs baseline into the step summary.
-      - name: Runtime ratchet (advisory)
-        continue-on-error: true
+      # G4: blocking runtime ratchet. A hard wall-clock kill bounds a hang; a
+      # killed suite prints no complete summary, so it fails on its count.
+      - name: Runtime ratchet (blocking)
         run: |
           set +e
           RUSTFLAGS=-Awarnings timeout --signal=KILL 20m \
@@ -867,7 +800,7 @@ jobs:
           if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
             echo "::warning::es-toolkit runtime suite hit the 20m wall-clock timeout (hang regression suspected)."
           fi
-          python3 scripts/check_estoolkit_gate.py runtime-ratchet \
+          python3 scripts/check_library_gate.py runtime-ratchet \
             --baseline blocker-logs/es-toolkit-ci-baseline.json \
             --log runtime-tests.log
 
@@ -875,40 +808,25 @@ jobs:
       # avoidable erasure against the es-toolkit corpus baseline. Unlike the
       # advisory remeda report, this gates via `--fail-on-regression` (see
       # `## SmeltUnknown enforcement` in AGENTS.md): es-toolkit is the ratchet
-      # corpus, so avoidable erasure may only stay equal or fall. Skips cleanly
-      # when the generated crate is absent (build aborted mid-campaign) so it
-      # never masks an earlier gate failure. Runs even after a prior failure so
-      # the delta is visible in the log.
+      # corpus, so avoidable erasure may only stay equal or fall. Runs even after
+      # a prior failure so the delta is visible in the log. An absent crate fails
+      # here too: the report refuses a scan of no file.
       - name: SmeltUnknown ratchet (blocking)
         if: ${{ always() }}
         run: |
-          crate_src="target/compat-repos/es-toolkit/dist-smelt/src"
-          baseline="blocker-logs/smelt-unknown-baseline-es-toolkit.json"
-          test -f "$baseline"
-          if [ ! -d "$crate_src" ]; then
-            echo "No generated es-toolkit crate to scan; skipping SmeltUnknown ratchet."
-          else
-            target/debug/smelt smelt-unknown-report "$crate_src" \
-              --baseline "$baseline" \
-              --fail-on-regression
-          fi
+          target/debug/smelt smelt-unknown-report target/compat-repos/es-toolkit/dist-smelt/src \
+            --baseline blocker-logs/smelt-unknown-baseline-es-toolkit.json \
+            --fail-on-regression
 
       # Typedness ratchet (blocking): no es-toolkit file may become less typed
       # than its record in the baseline. Reads the sidecar the build wrote next
-      # to the generated `src/`; skips cleanly when the build aborted.
+      # to the generated `src/`; a missing sidecar is a failure, not a skip.
       - name: Typedness ratchet (blocking)
         if: ${{ always() }}
         run: |
-          crate_dir="target/compat-repos/es-toolkit/dist-smelt"
-          baseline="blocker-logs/typedness-baseline-es-toolkit.json"
-          test -f "$baseline"
-          if [ ! -f "$crate_dir/smelt-typedness.json" ]; then
-            echo "No es-toolkit typedness sidecar; skipping typedness ratchet."
-          else
-            target/debug/smelt typedness-report "$crate_dir" \
-              --baseline "$baseline" \
-              --fail-on-regression
-          fi
+          target/debug/smelt typedness-report target/compat-repos/es-toolkit/dist-smelt \
+            --baseline blocker-logs/typedness-baseline-es-toolkit.json \
+            --fail-on-regression
 
       # The compile gates above print their errors where they run, but the
       # SmeltUnknown ratchet that follows emits thousands of lines and pushes

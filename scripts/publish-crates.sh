@@ -6,7 +6,7 @@
 # Python frontend and its `ty` feature are published without manifest rewriting.
 #
 # Usage:
-#   scripts/publish-crates.sh            # dry run: `cargo package` each crate
+#   scripts/publish-crates.sh            # dry run: `cargo package` every crate
 #   scripts/publish-crates.sh --execute  # real `cargo publish` (needs a token)
 #
 # Re-runnable: crates already at the current version on crates.io are skipped in
@@ -30,21 +30,19 @@ if [[ -z "$VERSION" ]]; then
   exit 1
 fi
 
-# Publish order: every crate appears after all of its path dependencies.
-# `smelt-py-types` precedes `smelt-frontend-py`, which precedes its consumers.
-CRATES=(
-  smelt-hir
-  smelt-stdlib
-  smelt-runtime
-  smelt-specialize
-  smelt-ts-model
-  smelt-py-types
-  smelt-frontend-py
-  smelt-mir
-  smelt-codegen-rust
-  smelt-frontend-ts
-  smelt-transpiler
-)
+# Crates that cannot be published yet, with the dependency that stops them. Any
+# change to this set is a decision, so a difference fails the run.
+KNOWN_BLOCKED="smelt-transpiler smelt-ts-types"
+
+BLOCKED="$(python3 scripts/publish_order.py --blocked)"
+if [[ "$BLOCKED" != "$KNOWN_BLOCKED" ]]; then
+  echo "Blocked crates changed. Expected: '$KNOWN_BLOCKED'. Found: '$BLOCKED'." >&2
+  exit 1
+fi
+
+# Publish order: every crate after its path dependencies, derived from the
+# manifests.
+mapfile -t CRATES < <(python3 scripts/publish_order.py)
 
 # Returns 0 if <crate> already has VERSION on crates.io (so a resumed run can
 # skip it — new-crate publishing is rate-limited, so a batch may need >1 pass).
@@ -56,36 +54,41 @@ already_published() {
   [[ "$code" == "200" ]]
 }
 
+if [[ "$EXECUTE" -eq 0 ]]; then
+  # Multi-package mode stages each crate for the ones after it, so a crate that
+  # has never been published still resolves.
+  selected=()
+  for crate in "${CRATES[@]}"; do
+    selected+=(-p "$crate")
+  done
+  cargo package "${selected[@]}" --no-default-features --no-verify --allow-dirty
+  echo
+  echo "Packaged ${#CRATES[@]} crates. Not packaged: $BLOCKED."
+  exit 0
+fi
+
+if [[ -n "$BLOCKED" ]]; then
+  echo "Refusing to publish a partial release. Blocked: $BLOCKED." >&2
+  exit 1
+fi
+
+published=0
 for crate in "${CRATES[@]}"; do
   echo "==============================================================="
   echo ">>> $crate"
   echo "==============================================================="
 
-  if [[ "$EXECUTE" -eq 1 ]] && already_published "$crate"; then
+  if already_published "$crate"; then
     echo "already on crates.io at $VERSION — skipping"
     continue
   fi
 
-  if [[ "$EXECUTE" -eq 1 ]]; then
-    cargo publish -p "$crate" --no-default-features --allow-dirty
-  elif { [[ "$crate" == "smelt-frontend-py" ]] && ! already_published smelt-py-types; } \
-    || { [[ "$crate" == "smelt-transpiler" ]] && ! already_published smelt-frontend-py; }; then
-    # Cargo insists that every versioned dependency already exist in the
-    # registry even with --no-verify. On the first release, validate the staged
-    # file set now; a full package dry run becomes available as soon as the
-    # preceding local dependency publishes reach the crates.io index.
-    cargo package -p "$crate" --list --allow-dirty >/dev/null
-    echo "package dependency check deferred until its new local dependencies are indexed"
-  else
-    # --no-verify checks manifest publishability (versions present, no git deps)
-    # without needing the dependency crates to already be on crates.io.
-    cargo package -p "$crate" --no-default-features --no-verify --allow-dirty
-  fi
+  cargo publish -p "$crate" --no-default-features --allow-dirty
+  published=$((published + 1))
 done
 
-echo
-if [[ "$EXECUTE" -eq 1 ]]; then
-  echo "All crates published."
-else
-  echo "Dry run complete. Re-run with --execute to publish (requires a crates.io token)."
+if [[ "$published" -eq 0 ]]; then
+  echo "Nothing was published: every crate is already at $VERSION. Bump the version." >&2
+  exit 1
 fi
+echo "Published $published crate(s)."

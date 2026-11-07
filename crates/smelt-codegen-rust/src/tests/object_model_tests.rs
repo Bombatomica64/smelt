@@ -267,7 +267,9 @@ fn a_field_read_on_a_materialized_receiver_goes_through_the_same_helper() {
     let source = source_for(
         r"
 export function matchGroups(text: string): unknown {
-  const found: RegExpExecArray | null = /(?<letter>[a-z])/u.exec(text);
+  // `HostExecResult` names no declaration Smelt models, so the local is
+  // an erased class receiver.
+  const found: HostExecResult | null = /(?<letter>[a-z])/u.exec(text) as any;
   return found?.groups;
 }
 ",

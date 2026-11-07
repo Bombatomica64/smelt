@@ -428,7 +428,7 @@ mod tests {
         let (types, float) = floats();
         let mut mir = mir(types, [float; 3], vec![define_temp(), move_into_user()]);
         let function = mir.functions.remove(0);
-        let captures = user_is_capture.then(|| crate::MirClosureCapture {
+        let captures = user_is_capture.then_some(crate::MirClosureCapture {
             source_local: PARAM,
             target_local: Some(USER),
             symbol: Symbol(1),

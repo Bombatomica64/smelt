@@ -35,6 +35,9 @@ pub enum DiagnosticCategory {
     /// erasure reason is configured `warn` or `deny` (see
     /// `smelt_hir::erasure`). Lowering succeeded; the code names the reason.
     Erasure,
+    /// The TypeScript checker rejected the source, as `tsc --noEmit` would.
+    /// Reported by `smelt check`; it never stops a lowering.
+    TypeCheck,
 }
 
 impl DiagnosticCategory {
@@ -49,6 +52,7 @@ impl DiagnosticCategory {
             Self::UnresolvedReference => "unresolved-reference",
             Self::Internal => "internal",
             Self::Erasure => "erasure",
+            Self::TypeCheck => "type-check",
         }
     }
 
@@ -63,6 +67,7 @@ impl DiagnosticCategory {
             Self::UnresolvedReference => "unresolved reference",
             Self::Internal => "internal",
             Self::Erasure => "erasure",
+            Self::TypeCheck => "type error",
         }
     }
 }

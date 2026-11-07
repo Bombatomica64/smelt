@@ -1,0 +1,37 @@
+name: Check out a library
+description: Clone a library at its libraries.json ref into target/compat-repos and copy its Smelt fixtures.
+
+inputs:
+  name:
+    description: Library name in .github/compat/libraries.json.
+    required: true
+
+outputs:
+  url:
+    description: Clone URL.
+    value: ${{ steps.clone.outputs.url }}
+  ref:
+    description: The pinned ref.
+    value: ${{ steps.clone.outputs.ref }}
+
+runs:
+  using: composite
+  steps:
+    # libraries.json is the only source of the ref. The third_party/es-toolkit
+    # gitlink has no .gitmodules entry, so a submodule checkout skips it.
+    - name: Clone at the pinned ref and copy fixtures
+      id: clone
+      shell: bash
+      env:
+        LIBRARY: ${{ inputs.name }}
+      run: |
+        ref="$(python3 scripts/ci_pin.py ref "$LIBRARY")"
+        url="https://github.com/$(python3 scripts/ci_pin.py repo "$LIBRARY").git"
+        echo "$LIBRARY ref: $ref"
+        repo_dir="target/compat-repos/$LIBRARY"
+        rm -rf "$repo_dir"
+        git clone --no-tags --filter=blob:none "$url" "$repo_dir"
+        git -C "$repo_dir" checkout "$ref"
+        cp -R ".github/compat/$LIBRARY/." "$repo_dir"/
+        echo "url=$url" >> "$GITHUB_OUTPUT"
+        echo "ref=$ref" >> "$GITHUB_OUTPUT"

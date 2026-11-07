@@ -345,7 +345,7 @@ impl ErasureRecord {
     }
 
     /// Sort key: file, start, end, reason, detail.
-    fn key(&self) -> RecordKey<'_> {
+    const fn key(&self) -> RecordKey<'_> {
         (
             self.span.file.0,
             self.span.start,

@@ -842,7 +842,17 @@ def should_materialize(
             or owner in candidate_modules
             or hasattr(value, "__wrapped__")
         )
-    return True
+    # An instance imported from a module outside the graph is that module's
+    # binding, as an imported class or function is: `from django.conf import
+    # settings` names Django's object, which this module does not define.
+    source = sys.modules.get(owner) if isinstance(owner, str) else None
+    imported = (
+        source is not None
+        and owner != module_name
+        and owner not in candidate_modules
+        and getattr(source, name, None) is value
+    )
+    return not imported
 
 
 def module_record(
@@ -874,8 +884,28 @@ def reject_operation(name: str) -> typing.NoReturn:
     )
 
 
+def rejecting_subclass(cls: type, operation: str) -> type:
+    """A subclass of `cls` whose construction is rejected as `operation`.
+
+    A class and not a function, so modules that subclass the guarded class at
+    import (`ssl` subclasses `socket.socket`) still load; creating an instance,
+    directly or through such a subclass, is what the guard forbids.
+    """
+
+    def reject(*_args: object, **_kwargs: object) -> typing.NoReturn:
+        reject_operation(operation)
+
+    return type(cls.__name__, (cls,), {"__new__": reject, "__init__": reject})
+
+
 def install_guards(allowed_environment: set[str], allowed_extensions: set[str]) -> None:
     """Install deterministic-operation and native-extension guards."""
+    # `logging` reads the clock as it initializes (`_startTime`), in every
+    # CPython version, so a guard installed first rejects every module that
+    # imports it. That timestamp is process metadata, not a definition. Import it
+    # here, before the guards; every call a definition makes later is still
+    # guarded.
+    importlib.import_module("logging")
     original_getenv = os.getenv
 
     def guarded_getenv(key: str, default: object = None) -> object:
@@ -890,8 +920,8 @@ def install_guards(allowed_environment: set[str], allowed_extensions: set[str]) 
     random.random = lambda: reject_operation("random.random")
     random.randrange = lambda *args, **kwargs: reject_operation("random.randrange")
     random.randint = lambda *args, **kwargs: reject_operation("random.randint")
-    socket.socket = lambda *args, **kwargs: reject_operation("network")
-    subprocess.Popen = lambda *args, **kwargs: reject_operation("subprocess")
+    socket.socket = rejecting_subclass(socket.socket, "network")
+    subprocess.Popen = rejecting_subclass(subprocess.Popen, "subprocess")
     os.system = lambda *args, **kwargs: reject_operation("subprocess")
 
     def audit(event: str, arguments: tuple[object, ...]) -> None:
@@ -912,7 +942,8 @@ def install_guards(allowed_environment: set[str], allowed_extensions: set[str]) 
 def load_modules(request: dict[str, object], events: list[dict[str, object]]) -> list[types.ModuleType]:
     """Import all candidates once in source-graph order."""
     project_root = pathlib.Path(typing.cast(str, request["project_root"])).resolve()
-    sys.path.insert(0, str(project_root))
+    import_paths = typing.cast(list[str], request.get("import_paths", []))
+    sys.path[0:0] = [str(project_root), *import_paths]
     modules = []
     output = EventStream(events, False)
     errors = EventStream(events, True)

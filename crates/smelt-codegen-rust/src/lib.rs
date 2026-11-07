@@ -63,9 +63,7 @@
 #![cfg_attr(
     test,
     expect(
-        clippy::manual_let_else,
         clippy::match_wild_err_arm,
-        clippy::option_if_let_else,
         clippy::panic,
         reason = "codegen tests keep fixture setup compact and fail fast on invalid test inputs"
     )

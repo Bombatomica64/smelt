@@ -29,15 +29,8 @@ impl ModuleBuilder<'_> {
         if callee.name == "parseInt" {
             let (operand, radix) = self.parse_int_operand("parseInt", call, body)?;
             let ty = self.ctx.krate.types.intern(Type::Float);
-            let kind = radix.map_or(
-                ExprKind::PrimitiveCast {
-                    op: PrimitiveCastOp::ToInt,
-                    operand,
-                },
-                |radix| ExprKind::ParseIntRadix { operand, radix },
-            );
             return Ok(Some(body.push_expr(Expr {
-                kind,
+                kind: ExprKind::ParseIntRadix { operand, radix },
                 ty,
                 span: self.span(call.span.start, call.span.end),
             })));

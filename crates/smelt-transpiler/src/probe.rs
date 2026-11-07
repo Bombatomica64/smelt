@@ -13,14 +13,13 @@
 //! typed-subset violation) without parsing human-readable message text.
 
 use std::collections::BTreeMap;
-use std::fmt::Write as _;
 use std::path::Path;
 
 use serde::Serialize;
 use smelt_stdlib::DiagnosticCategory;
 
 use crate::config::Config;
-use crate::report::{ReportFormat, bump, escape_cell};
+use crate::report::{ReportFormat, bump, escape_cell, push_fmt};
 use crate::source_files::{discover_source_files, names_source_file};
 use crate::{CliResult, lowering, pipeline, test_report};
 
@@ -481,73 +480,85 @@ fn skip_bracketed(chars: &mut std::iter::Peekable<std::str::Chars<'_>>, open: ch
 /// Render the probe result as Markdown.
 fn render_markdown(result: &ProbeResult) -> String {
     let mut out = String::new();
-    let _ = writeln!(out, "# Probe report: {}", result.project);
-    let _ = writeln!(out);
+    push_fmt(&mut out, format_args!("# Probe report: {}\n", result.project));
+    out.push('\n');
     match &result.verdict {
         Verdict::Transpiled { tests } => {
-            let _ = writeln!(out, "- Transpile: **yes** — Rust crate emitted");
+            push_fmt(&mut out, format_args!("- Transpile: **yes** — Rust crate emitted\n"));
             match tests {
                 Some(outcome) => {
-                    let _ = writeln!(
-                        out,
-                        "- Generated `cargo test`: **{} passed / {} failed**",
-                        outcome.passed, outcome.failed
+                    push_fmt(
+                        &mut out,
+                        format_args!(
+                            "- Generated `cargo test`: **{} passed / {} failed**\n",
+                            outcome.passed, outcome.failed
+                        ),
                     );
                 }
                 None => {
-                    let _ = writeln!(
-                        out,
-                        "- Generated `cargo test`: not run (pass `--run-tests`)"
+                    push_fmt(
+                        &mut out,
+                        format_args!(
+                            "- Generated `cargo test`: not run (pass `--run-tests`)\n"
+                        ),
                     );
                 }
             }
         }
         Verdict::Aborted { at } => {
-            let _ = writeln!(
-                out,
-                "- Transpile: **no** — whole-crate build aborts at `{}`",
-                at.display()
+            push_fmt(
+                &mut out,
+                format_args!(
+                    "- Transpile: **no** — whole-crate build aborts at `{}`\n",
+                    at.display()
+                ),
             );
         }
     }
-    let _ = writeln!(
-        out,
-        "- Files scanned: {} · with blockers: {}",
-        result.files_scanned, result.files_with_blockers
+    push_fmt(
+        &mut out,
+        format_args!(
+            "- Files scanned: {} · with blockers: {}\n",
+            result.files_scanned, result.files_with_blockers
+        ),
     );
-    let _ = writeln!(out);
+    out.push('\n');
 
     if !result.category_counts.is_empty() {
-        let _ = writeln!(out, "## Blockers by category");
-        let _ = writeln!(out);
-        let _ = writeln!(out, "| Category | Occurrences |");
-        let _ = writeln!(out, "| --- | ---: |");
+        push_fmt(&mut out, format_args!("## Blockers by category\n"));
+        out.push('\n');
+        push_fmt(&mut out, format_args!("| Category | Occurrences |\n"));
+        push_fmt(&mut out, format_args!("| --- | ---: |\n"));
         for (category, count) in &result.category_counts {
-            let _ = writeln!(out, "| {category} | {count} |");
+            push_fmt(&mut out, format_args!("| {category} | {count} |\n"));
         }
-        let _ = writeln!(out);
+        out.push('\n');
     }
 
     if !result.blockers.is_empty() {
-        let _ = writeln!(out, "## Distinct blocker classes");
-        let _ = writeln!(out);
-        let _ = writeln!(
-            out,
-            "| Occurrences | Files | Category | Blocker class | Example |"
+        push_fmt(&mut out, format_args!("## Distinct blocker classes\n"));
+        out.push('\n');
+        push_fmt(
+            &mut out,
+            format_args!(
+                "| Occurrences | Files | Category | Blocker class | Example |\n"
+            ),
         );
-        let _ = writeln!(out, "| ---: | ---: | --- | --- | --- |");
+        push_fmt(&mut out, format_args!("| ---: | ---: | --- | --- | --- |\n"));
         for blocker in &result.blockers {
-            let _ = writeln!(
-                out,
-                "| {} | {} | {} | {} | `{}` |",
-                blocker.occurrences,
-                blocker.files,
-                blocker.category.label(),
-                escape_cell(&blocker.shape),
-                escape_cell(&blocker.example_file),
+            push_fmt(
+                &mut out,
+                format_args!(
+                    "| {} | {} | {} | {} | `{}` |\n",
+                    blocker.occurrences,
+                    blocker.files,
+                    blocker.category.label(),
+                    escape_cell(&blocker.shape),
+                    escape_cell(&blocker.example_file)
+                ),
             );
         }
-        let _ = writeln!(out);
+        out.push('\n');
 
         render_blocker_details(&mut out, &result.blockers);
     }
@@ -568,32 +579,39 @@ fn render_blocker_details(out: &mut String, blockers: &[BlockerGroup]) {
     if detailed.is_empty() {
         return;
     }
-    let _ = writeln!(out, "<details>");
-    let _ = writeln!(
+    push_fmt(out, format_args!("<details>\n"));
+    push_fmt(
         out,
-        "<summary>Full messages for {} elided blocker class(es)</summary>",
-        detailed.len()
+        format_args!(
+            "<summary>Full messages for {} elided blocker class(es)</summary>\n",
+            detailed.len()
+        ),
     );
-    let _ = writeln!(out);
+    out.push('\n');
     for blocker in detailed {
         if let Some(detail) = &blocker.detail {
-            let _ = writeln!(out, "- **{}**", escape_inline(&blocker.shape));
-            let _ = writeln!(out, "  - Example: `{}`", escape_inline(&blocker.example_file));
-            let _ = writeln!(out, "  - Message:");
-            let _ = writeln!(out, "    ```text");
+            push_fmt(out, format_args!("- **{}**\n", escape_inline(&blocker.shape)));
+            push_fmt(
+                out,
+                format_args!(
+                    "  - Example: `{}`\n", escape_inline(&blocker.example_file)
+                ),
+            );
+            push_fmt(out, format_args!("  - Message:\n"));
+            push_fmt(out, format_args!("    ```text\n"));
             for line in detail.lines() {
-                let _ = writeln!(out, "    {line}");
+                push_fmt(out, format_args!("    {line}\n"));
             }
             // `lines()` yields nothing for an empty string, so an empty detail
             // is written as one blank-content line instead of being dropped.
             if detail.lines().next().is_none() {
-                let _ = writeln!(out, "    {detail}");
+                push_fmt(out, format_args!("    {detail}\n"));
             }
-            let _ = writeln!(out, "    ```");
+            push_fmt(out, format_args!("    ```\n"));
         }
     }
-    let _ = writeln!(out, "</details>");
-    let _ = writeln!(out);
+    push_fmt(out, format_args!("</details>\n"));
+    out.push('\n');
 }
 
 /// Flatten newlines so inline text stays on one Markdown line.
