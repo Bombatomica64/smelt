@@ -242,7 +242,7 @@ impl FunctionEmitter<'_> {
             }
         }
         Ok(RustExpr::loose(format!(
-            "::std::collections::HashMap::from([{entries_text}])"
+            "::indexmap::IndexMap::from([{entries_text}])"
         )))
     }
 

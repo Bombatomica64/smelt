@@ -423,7 +423,7 @@ fn main() {
     let _smelt_tmp_35: String;
     let _smelt_tmp_37: bool;
     let _smelt_tmp_38: bool;
-    let _smelt_tmp_40: ::std::collections::HashMap<String, String>;
+    let _smelt_tmp_40: ::indexmap::IndexMap<String, String>;
     let _smelt_tmp_42: SmeltHeaders;
     let _smelt_tmp_13: Bag = Bag::new();
     bag = _smelt_tmp_13;
@@ -480,7 +480,7 @@ fn main() {
     }
     filled = __smelt_logical_9;
     let _ = { println!("{} {}", filled, text); };
-    _smelt_tmp_40 = ::std::collections::HashMap::from([("x-from".to_owned(), "response".to_owned())]);
+    _smelt_tmp_40 = ::indexmap::IndexMap::from([("x-from".to_owned(), "response".to_owned())]);
     response = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::from_pairs(_smelt_tmp_40.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"body".to_owned()));
     _smelt_tmp_42 = response.headers();
     let _ = bag.adopt(_smelt_tmp_42);

@@ -306,7 +306,7 @@ fn main() {
     let _smelt_tmp_15: f64;
     let _smelt_tmp_16: f64;
     let _smelt_tmp_18: f64;
-    let _smelt_tmp_19: ::std::collections::HashMap<String, f64>;
+    let _smelt_tmp_19: ::indexmap::IndexMap<String, f64>;
     let _smelt_tmp_20: f64;
     let _smelt_tmp_21: f64;
     let _smelt_tmp_22: f64;
@@ -317,7 +317,7 @@ fn main() {
     let _smelt_tmp_27: String;
     let _smelt_tmp_28: f64;
     let _smelt_tmp_29: String;
-    let _smelt_tmp_31: ::std::collections::HashMap<String, f64>;
+    let _smelt_tmp_31: ::indexmap::IndexMap<String, f64>;
     let _smelt_tmp_32: Option<f64>;
     let _smelt_tmp_33: Option<f64>;
     let _smelt_tmp_34: f64;
@@ -357,7 +357,7 @@ fn main() {
     _smelt_tmp_16 = c.0.borrow().column.clone() as f64;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_15), smelt_console_number(_smelt_tmp_16)); };
     _smelt_tmp_18 = -4.0;
-    _smelt_tmp_19 = ::std::collections::HashMap::from([("x".to_owned(), 3.0), ("y".to_owned(), _smelt_tmp_18)]);
+    _smelt_tmp_19 = ::indexmap::IndexMap::from([("x".to_owned(), 3.0), ("y".to_owned(), _smelt_tmp_18)]);
     p = { let smelt_record_map = _smelt_tmp_19.clone(); Pixel { x: smelt_record_map.get("x").cloned().map_or(0, |value| (value as i32)), y: smelt_record_map.get("y").cloned().map_or(0, |value| (value as i32)), alpha: smelt_record_map.get("alpha").cloned().map(|value| (value as i32)) } };
     _smelt_tmp_20 = p.x as f64;
     _smelt_tmp_21 = p.y as f64;
@@ -370,7 +370,7 @@ fn main() {
     _smelt_tmp_28 = p.y as f64;
     _smelt_tmp_29 = _smelt_tmp_27 + &smelt_number_to_string(_smelt_tmp_28);
     let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_22), _smelt_tmp_24, _smelt_tmp_29); };
-    _smelt_tmp_31 = ::std::collections::HashMap::from([("x".to_owned(), 1.0), ("y".to_owned(), 2.0), ("alpha".to_owned(), 255.0)]);
+    _smelt_tmp_31 = ::indexmap::IndexMap::from([("x".to_owned(), 1.0), ("y".to_owned(), 2.0), ("alpha".to_owned(), 255.0)]);
     q = { let smelt_record_map = _smelt_tmp_31.clone(); Pixel { x: smelt_record_map.get("x").cloned().map_or(0, |value| (value as i32)), y: smelt_record_map.get("y").cloned().map_or(0, |value| (value as i32)), alpha: smelt_record_map.get("alpha").cloned().map(|value| (value as i32)) } };
     _smelt_tmp_32 = q.alpha.clone().map(f64::from);
     _smelt_tmp_33 = q.alpha.clone().map(f64::from);

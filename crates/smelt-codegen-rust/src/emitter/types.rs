@@ -331,11 +331,13 @@ impl FunctionEmitter<'_> {
                 let value = self.rust_type(*value, false, substitution)?;
                 Ok(RustType::composed(self.carrier_format(format_args!("SmeltJsMap<{key}, {value}>")), [&key, &value]).on_carrier())
             }
+            // Insertion-ordered, as a Python dict and a JavaScript object are;
+            // see `dict_renders_as_index_map`.
             Type::Dict(key, value) => {
                 let key = self.rust_type(*key, false, substitution)?;
                 let value = self.rust_type(*value, false, substitution)?;
                 Ok(RustType::composed(
-                    format!("::std::collections::HashMap<{key}, {value}>"),
+                    format!("::indexmap::IndexMap<{key}, {value}>"),
                     [&key, &value],
                 ))
             }

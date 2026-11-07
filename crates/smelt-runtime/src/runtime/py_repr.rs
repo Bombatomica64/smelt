@@ -51,11 +51,13 @@ fn smelt_py_repr_items<'a, T: SmeltPyRepr + 'a>(items: impl IntoIterator<Item = 
 
 impl<T: SmeltPyRepr> SmeltPyRepr for Vec<T> { fn py_repr(&self) -> String { format!("[{}]", smelt_py_repr_items(self)) } }
 
-impl<K: SmeltPyRepr, V: SmeltPyRepr> SmeltPyRepr for ::std::collections::HashMap<K, V> {
+// @smelt:if dep_indexmap
+impl<K: SmeltPyRepr, V: SmeltPyRepr> SmeltPyRepr for ::indexmap::IndexMap<K, V> {
     fn py_repr(&self) -> String {
         format!("{{{}}}", self.iter().map(|(key, value)| format!("{}: {}", key.py_repr(), value.py_repr())).collect::<Vec<_>>().join(", "))
     }
 }
+// @smelt:end
 
 /// A tuple's `repr`: `(a,)` for one element, `(a, b)` for more.
 macro_rules! smelt_py_repr_tuple {

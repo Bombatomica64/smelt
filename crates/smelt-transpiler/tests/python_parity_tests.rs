@@ -101,3 +101,10 @@ fn print_container_repr() -> TestResult {
 fn user_open_shadows_builtin() -> TestResult {
     verify_python_parity("user_open_shadows_builtin")
 }
+
+/// A dict iterates in insertion order through every view of it, and a key
+/// deleted and inserted again moves to the end.
+#[test]
+fn dict_insertion_order() -> TestResult {
+    verify_python_parity("dict_insertion_order")
+}

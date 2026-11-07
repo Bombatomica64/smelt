@@ -137,7 +137,7 @@ impl<T: Clone> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Se
 // @smelt:prelude-end — generated program below
 fn main() {
     let values: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![5.0, 8.0, 13.0]; smelt_list_items }));
-    let names: ::std::collections::HashMap<String, String> = ::std::collections::HashMap::from([("first".to_owned(), "Ada".to_owned()), ("second".to_owned(), "Grace".to_owned())]);
+    let names: ::indexmap::IndexMap<String, String> = ::indexmap::IndexMap::from([("first".to_owned(), "Ada".to_owned()), ("second".to_owned(), "Grace".to_owned())]);
     let _ = { println!("{} {}", smelt_console_number(values.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0)), names.get(&"second".to_owned().clone()).cloned().unwrap_or(String::new())); };
     return;
 }

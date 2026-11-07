@@ -286,7 +286,7 @@ def run() -> int:
             "closure_arg_0.get(&\"value\".to_owned()).cloned().ok_or_else(|| smelt_py_key_error("
         )
     );
-    assert!(source.contains("::std::collections::HashMap::from([(\"value\".to_owned(), 5)])"));
+    assert!(source.contains("::indexmap::IndexMap::from([(\"value\".to_owned(), 5)])"));
     assert!(source.contains(".extend("));
 }
 
@@ -309,8 +309,8 @@ chosen: int = pick(value=5, **extras)
     assert!(source.contains("fn sum_values(values: SmeltList<i64>) -> i64"));
     assert!(source.contains("vec![2, 3, 4]"));
     // `kwargs["value"]` can raise `KeyError`, so the function can fail.
-    assert!(source.contains("fn pick(kwargs: ::std::collections::HashMap<String, i64>) -> Result<i64,"));
-    assert!(source.contains("::std::collections::HashMap::from([(\"value\".to_owned(), 5)])"));
+    assert!(source.contains("fn pick(kwargs: ::indexmap::IndexMap<String, i64>) -> Result<i64,"));
+    assert!(source.contains("::indexmap::IndexMap::from([(\"value\".to_owned(), 5)])"));
     assert!(source.contains(".extend("));
 }
 

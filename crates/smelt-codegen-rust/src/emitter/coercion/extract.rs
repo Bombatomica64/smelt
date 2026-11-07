@@ -364,7 +364,7 @@ impl FunctionEmitter<'_> {
                     ))));
                 }
                 Ok(RustExpr::loose(self.carrier_format(format_args!(
-                    "if let SmeltUnknown::Object(values) = {smelt_owned_text} {{ values.into_iter().map(|(key, value)| ({key_text}, {item_text})).collect::<::std::collections::HashMap<_, _>>() }} else {{ ::std::collections::HashMap::new() }}"
+                    "if let SmeltUnknown::Object(values) = {smelt_owned_text} {{ values.into_iter().map(|(key, value)| ({key_text}, {item_text})).collect::<::indexmap::IndexMap<_, _>>() }} else {{ ::indexmap::IndexMap::new() }}"
                 ))))
             }
             // A source `Map` recovers through `SmeltJsMap`'s `SmeltFromUnknown`

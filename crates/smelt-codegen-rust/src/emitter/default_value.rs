@@ -51,7 +51,7 @@ impl FunctionEmitter<'_> {
             Type::Dict(key, _) if self.dict_uses_js_key_map(*key) => {
                 Ok(self.carrier_expr(&RustExpr::atom("SmeltJsMap::new()")))
             }
-            Type::Dict(_, _) => Ok(RustExpr::loose("::std::collections::HashMap::new()")),
+            Type::Dict(_, _) => Ok(RustExpr::loose("::indexmap::IndexMap::new()")),
             Type::JsMap(_, _) => Ok(self.carrier_expr(&RustExpr::atom("SmeltJsMap::new()"))),
             Type::Optional(inner) => Ok(RustExpr::opaque(format!(
                 "None::<{}>",

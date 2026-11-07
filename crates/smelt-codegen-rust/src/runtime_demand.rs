@@ -207,6 +207,8 @@ pub(crate) enum Need {
     DepHmac,
     /// The `md-5` crate.
     DepMd5,
+    /// The `indexmap` crate, which the insertion-ordered dictionary renders as.
+    DepIndexMap,
 }
 
 /// The declared dependency graph: a family on the left is written against every
@@ -324,6 +326,13 @@ impl RuntimeDemand {
             }
         }
         demand.close();
+        // Which container a dict renders as depends on whether the carrier is
+        // present, so this reads the closed demand and adds a leaf need.
+        if mir.types.all().iter().any(|ty| {
+            matches!(ty, Type::Dict(key, _) if crate::emitter::dict_renders_as_index_map(mir, &demand, *key))
+        }) {
+            demand.add(Need::DepIndexMap);
+        }
         demand
     }
 
@@ -799,6 +808,7 @@ pub(crate) fn backend_dependencies(demand: &RuntimeDemand) -> Vec<BackendDepende
         (Need::Base64, BackendDependency::Base64),
         (Need::BigInt, BackendDependency::BigInt),
         (Need::DepMd5, BackendDependency::Md5),
+        (Need::DepIndexMap, BackendDependency::IndexMap),
     ]
     .into_iter()
     .filter_map(|(need, dependency)| demand.has(need).then_some(dependency))

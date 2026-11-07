@@ -136,7 +136,7 @@ impl<T: Clone> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Se
 
 // @smelt:prelude-end — generated program below
 fn main() {
-    let scores: ::std::collections::HashMap<String, f64> = ::std::collections::HashMap::from([("ada".to_owned(), 10.0), ("grace".to_owned(), 20.0)]);
+    let scores: ::indexmap::IndexMap<String, f64> = ::indexmap::IndexMap::from([("ada".to_owned(), 10.0), ("grace".to_owned(), 20.0)]);
     let _ = { println!("{}", smelt_console_number(scores.get(&"ada".to_owned()).cloned().expect("missing field"))); };
     return;
 }

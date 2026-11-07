@@ -432,18 +432,18 @@ impl SmeltResponse {
 
 // @smelt:prelude-end — generated program below
 fn main() {
-    let _smelt_tmp_7: ::std::collections::HashMap<String, String>;
+    let _smelt_tmp_7: ::indexmap::IndexMap<String, String>;
     let _smelt_tmp_1: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["x-token".to_owned(), "from-headers".to_owned()]; smelt_list_items }));
     let _smelt_tmp_2: SmeltList<SmeltList<String>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<String>> = vec![_smelt_tmp_1.clone()]; smelt_list_items }));
     let preset: SmeltHeaders = SmeltHeaders::from_pairs(_smelt_tmp_2.to_vec().into_iter().filter_map(|smelt_pair| { let smelt_pair = smelt_pair.to_vec(); Some((smelt_pair.first()?.clone(), smelt_pair.get(1)?.clone())) }).collect::<Vec<(String, String)>>());
-    let _smelt_tmp_4: SmeltResponse = make(Some(preset), None::<::std::collections::HashMap<String, String>>);
+    let _smelt_tmp_4: SmeltResponse = make(Some(preset), None::<::indexmap::IndexMap<String, String>>);
     let _smelt_tmp_5: String = show(_smelt_tmp_4);
     let _ = { println!("{}", _smelt_tmp_5); };
-    _smelt_tmp_7 = ::std::collections::HashMap::from([("x-token".to_owned(), "from-record".to_owned())]);
+    _smelt_tmp_7 = ::indexmap::IndexMap::from([("x-token".to_owned(), "from-record".to_owned())]);
     let _smelt_tmp_8: SmeltResponse = make(None::<SmeltHeaders>, Some(_smelt_tmp_7));
     let _smelt_tmp_9: String = show(_smelt_tmp_8);
     let _ = { println!("{}", _smelt_tmp_9); };
-    let _smelt_tmp_11: SmeltResponse = make(None::<SmeltHeaders>, None::<::std::collections::HashMap<String, String>>);
+    let _smelt_tmp_11: SmeltResponse = make(None::<SmeltHeaders>, None::<::indexmap::IndexMap<String, String>>);
     let _smelt_tmp_12: String = show(_smelt_tmp_11);
     let _ = { println!("{}", _smelt_tmp_12); };
     return;
@@ -456,7 +456,7 @@ fn main() {
 
 use super::*;
 
-pub(crate) fn make(preferred: Option<SmeltHeaders>, extra: Option<::std::collections::HashMap<String, String>>) -> SmeltResponse {
+pub(crate) fn make(preferred: Option<SmeltHeaders>, extra: Option<::indexmap::IndexMap<String, String>>) -> SmeltResponse {
     let _smelt_tmp_2: Option<SmeltHeaders> = extra.clone().map(|value| SmeltHeaders::from_pairs(value.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()));
     let _smelt_tmp_3: Option<SmeltHeaders> = preferred.clone().or(_smelt_tmp_2);
     let _smelt_tmp_4: SmeltResponse = SmeltResponse::from_parts(201.0, String::new(), match _smelt_tmp_3 { Some(smelt_init_headers) => SmeltHeaders::from_pairs(smelt_init_headers.entries_sorted()), None => SmeltHeaders::new() }, SmeltBody::from_text(&"ok".to_owned()));

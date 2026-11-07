@@ -264,7 +264,7 @@ impl FunctionEmitter<'_> {
             ));
         }
         Ok(RustExpr::loose(format!(
-            "{}.iter().cloned().collect::<::std::collections::HashMap<_, _>>()",
+            "{}.iter().cloned().collect::<::indexmap::IndexMap<_, _>>()",
             list_read_expr(&self.operand_expr(list)?)
         )))
     }

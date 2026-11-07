@@ -3886,7 +3886,7 @@ console.log(user.name);
     );
 
     assert!(
-        source.contains("let mut user: ::std::collections::HashMap<String, String>"),
+        source.contains("let mut user: ::indexmap::IndexMap<String, String>"),
         "{source}"
     );
     assert!(
@@ -5958,7 +5958,7 @@ def read(values: dict[str, Optional[int]]) -> Optional[int]:
     );
 
     assert!(
-        source.contains("values: ::std::collections::HashMap<String, Option<i64>>"),
+        source.contains("values: ::indexmap::IndexMap<String, Option<i64>>"),
         "{source}"
     );
     assert!(!source.contains("Option<Option<i64>>"), "{source}");

@@ -47,7 +47,7 @@ coord_set: set[int] = set(coords)
     // guarantees no set order of its own, so an ordered container costs it
     // nothing; JavaScript REQUIRES insertion order.
     assert!(source.contains("SmeltPrimSet::new()"));
-    assert!(source.contains("::std::collections::HashMap::from([])"));
+    assert!(source.contains("::indexmap::IndexMap::from([])"));
     assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
     assert!(
         source.contains(
@@ -56,7 +56,7 @@ coord_set: set[int] = set(coords)
         "{source}"
     );
     assert!(source.contains(".iter().cloned().collect::<SmeltPrimSet<_>>()"));
-    assert!(source.contains(".iter().cloned().collect::<::std::collections::HashMap<_, _>>()"));
+    assert!(source.contains(".iter().cloned().collect::<::indexmap::IndexMap<_, _>>()"));
     assert!(source.contains("panic!(\"tuple() length mismatch\")"));
     assert!(source.contains("vec!["));
     assert!(source.contains("SmeltPrimSet::from(["));
@@ -154,7 +154,7 @@ fallback: int = mapping.pop("b", 0)
     );
 
     assert!(source.contains("let mut"));
-    assert!(source.contains(".remove(&"));
+    assert!(source.contains(".shift_remove(&"));
     assert!(source.contains(".expect(\"dict pop missing key\")"));
     assert!(source.contains(".unwrap_or(0)"));
 }
@@ -214,7 +214,7 @@ copied: dict[str, int] = mapping.copy()
 "#,
     );
 
-    assert!(source.contains("let mapping: ::std::collections::HashMap<String, i64>"));
+    assert!(source.contains("let mapping: ::indexmap::IndexMap<String, i64>"));
     assert!(source.contains(".clone();"));
 }
 

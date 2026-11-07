@@ -498,7 +498,24 @@ impl FunctionEmitter<'_> {
                 "dict remove receiver must be a place operand",
             ));
         };
-        Ok({ let receiver = self.assignment_place_expr(dict_place)?; RustExpr::postfix_on(&receiver, format!("{receiver}.remove({}).is_some()", self.dict_key_reference_expr(key, *key_ty)?)) })
+        Ok({ let receiver = self.assignment_place_expr(dict_place)?; RustExpr::postfix_on(&receiver, format!("{receiver}.{}({}).is_some()", self.dict_remove_method(dict_ty, *key_ty), self.dict_key_reference_expr(key, *key_ty)?)) })
+    }
+
+    /// The method that removes one key from a dict of type `dict_ty` while
+    /// keeping the remaining entries in insertion order.
+    ///
+    /// `IndexMap::remove` is a `swap_remove`, which moves the last entry into
+    /// the hole; `shift_remove` keeps the order, so a key deleted and inserted
+    /// again iterates last, as in Python and JavaScript. `SmeltRecord` and
+    /// `SmeltJsMap` already keep order under their own `remove`.
+    fn dict_remove_method(&self, dict_ty: TypeId, key_ty: TypeId) -> &'static str {
+        if matches!(self.mir.types.get(dict_ty), Some(Type::Dict(_, _)))
+            && dict_renders_as_index_map(self.mir, self.context.demand(), key_ty)
+        {
+            "shift_remove"
+        } else {
+            "remove"
+        }
     }
 
     /// Converts a dictionary pop operation to Rust text.
@@ -537,14 +554,15 @@ impl FunctionEmitter<'_> {
         };
         let dict_text = self.local_mut_value(*local)?;
         let key_text = self.operand_expr(key)?;
+        let remove = self.dict_remove_method(dict_ty, *key_ty);
         if let Some(default_operand) = default {
             let default_text = self.operand_expr(default_operand)?;
             Ok(RustExpr::postfix_on(&dict_text, format!(
-                "{dict_text}.remove(&{key_text}).unwrap_or({default_text})"
+                "{dict_text}.{remove}(&{key_text}).unwrap_or({default_text})"
             )))
         } else {
             Ok(RustExpr::postfix_on(&dict_text, format!(
-                "{dict_text}.remove(&{key_text}).expect(\"dict pop missing key\")"
+                "{dict_text}.{remove}(&{key_text}).expect(\"dict pop missing key\")"
             )))
         }
     }

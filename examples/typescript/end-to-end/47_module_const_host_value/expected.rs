@@ -680,7 +680,7 @@ fn smelt_global_init__decoder__1() -> SmeltTextDecoder {
 }
 
 fn smelt_global_init__headers__2() -> SmeltHeaders {
-    let _smelt_tmp_0: ::std::collections::HashMap<String, String> = ::std::collections::HashMap::from([("content-type".to_owned(), "text/plain".to_owned())]);
+    let _smelt_tmp_0: ::indexmap::IndexMap<String, String> = ::indexmap::IndexMap::from([("content-type".to_owned(), "text/plain".to_owned())]);
     let _smelt_tmp_1: SmeltHeaders = SmeltHeaders::from_pairs(_smelt_tmp_0.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>());
     return _smelt_tmp_1;
 }

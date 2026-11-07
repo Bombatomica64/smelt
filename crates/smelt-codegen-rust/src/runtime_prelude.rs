@@ -219,6 +219,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "dep_sha" => Need::DepSha,
         "dep_hmac" => Need::DepHmac,
         "dep_md5" => Need::DepMd5,
+        "dep_indexmap" => Need::DepIndexMap,
         _ => return None,
     })
 }

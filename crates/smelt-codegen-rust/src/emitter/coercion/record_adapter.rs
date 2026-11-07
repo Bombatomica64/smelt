@@ -645,7 +645,7 @@ impl FunctionEmitter<'_> {
         let constructor = if self.dict_uses_smelt_record(target_key) {
             "SmeltRecord::from"
         } else {
-            "::std::collections::HashMap::from"
+            "::indexmap::IndexMap::from"
         };
         Ok(Some(RustExpr::atom(format!(
             "{{ let smelt_struct_value = {value_text}.clone(); {constructor}([{}]) }}",
