@@ -374,6 +374,7 @@ macro_rules! op_group_transcribed {
                 /// Numeric radix operand.
                 radix: one,
             }
+                needs(ParseNumber)
                 => (format!("parse_int_radix {operand}, {radix}"));
             /// Convert a primitive value to another primitive type.
             PrimitiveCast {
@@ -382,6 +383,7 @@ macro_rules! op_group_transcribed {
                 /// Primitive operand to convert.
                 operand: one,
             }
+                needs(ParseNumber if matches!(op, $crate::PrimitiveCastOp::ParseFloat))
                 => (format!("primitive_cast_{op} {operand}"));
             /// Change the case of a string value.
             StringCase {

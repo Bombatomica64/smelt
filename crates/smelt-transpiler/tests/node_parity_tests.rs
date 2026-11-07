@@ -262,3 +262,10 @@ fn regex_replace_uppercase_callback() -> TestResult {
 fn dict_entry_push_in_place() -> TestResult {
     verify_node_parity("dict_entry_push_in_place")
 }
+
+/// `parseInt` and `parseFloat` read the longest valid prefix, `parseInt`
+/// detects `0x` without a radix, and `xs.map(parseInt)` parses in the index radix.
+#[test]
+fn parse_number_prefix() -> TestResult {
+    verify_node_parity("parse_number_prefix")
+}

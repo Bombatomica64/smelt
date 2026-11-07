@@ -64,3 +64,79 @@ fn smelt_string_to_number(text: &str) -> f64 {
 }
 
 // @smelt:item-end
+
+// The prefix parsers `parseInt` and `parseFloat`.
+//
+// Unlike `StringToNumber`, both take the longest valid prefix after leading
+// `StrWhiteSpaceChar` and ignore what follows (`parseInt("12px")` is `12`,
+// `parseFloat(".5e1x")` is `5`); text with no valid prefix is `NaN`.
+// @smelt:item smelt_parse_int when parse_number
+/// Whether `ch` is an ECMA-262 `StrWhiteSpaceChar` (`WhiteSpace` or `LineTerminator`).
+#[allow(dead_code)]
+fn smelt_is_js_whitespace(ch: char) -> bool {
+    matches!(ch, '\u{9}'..='\u{d}' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
+}
+
+/// ECMA-262 `parseInt(text, radix)`, with `radix` as the number the caller
+/// passed (`0` when it was absent or `undefined`).
+#[allow(dead_code)]
+fn smelt_parse_int(text: &str, radix: f64) -> f64 {
+    let text = text.trim_start_matches(smelt_is_js_whitespace);
+    let (sign, text) = match text.as_bytes().first() { Some(b'-') => (-1.0, &text[1..]), Some(b'+') => (1.0, &text[1..]), _ => (1.0, text) };
+    //~ `ToInt32(radix)`: NaN and the infinities are 0, everything else wraps mod 2^32.
+    let radix = if radix.is_finite() { (radix.trunc().rem_euclid(4_294_967_296.0) as u32) as i32 } else { 0 };
+    let (mut radix, mut strip_prefix) = (radix, true);
+    if radix != 0 {
+        if !(2..=36).contains(&radix) { return f64::NAN; }
+        strip_prefix = radix == 16;
+    } else {
+        radix = 10;
+    }
+    let mut digits = text;
+    if strip_prefix && matches!(digits.get(..2), Some("0x" | "0X")) {
+        digits = &digits[2..];
+        radix = 16;
+    }
+    let radix = radix as u32;
+    let end = digits.find(|ch: char| !ch.is_digit(radix)).unwrap_or(digits.len());
+    let digits = &digits[..end];
+    if digits.is_empty() { return f64::NAN; }
+    //~ Decimal digits go through Rust's correctly rounded parser; other radices
+    //~ are exact while they fit a u128 and accumulate in f64 beyond that.
+    let magnitude = if radix == 10 {
+        digits.parse::<f64>().unwrap_or(f64::NAN)
+    } else {
+        u128::from_str_radix(digits, radix).map_or_else(
+            |_| digits.chars().fold(0.0, |value, ch| value * f64::from(radix) + f64::from(ch.to_digit(radix).unwrap_or(0))),
+            |value| value as f64,
+        )
+    };
+    sign * magnitude
+}
+
+/// ECMA-262 `parseFloat(text)`: the longest `StrDecimalLiteral` prefix.
+#[allow(dead_code)]
+fn smelt_parse_float(text: &str) -> f64 {
+    let text = text.trim_start_matches(smelt_is_js_whitespace);
+    let bytes = text.as_bytes();
+    let signed = usize::from(matches!(bytes.first(), Some(b'+' | b'-')));
+    if text[signed..].starts_with("Infinity") {
+        return if bytes[0] == b'-' { f64::NEG_INFINITY } else { f64::INFINITY };
+    }
+    let digits_from = |mut at: usize| { while at < bytes.len() && bytes[at].is_ascii_digit() { at += 1; } at };
+    let int_end = digits_from(signed);
+    let mut end = int_end;
+    if bytes.get(int_end) == Some(&b'.') {
+        let frac_end = digits_from(int_end + 1);
+        if frac_end > int_end + 1 || int_end > signed { end = frac_end; }
+    }
+    if end == signed { return f64::NAN; }
+    if matches!(bytes.get(end), Some(b'e' | b'E')) {
+        let exp_start = if matches!(bytes.get(end + 1), Some(b'+' | b'-')) { end + 2 } else { end + 1 };
+        let exp_end = digits_from(exp_start);
+        if exp_end > exp_start { end = exp_end; }
+    }
+    text[..end].parse::<f64>().unwrap_or(f64::NAN)
+}
+
+// @smelt:item-end

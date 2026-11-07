@@ -605,16 +605,15 @@ impl FunctionEmitter<'_> {
         Ok(self.parse_int_radix_string_expr(&operand_expr, &radix_text))
     }
 
-    /// Render the `parseInt(str, radix)` digit-prefix parser over a Rust
-    /// `String` expression `string_text` and a numeric `radix_text`.
+    /// Render the `parseInt(str, radix)` call of the `smelt_parse_int` runtime
+    /// helper over a Rust `String` expression `string_text` and a numeric
+    /// `radix_text` (`0` stands for an absent radix).
     ///
     /// Shared by both operand shapes of [`Self::parse_int_radix_expr`] so the
     /// present and absent arms of an optional operand cannot drift apart.
     fn parse_int_radix_string_expr(&self, string_text: &RustExpr, radix_text: &RustExpr) -> RustExpr {
         let radix_trunc_text = self.numeric_trunc_f64_expr(radix_text);
-        RustExpr::atom(format!(
-            "{{ let smelt_src = {string_text}; let smelt_radix = {{ let r = {radix_trunc_text} as i64; if r == 0 {{ 10 }} else {{ r }} }}; if !(2..=36).contains(&smelt_radix) {{ f64::NAN }} else {{ let smelt_trimmed = smelt_src.trim_start(); let (smelt_neg, smelt_rest) = match smelt_trimmed.strip_prefix('-') {{ Some(rest) => (true, rest), None => (false, smelt_trimmed.strip_prefix('+').unwrap_or(smelt_trimmed)) }}; let smelt_prefix: String = smelt_rest.chars().take_while(|c| c.to_digit(smelt_radix as u32).is_some()).collect(); if smelt_prefix.is_empty() {{ f64::NAN }} else {{ i64::from_str_radix(&smelt_prefix, smelt_radix as u32).map(|v| (if smelt_neg {{ -v }} else {{ v }}) as f64).unwrap_or(f64::NAN) }} }} }}"
-        ))
+        RustExpr::chain(format!("smelt_parse_int(&{string_text}, {radix_trunc_text})"))
     }
 
     /// Converts a numeric operand to text usable as an `f64` receiver or argument.

@@ -486,6 +486,34 @@ mod number_family {
         assert!(smelt_string_to_number("12px").is_nan(), "trailing text is NaN");
     }
 
+    /// `parseInt` reads the longest digit prefix, detects `0x` only for radix
+    /// 0 or 16, and keeps the sign of a zero.
+    #[test]
+    fn parse_int_reads_a_prefix_like_javascript() {
+        assert_eq!(smelt_parse_int("12px", 0.0), 12.0, "trailing text is ignored");
+        assert_eq!(smelt_parse_int(" 3.7", 0.0), 3.0, "the fraction is not a digit");
+        assert_eq!(smelt_parse_int("0x10", 0.0), 16.0, "an absent radix detects hex");
+        assert_eq!(smelt_parse_int("0x10", 10.0), 0.0, "radix 10 stops at the x");
+        assert_eq!(smelt_parse_int("-0x1F", 16.0), -31.0, "radix 16 strips the prefix");
+        assert!(smelt_parse_int("-0", 10.0).is_sign_negative(), "-0 keeps its sign");
+        assert!(smelt_parse_int("10", 1.0).is_nan(), "radix 1 is out of range");
+        assert_eq!(smelt_parse_int("10", 4_294_967_298.0), 2.0, "the radix wraps through ToInt32");
+        assert_eq!(smelt_parse_int("99999999999999999999", 0.0), 1e20, "beyond i64 it still rounds");
+        assert!(smelt_parse_int("Infinity", 0.0).is_nan(), "Infinity is not a digit");
+    }
+
+    /// `parseFloat` reads the longest decimal-literal prefix.
+    #[test]
+    fn parse_float_reads_a_prefix_like_javascript() {
+        assert_eq!(smelt_parse_float("12px"), 12.0, "trailing text is ignored");
+        assert_eq!(smelt_parse_float(".5e1x"), 5.0, "a bare fraction and exponent");
+        assert_eq!(smelt_parse_float("1e"), 1.0, "an exponent with no digits is dropped");
+        assert_eq!(smelt_parse_float("0x10"), 0.0, "no hex");
+        assert_eq!(smelt_parse_float("-Infinityx"), f64::NEG_INFINITY, "signed Infinity");
+        assert!(smelt_parse_float(".").is_nan(), "a lone dot has no digits");
+        assert!(smelt_parse_float("-").is_nan(), "a lone sign has no digits");
+    }
+
     /// `Math.round` rounds a tie toward +∞ and keeps `-0`.
     #[test]
     fn math_round_ties_toward_positive_infinity() {

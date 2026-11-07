@@ -149,6 +149,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "date_timezone_offset" => Need::DateTimezoneOffset,
         "date" => Need::Date,
         "math_round" => Need::MathRound,
+        "parse_number" => Need::ParseNumber,
         "shared_captures" => Need::SharedCaptures,
         "uri_encode" => Need::UriEncode,
         "uri_decode" => Need::UriDecode,

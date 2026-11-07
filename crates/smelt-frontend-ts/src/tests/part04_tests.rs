@@ -1339,6 +1339,7 @@ const checkFinite = take(isFinite);
     // The closure bodies must contain the concrete coercion/predicate ops.
     let mut cast_ops: Vec<PrimitiveCastOp> = Vec::new();
     let mut predicate_ops: Vec<NumericPredicateOp> = Vec::new();
+    let mut parses_int = false;
     for closure in body.exprs.iter().filter_map(|expr| match &expr.kind {
         ExprKind::Closure(closure) => Some(closure),
         _ => None,
@@ -1357,6 +1358,7 @@ const checkFinite = take(isFinite);
                     if !predicate_ops.contains(&op) => {
                         predicate_ops.push(op);
                     }
+                ExprKind::ParseIntRadix { .. } => parses_int = true,
                 _ => {}
             }
         }
@@ -1365,11 +1367,11 @@ const checkFinite = take(isFinite);
         PrimitiveCastOp::ToJsNumber, // Number
         PrimitiveCastOp::ToString,   // String
         PrimitiveCastOp::ToBool,     // Boolean
-        PrimitiveCastOp::ToInt,      // parseInt
         PrimitiveCastOp::ParseFloat, // parseFloat
     ] {
         ensure!(cast_ops.contains(&expected), "missing cast op {expected:?}");
     }
+    ensure!(parses_int, "parseInt lowers to ParseIntRadix");
     for expected in [NumericPredicateOp::IsNaN, NumericPredicateOp::IsFinite] {
         ensure!(
             predicate_ops.contains(&expected),

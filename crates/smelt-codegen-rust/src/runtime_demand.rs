@@ -63,6 +63,8 @@ pub(crate) enum Need {
     Date,
     /// JavaScript `Math.round`.
     MathRound,
+    /// The `parseInt`/`parseFloat` prefix parsers.
+    ParseNumber,
     /// Mutable closure captures shared through the capture registry.
     SharedCaptures,
     /// `encodeURI` and friends.

@@ -25,6 +25,7 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("SmeltAccessor"),
     Entry::Item("smelt_py_float_repr"),
     Entry::Item("smelt_string_to_number"),
+    Entry::Item("smelt_parse_int"),
     Entry::Item("SmeltPanic"),
     Entry::Item("SMELT_DATE_NOW"),
     Entry::Item("SMELT_DATE_TIMEZONE_OFFSET"),
