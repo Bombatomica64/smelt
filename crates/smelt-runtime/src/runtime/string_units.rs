@@ -108,7 +108,7 @@ fn smelt_utf16_slice(text: &str, start: usize, end: usize) -> String {
 /// The code unit at UTF-16 index `unit` of `text` (`charCodeAt`), if any.
 #[allow(dead_code)]
 fn smelt_utf16_unit_at(text: &str, unit: usize) -> Option<u16> {
-    if let Some(prefix) = text.as_bytes().get(..=unit) && prefix.is_ascii() { return Some(u16::from(prefix[unit])); }
+    if let Some(prefix) = text.as_bytes().get(..=unit).filter(|prefix| prefix.is_ascii()) { return Some(u16::from(prefix[unit])); }
     let (byte, half) = match smelt_utf16_byte_of(text, unit) { Ok(byte) => (byte, 0), Err(byte) => (byte, 1) };
     let mut units = [0; 2];
     text[byte..].chars().next().map(|ch| ch.encode_utf16(&mut units)[half])
@@ -118,7 +118,7 @@ fn smelt_utf16_unit_at(text: &str, unit: usize) -> Option<u16> {
 /// one unit, or a whole pair at its first unit and `""` at its second.
 #[allow(dead_code)]
 fn smelt_utf16_char_at(text: &str, unit: usize) -> Option<String> {
-    if let Some(prefix) = text.as_bytes().get(..=unit) && prefix.is_ascii() { return Some(char::from(prefix[unit]).to_string()); }
+    if let Some(prefix) = text.as_bytes().get(..=unit).filter(|prefix| prefix.is_ascii()) { return Some(char::from(prefix[unit]).to_string()); }
     smelt_utf16_byte_of(text, unit).map_or_else(|_| Some(String::new()), |byte| text[byte..].chars().next().map(String::from))
 }
 
