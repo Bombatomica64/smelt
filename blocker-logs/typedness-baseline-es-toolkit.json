@@ -2,14 +2,14 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 13613,
+      "concrete": 13620,
       "generic": 226,
-      "erased": 8574
+      "erased": 8386
     },
     "reads": {
       "concrete": 321,
       "generic": 33,
-      "erased": 1079
+      "erased": 1076
     },
     "calls": {
       "concrete": 2117,
@@ -226,7 +226,7 @@
       "values": {
         "concrete": 67,
         "generic": 0,
-        "erased": 42
+        "erased": 37
       },
       "reads": {
         "concrete": 0,
@@ -3745,7 +3745,7 @@
       "values": {
         "concrete": 17,
         "generic": 0,
-        "erased": 25
+        "erased": 24
       },
       "reads": {
         "concrete": 1,
@@ -3779,7 +3779,7 @@
       "values": {
         "concrete": 35,
         "generic": 0,
-        "erased": 28
+        "erased": 27
       },
       "reads": {
         "concrete": 1,
@@ -3998,14 +3998,14 @@
     },
     "src/compat/array/includes.ts": {
       "values": {
-        "concrete": 30,
+        "concrete": 38,
         "generic": 0,
-        "erased": 20
+        "erased": 17
       },
       "reads": {
         "concrete": 1,
         "generic": 0,
-        "erased": 4
+        "erased": 2
       },
       "calls": {
         "concrete": 3,
@@ -4136,7 +4136,7 @@
       "values": {
         "concrete": 5,
         "generic": 0,
-        "erased": 20
+        "erased": 19
       },
       "reads": {
         "concrete": 0,
@@ -4187,7 +4187,7 @@
       "values": {
         "concrete": 12,
         "generic": 0,
-        "erased": 24
+        "erased": 23
       },
       "reads": {
         "concrete": 0,
@@ -4221,7 +4221,7 @@
       "values": {
         "concrete": 62,
         "generic": 0,
-        "erased": 77
+        "erased": 78
       },
       "reads": {
         "concrete": 2,
@@ -4289,7 +4289,7 @@
       "values": {
         "concrete": 12,
         "generic": 0,
-        "erased": 15
+        "erased": 13
       },
       "reads": {
         "concrete": 0,
@@ -4561,7 +4561,7 @@
       "values": {
         "concrete": 58,
         "generic": 0,
-        "erased": 16
+        "erased": 14
       },
       "reads": {
         "concrete": 0,
@@ -5496,7 +5496,7 @@
       "values": {
         "concrete": 1,
         "generic": 0,
-        "erased": 19
+        "erased": 20
       },
       "reads": {
         "concrete": 0,
@@ -5972,7 +5972,7 @@
       "values": {
         "concrete": 84,
         "generic": 0,
-        "erased": 82
+        "erased": 81
       },
       "reads": {
         "concrete": 8,
@@ -6142,7 +6142,7 @@
       "values": {
         "concrete": 6,
         "generic": 0,
-        "erased": 15
+        "erased": 14
       },
       "reads": {
         "concrete": 0,
@@ -6346,7 +6346,7 @@
       "values": {
         "concrete": 11,
         "generic": 0,
-        "erased": 14
+        "erased": 13
       },
       "reads": {
         "concrete": 2,
@@ -6482,7 +6482,7 @@
       "values": {
         "concrete": 16,
         "generic": 0,
-        "erased": 21
+        "erased": 20
       },
       "reads": {
         "concrete": 3,
@@ -6516,7 +6516,7 @@
       "values": {
         "concrete": 20,
         "generic": 0,
-        "erased": 23
+        "erased": 22
       },
       "reads": {
         "concrete": 3,
@@ -6567,7 +6567,7 @@
       "values": {
         "concrete": 16,
         "generic": 0,
-        "erased": 17
+        "erased": 18
       },
       "reads": {
         "concrete": 0,
@@ -7111,7 +7111,7 @@
       "values": {
         "concrete": 133,
         "generic": 0,
-        "erased": 69
+        "erased": 68
       },
       "reads": {
         "concrete": 1,
@@ -7961,7 +7961,7 @@
       "values": {
         "concrete": 0,
         "generic": 0,
-        "erased": 22
+        "erased": 21
       },
       "reads": {
         "concrete": 0,
@@ -8539,7 +8539,7 @@
       "values": {
         "concrete": 12,
         "generic": 0,
-        "erased": 20
+        "erased": 16
       },
       "reads": {
         "concrete": 3,
@@ -8573,7 +8573,7 @@
       "values": {
         "concrete": 12,
         "generic": 0,
-        "erased": 20
+        "erased": 16
       },
       "reads": {
         "concrete": 3,
@@ -8624,7 +8624,7 @@
       "values": {
         "concrete": 34,
         "generic": 0,
-        "erased": 28
+        "erased": 23
       },
       "reads": {
         "concrete": 0,
@@ -8658,7 +8658,7 @@
       "values": {
         "concrete": 17,
         "generic": 0,
-        "erased": 64
+        "erased": 62
       },
       "reads": {
         "concrete": 0,
@@ -8726,7 +8726,7 @@
       "values": {
         "concrete": 26,
         "generic": 0,
-        "erased": 35
+        "erased": 30
       },
       "reads": {
         "concrete": 0,
@@ -8828,7 +8828,7 @@
       "values": {
         "concrete": 141,
         "generic": 0,
-        "erased": 87
+        "erased": 68
       },
       "reads": {
         "concrete": 3,
@@ -8862,7 +8862,7 @@
       "values": {
         "concrete": 52,
         "generic": 4,
-        "erased": 102
+        "erased": 98
       },
       "reads": {
         "concrete": 0,
@@ -8896,7 +8896,7 @@
       "values": {
         "concrete": 37,
         "generic": 4,
-        "erased": 73
+        "erased": 70
       },
       "reads": {
         "concrete": 0,
@@ -8981,7 +8981,7 @@
       "values": {
         "concrete": 97,
         "generic": 13,
-        "erased": 66
+        "erased": 55
       },
       "reads": {
         "concrete": 4,
@@ -9015,7 +9015,7 @@
       "values": {
         "concrete": 24,
         "generic": 0,
-        "erased": 5
+        "erased": 3
       },
       "reads": {
         "concrete": 0,
@@ -9117,7 +9117,7 @@
       "values": {
         "concrete": 77,
         "generic": 4,
-        "erased": 134
+        "erased": 129
       },
       "reads": {
         "concrete": 0,
@@ -9151,7 +9151,7 @@
       "values": {
         "concrete": 44,
         "generic": 4,
-        "erased": 132
+        "erased": 126
       },
       "reads": {
         "concrete": 0,
@@ -9185,7 +9185,7 @@
       "values": {
         "concrete": 7,
         "generic": 0,
-        "erased": 61
+        "erased": 57
       },
       "reads": {
         "concrete": 0,
@@ -9219,7 +9219,7 @@
       "values": {
         "concrete": 82,
         "generic": 0,
-        "erased": 138
+        "erased": 140
       },
       "reads": {
         "concrete": 0,
@@ -9287,7 +9287,7 @@
       "values": {
         "concrete": 169,
         "generic": 0,
-        "erased": 123
+        "erased": 97
       },
       "reads": {
         "concrete": 0,
@@ -9321,7 +9321,7 @@
       "values": {
         "concrete": 7,
         "generic": 0,
-        "erased": 25
+        "erased": 24
       },
       "reads": {
         "concrete": 0,
@@ -9865,7 +9865,7 @@
       "values": {
         "concrete": 202,
         "generic": 0,
-        "erased": 74
+        "erased": 76
       },
       "reads": {
         "concrete": 20,
@@ -9899,7 +9899,7 @@
       "values": {
         "concrete": 289,
         "generic": 0,
-        "erased": 125
+        "erased": 129
       },
       "reads": {
         "concrete": 23,
@@ -9933,7 +9933,7 @@
       "values": {
         "concrete": 71,
         "generic": 0,
-        "erased": 91
+        "erased": 95
       },
       "reads": {
         "concrete": 3,
@@ -9955,7 +9955,7 @@
       "reads": {
         "concrete": 3,
         "generic": 0,
-        "erased": 24
+        "erased": 23
       },
       "calls": {
         "concrete": 13,
@@ -10426,7 +10426,7 @@
       "values": {
         "concrete": 136,
         "generic": 0,
-        "erased": 100
+        "erased": 101
       },
       "reads": {
         "concrete": 13,
@@ -10783,7 +10783,7 @@
       "values": {
         "concrete": 802,
         "generic": 0,
-        "erased": 660
+        "erased": 582
       },
       "reads": {
         "concrete": 5,
@@ -10798,7 +10798,7 @@
     },
     "src/predicate/isEqualWith.ts": {
       "values": {
-        "concrete": 133,
+        "concrete": 134,
         "generic": 0,
         "erased": 141
       },
@@ -11223,7 +11223,7 @@
     },
     "src/predicate/isPlainObject.spec.ts": {
       "values": {
-        "concrete": 140,
+        "concrete": 138,
         "generic": 0,
         "erased": 34
       },
@@ -11633,7 +11633,7 @@
       "values": {
         "concrete": 42,
         "generic": 0,
-        "erased": 66
+        "erased": 64
       },
       "reads": {
         "concrete": 0,

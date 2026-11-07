@@ -369,3 +369,17 @@ export function untouched(): number {
     assert_eq!(evolved("none")?, None, "an array nothing is pushed to stays never[] and records nothing");
     Ok(())
 }
+
+/// A branching recursive type is exponential in the structural depth, and every
+/// instantiation is a new type, so only the expansion budget ends the walk.
+#[test]
+fn a_branching_recursive_type_stops_at_the_budget() -> Result<(), String> {
+    let facts = facts(
+        "type Grow<T> = { a: Grow<[T]>; b: Grow<[T, T]>; c: Grow<[T, T, T]> };\n\
+         declare const root: Grow<1>;\n\
+         export const seen = root;\n",
+    )?;
+    let count = facts.types.len();
+    assert!(count < 20_000, "the walk expanded {count} types");
+    Ok(())
+}

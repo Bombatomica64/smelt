@@ -62,7 +62,7 @@ impl SmeltMatch {
     /// Build a `SmeltMatch` from a compiled regex and its captures, found in
     /// `input[offset..]`; `spans` keeps the group indices (the `d` flag).
     fn from_captures(regex: &fancy_regex::Regex, captures: &fancy_regex::Captures<'_>, input: &str, offset: usize, spans: bool) -> Self {
-        let unit_of = |byte: usize| smelt_utf16_index_of_byte(input, offset + byte) as f64;
+        let unit_of = |byte: usize| smelt_units_to_number(smelt_utf16_index_of_byte(input, offset + byte));
         let match_index = captures.get(0).map_or(0, |whole| smelt_utf16_index_of_byte(input, offset + whole.start()));
         let spans = spans.then(|| ::std::rc::Rc::new((0..captures.len()).map(|index| captures.get(index).map(|group| (unit_of(group.start()), unit_of(group.end())))).collect::<Vec<_>>()));
         let groups = (0..captures.len()).map(|index| captures.get(index).map(|value| value.as_str().to_owned())).collect::<Vec<_>>();

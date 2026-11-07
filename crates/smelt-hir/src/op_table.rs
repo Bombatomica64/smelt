@@ -235,6 +235,17 @@ macro_rules! op_group_transcribed {
             }
                 needs(Construct)
                 => (format!("construct {callee}({})", args.join(", ")));
+            /// JavaScript `new value.constructor(args)` on an erased `value`: a new
+            /// object of the kind `value` is, an array for an array, whose
+            /// constructor Smelt need not hold as a value.
+            ConstructLike {
+                /// The value whose constructor is read.
+                value: one,
+                /// The spelled constructor arguments.
+                args: many,
+            }
+                needs(Construct)
+                => (format!("construct_like {value}({})", args.join(", ")));
             /// Call a closure value with a runtime argument vector from spread syntax.
             ClosureCallSpread {
                 /// Closure value to call.
@@ -243,6 +254,16 @@ macro_rules! op_group_transcribed {
                 args: one @CALLED,
             }
                 => (format!("closure_call {callee}(...{args})"));
+            /// Call a function value whose whole signature is one rest parameter,
+            /// with that rest list written out: `items` are its elements. Packed
+            /// by a frontend; see `RestCallFusion`.
+            ClosureCallRest {
+                /// Closure value to call.
+                callee: one @CALLED,
+                /// The elements of the rest list.
+                items: many @CALLED,
+            }
+                => (format!("closure_call {callee}(rest {})", items.join(", ")));
             /// Read a field through a TypeScript optional-chain receiver.
             OptionalField {
                 /// Receiver operand, either `T` or `Option<T>`.
@@ -2015,6 +2036,14 @@ macro_rules! op_group_transcribed {
                 name: [String],
             }
                 => (format!("builtin_namespace {name}"));
+            /// The value of an import or global Smelt has no model for.
+            ///
+            /// Nothing is known of it, so it stands in for itself: every member
+            /// read and every call answers it. Any other value that holds no
+            /// function throws `TypeError` when called.
+            UnmodeledImport
+                needs(Unknown)
+                => ("unmodeled_import".to_owned());
             /// The JavaScript `arguments` object of the enclosing non-arrow function,
             /// built from that function's own parameters.
             ///
@@ -2377,6 +2406,18 @@ macro_rules! op_group_transcribed {
                 call("@python_dict_read".to_owned())
                 needs(PythonDictRead)
                 => (format!("python_dict_read {dict}, {key}"));
+            /// Python's `xs[i]` on a list: a negative index counts from the end,
+            /// and an index out of range raises `IndexError`.
+            PythonListRead {
+                /// The list.
+                list: one,
+                /// The index, an `int`.
+                index: one,
+            }
+                fallible(true)
+                call("@python_list_read".to_owned())
+                needs(PythonListRead)
+                => (format!("python_list_read {list}, {index}"));
             /// A Python exception instance: an instance of the class whose own
             /// name and bases up to `BaseException` are `classes`, built from
             /// the constructor arguments `BaseException.__init__` keeps.

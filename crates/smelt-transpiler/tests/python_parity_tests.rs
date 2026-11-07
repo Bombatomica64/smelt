@@ -66,6 +66,18 @@ fn lambda_arithmetic() -> TestResult {
     verify_python_parity("lambda_arithmetic")
 }
 
+/// A raise from a `map`, `filter` or `sorted` callback reaches the enclosing `try`.
+#[test]
+fn try_around_raising_callback() -> TestResult {
+    verify_python_parity("try_around_raising_callback")
+}
+
+/// `xs[i]` raises `IndexError`, `print` draws `repr`, and `x /= 2` makes a `float`.
+#[test]
+fn list_semantics() -> TestResult {
+    verify_python_parity("list_semantics")
+}
+
 /// A `str` index counts code points, in `len`, `find`, `rfind` and slicing.
 #[test]
 fn str_code_point_indices() -> TestResult {

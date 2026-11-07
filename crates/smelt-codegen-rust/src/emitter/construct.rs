@@ -42,6 +42,23 @@ impl FunctionEmitter<'_> {
         self.extract_rendered(&call_text, dest_ty, &self.render_scope())
     }
 
+    /// Render `new value.constructor(args)` on an erased `value`.
+    pub(super) fn construct_like_expr(
+        &self,
+        value: &Operand,
+        args: &[Operand],
+        dest_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        let value_text = self.erase(value)?;
+        let arg_texts = args
+            .iter()
+            .map(|arg| self.erase(arg))
+            .collect::<Result<Vec<_>, _>>()?
+            .join(", ");
+        let call_text = RustExpr::chain(format!("smelt_construct_like({value_text}, ::std::vec![{arg_texts}])"));
+        self.extract_rendered(&call_text, dest_ty, &self.render_scope())
+    }
+
     /// Render a class read as a value.
     ///
     /// Which classes it covers is computed here, where every class is known: an

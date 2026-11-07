@@ -12551,11 +12551,17 @@ export function guardedViaLocal(cb: (...args: unknown[]) => unknown): unknown {
     // N source arguments. Nesting that list as a single vector element calls the
     // callback with one array argument instead of two — it compiles and silently
     // passes the wrong arity, so the packed list must be handed over as the
-    // vector itself. Both call forms must render the same argument text.
+    // vector itself. The statement form takes the list written inside the call
+    // (`RestCallFusion`); the terminator form, inside `try`, passes its temporary.
     assert_eq!(
-        source.matches(".call(_smelt_tmp_2)").count(),
-        2,
-        "both call forms pass the packed argument list as the argument vector:\n{source}"
+        source.matches(".call(Into::<SmeltList<_>>::into(").count(),
+        1,
+        "the statement form passes the packed list as the argument vector:\n{source}"
+    );
+    assert_eq!(
+        source.matches(".call(_smelt_tmp_").count(),
+        1,
+        "the terminator form passes the packed list as the argument vector:\n{source}"
     );
     assert!(
         !source.contains(".call(vec![SmeltUnknown::Array("),
@@ -12866,7 +12872,7 @@ last_value: int = values[-1]
     );
 
     assert!(
-        source.contains("let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }"),
+        source.contains("smelt_py_list_read(&") && source.contains("if index < 0 { index.saturating_add("),
         "a Python element read must still count a negative index from the end:\n{source}"
     );
 }
@@ -13491,7 +13497,7 @@ const v = check(new Ok());
     // The dynamic call ABI is fallible, so erasing also infected the signature
     // with a `Result`. Static dispatch cannot throw.
     assert!(
-        check_body.starts_with("r: SmeltUnion5) -> bool"),
+        check_body.starts_with("r: SmeltUnion") && check_body.contains(") -> bool {"),
         "static dispatch must not wrap the return type in `Result`:\n{source}"
     );
 }

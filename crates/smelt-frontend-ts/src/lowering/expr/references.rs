@@ -321,7 +321,7 @@ impl ModuleBuilder<'_> {
             if self.allows_unknown_index_access() {
                 let ty = self.erase_with(ErasureReason::ByName, "unresolved global");
                 return Ok(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::None),
+                    kind: ExprKind::UnmodeledImport,
                     ty,
                     span: self.span(start, end),
                 }));
@@ -469,6 +469,16 @@ impl ModuleBuilder<'_> {
             && matches!(self.ctx.krate.types.get(ty), Some(Type::List(_) | Type::Tuple(_)))
         {
             return Self::projected_optional_arm(local, inner, ty, span, body);
+        }
+        // A type parameter narrowed to a list: the method takes the list, not `T`.
+        if matches!(self.ctx.krate.types.get(base_ty), Some(Type::TypeParam { .. }))
+            && matches!(self.ctx.krate.types.get(ty), Some(Type::List(_) | Type::Tuple(_)))
+        {
+            return body.push_expr(Expr {
+                kind: ExprKind::UnknownCast { value: receiver, target: ty },
+                ty,
+                span,
+            });
         }
         receiver
     }
@@ -1391,22 +1401,18 @@ impl ModuleBuilder<'_> {
     ) -> smelt_hir::ExprId {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let float_ty = self.ctx.krate.types.intern(Type::Float);
-        let params: &[(&str, smelt_hir::TypeId)] = if with_radix {
-            &[("value", string_ty), ("radix", float_ty)]
-        } else {
-            &[("value", string_ty)]
-        };
+        let extra: &[(&str, smelt_hir::TypeId)] = if with_radix { &[("radix", float_ty)] } else { &[] };
         let int_ty = self.ctx.krate.types.intern(Type::Int);
-        self.builtin_closure_expression(params, float_ty, span, outer_body, false, |body, reads| {
-            let radix = reads.get(1).copied().unwrap_or_else(|| {
+        self.builtin_closure_expression(("value", string_ty), extra, float_ty, span, outer_body, false, |body, value, extra_reads| {
+            let radix = extra_reads.first().copied().unwrap_or_else(|| {
                 body.push_expr(Expr {
-                    kind: ExprKind::Literal(smelt_hir::Literal::Int(0)),
+                    kind: ExprKind::Literal(Literal::Int(0)),
                     ty: int_ty,
                     span,
                 })
             });
             ExprKind::ParseIntRadix {
-                operand: reads[0],
+                operand: value,
                 radix,
             }
         })
@@ -1465,56 +1471,60 @@ impl ModuleBuilder<'_> {
         make_body: impl FnOnce(smelt_hir::ExprId) -> ExprKind,
     ) -> smelt_hir::ExprId {
         self.builtin_closure_expression(
-            &[("value", param_ty)],
+            ("value", param_ty),
+            &[],
             return_ty,
             span,
             outer_body,
             may_throw,
-            |_, reads| make_body(reads[0]),
+            |_, value, _| make_body(value),
         )
     }
 
-    /// Synthesize a closure value with the named, typed `params` whose body
-    /// returns `make_body` applied to the closure body and the parameter reads,
-    /// in order.
+    /// Synthesize a closure value with the named, typed parameters `first`
+    /// then `extra`, whose body returns `make_body` applied to the closure
+    /// body, the read of `first` and the reads of `extra` in order.
     ///
     /// The general form behind the unary builtin closures, for a builtin whose
     /// value form takes more than one argument (`xs.map(parseInt)` passes the
     /// element index as the radix).
     pub(in crate::lowering) fn builtin_closure_expression(
         &mut self,
-        params: &[(&str, smelt_hir::TypeId)],
+        first: (&str, smelt_hir::TypeId),
+        extra: &[(&str, smelt_hir::TypeId)],
         return_ty: smelt_hir::TypeId,
         span: Span,
         outer_body: &mut Body,
         may_throw: bool,
-        make_body: impl FnOnce(&mut Body, &[smelt_hir::ExprId]) -> ExprKind,
+        make_body: impl FnOnce(&mut Body, smelt_hir::ExprId, &[smelt_hir::ExprId]) -> ExprKind,
     ) -> smelt_hir::ExprId {
         let mut closure_body = Body::new(None, span);
-        let mut closure_params = Vec::with_capacity(params.len());
-        let mut reads = Vec::with_capacity(params.len());
-        for &(name, ty) in params {
-            let name = self.intern_source_name(name);
-            let local = closure_body.push_local(LocalDecl {
+        let mut closure_params = Vec::with_capacity(extra.len() + 1);
+        let mut push_param = |this: &mut Self, param_body: &mut Body, (source_name, ty): (&str, smelt_hir::TypeId)| {
+            let name = this.intern_source_name(source_name);
+            let local = param_body.push_local(LocalDecl {
                 name: Some(name),
                 ty,
                 mutable: false,
                 span,
             });
-            closure_body.params.push(local);
-            reads.push(closure_body.push_expr(Expr {
-                kind: ExprKind::Local(local),
-                ty,
-                span,
-            }));
+            param_body.params.push(local);
             closure_params.push(Param {
                 name,
                 local,
                 ty,
                 span,
             });
-        }
-        let kind = make_body(&mut closure_body, &reads);
+            param_body.push_expr(Expr {
+                kind: ExprKind::Local(local),
+                ty,
+                span,
+            })
+        };
+        let first_read = push_param(self, &mut closure_body, first);
+        let extra_reads: Vec<smelt_hir::ExprId> =
+            extra.iter().map(|&param| push_param(self, &mut closure_body, param)).collect();
+        let kind = make_body(&mut closure_body, first_read, &extra_reads);
         let result = closure_body.push_expr(Expr {
             kind,
             ty: return_ty,
@@ -1523,7 +1533,7 @@ impl ModuleBuilder<'_> {
         closure_body.push_stmt(Stmt::Return(Some(result)));
         let body = self.ctx.krate.push_body(closure_body);
         let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
-            params: params.iter().map(|&(_, ty)| ty).collect(),
+            params: std::iter::once(first).chain(extra.iter().copied()).map(|(_, ty)| ty).collect(),
             rest: None,
             required_params: None,
             mutable_params: Vec::new(),
@@ -1794,16 +1804,8 @@ impl ModuleBuilder<'_> {
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
             )
         {
-            let key_ty = self.ctx.krate.types.intern(Type::String);
-            let value_ty = self.erase_with(ErasureReason::ByName, "module global");
-            let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
-            let value = body.push_expr(Expr {
-                kind: ExprKind::DictLit(Vec::new()),
-                ty: dict_ty,
-                span: self.span(start, end),
-            });
             return Ok(body.push_expr(Expr {
-                kind: ExprKind::UnknownCast { value, target: ty },
+                kind: ExprKind::UnmodeledImport,
                 ty,
                 span: self.span(start, end),
             }));

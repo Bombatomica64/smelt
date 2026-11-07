@@ -332,6 +332,24 @@ impl<'a> CrateBuilder<'a, FreeFunctionsWritten> {
                     emitter.emit_method(out)?;
                 }
             }
+            // The ancestor methods a `super` call reaches, under their own names:
+            // this class's methods of those names override them. A call in an
+            // ancestor counts too, since that ancestor's methods are copied here.
+            let mut copied = Vec::new();
+            for (owner, method) in classes::super_calls(mir) {
+                if !classes::is_self_or_ancestor(mir, owner, class.name) || copied.contains(&method) {
+                    continue;
+                }
+                copied.push(method);
+                if let Some(function) = mir.functions.get(id_index(method.0, "method index does not fit usize")?)
+                    && let Some(copy_name) = classes::super_copy_name(mir, function)
+                {
+                    let substituted = classes::substituted_inherited_member(mir, function, class.name);
+                    let copied_body = substituted.as_ref().unwrap_or(function);
+                    let mut emitter = FunctionEmitter::super_copy(mir, context, copied_body, class.name, copy_name)?;
+                    emitter.emit_method(out)?;
+                }
+            }
             for static_method in &class.static_methods {
                 if let Some(function) = mir.functions.get(id_index(
                     static_method.0,

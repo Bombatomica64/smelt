@@ -364,7 +364,25 @@ impl ModuleBuilder<'_> {
         if matches!(self.ctx.krate.types.get(target_ty), Some(Type::Int))
             && matches!(self.ctx.krate.types.get(compound_ty), Some(Type::Float))
         {
-            return self.rebind_as_float(aug, compound, body, block);
+            // `x /= 2` rebinds `x` to a `float`. On the straight line of a body a
+            // new binding is exactly that. Under a branch or loop, `x` is an `int`
+            // on the paths that skip it, which one Rust type cannot say.
+            if block.0 != 0 || !matches!(aug.target.as_ref(), Expr::Name(_)) {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "this augmented assignment makes an `int` variable a `float` only on some paths; declare it `float`",
+                ));
+            }
+            let pat = self.binding_pattern_from_target(&aug.target, body, Some(compound_ty))?;
+            body.push_stmt_to_block(
+                block,
+                HirStmt::Let {
+                    pat,
+                    ty: compound_ty,
+                    value: Some(compound),
+                },
+            );
+            return Ok(());
         }
         let target = Self::subscript_store_target(target, body);
         body.push_stmt_to_block(
@@ -374,47 +392,6 @@ impl ModuleBuilder<'_> {
                 value: compound,
             },
         );
-        Ok(())
-    }
-
-    /// `x /= n` on an `int` local: Python rebinds `x` to the `float` result.
-    ///
-    /// In the body's top-level block the statement runs exactly once, before
-    /// every later statement and never again after them, so the rebinding is a
-    /// new `float` local that every later read names, as `let x = x as f64 / n`
-    /// is in Rust. Under a branch or a loop the name holds an `int` on some
-    /// paths and a `float` on others, which needs an `int | float` local; that
-    /// stays rejected.
-    fn rebind_as_float(
-        &mut self,
-        aug: &StmtAugAssign,
-        compound: smelt_hir::ExprId,
-        body: &mut Body,
-        block: smelt_hir::BlockId,
-    ) -> Result<(), SmeltError> {
-        let span = self.span(aug.range);
-        let float_ty = Self::expr_ty(body, compound);
-        let Expr::Name(name) = aug.target.as_ref() else {
-            return Err(SmeltError::unsupported(
-                span,
-                "this augmented assignment makes an `int` element a `float`",
-            ));
-        };
-        if block != body.root || !self.scope.locals.contains_key(name.id.as_str()) {
-            return Err(SmeltError::unsupported(
-                span,
-                "this augmented assignment makes an `int` variable a `float` on only some paths; declare it `float`",
-            ));
-        }
-        let local = body.push_local(LocalDecl {
-            name: Some(self.intern_name(name.id.as_str())),
-            ty: float_ty,
-            mutable: true,
-            span,
-        });
-        let pat = body.push_pattern(HirPattern::Binding(local));
-        body.push_stmt_to_block(block, HirStmt::Let { pat, ty: float_ty, value: Some(compound) });
-        self.scope.locals.insert(name.id.as_str().to_owned(), local);
         Ok(())
     }
 

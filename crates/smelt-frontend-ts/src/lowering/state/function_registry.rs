@@ -52,6 +52,8 @@ pub(in crate::lowering) struct FunctionRegistry {
     assertions: HashMap<String, AssertionNarrowing>,
     /// User predicate functions declared with `value is T`.
     predicates: HashMap<String, AssertionNarrowing>,
+    /// The names in `predicates` another module declares.
+    imported_predicates: HashSet<String>,
     /// Class methods whose return annotation is a type predicate, keyed by
     /// member and by which kind of predicate it is.
     method_predicates: HashMap<(MethodPredicateKey, PredicateKind), AssertionNarrowing>,
@@ -163,6 +165,25 @@ impl FunctionRegistry {
         narrowing: AssertionNarrowing,
     ) {
         self.predicates.insert(name, narrowing);
+    }
+
+    /// Record the narrowing of a predicate another module declares, under its
+    /// local name here.
+    pub(in crate::lowering) fn set_imported_predicate(
+        &mut self,
+        name: String,
+        narrowing: AssertionNarrowing,
+    ) {
+        self.imported_predicates.insert(name.clone());
+        self.predicates.insert(name, narrowing);
+    }
+
+    /// Whether the predicate `name` was declared by another module. A library's
+    /// `isKey(path)` answers `false` for string paths it would still accept, so
+    /// its false branch proves less than the signature claims and only what the
+    /// call answers `true` for reaches an importer.
+    pub(in crate::lowering) fn is_imported_predicate(&self, name: &str) -> bool {
+        self.imported_predicates.contains(name)
     }
 
     /// Return the `kind` predicate declared by the class member `key`.

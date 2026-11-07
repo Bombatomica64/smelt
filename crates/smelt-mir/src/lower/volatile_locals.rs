@@ -104,8 +104,10 @@ const fn runs_code_or_stores(kind: &ExprKind) -> bool {
         ExprKind::Call { .. }
             | ExprKind::ClosureCall { .. }
             | ExprKind::ClosureCallSpread { .. }
+            | ExprKind::ClosureCallRest { .. }
             | ExprKind::Method { .. }
             | ExprKind::Construct { .. }
+            | ExprKind::ConstructLike { .. }
             | ExprKind::New { .. }
             | ExprKind::Block(_)
             | ExprKind::Await(_)
@@ -165,10 +167,10 @@ fn read_may_run_accessor(body: &Body, types: &TypeInterner, kind: &ExprKind) -> 
     let (ExprKind::Field { receiver, .. } | ExprKind::Index { receiver, .. }) = kind else {
         return false;
     };
-    let Some(receiver) = usize::try_from(receiver.0).ok().and_then(|index| body.exprs.get(index)) else {
+    let Some(receiver_expr) = usize::try_from(receiver.0).ok().and_then(|index| body.exprs.get(index)) else {
         return false;
     };
-    match types.get(receiver.ty) {
+    match types.get(receiver_expr.ty) {
         Some(Type::Dict(key, value)) => {
             matches!(types.get(*key), Some(Type::String)) && matches!(types.get(*value), Some(Type::Unknown))
         }
@@ -286,7 +288,7 @@ fn early_reads(body: &Body, krate: &smelt_hir::Crate, assigned_fields: &FieldWri
             later_reads_global |= reads_global(body, child);
             let is_lazy_read = match expr_kind(body, child) {
                 Some(ExprKind::Field { receiver, field }) => {
-                    let receiver_ty = usize::try_from(receiver.0).ok().and_then(|index| body.exprs.get(index)).map(|expr| expr.ty);
+                    let receiver_ty = usize::try_from(receiver.0).ok().and_then(|index| body.exprs.get(index)).map(|receiver_expr| receiver_expr.ty);
                     krate.symbols.get(*field).is_some_and(|name| {
                         receiver_ty.is_some_and(|ty| assigned_fields.may_write(types, ty, name))
                     })

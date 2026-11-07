@@ -88,6 +88,102 @@ fn rest_value_calls() -> TestResult {
     verify_node_parity("rest_value_calls")
 }
 
+/// A list packed for a callee that is all rest goes inside the call, in order.
+#[test]
+fn rest_call_fusion() -> TestResult {
+    verify_node_parity("rest_call_fusion")
+}
+
+/// An imported `value is T` narrows where it answers true, and only there.
+#[test]
+fn imported_type_predicate() -> TestResult {
+    verify_node_parity_with("imported_type_predicate", &["predicates.ts"])
+}
+
+/// A throw from a `map` or `sort` callback reaches the enclosing `try`.
+#[test]
+fn try_around_raising_callback() -> TestResult {
+    verify_node_parity("try_around_raising_callback")
+}
+
+/// `+` on erased operands concatenates where the checker says it does.
+#[test]
+fn heterogeneous_object_constant() -> TestResult {
+    verify_node_parity("heterogeneous_object_constant")
+}
+
+/// A run-time key reads the methods of a class instance too.
+#[test]
+fn class_function_field_by_key() -> TestResult {
+    verify_node_parity("class_function_field_by_key")
+}
+
+/// A class reads its own static fields from its method bodies.
+#[test]
+fn local_class_static_self_read() -> TestResult {
+    verify_node_parity("local_class_static_self_read")
+}
+
+/// Calling what a value does not hold throws `TypeError`; reading it does not.
+#[test]
+fn call_of_what_a_value_lacks() -> TestResult {
+    verify_node_parity("call_of_what_a_value_lacks")
+}
+
+/// `new value.constructor()` builds the value's kind, and prints as one.
+#[test]
+fn construct_through_constructor() -> TestResult {
+    verify_node_parity("construct_through_constructor")
+}
+
+/// A generic called through a namespace import types as a direct call does.
+#[test]
+fn namespace_generic_call() -> TestResult {
+    verify_node_parity_with("namespace_generic_call", &["lib.ts"])
+}
+
+/// A field typed `T | boolean` is stored erased at every instantiation.
+#[test]
+fn generic_union_field() -> TestResult {
+    verify_node_parity("generic_union_field")
+}
+
+/// `super.method()` runs the base implementation, through every level.
+#[test]
+fn super_method_call() -> TestResult {
+    verify_node_parity("super_method_call")
+}
+
+/// A subclass reads and calls its ancestors' statics.
+#[test]
+fn inherited_statics() -> TestResult {
+    verify_node_parity("inherited_statics")
+}
+
+/// A class whose base is chosen at run time is specialised per arm.
+#[test]
+fn conditional_base_class() -> TestResult {
+    verify_node_parity("conditional_base_class")
+}
+
+/// A type alias another module declares is in scope only where it is imported.
+#[test]
+fn type_alias_scope() -> TestResult {
+    verify_node_parity_with("type_alias_scope", &["helpers.ts"])
+}
+
+/// A needle typed by a parameter bounded by `string` is a string.
+#[test]
+fn string_bound_needle() -> TestResult {
+    verify_node_parity("string_bound_needle")
+}
+
+/// A receiver's own `startsWith`/`includes` wins over the string methods.
+#[test]
+fn member_named_like_string_method() -> TestResult {
+    verify_node_parity_with("member_named_like_string_method", &["pattern.ts"])
+}
+
 /// A parameter does not hide a module constant from other functions.
 #[test]
 fn parameter_shadows_module_const() -> TestResult {

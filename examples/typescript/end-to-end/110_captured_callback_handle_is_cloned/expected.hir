@@ -32,8 +32,7 @@ interned types
   t1 = fn() -> String
   t2 = fn(String, fn() -> String) -> String
   t3 = Unknown
-  t4 = Dict<String, Unknown>
+  t4 = fn(fn(String, fn() -> String) -> String) -> fn(String, fn() -> String) -> String
   t5 = fn(fn(String, fn() -> String) -> String) -> fn(String, fn() -> String) -> String
-  t6 = fn(fn(String, fn() -> String) -> String) -> fn(String, fn() -> String) -> String
-  t7 = fn() -> Unknown
-  t8 = None
+  t6 = fn() -> Unknown
+  t7 = None

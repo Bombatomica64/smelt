@@ -158,6 +158,13 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             }));
         }
+        // `_.iterate(..)` is `iterate(..)`: the same rule instantiates its generics.
+        let type_params = match self.item_ref(item) {
+            Item::Function(function) => function.type_params.clone(),
+            _ => Vec::new(),
+        };
+        let call_ty =
+            self.instantiated_call_return(&type_params, &params, &args, return_ty, call, body)?;
         let callee = body.push_expr(Expr {
             kind: ExprKind::Item(item),
             ty: self.ctx.krate.types.intern(Type::Function(FunctionType {
@@ -173,7 +180,7 @@ impl ModuleBuilder<'_> {
         });
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::Call { callee, args },
-            ty: return_ty,
+            ty: call_ty,
             span: self.span(call.span.start, call.span.end),
         })))
     }
@@ -394,6 +401,18 @@ impl ModuleBuilder<'_> {
         reject_unmodeled_function_field: bool,
         is_assignment_target: bool,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(member.span.start, member.span.end);
+        if let Some(selected) = self.conditional_class_select(Some(&member.object), span, body, |this, body| {
+            this.static_member_with_absent_fallback(
+                member,
+                body,
+                absent_list_field_is_undefined,
+                reject_unmodeled_function_field,
+                is_assignment_target,
+            )
+        })? {
+            return Ok(selected);
+        }
         if let Some(expr) = self.global_alias_member_read(member, body)? {
             return Ok(expr);
         }
@@ -665,7 +684,6 @@ impl ModuleBuilder<'_> {
                         Some(Type::List(_))
                     )
                 {
-                    let span = self.span(member.span.start, member.span.end);
                     let ty = self.erase_at(
                         ErasureReason::ByName,
                         span,

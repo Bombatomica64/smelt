@@ -261,6 +261,81 @@ fn method_adapter(
     )))
 }
 
+/// Key of a class's erased constructor entry, which `smelt_construct_like`
+/// builds through for `new value.constructor(args)` on an erased instance.
+pub(crate) const CONSTRUCTOR_KEY: &str = "__smelt_method:constructor";
+
+/// Whether `mir` builds through `new value.constructor()` anywhere.
+fn program_constructs_like(mir: &Mir, context: &EmitContext) -> bool {
+    *context.constructs_like.get_or_init(|| {
+        let bodies = mir
+            .functions
+            .iter()
+            .map(|function| &function.blocks)
+            .chain(mir.closures.iter().map(|closure| &closure.blocks));
+        let mut found = false;
+        for blocks in bodies {
+            for block in blocks {
+                found |= block.statements.iter().any(|statement| {
+                    matches!(
+                        statement,
+                        smelt_mir::Statement::Assign { value: smelt_mir::Rvalue::ConstructLike { .. }, .. }
+                    )
+                });
+            }
+        }
+        found
+    })
+}
+
+/// The constructor of `class` as an erased function building a new instance,
+/// when the program needs one and every constructor parameter can be rebuilt
+/// from the erased carrier. A generic or abstract class has none: no `new`
+/// can be spelled without its type arguments.
+fn constructor_adapter(
+    mir: &Mir,
+    context: &EmitContext,
+    class: &MirClass,
+) -> Result<Option<RustExpr>, EmitError> {
+    if !program_constructs_like(mir, context)
+        || !class.type_params.is_empty()
+        || matches!(class.kind, smelt_hir::ClassKind::Abstract)
+    {
+        return Ok(None);
+    }
+    let Some(self_ty) = crate::classes::class_self_type(mir, class.name) else {
+        return Ok(None);
+    };
+    let constructor = class.constructor.and_then(|id| function_by_id(mir, id));
+    let mut args = Vec::new();
+    if let Some(function) = constructor {
+        if function.rest.is_some() || function.is_async {
+            return Ok(None);
+        }
+        for (index, param) in function.params.iter().enumerate() {
+            let Some(local) = local_decl(function, *param) else {
+                return Ok(None);
+            };
+            if !type_supports_from_unknown(mir, context, local.ty) {
+                return Ok(None);
+            }
+            args.push(crate::emitter::record_coercion::record_field_from_unknown_expr(
+                mir,
+                &RustExpr::chain(format!(
+                    "smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
+                )),
+                local.ty,
+            )?);
+        }
+    }
+    let try_operator = if constructor.is_some_and(|function| function.can_throw) { "?" } else { "" };
+    let built = record_field_unknown_expr(mir, &RustExpr::path("smelt_built"), self_ty)?;
+    Ok(Some(RustExpr::atom(format!(
+        "SmeltUnknown::Function(::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {{ let _ = &smelt_args; let smelt_built = Self::new({}){try_operator}; Ok({built}) }}))",
+        args.join(", ")
+    ))))
+}
+
 /// Emit the `__smelt_proto_entries` inherent method for a class.
 ///
 /// Returns `None` when the class exposes no eligible method, so a class that
@@ -298,6 +373,11 @@ pub(crate) fn class_proto_entries_method(
             "        smelt_proto_entries.push(({key:?}.to_owned(), {adapter}));\n"
         ));
     }
+    if let Some(adapter) = constructor_adapter(mir, context, class)? {
+        pushes.push(format!(
+            "        smelt_proto_entries.push(({CONSTRUCTOR_KEY:?}.to_owned(), {adapter}));\n"
+        ));
+    }
     if pushes.is_empty() {
         return Ok(None);
     }
@@ -333,6 +413,7 @@ pub(crate) fn class_has_proto_entries(
         .into_iter()
         .filter_map(|method| function_by_id(mir, method))
         .any(|function| method_is_proto_eligible(mir, context, function))
+        || constructor_adapter(mir, context, class).is_ok_and(|adapter| adapter.is_some())
 }
 
 /// Look up a MIR function by id.

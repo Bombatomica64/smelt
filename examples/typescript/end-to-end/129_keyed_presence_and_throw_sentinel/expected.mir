@@ -185,26 +185,27 @@ fn #insert_path (FuncId(4)) -> None throws
     return none
   bb3:
     %12 = copy %3 == symbol("Symbol()@237")
-    switch move %12 ? bb8 : bb9
+    switch move %12 ? bb9 : bb10
   bb4:
     %7 = move %4
     %8 = string_split copy %2, "/", _
     %9 = closure ClosureId(0) []
-    %10 = list_filter move %8, move %9
-    %11 = call fn2(move %7, move %10) -> bb6 unwind bb3
+    %10 = call @callback_op(move %8, move %9) -> bb6 unwind bb3
   bb5:
     %6 = none
-    goto bb7
+    goto bb8
   bb6:
-    %6 = move %11
-    goto bb7
+    %11 = call fn2(move %7, move %10) -> bb7 unwind bb3
   bb7:
-    goto bb2
+    %6 = move %11
+    goto bb8
   bb8:
-    %13 = call fn1(copy %2) -> bb10
+    goto bb2
   bb9:
-    throw move %3
+    %13 = call fn1(copy %2) -> bb11
   bb10:
+    throw move %3
+  bb11:
     throw move %13
 
 fn add (FuncId(5)) -> None throws

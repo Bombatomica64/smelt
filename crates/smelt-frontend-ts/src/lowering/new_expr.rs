@@ -33,6 +33,49 @@ struct ErrorConstructorParts {
 }
 
 impl ModuleBuilder<'_> {
+    /// `new value.constructor(args)` on an erased value, spelled through casts and
+    /// parentheses. A value with a static class keeps the ordinary route.
+    fn construct_like_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let mut callee = &new_expr.callee;
+        loop {
+            callee = match callee {
+                Expression::ParenthesizedExpression(inner) => &inner.expression,
+                Expression::TSAsExpression(inner) => &inner.expression,
+                Expression::TSNonNullExpression(inner) => &inner.expression,
+                _ => break,
+            };
+        }
+        let Expression::StaticMemberExpression(member) = callee else {
+            return Ok(None);
+        };
+        if member.property.name != "constructor" || new_expr.arguments.iter().any(Argument::is_spread) {
+            return Ok(None);
+        }
+        let mark = self.speculation_mark(body);
+        let value = self.expression(&member.object, body)?;
+        let value_ty = Self::expr_ty(body, value);
+        let by_kind = matches!(self.ctx.krate.types.get(value_ty), Some(Type::List(_)));
+        if !by_kind && !self.erased_or_union_surface(value_ty) {
+            self.roll_back_to(mark, body);
+            return Ok(None);
+        }
+        let args = new_expr
+            .arguments
+            .iter()
+            .map(|arg| self.argument(arg, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        let ty = self.erase_with(ErasureReason::ByName, "new on dynamic callee");
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ConstructLike { value, args },
+            ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        })))
+    }
+
     /// Lower a `new ...` expression, including stdlib containers and class construction.
     pub(super) fn new_expression_with_hint(
         &mut self,
@@ -40,6 +83,15 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(new_expr.span.start, new_expr.span.end);
+        if let Some(selected) = self.conditional_class_select(Some(&new_expr.callee), span, body, |this, body| {
+            this.new_expression_with_hint(new_expr, body, type_hint)
+        })? {
+            return Ok(selected);
+        }
+        if let Some(expr) = self.construct_like_expression(new_expr, body)? {
+            return Ok(expr);
+        }
         // `Set`, `Map` and `Promise` are host constructors too, so a class the
         // program declares under one of those names skips them.
         let declared_class = matches!(&new_expr.callee, Expression::Identifier(callee)
@@ -146,7 +198,6 @@ impl ModuleBuilder<'_> {
                             self.erase_with(ErasureReason::ByName, "new on dynamic callee"),
                         )
                     });
-                let span = self.span(new_expr.span.start, new_expr.span.end);
                 if new_expr.arguments.iter().any(Argument::is_spread) {
                     let spread_item_ty =
                         self.erase_with(ErasureReason::DynamicOperator, "spread arguments");
@@ -495,7 +546,6 @@ impl ModuleBuilder<'_> {
                     continue;
                 };
                 if self.ctx.krate.types.get(bound) == Some(&Type::Unknown) && Self::expr_ty(body, *arg) != bound {
-                    let span = self.span(new_expr.span.start, new_expr.span.end);
                     *arg = body.push_expr(Expr { kind: ExprKind::TypeAssert { value: *arg }, ty: bound, span });
                 }
             }
@@ -1891,6 +1941,19 @@ impl ModuleBuilder<'_> {
         let target = self.argument(target_argument, body)?;
         if let Some(handler_argument) = new_expr.arguments.get(1) {
             let _ = self.argument(handler_argument, body)?;
+            // A handler with traps is what the proxy answers, and traps have no model.
+            let trapless = matches!(
+                handler_argument.as_expression(),
+                Some(Expression::ObjectExpression(handler)) if handler.properties.is_empty()
+            );
+            if !trapless {
+                let ty = self.erase_with(ErasureReason::ByName, "proxy with traps");
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::UnmodeledImport,
+                    ty,
+                    span: self.span(new_expr.span.start, new_expr.span.end),
+                }));
+            }
         }
         Ok(target)
     }
@@ -2173,7 +2236,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower one expression; see [`Self::expression_with_hint`].
-    fn expression_shape_with_hint(
+    pub(in crate::lowering) fn expression_shape_with_hint(
         &mut self,
         expression: &Expression<'_>,
         body: &mut Body,

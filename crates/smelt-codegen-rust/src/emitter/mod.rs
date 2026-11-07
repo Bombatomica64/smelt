@@ -250,12 +250,17 @@ impl FreeFunctionVisibility {
 /// it, so no body renders before the generic decision is made.
 pub(crate) struct GenericsDecided(());
 
+/// Program-wide facts and memos shared by every function emitter of one crate.
 pub(crate) struct EmitContext {
     /// The type ID of the None type.
     pub(crate) none_ty: TypeId,
     /// Whether each union asked about so far is stored as a generated enum; a
     /// pure function of the MIR that every read of a union member asks.
-    pub(crate) concrete_unions: std::cell::RefCell<HashMap<TypeId, bool>>,
+    pub(crate) concrete_unions: RefCell<HashMap<TypeId, bool>>,
+    /// Whether the program builds through `new value.constructor()` anywhere
+    /// (`Rvalue::ConstructLike`), which is what a class's erased `constructor`
+    /// entry is for; computed on first ask.
+    pub(crate) constructs_like: std::cell::OnceCell<bool>,
     /// See [`crate::generic_lifting::ErasedArgumentMemo`].
     pub(crate) erased_arguments: crate::generic_lifting::ErasedArgumentMemo,
     /// What this program demands of the runtime, computed once.
@@ -560,6 +565,7 @@ impl EmitContext {
             function_return_types,
             owned_callback_params,
             concrete_unions: ::std::cell::RefCell::default(),
+            constructs_like: ::std::cell::OnceCell::new(),
             erased_arguments: ::std::cell::RefCell::default(),
             function_item_accessors: ::std::cell::RefCell::new(
                 ::std::collections::BTreeMap::new(),
@@ -1626,6 +1632,9 @@ pub(crate) struct FunctionEmitter<'mir> {
     /// [`emit_role`]. Fixed by the constructor, except an own item's
     /// [`emit_role::OwnGenerics`] decision.
     role: emit_role::EmitRole,
+    /// The name a method is emitted under instead of its own: the copy a
+    /// `super` call reaches (`classes::super_copy_name`).
+    method_name: Option<String>,
     /// Set while rendering text that is HOISTED to module level.
     ///
     /// `function_item_erased_accessor` builds the body of a module-level

@@ -161,7 +161,7 @@ fn smelt_string_prototype_member(receiver: &::std::rc::Rc<str>, field: &str) -> 
 
 /// Read a property off an erased string: `length`, a character index, or a `String.prototype` method.
 fn smelt_get_string_field(text: &::std::rc::Rc<str>, field: &str) -> SmeltUnknown {
-    if field == "length" { return SmeltUnknown::Number(smelt_utf16_len(text) as f64); }
+    if field == "length" { return SmeltUnknown::Number(smelt_units_to_number(smelt_utf16_len(text))); }
     if let Ok(index) = field.parse::<usize>() { return smelt_utf16_char_at(text, index).map_or(SmeltUnknown::Undefined, |ch| SmeltUnknown::String(ch.into())); }
     smelt_string_prototype_member(text, field).unwrap_or(SmeltUnknown::Undefined)
 }
@@ -292,9 +292,18 @@ fn smelt_erased_units_find(haystack: &[u16], needle: &[u16], from: usize) -> Opt
 /// Pad `text` to `target` code units with repetitions of `fill` (`padStart`/`padEnd`).
 fn smelt_erased_padding(len: usize, target: f64, fill: &str) -> String {
     let fill_len = smelt_utf16_len(fill);
-    if fill_len == 0 || target <= len as f64 { return String::new(); }
-    let needed = target as usize - len;
+    let target_units = smelt_units_from_number(target);
+    if fill_len == 0 || target_units <= len { return String::new(); }
+    let needed = target_units - len;
     smelt_utf16_slice(&fill.repeat(needed.div_ceil(fill_len)), 0, needed)
+}
+
+/// The code unit index an erased `charAt`-style argument names in a string of
+/// `len` units: `None` when it is negative or past the end.
+fn smelt_erased_unit_index(value: &SmeltUnknown, len: usize) -> Option<usize> {
+    let index = smelt_erased_integer(value);
+    if index < 0.0 { return None; }
+    Some(smelt_units_from_number(index)).filter(|unit| *unit < len)
 }
 
 /// Apply `String.prototype[name]` to an erased string receiver.
@@ -309,15 +318,18 @@ fn smelt_string_prototype_apply(text: &str, name: &str, args: Vec<SmeltUnknown>)
     let range = |start: usize, end: usize| smelt_utf16_slice(text, start, end);
     match name {
         "at" => smelt_erased_at_index(args.first(), len).map_or(SmeltUnknown::Undefined, |index| string(range(index, index + 1))),
-        "charAt" => { let index = smelt_erased_integer(&arg(0)); if index >= 0.0 && index < len as f64 { string(range(index as usize, index as usize + 1)) } else { string(String::new()) } }
-        "charCodeAt" | "codePointAt" => { let index = smelt_erased_integer(&arg(0)); if index >= 0.0 && index < len as f64 { let code = if name == "charCodeAt" { u32::from(units[index as usize]) } else { smelt_utf16_code_point_at(text, index as usize).unwrap_or(0) }; SmeltUnknown::Number(f64::from(code)) } else if name == "charCodeAt" { SmeltUnknown::Number(f64::NAN) } else { SmeltUnknown::Undefined } }
+        "charAt" => string(smelt_erased_unit_index(&arg(0), len).map_or_else(String::new, |index| range(index, index + 1))),
+        "charCodeAt" | "codePointAt" => smelt_erased_unit_index(&arg(0), len).map_or_else(
+            || if name == "charCodeAt" { SmeltUnknown::Number(f64::NAN) } else { SmeltUnknown::Undefined },
+            |index| { let code = if name == "charCodeAt" { u32::from(units[index]) } else { smelt_utf16_code_point_at(text, index).unwrap_or(0) }; SmeltUnknown::Number(f64::from(code)) },
+        ),
         "concat" => { let mut result = text.to_owned(); for argument in &args { result.push_str(&smelt_erased_to_js_string(argument)); } string(result) }
-        "includes" | "indexOf" => { let needle: Vec<u16> = arg_text(0).encode_utf16().collect(); let from = smelt_erased_clamped_position(args.get(1), len, 0); let found = smelt_erased_units_find(&units, &needle, from); if name == "includes" { SmeltUnknown::Bool(found.is_some()) } else { SmeltUnknown::Number(found.map_or(-1.0, |index| index as f64)) } }
+        "includes" | "indexOf" => { let needle: Vec<u16> = arg_text(0).encode_utf16().collect(); let from = smelt_erased_clamped_position(args.get(1), len, 0); let found = smelt_erased_units_find(&units, &needle, from); if name == "includes" { SmeltUnknown::Bool(found.is_some()) } else { SmeltUnknown::Number(found.map_or(-1.0, smelt_units_to_number)) } }
         "lastIndexOf" => {
             let needle: Vec<u16> = arg_text(0).encode_utf16().collect();
-            let from = match args.get(1) { None | Some(SmeltUnknown::Undefined) => len, Some(value) => { let number = smelt_unknown_to_number(value); if number.is_nan() { len } else { number.trunc().clamp(0.0, len as f64) as usize } } };
+            let from = match args.get(1) { None | Some(SmeltUnknown::Undefined) => len, Some(value) => { let number = smelt_unknown_to_number(value); if number.is_nan() { len } else { smelt_units_from_number(number).min(len) } } };
             if needle.len() > len { return SmeltUnknown::Number(-1.0); }
-            SmeltUnknown::Number((0..=from.min(len - needle.len())).rev().find(|start| units[*start..*start + needle.len()] == *needle).map_or(-1.0, |index| index as f64))
+            SmeltUnknown::Number((0..=from.min(len - needle.len())).rev().find(|start| units[*start..*start + needle.len()] == *needle).map_or(-1.0, smelt_units_to_number))
         }
         "startsWith" => { let needle: Vec<u16> = arg_text(0).encode_utf16().collect(); let start = smelt_erased_clamped_position(args.get(1), len, 0); SmeltUnknown::Bool(units[start..].starts_with(&needle)) }
         "endsWith" => { let needle: Vec<u16> = arg_text(0).encode_utf16().collect(); let end = smelt_erased_clamped_position(args.get(1), len, len); SmeltUnknown::Bool(units[..end].ends_with(&needle)) }
@@ -351,5 +363,11 @@ fn smelt_throw_builtin_error(class: &str, message: String) -> ! { smelt_panic_th
 ///
 /// `callee` is the source spelling of what was called (`x.map`), as V8 words it.
 fn smelt_throw_not_callable(callee: &str) -> ! { smelt_throw_builtin_error("TypeError", format!("{callee} is not a function")) }
+/// Throw JavaScript's `TypeError` for a call of a value that holds no function,
+/// where the source spelling of the callee is not known.
+fn smelt_value_not_callable() -> ! { smelt_throw_not_callable("value") }
+/// The value of an import with no model: every call answers it, and so does every
+/// member read (see `smelt_get_unknown_field`).
+fn smelt_unmodeled_import() -> SmeltUnknown { SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_unmodeled".to_owned(), SmeltUnknown::Bool(true)), ("__smelt_call".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(|_smelt_args: Vec<SmeltUnknown>| Ok(smelt_unmodeled_import()))))]))) }
 
 // @smelt:item-end

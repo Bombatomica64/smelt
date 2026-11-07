@@ -4,6 +4,8 @@ mod ambient_globals;
 mod bigint;
 mod body_arena;
 mod checker_types;
+mod conditional_base;
+mod super_method;
 mod null_absent;
 mod open_array_hint;
 mod tuple_rest;
@@ -874,6 +876,13 @@ struct ModuleBuilder<'ctx> {
     /// (`record_module_exports`) consumes the module's `SignaturesDeclared`
     /// phase token, so it cannot run before the prepasses or run twice.
     export_renames: HashMap<String, String>,
+    /// Bindings holding one of two classes; see `conditional_base`.
+    conditional_bases: HashMap<String, conditional_base::ConditionalBase>,
+    /// Classes lowered once per arm of such a binding; see `conditional_base`.
+    conditional_classes: HashMap<String, conditional_base::ConditionalClass>,
+    /// The name the next class declaration takes instead of its own; set while
+    /// one arm of a conditional class is lowered.
+    forced_class_name: Option<String>,
     /// Object constants that act as namespace-like API surfaces, each with its
     /// entries in source order.
     object_namespaces: crate::context::Published<HashMap<String, IndexMap<String, smelt_hir::ItemId>>>,

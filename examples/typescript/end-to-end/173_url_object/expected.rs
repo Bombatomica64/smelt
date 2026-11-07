@@ -77,6 +77,20 @@ fn smelt_utf16_len(text: &str) -> usize {
     if text.is_ascii() { text.len() } else { smelt_utf16_units_in(text.as_bytes()) }
 }
 
+/// A count or index of code units as a JavaScript number: exact, since a
+/// string's length is far below 2^53.
+#[allow(dead_code)]
+const fn smelt_units_to_number(units: usize) -> f64 {
+    units as f64
+}
+
+/// A JavaScript number as a count or index of code units: truncated toward
+/// zero, NaN and negatives `0`, anything past `usize::MAX` saturating.
+#[allow(dead_code)]
+const fn smelt_units_from_number(number: f64) -> usize {
+    number as usize
+}
+
 /// The UTF-16 index of the byte offset `byte` of `text`, which is a char boundary.
 #[allow(dead_code)]
 fn smelt_utf16_index_of_byte(text: &str, byte: usize) -> usize {
@@ -86,7 +100,7 @@ fn smelt_utf16_index_of_byte(text: &str, byte: usize) -> usize {
 /// The UTF-16 code units of the characters whose first byte is in the word
 /// `word` (eight bytes of a string, little-endian).
 #[allow(dead_code)]
-fn smelt_utf16_units_in_word(word: u64) -> usize {
+const fn smelt_utf16_units_in_word(word: u64) -> usize {
     const HIGH: u64 = 0x8080_8080_8080_8080;
     let continuation = (word & !(word << 1) & HIGH).count_ones() as usize;
     let four_byte = (word & (word << 1) & (word << 2) & (word << 3) & HIGH).count_ones() as usize;
@@ -96,9 +110,9 @@ fn smelt_utf16_units_in_word(word: u64) -> usize {
 /// The UTF-16 code units of the characters whose first byte is in `bytes`.
 #[allow(dead_code)]
 fn smelt_utf16_units_in(bytes: &[u8]) -> usize {
-    let mut words = bytes.chunks_exact(8);
-    let whole: usize = words.by_ref().map(|word| smelt_utf16_units_in_word(u64::from_le_bytes([word[0], word[1], word[2], word[3], word[4], word[5], word[6], word[7]]))).sum();
-    whole + words.remainder().iter().map(|byte| usize::from(byte & 0xC0 != 0x80) + usize::from(*byte >= 0xF0)).sum::<usize>()
+    let (words, rest) = bytes.as_chunks::<8>();
+    let whole: usize = words.iter().map(|word| smelt_utf16_units_in_word(u64::from_le_bytes(*word))).sum();
+    whole + rest.iter().map(|byte| usize::from(byte & 0xC0 != 0x80) + usize::from(*byte >= 0xF0)).sum::<usize>()
 }
 
 /// The byte offset where UTF-16 index `unit` of `text` starts, clamped to the
@@ -143,9 +157,7 @@ fn smelt_utf16_slice(text: &str, start: usize, end: usize) -> String {
 /// The code unit at UTF-16 index `unit` of `text` (`charCodeAt`), if any.
 #[allow(dead_code)]
 fn smelt_utf16_unit_at(text: &str, unit: usize) -> Option<u16> {
-    if let Some(prefix) = text.as_bytes().get(..=unit) {
-        if prefix.is_ascii() { return Some(u16::from(prefix[unit])); }
-    }
+    if let Some(prefix) = text.as_bytes().get(..=unit).filter(|prefix| prefix.is_ascii()) { return Some(u16::from(prefix[unit])); }
     let (byte, half) = match smelt_utf16_byte_of(text, unit) { Ok(byte) => (byte, 0), Err(byte) => (byte, 1) };
     let mut units = [0; 2];
     text[byte..].chars().next().map(|ch| ch.encode_utf16(&mut units)[half])
@@ -155,23 +167,15 @@ fn smelt_utf16_unit_at(text: &str, unit: usize) -> Option<u16> {
 /// one unit, or a whole pair at its first unit and `""` at its second.
 #[allow(dead_code)]
 fn smelt_utf16_char_at(text: &str, unit: usize) -> Option<String> {
-    if let Some(prefix) = text.as_bytes().get(..=unit) {
-        if prefix.is_ascii() { return Some(char::from(prefix[unit]).to_string()); }
-    }
-    match smelt_utf16_byte_of(text, unit) {
-        Ok(byte) => text[byte..].chars().next().map(String::from),
-        Err(_) => Some(String::new()),
-    }
+    if let Some(prefix) = text.as_bytes().get(..=unit).filter(|prefix| prefix.is_ascii()) { return Some(char::from(prefix[unit]).to_string()); }
+    smelt_utf16_byte_of(text, unit).map_or_else(|_| Some(String::new()), |byte| text[byte..].chars().next().map(String::from))
 }
 
 /// The code point starting at UTF-16 index `unit` of `text` (`codePointAt`):
 /// a whole surrogate pair, else the lone unit there.
 #[allow(dead_code)]
 fn smelt_utf16_code_point_at(text: &str, unit: usize) -> Option<u32> {
-    match smelt_utf16_byte_of(text, unit) {
-        Ok(byte) => text[byte..].chars().next().map(u32::from),
-        Err(_) => smelt_utf16_unit_at(text, unit).map(u32::from),
-    }
+    smelt_utf16_byte_of(text, unit).map_or_else(|_| smelt_utf16_unit_at(text, unit).map(u32::from), |byte| text[byte..].chars().next().map(u32::from))
 }
 
 /// One string per code unit of `text` (`s.split("")`): a pair is its whole
@@ -1800,7 +1804,7 @@ fn smelt_function_value_property(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknow
 /// `@@toStringTag`-bearing `name` becomes the tag, matching `[object JSON]` /
 /// `[object Math]`). Class instances and unmarked records are plain
 /// `[object Object]`, exactly like JavaScript objects without a custom tag.
-fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String { match value { SmeltUnknown::Null => "[object Null]".to_owned(), SmeltUnknown::Undefined => "[object Undefined]".to_owned(), SmeltUnknown::Bool(_) => "[object Boolean]".to_owned(), SmeltUnknown::Number(_) => "[object Number]".to_owned(), SmeltUnknown::String(_) => "[object String]".to_owned(), SmeltUnknown::Symbol(_) => "[object Symbol]".to_owned(), SmeltUnknown::Array(_) => "[object Array]".to_owned(), SmeltUnknown::Function(_) => "[object Function]".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned(), SmeltUnknown::Object(map) => { if let Some(SmeltUnknown::String(tag)) = map.get("__smelt_symbol_to_string_tag") { return format!("[object {tag}]"); } if map.contains_key("__smelt_date") { return "[object Date]".to_owned(); } if map.contains_key("__smelt_regexp") { return "[object RegExp]".to_owned(); } if map.contains_key("__smelt_error") { return "[object Error]".to_owned(); } if map.contains_key("__smelt_global_object") { return "[object global]".to_owned(); } if map.contains_key("__smelt_map") { return "[object Map]".to_owned(); } if map.contains_key("__smelt_set") { return "[object Set]".to_owned(); } if map.contains_key("__smelt_arguments") { return "[object Arguments]".to_owned(); } if map.contains_key("__smelt_abortcontroller") { return "[object AbortController]".to_owned(); } if map.contains_key("__smelt_abortsignal") { return "[object AbortSignal]".to_owned(); } if map.contains_key("__smelt_arraybuffer") { return "[object ArrayBuffer]".to_owned(); } if map.contains_key("__smelt_sharedarraybuffer") { return "[object SharedArrayBuffer]".to_owned(); } if map.contains_key("__smelt_int8array") { return "[object Int8Array]".to_owned(); } if map.contains_key("__smelt_uint8array") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_uint8clampedarray") { return "[object Uint8ClampedArray]".to_owned(); } if map.contains_key("__smelt_int16array") { return "[object Int16Array]".to_owned(); } if map.contains_key("__smelt_uint16array") { return "[object Uint16Array]".to_owned(); } if map.contains_key("__smelt_int32array") { return "[object Int32Array]".to_owned(); } if map.contains_key("__smelt_uint32array") { return "[object Uint32Array]".to_owned(); } if map.contains_key("__smelt_float32array") { return "[object Float32Array]".to_owned(); } if map.contains_key("__smelt_float64array") { return "[object Float64Array]".to_owned(); } if map.contains_key("__smelt_bigint64array") { return "[object BigInt64Array]".to_owned(); } if map.contains_key("__smelt_biguint64array") { return "[object BigUint64Array]".to_owned(); } if map.contains_key("__smelt_buffer") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_dataview") { return "[object DataView]".to_owned(); } if map.contains_key("__smelt_weakmap") { return "[object WeakMap]".to_owned(); } if map.contains_key("__smelt_weakset") { return "[object WeakSet]".to_owned(); } if map.contains_key("__smelt_file") { return "[object File]".to_owned(); } if map.contains_key("__smelt_blob") { return "[object Blob]".to_owned(); } if map.contains_key("__smelt_headers") { return "[object Headers]".to_owned(); } if map.contains_key("__smelt_urlsearchparams") { return "[object URLSearchParams]".to_owned(); } if map.contains_key("__smelt_url") { return "[object URL]".to_owned(); } if map.contains_key("__smelt_crypto_key") { return "[object CryptoKey]".to_owned(); } if map.contains_key("__smelt_request") { return "[object Request]".to_owned(); } if map.contains_key("__smelt_response") { return "[object Response]".to_owned(); } if map.contains_key("__smelt_textencoder") { return "[object TextEncoder]".to_owned(); } if map.contains_key("__smelt_textdecoder") { return "[object TextDecoder]".to_owned(); } if map.contains_key("__smelt_eventemitter") { return "[object EventEmitter]".to_owned(); } if map.contains_key("__smelt_httpserver") { return "[object Server]".to_owned(); } if map.contains_key("__smelt_incomingmessage") { return "[object IncomingMessage]".to_owned(); } if map.contains_key("__smelt_serverresponse") { return "[object ServerResponse]".to_owned(); } if map.contains_key("__smelt_formdata") { return "[object FormData]".to_owned(); } if map.contains_key("__smelt_databasesync") { return "[object DatabaseSync]".to_owned(); } if map.contains_key("__smelt_statementsync") { return "[object StatementSync]".to_owned(); } if map.contains_key("__smelt_readablestream") { return "[object ReadableStream]".to_owned(); } if map.contains_key("__smelt_domexception") { return "[object DOMException]".to_owned(); } if map.contains_key("__smelt_intl_collator") { return "[object Intl.Collator]".to_owned(); } if map.contains_key("__smelt_intl_displaynames") { return "[object Intl.DisplayNames]".to_owned(); } if map.contains_key("__smelt_intl_durationformat") { return "[object Intl.DurationFormat]".to_owned(); } if map.contains_key("__smelt_intl_listformat") { return "[object Intl.ListFormat]".to_owned(); } if map.contains_key("__smelt_intl_locale") { return "[object Intl.Locale]".to_owned(); } if map.contains_key("__smelt_intl_numberformat") { return "[object Intl.NumberFormat]".to_owned(); } if map.contains_key("__smelt_intl_pluralrules") { return "[object Intl.PluralRules]".to_owned(); } if map.contains_key("__smelt_intl_segmenter") { return "[object Intl.Segmenter]".to_owned(); } if map.contains_key("__smelt_number") { return "[object Number]".to_owned(); } if map.contains_key("__smelt_boolean") { return "[object Boolean]".to_owned(); } if map.contains_key("__smelt_string") { return "[object String]".to_owned(); } if map.contains_key("__smelt_symbol") { return "[object Symbol]".to_owned(); } if map.contains_key("__smelt_builtin_namespace") { if let Some(SmeltUnknown::String(name)) = map.get("name") { return format!("[object {name}]"); } } "[object Object]".to_owned() } } }
+fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String { match value { SmeltUnknown::Null => "[object Null]".to_owned(), SmeltUnknown::Undefined => "[object Undefined]".to_owned(), SmeltUnknown::Bool(_) => "[object Boolean]".to_owned(), SmeltUnknown::Number(_) => "[object Number]".to_owned(), SmeltUnknown::String(_) => "[object String]".to_owned(), SmeltUnknown::Symbol(_) => "[object Symbol]".to_owned(), SmeltUnknown::Array(_) => "[object Array]".to_owned(), SmeltUnknown::Function(_) => "[object Function]".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned(), SmeltUnknown::Object(map) => { if map.contains_key("__smelt_unmodeled") { return "[object Unmodeled]".to_owned(); } if let Some(SmeltUnknown::String(tag)) = map.get("__smelt_symbol_to_string_tag") { return format!("[object {tag}]"); } if map.contains_key("__smelt_date") { return "[object Date]".to_owned(); } if map.contains_key("__smelt_regexp") { return "[object RegExp]".to_owned(); } if map.contains_key("__smelt_error") { return "[object Error]".to_owned(); } if map.contains_key("__smelt_global_object") { return "[object global]".to_owned(); } if map.contains_key("__smelt_map") { return "[object Map]".to_owned(); } if map.contains_key("__smelt_set") { return "[object Set]".to_owned(); } if map.contains_key("__smelt_arguments") { return "[object Arguments]".to_owned(); } if map.contains_key("__smelt_abortcontroller") { return "[object AbortController]".to_owned(); } if map.contains_key("__smelt_abortsignal") { return "[object AbortSignal]".to_owned(); } if map.contains_key("__smelt_arraybuffer") { return "[object ArrayBuffer]".to_owned(); } if map.contains_key("__smelt_sharedarraybuffer") { return "[object SharedArrayBuffer]".to_owned(); } if map.contains_key("__smelt_int8array") { return "[object Int8Array]".to_owned(); } if map.contains_key("__smelt_uint8array") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_uint8clampedarray") { return "[object Uint8ClampedArray]".to_owned(); } if map.contains_key("__smelt_int16array") { return "[object Int16Array]".to_owned(); } if map.contains_key("__smelt_uint16array") { return "[object Uint16Array]".to_owned(); } if map.contains_key("__smelt_int32array") { return "[object Int32Array]".to_owned(); } if map.contains_key("__smelt_uint32array") { return "[object Uint32Array]".to_owned(); } if map.contains_key("__smelt_float32array") { return "[object Float32Array]".to_owned(); } if map.contains_key("__smelt_float64array") { return "[object Float64Array]".to_owned(); } if map.contains_key("__smelt_bigint64array") { return "[object BigInt64Array]".to_owned(); } if map.contains_key("__smelt_biguint64array") { return "[object BigUint64Array]".to_owned(); } if map.contains_key("__smelt_buffer") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_dataview") { return "[object DataView]".to_owned(); } if map.contains_key("__smelt_weakmap") { return "[object WeakMap]".to_owned(); } if map.contains_key("__smelt_weakset") { return "[object WeakSet]".to_owned(); } if map.contains_key("__smelt_file") { return "[object File]".to_owned(); } if map.contains_key("__smelt_blob") { return "[object Blob]".to_owned(); } if map.contains_key("__smelt_headers") { return "[object Headers]".to_owned(); } if map.contains_key("__smelt_urlsearchparams") { return "[object URLSearchParams]".to_owned(); } if map.contains_key("__smelt_url") { return "[object URL]".to_owned(); } if map.contains_key("__smelt_crypto_key") { return "[object CryptoKey]".to_owned(); } if map.contains_key("__smelt_request") { return "[object Request]".to_owned(); } if map.contains_key("__smelt_response") { return "[object Response]".to_owned(); } if map.contains_key("__smelt_textencoder") { return "[object TextEncoder]".to_owned(); } if map.contains_key("__smelt_textdecoder") { return "[object TextDecoder]".to_owned(); } if map.contains_key("__smelt_eventemitter") { return "[object EventEmitter]".to_owned(); } if map.contains_key("__smelt_httpserver") { return "[object Server]".to_owned(); } if map.contains_key("__smelt_incomingmessage") { return "[object IncomingMessage]".to_owned(); } if map.contains_key("__smelt_serverresponse") { return "[object ServerResponse]".to_owned(); } if map.contains_key("__smelt_formdata") { return "[object FormData]".to_owned(); } if map.contains_key("__smelt_databasesync") { return "[object DatabaseSync]".to_owned(); } if map.contains_key("__smelt_statementsync") { return "[object StatementSync]".to_owned(); } if map.contains_key("__smelt_readablestream") { return "[object ReadableStream]".to_owned(); } if map.contains_key("__smelt_domexception") { return "[object DOMException]".to_owned(); } if map.contains_key("__smelt_intl_collator") { return "[object Intl.Collator]".to_owned(); } if map.contains_key("__smelt_intl_displaynames") { return "[object Intl.DisplayNames]".to_owned(); } if map.contains_key("__smelt_intl_durationformat") { return "[object Intl.DurationFormat]".to_owned(); } if map.contains_key("__smelt_intl_listformat") { return "[object Intl.ListFormat]".to_owned(); } if map.contains_key("__smelt_intl_locale") { return "[object Intl.Locale]".to_owned(); } if map.contains_key("__smelt_intl_numberformat") { return "[object Intl.NumberFormat]".to_owned(); } if map.contains_key("__smelt_intl_pluralrules") { return "[object Intl.PluralRules]".to_owned(); } if map.contains_key("__smelt_intl_segmenter") { return "[object Intl.Segmenter]".to_owned(); } if map.contains_key("__smelt_number") { return "[object Number]".to_owned(); } if map.contains_key("__smelt_boolean") { return "[object Boolean]".to_owned(); } if map.contains_key("__smelt_string") { return "[object String]".to_owned(); } if map.contains_key("__smelt_symbol") { return "[object Symbol]".to_owned(); } if let Some(SmeltUnknown::String(name)) = map.get("name").filter(|_| map.contains_key("__smelt_builtin_namespace")) { return format!("[object {name}]"); } "[object Object]".to_owned() } } }
 
 impl PartialEq for SmeltObject { fn eq(&self, other: &Self) -> bool { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_eq(self, other, &mut smelt_seen) } }
 impl Eq for SmeltObject {}
@@ -2337,7 +2341,7 @@ fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     if let Some(element) = smelt_host_buffer_element(map, field) { return element; }
     if field == "constructor" && !map.contains_key("constructor") { if let Some(class) = smelt_marker_constructor_class(map) { return smelt_builtin_namespace(class); } }
     if map.contains_key("__smelt_global_object") && !map.contains_key(field) && smelt_builtin_construct_kind(field).is_some() { return smelt_builtin_namespace(field); }
-    if !map.contains_key(field) { if let Some(SmeltUnknown::String(text)) = map.get("__smelt_string").and(map.get("value")) { if field == "length" { return SmeltUnknown::Number(smelt_utf16_len(&text) as f64); } if let Ok(index) = field.parse::<usize>() { return smelt_utf16_char_at(&text, index).map_or(SmeltUnknown::Undefined, |character| SmeltUnknown::String(character.into())); } } }
+    if let Some(SmeltUnknown::String(text)) = map.get("__smelt_string").and_then(|_| map.get("value")).filter(|_| !map.contains_key(field)) { if field == "length" { return SmeltUnknown::Number(smelt_units_to_number(smelt_utf16_len(&text))); } if let Ok(index) = field.parse::<usize>() { return smelt_utf16_char_at(&text, index).map_or(SmeltUnknown::Undefined, |character| SmeltUnknown::String(character.into())); } }
     if !map.contains_key(field) { if let Some(SmeltUnknown::String(class)) = map.get("__smelt_builtin_namespace").and(map.get("name")) { if field == "prototype" { return smelt_builtin_prototype_object(&class); } if let Some(member) = smelt_builtin_member_value(&class, "static", field) { return member; } } }
     if let Some(SmeltUnknown::String(class)) = map.get("__smelt_builtin_prototype") { if let Some(member) = smelt_builtin_member_value(&class, "prototype", field) { return member; } }
     if field == "size" { if let Some(SmeltUnknown::Array(pairs)) = map.get("__smelt_map") { return SmeltUnknown::Number(pairs.len() as f64); } }
@@ -2599,7 +2603,7 @@ fn smelt_string_prototype_member(receiver: &::std::rc::Rc<str>, field: &str) -> 
 
 /// Read a property off an erased string: `length`, a character index, or a `String.prototype` method.
 fn smelt_get_string_field(text: &::std::rc::Rc<str>, field: &str) -> SmeltUnknown {
-    if field == "length" { return SmeltUnknown::Number(smelt_utf16_len(text) as f64); }
+    if field == "length" { return SmeltUnknown::Number(smelt_units_to_number(smelt_utf16_len(text))); }
     if let Ok(index) = field.parse::<usize>() { return smelt_utf16_char_at(text, index).map_or(SmeltUnknown::Undefined, |ch| SmeltUnknown::String(ch.into())); }
     smelt_string_prototype_member(text, field).unwrap_or(SmeltUnknown::Undefined)
 }
@@ -2730,9 +2734,18 @@ fn smelt_erased_units_find(haystack: &[u16], needle: &[u16], from: usize) -> Opt
 /// Pad `text` to `target` code units with repetitions of `fill` (`padStart`/`padEnd`).
 fn smelt_erased_padding(len: usize, target: f64, fill: &str) -> String {
     let fill_len = smelt_utf16_len(fill);
-    if fill_len == 0 || target <= len as f64 { return String::new(); }
-    let needed = target as usize - len;
+    let target_units = smelt_units_from_number(target);
+    if fill_len == 0 || target_units <= len { return String::new(); }
+    let needed = target_units - len;
     smelt_utf16_slice(&fill.repeat(needed.div_ceil(fill_len)), 0, needed)
+}
+
+/// The code unit index an erased `charAt`-style argument names in a string of
+/// `len` units: `None` when it is negative or past the end.
+fn smelt_erased_unit_index(value: &SmeltUnknown, len: usize) -> Option<usize> {
+    let index = smelt_erased_integer(value);
+    if index < 0.0 { return None; }
+    Some(smelt_units_from_number(index)).filter(|unit| *unit < len)
 }
 
 /// Apply `String.prototype[name]` to an erased string receiver.
@@ -2747,15 +2760,18 @@ fn smelt_string_prototype_apply(text: &str, name: &str, args: Vec<SmeltUnknown>)
     let range = |start: usize, end: usize| smelt_utf16_slice(text, start, end);
     match name {
         "at" => smelt_erased_at_index(args.first(), len).map_or(SmeltUnknown::Undefined, |index| string(range(index, index + 1))),
-        "charAt" => { let index = smelt_erased_integer(&arg(0)); if index >= 0.0 && index < len as f64 { string(range(index as usize, index as usize + 1)) } else { string(String::new()) } }
-        "charCodeAt" | "codePointAt" => { let index = smelt_erased_integer(&arg(0)); if index >= 0.0 && index < len as f64 { let code = if name == "charCodeAt" { u32::from(units[index as usize]) } else { smelt_utf16_code_point_at(text, index as usize).unwrap_or(0) }; SmeltUnknown::Number(f64::from(code)) } else if name == "charCodeAt" { SmeltUnknown::Number(f64::NAN) } else { SmeltUnknown::Undefined } }
+        "charAt" => string(smelt_erased_unit_index(&arg(0), len).map_or_else(String::new, |index| range(index, index + 1))),
+        "charCodeAt" | "codePointAt" => smelt_erased_unit_index(&arg(0), len).map_or_else(
+            || if name == "charCodeAt" { SmeltUnknown::Number(f64::NAN) } else { SmeltUnknown::Undefined },
+            |index| { let code = if name == "charCodeAt" { u32::from(units[index]) } else { smelt_utf16_code_point_at(text, index).unwrap_or(0) }; SmeltUnknown::Number(f64::from(code)) },
+        ),
         "concat" => { let mut result = text.to_owned(); for argument in &args { result.push_str(&smelt_erased_to_js_string(argument)); } string(result) }
-        "includes" | "indexOf" => { let needle: Vec<u16> = arg_text(0).encode_utf16().collect(); let from = smelt_erased_clamped_position(args.get(1), len, 0); let found = smelt_erased_units_find(&units, &needle, from); if name == "includes" { SmeltUnknown::Bool(found.is_some()) } else { SmeltUnknown::Number(found.map_or(-1.0, |index| index as f64)) } }
+        "includes" | "indexOf" => { let needle: Vec<u16> = arg_text(0).encode_utf16().collect(); let from = smelt_erased_clamped_position(args.get(1), len, 0); let found = smelt_erased_units_find(&units, &needle, from); if name == "includes" { SmeltUnknown::Bool(found.is_some()) } else { SmeltUnknown::Number(found.map_or(-1.0, smelt_units_to_number)) } }
         "lastIndexOf" => {
             let needle: Vec<u16> = arg_text(0).encode_utf16().collect();
-            let from = match args.get(1) { None | Some(SmeltUnknown::Undefined) => len, Some(value) => { let number = smelt_unknown_to_number(value); if number.is_nan() { len } else { number.trunc().clamp(0.0, len as f64) as usize } } };
+            let from = match args.get(1) { None | Some(SmeltUnknown::Undefined) => len, Some(value) => { let number = smelt_unknown_to_number(value); if number.is_nan() { len } else { smelt_units_from_number(number).min(len) } } };
             if needle.len() > len { return SmeltUnknown::Number(-1.0); }
-            SmeltUnknown::Number((0..=from.min(len - needle.len())).rev().find(|start| units[*start..*start + needle.len()] == *needle).map_or(-1.0, |index| index as f64))
+            SmeltUnknown::Number((0..=from.min(len - needle.len())).rev().find(|start| units[*start..*start + needle.len()] == *needle).map_or(-1.0, smelt_units_to_number))
         }
         "startsWith" => { let needle: Vec<u16> = arg_text(0).encode_utf16().collect(); let start = smelt_erased_clamped_position(args.get(1), len, 0); SmeltUnknown::Bool(units[start..].starts_with(&needle)) }
         "endsWith" => { let needle: Vec<u16> = arg_text(0).encode_utf16().collect(); let end = smelt_erased_clamped_position(args.get(1), len, len); SmeltUnknown::Bool(units[..end].ends_with(&needle)) }
@@ -2783,6 +2799,12 @@ fn smelt_throw_builtin_error(class: &str, message: String) -> ! { smelt_panic_th
 ///
 /// `callee` is the source spelling of what was called (`x.map`), as V8 words it.
 fn smelt_throw_not_callable(callee: &str) -> ! { smelt_throw_builtin_error("TypeError", format!("{callee} is not a function")) }
+/// Throw JavaScript's `TypeError` for a call of a value that holds no function,
+/// where the source spelling of the callee is not known.
+fn smelt_value_not_callable() -> ! { smelt_throw_not_callable("value") }
+/// The value of an import with no model: every call answers it, and so does every
+/// member read (see `smelt_get_unknown_field`).
+fn smelt_unmodeled_import() -> SmeltUnknown { SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_unmodeled".to_owned(), SmeltUnknown::Bool(true)), ("__smelt_call".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(|_smelt_args: Vec<SmeltUnknown>| Ok(smelt_unmodeled_import()))))]))) }
 
 /// Read a property off an erased JavaScript array (`arr.k` / `arr[k]`).
 fn smelt_get_array_field(values: &SmeltArray, field: &str) -> SmeltUnknown {
@@ -2794,6 +2816,7 @@ fn smelt_get_array_field(values: &SmeltArray, field: &str) -> SmeltUnknown {
 /// Read a property off any erased value (JS `value.field`).
 fn smelt_get_unknown_field(value: &SmeltUnknown, field: &str) -> SmeltUnknown {
     match value {
+        SmeltUnknown::Object(object) if object.contains_key("__smelt_unmodeled") => value.clone(),
         SmeltUnknown::Object(map) => match smelt_host_method(map, field).unwrap_or_else(|| smelt_get_object_field(map, field)) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
         SmeltUnknown::Array(values) => smelt_get_array_field(values, field),
         SmeltUnknown::String(marker) if &**marker == "__smelt_proto:object" => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined),
@@ -3667,7 +3690,7 @@ impl SmeltMatch {
     /// Build a `SmeltMatch` from a compiled regex and its captures, found in
     /// `input[offset..]`; `spans` keeps the group indices (the `d` flag).
     fn from_captures(regex: &fancy_regex::Regex, captures: &fancy_regex::Captures<'_>, input: &str, offset: usize, spans: bool) -> Self {
-        let unit_of = |byte: usize| smelt_utf16_index_of_byte(input, offset + byte) as f64;
+        let unit_of = |byte: usize| smelt_units_to_number(smelt_utf16_index_of_byte(input, offset + byte));
         let match_index = captures.get(0).map_or(0, |whole| smelt_utf16_index_of_byte(input, offset + whole.start()));
         let spans = spans.then(|| ::std::rc::Rc::new((0..captures.len()).map(|index| captures.get(index).map(|group| (unit_of(group.start()), unit_of(group.end())))).collect::<Vec<_>>()));
         let groups = (0..captures.len()).map(|index| captures.get(index).map(|value| value.as_str().to_owned())).collect::<Vec<_>>();
@@ -4534,6 +4557,389 @@ impl SmeltFromUnknown for SmeltRequest {
     }
 }
 
+/// `util.inspect` state for one `console.log` argument (Node's `ctx`).
+#[derive(Default)]
+struct SmeltInspectContext {
+    /// `ctx.indentationLvl`: the column the current entry starts at.
+    indentation: usize,
+    /// `ctx.currentDepth`: depth of the container most recently entered.
+    current_depth: usize,
+}
+
+/// Node's `util.inspect`, implemented once per Rust storage type.
+trait SmeltInspect {
+    /// Render this value as an inspected ENTRY at `depth` (`recurseTimes`).
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String;
+    /// Whether this value is a JavaScript number (grouped arrays right-align them).
+    fn smelt_inspect_is_number(&self) -> bool { false }
+    /// Render this value as a top-level `console.log` argument.
+    fn smelt_console_text(&self) -> String { self.smelt_inspect(&mut SmeltInspectContext::default(), 0) }
+}
+
+/// The JavaScript `.length` of rendered text, in UTF-16 code units.
+fn smelt_inspect_len(text: &str) -> usize { text.encode_utf16().count() }
+
+/// `strEscape`: quote `value` the way `util.inspect` shows a string.
+///
+/// Single quotes unless the string contains one; then double quotes, then
+/// backticks, and single quotes with `\'` escapes when it contains all three.
+fn smelt_inspect_quote(value: &str) -> String {
+    let quote = if !value.contains('\'') {
+        '\''
+    } else if !value.contains('"') {
+        '"'
+    } else if !value.contains('`') && !value.contains("${") {
+        '`'
+    } else {
+        '\''
+    };
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push(quote);
+    for ch in value.chars() {
+        let code = ch as u32;
+        match ch {
+            '\u{8}' => out.push_str("\\b"),
+            '\t' => out.push_str("\\t"),
+            '\n' => out.push_str("\\n"),
+            '\u{c}' => out.push_str("\\f"),
+            '\r' => out.push_str("\\r"),
+            '\\' => out.push_str("\\\\"),
+            '\'' if quote == '\'' => out.push_str("\\'"),
+            _ if code < 0x20 || (0x7f..0xa0).contains(&code) => out.push_str(&format!("\\x{code:02X}")),
+            _ => out.push(ch),
+        }
+    }
+    out.push(quote);
+    out
+}
+
+/// `formatPrimitive` for a string entry: a long multi-line string is split at
+/// its newlines into `'line\n' +` pieces, one per row.
+fn smelt_inspect_string(ctx: &SmeltInspectContext, value: &str) -> String {
+    let length = smelt_inspect_len(value);
+    if length > 16 && length + ctx.indentation + 4 > 80 {
+        let lines = value.split_inclusive('\n').collect::<Vec<_>>();
+        if lines.len() > 1 {
+            let separator = format!(" +\n{}", " ".repeat(ctx.indentation + 2));
+            return lines.iter().map(|line| smelt_inspect_quote(line)).collect::<Vec<_>>().join(&separator);
+        }
+    }
+    smelt_inspect_quote(value)
+}
+
+/// A property key: bare when it is an identifier (`/^[a-zA-Z_][a-zA-Z_0-9]*$/`), quoted otherwise.
+fn smelt_inspect_key(key: &str) -> String {
+    let mut chars = key.chars();
+    let identifier = chars.next().is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+        && chars.all(|rest| rest.is_ascii_alphanumeric() || rest == '_');
+    if identifier { key.to_owned() } else { smelt_inspect_quote(key) }
+}
+
+/// `padStart`/`padEnd` to a JavaScript length.
+fn smelt_inspect_pad(text: &str, width: usize, start: bool) -> String {
+    let pad = " ".repeat(width.saturating_sub(smelt_inspect_len(text)));
+    if start { format!("{pad}{text}") } else { format!("{text}{pad}") }
+}
+
+/// `groupArrayElements`: lay a long array of short entries out in columns.
+///
+/// `has_more` marks a trailing `... N more items` entry, which is kept out of
+/// the grid; `numbers` right-aligns the cells.
+fn smelt_inspect_group(ctx: &SmeltInspectContext, output: Vec<String>, numbers: bool, has_more: bool) -> Vec<String> {
+    let separator_space = 2usize;
+    let output_length = if has_more { output.len() - 1 } else { output.len() };
+    let data_len = output[..output_length].iter().map(|entry| smelt_inspect_len(entry)).collect::<Vec<_>>();
+    let total_length = data_len.iter().map(|len| len + separator_space).sum::<usize>();
+    let max_length = data_len.iter().copied().max().unwrap_or(0);
+    let actual_max = max_length + separator_space;
+    if actual_max * 3 + ctx.indentation < 80 && (total_length as f64 / actual_max as f64 > 5.0 || max_length <= 6) {
+        let average_bias = (actual_max as f64 - total_length as f64 / output.len() as f64).sqrt();
+        let biased_max = (actual_max as f64 - 3.0 - average_bias).max(1.0);
+        let square = ((2.5 * biased_max * output_length as f64).sqrt() / biased_max + 0.5).floor();
+        let columns = square
+            .min(((80 - ctx.indentation) / actual_max) as f64)
+            .min(12.0)
+            .min(15.0) as usize;
+        if columns <= 1 {
+            return output;
+        }
+        let max_line_length = (0..columns)
+            .map(|column| {
+                (column..output.len())
+                    .step_by(columns)
+                    .filter_map(|index| data_len.get(index).copied())
+                    .max()
+                    .unwrap_or(0)
+                    + separator_space
+            })
+            .collect::<Vec<_>>();
+        let mut grouped = Vec::new();
+        let mut row = 0;
+        while row < output_length {
+            let end = (row + columns).min(output_length);
+            let mut line = String::new();
+            for index in row..end - 1 {
+                line.push_str(&smelt_inspect_pad(&format!("{}, ", output[index]), max_line_length[index - row], numbers));
+            }
+            let last = end - 1;
+            if numbers {
+                line.push_str(&smelt_inspect_pad(&output[last], max_line_length[last - row] - separator_space, true));
+            } else {
+                line.push_str(&output[last]);
+            }
+            grouped.push(line);
+            row += columns;
+        }
+        if has_more {
+            grouped.push(output[output_length].clone());
+        }
+        return grouped;
+    }
+    output
+}
+
+/// `reduceToSingleString`: join rendered entries on one line or one per line.
+///
+/// `array` is `Some(numbers)` for an array (which may be grouped first) and
+/// `None` for an object, map or set; `has_more` marks a trailing
+/// `... N more items` entry.
+fn smelt_inspect_reduce(ctx: &SmeltInspectContext, output: Vec<String>, open: &str, close: &str, depth: usize, array: Option<bool>, has_more: bool) -> String {
+    let entries = output.len();
+    let output = match array {
+        Some(numbers) if entries > 6 => smelt_inspect_group(ctx, output, numbers, has_more),
+        _ => output,
+    };
+    if ctx.current_depth.saturating_sub(depth) < 3 && entries == output.len() {
+        let start = output.len() + ctx.indentation + smelt_inspect_len(open) + 10;
+        let mut total = output.len() + start;
+        let mut fits = total + output.len() <= 80;
+        for entry in &output {
+            if !fits {
+                break;
+            }
+            total += smelt_inspect_len(entry);
+            fits = total <= 80;
+        }
+        if fits {
+            let joined = output.join(", ");
+            if !joined.contains('\n') {
+                return format!("{open} {joined} {close}");
+            }
+        }
+    }
+    let indentation = format!("\n{}", " ".repeat(ctx.indentation));
+    format!("{open}{indentation}  {}{indentation}{close}", output.join(&format!(",{indentation}  ")))
+}
+
+/// The `... N more items` entry past `maxArrayLength` (100).
+fn smelt_inspect_more(remaining: usize) -> String {
+    format!("... {remaining} more item{}", if remaining > 1 { "s" } else { "" })
+}
+
+/// `formatArray`/`formatList`: an array (or tuple) of inspectable entries.
+fn smelt_inspect_array(ctx: &mut SmeltInspectContext, depth: usize, entries: &[&dyn SmeltInspect]) -> String {
+    if entries.is_empty() {
+        return "[]".to_owned();
+    }
+    if depth > 2 {
+        return "[Array]".to_owned();
+    }
+    let depth = depth + 1;
+    ctx.current_depth = depth;
+    let shown = entries.len().min(100);
+    let mut output = Vec::with_capacity(shown + 1);
+    ctx.indentation += 2;
+    for entry in &entries[..shown] {
+        output.push(entry.smelt_inspect(ctx, depth));
+    }
+    ctx.indentation -= 2;
+    let remaining = entries.len() - shown;
+    if remaining > 0 {
+        output.push(smelt_inspect_more(remaining));
+    }
+    let numbers = entries.iter().take(output.len()).all(|entry| entry.smelt_inspect_is_number());
+    smelt_inspect_reduce(ctx, output, "[", "]", depth, Some(numbers), remaining > 0)
+}
+
+/// `formatRaw` over an object's own enumerable properties.
+///
+/// `constructor` is the class name Node prefixes (`Point { x: 1 }`), empty for
+/// a plain object.
+fn smelt_inspect_object(ctx: &mut SmeltInspectContext, depth: usize, constructor: &str, entries: &[(&str, &dyn SmeltInspect)]) -> String {
+    let open = if constructor.is_empty() { "{".to_owned() } else { format!("{constructor} {{") };
+    if entries.is_empty() {
+        return format!("{open}}}");
+    }
+    if depth > 2 {
+        return format!("[{}]", if constructor.is_empty() { "Object" } else { constructor });
+    }
+    let depth = depth + 1;
+    ctx.current_depth = depth;
+    let mut output = Vec::with_capacity(entries.len());
+    for (key, value) in entries {
+        ctx.indentation += 2;
+        let text = value.smelt_inspect(ctx, depth);
+        ctx.indentation -= 2;
+        output.push(format!("{}: {text}", smelt_inspect_key(key)));
+    }
+    smelt_inspect_reduce(ctx, output, &open, "}", depth, None, false)
+}
+
+/// `formatSet`/`formatMap`: a keyed collection with its `Set(n)`/`Map(n)` prefix.
+///
+/// Each entry is a value (a set) or a `key => value` pair (a map).
+fn smelt_inspect_collection(ctx: &mut SmeltInspectContext, depth: usize, kind: &str, entries: &[(&dyn SmeltInspect, Option<&dyn SmeltInspect>)]) -> String {
+    let open = format!("{kind}({}) {{", entries.len());
+    if entries.is_empty() {
+        return format!("{open}}}");
+    }
+    if depth > 2 {
+        return format!("[{kind}]");
+    }
+    let depth = depth + 1;
+    ctx.current_depth = depth;
+    let shown = entries.len().min(100);
+    let mut output = Vec::with_capacity(shown + 1);
+    ctx.indentation += 2;
+    for (key, value) in &entries[..shown] {
+        let key_text = key.smelt_inspect(ctx, depth);
+        match value {
+            Some(value) => {
+                let value_text = value.smelt_inspect(ctx, depth);
+                output.push(format!("{key_text} => {value_text}"));
+            }
+            None => output.push(key_text),
+        }
+    }
+    ctx.indentation -= 2;
+    let remaining = entries.len() - shown;
+    if remaining > 0 {
+        output.push(smelt_inspect_more(remaining));
+    }
+    smelt_inspect_reduce(ctx, output, &open, "}", depth, None, false)
+}
+
+impl SmeltInspect for f64 {
+    fn smelt_inspect(&self, _ctx: &mut SmeltInspectContext, _depth: usize) -> String { smelt_console_number(*self) }
+    fn smelt_inspect_is_number(&self) -> bool { true }
+}
+
+impl SmeltInspect for i64 {
+    fn smelt_inspect(&self, _ctx: &mut SmeltInspectContext, _depth: usize) -> String { smelt_console_number(*self as f64) }
+    fn smelt_inspect_is_number(&self) -> bool { true }
+}
+
+impl SmeltInspect for bool {
+    fn smelt_inspect(&self, _ctx: &mut SmeltInspectContext, _depth: usize) -> String { self.to_string() }
+}
+
+impl SmeltInspect for String {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, _depth: usize) -> String { smelt_inspect_string(ctx, self) }
+    fn smelt_console_text(&self) -> String { self.clone() }
+}
+
+impl SmeltInspect for () {
+    fn smelt_inspect(&self, _ctx: &mut SmeltInspectContext, _depth: usize) -> String { "null".to_owned() }
+}
+
+impl<T: SmeltInspect> SmeltInspect for Option<T> {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
+        match self { Some(value) => value.smelt_inspect(ctx, depth), None => "undefined".to_owned() }
+    }
+    fn smelt_inspect_is_number(&self) -> bool { self.as_ref().is_some_and(SmeltInspect::smelt_inspect_is_number) }
+    fn smelt_console_text(&self) -> String {
+        match self { Some(value) => value.smelt_console_text(), None => "undefined".to_owned() }
+    }
+}
+
+// A tuple is a JavaScript array.
+macro_rules! smelt_inspect_tuple {
+    ($($name:ident $index:tt),+) => {
+        impl<$($name: SmeltInspect),+> SmeltInspect for ($($name,)+) {
+            fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
+                let entries: &[&dyn SmeltInspect] = &[$(&self.$index),+];
+                smelt_inspect_array(ctx, depth, entries)
+            }
+        }
+    };
+}
+smelt_inspect_tuple!(A 0);
+smelt_inspect_tuple!(A 0, B 1);
+smelt_inspect_tuple!(A 0, B 1, C 2);
+smelt_inspect_tuple!(A 0, B 1, C 2, D 3);
+smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4);
+smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5);
+smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6);
+smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7);
+smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8);
+smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9);
+smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10);
+smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10, L 11);
+
+impl<T: SmeltInspect> SmeltInspect for SmeltList<T> {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
+        let values = self.borrow();
+        let entries = values.iter().map(|value| value as &dyn SmeltInspect).collect::<Vec<_>>();
+        smelt_inspect_array(ctx, depth, &entries)
+    }
+}
+
+impl<V: SmeltInspect + Clone> SmeltInspect for SmeltRecord<String, V> {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
+        let pairs = self.iter().filter(|(key, _)| !key.starts_with("__smelt")).collect::<Vec<_>>();
+        let entries = pairs.iter().map(|(key, value)| (key.as_str(), value as &dyn SmeltInspect)).collect::<Vec<_>>();
+        smelt_inspect_object(ctx, depth, "", &entries)
+    }
+}
+
+impl<K: SmeltInspect + SmeltJsKeyEq + Clone, V: SmeltInspect + Clone> SmeltInspect for SmeltJsMap<K, V> {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
+        let pairs = self.iter().collect::<Vec<_>>();
+        let entries = pairs.iter().map(|(key, value)| (key as &dyn SmeltInspect, Some(value as &dyn SmeltInspect))).collect::<Vec<_>>();
+        smelt_inspect_collection(ctx, depth, "Map", &entries)
+    }
+}
+
+impl<T: SmeltInspect + Clone + IntoSmeltUnknown> SmeltInspect for SmeltJsSet<T> {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
+        let entries = self.iter().map(|value| (value as &dyn SmeltInspect, None)).collect::<Vec<_>>();
+        smelt_inspect_collection(ctx, depth, "Set", &entries)
+    }
+}
+
+impl SmeltInspect for SmeltUnknown {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
+        match self {
+            Self::Null => "null".to_owned(),
+            Self::Undefined => "undefined".to_owned(),
+            Self::Bool(value) => value.to_string(),
+            Self::Number(value) => smelt_console_number(*value),
+            Self::String(value) => smelt_inspect_string(ctx, value),
+            Self::Array(values) => {
+                let values = values.values.borrow();
+                let entries = values.iter().map(|value| value as &dyn SmeltInspect).collect::<Vec<_>>();
+                smelt_inspect_array(ctx, depth, &entries)
+            }
+            Self::Object(object) => {
+                let pairs = object.iter().collect::<Vec<_>>();
+                if pairs.iter().any(|(key, value)| key.starts_with("__smelt") || matches!(value, Self::Function(_))) {
+                    return self.to_string();
+                }
+                let entries = pairs.iter().map(|(key, value)| (key.as_str(), value as &dyn SmeltInspect)).collect::<Vec<_>>();
+                smelt_inspect_object(ctx, depth, "", &entries)
+            }
+            Self::Symbol(_) | Self::Function(_) | Self::Promise(_) => self.to_string(),
+        }
+    }
+    fn smelt_inspect_is_number(&self) -> bool { matches!(self, Self::Number(_)) }
+    fn smelt_console_text(&self) -> String {
+        match self {
+            Self::String(value) => value.to_string(),
+            _ => self.smelt_inspect(&mut SmeltInspectContext::default(), 0),
+        }
+    }
+}
+
 // @smelt:prelude-end — generated program below
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let url: SmeltUrl;
@@ -4656,7 +5062,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let error = smelt_panic_error_value(&*__smelt_panic);
     _smelt_tmp_67 = matches!(error.clone().clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
     if _smelt_tmp_67 {
-    let _ = { println!("{} {}", "TypeError".to_owned(), smelt_get_unknown_field(&error.clone(), "message").clone()); };
+    let _ = { println!("{} {}", "TypeError".to_owned(), SmeltInspect::smelt_console_text(&smelt_get_unknown_field(&error.clone(), "message").clone())); };
     }
         }
     }
@@ -4665,7 +5071,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let error = smelt_thrown_value(&*__smelt_error);
     _smelt_tmp_67 = matches!(error.clone().clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
     if _smelt_tmp_67 {
-    let _ = { println!("{} {}", "TypeError".to_owned(), smelt_get_unknown_field(&error.clone(), "message").clone()); };
+    let _ = { println!("{} {}", "TypeError".to_owned(), SmeltInspect::smelt_console_text(&smelt_get_unknown_field(&error.clone(), "message").clone())); };
     }
         }
         Err(__smelt_panic) => {
@@ -4673,7 +5079,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let error = smelt_panic_error_value(&*__smelt_panic);
     _smelt_tmp_67 = matches!(error.clone().clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
     if _smelt_tmp_67 {
-    let _ = { println!("{} {}", "TypeError".to_owned(), smelt_get_unknown_field(&error.clone(), "message").clone()); };
+    let _ = { println!("{} {}", "TypeError".to_owned(), SmeltInspect::smelt_console_text(&smelt_get_unknown_field(&error.clone(), "message").clone())); };
     }
         }
     }

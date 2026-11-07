@@ -671,8 +671,8 @@ fn parse_int_radices(body: &smelt_hir::Body) -> Vec<Option<i64>> {
         .iter()
         .filter_map(|expr| match expr.kind {
             ExprKind::ParseIntRadix { radix, .. } => {
-                Some(match body.exprs.get(radix.0 as usize).map(|radix| &radix.kind) {
-                    Some(ExprKind::Literal(smelt_hir::Literal::Int(value))) => Some(*value),
+                Some(match usize::try_from(radix.0).ok().and_then(|index| body.exprs.get(index)).map(|radix_expr| &radix_expr.kind) {
+                    Some(ExprKind::Literal(Literal::Int(value))) => Some(*value),
                     _ => None,
                 })
             }
@@ -2064,7 +2064,7 @@ function clone<T extends object>(value: T): T {
     ensure!(body
         .exprs
         .iter()
-        .any(|expr| matches!(expr.kind, ExprKind::Construct { .. })));
+        .any(|expr| matches!(expr.kind, ExprKind::ConstructLike { .. })));
     ensure!(!body
         .exprs
         .iter()

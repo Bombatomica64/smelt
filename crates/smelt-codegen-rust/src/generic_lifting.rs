@@ -226,7 +226,7 @@ fn body_only_moves(
             && local_mentions(*dest)
         {
             let mut mentioned = args.iter().any(&mentions);
-            if let smelt_mir::Callee::Op(op) = callee {
+            if let smelt_mir::Callee::Op(op, _) = callee {
                 op.reads(|operand| mentioned |= mentions(operand));
             }
             if !mentioned {
@@ -301,6 +301,7 @@ fn rvalue_preserves_opacity(rvalue: &Rvalue) -> bool {
             // this list.
             | Rvalue::ClosureCall { .. }
             | Rvalue::ClosureCallSpread { .. }
+            | Rvalue::ClosureCallRest { .. }
             | Rvalue::ListCallback { .. }
             // Handing a `SmeltFuture<T>` to the executor moves it; the future is
             // an opaque handle here and its `T` is never read. The other async
@@ -803,7 +804,7 @@ fn body_uses_bound_only_through_trait(
             let projected = match terminator {
                 Terminator::Call { callee, args, .. } => {
                     let mut projects = args.iter().any(operand_projects);
-                    if let smelt_mir::Callee::Op(op) = callee {
+                    if let smelt_mir::Callee::Op(op, _) = callee {
                         op.reads(|operand| projects |= operand_projects(operand));
                     }
                     projects

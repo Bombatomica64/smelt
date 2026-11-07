@@ -50,13 +50,19 @@ fn paths_match(frontend: &str, materialized: &str) -> bool {
 }
 
 /// Whether `source` parses as exactly one `function` expression.
+///
+/// A source-mapped callable span can run on to the end of the statement that
+/// holds the expression (`function () { ... };`), so the span is parsed as the
+/// initializer of one declaration, where a trailing `;` ends the statement, and
+/// anything past that one statement rejects it.
 fn source_is_function_expression(source: &str) -> bool {
-    let wrapped = format!("const __smelt_probe = ({source});");
+    let wrapped = format!("const __smelt_probe = {source}");
     let allocator = Allocator::default();
     let parsed = Parser::new(&allocator, &wrapped, SourceType::default().with_typescript(true))
         .with_options(ParseOptions::default())
         .parse();
     parsed.diagnostics.is_empty()
+        && parsed.program.body.len() == 1
         && matches!(
             parsed.program.body.first(),
             Some(Statement::VariableDeclaration(variable))
@@ -387,18 +393,32 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(class_name) = &member.object else {
             return Ok(None);
         };
-        let Some(class_item) = self.classes.item(class_name.name.as_str()) else {
-            return Ok(None);
+        let in_flight = self.classes.statics_in_flight(class_name.name.as_str());
+        let (own_fields, mut base) = if let Some(fields) = in_flight {
+            (fields, self.classes.base(class_name.name.as_str()).map(|base| base.0))
+        } else {
+            let Some(class_item) = self.classes.item(class_name.name.as_str()) else {
+                return Ok(None);
+            };
+            let Item::Class(class) = self.item_ref(class_item) else {
+                return Ok(None);
+            };
+            (class.static_fields.as_slice(), class.base)
         };
-        let Item::Class(class) = self.item_ref(class_item) else {
-            return Ok(None);
-        };
+        // A subclass inherits its ancestors' statics, after its own.
+        let mut static_fields = own_fields.to_vec();
+        for _ in 0..64_u32 {
+            let Some(declared) = base.and_then(|name| self.class_by_symbol(name)) else {
+                break;
+            };
+            static_fields.extend(declared.static_fields.iter().cloned());
+            base = declared.base;
+        }
         // Static field names are interned through the source-name path, which
         // case-folds camelCase to snake_case (`PI` -> `pi`). Compare against the
         // same folded spelling so qualified reads like `Class.PI` resolve.
         let member_symbol = crate::camel_to_snake(member.property.name.as_str());
-        let Some(field) = class
-            .static_fields
+        let Some(field) = static_fields
             .iter()
             .find(|field| self.ctx.krate.symbols.get(field.name) == Some(member_symbol.as_str()))
             .cloned()
@@ -718,5 +738,11 @@ mod tests {
         assert!(!source_is_function_expression("functionName => functionName + 1"), "an arrow whose parameter starts with `function`");
         assert!(!source_is_function_expression("(value) => value"));
         assert!(!source_is_function_expression("function () {} + 1"), "a larger expression");
+        assert!(
+            source_is_function_expression("function (this: any, name: string): string {\n    return name;\n};\n"),
+            "a span that runs on to the end of its statement"
+        );
+        assert!(!source_is_function_expression("function () {}; other()"), "a second statement");
+        assert!(!source_is_function_expression("function () {}, 1"), "a sequence expression");
     }
 }

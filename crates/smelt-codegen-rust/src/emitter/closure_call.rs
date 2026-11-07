@@ -503,12 +503,38 @@ impl FunctionEmitter<'_> {
         args: &Operand,
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
-        let callee_text = self.operand_expr(callee)?;
         let unknown_ty = self.type_id(Type::Unknown)?;
         let args_ty = self.type_id(Type::List(unknown_ty))?;
         let args_text = self
             .inline_list_concat_operand_expr(args)?
             .unwrap_or(self.value_at_type(args, args_ty)?);
+        self.closure_call_with_list_expr(callee, &args_text, dest_ty)
+    }
+
+    /// Emits a call of an all-rest function value whose rest list is written
+    /// out as `items` (`Rvalue::ClosureCallRest`).
+    pub(super) fn closure_call_rest_expr(
+        &self,
+        callee: &Operand,
+        items: &[Operand],
+        dest_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let args_ty = self.type_id(Type::List(unknown_ty))?;
+        let args_text = self.rvalue_expr_for_dest(&Rvalue::List(items.to_vec()), args_ty)?;
+        self.closure_call_with_list_expr(callee, &args_text, dest_ty)
+    }
+
+    /// Calls `callee` with `args_text`, its whole runtime argument list as one
+    /// `SmeltList<SmeltUnknown>`: the shared tail of the spread and rest calls.
+    fn closure_call_with_list_expr(
+        &self,
+        callee: &Operand,
+        args_text: &RustExpr,
+        dest_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        let callee_text = self.operand_expr(callee)?;
+        let unknown_ty = self.type_id(Type::Unknown)?;
         if let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callee)?)
         {
             let callee_is_erased_rest =
@@ -525,7 +551,7 @@ impl FunctionEmitter<'_> {
             // The argument list handed to the callee: either the split
             // positional+rest text (reads `smelt_spread_args`) or the
             // packed list verbatim.
-            let inner_args = split_args.as_deref().unwrap_or(&args_text);
+            let inner_args = split_args.as_deref().unwrap_or(args_text);
             // See the `ClosureCall` arm: the ABI question is answered by
             // the shared `callee_uses_erased_call_method` helper.
             let uses_erased_call_method = self.callee_uses_erased_call_method(callee)?;
@@ -548,11 +574,10 @@ impl FunctionEmitter<'_> {
                 return Ok(RustExpr::atom(format!("{{ {call_text}; () }}")));
             }
             // Same rule as the `ClosureCall` arm above, for the same
-            // reason: the erased ABI -- `SmeltErasedFunction::call`, or the
-            // borrowed `dyn Fn(SmeltList<SmeltUnknown>) -> SmeltUnknown`
-            // handle it is emitted as -- always yields a bare
-            // `SmeltUnknown`, whatever the callee's declared return type
-            // says. Coercing from the declared `return_ty` emits an
+            // reason: the erased ABI, `SmeltErasedFunction::call`, always
+            // yields a bare `SmeltUnknown`, whatever the callee's declared
+            // return type says, while a borrowed `dyn Fn` handle returns
+            // what it declares. Coercing from the declared `return_ty` emits an
             // identity conversion and leaves a `SmeltUnknown` assigned to,
             // say, a `bool` destination: an E0308 the moment a spread call
             // reaches such a callee with a non-`unknown` return, as
@@ -563,7 +588,9 @@ impl FunctionEmitter<'_> {
             // `inner_call` above, not just on the erased-rest shape, so the
             // two cannot drift: ANY call rendered as `.call(..)` returns the
             // erased carrier and needs the same correction.
-            let source_ty = if uses_erased_call_method || callee_is_erased_rest {
+            let source_ty = if uses_erased_call_method
+                || self.declared_slot_return_is_erased(callee, function)
+            {
                 unknown_ty
             } else {
                 function.return_ty
@@ -581,7 +608,7 @@ impl FunctionEmitter<'_> {
         // (E0308). An already-`Unknown` callee coerces to itself.
         let erased_callee =
             self.rendered_at_type(&callee_text, self.operand_ty(callee)?, unknown_ty, &self.render_scope())?;
-        let call_text = self.dynamic_callable_dispatch_expr(&erased_callee, &args_text, self.prototype_method_not_callable(callee).as_deref());
+        let call_text = self.dynamic_callable_dispatch_expr(&erased_callee, args_text, self.prototype_method_not_callable(callee).as_deref());
         if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
             return Ok(call_text);
         }

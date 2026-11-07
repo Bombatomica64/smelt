@@ -13,7 +13,10 @@
 //! nominal types are referenced by symbol plus type arguments, as a hand-ported
 //! Rust crate would reference a struct by name. Anonymous types that keep
 //! instantiating new anonymous types (`type F<T> = { next: F<[T]> }`) stop at
-//! [`MAX_STRUCTURAL_DEPTH`] with [`TsTypeKind::Truncated`].
+//! [`MAX_STRUCTURAL_DEPTH`] with [`TsTypeKind::Truncated`]. Depth alone does not
+//! bound the work: each instantiation of a recursive conditional type is a new
+//! type, so a branching one is exponential in that depth, and every root also has
+//! [`STRUCTURAL_EXPANSION_BUDGET`] deep expansions before it truncates the same way.
 
 #![expect(
     clippy::redundant_pub_crate,
@@ -36,6 +39,14 @@ use smelt_ts_model::model::{
 
 /// Structural nesting beyond which object types are recorded as [`TsTypeKind::Truncated`].
 const MAX_STRUCTURAL_DEPTH: usize = 24;
+
+/// Object types one root type may expand below [`BUDGETED_DEPTH`] before the rest
+/// are recorded as [`TsTypeKind::Truncated`].
+const STRUCTURAL_EXPANSION_BUDGET: usize = 256;
+
+/// The nesting the budget starts at: a type wide near its root is an ordinary
+/// declaration, and only depth multiplies.
+const BUDGETED_DEPTH: usize = 6;
 
 /// Intrinsic flags and the model kind each one maps to, checked in order.
 const INTRINSICS: [(TypeFlags, TsTypeKind); 12] = [
@@ -73,12 +84,14 @@ pub(crate) struct Converter<'checker> {
     seen: HashMap<P<Type>, TsTypeId>,
     /// Current structural expansion depth.
     depth: usize,
+    /// Expansions left for the root being converted.
+    budget: usize,
 }
 
 impl<'checker> Converter<'checker> {
     /// Creates a converter over `checker`.
     pub(crate) fn new(checker: &'checker mut Checker) -> Self {
-        Self { checker, table: TsTypeTable::default(), seen: HashMap::new(), depth: 0 }
+        Self { checker, table: TsTypeTable::default(), seen: HashMap::new(), depth: 0, budget: 0 }
     }
 
     /// Gives mutable access to the checker for queries outside conversion.
@@ -101,15 +114,26 @@ impl<'checker> Converter<'checker> {
     }
 
     /// Runs `expand` one structural level deeper, or returns `None` at
-    /// [`MAX_STRUCTURAL_DEPTH`]. The depth is restored however `expand` returns.
+    /// [`MAX_STRUCTURAL_DEPTH`] or with the root's budget spent. The depth is
+    /// restored however `expand` returns.
     fn nested<T>(&mut self, expand: impl FnOnce(&mut Self) -> T) -> Option<T> {
-        if self.depth >= MAX_STRUCTURAL_DEPTH {
+        let deep = self.depth >= BUDGETED_DEPTH;
+        if self.depth >= MAX_STRUCTURAL_DEPTH || (deep && self.budget == 0) {
             return None;
+        }
+        if deep {
+            self.budget = self.budget.saturating_sub(1);
         }
         self.depth = self.depth.saturating_add(1);
         let expanded = expand(self);
         self.depth = self.depth.saturating_sub(1);
         Some(expanded)
+    }
+
+    /// Converts `ty` as a root the span walk asked about, with a fresh budget.
+    pub(crate) fn convert_root(&mut self, ty: P<Type>) -> TsTypeId {
+        self.budget = STRUCTURAL_EXPANSION_BUDGET;
+        self.convert(ty)
     }
 
     /// Converts `ty`, returning its interned id.

@@ -188,6 +188,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "base64" => Need::Base64,
         "python_division" => Need::PythonDivision,
         "python_dict_read" => Need::PythonDictRead,
+        "python_list_read" => Need::PythonListRead,
         "py_exception" => Need::PyException,
         "record" => Need::Record,
         "global_object" => Need::GlobalObject,

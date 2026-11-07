@@ -96,6 +96,27 @@ fn smelt_construct(callee: SmeltUnknown, args: Vec<SmeltUnknown>) -> SmeltUnknow
     match result { SmeltUnknown::Object(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => result, _ => instance }
 }
 
+/// JavaScript `new value.constructor(args)`.
+///
+/// A class instance constructs through its erased `constructor` entry, a host
+/// object through what `.constructor` reads.
+/// An array is a new array and a plain object a new plain object: their
+/// constructors are `Array` and `Object`, which no read answers as a value.
+fn smelt_construct_like(value: SmeltUnknown, args: Vec<SmeltUnknown>) -> SmeltUnknown {
+    //~ A class instance carries its real constructor as a prototype entry when
+    //~ the program needs it, so field initialisers and the constructor body run.
+    if let SmeltUnknown::Object(object) = &value && let Some(SmeltUnknown::Function(build)) = object.get("__smelt_method:constructor") {
+        return (build)(args).unwrap_or_else(|error| smelt_panic_throw(error));
+    }
+    let constructor = smelt_get_unknown_field(&value, "constructor");
+    if smelt_callable_of(&constructor).is_some() { return smelt_construct(constructor, args); }
+    match (value, args.as_slice()) {
+        (SmeltUnknown::Array(_), [SmeltUnknown::Number(length)]) => SmeltUnknown::Array(SmeltArray::from(vec![SmeltUnknown::Undefined; *length as usize])),
+        (SmeltUnknown::Array(_), _) => SmeltUnknown::Array(SmeltArray::from(args)),
+        _ => SmeltUnknown::Object(SmeltObject::new(Vec::new())),
+    }
+}
+
 // @smelt:item-end
 
 // Emit the "callable behind an erased value" resolver both operations need.

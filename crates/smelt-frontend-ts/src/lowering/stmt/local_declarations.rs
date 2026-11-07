@@ -393,6 +393,9 @@ impl ModuleBuilder<'_> {
         // arguments exactly like a top-level one (see `type_predicates`).
         self.register_variable_type_predicates(decl);
         for declarator in &decl.declarations {
+            if self.conditional_base_declarator(declarator, body, block)? {
+                continue;
+            }
             // A module-level `let`/`var` binding lifted to a mutable global is
             // fully represented by its thread-local item (its literal
             // initializer is the cell's initial value), so lowering the SAME

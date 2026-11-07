@@ -135,6 +135,8 @@ pub(crate) enum Need {
     PythonDivision,
     /// Python's raising `d[k]` read.
     PythonDictRead,
+    /// Python's raising `xs[i]` read.
+    PythonListRead,
     /// A raised Python exception, `SmeltPyException`.
     PyException,
     /// The shared, ordered `SmeltRecord` dict and its property store.
@@ -247,6 +249,7 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::Record, &[Need::ObjectIds]),
     (Need::PythonDivision, &[Need::PyException]),
     (Need::PythonDictRead, &[Need::PyException]),
+    (Need::PythonListRead, &[Need::PyException]),
     (Need::PrimSet, &[Need::ObjectIds]),
     (Need::DepRegex, &[Need::ObjectIds, Need::StringUnits]),
     (Need::Date, &[Need::ObjectIds, Need::HostOrigins]),
@@ -646,7 +649,7 @@ impl RuntimeDemand {
         if unwind.is_some() {
             self.add(Need::PanicRoute);
         }
-        if let Callee::Op(op) = callee {
+        if let Callee::Op(op, _) = callee {
             self.scan_rvalue(op);
         }
     }
@@ -792,7 +795,7 @@ fn local_is_string(mir: &Mir, locals: &[LocalDecl], local: LocalId) -> bool {
     usize::try_from(local.0)
         .ok()
         .and_then(|index| locals.get(index))
-        .is_some_and(|local| type_may_be_string(mir, local.ty))
+        .is_some_and(|decl| type_may_be_string(mir, decl.ty))
 }
 
 /// Whether a value of type `ty` may be a string (see [`local_is_string`]).

@@ -169,7 +169,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let op = match (object.name.as_str(), member.property.name.as_str()) {
-            ("Object", "keys") => DictProjectionOp::Keys,
+            ("Object", "keys" | "getOwnPropertyNames") => DictProjectionOp::Keys,
             ("Object", "values") => DictProjectionOp::Values,
             ("Object", "entries") => DictProjectionOp::Entries,
             ("Reflect", "ownKeys") => DictProjectionOp::OwnKeys,

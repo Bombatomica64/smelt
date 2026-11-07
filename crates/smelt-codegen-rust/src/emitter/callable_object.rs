@@ -119,10 +119,9 @@ impl FunctionEmitter<'_> {
     /// differ only in how they materialize that expression (an explicit
     /// `vec![...]` for `ClosureCall`, a pre-flattened list for
     /// `ClosureCallSpread`), so it is the single parameterized hole in the shared
-    /// snippet. `not_callable` decides what a non-callable callee does (see
-    /// [`Self::prototype_method_not_callable`]): `Some(spelling)` throws
-    /// `TypeError: <spelling> is not a function`, `None` keeps the erased call
-    /// ABI's historical `SmeltUnknown::Null` answer.
+    /// snippet. A non-callable callee throws `TypeError`; `not_callable` is its
+    /// source spelling when one is known (see
+    /// [`Self::prototype_method_not_callable`]).
     pub(super) fn dynamic_callable_dispatch_expr(
         &self,
         callee_text: &RustExpr,
@@ -136,7 +135,7 @@ impl FunctionEmitter<'_> {
         RustExpr::atom(self.carrier_format(format_args!(
             "{{ let smelt_function_value = {callee_text}; let smelt_call_args: Vec<SmeltUnknown> = Into::into({args_expr}); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"{SMELT_CALL}\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| smelt_panic_throw(error)) }} else {{ {fallback} }} }}",
             fallback = not_callable.map_or_else(
-                || self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null")),
+                || RustExpr::chain("smelt_value_not_callable()"),
                 |description| RustExpr::chain(format!("smelt_throw_not_callable({description:?})"))
             ),
         )))
@@ -151,14 +150,9 @@ impl FunctionEmitter<'_> {
     /// that is the behaviour the runtime resolution exists to provide, and the
     /// read answers a callable whenever JavaScript would.
     ///
-    /// Every other erased callee keeps the erased call ABI's `SmeltUnknown::Null`
-    /// fallback (`None`). That fallback is wrong in JavaScript terms, but it
-    /// currently masks callee shapes the lowering does not yet reproduce
-    /// faithfully (a captured callback resolved to the wrong local, a function
-    /// stored in an erased record that is not re-registered as callable), and
-    /// making those throw fails working programs until each is fixed at its
-    /// source. The rule is by callee SHAPE, not by name alone: the chain must end
-    /// in a field read of a table method.
+    /// Every other erased callee answers `None` and throws the same `TypeError`
+    /// without a spelling, from the dispatch. The rule is by callee SHAPE, not by
+    /// name alone: the chain must end in a field read of a table method.
     ///
     /// JavaScript names the callee the way the source wrote it. MIR keeps no
     /// expression text, but the callee of an erased method call is a compiler

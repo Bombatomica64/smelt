@@ -441,7 +441,7 @@ impl LoweringCtx<'_> {
                     .map(|comparator_expr| self.lower_expr(comparator_expr))
                     .transpose()?;
                 let key_operand = key.map(|key_expr| self.lower_expr(key_expr)).transpose()?;
-                self.assign_temp_with_writeback(
+                let sorted = self.place_callback_op(
                     expr.ty,
                     expr.span,
                     Rvalue::ListSort {
@@ -450,8 +450,9 @@ impl LoweringCtx<'_> {
                         key: key_operand,
                         reverse: *reverse,
                     },
-                    writeback,
-                )?
+                )?;
+                self.write_back_mutation_receiver(writeback)?;
+                sorted
             }
             ExprKind::ListPop { list } => {
                 let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
@@ -498,7 +499,9 @@ impl LoweringCtx<'_> {
                         .iter()
                         .map(|arg| self.lower_expr(*arg))
                         .collect::<Result<Vec<_>, _>>()?;
-                    self.assign_temp(
+                    // Each arm runs a method body, so inside `try` the call needs
+                    // an unwind edge, as a callback op does.
+                    self.place_source_call_op(
                         expr.ty,
                         expr.span,
                         Rvalue::UnionMethod {

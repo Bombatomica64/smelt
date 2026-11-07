@@ -174,7 +174,8 @@ impl ModuleBuilder<'_> {
                     matches!(self.ctx.krate.types.get(Self::expr_ty(body, index)), Some(Type::Int));
                 let kind = match self.ctx.krate.types.get(receiver_ty) {
                     Some(Type::Dict(..)) => ExprKind::PythonDictRead { dict: receiver, key: index },
-                    Some(Type::List(_) | Type::String) if index_is_int => {
+                    Some(Type::List(_)) if index_is_int => ExprKind::PythonListRead { list: receiver, index },
+                    Some(Type::String) if index_is_int => {
                         ExprKind::PythonSequenceRead { sequence: receiver, index }
                     }
                     _ => ExprKind::Index { receiver, index },
@@ -677,6 +678,7 @@ impl ModuleBuilder<'_> {
         let read = &body.exprs[read_index];
         let (dict, key) = match read.kind {
             ExprKind::PythonDictRead { dict, key } => (dict, key),
+            ExprKind::PythonListRead { list, index } => (list, index),
             ExprKind::PythonSequenceRead { sequence, index } => (sequence, index),
             _ => return target,
         };

@@ -78,6 +78,7 @@ impl FunctionEmitter<'_> {
                 | Type::JsMap(_, _)
                 | Type::Tuple(_)
                 | Type::Class { .. }
+                | Type::Unknown
                 | Type::Union(_),
             ) => true,
             Some(Type::Optional(inner)) => {
@@ -375,6 +376,51 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts an operand to console.log argument format and returns format string and value.
+    /// Python's `repr` of the value `reference` borrows, as a `String`, for a type
+    /// built of primitives, lists, tuples and options; `None` for any other type.
+    fn python_repr_expr(&self, reference: &RustExpr, ty: TypeId) -> Option<RustExpr> {
+        let item = RustExpr::path("smelt_item");
+        Some(match self.mir.types.get(ty)? {
+            Type::String => RustExpr::chain(format!("smelt_py_str_repr({reference})")),
+            Type::Int => RustExpr::chain(format!("({reference}).to_string()")),
+            Type::Float => RustExpr::chain(format!(
+                "{}({reference})",
+                crate::number_format_prelude::PY_FLOAT_REPR_FN
+            )),
+            Type::Bool => RustExpr::atom(format!(
+                "(if *{reference} {{ \"True\" }} else {{ \"False\" }}).to_owned()"
+            )),
+            Type::Optional(inner) => {
+                let inner_repr = self.python_repr_expr(&item, *inner)?;
+                RustExpr::atom(format!(
+                    "match {reference} {{ Some(smelt_item) => {inner_repr}, None => \"None\".to_owned() }}"
+                ))
+            }
+            Type::List(inner) => {
+                let inner_repr = self.python_repr_expr(&item, *inner)?;
+                RustExpr::chain(format!(
+                    "format!(\"[{{}}]\", ({reference}).borrow().iter().map(|smelt_item| {inner_repr}).collect::<Vec<String>>().join(\", \"))"
+                ))
+            }
+            Type::Tuple(members) => {
+                let parts = members
+                    .iter()
+                    .enumerate()
+                    .map(|(index, member)| {
+                        self.python_repr_expr(&RustExpr::atom(format!("&({reference}).{index}")), *member)
+                            .map(RustExpr::into_string)
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                let trailing = if parts.len() == 1 { "," } else { "" };
+                RustExpr::chain(format!(
+                    "format!(\"({{}}{trailing})\", [{}].join(\", \"))",
+                    parts.join(", ")
+                ))
+            }
+            _ => return None,
+        })
+    }
+
     pub(super) fn console_arg(
         &self,
         operand: &Operand,
@@ -445,11 +491,11 @@ impl FunctionEmitter<'_> {
                 ),
             ))
         } else if absent == AbsentSpelling::Undefined
-            && matches!(
-                self.mir.types.get(ty),
-                Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))
-            )
-            && self.type_mentions_any(ty, &self.current_function_type_params())
+            && (matches!(self.mir.types.get(ty), Some(Type::TypeParam { .. }))
+                || matches!(
+                    self.mir.types.get(ty),
+                    Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))
+                ) && self.type_mentions_any(ty, &self.current_function_type_params()))
         {
             // A container of a Rust generic has no `SmeltInspect` impl: its
             // elements print through the erased carrier their bound provides.
@@ -463,6 +509,11 @@ impl FunctionEmitter<'_> {
                     self.erase(operand)?
                 ),
             ))
+        } else if absent == AbsentSpelling::None
+            && matches!(self.mir.types.get(ty), Some(Type::List(_) | Type::Tuple(_)))
+            && let Some(repr) = self.python_repr_expr(&RustExpr::atom(format!("&{}", self.operand_expr(operand)?)), ty)
+        {
+            Ok(("{}", repr.into_string()))
         } else if matches!(
             self.mir.types.get(ty),
             Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))

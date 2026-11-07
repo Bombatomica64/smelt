@@ -23,6 +23,12 @@ impl ModuleBuilder<'_> {
         binary: &oxc::ast::ast::BinaryExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(binary.span.start, binary.span.end);
+        if let Some(selected) =
+            self.conditional_class_select(Some(&binary.right), span, body, |this, body| this.instanceof_expression(binary, body))?
+        {
+            return Ok(selected);
+        }
         let value = self.expression(&binary.left, body)?;
         self.instanceof_test(value, binary.left.span(), &binary.right, binary.span, body)
     }
@@ -235,10 +241,12 @@ impl ModuleBuilder<'_> {
                 format!("TypeScript instanceof target `{class_text}` is not a lowered class"),
             ));
         }
-        let class = self
-            .classes
-            .scoped_type_name(class_text)
-            .unwrap_or_else(|| self.intern_type_name(class_text));
+        let class = if let Some(scoped) = self.classes.scoped_type_name(class_text) {
+            scoped
+        } else {
+            let aliased = self.classes.alias_target(class_text).to_owned();
+            self.intern_type_name(&aliased)
+        };
         let ty = self.ctx.krate.types.intern(Type::Bool);
         Ok(body.push_expr(Expr {
             kind: ExprKind::InstanceOf { value, class },

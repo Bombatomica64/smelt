@@ -37,10 +37,10 @@ module examples/typescript/end-to-end/171_module_const_with_async_callback/input
 interned types
   t0 = Unknown
   t1 = String
-  t2 = Dict<String, Unknown>
-  t3 = Future<String>
-  t4 = Float
-  t5 = async fn(String) -> Future<String>
+  t2 = Future<String>
+  t3 = Float
+  t4 = async fn(String) -> Future<String>
+  t5 = Dict<String, Unknown>
   t6 = Job
   t7 = fn(Job) -> Job
   t8 = fn(Job) -> Job

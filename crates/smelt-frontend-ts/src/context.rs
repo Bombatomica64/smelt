@@ -151,6 +151,17 @@ impl<T: Clone> Published<T> {
     }
 }
 
+/// The narrowing a type predicate function proves for one of its parameters.
+#[derive(Debug, Clone, Copy)]
+pub struct ItemPredicate {
+    /// `asserts value is T` rather than `value is T`.
+    pub is_assertion: bool,
+    /// Positional index of the parameter it narrows.
+    pub param_index: usize,
+    /// The type it proves.
+    pub target: TypeId,
+}
+
 /// Context for building HIR from TypeScript source.
 ///
 /// Manages the crate structure and accumulates items during lowering.
@@ -162,6 +173,11 @@ pub struct HirCtx {
     pub export_aliases: HashMap<String, ItemId>,
     /// Exported item names grouped by source module path.
     pub module_exports: HashMap<String, HashMap<String, ItemId>>,
+    /// What each exported `value is T` or `asserts value is T` function proves.
+    ///
+    /// A type predicate is a fact of the signature, so it reaches an importer
+    /// with the item, under whatever local name the importer gives it.
+    pub item_predicates: HashMap<ItemId, ItemPredicate>,
     /// Names that alias the ambient global object, grouped by source module path.
     ///
     /// Populated when a module binds the global object (`const g = globalThis;`
@@ -355,6 +371,7 @@ impl HirCtx {
             krate: HirCrate::new(),
             export_aliases: HashMap::new(),
             module_exports: HashMap::new(),
+            item_predicates: HashMap::new(),
             module_global_object_aliases: HashMap::new(),
             object_namespaces: Published::default(),
             object_consts: Published::default(),

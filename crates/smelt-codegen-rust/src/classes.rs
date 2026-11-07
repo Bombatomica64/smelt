@@ -515,7 +515,7 @@ pub(crate) fn returns_the_receiver_at_its_own_class(mir: &Mir, function: &MirFun
 
 /// The already-interned type of a class instantiated at its own parameters
 /// (`Middle<T>` inside `Middle`'s `impl`), if the program spells it.
-fn class_self_type(mir: &Mir, class: Symbol) -> Option<TypeId> {
+pub(crate) fn class_self_type(mir: &Mir, class: Symbol) -> Option<TypeId> {
     let declared = find_class(mir, class)?;
     let args = declared
         .type_params
@@ -695,3 +695,80 @@ pub(crate) fn effective_interface_fields(mir: &Mir, interface: &MirInterface) ->
     fields
 }
 
+/// The name of the copy of the ancestor method `function` that a `super` call
+/// reaches on a subclass, whose own method of that name is the override.
+pub(crate) fn super_copy_name(mir: &Mir, function: &MirFunction) -> Option<String> {
+    let smelt_mir::HirOrigin::ClassMethod { class, method, .. } = function.origin else {
+        return None;
+    };
+    Some(format!(
+        "smelt_super_{}_{}",
+        crate::rust::sanitize_ident(mir.symbols.get(class)?),
+        crate::rust::sanitize_ident(mir.symbols.get(method)?)
+    ))
+}
+
+/// Whether calling the method `function` on a receiver of class `receiver` is
+/// a `super` call: `function` is declared on a strict ancestor, and the method
+/// of that name `receiver` has is another one.
+pub(crate) fn is_super_call(mir: &Mir, receiver: Symbol, function: FuncId) -> bool {
+    let Some(declared) = usize::try_from(function.0).ok().and_then(|index| mir.functions.get(index)) else {
+        return false;
+    };
+    if !matches!(declared.origin, smelt_mir::HirOrigin::ClassMethod { class, .. } if class != receiver) {
+        return false;
+    }
+    let Some(class) = find_class(mir, receiver) else {
+        return false;
+    };
+    effective_class_methods(mir, class)
+        .iter()
+        .any(|method| *method != function && method_names_match(mir, *method, function))
+}
+
+/// Every (subclass, ancestor method) pair a `super` call in `mir` reaches, so
+/// the subclass can carry a copy of that method under [`super_copy_name`].
+pub(crate) fn super_calls(mir: &Mir) -> Vec<(Symbol, FuncId)> {
+    let mut found = Vec::new();
+    let bodies = mir
+        .functions
+        .iter()
+        .map(|function| (&function.locals, &function.blocks))
+        .chain(mir.closures.iter().map(|closure| (&closure.locals, &closure.blocks)));
+    for (locals, blocks) in bodies {
+        for block in blocks {
+            let Some(Terminator::Call { callee: smelt_mir::Callee::Static(function), args, .. }) =
+                &block.terminator
+            else {
+                continue;
+            };
+            let Some(receiver) = args.first().and_then(Operand::local) else {
+                continue;
+            };
+            let Some(Type::Class { name, .. }) =
+                usize::try_from(receiver.0).ok().and_then(|index| locals.get(index)).and_then(|local| mir.types.get(local.ty))
+            else {
+                continue;
+            };
+            if is_super_call(mir, *name, *function) && !found.contains(&(*name, *function)) {
+                found.push((*name, *function));
+            }
+        }
+    }
+    found
+}
+
+/// Whether `ancestor` is `class` or one of the classes it extends.
+pub(crate) fn is_self_or_ancestor(mir: &Mir, ancestor: Symbol, class: Symbol) -> bool {
+    let mut current = Some(class);
+    for _ in 0..64_u32 {
+        let Some(name) = current else {
+            return false;
+        };
+        if name == ancestor {
+            return true;
+        }
+        current = find_class(mir, name).and_then(|found| found.base);
+    }
+    false
+}

@@ -165,7 +165,7 @@ fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     //~ synthesized on read, exactly like the erased `Map`'s `.size` below. An
     //~ own field still wins, and the payload's *methods* stay on the
     //~ prototype rather than becoming own members.
-    if !map.contains_key(field) { if let Some(SmeltUnknown::String(text)) = map.get("__smelt_string").and(map.get("value")) { if field == "length" { return SmeltUnknown::Number(smelt_utf16_len(&text) as f64); } if let Ok(index) = field.parse::<usize>() { return smelt_utf16_char_at(&text, index).map_or(SmeltUnknown::Undefined, |character| SmeltUnknown::String(character.into())); } } }
+    if let Some(SmeltUnknown::String(text)) = map.get("__smelt_string").and_then(|_| map.get("value")).filter(|_| !map.contains_key(field)) { if field == "length" { return SmeltUnknown::Number(smelt_units_to_number(smelt_utf16_len(&text))); } if let Ok(index) = field.parse::<usize>() { return smelt_utf16_char_at(&text, index).map_or(SmeltUnknown::Undefined, |character| SmeltUnknown::String(character.into())); } }
     //~ A builtin read as a value is a marker record (`smelt_builtin_namespace`),
     //~ and JavaScript answers property reads on it: `Array.prototype` is the
     //~ builtin's prototype object and `Array.isArray` is a function value. Both
@@ -378,6 +378,7 @@ fn smelt_get_array_field(values: &SmeltArray, field: &str) -> SmeltUnknown {
 /// Read a property off any erased value (JS `value.field`).
 fn smelt_get_unknown_field(value: &SmeltUnknown, field: &str) -> SmeltUnknown {
     match value {
+        SmeltUnknown::Object(object) if object.contains_key("__smelt_unmodeled") => value.clone(),
         //~ A marker-bearing host record resolves its MODELED MEMBERS first.
         //~ `smelt_host_method` answers `None` for a record with an own key of
         //~ that name, so an own property still wins as JavaScript's own-property

@@ -52,6 +52,23 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Whether the TS7 checker has a type for the expression at `start..end`
+    /// and no value of it can be a string. `false` without facts.
+    pub(in crate::lowering) fn checker_types_as_non_string(&self, start: u32, end: u32) -> bool {
+        let Some(facts) = self.ts_facts else {
+            return false;
+        };
+        facts.type_id_at(&self.path, start, end).is_some_and(|id| !ts_type_may_be_string(facts, id, 0))
+    }
+
+    /// Whether the TS7 checker types the expression at `start..end` as a string.
+    /// `false` without facts.
+    pub(in crate::lowering) fn checker_types_as_string(&self, start: u32, end: u32) -> bool {
+        self.ts_facts
+            .and_then(|facts| facts.type_at(&self.path, start, end))
+            .is_some_and(|ty| matches!(ty.kind, TsTypeKind::String | TsTypeKind::StringLiteral(_)))
+    }
+
     /// Whether the TS7 checker types the expression at `start..end` as an
     /// array or a tuple (every member, for a union). `false` without facts.
     pub(in crate::lowering) fn checker_types_as_array(&self, start: u32, end: u32) -> bool {
@@ -193,3 +210,28 @@ impl ModuleBuilder<'_> {
         })
     }
 }
+
+/// Whether a value of the checker type `id` can be a string: a string, a type
+/// that says nothing (`any`, `unknown`, a free parameter, a deferred operator),
+/// or a union or intersection with such a member.
+fn ts_type_may_be_string(facts: &smelt_ts_model::TsTypeFacts, id: smelt_ts_model::TsTypeId, depth: usize) -> bool {
+    if depth > 16 {
+        return true;
+    }
+    let Some(ty) = facts.types.get(id) else {
+        return true;
+    };
+    match &ty.kind {
+        TsTypeKind::String
+        | TsTypeKind::StringLiteral(_)
+        | TsTypeKind::Any
+        | TsTypeKind::Unknown
+        | TsTypeKind::TypeParameter { .. }
+        | TsTypeKind::Deferred(_)
+        | TsTypeKind::Truncated => true,
+        TsTypeKind::Union { members, .. } => members.iter().any(|member| ts_type_may_be_string(facts, *member, depth + 1)),
+        TsTypeKind::Intersection(members) => members.iter().any(|member| ts_type_may_be_string(facts, *member, depth + 1)),
+        _ => false,
+    }
+}
+

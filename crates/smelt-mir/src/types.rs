@@ -1027,7 +1027,12 @@ pub enum Callee {
     /// An operation that can throw (see [`Rvalue::is_fallible`]), carried here
     /// for the call terminator's unwind edge. Its operands are its own fields;
     /// the call's `args` are empty.
-    Op(Box<Rvalue>),
+    ///
+    /// The second field is set for an op that cannot throw by itself but runs a
+    /// source callback inside a `try` (see `LoweringCtx::place_callback_op`): a
+    /// throw from the callback needs the same unwind edge. It is the type the op
+    /// renders at, which a fallible op states for itself.
+    Op(Box<Rvalue>, Option<TypeId>),
     /// A base class's constructor run as an initializer over a derived instance
     /// (a derived constructor's `super(..)`; see
     /// `smelt_hir::ExprKind::BaseConstructorInit`).
