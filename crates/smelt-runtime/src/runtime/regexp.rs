@@ -249,14 +249,14 @@ impl SmeltRegExp {
         let Some(matched) = captures.get(0) else { if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = 0; } return None; };
         if self.has_flag('y') && matched.start() != 0 { *self.last_index.borrow_mut() = 0; return None; }
         if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = smelt_utf16_index_of_byte(haystack, start + matched.end()); }
-        Some(SmeltMatch::from_captures(&regex, &captures, smelt_utf16_index_of_byte(haystack, start + matched.start()), haystack))
+        Some(SmeltMatch::from_captures(&regex, &captures, haystack, start, self.has_flag('d')))
     }
     /// Return concrete `SmeltMatch` results for String.prototype.matchAll.
     pub fn match_all_indices(&self, haystack: &str) -> Vec<SmeltMatch> {
         let regex = self.compiled();
         regex.captures_iter(haystack).filter_map(Result::ok).filter_map(|captures| {
-            let matched = captures.get(0)?;
-            Some(SmeltMatch::from_captures(&regex, &captures, smelt_utf16_index_of_byte(haystack, matched.start()), haystack))
+            captures.get(0)?;
+            Some(SmeltMatch::from_captures(&regex, &captures, haystack, 0, self.has_flag('d')))
         }
         ).collect::<Vec<_>>()
     }

@@ -284,3 +284,11 @@ fn string_utf16_indices() -> TestResult {
 fn element_read_misses() -> TestResult {
     verify_node_parity("element_read_misses")
 }
+
+/// A regexp's absent values: a non-participating group is `undefined`,
+/// `indices` exists with the `d` flag, a missing property is `undefined`, and
+/// `RegExpMatchArray`/`RegExpExecArray` annotations name the match value.
+#[test]
+fn regexp_absent_values() -> TestResult {
+    verify_node_parity("regexp_absent_values")
+}

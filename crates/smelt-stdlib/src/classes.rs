@@ -817,7 +817,7 @@ pub fn regexp_member(name: &str) -> Option<RegExpMember> {
     match name {
         "source" | "flags" => Some(RegExpMember::Text),
         "global" | "ignoreCase" | "ignore_case" | "multiline" | "sticky" | "unicode" | "dotAll"
-        | "dot_all" => Some(RegExpMember::Flag),
+        | "dot_all" | "hasIndices" | "has_indices" | "unicodeSets" | "unicode_sets" => Some(RegExpMember::Flag),
         "lastIndex" | "last_index" => Some(RegExpMember::LastIndex),
         _ => None,
     }

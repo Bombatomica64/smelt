@@ -459,7 +459,8 @@ impl FunctionEmitter<'_> {
                     (RustExpr::atom(self.carrier_format(format_args!("SmeltUnknown::Number({count} as f64)"))), unknown_ty)
                 }
             }
-            _ => (self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null")), unknown_ty),
+            // A property a string does not have reads `undefined`.
+            _ => (self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined")), unknown_ty),
         })
     }
 
@@ -478,6 +479,8 @@ impl FunctionEmitter<'_> {
             "sticky" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.has_flag('y')")),
             "unicode" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.has_flag('u')")),
             "dotAll" | "dot_all" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.has_flag('s')")),
+            "hasIndices" | "has_indices" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.has_flag('d')")),
+            "unicodeSets" | "unicode_sets" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.has_flag('v')")),
             "lastIndex" | "last_index" => {
                 // Parenthesize the cast: the read may be followed by a postfix
                 // `.clone()` (or a comparison), and a bare `... as f64.clone()`
@@ -487,7 +490,8 @@ impl FunctionEmitter<'_> {
             "constructor" => {
                 RustExpr::atom("SmeltUnknown::Object(SmeltObject::new(Vec::from([])))")
             }
-            _ => self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null")),
+            // A property a RegExp does not have reads `undefined`.
+            _ => self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined")),
         })
     }
 
@@ -524,7 +528,9 @@ impl FunctionEmitter<'_> {
                 // subsequent named-group read resolves through the
                 // `MatchGroups` branch above.
                 "groups" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.clone()")).ending_in_clone(),
-                _ => self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null")),
+                "indices" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.indices()")),
+                // A property a match does not have reads `undefined`.
+                _ => self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined")),
             }),
         }
     }

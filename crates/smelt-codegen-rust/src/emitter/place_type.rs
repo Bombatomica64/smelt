@@ -68,7 +68,8 @@ impl FunctionEmitter<'_> {
     ///
     /// Mirrors the frontend `builtin_class_field_type` typing so `place_ty` and
     /// the emitted accessor agree: a `.groups` read yields the named-group
-    /// accessor class, `.index`/`.length` are floats, `.input` is a string, and
+    /// accessor class, `.index`/`.length` are floats, `.input` is a string,
+    /// `.indices` is an optional list of optional `[start, end]` pairs, and
     /// every named-group read on the accessor class is an optional string. The
     /// concrete types are already interned by the frontend that typed the read,
     /// so `find_type_id` resolves them; an unmodeled field on the match value
@@ -87,6 +88,13 @@ impl FunctionEmitter<'_> {
                 "groups" => self.match_groups_class_ty().ok_or_else(|| {
                     EmitError::new("match groups accessor class type is not interned")
                 }),
+                "indices" => {
+                    let float_ty = self.type_id(Type::Float)?;
+                    let span_ty = self.type_id(Type::Tuple(vec![float_ty, float_ty]))?;
+                    let group_ty = self.type_id(Type::Optional(span_ty))?;
+                    let list_ty = self.type_id(Type::List(group_ty))?;
+                    self.type_id(Type::Optional(list_ty))
+                }
                 other => self.erased_fallback_ty(|| {
                     format!("the read of `{other}` on a regular-expression match result")
                 }),
