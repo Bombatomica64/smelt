@@ -1,5 +1,5 @@
-class Square fields [Public side: Int, Public name: String] constructor Some(FuncId(2)) methods [FuncId(0), FuncId(1)]
-class Rect fields [Public w: Int, Public h: Int, Public name: String] constructor Some(FuncId(5)) methods [FuncId(3), FuncId(4)]
+class Square fields [Public side: Int, Public name: PyStr] constructor Some(FuncId(2)) methods [FuncId(0), FuncId(1)]
+class Rect fields [Public w: Int, Public h: Int, Public name: PyStr] constructor Some(FuncId(5)) methods [FuncId(3), FuncId(4)]
 interface Named
 interface Shape
 
@@ -11,11 +11,11 @@ fn area (FuncId(0)) -> Int
     %1 = copy %0.field8 * copy %0.field8
     return move %1
 
-fn label (FuncId(1)) -> String
+fn label (FuncId(1)) -> PyStr
   locals
     %0 param self: Square
-    %1 param prefix: String
-    %2 temp: String
+    %1 param prefix: PyStr
+    %2 temp: PyStr
   bb0:
     %2 = copy %1 + copy %0.field2
     return move %2
@@ -38,17 +38,17 @@ fn area (FuncId(3)) -> Int
     %1 = copy %0.field12 * copy %0.field13
     return move %1
 
-fn label (FuncId(4)) -> String
+fn label (FuncId(4)) -> PyStr
   locals
     %0 param self: Rect
-    %1 param prefix: String
-    %2 temp: String
-    %3 temp: String
-    %4 temp: String
-    %5 temp: String
-    %6 temp: String
-    %7 temp: String
-    %8 temp: String
+    %1 param prefix: PyStr
+    %2 temp: PyStr
+    %3 temp: PyStr
+    %4 temp: PyStr
+    %5 temp: PyStr
+    %6 temp: PyStr
+    %7 temp: PyStr
+    %8 temp: PyStr
   bb0:
     %2 = copy %1 + copy %0.field2
     %3 = move %2 + " "
@@ -71,14 +71,14 @@ fn __init__ (FuncId(5)) -> None
     %0.field2 = "rect"
     return move %0
 
-fn describe (FuncId(6)) -> String throws
+fn describe (FuncId(6)) -> PyStr throws
   locals
     %0 param shape: Shape
-    %1 temp: String
-    %2 temp: String
+    %1 temp: PyStr
+    %2 temp: PyStr
     %3 temp: Int
-    %4 temp: String
-    %5 temp: String
+    %4 temp: PyStr
+    %5 temp: PyStr
   bb0:
     %1 = closure_call copy %0.field6("a ")
     %2 = move %1 + " of area "
@@ -108,10 +108,10 @@ fn run (FuncId(8)) -> None throws
   locals
     %0 user s: Shape
     %1 temp: Square
-    %2 temp: String
+    %2 temp: PyStr
     %3 temp: None
     %4 temp: Rect
-    %5 temp: String
+    %5 temp: PyStr
     %6 temp: None
     %7 temp: Square
     %8 temp: None

@@ -517,7 +517,7 @@ impl RuntimeDemand {
                 // A class value returned at `string` is its string conversion,
                 // which goes through the erased form.
                 if let Terminator::Return(operand) = terminator
-                    && matches!(mir.types.get(return_ty), Some(Type::String))
+                    && matches!(mir.types.get(return_ty), Some(Type::String | Type::PyStr))
                     && operand_is_class_local(mir, locals, operand)
                 {
                     self.add(Need::Unknown);
@@ -773,7 +773,7 @@ fn local_is_string(mir: &Mir, locals: &[LocalDecl], local: LocalId) -> bool {
 /// Whether a value of type `ty` may be a string (see [`local_is_string`]).
 fn type_may_be_string(mir: &Mir, ty: smelt_hir::TypeId) -> bool {
     match mir.types.get(ty) {
-        Some(Type::String) => true,
+        Some(Type::String | Type::PyStr) => true,
         Some(Type::Optional(inner)) => type_may_be_string(mir, *inner),
         Some(Type::Union(members)) => members.iter().any(|member| type_may_be_string(mir, *member)),
         _ => false,

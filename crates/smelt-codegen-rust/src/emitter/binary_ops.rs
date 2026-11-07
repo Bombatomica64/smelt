@@ -79,7 +79,7 @@ impl FunctionEmitter<'_> {
                 Type::Bool
                     | Type::Int
                     | Type::Float
-                    | Type::String
+                    | Type::String | Type::PyStr
                     | Type::List(_)
                     | Type::Dict(_, _)
                     | Type::Set(_)
@@ -129,7 +129,7 @@ impl FunctionEmitter<'_> {
         if self.dict_uses_smelt_record(key_ty) {
             return Ok(None);
         }
-        let key_text = if self.mir.types.get(key_ty) == Some(&Type::String) {
+        let key_text = if self.mir.types.get(key_ty).is_some_and(Type::is_text) {
             let source_key = self.operand_ty(index)?;
             let index_text = self.operand_expr(index)?;
             self.property_key_to_string_expr(&index_text, source_key)?
@@ -177,9 +177,9 @@ impl FunctionEmitter<'_> {
                 | smelt_hir::BinOp::Gte
         ) {
             let side_is_string = |emitter: &Self, ty: TypeId, inner: Option<TypeId>| {
-                matches!(emitter.mir.types.get(ty), Some(Type::String))
+                matches!(emitter.mir.types.get(ty), Some(Type::String | Type::PyStr))
                     || inner.is_some_and(|inner_ty| {
-                        matches!(emitter.mir.types.get(inner_ty), Some(Type::String))
+                        matches!(emitter.mir.types.get(inner_ty), Some(Type::String | Type::PyStr))
                     })
             };
             // A side counts as erased when its held value is erased: the inner
@@ -572,8 +572,8 @@ impl FunctionEmitter<'_> {
         if self.optional_inner_ty(lhs_ty).is_some() || self.optional_inner_ty(rhs_ty).is_some() {
             return Ok(None);
         }
-        if matches!(self.mir.types.get(lhs_ty), Some(Type::String))
-            || matches!(self.mir.types.get(rhs_ty), Some(Type::String))
+        if matches!(self.mir.types.get(lhs_ty), Some(Type::String | Type::PyStr))
+            || matches!(self.mir.types.get(rhs_ty), Some(Type::String | Type::PyStr))
         {
             return Ok(None);
         }
@@ -699,8 +699,8 @@ impl FunctionEmitter<'_> {
         }
         let lhs_ty = self.operand_ty(lhs)?;
         let rhs_ty = self.operand_ty(rhs)?;
-        let lhs_is_string = matches!(self.mir.types.get(lhs_ty), Some(Type::String));
-        let rhs_is_string = matches!(self.mir.types.get(rhs_ty), Some(Type::String));
+        let lhs_is_string = matches!(self.mir.types.get(lhs_ty), Some(Type::String | Type::PyStr));
+        let rhs_is_string = matches!(self.mir.types.get(rhs_ty), Some(Type::String | Type::PyStr));
         // Only a genuine string-vs-number mix; string-vs-string stays lexical and
         // number-vs-number is handled by `numeric_comparison_expr`.
         if lhs_is_string == rhs_is_string {
@@ -820,7 +820,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Tuple(items)) => {
                 items.clone().iter().any(|item| self.type_holds_float(*item))
             }
-            Some(Type::Dict(key, value)) if self.mir.types.get(*key) == Some(&Type::String) => {
+            Some(Type::Dict(key, value)) if self.mir.types.get(*key).is_some_and(Type::is_text) => {
                 self.type_holds_float(*value)
             }
             _ => false,
@@ -885,7 +885,7 @@ impl FunctionEmitter<'_> {
                     "{left}.len() == {right}.len() && {left_read}.iter().zip({right_read}.iter()).all(|(left_item, right_item)| {item_equal})"
                 ))
             }
-            Some(Type::Dict(key, value)) if self.mir.types.get(*key) == Some(&Type::String) => {
+            Some(Type::Dict(key, value)) if self.mir.types.get(*key).is_some_and(Type::is_text) => {
                 let value_equal =
                     self.structural_leaf_equality_expr("left_value", "right_value", *value)?;
                 RustExpr::loose(format!(
@@ -1255,8 +1255,8 @@ impl FunctionEmitter<'_> {
                 ),
             ) => true,
             (
-                Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::None),
-                Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::None),
+                Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr | Type::None),
+                Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr | Type::None),
             ) => {
                 !matches!(
                     (self.mir.types.get(left), self.mir.types.get(right)),
@@ -1266,10 +1266,10 @@ impl FunctionEmitter<'_> {
             }
             (
                 Some(Type::Class { .. }),
-                Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::None),
+                Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr | Type::None),
             )
             | (
-                Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::None),
+                Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr | Type::None),
                 Some(Type::Class { .. }),
             ) => true,
             _ => false,
@@ -1309,7 +1309,7 @@ impl FunctionEmitter<'_> {
     /// number-or-string runtime path in `erased_arithmetic_expr`.
     pub(super) fn add_operand_is_string_like(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
-            Some(Type::String) => true,
+            Some(Type::String | Type::PyStr) => true,
             Some(Type::Optional(inner)) => self.add_operand_is_string_like(*inner),
             Some(Type::Union(items)) => items
                 .iter()
@@ -1344,7 +1344,7 @@ impl FunctionEmitter<'_> {
         if op != smelt_hir::BinOp::Add {
             return Ok(None);
         }
-        let dest_is_string = matches!(self.mir.types.get(dest_ty), Some(Type::String));
+        let dest_is_string = matches!(self.mir.types.get(dest_ty), Some(Type::String | Type::PyStr));
         if !dest_is_string {
             if matches!(self.mir.types.get(dest_ty), Some(Type::Int | Type::Float)) {
                 return Ok(None);
@@ -1395,7 +1395,7 @@ impl FunctionEmitter<'_> {
         let has_non_add_string = op != smelt_hir::BinOp::Add
             && matches!(
                 (self.mir.types.get(lhs_ty), self.mir.types.get(rhs_ty)),
-                (Some(Type::String), _) | (_, Some(Type::String))
+                (Some(Type::String | Type::PyStr), _) | (_, Some(Type::String | Type::PyStr))
             );
         if !lhs_erased && !rhs_erased && !has_non_add_string {
             return Ok(None);
@@ -1415,7 +1415,7 @@ impl FunctionEmitter<'_> {
                 numeric.parenthesized_if_needed()
             )),
             Some(Type::Float) => numeric,
-            Some(Type::String) => {
+            Some(Type::String | Type::PyStr) => {
                 { let receiver = numeric.parenthesized_if_needed(); RustExpr::postfix_on(&receiver, format!("{receiver}.to_string()")) }
             }
             // The erased target is already an `f64` value in argument position
@@ -1610,16 +1610,16 @@ impl FunctionEmitter<'_> {
         if op == smelt_hir::BinOp::Add
             && matches!(
                 self.mir.types.get(self.operand_ty(lhs)?),
-                Some(Type::String)
+                Some(Type::String | Type::PyStr)
             )
         {
             let rhs_text = self.operand_expr(rhs)?;
             let rhs_expr = match self.mir.types.get(self.operand_ty(rhs)?) {
-                Some(Type::String) => format!("&{rhs_text}"),
+                Some(Type::String | Type::PyStr) => format!("&{rhs_text}"),
                 Some(Type::Optional(inner))
                     if matches!(
                         self.mir.types.get(*inner),
-                        Some(Type::Bool | Type::Int | Type::Float | Type::String)
+                        Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr)
                     ) =>
                 {
                     // Concatenating an ABSENT optional appends the

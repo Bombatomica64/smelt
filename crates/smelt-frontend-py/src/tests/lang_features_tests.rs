@@ -302,7 +302,7 @@ def make_adder(n: int) -> int:
 }
 
 /// The inferred return type is the *concrete* lowered type, not an erased one:
-/// a closure whose body builds a `str` gets `Type::String`, so the enclosing
+/// a closure whose body builds a `str` gets `Type::PyStr`, so the enclosing
 /// function's `-> str` contract type-checks against it.
 #[test]
 fn nested_closure_infers_concrete_return_type() -> TestResult {
@@ -323,7 +323,7 @@ def describe(n: int) -> str:
         .map(|expr| expr.ty)
         .ok_or("expected a nested closure call")?;
     ensure(
-        matches!(ctx.krate.types.get(call_ty), Some(Type::String)),
+        matches!(ctx.krate.types.get(call_ty), Some(Type::PyStr)),
         "expected the inferred closure return type to be the concrete `str`",
     )?;
     Ok(())

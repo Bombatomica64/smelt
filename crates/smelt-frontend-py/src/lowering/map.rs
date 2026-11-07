@@ -81,13 +81,13 @@ impl ModuleBuilder<'_> {
             ));
         };
         let url = self.expression(url_expr, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, url)) != Some(&Type::String) {
+        if self.ctx.krate.types.get(Self::expr_ty(body, url)) != Some(&Type::PyStr) {
             return Err(SmeltError::unsupported(
                 span,
                 "requests.get() requires a str URL argument",
             ));
         }
-        let ty = self.intern_type(Type::String);
+        let ty = self.intern_type(Type::PyStr);
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::HttpGetText { url },
             ty,
@@ -99,7 +99,7 @@ impl ModuleBuilder<'_> {
     fn supports_stdlib_len(&self, ty: TypeId) -> bool {
         matches!(
             self.ctx.krate.types.get(ty),
-            Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_) | Type::String)
+            Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_) | Type::PyStr)
         )
     }
 
@@ -297,7 +297,7 @@ impl ModuleBuilder<'_> {
         }
 
         if let Some(value) = self.module_dunder_value(name) {
-            let ty = self.intern_type(Type::String);
+            let ty = self.intern_type(Type::PyStr);
             return Ok(body.push_expr(HirExpr {
                 kind: ExprKind::Literal(Literal::String(value)),
                 ty,

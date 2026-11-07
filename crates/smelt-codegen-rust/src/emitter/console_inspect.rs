@@ -88,7 +88,7 @@ impl FunctionEmitter<'_> {
                         Type::Bool
                             | Type::Int
                             | Type::Float
-                            | Type::String
+                            | Type::String | Type::PyStr
                             | Type::Unknown
                             | Type::None
                     )
@@ -124,7 +124,7 @@ impl FunctionEmitter<'_> {
         }
         let needs_unknown = self.context.demand().has(Need::Unknown);
         let result = match self.mir.types.get(ty) {
-            Some(Type::Bool | Type::Int | Type::Float | Type::BigInt | Type::String | Type::None) => {
+            Some(Type::Bool | Type::Int | Type::Float | Type::BigInt | Type::String | Type::PyStr | Type::None) => {
                 true
             }
             Some(Type::Unknown) => needs_unknown,
@@ -362,7 +362,7 @@ impl FunctionEmitter<'_> {
     /// hash-map dicts and primitive sets of such values.
     fn type_has_py_repr(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
-            Some(Type::Int | Type::Float | Type::Bool | Type::String | Type::None) => true,
+            Some(Type::Int | Type::Float | Type::Bool | Type::String | Type::PyStr | Type::None) => true,
             Some(Type::Optional(inner) | Type::List(inner)) => self.type_has_py_repr(*inner),
             Some(Type::Tuple(items)) => !items.is_empty() && items.len() <= 6 && items.iter().all(|item| self.type_has_py_repr(*item)),
             Some(Type::Dict(key, value)) => {
@@ -382,7 +382,7 @@ impl FunctionEmitter<'_> {
     fn python_repr_expr(&self, reference: &RustExpr, ty: TypeId) -> Option<RustExpr> {
         let item = RustExpr::path("smelt_item");
         Some(match self.mir.types.get(ty)? {
-            Type::String => RustExpr::chain(format!("smelt_py_str_repr({reference})")),
+            Type::String | Type::PyStr => RustExpr::chain(format!("smelt_py_str_repr({reference})")),
             Type::Int => RustExpr::chain(format!("({reference}).to_string()")),
             Type::Float => RustExpr::chain(format!(
                 "{}({reference})",
@@ -562,7 +562,7 @@ impl FunctionEmitter<'_> {
                     fn_name = crate::number_format_prelude::CONSOLE_NUMBER_FN,
                 ),
             ))
-        } else if matches!(self.mir.types.get(ty), Some(Type::Bool | Type::String | Type::Unknown)) {
+        } else if matches!(self.mir.types.get(ty), Some(Type::Bool | Type::String | Type::PyStr | Type::Unknown)) {
             // These render through their own `Display` impl, which matches
             // JavaScript: a bool and a string print as themselves, and
             // `Display for SmeltUnknown` routes its number tag through the
@@ -661,7 +661,7 @@ impl FunctionEmitter<'_> {
         }
         if matches!(
             self.mir.types.get(ty),
-            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::Unknown)
+            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr | Type::Unknown)
         ) {
             return Ok(RustExpr::atom(format!("format!(\"{{}}\", {value_text})")));
         }

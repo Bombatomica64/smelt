@@ -84,7 +84,7 @@ impl ModuleBuilder<'_> {
             .unwrap_or_default();
         let span = Span::new(self.file_id, 0, 0);
         let none_ty = self.intern_type(Type::None);
-        let string_ty = self.intern_type(Type::String);
+        let string_ty = self.intern_type(Type::PyStr);
         for effect in effects {
             let smelt_specialize::EffectReplay::Output { stderr, text } = effect else {
                 continue;
@@ -560,7 +560,7 @@ impl ModuleBuilder<'_> {
                 Ok((Literal::Float(*number), Type::Float))
             }
             smelt_specialize::GraphValueKind::String(text) => {
-                Ok((Literal::String(text.clone()), Type::String))
+                Ok((Literal::String(text.clone()), Type::PyStr))
             }
             smelt_specialize::GraphValueKind::Bytes(_)
             | smelt_specialize::GraphValueKind::Tuple(_)
@@ -985,7 +985,7 @@ impl ModuleBuilder<'_> {
                 self.intern_type(Type::List(value))
             }
             smelt_specialize::ParameterKind::VariadicKeyword => {
-                let string = self.intern_type(Type::String);
+                let string = self.intern_type(Type::PyStr);
                 self.intern_type(Type::Dict(string, value))
             }
             smelt_specialize::ParameterKind::Positional
@@ -1001,7 +1001,7 @@ impl ModuleBuilder<'_> {
             smelt_specialize::StaticType::Bool => Type::Bool,
             smelt_specialize::StaticType::Int => Type::Int,
             smelt_specialize::StaticType::Float => Type::Float,
-            smelt_specialize::StaticType::String => Type::String,
+            smelt_specialize::StaticType::String => Type::PyStr,
             smelt_specialize::StaticType::Bytes => Type::Class {
                 name: self.intern_name("builtins.bytes"),
                 args: Vec::new(),
@@ -1297,7 +1297,7 @@ impl ModuleBuilder<'_> {
             smelt_specialize::GraphValueKind::Float(number) => {
                 (Literal::Float(number), Type::Float)
             }
-            smelt_specialize::GraphValueKind::String(text) => (Literal::String(text), Type::String),
+            smelt_specialize::GraphValueKind::String(text) => (Literal::String(text), Type::PyStr),
             _ => {
                 return Err(SmeltError::native_specialization_adapter_required(
                     span,

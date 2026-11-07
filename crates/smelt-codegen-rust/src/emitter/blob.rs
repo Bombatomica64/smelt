@@ -31,7 +31,7 @@ impl FunctionEmitter<'_> {
         let parts_ty = self.operand_ty(parts)?;
         let concrete_constructor = match self.mir.types.get(parts_ty) {
             Some(&Type::List(item)) => {
-                if matches!(self.mir.types.get(item), Some(Type::String)) {
+                if matches!(self.mir.types.get(item), Some(Type::String | Type::PyStr)) {
                     Some("from_string_parts")
                 } else if self.is_blob_class_type(item)? {
                     Some("from_blob_parts")

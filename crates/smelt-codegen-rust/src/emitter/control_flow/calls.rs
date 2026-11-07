@@ -211,7 +211,7 @@ impl FunctionEmitter<'_> {
                 let exception_name = self.local_name(exception_local)?;
                 let exception_decl = self.local_decl(exception_local)?;
                 let value = match self.mir.types.get(exception_decl.ty) {
-                    Some(Type::String) => RustExpr::path("__smelt_error"),
+                    Some(Type::String | Type::PyStr) => RustExpr::path("__smelt_error"),
                     // The recovered panic is presented through the shared
                     // exception-payload record, built by
                     // `caught_panic_error_value_expr`; see
@@ -310,7 +310,7 @@ impl FunctionEmitter<'_> {
             let exception_name = self.local_name(exception_local)?;
             let exception_decl = self.local_decl(exception_local)?;
             let value = match self.mir.types.get(exception_decl.ty) {
-                Some(Type::String) => RustExpr::path("__smelt_error"),
+                Some(Type::String | Type::PyStr) => RustExpr::path("__smelt_error"),
                 // Same exception-payload record as the sibling call terminator;
                 // see `thrown::panic_payload_record_expr`.
                 // Same class-preserving recovery as the sibling call

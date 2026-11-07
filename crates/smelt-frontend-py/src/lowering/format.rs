@@ -23,13 +23,13 @@ impl ModuleBuilder<'_> {
         }
         let operand = self.expression(&attr.value, body)?;
         let operand_ty = Self::expr_ty(body, operand);
-        if self.ctx.krate.types.get(operand_ty) != Some(&Type::String) {
+        if self.ctx.krate.types.get(operand_ty) != Some(&Type::PyStr) {
             return Err(SmeltError::unsupported(
                 span,
                 "str.strip() requires a str receiver",
             ));
         }
-        let ty = self.intern_type(Type::String);
+        let ty = self.intern_type(Type::PyStr);
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::StringTrim { side, operand },
             ty,
@@ -60,8 +60,8 @@ impl ModuleBuilder<'_> {
         }
         let haystack = self.expression(&attr.value, body)?;
         let needle = self.expression(&call.arguments.args[0], body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String)
-            || self.ctx.krate.types.get(Self::expr_ty(body, needle)) != Some(&Type::String)
+        if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::PyStr)
+            || self.ctx.krate.types.get(Self::expr_ty(body, needle)) != Some(&Type::PyStr)
         {
             return Err(SmeltError::unsupported(
                 span,
@@ -103,8 +103,8 @@ impl ModuleBuilder<'_> {
         }
         let haystack = self.expression(&attr.value, body)?;
         let needle = self.expression(&call.arguments.args[0], body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String)
-            || self.ctx.krate.types.get(Self::expr_ty(body, needle)) != Some(&Type::String)
+        if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::PyStr)
+            || self.ctx.krate.types.get(Self::expr_ty(body, needle)) != Some(&Type::PyStr)
         {
             return Err(SmeltError::unsupported(
                 span,
@@ -146,16 +146,16 @@ impl ModuleBuilder<'_> {
         let haystack = self.expression(&attr.value, body)?;
         let pattern = self.expression(pattern_expr, body)?;
         let replacement = self.expression(replacement_expr, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String)
-            || self.ctx.krate.types.get(Self::expr_ty(body, pattern)) != Some(&Type::String)
-            || self.ctx.krate.types.get(Self::expr_ty(body, replacement)) != Some(&Type::String)
+        if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::PyStr)
+            || self.ctx.krate.types.get(Self::expr_ty(body, pattern)) != Some(&Type::PyStr)
+            || self.ctx.krate.types.get(Self::expr_ty(body, replacement)) != Some(&Type::PyStr)
         {
             return Err(SmeltError::unsupported(
                 span,
                 "str.replace() requires str receiver, pattern, and replacement",
             ));
         }
-        let ty = self.intern_type(Type::String);
+        let ty = self.intern_type(Type::PyStr);
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::StringReplace {
                 op: StringReplaceOp::All,
@@ -191,15 +191,15 @@ impl ModuleBuilder<'_> {
         };
         let haystack = self.expression(&attr.value, body)?;
         let affix = self.expression(affix_expr, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String)
-            || self.ctx.krate.types.get(Self::expr_ty(body, affix)) != Some(&Type::String)
+        if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::PyStr)
+            || self.ctx.krate.types.get(Self::expr_ty(body, affix)) != Some(&Type::PyStr)
         {
             return Err(SmeltError::unsupported(
                 span,
                 "str.removeprefix()/removesuffix() require str receiver and argument",
             ));
         }
-        let ty = self.intern_type(Type::String);
+        let ty = self.intern_type(Type::PyStr);
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::StringRemoveAffix {
                 op,
@@ -234,7 +234,7 @@ impl ModuleBuilder<'_> {
             ));
         }
         let operand = self.expression(&attr.value, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::String) {
+        if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::PyStr) {
             return Err(SmeltError::unsupported(
                 span,
                 "str.isdigit()/isalpha()/isalnum() require a str receiver",
@@ -277,15 +277,15 @@ impl ModuleBuilder<'_> {
         let separator = self.expression(separator_expr, body)?;
         let haystack_ty = Self::expr_ty(body, haystack);
         let separator_ty = Self::expr_ty(body, separator);
-        if self.ctx.krate.types.get(haystack_ty) != Some(&Type::String)
-            || self.ctx.krate.types.get(separator_ty) != Some(&Type::String)
+        if self.ctx.krate.types.get(haystack_ty) != Some(&Type::PyStr)
+            || self.ctx.krate.types.get(separator_ty) != Some(&Type::PyStr)
         {
             return Err(SmeltError::unsupported(
                 span,
                 "str.split() requires str receiver and separator",
             ));
         }
-        let string_ty = self.intern_type(Type::String);
+        let string_ty = self.intern_type(Type::PyStr);
         let ty = self.intern_type(Type::List(string_ty));
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::StringSplit {
@@ -319,8 +319,8 @@ impl ModuleBuilder<'_> {
         };
         let separator = self.expression(&attr.value, body)?;
         let items = self.expression(items_expr, body)?;
-        let string_ty = self.intern_type(Type::String);
-        if self.ctx.krate.types.get(Self::expr_ty(body, separator)) != Some(&Type::String)
+        let string_ty = self.intern_type(Type::PyStr);
+        if self.ctx.krate.types.get(Self::expr_ty(body, separator)) != Some(&Type::PyStr)
             || self.ctx.krate.types.get(Self::expr_ty(body, items)) != Some(&Type::List(string_ty))
         {
             return Err(SmeltError::unsupported(

@@ -25,7 +25,7 @@ impl FunctionEmitter<'_> {
         // caller coercing the read cannot treat an already concrete value as an
         // erased `SmeltUnknown` (e.g. `.length` is an `i64`, not a
         // `SmeltUnknown::Number`).
-        if matches!(self.mir.types.get(receiver_ty), Some(Type::String)) {
+        if matches!(self.mir.types.get(receiver_ty), Some(Type::String | Type::PyStr)) {
             return Ok(self.string_field_read(&RustExpr::loose(""), field)?.1);
         }
         if let Some(property) = self.host_data_property(receiver_ty, field)? {
@@ -111,7 +111,7 @@ impl FunctionEmitter<'_> {
             return Ok(RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.{}()", property.accessor)));
         }
         if let Some(Type::Dict(key, value)) = self.mir.types.get(receiver_ty)
-            && self.mir.types.get(*key) == Some(&Type::String)
+            && self.mir.types.get(*key).is_some_and(Type::is_text)
         {
             let field_name = self.symbol_source_name(field)?;
             if matches!(self.mir.types.get(*value), Some(Type::Optional(_))) {
@@ -206,7 +206,7 @@ impl FunctionEmitter<'_> {
                 "smelt_get_unknown_field(::std::borrow::Borrow::borrow(&{scrutinee}), {field_name:?})"
             )));
         }
-        if matches!(self.mir.types.get(receiver_ty), Some(Type::String)) {
+        if matches!(self.mir.types.get(receiver_ty), Some(Type::String | Type::PyStr)) {
             return self.string_field_expr(receiver_text, field);
         }
         if let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty)
@@ -580,7 +580,7 @@ impl FunctionEmitter<'_> {
         value_ty: TypeId,
         index: &Operand,
     ) -> Result<RustExpr, EmitError> {
-        let key_text = if self.mir.types.get(key_ty) == Some(&Type::String) {
+        let key_text = if self.mir.types.get(key_ty).is_some_and(Type::is_text) {
             let index_ty = self.operand_ty(index)?;
             if index_ty == key_ty {
                 self.value_at_type(index, key_ty)?

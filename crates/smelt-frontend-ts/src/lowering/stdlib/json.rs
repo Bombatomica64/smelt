@@ -351,6 +351,7 @@ impl ModuleBuilder<'_> {
             | Type::FixedInt(_)
             | Type::Float
             | Type::String
+            | Type::PyStr
             | Type::Unknown
             | Type::TypeParam { .. } => true,
             // `JSON.stringify(1n)` throws `TypeError: Do not know how to

@@ -42,7 +42,7 @@ impl FunctionEmitter<'_> {
             )));
         }
         match self.mir.types.get(element_ty) {
-            Some(Type::Bool | Type::Int | Type::String) => Ok(RustExpr::atom(format!(
+            Some(Type::Bool | Type::Int | Type::String | Type::PyStr) => Ok(RustExpr::atom(format!(
                 "{{ let mut sorted = {list_text}.clone(); sorted.sort(); sorted }}"
             ))),
             Some(Type::Float) => Ok(RustExpr::atom(format!(
@@ -97,7 +97,7 @@ impl FunctionEmitter<'_> {
                 Some(Type::Float) => format!(
                     "{first}.partial_cmp(&{second}).expect(\"sort key incomparable float\")"
                 ),
-                Some(Type::Bool | Type::Int | Type::String) => format!("{first}.cmp(&{second})"),
+                Some(Type::Bool | Type::Int | Type::String | Type::PyStr) => format!("{first}.cmp(&{second})"),
                 _ => {
                     return Err(EmitError::new(
                         "sort key must return bool, int, float, or string",
@@ -119,7 +119,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Float) => {
                 format!("{first}.partial_cmp({second}).expect(\"sort incomparable float\")")
             }
-            Some(Type::Bool | Type::Int | Type::String) => format!("{first}.cmp({second})"),
+            Some(Type::Bool | Type::Int | Type::String | Type::PyStr) => format!("{first}.cmp({second})"),
             _ => {
                 return Err(EmitError::new(
                     "sort supports bool, int, float, and string items",

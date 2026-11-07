@@ -212,11 +212,11 @@ impl FunctionEmitter<'_> {
     /// Converts a match scrutinee operand to its Rust text representation.
     pub(super) fn match_scrutinee_expr(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
         let operand_ty = self.operand_ty(operand)?;
-        // Compare the resolved type directly rather than interning `Type::String`
+        // Compare the resolved type directly rather than interning `Type::String | Type::PyStr`
         // and comparing ids: a program that never uses a string (e.g. a switch
-        // over a purely numeric enum) may not have `Type::String` in the type
+        // over a purely numeric enum) may not have `Type::String | Type::PyStr` in the type
         // table at all, and requiring it there would spuriously error.
-        if self.mir.types.get(operand_ty) == Some(&Type::String) {
+        if self.mir.types.get(operand_ty).is_some_and(Type::is_text) {
             match operand {
                 // A local narrowed to `&'static str` (see
                 // `emitter::typeof_str_locals`) is already the `&str` the string
@@ -234,7 +234,7 @@ impl FunctionEmitter<'_> {
             }
         } else if matches!(
             self.mir.types.get(operand_ty),
-            Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String)
+            Some(Type::Optional(inner)) if self.mir.types.get(*inner).is_some_and(Type::is_text)
         ) {
             Ok({ let receiver = self.operand_expr(operand)?; RustExpr::postfix_on(&receiver, format!("{receiver}.as_deref()")) })
         } else {
@@ -254,7 +254,7 @@ impl FunctionEmitter<'_> {
     fn match_label_text_for_scrutinee(&self, constant: &Constant, scrutinee_ty: TypeId) -> String {
         if matches!(
             self.mir.types.get(scrutinee_ty),
-            Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String)
+            Some(Type::Optional(inner)) if self.mir.types.get(*inner).is_some_and(Type::is_text)
         ) && let Constant::String(value) = constant
         {
             return format!("Some({value:?})");

@@ -38,8 +38,17 @@ pub enum Type {
     /// Its runtime kind is [`UnknownKind::BigInt`] (`typeof` answers
     /// `"bigint"`), never `"number"`.
     BigInt,
-    /// String type.
+    /// A JavaScript `string`: a sequence of UTF-16 code units. Every index,
+    /// length and ordering on it counts code units.
     String,
+    /// A Python `str`: a sequence of code points, indexed by code point.
+    ///
+    /// Separate from [`Type::String`] because the two languages store text
+    /// differently in generated Rust (`String` here, UTF-16 for JavaScript),
+    /// and a mixed crate can pass one to the other. Logic that holds for any
+    /// text asks [`Type::is_text`]; logic that holds for one language's
+    /// strings matches its variant.
+    PyStr,
     /// TypeScript `unknown`, carried as an opaque safe boundary type.
     Unknown,
     /// TypeScript `never`, the bottom type with no runtime values.
@@ -129,6 +138,13 @@ impl Iterator for TypeChildren<'_> {
 }
 
 impl Type {
+    /// Whether this is a string of either source language: a JavaScript
+    /// [`Type::String`] or a Python [`Type::PyStr`].
+    #[must_use]
+    pub const fn is_text(&self) -> bool {
+        matches!(self, Self::String | Self::PyStr)
+    }
+
     /// The direct child types of this type, in declaration order: a function's
     /// parameters then its return type, a generator's yield, return and next
     /// types.
@@ -146,6 +162,7 @@ impl Type {
             | Self::FixedInt(_)
             | Self::BigInt
             | Self::String
+            | Self::PyStr
             | Self::Unknown
             | Self::Never
             | Self::TypeParam { .. }
@@ -192,6 +209,7 @@ impl Type {
             | Self::FixedInt(_)
             | Self::BigInt
             | Self::String
+            | Self::PyStr
             | Self::Unknown
             | Self::Never
             | Self::TypeParam { .. }
@@ -256,7 +274,7 @@ impl Type {
             Self::Bool => Some(UnknownKind::Bool),
             Self::Int | Self::Float | Self::FixedInt(_) => Some(UnknownKind::Number),
             Self::BigInt => Some(UnknownKind::BigInt),
-            Self::String => Some(UnknownKind::String),
+            Self::String | Self::PyStr => Some(UnknownKind::String),
             Self::Function(_) => Some(UnknownKind::Function),
             Self::List(_) | Self::Tuple(_) => Some(UnknownKind::Array),
             Self::Dict(_, _)

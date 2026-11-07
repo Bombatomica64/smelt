@@ -43,7 +43,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Dict(source_key, _)) = self.mir.types.get(source) else {
             return false;
         };
-        self.mir.types.get(*source_key) == Some(&Type::String)
+        self.mir.types.get(*source_key).is_some_and(Type::is_text)
             && self.is_structural_record_adapter_target(target)
             && self
                 .structural_record_fields(target)
@@ -421,7 +421,7 @@ impl FunctionEmitter<'_> {
         target: TypeId,
         scope: &RenderScope,
     ) -> Result<Option<RustExpr>, EmitError> {
-        if self.mir.types.get(source_key) != Some(&Type::String)
+        if self.mir.types.get(source_key).is_none_or(|ty| !ty.is_text())
             || !self.is_structural_record_adapter_target(target)
         {
             return Ok(None);
@@ -622,7 +622,7 @@ impl FunctionEmitter<'_> {
         target_value: TypeId,
         scope: &RenderScope,
     ) -> Result<Option<RustExpr>, EmitError> {
-        if self.mir.types.get(target_key) != Some(&Type::String) {
+        if self.mir.types.get(target_key).is_none_or(|ty| !ty.is_text()) {
             return Ok(None);
         }
         let Some(source_fields) = self.structural_record_fields(source) else {

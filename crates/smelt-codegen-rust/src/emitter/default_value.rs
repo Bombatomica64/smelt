@@ -33,7 +33,7 @@ impl FunctionEmitter<'_> {
             Type::Int | Type::FixedInt(_) => Ok(RustExpr::path("0")),
             Type::BigInt => Ok(RustExpr::atom(format!("{}::default()", crate::bigint_prelude::BIGINT_TYPE)).delegating_default()),
             Type::Float => Ok(RustExpr::path("0.0")),
-            Type::String => Ok(RustExpr::atom("String::new()")),
+            Type::String | Type::PyStr => Ok(RustExpr::atom("String::new()")),
             Type::Unknown => Ok(self.null_value()),
             Type::Never => Ok(self.null_value()),
             Type::None => Ok(RustExpr::unit()),

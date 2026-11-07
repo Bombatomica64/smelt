@@ -122,7 +122,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         if !matches!(
             self.mir.types.get(self.operand_ty(operand)?),
-            Some(Type::String)
+            Some(Type::String | Type::PyStr)
         ) {
             return Err(EmitError::new("string trim operand must be a string"));
         }
@@ -172,7 +172,7 @@ impl FunctionEmitter<'_> {
             }
         };
         // A string haystack is read by borrow: searching only looks at it.
-        let haystack_text = if self.mir.types.get(self.operand_ty(haystack)?) == Some(&Type::String) {
+        let haystack_text = if self.mir.types.get(self.operand_ty(haystack)?).is_some_and(Type::is_text) {
             RustExpr::atom(format!("&{}", self.operand_borrow_expr(haystack)?.parenthesized_if_needed()))
         } else {
             self.string_like_operand_expr(haystack, "string search")?
@@ -217,7 +217,7 @@ impl FunctionEmitter<'_> {
         cast: &str,
     ) -> Result<RustExpr, EmitError> {
         let haystack_text = self.string_like_operand_expr(haystack, "string search")?;
-        let regex_text = if self.mir.types.get(self.operand_ty(needle)?) == Some(&Type::String) {
+        let regex_text = if self.mir.types.get(self.operand_ty(needle)?).is_some_and(Type::is_text) {
             format!("SmeltRegExp::new({}, String::new())", self.operand_expr(needle)?)
         } else {
             self.operand_expr(needle)?.into_string()
@@ -284,7 +284,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         if !matches!(
             self.mir.types.get(self.operand_ty(operand)?),
-            Some(Type::String)
+            Some(Type::String | Type::PyStr)
         ) || !matches!(
             self.mir.types.get(self.operand_ty(count)?),
             Some(Type::Int | Type::Float)
@@ -309,13 +309,13 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         if !matches!(
             self.mir.types.get(self.operand_ty(operand)?),
-            Some(Type::String)
+            Some(Type::String | Type::PyStr)
         ) || !matches!(
             self.mir.types.get(self.operand_ty(target_len)?),
             Some(Type::Int | Type::Float)
         ) || !matches!(
             self.mir.types.get(self.operand_ty(pad)?),
-            Some(Type::String)
+            Some(Type::String | Type::PyStr)
         ) {
             return Err(EmitError::new(
                 "string padding requires string receiver, numeric target length, and string padding",
@@ -343,7 +343,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         if !matches!(
             self.mir.types.get(self.operand_ty(operand)?),
-            Some(Type::String)
+            Some(Type::String | Type::PyStr)
         ) {
             return Err(EmitError::new("string predicate operand must be a string"));
         }
@@ -551,7 +551,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Function(function)) => function.return_ty,
             _ => return Ok(call_expr),
         };
-        if matches!(self.mir.types.get(return_ty), Some(Type::String)) {
+        if matches!(self.mir.types.get(return_ty), Some(Type::String | Type::PyStr)) {
             return Ok(call_expr);
         }
         // The substitution is ToString of the answer: `undefined` is the text
@@ -594,7 +594,7 @@ impl FunctionEmitter<'_> {
         // whole matches, which `match_all_strings` builds directly.
         if let Some(Type::Optional(inner)) = self.mir.types.get(dest_ty)
             && let Some(Type::List(item)) = self.mir.types.get(*inner)
-            && self.mir.types.get(*item) == Some(&Type::String)
+            && self.mir.types.get(*item).is_some_and(Type::is_text)
         {
             return Ok(RustExpr::postfix_on(&pattern_text, format!(
                 "{pattern_text}.match_all_strings(&{haystack_text}).map(SmeltList::from)"
@@ -707,7 +707,7 @@ impl FunctionEmitter<'_> {
         let text = self.operand_expr(operand)?;
         match self.mir.types.get(self.operand_ty(operand)?) {
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => Ok(text),
-            Some(Type::String) => Ok(RustExpr::atom(format!("SmeltRegExp::new({text}, String::new())"))),
+            Some(Type::String | Type::PyStr) => Ok(RustExpr::atom(format!("SmeltRegExp::new({text}, String::new())"))),
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
                 let scrutinee = self.erase_concrete_union_expr(&text, self.operand_ty(operand)?);
                 // The prelude `SmeltFromUnknown` impl is the single inverse of
@@ -732,7 +732,7 @@ impl FunctionEmitter<'_> {
         for operand in operands {
             if !matches!(
                 self.mir.types.get(self.operand_ty(operand)?),
-                Some(Type::String)
+                Some(Type::String | Type::PyStr)
             ) && self.string_like_operand_expr(operand, context).is_err()
             {
                 return Err(EmitError::new(format!(
@@ -837,7 +837,7 @@ impl FunctionEmitter<'_> {
         let mut arms = Vec::with_capacity(members.len());
         for (index, member) in members.iter().enumerate() {
             let conversion = match self.mir.types.get(*member) {
-                Some(Type::String) => "smelt_union_arm.clone()".to_owned(),
+                Some(Type::String | Type::PyStr) => "smelt_union_arm.clone()".to_owned(),
                 Some(Type::Bool | Type::BigInt) => "smelt_union_arm.to_string()".to_owned(),
                 Some(Type::Int | Type::FixedInt(_)) => {
                     format!("{number_to_string}(*smelt_union_arm as f64)")
@@ -873,7 +873,7 @@ impl FunctionEmitter<'_> {
             return Ok(text);
         }
         match self.mir.types.get(self.operand_ty(operand)?) {
-            Some(Type::String) => match operand {
+            Some(Type::String | Type::PyStr) => match operand {
                 Operand::Copy(place) => Ok({ let receiver = self.place_expr(place)?; RustExpr::postfix_on(&receiver, format!("{receiver}.clone()")) }.ending_in_clone()),
                 Operand::Move(place) => self.place_expr(place),
                 Operand::Const(_) => self.operand_expr(operand),
@@ -960,7 +960,7 @@ impl FunctionEmitter<'_> {
             // An ABSENT optional stringifies as the language's absent word, not
             // as the empty string: `unwrap_or_default()` answered `""` for
             // every `${maybeString}` in the corpus.
-            Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String) => {
+            Some(Type::Optional(inner)) if self.mir.types.get(*inner).is_some_and(Type::is_text) => {
                 Ok({ let receiver = self.operand_expr(operand)?; RustExpr::postfix_on(&receiver, format!("{receiver}.unwrap_or_else(|| {:?}.to_owned())", self.absent_spelling().text())) })
             }
             Some(Type::Optional(inner))
@@ -1013,7 +1013,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         if !matches!(
             self.mir.types.get(self.operand_ty(operand)?),
-            Some(Type::String)
+            Some(Type::String | Type::PyStr)
         ) || !matches!(
             self.mir.types.get(self.operand_ty(index)?),
             Some(Type::Int | Type::Float)
@@ -1041,7 +1041,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         if !matches!(
             self.mir.types.get(self.operand_ty(operand)?),
-            Some(Type::String)
+            Some(Type::String | Type::PyStr)
         ) || !matches!(
             self.mir.types.get(self.operand_ty(index)?),
             Some(Type::Int | Type::Float)
@@ -1076,7 +1076,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         if !matches!(
             self.mir.types.get(self.operand_ty(operand)?),
-            Some(Type::String)
+            Some(Type::String | Type::PyStr)
         ) || !matches!(
             self.mir.types.get(self.operand_ty(index)?),
             Some(Type::Int | Type::Float)
@@ -1137,7 +1137,7 @@ impl FunctionEmitter<'_> {
         }
         if from_index.is_none()
             && self.mir.types.get(needle_ty) == Some(&Type::Unknown)
-            && self.mir.types.get(haystack_ty) == Some(&Type::String)
+            && self.mir.types.get(haystack_ty).is_some_and(Type::is_text)
         {
             let erased_haystack = self.erase_rendered(
                 &{ let receiver = self.operand_expr(haystack)?; RustExpr::postfix_on(&receiver, format!("{receiver}.clone()")) }.ending_in_clone(),
@@ -1148,7 +1148,7 @@ impl FunctionEmitter<'_> {
                 self.operand_expr(needle)?
             )));
         }
-        if !matches!(self.mir.types.get(needle_ty), Some(Type::String)) {
+        if !matches!(self.mir.types.get(needle_ty), Some(Type::String | Type::PyStr)) {
             return Err(EmitError::new(format!(
                 "string contains needle must be a string, got {}",
                 Self::type_text_for(self.mir, needle_ty)
@@ -1160,7 +1160,7 @@ impl FunctionEmitter<'_> {
             // positional form through specialization) coerces through the
             // shared `value_at_type` conversion; genuinely unconvertible
             // shapes still produce that helper's honest error.
-            let haystack_text = if matches!(self.mir.types.get(haystack_ty), Some(Type::String)) {
+            let haystack_text = if matches!(self.mir.types.get(haystack_ty), Some(Type::String | Type::PyStr)) {
                 self.operand_expr(haystack)?
             } else {
                 self.value_at_type(haystack, self.type_id(Type::String)?)?
@@ -1172,7 +1172,7 @@ impl FunctionEmitter<'_> {
                 prefix_bytes = self.string_byte_of_text("smelt_haystack", "smelt_from", true),
             )));
         }
-        if !matches!(self.mir.types.get(haystack_ty), Some(Type::String)) {
+        if !matches!(self.mir.types.get(haystack_ty), Some(Type::String | Type::PyStr)) {
             return Err(EmitError::new(format!(
                 "string contains haystack must be a string, got {}",
                 Self::type_text_for(self.mir, haystack_ty)
@@ -1198,7 +1198,7 @@ impl FunctionEmitter<'_> {
             self.string_substring_expr(operand, start, end, kind)?
         } else if matches!(
             self.mir.types.get(self.operand_ty(operand)?),
-            Some(Type::String)
+            Some(Type::String | Type::PyStr)
         ) {
             // Read by borrow: slicing only looks at the receiver, and its
             // length is measured once for both bounds.
@@ -1380,7 +1380,7 @@ impl FunctionEmitter<'_> {
         let haystack_text = self.string_like_operand_expr(haystack, "string chars")?;
         let text = RustExpr::atom_on(&haystack_text, format!("{haystack_text}.chars().map(|ch| ch.to_string()).collect::<Vec<_>>()"));
         if let Some(Type::List(item_ty)) = self.mir.types.get(dest_ty)
-            && self.mir.types.get(*item_ty) != Some(&Type::String)
+            && self.mir.types.get(*item_ty).is_none_or(|ty| !ty.is_text())
         {
             let item_text =
                 self.rendered_at_type(&RustExpr::path("value"), self.type_id(Type::String)?, *item_ty, &self.render_scope())?;
@@ -1403,7 +1403,7 @@ impl FunctionEmitter<'_> {
         };
         let separator_text = self.string_like_operand_expr(separator, "string join")?;
         let items_text = list_read_expr(&self.operand_expr(items)?);
-        if self.mir.types.get(*item_ty) == Some(&Type::String) {
+        if self.mir.types.get(*item_ty).is_some_and(Type::is_text) {
             return Ok(RustExpr::postfix_on(&items_text, format!("{items_text}.join(&{separator_text})")));
         }
         let item_text = match self.mir.types.get(*item_ty) {
@@ -1442,7 +1442,7 @@ impl FunctionEmitter<'_> {
                     "item.as_ref().map_or_else(String::new, |value| {fn_name}(*value))",
                     fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
                 ),
-                Some(Type::String) => {
+                Some(Type::String | Type::PyStr) => {
                     "item.as_ref().map_or_else(String::new, Clone::clone)".to_owned()
                 }
                 _ => {

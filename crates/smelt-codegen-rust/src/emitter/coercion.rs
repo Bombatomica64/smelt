@@ -198,7 +198,7 @@ impl FunctionEmitter<'_> {
             | Operand::Move(Place::Field { base, field }) = operand
             && matches!(
                 self.mir.types.get(self.local_decl(*base)?.ty),
-                Some(Type::String)
+                Some(Type::String | Type::PyStr)
             )
         {
             let (field_text, field_source_ty) =
@@ -786,7 +786,7 @@ impl FunctionEmitter<'_> {
             }
             return self.rendered_at_type(&view, view_ty, target, scope).map(Some);
         }
-        if self.mir.types.get(*target_item) == Some(&Type::String) {
+        if self.mir.types.get(*target_item).is_some_and(Type::is_text) {
             return Ok(Some(RustExpr::atom(format!(
                 "SmeltList::new({view}.into_iter().map(|group| group.unwrap_or_default()).collect::<Vec<_>>())"
             ))));
@@ -1135,11 +1135,11 @@ impl FunctionEmitter<'_> {
             return Ok(RustExpr::atom(format!("({value_text} as {})", width.rust_name())));
         }
         if self.mir.types.get(target) == Some(&Type::Float)
-            && self.mir.types.get(source) == Some(&Type::String)
+            && self.mir.types.get(source).is_some_and(Type::is_text)
         {
             return Ok(RustExpr::from(crate::string_to_number_prelude::string_to_number_call(value_text)));
         }
-        if self.mir.types.get(target) == Some(&Type::String)
+        if self.mir.types.get(target).is_some_and(Type::is_text)
             && matches!(
                 self.mir.types.get(source),
                 Some(Type::Bool | Type::Int | Type::Float)
@@ -1150,7 +1150,7 @@ impl FunctionEmitter<'_> {
         if matches!(
             self.mir.types.get(target),
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)?
-        ) && self.mir.types.get(source) == Some(&Type::String)
+        ) && self.mir.types.get(source).is_some_and(Type::is_text)
         {
             return Ok(RustExpr::atom(format!("SmeltRegExp::new({value_text}, String::new())")));
         }
@@ -1308,7 +1308,7 @@ impl FunctionEmitter<'_> {
             (self.mir.types.get(source), self.mir.types.get(target))
         {
             let int_ty = self.type_id(Type::Int)?;
-            let key_text = if self.mir.types.get(*target_key) == Some(&Type::String) {
+            let key_text = if self.mir.types.get(*target_key).is_some_and(Type::is_text) {
                 "index.to_string()".to_owned()
             } else {
                 self.rendered_at_type(&RustExpr::cast("index as i64"), int_ty, *target_key, scope)?.into_string()
@@ -1333,7 +1333,7 @@ impl FunctionEmitter<'_> {
                 || source_value != target_value
                 || self.map_backing_differs(source_ty, target_ty))
         {
-            let key_text = if self.mir.types.get(*target_key) == Some(&Type::String) {
+            let key_text = if self.mir.types.get(*target_key).is_some_and(Type::is_text) {
                 self.property_key_to_string_expr(&RustExpr::path("key"), *source_key)?
             } else {
                 self.rendered_at_type(&RustExpr::path("key"), *source_key, *target_key, scope)?
@@ -1380,7 +1380,7 @@ impl FunctionEmitter<'_> {
         // The CLOSURE-bodied spelling of that same function already emitted
         // exactly this conversion (its return channel erases first), so this
         // makes the two paths agree rather than inventing a rule for one.
-        if self.mir.types.get(target) == Some(&Type::String)
+        if self.mir.types.get(target).is_some_and(Type::is_text)
             && matches!(
                 self.mir.types.get(source),
                 Some(

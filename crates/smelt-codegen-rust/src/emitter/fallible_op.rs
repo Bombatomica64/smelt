@@ -207,7 +207,7 @@ impl FunctionEmitter<'_> {
         let text = args
             .first()
             .ok_or_else(|| EmitError::new("JSON parse takes one string argument"))?;
-        if !matches!(self.mir.types.get(self.operand_ty(text)?), Some(Type::String)) {
+        if !matches!(self.mir.types.get(self.operand_ty(text)?), Some(Type::String | Type::PyStr)) {
             return Err(EmitError::new("JSON parse input must be a string"));
         }
         if let Some(decoded) = self.json_decode_target(target) {

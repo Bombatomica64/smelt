@@ -12,12 +12,19 @@
 //! string representation (UTF-16 storage) replaces this module and the runtime
 //! file, not the emit sites.
 
-use smelt_hir::Language;
+use smelt_hir::{Language, Type};
 
 use super::FunctionEmitter;
 use crate::rust::RustExpr;
 
 impl FunctionEmitter<'_> {
+    /// The string type of this body's source language: [`Type::PyStr`] in a
+    /// Python body, [`Type::String`] (a JavaScript string) otherwise. A string
+    /// the body makes itself (a literal, a concatenation) has this type.
+    pub(super) fn text_type(&self) -> Type {
+        if self.function.language == Language::Python { Type::PyStr } else { Type::String }
+    }
+
     /// Whether this body's string indices count UTF-16 code units.
     pub(super) fn indexes_utf16(&self) -> bool {
         self.function.language == Language::TypeScript

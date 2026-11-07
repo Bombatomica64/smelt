@@ -371,7 +371,7 @@ pub(crate) fn type_supports_partial_eq(
             | Type::FixedInt(_)
             | Type::BigInt
             | Type::Float
-            | Type::String
+            | Type::String | Type::PyStr
             | Type::None
             | Type::Unknown
             | Type::Never
@@ -400,7 +400,7 @@ pub(crate) fn interface_is_json_serializable(mir: &Mir, interface: &smelt_mir::M
 /// Return whether generated serde can represent a type as natural JSON.
 fn type_is_json_serializable(mir: &Mir, ty: TypeId, seen: &mut Vec<smelt_hir::Symbol>) -> bool {
     match mir.types.get(ty) {
-        Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::Unknown) => true,
+        Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr | Type::Unknown) => true,
         Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
             type_is_json_serializable(mir, *item, seen)
         }
@@ -408,7 +408,7 @@ fn type_is_json_serializable(mir: &Mir, ty: TypeId, seen: &mut Vec<smelt_hir::Sy
             .iter()
             .all(|item| type_is_json_serializable(mir, *item, seen)),
         Some(Type::Dict(key, value)) => {
-            matches!(mir.types.get(*key), Some(Type::String))
+            matches!(mir.types.get(*key), Some(Type::String | Type::PyStr))
                 && type_is_json_serializable(mir, *value, seen)
         }
         Some(Type::Class { name, .. }) => {

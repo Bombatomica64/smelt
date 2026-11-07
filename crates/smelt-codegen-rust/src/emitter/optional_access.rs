@@ -163,7 +163,7 @@ impl FunctionEmitter<'_> {
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
         if args.is_empty()
-            && self.mir.types.get(inner_ty) == Some(&Type::String)
+            && self.mir.types.get(inner_ty).is_some_and(Type::is_text)
             && matches!(
                 self.symbol_name(method)?,
                 "toUpperCase" | "to_upper_case" | "toLowerCase" | "to_lower_case"
@@ -526,7 +526,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Dict(key_ty, value_ty)) => {
                 self.dict_index_optional_read_expr(receiver_text, *key_ty, *value_ty, index)
             }
-            Some(Type::String) => {
+            Some(Type::String | Type::PyStr) => {
                 let index_text = self.optional_normalized_index_expr(
                     &self.string_len_expr(receiver_text),
                     index,
@@ -578,7 +578,7 @@ impl FunctionEmitter<'_> {
                 // `Option<(String, f64)>` slot (4 of the router slice's
                 // errors) — the arms produced the erased value and nobody
                 // converted it.
-                let result_is_string = self.mir.types.get(result_ty) == Some(&Type::String);
+                let result_is_string = self.mir.types.get(result_ty).is_some_and(Type::is_text);
                 let result_is_erased = matches!(self.mir.types.get(result_ty), Some(Type::Unknown));
                 // The element this arm reads is a `SmeltUnknown` BY
                 // CONSTRUCTION: it comes out of the runtime-narrowing `match`
@@ -649,7 +649,7 @@ impl FunctionEmitter<'_> {
                     self.erase_concrete_union_expr(&receiver_text.cloned_value(), receiver_ty);
                 // A string key is a property name on every arm: `arr["1"]` reads an
                 // element, `arr["length"]` a property, `arr["x"]` nothing.
-                if self.mir.types.get(self.operand_ty(index)?) == Some(&Type::String) {
+                if self.mir.types.get(self.operand_ty(index)?).is_some_and(Type::is_text) {
                     return Ok(RustExpr::atom(self.carrier_format(format_args!(
                         "match {scrutinee} {{ smelt_indexed @ (SmeltUnknown::String(_) | SmeltUnknown::Array(_)) => match smelt_get_unknown_field(&smelt_indexed, &{key_text}).clone() {{ SmeltUnknown::Undefined => None, _smelt_element => Some({element_text}) }}, SmeltUnknown::Object(values) => {object_some}, {primitive_none}, }}"
                     ))));

@@ -351,7 +351,7 @@ fn ts_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
         Some(Type::Bool) => "boolean".to_owned(),
         Some(Type::Int | Type::FixedInt(_) | Type::Float) => "number".to_owned(),
         Some(Type::BigInt) => "bigint".to_owned(),
-        Some(Type::String) => "string".to_owned(),
+        Some(Type::String | Type::PyStr) => "string".to_owned(),
         Some(Type::Unknown) | None => "unknown".to_owned(),
         Some(Type::Never) => "never".to_owned(),
         Some(Type::TypeParam { name } | Type::Class { name, .. }) => {
@@ -433,7 +433,7 @@ fn py_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
         // Python's `int` is already arbitrary-precision.
         Some(Type::Int | Type::FixedInt(_) | Type::BigInt) => "int".to_owned(),
         Some(Type::Float) => "float".to_owned(),
-        Some(Type::String) => "str".to_owned(),
+        Some(Type::String | Type::PyStr) => "str".to_owned(),
         Some(Type::Unknown) | None => "typing.Any".to_owned(),
         Some(Type::Never) => "typing.NoReturn".to_owned(),
         Some(Type::TypeParam { name } | Type::Class { name, .. }) => {

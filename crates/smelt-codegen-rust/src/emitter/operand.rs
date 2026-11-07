@@ -280,7 +280,7 @@ impl FunctionEmitter<'_> {
         // `groupBy`/`countBy`/`keyBy` loop, and the second copy bought nothing.
         let owned_value_text = value_text.cloned_value();
         match self.mir.types.get(source_key) {
-            Some(Type::String) => Ok(owned_value_text),
+            Some(Type::String | Type::PyStr) => Ok(owned_value_text),
             Some(Type::Bool) => Ok(RustExpr::postfix_on(&value_text, format!("{value_text}.to_string()"))),
             // A property KEY is a stringified number, and JavaScript's rule is
             // the one that applies: `({ [1e21]: 1 })` has the key `"1e+21"`,
@@ -333,7 +333,7 @@ impl FunctionEmitter<'_> {
             Operand::Const(Constant::Int(_)) => self.type_id(Type::Int),
             Operand::Const(Constant::Float(_)) => self.type_id(Type::Float),
             Operand::Const(Constant::BigInt(_)) => self.type_id(Type::BigInt),
-            Operand::Const(Constant::String(_)) => self.type_id(Type::String),
+            Operand::Const(Constant::String(_)) => self.type_id(self.text_type()),
             Operand::Const(Constant::Symbol(_)) => self.type_id(Type::Unknown),
         }
     }

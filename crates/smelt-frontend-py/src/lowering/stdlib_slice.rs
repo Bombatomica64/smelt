@@ -138,8 +138,8 @@ impl ModuleBuilder<'_> {
                 ty: receiver_ty,
                 span: self.span(sub.range),
             }))),
-            Some(Type::String) => {
-                let ty = self.intern_type(Type::String);
+            Some(Type::PyStr) => {
+                let ty = self.intern_type(Type::PyStr);
                 Ok(Some(body.push_expr(HirExpr {
                     kind: ExprKind::StringSlice {
                         operand: receiver,

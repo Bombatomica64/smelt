@@ -245,7 +245,7 @@ pub(super) fn substitute_type_id(
             | Type::FixedInt(_)
             | Type::BigInt
             | Type::Float
-            | Type::String
+            | Type::String | Type::PyStr
             | Type::Unknown
             | Type::Never
             | Type::None,

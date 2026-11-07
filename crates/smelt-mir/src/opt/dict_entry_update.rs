@@ -277,7 +277,7 @@ fn dict_entry_types_match(
     }
     if !matches!(
         types.get(current_decl.ty),
-        Some(Type::Bool | Type::Int | Type::Float | Type::String)
+        Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr)
     ) {
         return false;
     }

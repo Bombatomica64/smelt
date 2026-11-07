@@ -71,7 +71,7 @@ impl FunctionEmitter<'_> {
     /// SameValueZero membership and preserves insertion order.
     pub(super) fn type_is_hash_set_key_safe(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
-            Some(Type::Bool | Type::Int | Type::String) => true,
+            Some(Type::Bool | Type::Int | Type::String | Type::PyStr) => true,
             Some(Type::Optional(inner) | Type::Future(inner)) => {
                 self.type_is_hash_set_key_safe(*inner)
             }
@@ -109,7 +109,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn dict_uses_js_key_map(&self, key_ty: TypeId) -> bool {
         match self.mir.types.get(key_ty) {
             // A bigint key hashes by value, which is SameValueZero for bigints.
-            Some(Type::Bool | Type::Int | Type::FixedInt(_) | Type::BigInt | Type::String) => false,
+            Some(Type::Bool | Type::Int | Type::FixedInt(_) | Type::BigInt | Type::String | Type::PyStr) => false,
             Some(Type::Float) => true,
             Some(Type::Optional(inner) | Type::Future(inner)) => self.dict_uses_js_key_map(*inner),
             Some(Type::Union(items)) => items.iter().any(|item| self.dict_uses_js_key_map(*item)),
@@ -140,7 +140,7 @@ impl FunctionEmitter<'_> {
     /// identity while keeping structural equality for assertions.
     pub(super) fn dict_uses_smelt_record(&self, key_ty: TypeId) -> bool {
         self.context.demand().has(Need::Unknown)
-            && self.mir.types.get(key_ty) == Some(&Type::String)
+            && self.mir.types.get(key_ty).is_some_and(Type::is_text)
     }
 
     /// Returns whether a Map/dict operation must use the `SmeltRecord` backing.
@@ -369,7 +369,7 @@ impl FunctionEmitter<'_> {
             return false;
         }
         match self.mir.types.get(base_ty) {
-            Some(Type::List(_) | Type::Dict(_, _) | Type::String) => true,
+            Some(Type::List(_) | Type::Dict(_, _) | Type::String | Type::PyStr) => true,
             Some(Type::Optional(inner)) => {
                 matches!(self.mir.types.get(*inner), Some(Type::List(_)))
             }
@@ -513,7 +513,7 @@ impl FunctionEmitter<'_> {
                 Type::Bool
                     | Type::Int
                     | Type::Float
-                    | Type::String
+                    | Type::String | Type::PyStr
                     | Type::Unknown
                     | Type::Never
                     | Type::None
@@ -561,7 +561,7 @@ impl FunctionEmitter<'_> {
             // erases the value first (`json_stringify_expr` always does). Rejecting it
             // made a generic helper that serializes its argument a blocker for
             // the whole crate.
-            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::Unknown)
+            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr | Type::Unknown)
             | Some(Type::TypeParam { .. }) => true,
             Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
                 self.is_json_serializable_type(*item)
@@ -570,7 +570,7 @@ impl FunctionEmitter<'_> {
                 .iter()
                 .all(|item| self.is_json_serializable_type(*item)),
             Some(Type::Dict(key, value)) => {
-                matches!(self.mir.types.get(*key), Some(Type::String))
+                matches!(self.mir.types.get(*key), Some(Type::String | Type::PyStr))
                     && self.is_json_serializable_type(*value)
             }
             // JSON has no `undefined`, and `JSON.stringify(null)` is `null`.

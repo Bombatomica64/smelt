@@ -197,7 +197,7 @@ impl FunctionEmitter<'_> {
         };
         let value_ty = self.operand_ty(value)?;
         let value_text = self.operand_expr(value)?;
-        if matches!(self.mir.types.get(value_ty), Some(Type::String)) {
+        if matches!(self.mir.types.get(value_ty), Some(Type::String | Type::PyStr)) {
             return Ok(RustExpr::atom(format!("SmeltFormDataValue::Text(({value_text}).clone())")));
         }
         if self.is_blob_class_type(value_ty)? {
@@ -209,7 +209,7 @@ impl FunctionEmitter<'_> {
             let members = members.to_vec();
             let mut arms = Vec::new();
             for (index, member) in members.iter().enumerate() {
-                let arm = if matches!(self.mir.types.get(*member), Some(Type::String)) {
+                let arm = if matches!(self.mir.types.get(*member), Some(Type::String | Type::PyStr)) {
                     "SmeltFormDataValue::Text(smelt_entry)".to_owned()
                 } else if self.is_blob_class_type(*member)? {
                     format!("smelt_form_data_file_value(smelt_entry, {filename_text})")
@@ -299,7 +299,7 @@ impl FunctionEmitter<'_> {
             }
             let has_string = members
                 .iter()
-                .any(|member| matches!(self.mir.types.get(*member), Some(Type::String)));
+                .any(|member| matches!(self.mir.types.get(*member), Some(Type::String | Type::PyStr)));
             let mut has_file = false;
             for member in members {
                 if self.is_blob_class_type(*member)? {

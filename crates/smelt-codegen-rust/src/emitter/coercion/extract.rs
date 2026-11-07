@@ -25,7 +25,7 @@ impl FunctionEmitter<'_> {
         let source_ty = self.operand_ty(value)?;
         let target_is_primitive = matches!(
             self.mir.types.get(target),
-            Some(Type::Bool | Type::Int | Type::Float | Type::String)
+            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr)
         );
         let source_inner_is_erased = matches!(
             self.mir.types.get(source_ty),
@@ -310,7 +310,7 @@ impl FunctionEmitter<'_> {
             // pads with `undefined`) the type's default is the closest the slot
             // can come -- and it is at least the SAME answer on both sides of a
             // comparison.
-            Some(Type::String) => Ok(RustExpr::atom(self.carrier_format(format_args!(
+            Some(Type::String | Type::PyStr) => Ok(RustExpr::atom(self.carrier_format(format_args!(
                 "match {smelt_owned_text} {{ {smelt_bigint_arm}SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),")
             )))),
             // Iterable-to-list extraction inspects the source through the
@@ -326,7 +326,7 @@ impl FunctionEmitter<'_> {
             Some(Type::List(_)) if self.list_items_render_as_unknown(target, scope) => {
                 Ok(erased_to_list_expr(text, None, &self.carrier_expr(&RustExpr::atom("SmeltUnknown::String(ch.to_string().into())"))))
             }
-            Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::String) => {
+            Some(Type::List(item)) if self.mir.types.get(*item).is_some_and(Type::is_text) => {
                 Ok(erased_to_list_expr(
                     text,
                     Some(
@@ -342,20 +342,20 @@ impl FunctionEmitter<'_> {
                 Ok(erased_to_list_expr(text, Some(&item_text), &char_text))
             }
             Some(Type::Dict(key, item))
-                if self.mir.types.get(*key) == Some(&Type::String)
+                if self.mir.types.get(*key).is_some_and(Type::is_text)
                     && self.mir.types.get(*item) == Some(&Type::Unknown) =>
             {
                 Ok(RustExpr::atom(self.carrier_format(format_args!(
                     "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(value) => value.smelt_shared_record(), SmeltUnknown::Array(values) => values.own_entries().into_iter().collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| (index.to_string(), SmeltUnknown::String(ch.to_string().into()))).collect(), SmeltUnknown::Function(value) => SmeltRecord::from([(\"{SMELT_CALL}\".to_owned(), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() }}"
                 ))))
             }
-            Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) => {
+            Some(Type::Dict(key, item)) if self.mir.types.get(*key).is_some_and(Type::is_text) => {
                 let item_text = self.extract_rendered(&RustExpr::path("value"), *item, scope)?;
                 Ok(RustExpr::atom(self.carrier_format(format_args!(
                     "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(values) => SmeltRecord::with_id_from_entries(values.id, values.into_iter().map(|(key, value)| (key, {item_text}))), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), {item_text})).collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| {{ let value = SmeltUnknown::String(ch.to_string().into()); (index.to_string(), {item_text}) }}).collect(), _ => SmeltRecord::new() }}"
                 ))))
             }
-            Some(Type::Dict(key, item)) if self.mir.types.get(*key) != Some(&Type::String) => {
+            Some(Type::Dict(key, item)) if self.mir.types.get(*key).is_none_or(|ty| !ty.is_text()) => {
                 let key_text = self.rendered_at_type(&RustExpr::path("key"), self.type_id(Type::String)?, *key, scope)?;
                 let item_text = self.extract_rendered(&RustExpr::path("value"), *item, scope)?;
                 if self.dict_uses_js_key_map(*key) {

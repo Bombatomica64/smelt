@@ -21,7 +21,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Float) => Ok(RustExpr::postfix_on(&operand_expr, format!(
                 "{operand_expr}.clone().is_some_and(|value| value != 0.0 && !value.is_nan())"
             ))),
-            Some(Type::String) => Ok(RustExpr::postfix_on(&operand_expr, format!(
+            Some(Type::String | Type::PyStr) => Ok(RustExpr::postfix_on(&operand_expr, format!(
                 "{operand_expr}.clone().is_some_and(|value| !value.is_empty())"
             ))),
             Some(Type::Union(_)) => {
@@ -120,7 +120,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Float) => Ok(RustExpr::atom(format!(
                 "{{ let smelt_number = ({value_text}); smelt_number != 0.0 && !smelt_number.is_nan() }}"
             ))),
-            Some(Type::String) => Ok(RustExpr::loose(format!("!({value_text}).is_empty()"))),
+            Some(Type::String | Type::PyStr) => Ok(RustExpr::loose(format!("!({value_text}).is_empty()"))),
             Some(Type::Union(_)) => {
                 // A concrete generated union is not a `SmeltUnknown`; erase it
                 // through its `IntoSmeltUnknown` boundary adapter before the

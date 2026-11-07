@@ -144,7 +144,7 @@ impl FunctionEmitter<'_> {
             .transpose()?
             .unwrap_or_else(|| RustExpr::chain("\"utf8\".to_owned()"));
         let data_ty = self.operand_ty(data)?;
-        if matches!(self.mir.types.get(data_ty), Some(Type::String)) {
+        if matches!(self.mir.types.get(data_ty), Some(Type::String | Type::PyStr)) {
             let text = self.string_like_operand_expr(data, "hash.update data")?;
             return Ok(RenderedCall::propagating(RustExpr::postfix_on(&prelude::HASH_UPDATE_TEXT_FN, format!(
                 "{}(&{hash}, &{text}, &{encoding})",

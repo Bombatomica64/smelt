@@ -440,7 +440,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Int | Type::FixedInt(_)) => {
                 RustExpr::chain(format!("smelt_bigint_from_number({} as f64)", self.operand_expr(operand)?))
             }
-            Some(Type::String) => {
+            Some(Type::String | Type::PyStr) => {
                 RustExpr::chain(format!("smelt_bigint_from_string(&{})", self.operand_expr(operand)?))
             }
             // `BigInt(true)` is `1n`; a boolean never throws.

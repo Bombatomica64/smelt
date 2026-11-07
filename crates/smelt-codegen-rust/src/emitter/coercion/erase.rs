@@ -63,7 +63,7 @@ impl FunctionEmitter<'_> {
                 ))))
             }
             Some(Type::Dict(key, item))
-                if self.mir.types.get(*key) == Some(&Type::String)
+                if self.mir.types.get(*key).is_some_and(Type::is_text)
                     && self.mir.types.get(*item) != Some(&Type::Unknown) =>
             {
                 let value_wrap = self.dict_erased_value_wrap(operand, *item)?;
@@ -71,7 +71,7 @@ impl FunctionEmitter<'_> {
                     "{{ let smelt_record = {smelt_owned_text}; SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"
                 ))))
             }
-            Some(Type::Dict(key, item)) if self.mir.types.get(*key) != Some(&Type::String) => {
+            Some(Type::Dict(key, item)) if self.mir.types.get(*key).is_none_or(|ty| !ty.is_text()) => {
                 let key_wrap = self.property_key_to_string_expr(&RustExpr::path("key"), *key)?;
                 let value_wrap = self.dict_erased_value_wrap(operand, *item)?;
                 Ok(RustExpr::atom(self.carrier_format(format_args!(
@@ -431,7 +431,7 @@ impl FunctionEmitter<'_> {
                     value.expr().as_cast_operand()
                 ))))
             }
-            Some(Type::String) => Ok(crate::rust::erased_string(value_text)),
+            Some(Type::String | Type::PyStr) => Ok(crate::rust::erased_string(value_text)),
             Some(Type::List(item)) if self.list_items_render_as_unknown(ty, &self.render_scope()) => {
                 // Keep the rendered-value and operand erasure paths in agreement:
                 // an already-erased generic array aliases the same backing buffer.
@@ -469,14 +469,14 @@ impl FunctionEmitter<'_> {
                 Ok(RustExpr::postfix_on(&smelt_owned_value, self.carrier_format(format_args!("{smelt_owned_value}.into_smelt_unknown()"))))
             }
             Some(Type::Dict(key, item))
-                if self.mir.types.get(*key) == Some(&Type::String)
+                if self.mir.types.get(*key).is_some_and(Type::is_text)
                     && self.mir.types.get(*item) == Some(&Type::Unknown) =>
             {
                 Ok(RustExpr::atom(self.carrier_format(format_args!(
                     "SmeltUnknown::Object(SmeltObject::from_unknown_record({smelt_owned_value}))"
                 ))))
             }
-            Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) => {
+            Some(Type::Dict(key, item)) if self.mir.types.get(*key).is_some_and(Type::is_text) => {
                 let value_wrap = self.erase_rendered(&RustExpr::path("value"), *item)?;
                 Ok(RustExpr::atom(self.carrier_format(format_args!(
                     "{{ let smelt_record = {smelt_owned_value}; SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"

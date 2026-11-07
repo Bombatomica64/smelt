@@ -125,6 +125,7 @@ fn shape_at_depth(krate: &Crate, id: TypeId, depth: usize) -> String {
         Type::FixedInt(_) => "FixedInt".to_owned(),
         Type::BigInt => "BigInt".to_owned(),
         Type::String => "String".to_owned(),
+        Type::PyStr => "PyStr".to_owned(),
         Type::Unknown => "Unknown".to_owned(),
         Type::Never => "Never".to_owned(),
         Type::None => "None".to_owned(),
@@ -431,6 +432,7 @@ impl Comparer<'_> {
             | Type::FixedInt(_)
             | Type::BigInt
             | Type::String
+            | Type::PyStr
             | Type::Unknown
             | Type::Never
             | Type::TypeParam { .. }

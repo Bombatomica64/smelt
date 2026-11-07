@@ -181,11 +181,11 @@ impl FunctionEmitter<'_> {
             Some(Type::Float | Type::Int) => format!(
                 "{{ let smelt_width = ({space_text}) as f64; if smelt_width >= 1.0 {{ \" \".repeat(smelt_width.min(10.0) as usize) }} else {{ String::new() }} }}"
             ),
-            Some(Type::String) => format!("({space_text}).chars().take(10).collect::<String>()"),
+            Some(Type::String | Type::PyStr) => format!("({space_text}).chars().take(10).collect::<String>()"),
             Some(Type::Optional(inner)) if matches!(self.mir.types.get(*inner), Some(Type::Float | Type::Int)) => format!(
                 "({space_text}).map_or(String::new(), |smelt_width| {{ let smelt_width = smelt_width as f64; if smelt_width >= 1.0 {{ \" \".repeat(smelt_width.min(10.0) as usize) }} else {{ String::new() }} }})"
             ),
-            Some(Type::Optional(inner)) if matches!(self.mir.types.get(*inner), Some(Type::String)) => {
+            Some(Type::Optional(inner)) if matches!(self.mir.types.get(*inner), Some(Type::String | Type::PyStr)) => {
                 format!("({space_text}).map_or(String::new(), |smelt_space| smelt_space.chars().take(10).collect::<String>())")
             }
             Some(Type::Unknown | Type::Union(_)) => self.carrier_format(format_args!(
@@ -225,7 +225,7 @@ impl FunctionEmitter<'_> {
         match self.mir.types.get(ty) {
             Some(Type::Int | Type::Float) => Ok(value_text.to_owned()),
             Some(Type::Bool) => Ok(RustExpr::loose(format!("if {value_text} {{ 1.0 }} else {{ 0.0 }}"))),
-            Some(Type::String) => Ok(RustExpr::atom(format!(
+            Some(Type::String | Type::PyStr) => Ok(RustExpr::atom(format!(
                 "chrono::DateTime::parse_from_rfc3339(&{value_text}).or_else(|_| chrono::DateTime::parse_from_str(&{value_text}, \"%a %b %d %Y %H:%M:%S GMT%z\")).map(|date| date.timestamp_millis() as f64).or_else(|_| chrono::NaiveDate::parse_from_str(&{value_text}, \"%Y/%m/%d\").or_else(|_| chrono::NaiveDate::parse_from_str(&{value_text}, \"%Y-%m-%d\")).map(|date| date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis() as f64)).unwrap_or_else(|_| {value_text}.parse::<f64>().unwrap_or(f64::NAN))"
             ))),
             Some(Type::Optional(inner)) => {

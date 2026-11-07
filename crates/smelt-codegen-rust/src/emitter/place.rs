@@ -16,7 +16,7 @@ impl FunctionEmitter<'_> {
         field: Symbol,
     ) -> Result<RustExpr, EmitError> {
         let field_name = self.symbol_source_name(field)?;
-        if self.mir.types.get(key) == Some(&Type::String) {
+        if self.mir.types.get(key).is_some_and(Type::is_text) {
             return Ok(RustExpr::chain(format!("{field_name:?}.to_owned()")).owned_literal());
         }
         if self.has_dynamic_shape(key)
@@ -361,7 +361,7 @@ impl FunctionEmitter<'_> {
                         self.place_target_through(*base, format!("{base_mut}[{index_text}]"))
                     }
                     Some(Type::Dict(key_ty, _)) => {
-                        let key_text = if self.mir.types.get(*key_ty) == Some(&Type::String) {
+                        let key_text = if self.mir.types.get(*key_ty).is_some_and(Type::is_text) {
                             let source_key = self.operand_ty(index)?;
                             let index_text = self.operand_expr(index)?;
                             self.property_key_to_string_expr(&index_text, source_key)?
@@ -450,7 +450,7 @@ impl FunctionEmitter<'_> {
         value_ty: TypeId,
         index: &Operand,
     ) -> Result<RustExpr, EmitError> {
-        let key_text = if self.mir.types.get(key_ty) == Some(&Type::String) {
+        let key_text = if self.mir.types.get(key_ty).is_some_and(Type::is_text) {
             let source_key = self.operand_ty(index)?;
             let index_text = self.operand_expr(index)?;
             self.property_key_to_string_expr(&index_text, source_key)?
@@ -715,7 +715,7 @@ impl FunctionEmitter<'_> {
                 };
                 Ok(Some(mapped))
             }
-            Some(Type::String) if self.mir.types.get(inner) == Some(&Type::String) => {
+            Some(Type::String | Type::PyStr) if self.mir.types.get(inner).is_some_and(Type::is_text) => {
                 let base_text = self.local_value(*base)?;
                 let index_text = self
                     .normalized_read_index_expr(&self.string_len_expr(&base_text), index, *negative)?;
@@ -826,7 +826,7 @@ impl FunctionEmitter<'_> {
                     "{read_expr}.get({index_text}).cloned().map(|value| {erased_value}).unwrap_or(SmeltUnknown::Undefined)"
                 )))))
             }
-            Some(Type::String) => {
+            Some(Type::String | Type::PyStr) => {
                 let base_text = self.local_value(*base)?;
                 let index_text = self
                     .normalized_read_index_expr(&self.string_len_expr(&base_text), index, *negative)?;
@@ -892,7 +892,7 @@ impl FunctionEmitter<'_> {
         let index_ty = self.operand_ty(index)?;
         let index_text = self.operand_expr(index)?;
         let key_text = self.property_key_to_string_expr(&index_text, index_ty)?;
-        if matches!(self.mir.types.get(index_ty), Some(Type::String)) {
+        if matches!(self.mir.types.get(index_ty), Some(Type::String | Type::PyStr)) {
             return Ok(RustExpr::atom(format!(
                 r#"match {base_text} {{
                     SmeltUnknown::String(value) => {{
@@ -992,7 +992,7 @@ impl FunctionEmitter<'_> {
                 }
                 return Ok(RustExpr::postfix_on(&base_text, format!("{base_text}.get(&{key_text}).cloned().flatten()")));
             }
-            if self.mir.types.get(*key) == Some(&Type::String)
+            if self.mir.types.get(*key).is_some_and(Type::is_text)
                 && self.renders_erased(*value)?
             {
                 // A property the record does not hold reads as
@@ -1172,7 +1172,7 @@ impl FunctionEmitter<'_> {
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
             && let Some(Type::Dict(key_ty, _)) = self.mir.types.get(*inner)
-            && self.mir.types.get(*key_ty) == Some(&Type::String)
+            && self.mir.types.get(*key_ty).is_some_and(Type::is_text)
         {
             let field_name = self.symbol_source_name(field)?;
             let base_text = self.local_value(base)?;
@@ -1298,7 +1298,7 @@ impl FunctionEmitter<'_> {
             let call_field = { let receiver = self.local_value(base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.{SMELT_CALL}.clone()")) }.ending_in_clone();
             return self.erase_rendered(&call_field, call_ty);
         }
-        if matches!(self.mir.types.get(base_ty), Some(Type::String)) {
+        if matches!(self.mir.types.get(base_ty), Some(Type::String | Type::PyStr)) {
             return self.string_field_expr(&self.local_value(base)?, field);
         }
         if let Some(getter) = self.descriptor_getter_expr(base, field)? {
@@ -1480,7 +1480,7 @@ impl FunctionEmitter<'_> {
                 let base_text = self.local_value(base)?;
                 self.dict_index_read_expr(&base_text, *key_ty, *value_ty, index)
             }
-            Some(Type::String) => {
+            Some(Type::String | Type::PyStr) => {
                 let base_text = self.local_value(base)?;
                 let index_text = self.normalized_read_index_expr(
                     &self.string_len_expr(&base_text),
@@ -1555,7 +1555,7 @@ impl FunctionEmitter<'_> {
             // members (`smelt_host_method`). Answering `undefined`
             // unconditionally made `raw[key]()` (Hono's request body
             // cache) call nothing.
-            Some(Type::Class { .. }) if self.mir.types.get(self.operand_ty(index)?) == Some(&Type::String)
+            Some(Type::Class { .. }) if self.mir.types.get(self.operand_ty(index)?).is_some_and(Type::is_text)
                 && self.context.demand().has(Need::Unknown) =>
             {
                 let base_text = self.erase(&Operand::Copy(Place::Local(base)))?;

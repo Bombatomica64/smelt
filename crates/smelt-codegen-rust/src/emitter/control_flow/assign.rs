@@ -297,7 +297,7 @@ impl FunctionEmitter<'_> {
         match self.mir.types.get(base_ty) {
             Some(Type::Dict(key, item)) => {
                 let rendered_value = self.rvalue_expr_for_dest(value, *item)?;
-                let key_text = if self.mir.types.get(*key) == Some(&Type::String) {
+                let key_text = if self.mir.types.get(*key).is_some_and(Type::is_text) {
                     let index_ty = self.operand_ty(index)?;
                     if index_ty == *key {
                         self.value_at_type(index, *key)?
@@ -406,7 +406,7 @@ impl FunctionEmitter<'_> {
                     .class_index_store_types(base_ty)
                     .ok_or_else(|| EmitError::new("class index store types missing"))?;
                 let rendered_value = self.rvalue_expr_for_dest(value, value_ty)?;
-                let key_text = if self.mir.types.get(key_ty) == Some(&Type::String) {
+                let key_text = if self.mir.types.get(key_ty).is_some_and(Type::is_text) {
                     let index_ty = self.operand_ty(index)?;
                     if index_ty == key_ty {
                         self.value_at_type(index, key_ty)?

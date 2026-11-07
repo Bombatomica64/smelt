@@ -25,7 +25,7 @@ module examples/python/end-to-end/09_break_continue_finally/input.py (ModuleId(0
 
 interned types
   t0 = None
-  t1 = String
+  t1 = PyStr
   t2 = Int
   t3 = Bool
   t4 = fn(Int) -> Int

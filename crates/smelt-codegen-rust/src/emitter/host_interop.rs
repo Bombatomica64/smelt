@@ -175,7 +175,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn http_get_expr(&self, url: &Operand) -> Result<RustExpr, EmitError> {
         if !matches!(
             self.mir.types.get(self.operand_ty(url)?),
-            Some(Type::String)
+            Some(Type::String | Type::PyStr)
         ) {
             return Err(EmitError::new("HTTP GET URL must be a string"));
         }
@@ -304,7 +304,7 @@ impl FunctionEmitter<'_> {
         let key_text = match projection {
             GlobalProjection::Field(field) => self.dict_field_key_expr(key_ty, *field)?,
             GlobalProjection::Index { index, .. } => {
-                if self.mir.types.get(key_ty) == Some(&Type::String) {
+                if self.mir.types.get(key_ty).is_some_and(Type::is_text) {
                     self.string_like_operand_expr(index, "global index")?
                 } else {
                     self.value_at_type(index, key_ty)?

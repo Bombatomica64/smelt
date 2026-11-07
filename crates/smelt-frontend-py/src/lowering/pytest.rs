@@ -11,7 +11,7 @@ impl ModuleBuilder<'_> {
             PytestLiteral::Bool(_) => Ok(self.intern_type(Type::Bool)),
             PytestLiteral::Int(_) => Ok(self.intern_type(Type::Int)),
             PytestLiteral::Float(_) => Ok(self.intern_type(Type::Float)),
-            PytestLiteral::String(_) => Ok(self.intern_type(Type::String)),
+            PytestLiteral::String(_) => Ok(self.intern_type(Type::PyStr)),
             PytestLiteral::None => Ok(self.intern_type(Type::None)),
             PytestLiteral::Tuple(items) => {
                 let types = items
@@ -73,7 +73,7 @@ impl ModuleBuilder<'_> {
                 }))
             }
             PytestLiteral::String(inner) => {
-                let ty = self.intern_type(Type::String);
+                let ty = self.intern_type(Type::PyStr);
                 Ok(body.push_expr(HirExpr {
                     kind: ExprKind::Literal(Literal::String(inner.clone())),
                     ty,
@@ -293,7 +293,7 @@ impl ModuleBuilder<'_> {
                         )
                     })
                     .and_then(|ann| this.annotation_to_hir(ann))?;
-                let string_ty = this.intern_type(Type::String);
+                let string_ty = this.intern_type(Type::PyStr);
                 let dict_ty = this.intern_type(Type::Dict(string_ty, value_ty));
                 let param_name = this.intern_name(param_name_str);
                 let local = fn_body.push_local(LocalDecl {

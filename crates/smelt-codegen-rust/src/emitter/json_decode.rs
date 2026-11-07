@@ -155,7 +155,7 @@ impl FunctionEmitter<'_> {
                 | Type::Int
                 | Type::FixedInt(_)
                 | Type::Float
-                | Type::String
+                | Type::String | Type::PyStr
                 | Type::None
                 | Type::Unknown,
             ) => true,
@@ -165,7 +165,7 @@ impl FunctionEmitter<'_> {
             Some(Type::List(item) | Type::Optional(item)) => self.json_decodable(*item, visiting),
             Some(Type::Tuple(items)) => items.iter().all(|item| self.json_decodable(*item, visiting)),
             Some(Type::Dict(key, value)) => {
-                matches!(self.mir.types.get(*key), Some(Type::String))
+                matches!(self.mir.types.get(*key), Some(Type::String | Type::PyStr))
                     && self.dict_uses_smelt_record(*key)
                     && self.json_decodable(*value, visiting)
             }
@@ -245,7 +245,7 @@ impl FunctionEmitter<'_> {
             Some(Type::FixedInt(smelt_hir::IntWidth::I32)) => "int32".to_owned(),
             Some(Type::FixedInt(_)) => "integer".to_owned(),
             Some(Type::Float) => "number".to_owned(),
-            Some(Type::String) => "string".to_owned(),
+            Some(Type::String | Type::PyStr) => "string".to_owned(),
             Some(Type::None) => "null".to_owned(),
             Some(Type::Unknown) => "unknown".to_owned(),
             Some(Type::List(item)) => {
@@ -299,7 +299,7 @@ impl FunctionEmitter<'_> {
             Some(Type::FixedInt(smelt_hir::IntWidth::I64)) => Some("smelt_decode_integer"),
             Some(Type::FixedInt(smelt_hir::IntWidth::Usize)) => Some("smelt_decode_index"),
             Some(Type::Float) => Some("smelt_decode_number"),
-            Some(Type::String) => Some("smelt_decode_string"),
+            Some(Type::String | Type::PyStr) => Some("smelt_decode_string"),
             Some(Type::None) => Some("smelt_decode_null"),
             Some(Type::Unknown) => Some("smelt_decode_unknown"),
             Some(Type::Class { .. }) if self.json_decode_passes_through(ty) => {

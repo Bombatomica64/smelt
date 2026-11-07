@@ -93,7 +93,7 @@ impl FunctionEmitter<'_> {
                 };
                 if !matches!(
                     self.mir.types.get(self.operand_ty(url)?),
-                    Some(Type::String)
+                    Some(Type::String | Type::PyStr)
                 ) {
                     return Err(EmitError::new("async HTTP GET URL must be a string"));
                 }
@@ -899,7 +899,7 @@ impl FunctionEmitter<'_> {
         }
         if !matches!(
             self.mir.types.get(self.operand_ty(url)?),
-            Some(Type::String)
+            Some(Type::String | Type::PyStr)
         ) {
             return Err(EmitError::new("async fetch URL must be a string"));
         }

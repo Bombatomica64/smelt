@@ -10,11 +10,11 @@ module examples/python/end-to-end/11_numbers_and_module_state/input.py (ModuleId
     fn run owner Module
   exprs
     #0: None = @2(console_log)
-    #1: String = "before"
+    #1: PyStr = "before"
     #2: None = call #0(#1)
     #3: None = global_get @4(counter)
     #4: None = @2(console_log)
-    #5: String = "after"
+    #5: PyStr = "after"
     #6: None = call #4(#5)
     #7: fn() -> None = @7(run)
     #8: None = call #7()
@@ -26,7 +26,7 @@ module examples/python/end-to-end/11_numbers_and_module_state/input.py (ModuleId
 
 interned types
   t0 = None
-  t1 = String
+  t1 = PyStr
   t2 = Counter
   t3 = Int
   t4 = Float

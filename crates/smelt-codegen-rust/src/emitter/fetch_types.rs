@@ -50,8 +50,8 @@ impl FunctionEmitter<'_> {
             }
             // `Record<string, string>`: each own entry is one header.
             Some(&Type::Dict(key, value))
-                if matches!(self.mir.types.get(key), Some(Type::String))
-                    && matches!(self.mir.types.get(value), Some(Type::String)) =>
+                if matches!(self.mir.types.get(key), Some(Type::String | Type::PyStr))
+                    && matches!(self.mir.types.get(value), Some(Type::String | Type::PyStr)) =>
             {
                 Ok(RustExpr::atom(format!(
                     "SmeltHeaders::from_pairs({init_text}.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>())"
@@ -65,9 +65,9 @@ impl FunctionEmitter<'_> {
             // narrowing is not carried into the record type (Hono's
             // `#cachedBody` rebuild).
             Some(&Type::Dict(key, value))
-                if matches!(self.mir.types.get(key), Some(Type::String))
+                if matches!(self.mir.types.get(key), Some(Type::String | Type::PyStr))
                     && matches!(self.mir.types.get(value), Some(&Type::Optional(inner))
-                        if matches!(self.mir.types.get(inner), Some(Type::String))) =>
+                        if matches!(self.mir.types.get(inner), Some(Type::String | Type::PyStr))) =>
             {
                 Ok(RustExpr::atom(format!(
                     "SmeltHeaders::from_pairs({init_text}.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone().unwrap_or_else(|| \"undefined\".to_owned()))).collect::<Vec<(String, String)>>())"
@@ -84,7 +84,7 @@ impl FunctionEmitter<'_> {
             // "sequence of sequences" conversion rejects it.
             Some(&Type::List(item))
                 if matches!(self.mir.types.get(item), Some(&Type::List(inner))
-                    if matches!(self.mir.types.get(inner), Some(Type::String))) =>
+                    if matches!(self.mir.types.get(inner), Some(Type::String | Type::PyStr))) =>
             {
                 Ok(RustExpr::atom(format!(
                     "SmeltHeaders::from_pairs({init_text}.to_vec().into_iter().filter_map(|smelt_pair| {{ let smelt_pair = smelt_pair.to_vec(); Some((smelt_pair.first()?.clone(), smelt_pair.get(1)?.clone())) }}).collect::<Vec<(String, String)>>())"
@@ -157,14 +157,14 @@ impl FunctionEmitter<'_> {
         Ok(match self.mir.types.get(ty) {
             // `Record<string, string>`.
             Some(&Type::Dict(key, value)) => {
-                matches!(self.mir.types.get(key), Some(Type::String))
-                    && matches!(self.mir.types.get(value), Some(Type::String))
+                matches!(self.mir.types.get(key), Some(Type::String | Type::PyStr))
+                    && matches!(self.mir.types.get(value), Some(Type::String | Type::PyStr))
             }
             // `[string, string][]`, and the `string[][]` a bare literal infers.
             Some(&Type::List(item)) => {
                 self.is_string_pair_type(item)
                     || matches!(self.mir.types.get(item), Some(&Type::List(inner))
-                        if matches!(self.mir.types.get(inner), Some(Type::String)))
+                        if matches!(self.mir.types.get(inner), Some(Type::String | Type::PyStr)))
             }
             _ => false,
         })
@@ -247,13 +247,13 @@ impl FunctionEmitter<'_> {
         let init_ty = self.operand_ty(init)?;
         let init_text = self.operand_expr(init)?;
         match self.mir.types.get(init_ty) {
-            Some(Type::String) => Ok(RustExpr::atom(format!("SmeltUrlSearchParams::from_query(&{init_text})"))),
+            Some(Type::String | Type::PyStr) => Ok(RustExpr::atom(format!("SmeltUrlSearchParams::from_query(&{init_text})"))),
             Some(Type::Class { .. }) if self.is_url_search_params_class_type(init_ty)? => Ok(
                 RustExpr::atom(format!("SmeltUrlSearchParams::from_pairs({init_text}.entries_in_order())")),
             ),
             Some(&Type::Dict(key, value))
-                if matches!(self.mir.types.get(key), Some(Type::String))
-                    && matches!(self.mir.types.get(value), Some(Type::String)) =>
+                if matches!(self.mir.types.get(key), Some(Type::String | Type::PyStr))
+                    && matches!(self.mir.types.get(value), Some(Type::String | Type::PyStr)) =>
             {
                 Ok(RustExpr::atom(format!(
                     "SmeltUrlSearchParams::from_pairs({init_text}.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>())"
@@ -264,7 +264,7 @@ impl FunctionEmitter<'_> {
             ))),
             Some(&Type::List(item))
                 if matches!(self.mir.types.get(item), Some(&Type::List(inner))
-                    if matches!(self.mir.types.get(inner), Some(Type::String))) =>
+                    if matches!(self.mir.types.get(inner), Some(Type::String | Type::PyStr))) =>
             {
                 Ok(RustExpr::atom(format!(
                     "SmeltUrlSearchParams::from_pairs({init_text}.to_vec().into_iter().filter_map(|smelt_pair| {{ let smelt_pair = smelt_pair.to_vec(); Some((smelt_pair.first()?.clone(), smelt_pair.get(1)?.clone())) }}).collect::<Vec<(String, String)>>())"
@@ -429,7 +429,7 @@ impl FunctionEmitter<'_> {
                 init_members,
                 source_init_resets_referrer,
             )?
-        } else if matches!(self.mir.types.get(input_ty), Some(Type::String)) {
+        } else if matches!(self.mir.types.get(input_ty), Some(Type::String | Type::PyStr)) {
             self.request_from_parts_expr(
                 method,
                 headers,
@@ -788,7 +788,7 @@ impl FunctionEmitter<'_> {
             return Ok(RustExpr::atom(format!("match {body_text} {{ {} }}", arms.join(", "))));
         }
         match self.mir.types.get(body_ty) {
-            Some(Type::String) => Ok(RustExpr::atom(format!("SmeltBody::from_text(&{body_text})"))),
+            Some(Type::String | Type::PyStr) => Ok(RustExpr::atom(format!("SmeltBody::from_text(&{body_text})"))),
             Some(Type::None) => Ok(RustExpr::atom("SmeltBody::empty()")),
             // An OPTIONAL body. WHATWG's constructor takes `BodyInit?` and an
             // absent body IS the empty body — the same answer the no-argument
@@ -1077,7 +1077,7 @@ impl FunctionEmitter<'_> {
             if items.len() == 2
                 && items
                     .iter()
-                    .all(|item| matches!(self.mir.types.get(*item), Some(Type::String))))
+                    .all(|item| matches!(self.mir.types.get(*item), Some(Type::String | Type::PyStr))))
     }
 
     /// Resolve a class symbol to its shared stdlib class identity, if any.

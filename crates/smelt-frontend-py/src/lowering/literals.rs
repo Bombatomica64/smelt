@@ -54,7 +54,7 @@ impl ModuleBuilder<'_> {
             }
 
             Expr::StringLiteral(s) => {
-                let ty = self.intern_type(Type::String);
+                let ty = self.intern_type(Type::PyStr);
                 Ok(body.push_expr(HirExpr {
                     kind: ExprKind::Literal(Literal::String(s.value.to_str().to_owned())),
                     ty,
@@ -381,7 +381,7 @@ impl ModuleBuilder<'_> {
         }
 
         let span = self.span(fstring.range);
-        let str_ty = self.intern_type(Type::String);
+        let str_ty = self.intern_type(Type::PyStr);
         let mut segments: Vec<Segment> = Vec::new();
 
         for part in fstring.value.iter() {
@@ -856,7 +856,7 @@ impl ModuleBuilder<'_> {
         }
         if !matches!(
             self.ctx.krate.types.get(operand_ty),
-            Some(Type::Int | Type::Float | Type::String)
+            Some(Type::Int | Type::Float | Type::PyStr)
         ) {
             return Err(SmeltError::unsupported(
                 span,
@@ -945,7 +945,7 @@ impl ModuleBuilder<'_> {
         let haystack_ty = Self::expr_ty(body, haystack);
         let bool_ty = self.intern_type(Type::Bool);
         let contains_kind = match self.ctx.krate.types.get(haystack_ty) {
-            Some(Type::String) if self.ctx.krate.types.get(needle_ty) == Some(&Type::String) => {
+            Some(Type::PyStr) if self.ctx.krate.types.get(needle_ty) == Some(&Type::PyStr) => {
                 // Python's `in` has no start position; `from_index` is a
                 // JavaScript `includes(needle, position)` affordance.
                 ExprKind::StringContains {

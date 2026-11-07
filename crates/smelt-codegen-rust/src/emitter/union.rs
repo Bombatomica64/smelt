@@ -245,7 +245,7 @@ impl FunctionEmitter<'_> {
                 // generated wrapper, so a dynamic next-input boundary does not
                 // make the generator value itself an erased runtime object.
             }
-            Some(Type::Bool | Type::Int | Type::FixedInt(_) | Type::BigInt | Type::Float | Type::String) => true,
+            Some(Type::Bool | Type::Int | Type::FixedInt(_) | Type::BigInt | Type::Float | Type::String | Type::PyStr) => true,
             // Nullish unions remain `Option`/erased-boundary work. Keeping them
             // out of tagged unions preserves missing-property/default semantics;
             // the concrete-union feature targets distinct value-bearing arms.
@@ -360,7 +360,7 @@ impl FunctionEmitter<'_> {
         // decision TypeScript's discriminated-union check makes. Without
         // guards the choice would be a guess, so the site keeps declining.
         if structural.len() > 1
-            && matches!(self.mir.types.get(source), Some(Type::Dict(key, _)) if matches!(self.mir.types.get(*key), Some(Type::String)))
+            && matches!(self.mir.types.get(source), Some(Type::Dict(key, _)) if matches!(self.mir.types.get(*key), Some(Type::String | Type::PyStr)))
             && structural
                 .iter()
                 .filter(|index| self.union_member_structural_guard(members[**index], members, **index).is_none())
@@ -436,7 +436,7 @@ impl FunctionEmitter<'_> {
         // A record/class source instead offers its own named fields, which the
         // field-wise adapter already checks.
         match self.mir.types.get(source) {
-            Some(Type::Dict(key, value)) if matches!(self.mir.types.get(*key), Some(Type::String)) => {
+            Some(Type::Dict(key, value)) if matches!(self.mir.types.get(*key), Some(Type::String | Type::PyStr)) => {
                 let value_ty = *value;
                 fields.iter().all(|field| {
                     matches!(self.mir.types.get(field.ty), Some(Type::Optional(_)))
@@ -587,7 +587,7 @@ impl FunctionEmitter<'_> {
                 // way a lone record would, through the target arms' literal
                 // discriminants. Any other unmatched arm is one the program
                 // narrowed away and stays excluded.
-                if matches!(self.mir.types.get(*member), Some(Type::Dict(key, _)) if matches!(self.mir.types.get(*key), Some(Type::String)))
+                if matches!(self.mir.types.get(*member), Some(Type::Dict(key, _)) if matches!(self.mir.types.get(*key), Some(Type::String | Type::PyStr)))
                     && let Some(injected) =
                         self.inject_union_value(&RustExpr::path("value"), *member, target, &self.render_scope())?
                 {
@@ -1280,7 +1280,7 @@ impl FunctionEmitter<'_> {
             let length = match self.mir.types.get(*member) {
                 Some(Type::List(_)) => "(smelt_union_arm.len() as f64)".to_owned(),
                 Some(Type::Tuple(items)) => format!("{}.0", items.len()),
-                Some(Type::String) => format!("({} as f64)", self.string_len_text("smelt_union_arm")),
+                Some(Type::String | Type::PyStr) => format!("({} as f64)", self.string_len_text("smelt_union_arm")),
                 _ => return Ok(None),
             };
             arms.push(format!("{}::M{position}(smelt_union_arm) => {length}", union_name(base_ty)));
@@ -1683,7 +1683,7 @@ impl FunctionEmitter<'_> {
     /// prototype members).
     fn union_member_has_field(&self, ty: TypeId, field: &str) -> bool {
         match self.mir.types.get(ty) {
-            Some(Type::String | Type::List(_) | Type::Tuple(_)) => field == "length",
+            Some(Type::String | Type::PyStr | Type::List(_) | Type::Tuple(_)) => field == "length",
             Some(Type::Dict(_, _)) => true,
             Some(Type::Class { name, .. }) => self.mir.classes.iter().any(|class| {
                 class.name == *name
@@ -1715,7 +1715,7 @@ impl FunctionEmitter<'_> {
     /// * every object arm also has the `Object.prototype` members.
     pub(super) fn type_has_property_statically(&self, ty: TypeId, field: &str) -> bool {
         match self.mir.types.get(ty) {
-            Some(Type::String | Type::List(_) | Type::Tuple(_)) => field == "length",
+            Some(Type::String | Type::PyStr | Type::List(_) | Type::Tuple(_)) => field == "length",
             Some(Type::Dict(_, _)) => true,
             Some(Type::Class { name, .. }) => {
                 if let Ok(Some(host)) = self.stdlib_class_of_symbol(*name)
