@@ -449,9 +449,7 @@ impl FunctionEmitter<'_> {
             .and_then(|index| u32::try_from(index).ok())
             .map(TypeId)
     }
-}
 
-impl FunctionEmitter<'_> {
     /// A type parameter: its binding, its generic name or the erased carrier.
     fn type_param_rust_type(
         &self,

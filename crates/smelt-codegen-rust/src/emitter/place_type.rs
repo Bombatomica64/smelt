@@ -105,9 +105,7 @@ impl FunctionEmitter<'_> {
             smelt_stdlib::RegExpMember::LastIndex => Type::Float,
         })
     }
-}
 
-impl FunctionEmitter<'_> {
     /// The type a field place reads at.
     fn field_place_ty(&self, base: LocalId, field: Symbol) -> Result<TypeId, EmitError> {
         let base_ty = self.local_decl(base)?.ty;

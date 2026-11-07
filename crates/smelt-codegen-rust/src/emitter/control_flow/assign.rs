@@ -82,9 +82,7 @@ impl FunctionEmitter<'_> {
         out.push_str(&format!("    {assignment} = {rendered_value};\n"));
         Ok(())
     }
-}
 
-impl FunctionEmitter<'_> {
     /// A write to a field that needs more than a plain assignment.
     /// Answers whether the statement is complete; `false` hands it to the shared tail of
     /// [`Self::emit_assign_place_statement`].

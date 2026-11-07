@@ -914,9 +914,7 @@ impl FunctionEmitter<'_> {
             "{{ let smelt_source_value = {smelt_owned_text}; let smelt_function = match smelt_source_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"{SMELT_CALL}\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function); let smelt_callback: {target_text} = if let Some(smelt_original) = smelt_restore_function_origin::<{target_text}>(&smelt_function) {{ if matches!(smelt_source_value, SmeltUnknown::Object(_)) {{ ::std::rc::Rc::new(move |{params}| (smelt_original)({forwarded_args})) }} else {{ smelt_original }} }} else {{ ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let smelt_result = {call_text}; {return_text} }}) }}; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback }} else {{ {default_callback} }} }}"
         ))))
     }
-}
 
-impl FunctionEmitter<'_> {
     /// Extraction at an integer.
     fn extract_int(&self, smelt_owned_text: &RustExpr) -> Result<RustExpr, EmitError> {
         Ok(RustExpr::atom(self.carrier_format(format_args!(

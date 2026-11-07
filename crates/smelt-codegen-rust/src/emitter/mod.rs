@@ -5,7 +5,7 @@
 )]
 #![allow(
     clippy::redundant_pub_crate,
-    reason = "the private emitter module still exposes helpers to its parent codegen module"
+    reason = "the private emitter module exposes helpers to its parent codegen module"
 )]
 
 use crate::rust::RustExpr;

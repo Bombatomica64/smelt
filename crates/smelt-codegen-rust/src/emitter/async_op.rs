@@ -453,9 +453,7 @@ impl FunctionEmitter<'_> {
         }
         Ok(text)
     }
-}
 
-impl FunctionEmitter<'_> {
     /// `Promise.all` and `Promise.allSettled`.
     fn promise_all_expr(
         &self,

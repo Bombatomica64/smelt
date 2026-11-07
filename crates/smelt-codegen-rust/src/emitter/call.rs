@@ -562,12 +562,8 @@ impl FunctionEmitter<'_> {
                     && self.concrete_union_members(declared.return_ty).is_none()
             })
     }
-}
 
-impl FunctionEmitter<'_> {
-}
 
-impl FunctionEmitter<'_> {
     /// `console.log`.
     fn console_log_call(
         &self,

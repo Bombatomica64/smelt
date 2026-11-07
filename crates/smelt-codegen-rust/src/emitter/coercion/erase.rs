@@ -972,9 +972,7 @@ impl FunctionEmitter<'_> {
             "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); {entries} {host_markers}{class_marker}{proto_entries}{write_through}SmeltUnknown::Object({object_ctor}) }}"
         ))))
     }
-}
 
-impl FunctionEmitter<'_> {
     /// A function value boxed into the erased carrier.
     fn erase_function_value(
         &self,

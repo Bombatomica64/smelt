@@ -525,9 +525,7 @@ impl FunctionEmitter<'_> {
             )
         )
     }
-}
 
-impl FunctionEmitter<'_> {
     /// Returns whether a type is supported by the current JSON serializer path.
     pub(super) fn is_json_serializable_type(&self, ty: TypeId) -> bool {
         // A value whose EMITTED Rust type is already the erased carrier has

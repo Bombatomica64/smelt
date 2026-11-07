@@ -25,7 +25,7 @@
 )]
 #![expect(
     clippy::too_many_lines,
-    reason = "large emitters will be split after behavior stabilizes"
+    reason = "what stays long is one op table or one ordered rule list, which reads worse in pieces"
 )]
 #![expect(
     clippy::literal_string_with_formatting_args,
@@ -45,20 +45,20 @@
 )]
 #![expect(
     clippy::missing_const_for_fn,
-    reason = "utility const qualification will be handled after behavior cleanup"
+    reason = "const qualification buys nothing here: emitter helpers only run at build time"
 )]
 #![expect(
     clippy::needless_pass_by_ref_mut,
     reason = "emitter entrypoints reserve mutability for incremental generation state"
 )]
-#![allow(
+#![expect(
     clippy::manual_let_else,
     clippy::match_same_arms,
     clippy::needless_question_mark,
     clippy::option_if_let_else,
     clippy::unnested_or_patterns,
     clippy::unnecessary_wraps,
-    reason = "Remeda fallback emission currently favors explicit conservative branches over stylistic rewrites"
+    reason = "emission keeps one explicit branch per source case, which combinator rewrites would hide"
 )]
 #![cfg_attr(
     test,

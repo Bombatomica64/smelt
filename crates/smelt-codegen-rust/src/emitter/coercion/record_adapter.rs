@@ -727,9 +727,7 @@ impl FunctionEmitter<'_> {
             || self.is_erased_class_type(source)
             || self.is_erased_class_type(target)
     }
-}
 
-impl FunctionEmitter<'_> {
     /// Returns the generated fields for a concrete class/interface storage type.
     pub(in crate::emitter) fn structural_record_fields(&self, ty: TypeId) -> Option<Vec<MirField>> {
         let Some(Type::Class { name, args }) = self.mir.types.get(ty) else {

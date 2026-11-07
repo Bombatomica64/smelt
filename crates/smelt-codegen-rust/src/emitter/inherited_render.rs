@@ -134,9 +134,7 @@ impl<'mir> FunctionEmitter<'mir> {
             .base_initializer()
             .is_some_and(|receiver| receiver.receivers.contains(&local))
     }
-}
 
-impl FunctionEmitter<'_> {
     /// Which inherited-copy substitution applies right now; see
     /// [`InheritedScope`].
     fn inherited_scope(&self) -> InheritedScope<'_> {
