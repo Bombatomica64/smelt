@@ -337,3 +337,9 @@ fn field_read_before_keyed_write() -> TestResult {
 fn coalesce_asserted_fallback_is_lazy() -> TestResult {
     verify_node_parity("coalesce_asserted_fallback_is_lazy")
 }
+
+/// A primitive consequent does not convert a different primitive alternate.
+#[test]
+fn conditional_primitive_arms() -> TestResult {
+    verify_node_parity("conditional_primitive_arms")
+}

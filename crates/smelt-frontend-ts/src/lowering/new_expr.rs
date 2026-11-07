@@ -2858,9 +2858,17 @@ impl ModuleBuilder<'_> {
             peel(&conditional.alternate, Wrappers::Parens),
             Expression::ArrayExpression(array) if !array.elements.is_empty()
         );
+        // A primitive consequent says nothing about the alternate either, and
+        // hinting it would convert a different primitive arm to it
+        // (`c ? s : Number(s)` turned the number into a string).
+        let then_is_primitive = matches!(
+            self.ctx.krate.types.get(then_ty),
+            Some(Type::String | Type::Float | Type::Int | Type::Bool)
+        );
         let branch_hint = if self.ctx.krate.types.get(then_ty) == Some(&Type::None)
             || self.function_returns_never(then_ty)
             || alternate_has_own_shape
+            || then_is_primitive
         {
             type_hint
         } else {
