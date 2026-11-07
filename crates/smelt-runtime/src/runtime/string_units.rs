@@ -1,0 +1,128 @@
+// JavaScript string indices, over Rust's UTF-8 `String`.
+//
+// A JavaScript string is a sequence of UTF-16 code units: `length`, every
+// index an operation answers (`indexOf`, `search`, a match's `index`) and
+// every index it takes (`slice`, `charAt`, `s[i]`, `padEnd`'s length) count
+// code units. Generated crates keep strings as UTF-8 `String`, so each such
+// operation converts at its boundary through these helpers, and every helper
+// reads ASCII text byte for byte, since there a byte is a code unit.
+//
+// A Rust string cannot hold a lone surrogate. A cut that falls inside a
+// surrogate pair (`"😀".slice(0, 1)`, `"😀"[1]`) yields U+FFFD for the cut
+// half: one code unit, as in JavaScript, but a different one.
+
+// @smelt:item smelt_utf16_len when string_units
+/// The JavaScript `length` of `text`: its UTF-16 code units.
+#[allow(dead_code)]
+fn smelt_utf16_len(text: &str) -> usize {
+    //~ Every byte that starts a character is one unit and a four-byte
+    //~ character is two: a byte count with no decoding, which vectorizes.
+    if text.is_ascii() { text.len() } else { smelt_utf16_units_in(text.as_bytes()) }
+}
+
+/// The UTF-16 index of the byte offset `byte` of `text`, which is a char boundary.
+#[allow(dead_code)]
+fn smelt_utf16_index_of_byte(text: &str, byte: usize) -> usize {
+    smelt_utf16_len(&text[..byte])
+}
+
+/// The UTF-16 code units of the characters whose first byte is in the word
+/// `word` (eight bytes of a string, little-endian).
+//~ Bit 7 of each byte of the masks: a continuation byte is `10xxxxxx` and
+//~ counts nothing; any other byte starts a character, one unit, and a
+//~ four-byte character's `11110xxx` lead counts a second unit.
+#[allow(dead_code)]
+fn smelt_utf16_units_in_word(word: u64) -> usize {
+    const HIGH: u64 = 0x8080_8080_8080_8080;
+    let continuation = (word & !(word << 1) & HIGH).count_ones() as usize;
+    let four_byte = (word & (word << 1) & (word << 2) & (word << 3) & HIGH).count_ones() as usize;
+    8 - continuation + four_byte
+}
+
+/// The UTF-16 code units of the characters whose first byte is in `bytes`.
+#[allow(dead_code)]
+fn smelt_utf16_units_in(bytes: &[u8]) -> usize {
+    let mut words = bytes.chunks_exact(8);
+    let whole: usize = words.by_ref().map(|word| smelt_utf16_units_in_word(u64::from_le_bytes([word[0], word[1], word[2], word[3], word[4], word[5], word[6], word[7]]))).sum();
+    whole + words.remainder().iter().map(|byte| usize::from(byte & 0xC0 != 0x80) + usize::from(*byte >= 0xF0)).sum::<usize>()
+}
+
+/// The byte offset where UTF-16 index `unit` of `text` starts, clamped to the
+/// end; `Err` with the offset of the surrogate pair `unit` falls inside.
+#[allow(dead_code)]
+fn smelt_utf16_byte_of(text: &str, unit: usize) -> Result<usize, usize> {
+    let bytes = text.as_bytes();
+    if bytes.get(..unit).is_some_and(<[u8]>::is_ascii) { return Ok(unit); }
+    //~ Skip whole eight-byte words that end before `unit`, then step.
+    let (mut at, mut units) = (0, 0);
+    while let Some(word) = bytes.get(at..at + 8) {
+        let count = smelt_utf16_units_in_word(u64::from_le_bytes([word[0], word[1], word[2], word[3], word[4], word[5], word[6], word[7]]));
+        if units + count >= unit { break; }
+        units += count;
+        at += 8;
+    }
+    for (offset, &byte) in bytes[at..].iter().enumerate() {
+        if byte & 0xC0 == 0x80 { continue; }
+        if units == unit { return Ok(at + offset); }
+        units += 1 + usize::from(byte >= 0xF0);
+        if units > unit { return Err(at + offset); }
+    }
+    Ok(bytes.len())
+}
+
+/// The code units `start..end` of `text` (clamped; empty when `end <= start`),
+/// a cut surrogate half becoming U+FFFD.
+#[allow(dead_code)]
+fn smelt_utf16_slice(text: &str, start: usize, end: usize) -> String {
+    if end <= start { return String::new(); }
+    match (smelt_utf16_byte_of(text, start), smelt_utf16_byte_of(text, end)) {
+        (Ok(from), Ok(to)) => text[from..to].to_owned(),
+        _ => {
+            let units: Vec<u16> = text.encode_utf16().collect();
+            let end = end.min(units.len());
+            String::from_utf16_lossy(&units[start.min(end)..end])
+        }
+    }
+}
+
+/// The code unit at UTF-16 index `unit` of `text` (`charCodeAt`), if any.
+#[allow(dead_code)]
+fn smelt_utf16_unit_at(text: &str, unit: usize) -> Option<u16> {
+    if let Some(prefix) = text.as_bytes().get(..=unit) {
+        if prefix.is_ascii() { return Some(u16::from(prefix[unit])); }
+    }
+    let (byte, half) = match smelt_utf16_byte_of(text, unit) { Ok(byte) => (byte, 0), Err(byte) => (byte, 1) };
+    let mut units = [0; 2];
+    text[byte..].chars().next().map(|ch| ch.encode_utf16(&mut units)[half])
+}
+
+/// The one-unit string at UTF-16 index `unit` of `text` (`charAt`, `s[i]`), if any.
+#[allow(dead_code)]
+fn smelt_utf16_char_at(text: &str, unit: usize) -> Option<String> {
+    if let Some(prefix) = text.as_bytes().get(..=unit) {
+        if prefix.is_ascii() { return Some(char::from(prefix[unit]).to_string()); }
+    }
+    match smelt_utf16_byte_of(text, unit) {
+        Ok(byte) => text[byte..].chars().next().map(|ch| if ch.len_utf16() == 1 { ch.to_string() } else { '\u{fffd}'.to_string() }),
+        Err(_) => Some('\u{fffd}'.to_string()),
+    }
+}
+
+/// The code point starting at UTF-16 index `unit` of `text` (`codePointAt`):
+/// a whole surrogate pair, else the lone unit there.
+#[allow(dead_code)]
+fn smelt_utf16_code_point_at(text: &str, unit: usize) -> Option<u32> {
+    match smelt_utf16_byte_of(text, unit) {
+        Ok(byte) => text[byte..].chars().next().map(u32::from),
+        Err(_) => smelt_utf16_unit_at(text, unit).map(u32::from),
+    }
+}
+
+/// Each code unit of `text` as a one-unit string (`s.split("")`).
+#[allow(dead_code)]
+fn smelt_utf16_units(text: &str) -> Vec<String> {
+    if text.is_ascii() { return text.chars().map(String::from).collect(); }
+    text.encode_utf16().map(|code| String::from_utf16_lossy(&[code])).collect()
+}
+
+// @smelt:item-end

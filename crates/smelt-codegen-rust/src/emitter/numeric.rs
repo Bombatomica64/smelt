@@ -71,11 +71,11 @@ impl FunctionEmitter<'_> {
                 is_float_literal = true;
                 format!("{}.0", self.operand_function_length(operand)?)
             }
-            Some(Type::String) => format!("{receiver_text}.chars().count()"),
+            Some(Type::String) => self.string_len_text(&receiver_text.parenthesized_if_needed()),
             Some(Type::Optional(inner))
                 if matches!(self.mir.types.get(*inner), Some(Type::String)) =>
             {
-                format!("{receiver_text}.as_ref().map_or(0, |value| value.chars().count())")
+                format!("{receiver_text}.as_ref().map_or(0, |value| {})", self.string_len_text("value"))
             }
             Some(Type::Optional(inner))
                 if matches!(self.mir.types.get(*inner), Some(Type::List(_))) =>
@@ -102,8 +102,9 @@ impl FunctionEmitter<'_> {
                 // object), so erase the borrowed value at this genuinely dynamic
                 // boundary and inspect it, mirroring the non-optional case below.
                 self.carrier_format(format_args!(
-                    "{receiver_text}.as_ref().map_or(0, |value| match value.clone().into_smelt_unknown() {{ SmeltUnknown::String(value) => value.chars().count(), SmeltUnknown::Array(value) => value.len(), SmeltUnknown::Object(value) => match smelt_get_object_field(&value, \"length\") {{ SmeltUnknown::Number(value) => value as usize, _ => {function_length}(&SmeltUnknown::Object(value)) as usize }}, value @ SmeltUnknown::Function(_) => {function_length}(&value) as usize, _ => 0 }})",
+                    "{receiver_text}.as_ref().map_or(0, |value| match value.clone().into_smelt_unknown() {{ SmeltUnknown::String(value) => {string_len}, SmeltUnknown::Array(value) => value.len(), SmeltUnknown::Object(value) => match smelt_get_object_field(&value, \"length\") {{ SmeltUnknown::Number(value) => value as usize, _ => {function_length}(&SmeltUnknown::Object(value)) as usize }}, value @ SmeltUnknown::Function(_) => {function_length}(&value) as usize, _ => 0 }})",
                     function_length = smelt_stdlib::runtime_symbols::function_length::READ,
+                    string_len = self.string_len_text("value"),
                 ))
             }
             // A callable's `.length` is its declared arity, which the erasure
@@ -119,8 +120,9 @@ impl FunctionEmitter<'_> {
                 // its arm binding shadow it and the `Function` fallbacks passed
                 // `&&SmeltObject` where a `&SmeltUnknown` was expected (E0308).
                 self.carrier_format(format_args!(
-                    "{{ let smelt_length_receiver = &{receiver_text}; match smelt_length_receiver {{ SmeltUnknown::String(value) => value.chars().count(), SmeltUnknown::Array(value) => value.len(), SmeltUnknown::Object(value) => match smelt_get_object_field(value, \"length\") {{ SmeltUnknown::Number(value) => value as usize, _ => {function_length}(smelt_length_receiver) as usize }}, SmeltUnknown::Function(_) => {function_length}(smelt_length_receiver) as usize, _ => 0 }} }}",
+                    "{{ let smelt_length_receiver = &{receiver_text}; match smelt_length_receiver {{ SmeltUnknown::String(value) => {string_len}, SmeltUnknown::Array(value) => value.len(), SmeltUnknown::Object(value) => match smelt_get_object_field(value, \"length\") {{ SmeltUnknown::Number(value) => value as usize, _ => {function_length}(smelt_length_receiver) as usize }}, SmeltUnknown::Function(_) => {function_length}(smelt_length_receiver) as usize, _ => 0 }} }}",
                     function_length = smelt_stdlib::runtime_symbols::function_length::READ,
+                    string_len = self.string_len_text("value"),
                 ))
             }
             // A fixed-arity tuple (e.g. a `[key, value]` narrowing) has no Rust

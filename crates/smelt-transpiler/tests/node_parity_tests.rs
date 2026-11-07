@@ -269,3 +269,11 @@ fn dict_entry_push_in_place() -> TestResult {
 fn parse_number_prefix() -> TestResult {
     verify_node_parity("parse_number_prefix")
 }
+
+/// Every string index counts UTF-16 code units: the ones `indexOf`, `search`,
+/// a match's `index` and `lastIndex` answer and the ones `slice`, `substring`,
+/// `substr`, `charAt`, `s[i]` and `padEnd` take, for non-ASCII and astral text.
+#[test]
+fn string_utf16_indices() -> TestResult {
+    verify_node_parity("string_utf16_indices")
+}

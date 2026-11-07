@@ -113,7 +113,7 @@ impl SmeltUnknown {
     /// Returns the JavaScript-style length for unknown string, array, and object values.
     pub fn len(&self) -> usize {
         match self {
-            Self::String(value) => value.chars().count(),
+            Self::String(value) => smelt_utf16_len(value),
             Self::Array(value) => value.len(),
             Self::Object(value) => value.len(),
             /*@if bigint*/Self::BigInt(_) => 0, /*@end*/Self::Null | Self::Undefined | Self::Bool(_) | Self::Number(_) | Self::Symbol(_) | Self::Function(_) | Self::Promise(_) => 0,

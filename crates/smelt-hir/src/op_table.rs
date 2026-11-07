@@ -637,6 +637,15 @@ macro_rules! op_group_transcribed {
                 index: one,
             }
                 => (format!("string_char_code_at {operand}, {index}"));
+            /// Read the code point starting at a string index, or `undefined`
+            /// past the end (`String.prototype.codePointAt`).
+            StringCodePointAt {
+                /// String value to index.
+                operand: one,
+                /// Numeric index.
+                index: one,
+            }
+                => (format!("string_code_point_at {operand}, {index}"));
             /// Test whether one string contains another string.
             StringContains {
                 /// String value to search in.
@@ -661,10 +670,13 @@ macro_rules! op_group_transcribed {
                 operand: one,
                 /// Inclusive start index, or omitted for zero.
                 start: opt,
-                /// Exclusive end index, or omitted for string length.
+                /// Exclusive end index, or omitted for string length; a
+                /// length for [`StringSliceKind::Substr`](crate::StringSliceKind).
                 end: opt,
+                /// The bound rule.
+                kind: [$crate::StringSliceKind],
             }
-                => (format!("string_slice {}, {}, {}", operand, opt(&start), opt(&end)));
+                => (format!("{} {}, {}, {}", kind.text(), operand, opt(&start), opt(&end)));
             /// Test whether a list contains an item.
             ListContains {
                 /// List value to search in.

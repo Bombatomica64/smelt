@@ -71,6 +71,113 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
+/// The JavaScript `length` of `text`: its UTF-16 code units.
+#[allow(dead_code)]
+fn smelt_utf16_len(text: &str) -> usize {
+    if text.is_ascii() { text.len() } else { smelt_utf16_units_in(text.as_bytes()) }
+}
+
+/// The UTF-16 index of the byte offset `byte` of `text`, which is a char boundary.
+#[allow(dead_code)]
+fn smelt_utf16_index_of_byte(text: &str, byte: usize) -> usize {
+    smelt_utf16_len(&text[..byte])
+}
+
+/// The UTF-16 code units of the characters whose first byte is in the word
+/// `word` (eight bytes of a string, little-endian).
+#[allow(dead_code)]
+fn smelt_utf16_units_in_word(word: u64) -> usize {
+    const HIGH: u64 = 0x8080_8080_8080_8080;
+    let continuation = (word & !(word << 1) & HIGH).count_ones() as usize;
+    let four_byte = (word & (word << 1) & (word << 2) & (word << 3) & HIGH).count_ones() as usize;
+    8 - continuation + four_byte
+}
+
+/// The UTF-16 code units of the characters whose first byte is in `bytes`.
+#[allow(dead_code)]
+fn smelt_utf16_units_in(bytes: &[u8]) -> usize {
+    let mut words = bytes.chunks_exact(8);
+    let whole: usize = words.by_ref().map(|word| smelt_utf16_units_in_word(u64::from_le_bytes([word[0], word[1], word[2], word[3], word[4], word[5], word[6], word[7]]))).sum();
+    whole + words.remainder().iter().map(|byte| usize::from(byte & 0xC0 != 0x80) + usize::from(*byte >= 0xF0)).sum::<usize>()
+}
+
+/// The byte offset where UTF-16 index `unit` of `text` starts, clamped to the
+/// end; `Err` with the offset of the surrogate pair `unit` falls inside.
+#[allow(dead_code)]
+fn smelt_utf16_byte_of(text: &str, unit: usize) -> Result<usize, usize> {
+    let bytes = text.as_bytes();
+    if bytes.get(..unit).is_some_and(<[u8]>::is_ascii) { return Ok(unit); }
+    let (mut at, mut units) = (0, 0);
+    while let Some(word) = bytes.get(at..at + 8) {
+        let count = smelt_utf16_units_in_word(u64::from_le_bytes([word[0], word[1], word[2], word[3], word[4], word[5], word[6], word[7]]));
+        if units + count >= unit { break; }
+        units += count;
+        at += 8;
+    }
+    for (offset, &byte) in bytes[at..].iter().enumerate() {
+        if byte & 0xC0 == 0x80 { continue; }
+        if units == unit { return Ok(at + offset); }
+        units += 1 + usize::from(byte >= 0xF0);
+        if units > unit { return Err(at + offset); }
+    }
+    Ok(bytes.len())
+}
+
+/// The code units `start..end` of `text` (clamped; empty when `end <= start`),
+/// a cut surrogate half becoming U+FFFD.
+#[allow(dead_code)]
+fn smelt_utf16_slice(text: &str, start: usize, end: usize) -> String {
+    if end <= start { return String::new(); }
+    match (smelt_utf16_byte_of(text, start), smelt_utf16_byte_of(text, end)) {
+        (Ok(from), Ok(to)) => text[from..to].to_owned(),
+        _ => {
+            let units: Vec<u16> = text.encode_utf16().collect();
+            let end = end.min(units.len());
+            String::from_utf16_lossy(&units[start.min(end)..end])
+        }
+    }
+}
+
+/// The code unit at UTF-16 index `unit` of `text` (`charCodeAt`), if any.
+#[allow(dead_code)]
+fn smelt_utf16_unit_at(text: &str, unit: usize) -> Option<u16> {
+    if let Some(prefix) = text.as_bytes().get(..=unit) {
+        if prefix.is_ascii() { return Some(u16::from(prefix[unit])); }
+    }
+    let (byte, half) = match smelt_utf16_byte_of(text, unit) { Ok(byte) => (byte, 0), Err(byte) => (byte, 1) };
+    let mut units = [0; 2];
+    text[byte..].chars().next().map(|ch| ch.encode_utf16(&mut units)[half])
+}
+
+/// The one-unit string at UTF-16 index `unit` of `text` (`charAt`, `s[i]`), if any.
+#[allow(dead_code)]
+fn smelt_utf16_char_at(text: &str, unit: usize) -> Option<String> {
+    if let Some(prefix) = text.as_bytes().get(..=unit) {
+        if prefix.is_ascii() { return Some(char::from(prefix[unit]).to_string()); }
+    }
+    match smelt_utf16_byte_of(text, unit) {
+        Ok(byte) => text[byte..].chars().next().map(|ch| if ch.len_utf16() == 1 { ch.to_string() } else { '\u{fffd}'.to_string() }),
+        Err(_) => Some('\u{fffd}'.to_string()),
+    }
+}
+
+/// The code point starting at UTF-16 index `unit` of `text` (`codePointAt`):
+/// a whole surrogate pair, else the lone unit there.
+#[allow(dead_code)]
+fn smelt_utf16_code_point_at(text: &str, unit: usize) -> Option<u32> {
+    match smelt_utf16_byte_of(text, unit) {
+        Ok(byte) => text[byte..].chars().next().map(u32::from),
+        Err(_) => smelt_utf16_unit_at(text, unit).map(u32::from),
+    }
+}
+
+/// Each code unit of `text` as a one-unit string (`s.split("")`).
+#[allow(dead_code)]
+fn smelt_utf16_units(text: &str) -> Vec<String> {
+    if text.is_ascii() { return text.chars().map(String::from).collect(); }
+    text.encode_utf16().map(|code| String::from_utf16_lossy(&[code])).collect()
+}
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -2202,7 +2309,7 @@ fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     if let Some(element) = smelt_host_buffer_element(map, field) { return element; }
     if field == "constructor" && !map.contains_key("constructor") { if let Some(class) = smelt_marker_constructor_class(map) { return smelt_builtin_namespace(class); } }
     if map.contains_key("__smelt_global_object") && !map.contains_key(field) && smelt_builtin_construct_kind(field).is_some() { return smelt_builtin_namespace(field); }
-    if !map.contains_key(field) { if let Some(SmeltUnknown::String(text)) = map.get("__smelt_string").and(map.get("value")) { if field == "length" { return SmeltUnknown::Number(text.chars().count() as f64); } if let Ok(index) = field.parse::<usize>() { return text.chars().nth(index).map_or(SmeltUnknown::Undefined, |character| SmeltUnknown::String(character.to_string().into())); } } }
+    if !map.contains_key(field) { if let Some(SmeltUnknown::String(text)) = map.get("__smelt_string").and(map.get("value")) { if field == "length" { return SmeltUnknown::Number(smelt_utf16_len(&text) as f64); } if let Ok(index) = field.parse::<usize>() { return smelt_utf16_char_at(&text, index).map_or(SmeltUnknown::Undefined, |character| SmeltUnknown::String(character.into())); } } }
     if !map.contains_key(field) { if let Some(SmeltUnknown::String(class)) = map.get("__smelt_builtin_namespace").and(map.get("name")) { if field == "prototype" { return smelt_builtin_prototype_object(&class); } if let Some(member) = smelt_builtin_member_value(&class, "static", field) { return member; } } }
     if let Some(SmeltUnknown::String(class)) = map.get("__smelt_builtin_prototype") { if let Some(member) = smelt_builtin_member_value(&class, "prototype", field) { return member; } }
     if field == "size" { if let Some(SmeltUnknown::Array(pairs)) = map.get("__smelt_map") { return SmeltUnknown::Number(pairs.len() as f64); } }
@@ -2470,8 +2577,8 @@ fn smelt_string_prototype_member(receiver: &::std::rc::Rc<str>, field: &str) -> 
 
 /// Read a property off an erased string: `length`, a character index, or a `String.prototype` method.
 fn smelt_get_string_field(text: &::std::rc::Rc<str>, field: &str) -> SmeltUnknown {
-    if field == "length" { return SmeltUnknown::Number(text.chars().count() as f64); }
-    if let Ok(index) = field.parse::<usize>() { return text.chars().nth(index).map_or(SmeltUnknown::Undefined, |ch| SmeltUnknown::String(ch.to_string().into())); }
+    if field == "length" { return SmeltUnknown::Number(smelt_utf16_len(text) as f64); }
+    if let Ok(index) = field.parse::<usize>() { return smelt_utf16_char_at(text, index).map_or(SmeltUnknown::Undefined, |ch| SmeltUnknown::String(ch.into())); }
     smelt_string_prototype_member(text, field).unwrap_or(SmeltUnknown::Undefined)
 }
 
@@ -2593,43 +2700,42 @@ fn smelt_erased_array_iterator(receiver: SmeltArray, kind: u8) -> SmeltUnknown {
 }
 
 /// The first index at or after `from` where `needle` occurs in `haystack`.
-fn smelt_erased_chars_find(haystack: &[char], needle: &[char], from: usize) -> Option<usize> {
+fn smelt_erased_units_find(haystack: &[u16], needle: &[u16], from: usize) -> Option<usize> {
     if needle.len() > haystack.len() { return None; }
     (from..=haystack.len() - needle.len()).find(|start| haystack[*start..*start + needle.len()] == *needle)
 }
 
-/// Pad `text` to `target` characters with repetitions of `fill` (`padStart`/`padEnd`).
+/// Pad `text` to `target` code units with repetitions of `fill` (`padStart`/`padEnd`).
 fn smelt_erased_padding(len: usize, target: f64, fill: &str) -> String {
-    let fill: Vec<char> = fill.chars().collect();
+    let fill: Vec<u16> = fill.encode_utf16().collect();
     if fill.is_empty() || target <= len as f64 { return String::new(); }
-    (0..target as usize - len).map(|index| fill[index % fill.len()]).collect()
+    String::from_utf16_lossy(&(0..target as usize - len).map(|index| fill[index % fill.len()]).collect::<Vec<u16>>())
 }
 
 /// Apply `String.prototype[name]` to an erased string receiver.
 ///
-/// Positions count Unicode scalar values, the unit every other erased string
-/// operation in this runtime (`length`, indexing) uses.
+/// Positions count UTF-16 code units, as JavaScript's do (`runtime/string_units.rs`).
 fn smelt_string_prototype_apply(text: &str, name: &str, args: Vec<SmeltUnknown>) -> SmeltUnknown {
     let arg = |index: usize| args.get(index).map_or(SmeltUnknown::Undefined, SmeltUnknown::clone);
     let arg_text = |index: usize| smelt_erased_to_js_string(&arg(index));
-    let chars: Vec<char> = text.chars().collect();
-    let len = chars.len();
+    let units: Vec<u16> = text.encode_utf16().collect();
+    let len = units.len();
     let string = |value: String| SmeltUnknown::String(value.into());
-    let range = |start: usize, end: usize| chars[start..end.max(start)].iter().collect::<String>();
+    let range = |start: usize, end: usize| String::from_utf16_lossy(&units[start..end.max(start)]);
     match name {
-        "at" => smelt_erased_at_index(args.first(), len).map_or(SmeltUnknown::Undefined, |index| string(chars[index].to_string())),
-        "charAt" => { let index = smelt_erased_integer(&arg(0)); if index >= 0.0 && index < len as f64 { string(chars[index as usize].to_string()) } else { string(String::new()) } }
-        "charCodeAt" | "codePointAt" => { let index = smelt_erased_integer(&arg(0)); if index >= 0.0 && index < len as f64 { SmeltUnknown::Number(u32::from(chars[index as usize]) as f64) } else if name == "charCodeAt" { SmeltUnknown::Number(f64::NAN) } else { SmeltUnknown::Undefined } }
+        "at" => smelt_erased_at_index(args.first(), len).map_or(SmeltUnknown::Undefined, |index| string(range(index, index + 1))),
+        "charAt" => { let index = smelt_erased_integer(&arg(0)); if index >= 0.0 && index < len as f64 { string(range(index as usize, index as usize + 1)) } else { string(String::new()) } }
+        "charCodeAt" | "codePointAt" => { let index = smelt_erased_integer(&arg(0)); if index >= 0.0 && index < len as f64 { let code = if name == "charCodeAt" { u32::from(units[index as usize]) } else { smelt_utf16_code_point_at(text, index as usize).unwrap_or(0) }; SmeltUnknown::Number(f64::from(code)) } else if name == "charCodeAt" { SmeltUnknown::Number(f64::NAN) } else { SmeltUnknown::Undefined } }
         "concat" => { let mut result = text.to_owned(); for argument in &args { result.push_str(&smelt_erased_to_js_string(argument)); } string(result) }
-        "includes" | "indexOf" => { let needle: Vec<char> = arg_text(0).chars().collect(); let from = smelt_erased_clamped_position(args.get(1), len, 0); let found = smelt_erased_chars_find(&chars, &needle, from); if name == "includes" { SmeltUnknown::Bool(found.is_some()) } else { SmeltUnknown::Number(found.map_or(-1.0, |index| index as f64)) } }
+        "includes" | "indexOf" => { let needle: Vec<u16> = arg_text(0).encode_utf16().collect(); let from = smelt_erased_clamped_position(args.get(1), len, 0); let found = smelt_erased_units_find(&units, &needle, from); if name == "includes" { SmeltUnknown::Bool(found.is_some()) } else { SmeltUnknown::Number(found.map_or(-1.0, |index| index as f64)) } }
         "lastIndexOf" => {
-            let needle: Vec<char> = arg_text(0).chars().collect();
+            let needle: Vec<u16> = arg_text(0).encode_utf16().collect();
             let from = match args.get(1) { None | Some(SmeltUnknown::Undefined) => len, Some(value) => { let number = smelt_unknown_to_number(value); if number.is_nan() { len } else { number.trunc().clamp(0.0, len as f64) as usize } } };
             if needle.len() > len { return SmeltUnknown::Number(-1.0); }
-            SmeltUnknown::Number((0..=from.min(len - needle.len())).rev().find(|start| chars[*start..*start + needle.len()] == *needle).map_or(-1.0, |index| index as f64))
+            SmeltUnknown::Number((0..=from.min(len - needle.len())).rev().find(|start| units[*start..*start + needle.len()] == *needle).map_or(-1.0, |index| index as f64))
         }
-        "startsWith" => { let needle: Vec<char> = arg_text(0).chars().collect(); let start = smelt_erased_clamped_position(args.get(1), len, 0); SmeltUnknown::Bool(chars[start..].starts_with(&needle)) }
-        "endsWith" => { let needle: Vec<char> = arg_text(0).chars().collect(); let end = smelt_erased_clamped_position(args.get(1), len, len); SmeltUnknown::Bool(chars[..end].ends_with(&needle)) }
+        "startsWith" => { let needle: Vec<u16> = arg_text(0).encode_utf16().collect(); let start = smelt_erased_clamped_position(args.get(1), len, 0); SmeltUnknown::Bool(units[start..].starts_with(&needle)) }
+        "endsWith" => { let needle: Vec<u16> = arg_text(0).encode_utf16().collect(); let end = smelt_erased_clamped_position(args.get(1), len, len); SmeltUnknown::Bool(units[..end].ends_with(&needle)) }
         "padStart" | "padEnd" => {
             let fill = match args.get(1) { None | Some(SmeltUnknown::Undefined) => " ".to_owned(), Some(value) => smelt_erased_to_js_string(value) };
             let padding = smelt_erased_padding(len, smelt_erased_integer(&arg(0)), &fill);
@@ -2676,13 +2782,13 @@ fn smelt_get_unknown_field(value: &SmeltUnknown, field: &str) -> SmeltUnknown {
 }
 
 /// Whether a boxed-`String` wrapper answers `key` as one of its OWN properties.
-fn smelt_boxed_string_own_property(map: &SmeltObject, key: &str) -> bool { let Some(SmeltUnknown::String(text)) = map.get("__smelt_string").and(map.get("value")) else { return false; }; key == "length" || key.parse::<usize>().is_ok_and(|index| index < text.chars().count()) }
+fn smelt_boxed_string_own_property(map: &SmeltObject, key: &str) -> bool { let Some(SmeltUnknown::String(text)) = map.get("__smelt_string").and(map.get("value")) else { return false; }; key == "length" || key.parse::<usize>().is_ok_and(|index| index < smelt_utf16_len(&text)) }
 /// Whether `value` has `key` as an own property (JS `Object.hasOwn`).
 fn smelt_has_own_property(value: &SmeltUnknown, key: &str) -> bool {
     match value {
         SmeltUnknown::Object(map) => map.contains_key(key) || smelt_host_buffer_element(map, key).is_some() || smelt_boxed_string_own_property(map, key),
         SmeltUnknown::Array(values) => key == "length" || values.named_keys().contains(&key.to_owned()) || key.parse::<usize>().is_ok_and(|index| index < values.len()),
-        SmeltUnknown::String(text) => key == "length" || key.parse::<usize>().is_ok_and(|index| index < text.chars().count()),
+        SmeltUnknown::String(text) => key == "length" || key.parse::<usize>().is_ok_and(|index| index < smelt_utf16_len(text)),
         _ => false,
     }
 }
@@ -2801,7 +2907,7 @@ impl SmeltUnknown {
     /// Returns the JavaScript-style length for unknown string, array, and object values.
     pub fn len(&self) -> usize {
         match self {
-            Self::String(value) => value.chars().count(),
+            Self::String(value) => smelt_utf16_len(value),
             Self::Array(value) => value.len(),
             Self::Object(value) => value.len(),
             Self::Null | Self::Undefined | Self::Bool(_) | Self::Number(_) | Self::Symbol(_) | Self::Function(_) | Self::Promise(_) => 0,
@@ -3435,20 +3541,20 @@ impl SmeltRegExp {
     /// `SmeltMatch::into_smelt_unknown` when required.
     pub fn exec(&self, haystack: &str) -> Option<SmeltMatch> {
         let regex = self.compiled();
-        let start = if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow() } else { 0 };
+        let start = if self.has_flag('g') || self.has_flag('y') { smelt_utf16_byte_of(haystack, *self.last_index.borrow()).unwrap_or_else(|byte| byte) } else { 0 };
         let suffix = haystack.get(start..).unwrap_or("");
         let Some(captures) = regex.captures(suffix).ok().flatten() else { if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = 0; } return None; };
         let Some(matched) = captures.get(0) else { if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = 0; } return None; };
         if self.has_flag('y') && matched.start() != 0 { *self.last_index.borrow_mut() = 0; return None; }
-        if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = start + matched.end(); }
-        Some(SmeltMatch::from_captures(&regex, &captures, start + matched.start(), haystack))
+        if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = smelt_utf16_index_of_byte(haystack, start + matched.end()); }
+        Some(SmeltMatch::from_captures(&regex, &captures, smelt_utf16_index_of_byte(haystack, start + matched.start()), haystack))
     }
     /// Return concrete `SmeltMatch` results for String.prototype.matchAll.
     pub fn match_all_indices(&self, haystack: &str) -> Vec<SmeltMatch> {
         let regex = self.compiled();
         regex.captures_iter(haystack).filter_map(Result::ok).filter_map(|captures| {
             let matched = captures.get(0)?;
-            Some(SmeltMatch::from_captures(&regex, &captures, matched.start(), haystack))
+            Some(SmeltMatch::from_captures(&regex, &captures, smelt_utf16_index_of_byte(haystack, matched.start()), haystack))
         }
         ).collect::<Vec<_>>()
     }
@@ -3516,7 +3622,7 @@ pub struct SmeltMatch {
     groups: ::std::rc::Rc<Vec<Option<String>>>,
     /// Named capture groups keyed by name (plus a snake_case alias).
     named: ::std::rc::Rc<::std::collections::HashMap<String, Option<String>>>,
-    /// Zero-based offset of the match within `input` (`.index`).
+    /// Zero-based UTF-16 offset of the match within `input` (`.index`).
     match_index: usize,
     /// The full string that was searched (`.input`).
     input: ::std::rc::Rc<str>,
@@ -4408,7 +4514,7 @@ pub(crate) fn segments(path: String) -> SmeltList<String> {
     let mut _smelt_tmp_16: String;
     let mut _smelt_tmp_17: String;
     let mut _smelt_tmp_18: f64;
-    let parts: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_haystack = path.clone(); let smelt_separator = "/".to_owned(); if smelt_separator.is_empty() { if smelt_haystack.is_empty() { Vec::new() } else { smelt_haystack.chars().map(|ch| ch.to_string()).collect::<Vec<_>>() } } else { smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() } });
+    let parts: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_haystack = path.clone(); let smelt_separator = "/".to_owned(); if smelt_separator.is_empty() { if smelt_haystack.is_empty() { Vec::new() } else { smelt_utf16_units(&smelt_haystack) } } else { smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() } });
     let mut out: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
     let mut i: f64 = 0.0;
     let mut _smelt_tmp_9: usize = 0;

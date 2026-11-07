@@ -150,6 +150,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "date" => Need::Date,
         "math_round" => Need::MathRound,
         "parse_number" => Need::ParseNumber,
+        "string_units" => Need::StringUnits,
         "shared_captures" => Need::SharedCaptures,
         "uri_encode" => Need::UriEncode,
         "uri_decode" => Need::UriDecode,

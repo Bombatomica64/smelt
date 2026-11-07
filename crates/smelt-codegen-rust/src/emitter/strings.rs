@@ -3,6 +3,9 @@
 use crate::rust::RustExpr;
 use super::*;
 
+/// The local a string slice binds its receiver's length to, read by both bounds.
+const SMELT_STRING_LEN: &str = "smelt_len_units";
+
 impl FunctionEmitter<'_> {
     /// Converts a string case operation to its Rust text representation.
     pub(super) fn string_case_expr(
@@ -168,16 +171,26 @@ impl FunctionEmitter<'_> {
                 return self.string_regex_search_expr(haystack, needle, missing, cast);
             }
         };
-        let haystack_text = self.string_like_operand_expr(haystack, "string search")?;
+        // A string haystack is read by borrow: searching only looks at it.
+        let haystack_text = if self.mir.types.get(self.operand_ty(haystack)?) == Some(&Type::String) {
+            RustExpr::atom(format!("&{}", self.operand_borrow_expr(haystack)?.parenthesized_if_needed()))
+        } else {
+            self.string_like_operand_expr(haystack, "string search")?
+        };
         let needle_text = self.string_like_operand_expr(needle, "string search")?;
         if let Some(from_index_operand) = from_index {
             let index_text = self.value_at_type(from_index_operand, self.type_id(Type::Float)?)?;
             return match op {
                 smelt_hir::StringSearchOp::Find => Ok(RustExpr::atom(format!(
-                    "{{ let smelt_haystack = {haystack_text}; let smelt_needle = {needle_text}; let smelt_from = ({index_text} as i64).max(0) as usize; let smelt_prefix_bytes = smelt_haystack.char_indices().nth(smelt_from).map_or(smelt_haystack.len(), |(byte, _)| byte); smelt_haystack.get(smelt_prefix_bytes..).and_then(|suffix| suffix.find(&smelt_needle).map(|index| (smelt_prefix_bytes + index) as {cast})).unwrap_or({missing}) }}"
+                    "{{ let smelt_haystack = {haystack_text}; let smelt_needle = {needle_text}; let smelt_from = ({index_text} as i64).max(0) as usize; let (smelt_prefix_bytes, smelt_prefix_index) = {seek}; smelt_haystack.get(smelt_prefix_bytes..).and_then(|suffix| suffix.find(&smelt_needle).map(|index| (smelt_prefix_index + {suffix_index}) as {cast})).unwrap_or({missing}) }}",
+                    seek = self.string_seek_text("smelt_haystack", "smelt_from"),
+                    suffix_index = self.string_index_of_byte_text("suffix", "index"),
                 ))),
                 smelt_hir::StringSearchOp::RFind => Ok(RustExpr::atom(format!(
-                    "{{ let smelt_haystack = {haystack_text}; let smelt_needle = {needle_text}; let smelt_from = ({index_text} as i64).max(0) as usize; let smelt_end_char = smelt_from.saturating_add(smelt_needle.chars().count()); let smelt_end_byte = smelt_haystack.char_indices().nth(smelt_end_char).map_or(smelt_haystack.len(), |(byte, _)| byte); smelt_haystack[..smelt_end_byte].rfind(&smelt_needle).map_or({missing}, |idx| idx as {cast}) }}"
+                    "{{ let smelt_haystack = {haystack_text}; let smelt_needle = {needle_text}; let smelt_from = ({index_text} as i64).max(0) as usize; let smelt_end_index = smelt_from.saturating_add({needle_len}); let smelt_end_byte = {end_byte}; smelt_haystack[..smelt_end_byte].rfind(&smelt_needle).map_or({missing}, |idx| {found_index} as {cast}) }}",
+                    needle_len = self.string_len_text("smelt_needle"),
+                    end_byte = self.string_byte_of_text("smelt_haystack", "smelt_end_index", false),
+                    found_index = self.string_index_of_byte_text("smelt_haystack", "idx"),
                 ))),
                 // `search` takes no position argument; the frontend never
                 // builds one.
@@ -186,8 +199,10 @@ impl FunctionEmitter<'_> {
                 }
             };
         }
-        Ok(RustExpr::postfix_on(&haystack_text, format!(
-            "{haystack_text}.{method_name}(&{needle_text}).map_or({missing}, |idx| idx as {cast})"
+        Ok(RustExpr::atom(format!(
+            "{{ let smelt_haystack = &{haystack_text}; smelt_haystack.{method_name}(&{needle_text}).map_or({missing}, |idx| {found_index} as {cast}) }}",
+            haystack_text = haystack_text.parenthesized_if_needed(),
+            found_index = self.string_index_of_byte_text("smelt_haystack", "idx"),
         )))
     }
 
@@ -313,8 +328,14 @@ impl FunctionEmitter<'_> {
             smelt_hir::StringPadOp::Start => "format!(\"{}{}\", padding, value)",
             smelt_hir::StringPadOp::End => "format!(\"{}{}\", value, padding)",
         };
+        let padding = if self.indexes_utf16() {
+            "smelt_utf16_slice(&pad.repeat(needed.div_ceil(smelt_utf16_len(pad))), 0, needed)"
+        } else {
+            "pad.chars().cycle().take(needed).collect()"
+        };
         Ok(RustExpr::atom(format!(
-            "{{ let value = &{operand_expr}; let target_len = {target_len_text} as usize; let pad = &{pad_text}; let current_len = value.chars().count(); if current_len >= target_len || pad.is_empty() {{ value.to_owned() }} else {{ let needed = target_len - current_len; let padding: String = pad.chars().cycle().take(needed).collect(); {result_text} }} }}"
+            "{{ let value = &{operand_expr}; let target_len = {target_len_text} as usize; let pad = &{pad_text}; let current_len = {current_len}; if current_len >= target_len || pad.is_empty() {{ value.to_owned() }} else {{ let needed = target_len - current_len; let padding: String = {padding}; {result_text} }} }}",
+            current_len = self.string_len_text("value"),
         )))
     }
 
@@ -495,8 +516,13 @@ impl FunctionEmitter<'_> {
                     optional_string_ty,
                 ),
                 smelt_hir::RegexReplaceArg::Position => (
-                    RustExpr::cast("smelt_subject[..caps.get(0).expect(\"regex match missing\").start()]\
-                     .chars().count() as f64"),
+                    RustExpr::cast(format!(
+                        "{} as f64",
+                        self.string_index_of_byte_text(
+                            "smelt_subject",
+                            "caps.get(0).expect(\"regex match missing\").start()",
+                        )
+                    )),
                     float_ty,
                 ),
                 smelt_hir::RegexReplaceArg::Source => {
@@ -1000,9 +1026,15 @@ impl FunctionEmitter<'_> {
                 "string charAt requires a string receiver and numeric index",
             ));
         }
-        // Read by borrow: `chars()` only reads, and the owned clone
-        // `operand_expr` gives was a whole-string copy per character read.
-        Ok({ let receiver = self.operand_borrow_expr(operand)?; RustExpr::postfix_on(&receiver, format!("{receiver}.chars().nth({} as usize).map(|ch| ch.to_string()).unwrap_or_default()", self.operand_expr(index)?)) })
+        // Read by borrow: the read only looks, and an owned clone of the
+        // receiver would copy the whole string per character read.
+        // A negative index reads nothing; NaN reads index 0, as `as usize` does.
+        let receiver = self.operand_borrow_expr(operand)?;
+        Ok(RustExpr::atom(format!(
+            "{{ let smelt_index = {index} as f64; if smelt_index < 0.0 {{ None }} else {{ {char_at} }} }}.unwrap_or_default()",
+            index = self.operand_expr(index)?.as_cast_operand(),
+            char_at = self.string_char_at_text(&receiver.parenthesized_if_needed(), "smelt_index as usize"),
+        )))
     }
 
     /// Converts a string character-code lookup operation to Rust text.
@@ -1030,10 +1062,46 @@ impl FunctionEmitter<'_> {
         // character by character; any other string takes the decoding path,
         // which is exactly the previous text. The closure keeps a borrowed
         // receiver's temporaries alive for the whole read.
+        let code_at = if self.indexes_utf16() {
+            "smelt_utf16_unit_at(smelt_text, smelt_index).map_or(f64::NAN, f64::from)"
+        } else {
+            "match smelt_text.as_bytes().get(..=smelt_index) { Some(smelt_prefix) if smelt_prefix.is_ascii() => f64::from(smelt_prefix[smelt_index]), _ => smelt_text.chars().nth(smelt_index).map_or(f64::NAN, |ch| ch as u32 as f64) }"
+        };
         Ok(RustExpr::atom(format!(
-            "(|smelt_text: &str, smelt_index: usize| match smelt_text.as_bytes().get(..=smelt_index) {{ Some(smelt_prefix) if smelt_prefix.is_ascii() => f64::from(smelt_prefix[smelt_index]), _ => smelt_text.chars().nth(smelt_index).map_or(f64::NAN, |ch| ch as u32 as f64) }})(&{}, {} as usize)",
+            "(|smelt_text: &str, smelt_index: f64| if smelt_index < 0.0 {{ f64::NAN }} else {{ let smelt_index = smelt_index as usize; {code_at} }})(&{}, {} as f64)",
             self.operand_borrow_expr(operand)?,
-            self.operand_expr(index)?
+            self.operand_expr(index)?.as_cast_operand()
+        )))
+    }
+
+    /// Converts `s.codePointAt(i)` to an `Option<f64>`: the code point starting
+    /// at index `i` (a whole surrogate pair in a JavaScript body), `None` past
+    /// either end.
+    pub(super) fn string_code_point_at_expr(
+        &self,
+        operand: &Operand,
+        index: &Operand,
+    ) -> Result<RustExpr, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::String)
+        ) || !matches!(
+            self.mir.types.get(self.operand_ty(index)?),
+            Some(Type::Int | Type::Float)
+        ) {
+            return Err(EmitError::new(
+                "string codePointAt requires a string receiver and numeric index",
+            ));
+        }
+        let receiver = self.operand_borrow_expr(operand)?.parenthesized_if_needed();
+        let code_point = if self.indexes_utf16() {
+            format!("smelt_utf16_code_point_at(&{receiver}, smelt_index as usize)")
+        } else {
+            format!("{receiver}.chars().nth(smelt_index as usize).map(u32::from)")
+        };
+        Ok(RustExpr::atom(format!(
+            "{{ let smelt_index = {index} as f64; if smelt_index < 0.0 {{ None }} else {{ {code_point}.map(f64::from) }} }}",
+            index = self.operand_expr(index)?.as_cast_operand(),
         )))
     }
 
@@ -1112,7 +1180,8 @@ impl FunctionEmitter<'_> {
             let needle_text = self.operand_expr(needle)?;
             let index_text = self.value_at_type(from_index_operand, self.type_id(Type::Float)?)?;
             return Ok(RustExpr::atom(format!(
-                "{{ let smelt_haystack = {haystack_text}; let smelt_from = ({index_text} as i64).max(0) as usize; let smelt_prefix_bytes = smelt_haystack.char_indices().nth(smelt_from).map_or(smelt_haystack.len(), |(byte, _)| byte); smelt_haystack.get(smelt_prefix_bytes..).map_or(false, |suffix| suffix.contains(&{needle_text})) }}"
+                "{{ let smelt_haystack = {haystack_text}; let smelt_from = ({index_text} as i64).max(0) as usize; let smelt_prefix_bytes = {prefix_bytes}; smelt_haystack.get(smelt_prefix_bytes..).map_or(false, |suffix| suffix.contains(&{needle_text})) }}",
+                prefix_bytes = self.string_byte_of_text("smelt_haystack", "smelt_from", true),
             )));
         }
         if !matches!(self.mir.types.get(haystack_ty), Some(Type::String)) {
@@ -1125,35 +1194,49 @@ impl FunctionEmitter<'_> {
         Ok({ let receiver = self.operand_expr(haystack)?; RustExpr::postfix_on(&receiver, format!("{receiver}.contains(&{})", self.operand_expr(needle)?)) })
     }
 
-    /// Converts a string slice operation to Rust text.
+    /// Converts a string slice operation to Rust text, under the bound rule
+    /// `kind` (see [`smelt_hir::StringSliceKind`]).
     pub(super) fn string_slice_expr(
         &self,
         operand: &Operand,
         start: Option<&Operand>,
         end: Option<&Operand>,
+        kind: smelt_hir::StringSliceKind,
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         self.validate_optional_numeric_index(start, "string slice start index")?;
         self.validate_optional_numeric_index(end, "string slice end index")?;
-        let result = if matches!(
+        let result = if kind != smelt_hir::StringSliceKind::Slice {
+            self.string_substring_expr(operand, start, end, kind)?
+        } else if matches!(
             self.mir.types.get(self.operand_ty(operand)?),
             Some(Type::String)
         ) {
-            let operand_expr = self.operand_expr(operand)?;
-            let len_source = RustExpr::postfix_on(&operand_expr, format!("{operand_expr}.chars().count()"));
+            // Read by borrow: slicing only looks at the receiver, and its
+            // length is measured once for both bounds.
+            let operand_expr = self.operand_borrow_expr(operand)?;
+            let len_source = RustExpr::path(SMELT_STRING_LEN);
             let start_text = self.slice_start_expr(start, &len_source)?;
-            let len_expr = self.slice_len_expr(&operand_expr, start, end, SliceLenKind::Chars)?;
-            RustExpr::atom_on(&operand_expr, format!(
-                "{operand_expr}.chars().skip({start_text}).take({len_expr}).collect::<String>()"
+            let len_expr = self.slice_len_expr_from_len(&len_source, start, end)?;
+            RustExpr::atom(format!(
+                "{{ let {SMELT_STRING_LEN} = {len}; {slice} }}",
+                len = self.string_len_text(&operand_expr.parenthesized_if_needed()),
+                slice = self.string_slice_text(
+                    &operand_expr.parenthesized_if_needed(),
+                    start_text.as_str(),
+                    len_expr.as_str(),
+                ),
             ))
         } else {
             let operand_expr = self.string_like_operand_expr(operand, "string slice")?;
             let receiver_text = SMELT_STRING;
-            let len_source = RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.chars().count()"));
+            let len_source = RustExpr::path(SMELT_STRING_LEN);
             let start_text = self.slice_start_expr(start, &len_source)?;
-            let len_expr = self.slice_len_expr(&RustExpr::opaque(receiver_text), start, end, SliceLenKind::Chars)?;
+            let len_expr = self.slice_len_expr_from_len(&len_source, start, end)?;
             RustExpr::atom(format!(
-                "{{ let {receiver_text} = {operand_expr}; {receiver_text}.chars().skip({start_text}).take({len_expr}).collect::<String>() }}"
+                "{{ let {receiver_text} = {operand_expr}; let {SMELT_STRING_LEN} = {len}; {slice} }}",
+                len = self.string_len_text(receiver_text),
+                slice = self.string_slice_text(receiver_text, start_text.as_str(), len_expr.as_str()),
             ))
         };
         if matches!(
@@ -1164,6 +1247,48 @@ impl FunctionEmitter<'_> {
         } else {
             Ok(result)
         }
+    }
+
+    /// Render `substring(start, end)` or `substr(start, length)` over a string
+    /// operand: each bound is `ToIntegerOrInfinity`'d (NaN is 0) and clamped,
+    /// `substring` swaps reversed bounds, and `substr` counts a negative start
+    /// from the end and takes at most `length` units.
+    fn string_substring_expr(
+        &self,
+        operand: &Operand,
+        start: Option<&Operand>,
+        end: Option<&Operand>,
+        kind: smelt_hir::StringSliceKind,
+    ) -> Result<RustExpr, EmitError> {
+        let operand_expr = self.string_like_operand_expr(operand, "string substring")?;
+        let bound = |bound: Option<&Operand>, absent: &str| -> Result<String, EmitError> {
+            Ok(match bound {
+                Some(bound) => format!(
+                    "{{ let smelt_bound = {} as f64; if smelt_bound.is_nan() {{ 0.0 }} else {{ smelt_bound.trunc() }} }}",
+                    self.operand_expr(bound)?.as_cast_operand()
+                ),
+                None => absent.to_owned(),
+            })
+        };
+        let start_text = bound(start, "0.0_f64")?;
+        let (from, count) = if kind == smelt_hir::StringSliceKind::Substr {
+            let length_text = bound(end, "f64::INFINITY")?;
+            (
+                format!("{{ let smelt_start = {start_text}; if smelt_start < 0.0 {{ (smelt_len + smelt_start).max(0.0) }} else {{ smelt_start.min(smelt_len) }} }}"),
+                format!("{length_text}.clamp(0.0, smelt_len - smelt_from)"),
+            )
+        } else {
+            let end_text = bound(end, "smelt_len")?;
+            (
+                format!("{start_text}.clamp(0.0, smelt_len).min({end_text}.clamp(0.0, smelt_len))"),
+                format!("{start_text}.clamp(0.0, smelt_len).max({end_text}.clamp(0.0, smelt_len)) - smelt_from"),
+            )
+        };
+        Ok(RustExpr::atom(format!(
+            "{{ let smelt_text = {operand_expr}; let smelt_len = {len} as f64; let smelt_from = {from}; let smelt_count = {count}; {slice} }}",
+            len = self.string_len_text("smelt_text"),
+            slice = self.string_slice_text("smelt_text", "smelt_from as usize", "smelt_count as usize"),
+        )))
     }
 
     /// Converts a list containment operation to Rust text.
@@ -1193,12 +1318,17 @@ impl FunctionEmitter<'_> {
             let separator_unknown = self
                 .erase_concrete_union_expr(&self.operand_expr(separator)?, self.operand_ty(separator)?);
             self.carrier_format(format_args!(
-                "{{ let smelt_haystack = {haystack_text}; match {separator_unknown} {{ SmeltUnknown::Object(smelt_object) if smelt_object.contains_key(\"source\") => SmeltRegExp::new(match smelt_object.get(\"source\").cloned() {{ Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }}, match smelt_object.get(\"flags\").cloned() {{ Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }}).split_string(&smelt_haystack), smelt_separator_unknown => {{ let smelt_separator = match smelt_separator_unknown {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), {smelt_bigint_arm}SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}; if smelt_separator.is_empty() {{ if smelt_haystack.is_empty() {{ Vec::new() }} else {{ smelt_haystack.chars().map(|ch| ch.to_string()).collect::<Vec<_>>() }} }} else {{ smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() }} }} }} }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),")
+                "{{ let smelt_haystack = {haystack_text}; match {separator_unknown} {{ SmeltUnknown::Object(smelt_object) if smelt_object.contains_key(\"source\") => SmeltRegExp::new(match smelt_object.get(\"source\").cloned() {{ Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }}, match smelt_object.get(\"flags\").cloned() {{ Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }}).split_string(&smelt_haystack), smelt_separator_unknown => {{ let smelt_separator = match smelt_separator_unknown {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), {smelt_bigint_arm}SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}; if smelt_separator.is_empty() {{ if smelt_haystack.is_empty() {{ Vec::new() }} else {{ {units} }} }} else {{ smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() }} }} }} }}", units = if self.indexes_utf16() { "smelt_utf16_units(&smelt_haystack)" } else { "smelt_haystack.chars().map(|ch| ch.to_string()).collect::<Vec<_>>()" }, smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),")
             ))
         } else {
             let separator_text = self.string_like_operand_expr(separator, "string split")?;
             format!(
-                "{{ let smelt_haystack = {haystack_text}; let smelt_separator = {separator_text}; if smelt_separator.is_empty() {{ if smelt_haystack.is_empty() {{ Vec::new() }} else {{ smelt_haystack.chars().map(|ch| ch.to_string()).collect::<Vec<_>>() }} }} else {{ smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() }} }}"
+                "{{ let smelt_haystack = {haystack_text}; let smelt_separator = {separator_text}; if smelt_separator.is_empty() {{ if smelt_haystack.is_empty() {{ Vec::new() }} else {{ {units} }} }} else {{ smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() }} }}",
+                units = if self.indexes_utf16() {
+                    "smelt_utf16_units(&smelt_haystack)"
+                } else {
+                    "smelt_haystack.chars().map(|ch| ch.to_string()).collect::<Vec<_>>()"
+                },
             )
         };
         let result = RustExpr::from(if let Some(limit_operand) = limit {

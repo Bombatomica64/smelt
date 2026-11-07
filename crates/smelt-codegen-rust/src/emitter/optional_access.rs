@@ -528,11 +528,12 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::String) => {
                 let index_text = self.optional_normalized_index_expr(
-                    &RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.chars().count()")),
+                    &self.string_len_expr(receiver_text),
                     index,
                 )?;
                 Ok(RustExpr::atom(format!(
-                    "({index_text}).and_then(|index| {receiver_text}.chars().nth(index).map(|ch| ch.to_string()))"
+                    "({index_text}).and_then(|index| {})",
+                    self.string_char_at_text(&receiver_text.parenthesized_if_needed(), "index")
                 )))
             }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
@@ -595,14 +596,14 @@ impl FunctionEmitter<'_> {
                 } else {
                     self.extract_rendered(&RustExpr::path("_smelt_element"), result_ty, &self.render_scope())?.into_string()
                 };
+                let char_at = self.string_char_at_text("value", "index");
                 let string_some = if result_is_string {
-                    "value.chars().nth(index).map(|ch| ch.to_string())".to_owned()
+                    char_at
                 } else if result_is_erased {
-                    "value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string().into()))"
-                        .to_owned()
+                    format!("{char_at}.map(|ch| SmeltUnknown::String(ch.into()))")
                 } else {
                     self.carrier_format(format_args!(
-                        "value.chars().nth(index).map(|ch| {{ let _smelt_element = SmeltUnknown::String(ch.to_string().into()); {element_text} }})"
+                        "{char_at}.map(|ch| {{ let _smelt_element = SmeltUnknown::String(ch.into()); {element_text} }})"
                     ))
                 };
                 let array_some = if result_is_string {
@@ -656,7 +657,7 @@ impl FunctionEmitter<'_> {
                 Ok(RustExpr::atom(format!(
                     r"match {scrutinee} {{
                         SmeltUnknown::String(value) => {{
-                            let smelt_len = value.chars().count() as i64;
+                            let smelt_len = {string_len} as i64;
                             let smelt_index = {numeric_index_text} as i64;
                             let smelt_normalized = if smelt_index < 0 {{ smelt_len + smelt_index }} else {{ smelt_index }};
                             usize::try_from(smelt_normalized).ok().and_then(|index| {string_some})
@@ -669,7 +670,8 @@ impl FunctionEmitter<'_> {
                         }}
                         SmeltUnknown::Object(values) => {object_some},
                         {primitive_none},
-                    }}"
+                    }}",
+                    string_len = self.string_len_text("value"),
                 )))
             }
             // A tuple has a static width, so a constant index names one field.

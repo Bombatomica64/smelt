@@ -65,3 +65,9 @@ clone-strategy = "aggressive"
 fn lambda_arithmetic() -> TestResult {
     verify_python_parity("lambda_arithmetic")
 }
+
+/// A `str` index counts code points, in `len`, `find`, `rfind` and slicing.
+#[test]
+fn str_code_point_indices() -> TestResult {
+    verify_python_parity("str_code_point_indices")
+}

@@ -384,27 +384,33 @@ impl FunctionEmitter<'_> {
 
     /// Converts optional Python-style slice bounds to a Rust `take` length expression.
     /// Converts optional Python-style slice bounds to a Rust `take` length expression.
-    /// Converts optional Python-style slice bounds to a Rust `take` length expression.
-    /// Converts optional Python-style slice bounds to a Rust `take` length expression.
+    /// The Rust `take` length of a list slice with optional bounds.
     pub(super) fn slice_len_expr(
         &self,
         receiver_text: &RustExpr,
         maybe_start: Option<&Operand>,
         maybe_end: Option<&Operand>,
-        kind: SliceLenKind,
     ) -> Result<RustExpr, EmitError> {
-        let len_source = match kind {
-            SliceLenKind::Len => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.len()")),
-            SliceLenKind::Chars => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.chars().count()")),
-        };
-        let start_text = self.slice_start_expr(maybe_start, &len_source)?;
+        let len_source = RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.len()"));
+        self.slice_len_expr_from_len(&len_source, maybe_start, maybe_end)
+    }
+
+    /// The Rust `take` length of a slice with optional bounds over a sequence
+    /// whose `usize` length is `len_source`.
+    pub(super) fn slice_len_expr_from_len(
+        &self,
+        len_source: &RustExpr,
+        maybe_start: Option<&Operand>,
+        maybe_end: Option<&Operand>,
+    ) -> Result<RustExpr, EmitError> {
+        let start_text = self.slice_start_expr(maybe_start, len_source)?;
         let end_text = match maybe_end {
             Some(bound) => self.normalized_slice_bound_expr_with_default(
                 bound,
-                &len_source,
+                len_source,
                 &RustExpr::cast(format!("{len_source} as f64")),
             )?,
-            None => len_source,
+            None => len_source.clone(),
         };
         Ok(RustExpr::postfix_on(&end_text, format!("{end_text}.saturating_sub({start_text})")))
     }

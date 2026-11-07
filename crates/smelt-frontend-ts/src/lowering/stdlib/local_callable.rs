@@ -551,6 +551,7 @@ impl ModuleBuilder<'_> {
                 operand,
                 start,
                 end,
+                kind: smelt_hir::StringSliceKind::Slice,
             },
             ty,
             span: self.span(outer_call.span.start, outer_call.span.end),

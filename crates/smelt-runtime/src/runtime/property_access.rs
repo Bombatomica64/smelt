@@ -145,7 +145,7 @@ fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     //~ synthesized on read, exactly like the erased `Map`'s `.size` below. An
     //~ own field still wins, and the payload's *methods* stay on the
     //~ prototype rather than becoming own members.
-    if !map.contains_key(field) { if let Some(SmeltUnknown::String(text)) = map.get("__smelt_string").and(map.get("value")) { if field == "length" { return SmeltUnknown::Number(text.chars().count() as f64); } if let Ok(index) = field.parse::<usize>() { return text.chars().nth(index).map_or(SmeltUnknown::Undefined, |character| SmeltUnknown::String(character.to_string().into())); } } }
+    if !map.contains_key(field) { if let Some(SmeltUnknown::String(text)) = map.get("__smelt_string").and(map.get("value")) { if field == "length" { return SmeltUnknown::Number(smelt_utf16_len(&text) as f64); } if let Ok(index) = field.parse::<usize>() { return smelt_utf16_char_at(&text, index).map_or(SmeltUnknown::Undefined, |character| SmeltUnknown::String(character.into())); } } }
     //~ A builtin read as a value is a marker record (`smelt_builtin_namespace`),
     //~ and JavaScript answers property reads on it: `Array.prototype` is the
     //~ builtin's prototype object and `Array.isArray` is a function value. Both
@@ -410,13 +410,13 @@ fn smelt_get_unknown_field(value: &SmeltUnknown, field: &str) -> SmeltUnknown {
 //~ would double them in a clone), so they belong here and not on the
 //~ prototype half.
 /// Whether a boxed-`String` wrapper answers `key` as one of its OWN properties.
-fn smelt_boxed_string_own_property(map: &SmeltObject, key: &str) -> bool { let Some(SmeltUnknown::String(text)) = map.get("__smelt_string").and(map.get("value")) else { return false; }; key == "length" || key.parse::<usize>().is_ok_and(|index| index < text.chars().count()) }
+fn smelt_boxed_string_own_property(map: &SmeltObject, key: &str) -> bool { let Some(SmeltUnknown::String(text)) = map.get("__smelt_string").and(map.get("value")) else { return false; }; key == "length" || key.parse::<usize>().is_ok_and(|index| index < smelt_utf16_len(&text)) }
 /// Whether `value` has `key` as an own property (JS `Object.hasOwn`).
 fn smelt_has_own_property(value: &SmeltUnknown, key: &str) -> bool {
     match value {
         SmeltUnknown::Object(map) => map.contains_key(key) || smelt_host_buffer_element(map, key).is_some() || smelt_boxed_string_own_property(map, key),
         SmeltUnknown::Array(values) => key == "length" || values.named_keys().contains(&key.to_owned()) || key.parse::<usize>().is_ok_and(|index| index < values.len()),
-        SmeltUnknown::String(text) => key == "length" || key.parse::<usize>().is_ok_and(|index| index < text.chars().count()),
+        SmeltUnknown::String(text) => key == "length" || key.parse::<usize>().is_ok_and(|index| index < smelt_utf16_len(text)),
         _ => false,
     }
 }

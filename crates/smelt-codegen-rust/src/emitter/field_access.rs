@@ -450,7 +450,7 @@ impl FunctionEmitter<'_> {
             }
             "constructor" => (self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null")), unknown_ty),
             "length" => {
-                let count = format!("{receiver_text}.chars().count()");
+                let count = self.string_len_text(&receiver_text.parenthesized_if_needed());
                 if let Some(int_ty) = self.existing_type_id(Type::Int) {
                     (RustExpr::atom(format!("({count} as i64)")), int_ty)
                 } else if let Some(float_ty) = self.existing_type_id(Type::Float) {

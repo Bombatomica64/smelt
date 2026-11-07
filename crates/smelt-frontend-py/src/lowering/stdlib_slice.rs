@@ -145,6 +145,7 @@ impl ModuleBuilder<'_> {
                         operand: receiver,
                         start: lower,
                         end: upper,
+                        kind: smelt_hir::StringSliceKind::Slice,
                     },
                     ty,
                     span: self.span(sub.range),

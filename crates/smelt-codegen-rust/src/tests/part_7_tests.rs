@@ -3037,7 +3037,7 @@ function first<S extends string>(value: S): string {
     );
 
     assert!(source.contains("SmeltUnknown::String(value)"), "{source}");
-    assert!(source.contains("value.chars().nth(index)"), "{source}");
+    assert!(source.contains("smelt_utf16_char_at(&value, index)"), "{source}");
     assert!(!source.contains("SmeltUnknown::Null.clone()"), "{source}");
 }
 
@@ -3245,7 +3245,7 @@ function initialCaps<T extends string>(values: T[]): string[] {
     );
 
     assert!(source.contains("SmeltUnknown::String(value)"), "{source}");
-    assert!(source.contains("value.chars().nth(index)"), "{source}");
+    assert!(source.contains("smelt_utf16_char_at(&value, index)"), "{source}");
     assert!(source.contains(".to_uppercase()"), "{source}");
     assert!(!source.contains("String::new().to_uppercase()"), "{source}");
 }
@@ -6544,7 +6544,7 @@ export function run(): unknown[] {
 
     assert!(
         source.contains(
-            "SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64)"
+            "SmeltUnknown::String(value) => SmeltUnknown::Number(smelt_utf16_len(&value) as f64)"
         ),
         "{source}"
     );
@@ -11832,7 +11832,7 @@ export function trimIt(str: string, chars?: string | string[]): string {
         .split_once("@smelt:prelude-end")
         .map_or(generated.as_str(), |(_, program)| program);
     assert!(
-        program.contains(".contains(&str.chars().nth("),
+        program.contains(".contains(&smelt_utf16_char_at(&str, "),
         "containment must compare against the projected `Vec`:\n{generated}"
     );
 }
@@ -13017,7 +13017,7 @@ export function pick(value: unknown, index: number): unknown {
     );
     assert!(
         source.contains(
-            "value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string().into()))).unwrap_or(SmeltUnknown::Undefined)"
+            "smelt_utf16_char_at(&value, index).map(|ch| SmeltUnknown::String(ch.into()))).unwrap_or(SmeltUnknown::Undefined)"
         ),
         "a missing string character on an erased receiver is `undefined`:\n{source}"
     );

@@ -272,6 +272,10 @@ const MODULES: &[RuntimeModule] = &[
         source: include_str!("runtime/string_to_number.rs"),
     },
     RuntimeModule {
+        name: "string_units",
+        source: include_str!("runtime/string_units.rs"),
+    },
+    RuntimeModule {
         name: "strings",
         source: include_str!("runtime/strings.rs"),
     },

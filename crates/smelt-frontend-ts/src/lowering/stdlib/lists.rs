@@ -5,7 +5,7 @@ use crate::lowering::{ModuleBuilder, SmeltError};
 use oxc::ast::ast::{Argument, CallExpression, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{
-    BinOp, Body, ErasureReason, Expr, ExprKind, ListCallbackOp, ListProjectionOp, ListSpliceItem,
+    Body, ErasureReason, Expr, ExprKind, ListCallbackOp, ListProjectionOp, ListSpliceItem,
     Stmt, Type,
 };
 
@@ -1072,25 +1072,16 @@ impl ModuleBuilder<'_> {
             .first()
             .map(|argument| self.slice_index_argument(argument, body))
             .transpose()?;
-        let mut end = call
+        let end = call
             .arguments
             .get(1)
             .map(|argument| self.slice_index_argument(argument, body))
             .transpose()?;
-        if method == "substr"
-            && let (Some(start_expr), Some(length_expr)) = (start, end)
-        {
-            let ty = self.ctx.krate.types.intern(Type::Float);
-            end = Some(body.push_expr(Expr {
-                kind: ExprKind::BinOp {
-                    op: BinOp::Add,
-                    lhs: start_expr,
-                    rhs: length_expr,
-                },
-                ty,
-                span: self.span(call.span.start, call.span.end),
-            }));
-        }
+        let slice_kind = match method {
+            "substring" => smelt_hir::StringSliceKind::Substring,
+            "substr" => smelt_hir::StringSliceKind::Substr,
+            _ => smelt_hir::StringSliceKind::Slice,
+        };
 
         match self.ctx.krate.types.get(effective_operand_ty) {
             Some(Type::String) => {
@@ -1100,6 +1091,7 @@ impl ModuleBuilder<'_> {
                         operand,
                         start,
                         end,
+                        kind: slice_kind,
                     },
                     ty,
                     span: self.span(call.span.start, call.span.end),

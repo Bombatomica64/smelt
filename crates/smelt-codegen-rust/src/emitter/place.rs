@@ -704,10 +704,10 @@ impl FunctionEmitter<'_> {
             Some(Type::String) if self.mir.types.get(inner) == Some(&Type::String) => {
                 let base_text = self.local_value(*base)?;
                 let index_text = self
-                    .normalized_read_index_expr(&RustExpr::postfix_on(&base_text, format!("{base_text}.chars().count()")), index, *negative)?;
-                Ok(Some(RustExpr::postfix_on(&base_text, format!(
-                    "{base_text}.chars().nth({index_text}).map(|ch| ch.to_string())"
-                ))))
+                    .normalized_read_index_expr(&self.string_len_expr(&base_text), index, *negative)?;
+                Ok(Some(RustExpr::chain(
+                    self.string_char_at_text(&base_text.parenthesized_if_needed(), index_text.as_str()),
+                )))
             }
             // A keyed RECORD read (`rec[key]`) misses exactly like an element
             // read: a missing key is `undefined`, which the record's own
@@ -801,9 +801,10 @@ impl FunctionEmitter<'_> {
             Some(Type::String) => {
                 let base_text = self.local_value(*base)?;
                 let index_text = self
-                    .normalized_read_index_expr(&RustExpr::postfix_on(&base_text, format!("{base_text}.chars().count()")), index, *negative)?;
-                Ok(Some(RustExpr::postfix_on(&base_text, self.carrier_format(format_args!(
-                    "{base_text}.chars().nth({index_text}).map(|ch| SmeltUnknown::String(ch.to_string().into())).unwrap_or(SmeltUnknown::Undefined)"
+                    .normalized_read_index_expr(&self.string_len_expr(&base_text), index, *negative)?;
+                let char_at = self.string_char_at_text(&base_text.parenthesized_if_needed(), index_text.as_str());
+                Ok(Some(RustExpr::postfix_on(&RustExpr::chain(char_at.clone()), self.carrier_format(format_args!(
+                    "{char_at}.map(|ch| SmeltUnknown::String(ch.into())).unwrap_or(SmeltUnknown::Undefined)"
                 )))))
             }
             // A keyed RECORD read misses like an element read (a missing key
@@ -869,15 +870,17 @@ impl FunctionEmitter<'_> {
                     SmeltUnknown::String(value) => {{
                         let smelt_key = {key_text};
                         if smelt_key == "length" {{
-                            SmeltUnknown::Number(value.chars().count() as f64)
+                            SmeltUnknown::Number({string_len} as f64)
                         }} else {{
-                            smelt_key.parse::<usize>().ok().and_then(|index| value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string().into()))).unwrap_or(SmeltUnknown::Undefined)
+                            smelt_key.parse::<usize>().ok().and_then(|index| {char_at}.map(|ch| SmeltUnknown::String(ch.into()))).unwrap_or(SmeltUnknown::Undefined)
                         }}
                     }}
                     SmeltUnknown::Array(values) => smelt_get_array_field(&values, &{key_text}),
                     SmeltUnknown::Object(values) => smelt_get_object_field(&values, &{key_text}),
                     _ => SmeltUnknown::Undefined,
-                }}"#
+                }}"#,
+                string_len = self.string_len_text("value"),
+                char_at = self.string_char_at_text("value", "index"),
             )));
         }
         let numeric_index_text = match self.mir.types.get(index_ty) {
@@ -903,10 +906,10 @@ impl FunctionEmitter<'_> {
         Ok(RustExpr::atom(format!(
             r"match {base_text} {{
                     SmeltUnknown::String(value) => {{
-                        let smelt_len = value.chars().count() as i64;
+                        let smelt_len = {string_len} as i64;
                         let smelt_index = {numeric_index_text} as i64;
                         let smelt_normalized = if smelt_index < 0 {{ smelt_len + smelt_index }} else {{ smelt_index }};
-                        usize::try_from(smelt_normalized).ok().and_then(|index| value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string().into()))).unwrap_or(SmeltUnknown::Undefined)
+                        usize::try_from(smelt_normalized).ok().and_then(|index| {char_at}.map(|ch| SmeltUnknown::String(ch.into()))).unwrap_or(SmeltUnknown::Undefined)
                     }}
                     SmeltUnknown::Array(values) => {{
                         let smelt_len = values.len() as i64;
@@ -916,7 +919,9 @@ impl FunctionEmitter<'_> {
                     }}
                 SmeltUnknown::Object(values) => smelt_get_object_field(&values, &{key_text}),
                 _ => SmeltUnknown::Undefined,
-            }}"
+            }}",
+            string_len = self.string_len_text("value"),
+            char_at = self.string_char_at_text("value", "index"),
         )))
     }
 
@@ -1048,9 +1053,10 @@ impl FunctionEmitter<'_> {
                 // `rest(func)` — whose default split point is
                 // `func.length - 1` — reshaped every call wrongly.
                 return Ok(RustExpr::atom(self.carrier_format(format_args!(
-                    "match {scrutinee} {{ SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), value @ SmeltUnknown::Function(_) => SmeltUnknown::Number({function_length}(&value)), SmeltUnknown::Object(map) => match smelt_get_object_field(&map, \"length\") {{ SmeltUnknown::Undefined | SmeltUnknown::Null if map.contains_key(\"{SMELT_CALL}\") => SmeltUnknown::Number({function_length}(&SmeltUnknown::Object(map))), value => value }}, _ => SmeltUnknown::Null }}",
+                    "match {scrutinee} {{ SmeltUnknown::String(value) => SmeltUnknown::Number({string_len} as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), value @ SmeltUnknown::Function(_) => SmeltUnknown::Number({function_length}(&value)), SmeltUnknown::Object(map) => match smelt_get_object_field(&map, \"length\") {{ SmeltUnknown::Undefined | SmeltUnknown::Null if map.contains_key(\"{SMELT_CALL}\") => SmeltUnknown::Number({function_length}(&SmeltUnknown::Object(map))), value => value }}, _ => SmeltUnknown::Null }}",
                     function_length =
                         smelt_stdlib::runtime_symbols::function_length::READ,
+                    string_len = self.string_len_text("value"),
                 ))));
             }
             // `AbortController`/`AbortSignal` methods are surfaced as
@@ -1127,7 +1133,8 @@ impl FunctionEmitter<'_> {
                 == Some(smelt_stdlib::FieldRule::TsLength)
             {
                 return Ok(RustExpr::atom(self.carrier_format(format_args!(
-                    "match {base_text}.clone().unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"length\"), _ => SmeltUnknown::Null }}"
+                    "match {base_text}.clone().unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::String(value) => SmeltUnknown::Number({string_len} as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"length\"), _ => SmeltUnknown::Null }}",
+                    string_len = self.string_len_text("value"),
                 ))));
             }
             return Ok(RustExpr::chain(self.carrier_format(format_args!(
@@ -1447,7 +1454,7 @@ impl FunctionEmitter<'_> {
             Some(Type::String) => {
                 let base_text = self.local_value(base)?;
                 let index_text = self.normalized_read_index_expr(
-                    &RustExpr::postfix_on(&base_text, format!("{base_text}.chars().count()")),
+                    &self.string_len_expr(&base_text),
                     index,
                     negative,
                 )?;
@@ -1458,9 +1465,8 @@ impl FunctionEmitter<'_> {
                 // see the miss (`s[i] === undefined`, `s[i] ?? f`, an
                 // optional slot) reads through
                 // `optional_element_read_expr` instead.
-                Ok(RustExpr::postfix_on(&base_text, format!(
-                    "{base_text}.chars().nth({index_text}).map(|ch| ch.to_string()).unwrap_or_default()"
-                )))
+                let char_at = self.string_char_at_text(&base_text.parenthesized_if_needed(), index_text.as_str());
+                Ok(RustExpr::postfix_on(&RustExpr::chain(char_at.clone()), format!("{char_at}.unwrap_or_default()")))
             }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
                 // A concrete generated union is not a `SmeltUnknown`, so

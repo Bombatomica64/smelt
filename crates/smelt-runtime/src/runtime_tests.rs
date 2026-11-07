@@ -486,6 +486,26 @@ mod number_family {
         assert!(smelt_string_to_number("12px").is_nan(), "trailing text is NaN");
     }
 
+    /// UTF-16 indices over UTF-8 text agree with a decoding walk, across
+    /// the eight-byte words the seek skips.
+    #[test]
+    fn utf16_indices_agree_with_decoding() {
+        let text = "aé😀日b".repeat(7);
+        let units: Vec<u16> = text.encode_utf16().collect();
+        assert_eq!(smelt_utf16_len(&text), units.len(), "length");
+        for unit in 0..=units.len() + 2 {
+            let expected = String::from_utf16_lossy(&units[unit.min(units.len())..]);
+            match smelt_utf16_byte_of(&text, unit) {
+                Ok(byte) => assert_eq!(&text[byte..], expected, "unit {unit}"),
+                Err(byte) => assert!(text[byte..].starts_with('😀') && expected.starts_with('\u{fffd}'), "unit {unit} is inside a pair"),
+            }
+            assert_eq!(smelt_utf16_unit_at(&text, unit), units.get(unit).copied(), "unit {unit}");
+        }
+        assert_eq!(smelt_utf16_slice("a😀b", 1, 3), "😀", "a whole pair");
+        assert_eq!(smelt_utf16_slice("a😀b", 2, 4), "\u{fffd}b", "a cut pair");
+        assert_eq!(smelt_utf16_index_of_byte("é😀x", 6), 3, "bytes to units");
+    }
+
     /// `parseInt` reads the longest digit prefix, detects `0x` only for radix
     /// 0 or 16, and keeps the sign of a zero.
     #[test]

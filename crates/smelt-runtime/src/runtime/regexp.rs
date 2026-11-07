@@ -236,7 +236,8 @@ impl SmeltRegExp {
     /// `SmeltMatch::into_smelt_unknown` when required.
     pub fn exec(&self, haystack: &str) -> Option<SmeltMatch> {
         let regex = self.compiled();
-        let start = if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow() } else { 0 };
+        //~ `lastIndex` and a match's `index` count UTF-16 code units.
+        let start = if self.has_flag('g') || self.has_flag('y') { smelt_utf16_byte_of(haystack, *self.last_index.borrow()).unwrap_or_else(|byte| byte) } else { 0 };
         let suffix = haystack.get(start..).unwrap_or("");
         //~ A FAILED search on a stateful regex resets `lastIndex` to 0,
         //~ which is what makes `/a/g` over "aa" answer true, true,
@@ -247,15 +248,15 @@ impl SmeltRegExp {
         let Some(captures) = regex.captures(suffix).ok().flatten() else { if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = 0; } return None; };
         let Some(matched) = captures.get(0) else { if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = 0; } return None; };
         if self.has_flag('y') && matched.start() != 0 { *self.last_index.borrow_mut() = 0; return None; }
-        if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = start + matched.end(); }
-        Some(SmeltMatch::from_captures(&regex, &captures, start + matched.start(), haystack))
+        if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = smelt_utf16_index_of_byte(haystack, start + matched.end()); }
+        Some(SmeltMatch::from_captures(&regex, &captures, smelt_utf16_index_of_byte(haystack, start + matched.start()), haystack))
     }
     /// Return concrete `SmeltMatch` results for String.prototype.matchAll.
     pub fn match_all_indices(&self, haystack: &str) -> Vec<SmeltMatch> {
         let regex = self.compiled();
         regex.captures_iter(haystack).filter_map(Result::ok).filter_map(|captures| {
             let matched = captures.get(0)?;
-            Some(SmeltMatch::from_captures(&regex, &captures, matched.start(), haystack))
+            Some(SmeltMatch::from_captures(&regex, &captures, smelt_utf16_index_of_byte(haystack, matched.start()), haystack))
         }
         ).collect::<Vec<_>>()
     }

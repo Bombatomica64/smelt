@@ -546,7 +546,7 @@ impl FunctionEmitter<'_> {
         let list_text = self.operand_borrow_expr(list)?;
         let len_source = RustExpr::postfix_on(&list_text, format!("{list_text}.len()"));
         let start_text = self.slice_start_expr(start, &len_source)?;
-        let len_expr = self.slice_len_expr(&list_text, start, end, SliceLenKind::Len)?;
+        let len_expr = self.slice_len_expr(&list_text, start, end)?;
         // `.len()` is the list's own inherent method (its own short-lived borrow);
         // `.iter()` needs the backing `Vec`, so it reads through the shared cell.
         // Both are shared borrows, so they may coexist inside one expression.

@@ -330,10 +330,12 @@ impl ModuleBuilder<'_> {
                 StringAffixOp::EndsWith => (None, position),
             };
             haystack = body.push_expr(Expr {
+                // A position clamps to `[0, length]`, as `substring` bounds do.
                 kind: ExprKind::StringSlice {
                     operand: haystack,
                     start,
                     end,
+                    kind: smelt_hir::StringSliceKind::Substring,
                 },
                 ty: string_ty,
                 span: self.span(member.object.span().start, member.object.span().end),
@@ -780,7 +782,8 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Lower direct TypeScript `String.prototype.charAt` and `charCodeAt`.
+    /// Lower direct TypeScript `String.prototype.charAt`, `charCodeAt` and
+    /// `codePointAt` (a number, or `undefined` past the end).
     pub(in crate::lowering) fn string_char_at_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -789,11 +792,10 @@ impl ModuleBuilder<'_> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
-        let returns_code = match member.property.name.as_str() {
-            "charAt" => false,
-            "charCodeAt" => true,
-            _ => return Ok(None),
-        };
+        let method = member.property.name.as_str();
+        if !matches!(method, "charAt" | "charCodeAt" | "codePointAt") {
+            return Ok(None);
+        }
         let [index_argument] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
@@ -841,16 +843,15 @@ impl ModuleBuilder<'_> {
                 "string charAt/charCodeAt requires a string receiver and number argument",
             ));
         }
-        let ty = self.ctx.krate.types.intern(if returns_code {
-            Type::Float
-        } else {
-            Type::String
-        });
-        let kind = if returns_code {
-            ExprKind::StringCharCodeAt { operand, index }
-        } else {
-            ExprKind::StringCharAt { operand, index }
+        let (kind, ty) = match method {
+            "charCodeAt" => (ExprKind::StringCharCodeAt { operand, index }, Type::Float),
+            "codePointAt" => {
+                let float_ty = self.ctx.krate.types.intern(Type::Float);
+                (ExprKind::StringCodePointAt { operand, index }, Type::Optional(float_ty))
+            }
+            _ => (ExprKind::StringCharAt { operand, index }, Type::String),
         };
+        let ty = self.ctx.krate.types.intern(ty);
         Ok(Some(body.push_expr(Expr {
             kind,
             ty,

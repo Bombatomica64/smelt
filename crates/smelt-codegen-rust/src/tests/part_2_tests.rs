@@ -533,7 +533,7 @@ last_text: str = word[-3:]
     assert!(source.contains(".cloned().collect::<Vec<_>>()"));
     assert!(source.contains(".chars().skip(0usize).take("));
     assert!(source.matches("if smelt_index < 0").count() >= 2);
-    assert!(source.contains(".collect::<String>();"));
+    assert!(source.contains(".collect::<String>() };"), "{source}");
 }
 
 #[test]

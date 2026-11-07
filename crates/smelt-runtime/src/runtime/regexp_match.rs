@@ -40,7 +40,7 @@ pub struct SmeltMatch {
     groups: ::std::rc::Rc<Vec<Option<String>>>,
     /// Named capture groups keyed by name (plus a snake_case alias).
     named: ::std::rc::Rc<::std::collections::HashMap<String, Option<String>>>,
-    /// Zero-based offset of the match within `input` (`.index`).
+    /// Zero-based UTF-16 offset of the match within `input` (`.index`).
     match_index: usize,
     /// The full string that was searched (`.input`).
     input: ::std::rc::Rc<str>,

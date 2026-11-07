@@ -18,7 +18,7 @@ fn trim_trailing_slash (FuncId(0)) -> String throws
     %4 = url_Get(Pathname) copy %1
     %5 = len move %4
     %6 = move %5 - 1.0
-    %7 = string_slice move %3, 0.0, move %6
+    %7 = string_substring move %3, 0.0, move %6
     %8 = url_Set(Pathname) copy %1, move %7
     %9 = url_Get(Href) move %1
     return move %9
