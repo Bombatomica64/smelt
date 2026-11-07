@@ -304,6 +304,17 @@ impl ModuleBuilder<'_> {
         Ok(None)
     }
 
+    /// Whether `name` is bound by the program itself at this point: a local or
+    /// local callback of the function being lowered, or a module item (a
+    /// `def`, class, global or imported name). Such a name shadows the builtin
+    /// of the same spelling.
+    fn program_binds_name(&self, name: &str) -> bool {
+        self.scope.locals.contains_key(name)
+            || self.scope.local_callbacks.contains_key(name)
+            || self.items.contains_key(name)
+            || self.import_aliases.contains_key(name)
+    }
+
     /// Lower calls whose callee is a builtin name (`print`, `len`, container and
     /// primitive constructors, and the numeric/iterator builtins).
     fn builtin_name_call_expression(
@@ -315,6 +326,11 @@ impl ModuleBuilder<'_> {
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         // `print(...)` → CONSOLE_LOG_SYMBOL item (same as TS's `console.log`).
         if let Expr::Name(name) = call.func.as_ref() {
+            // A builtin name the program binds itself (a `def`, class, global,
+            // import or local spelled `abs`, `len`, `print`, …) is that binding.
+            if self.program_binds_name(name.id.as_str()) {
+                return Ok(None);
+            }
             if matches!(name.id.as_str(), "list" | "set" | "dict" | "tuple")
                 && let Some(expr) =
                     self.container_constructor_call_expression(call, body, type_hint)?

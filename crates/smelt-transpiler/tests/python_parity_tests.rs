@@ -77,3 +77,9 @@ fn str_code_point_indices() -> TestResult {
 fn iterator_protocol() -> TestResult {
     verify_python_parity("iterator_protocol")
 }
+
+/// A `def` or parameter spelled like a builtin shadows it.
+#[test]
+fn builtin_names_shadowed() -> TestResult {
+    verify_python_parity("builtin_names_shadowed")
+}
