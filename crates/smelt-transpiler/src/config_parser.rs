@@ -102,6 +102,22 @@ mod tests {
         }
     }
 
+    /// `[specialization.oci-fallback]` names a runtime and an image; without it
+    /// there is no fallback, and a misspelt key is rejected.
+    #[test]
+    fn the_oci_fallback_is_configured_in_specialization() {
+        let configured =
+            parse_with("[specialization.oci-fallback]\nruntime = \"docker\"\nimage = \"ubuntu@sha256:00\"");
+        assert_eq!(
+            configured.as_ref().ok().and_then(Config::oci_fallback),
+            Some(("docker", "ubuntu@sha256:00"))
+        );
+        let absent = parse_with("");
+        assert!(absent.as_ref().is_ok_and(|config| config.oci_fallback().is_none()));
+        let misspelt = parse_with("[specialization.oci-fallback]\nruntime = \"docker\"\nimg = \"x\"");
+        assert!(misspelt.is_err_and(|error| error.to_string().contains("unknown")));
+    }
+
     /// A misspelt key is an error, in a table and at the top level.
     #[test]
     fn unknown_keys_are_rejected() {

@@ -49,6 +49,10 @@
           "type": "null"
         }
       ]
+    },
+    "specialization": {
+      "description": "Definition-time specialization options (`[specialization]`).",
+      "$ref": "#/$defs/Specialization"
     }
   },
   "additionalProperties": false,
@@ -412,6 +416,43 @@
       "additionalProperties": {
         "$ref": "#/$defs/ErasureLevel"
       }
+    },
+    "Specialization": {
+      "description": "Definition-time specialization configuration from the [specialization] section.",
+      "type": "object",
+      "properties": {
+        "oci-fallback": {
+          "description": "A container to run specialization in when the native hard sandbox\n(bubblewrap on Linux) is unavailable. Without it, specialization fails\nclosed on such a host.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OciFallback"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "OciFallback": {
+      "description": "`[specialization.oci-fallback]`: a Docker- or Podman-compatible runtime and\nan image pinned by digest.",
+      "type": "object",
+      "properties": {
+        "runtime": {
+          "description": "The runtime: a path, or a name looked up on `PATH` (`docker`, `podman`).",
+          "type": "string"
+        },
+        "image": {
+          "description": "The image, pinned by digest (`name@sha256:...`). The host's interpreter\nand libraries are bound into it read-only at their canonical paths, so\nthe image needs nothing but a merged-`/usr` layout (`/lib -> usr/lib`),\nas current Debian and Ubuntu images have.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "runtime",
+        "image"
+      ]
     }
   }
 }

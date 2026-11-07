@@ -568,6 +568,61 @@ mod tests {
         }
     }
 
+    /// The OCI fallback runs the real guest in a container: the host's
+    /// interpreter is bound into a digest-pinned image, and the manifest comes
+    /// back as from the native sandbox.
+    #[test]
+    fn oci_fallback_runs_the_guest_in_a_container() -> Result<(), String> {
+        const TEST: &str = "oci_fallback_runs_the_guest_in_a_container";
+        let Some(python) = discovered_python() else {
+            return missing_prerequisite(TEST, "python3 interpreter");
+        };
+        let Some(docker) = crate::prereq::locate_executable("docker", &[]) else {
+            return missing_prerequisite(TEST, "docker");
+        };
+        let daemon = std::process::Command::new(&docker).arg("info").output();
+        if !daemon.is_ok_and(|output| output.status.success()) {
+            return missing_prerequisite(TEST, "a reachable docker daemon");
+        }
+        let backend = crate::OciSandboxBackend::new(docker, OCI_TEST_IMAGE.to_owned());
+        let scratch = ScratchDirectory::create().map_err(|error| error.to_string())?;
+        let project = scratch.path().join("oci-project");
+        fs::create_dir(&project).map_err(|error| error.to_string())?;
+        let module_path = project.join("fixture.py");
+        fs::write(&module_path, "value: int = 7\n").map_err(|error| error.to_string())?;
+        let mut policy = fixture_policy(&project, scratch.path());
+        policy.read_only_roots = runtime_roots(&project, &python);
+        policy.writable_roots.clear();
+        policy.memory_bytes = 512 * 1024 * 1024;
+        let request = PythonSpecializationRequest {
+            smelt_version: "test".to_owned(),
+            python_executable: python,
+            project_root: project,
+            import_paths: Vec::new(),
+            modules: vec![PythonModule { name: "fixture".to_owned(), path: module_path }],
+            hashes: fixture_hashes(),
+            sandbox_policy: policy,
+        };
+        let manifest = PythonSpecializer::new(Box::new(backend))
+            .specialize(&request)
+            .map_err(|error| error.to_string())?;
+        let names = manifest
+            .modules
+            .iter()
+            .flat_map(|module| &module.definitions)
+            .map(|definition| definition.binding_name.as_str())
+            .collect::<Vec<_>>();
+        if manifest.sandbox_policy.backend == "oci-container" && names == ["value"] {
+            return Ok(());
+        }
+        Err(format!("backend {}, definitions {names:?}", manifest.sandbox_policy.backend))
+    }
+
+    /// Ubuntu 24.04, pinned: a merged-`/usr` image the host's interpreter is
+    /// bound into; nothing of its own runs.
+    const OCI_TEST_IMAGE: &str =
+        "ubuntu@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852";
+
     #[test]
     fn sandboxed_specializer_runs_when_backend_is_available() -> Result<(), String> {
         const TEST: &str = "sandboxed_specializer_runs_when_backend_is_available";

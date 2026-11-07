@@ -15,7 +15,7 @@ use smelt_specialize::{
     CacheKeyInput, HashInputs, HostLanguage, MANIFEST_SCHEMA_VERSION, ModuleInput, NodeModule,
     NodeSpecializationRequest, NodeSpecializer, PythonModule, PythonSpecializationRequest,
     PythonSpecializer, SandboxBackend, SandboxPolicyRecord, SpecializationArtifactStore,
-    SpecializationCacheKey, SpecializationManifest, default_platform_backend,
+    OciSandboxBackend, SpecializationCacheKey, SpecializationManifest, platform_backend,
     detect_specialization_modules,
 };
 
@@ -103,18 +103,19 @@ pub(crate) fn prepare(
         .map(|detection| (detection.path, detection.language))
         .collect::<BTreeSet<_>>();
 
+    let host = Host { project_root: &manifest_dir, fallback: oci_fallback(config) };
     let python_sources = candidates_for(HostLanguage::Python, sources, &candidate_paths);
     let typescript_sources = candidates_for(HostLanguage::TypeScript, sources, &candidate_paths);
 
     let python = if python_sources.is_empty() {
         Batch::NotNeeded
     } else {
-        prepare_python(&manifest_dir, &cache, &package, sources, &python_sources)?
+        prepare_python(&host, &cache, &package, sources, &python_sources)?
     };
     let typescript = if typescript_sources.is_empty() {
         Batch::NotNeeded
     } else {
-        prepare_typescript(&manifest_dir, &cache, &package, sources, &typescript_sources)?
+        prepare_typescript(&host, &cache, &package, sources, &typescript_sources)?
     };
     Ok(PreparedSpecialization { python, typescript })
 }
@@ -155,17 +156,46 @@ fn candidates_for<'source>(
         .collect()
 }
 
+/// Where a batch runs: the project, and the container to fall back to.
+struct Host<'project> {
+    /// The project directory.
+    project_root: &'project Path,
+    /// `[specialization.oci-fallback]`, when configured.
+    fallback: Option<OciSandboxBackend>,
+}
+
+impl Host<'_> {
+    /// The sandbox backend batches run in (see `smelt_specialize::platform_backend`).
+    fn backend(&self) -> Box<dyn SandboxBackend> {
+        platform_backend(self.fallback.clone())
+    }
+}
+
+/// The configured OCI fallback, its runtime resolved on `PATH` when it is a name.
+fn oci_fallback(config: &Config) -> Option<OciSandboxBackend> {
+    config.oci_fallback().map(|(runtime, image)| {
+        let path = Path::new(runtime);
+        let resolved = if path.components().count() > 1 {
+            path.to_path_buf()
+        } else {
+            smelt_specialize::prereq::locate_executable(runtime, &[]).unwrap_or_else(|| path.to_path_buf())
+        };
+        OciSandboxBackend::new(resolved, image.to_owned())
+    })
+}
+
 /// Resolves one Python batch from cache or a sandboxed `CPython` process.
 fn prepare_python(
-    project_root: &Path,
+    host: &Host<'_>,
     cache: &SpecializationArtifactStore,
     package: &SpecializationArtifactStore,
     graph: &[&ManifestSource],
     candidates: &[&ManifestSource],
 ) -> Result<Batch, Box<dyn std::error::Error>> {
+    let project_root = host.project_root;
     let python = find_executable("python3")?;
     let runtime_version = command_version(&python, &["--version"])?;
-    let policy = sandbox_policy(project_root, &python, false);
+    let policy = sandbox_policy(host, &python, false);
     let hashes = invalidation_hashes(project_root, graph, &policy)?;
     let key = SpecializationCacheKey::compute(&CacheKeyInput {
         smelt_version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -189,7 +219,7 @@ fn prepare_python(
             })
         })
         .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
-    let manifest = PythonSpecializer::new(default_platform_backend()).specialize(
+    let manifest = PythonSpecializer::new(host.backend()).specialize(
         &PythonSpecializationRequest {
             smelt_version: env!("CARGO_PKG_VERSION").to_owned(),
             python_executable: python,
@@ -206,12 +236,13 @@ fn prepare_python(
 
 /// Resolves one TypeScript batch from cache or canonical tsc + sandboxed Node.
 fn prepare_typescript(
-    project_root: &Path,
+    host: &Host<'_>,
     cache: &SpecializationArtifactStore,
     package: &SpecializationArtifactStore,
     graph: &[&ManifestSource],
     candidates: &[&ManifestSource],
 ) -> Result<Batch, Box<dyn std::error::Error>> {
+    let project_root = host.project_root;
     let node = find_executable("node")?;
     let tsc = find_executable("tsc")?;
     let node_version = command_version(&node, &["--version"])?;
@@ -223,7 +254,7 @@ fn prepare_typescript(
     let artifact_root = project_root
         .join(".smelt")
         .join("typescript-specialization");
-    let mut policy = sandbox_policy(project_root, &node, true);
+    let mut policy = sandbox_policy(host, &node, true);
     policy
         .read_only_roots
         .push(artifact_root.display().to_string());
@@ -265,7 +296,7 @@ fn prepare_typescript(
             })
         })
         .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
-    let manifest = NodeSpecializer::new(default_platform_backend()).specialize(
+    let manifest = NodeSpecializer::new(host.backend()).specialize(
         &NodeSpecializationRequest {
             smelt_version: env!("CARGO_PKG_VERSION").to_owned(),
             node_executable: node,
@@ -452,11 +483,12 @@ fn interpreter_read_only_root(executable: &Path) -> Option<PathBuf> {
 
 /// Builds the default fail-closed policy for one host batch.
 fn sandbox_policy(
-    project_root: &Path,
+    host: &Host<'_>,
     interpreter: &Path,
     threaded_runtime: bool,
 ) -> SandboxPolicyRecord {
-    let backend = default_platform_backend();
+    let project_root = host.project_root;
+    let backend = host.backend();
     let interpreter_root = interpreter_read_only_root(interpreter);
     let mut read_only_roots = [
         Some(project_root.to_path_buf()),

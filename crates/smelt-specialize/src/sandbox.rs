@@ -1,7 +1,7 @@
 //! Fail-closed hard-sandbox backends and bounded guest process execution.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     ffi::{OsStr, OsString},
     fmt::{self, Write as _},
     fs,
@@ -480,7 +480,16 @@ impl SandboxBackend for WindowsAppContainerBackend {
     }
 }
 
-/// Configured OCI-container fallback.
+/// Configured OCI-container fallback, used when the native hard sandbox is
+/// unavailable (see [`platform_backend`]).
+///
+/// The container gets no network, a read-only root, no capabilities, the
+/// policy's process and memory limits, the policy's read-only roots and the
+/// scratch directory bound at their own paths, and the scratch directory's
+/// owner as its user. The image must be pinned by digest, since a tag can change
+/// under a cached artifact, and must lay out `/lib` and `/lib64` as links into
+/// `/usr` like the host (current Debian and Ubuntu images do), because the
+/// host's interpreter and libraries are bound in at their canonical paths.
 #[derive(Debug, Clone)]
 pub struct OciSandboxBackend {
     /// Docker/Podman-compatible runtime.
@@ -503,16 +512,17 @@ impl SandboxBackend for OciSandboxBackend {
     }
 
     fn availability(&self) -> BackendAvailability {
-        if self.runtime.is_file() {
-            BackendAvailability::Available
-        } else {
-            BackendAvailability::Unavailable {
-                reason: format!(
-                    "configured OCI runtime '{}' does not exist",
-                    self.runtime.display()
-                ),
-            }
+        if !self.runtime.is_file() {
+            return BackendAvailability::Unavailable {
+                reason: format!("configured OCI runtime '{}' does not exist", self.runtime.display()),
+            };
         }
+        if !self.image.contains("@sha256:") {
+            return BackendAvailability::Unavailable {
+                reason: format!("OCI image '{}' is not pinned by an @sha256: digest", self.image),
+            };
+        }
+        BackendAvailability::Available
     }
 
     fn prepare(
@@ -540,10 +550,15 @@ impl SandboxBackend for OciSandboxBackend {
         args.push(OsString::from(policy.process_limit.to_string()));
         args.extend(os_args(["--memory"]));
         args.push(OsString::from(policy.memory_bytes.to_string()));
-        for root in &policy.read_only_roots {
+        if let Some(user) = owner_of(&request.scratch_dir) {
+            args.extend(os_args(["--user"]));
+            args.push(OsString::from(user));
+        }
+        for root in container_roots(&policy.read_only_roots) {
+            let shown = root.display();
             args.extend(os_args(["--mount"]));
             args.push(OsString::from(format!(
-                "type=bind,src={root},dst={root},readonly"
+                "type=bind,src={shown},dst={shown},readonly"
             )));
         }
         args.extend(os_args(["--mount"]));
@@ -567,6 +582,60 @@ impl SandboxBackend for OciSandboxBackend {
             environment: BTreeMap::new(),
             current_dir: request.current_dir.clone(),
         })
+    }
+}
+
+/// The read-only roots as the container mounts them: each at its canonical
+/// path, without one nested in another, so none is bound twice (Docker refuses
+/// that). On a merged-`/usr` host `/lib` is `/usr/lib`, and the image's own
+/// `/lib -> usr/lib` reaches it; mounted at `/lib` instead, it would land
+/// wherever the image's `/lib` points, which need not be `/usr/lib`.
+fn container_roots(roots: &[String]) -> Vec<PathBuf> {
+    let canonical = roots
+        .iter()
+        .map(|root| fs::canonicalize(root).unwrap_or_else(|_| PathBuf::from(root)))
+        .collect::<BTreeSet<_>>();
+    canonical
+        .iter()
+        .filter(|root| !canonical.iter().any(|outer| outer != *root && root.starts_with(outer)))
+        .cloned()
+        .collect()
+}
+
+/// `uid:gid` owning `path`, so a container writes its scratch files as the
+/// user who can remove them; `None` off Unix or when `path` cannot be read.
+fn owner_of(path: &Path) -> Option<String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        fs::metadata(path).ok().map(|metadata| format!("{}:{}", metadata.uid(), metadata.gid()))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        None
+    }
+}
+
+/// The native backend when it is available, otherwise `fallback` when it is
+/// configured and available, otherwise the unavailable native backend, which
+/// fails closed with its own reason.
+#[must_use]
+pub fn platform_backend(fallback: Option<OciSandboxBackend>) -> Box<dyn SandboxBackend> {
+    select_backend(default_platform_backend(), fallback)
+}
+
+/// [`platform_backend`] for a given native backend.
+fn select_backend(
+    native: Box<dyn SandboxBackend>,
+    fallback: Option<OciSandboxBackend>,
+) -> Box<dyn SandboxBackend> {
+    if native.availability() == BackendAvailability::Available {
+        return native;
+    }
+    match fallback {
+        Some(oci) if oci.availability() == BackendAvailability::Available => Box::new(oci),
+        _ => native,
     }
 }
 
@@ -991,6 +1060,83 @@ mod tests {
             || !rendered.iter().any(|arg| arg == "--nproc=1")
         {
             return Err("Linux command omitted a hard-sandbox control".to_owned());
+        }
+        Ok(())
+    }
+
+    /// The fallback is used only when the native backend is unavailable and
+    /// the fallback is ready; otherwise the native one, available or failing
+    /// closed, is what runs.
+    #[test]
+    fn the_oci_fallback_replaces_only_an_unavailable_native_backend() -> Result<(), String> {
+        let runtime = std::env::current_exe().map_err(|error| error.to_string())?;
+        let pinned = OciSandboxBackend::new(runtime.clone(), "busybox@sha256:00".to_owned());
+        let unavailable = || -> Box<dyn SandboxBackend> { Box::new(LinuxBubblewrapBackend::from_paths(None, None)) };
+        let available = || -> Box<dyn SandboxBackend> {
+            Box::new(LinuxBubblewrapBackend::from_paths(Some(runtime.clone()), Some(runtime.clone())))
+        };
+        let cases = [
+            (select_backend(unavailable(), Some(pinned.clone())).name(), "oci-container"),
+            (select_backend(available(), Some(pinned)).name(), "linux-bubblewrap"),
+            (select_backend(unavailable(), None).name(), "linux-bubblewrap"),
+            (
+                select_backend(
+                    unavailable(),
+                    Some(OciSandboxBackend::new(runtime.clone(), "busybox:latest".to_owned())),
+                )
+                .name(),
+                "linux-bubblewrap",
+            ),
+            (
+                select_backend(
+                    unavailable(),
+                    Some(OciSandboxBackend::new(PathBuf::from("/nonexistent/docker"), "b@sha256:00".to_owned())),
+                )
+                .name(),
+                "linux-bubblewrap",
+            ),
+        ];
+        for (index, (chosen, expected)) in cases.into_iter().enumerate() {
+            if chosen != expected {
+                return Err(format!("case {index}: chose {chosen}, expected {expected}"));
+            }
+        }
+        if select_backend(unavailable(), None).availability() == BackendAvailability::Available {
+            return Err("with no fallback the unavailable native backend must stay unavailable".to_owned());
+        }
+        Ok(())
+    }
+
+    /// Roots are mounted once each, at their canonical paths, outermost only.
+    #[test]
+    fn container_roots_are_canonical_and_not_nested() {
+        let directory = std::env::temp_dir().join(format!("smelt-roots-{}", std::process::id()));
+        let inner = directory.join("inner");
+        let _created = fs::create_dir_all(&inner);
+        let roots = [
+            directory.display().to_string(),
+            inner.display().to_string(),
+            directory.display().to_string(),
+        ];
+        let mounted = container_roots(&roots);
+        let _removed = fs::remove_dir_all(&directory);
+        assert_eq!(mounted.len(), 1, "{mounted:?}");
+    }
+
+    /// The container command carries every hard-sandbox control and runs as
+    /// the scratch directory's owner.
+    #[test]
+    fn oci_plan_denies_network_and_runs_as_the_scratch_owner() -> Result<(), String> {
+        let scratch = std::env::temp_dir();
+        let backend = OciSandboxBackend::new(PathBuf::from("/usr/bin/docker"), "busybox@sha256:00".to_owned());
+        let prepared = backend
+            .prepare(&request(&scratch), &policy(&scratch))
+            .map_err(|error| error.to_string())?;
+        let rendered = prepared.args.iter().map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>();
+        for control in ["none", "--read-only", "ALL", "no-new-privileges", "--user"] {
+            if !rendered.iter().any(|arg| arg == control) {
+                return Err(format!("container command omitted `{control}`: {rendered:?}"));
+            }
         }
         Ok(())
     }
