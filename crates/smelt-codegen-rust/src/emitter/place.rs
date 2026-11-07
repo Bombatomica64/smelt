@@ -51,572 +51,12 @@ impl FunctionEmitter<'_> {
             Place::Global { .. } => Err(EmitError::new(
                 "internal: a mutable-global place was read as a value;                  reads lower to GlobalGet",
             )),
-            Place::Field { base, field } => {
-                let base_ty = self.local_decl(*base)?.ty;
-                if let Some(Type::Dict(key, value)) = self.mir.types.get(base_ty) {
-                    let key_text = self.dict_field_key_expr(*key, *field)?;
-                    let base_text = self.local_value(*base)?;
-                    if matches!(self.mir.types.get(*value), Some(Type::Optional(_))) {
-                        if self.dict_uses_smelt_record(*key) || self.dict_uses_js_key_map(*key) {
-                            return Ok(RustExpr::postfix_on(&base_text, format!("{base_text}.get(&{key_text}).flatten()")));
-                        }
-                        return Ok(RustExpr::postfix_on(&base_text, format!("{base_text}.get(&{key_text}).cloned().flatten()")));
-                    }
-                    if self.mir.types.get(*key) == Some(&Type::String)
-                        && self.renders_erased(*value)?
-                    {
-                        // A property the record does not hold reads as
-                        // `undefined` in JavaScript, never `null`. The two are
-                        // distinguishable under `===`, so answering `Null` here
-                        // silently defeats every `value === undefined` guard the
-                        // source writes over a dynamic record. A DOTTED read is a
-                        // property read, so a miss consults the prototype entries
-                        // an erased class instance carries before answering
-                        // `undefined` (`err.getResponse` after `'getResponse' in
-                        // err` narrowed an erased error to a record arm).
-                        return Ok(RustExpr::postfix_on(&base_text, format!(
-                            "{base_text}.get(&{key_text}).unwrap_or_else(|| smelt_record_inherited(&{base_text}, &{key_text}))"
-                        )));
-                    }
-                    if self.dict_uses_smelt_record(*key) || self.dict_uses_js_key_map(*key) {
-                        return Ok(RustExpr::postfix_on(&base_text, format!(
-                            "{base_text}.get(&{key_text}).expect(\"missing field\")"
-                        )));
-                    }
-                    return Ok(RustExpr::postfix_on(&base_text, format!(
-                        "{base_text}.get(&{key_text}).cloned().expect(\"missing field\")"
-                    )));
-                }
-                // A `.length` read on a CONCRETE collection (typed list or set)
-                // projects to the backing `Vec`/`HashSet` length as an `f64`,
-                // matching how list mutation helpers surface `.len() as f64`.
-                // Without this arm the read falls through to the raw struct-field
-                // fallback (`base.length`), which no collection type has. This
-                // mirrors the erased-receiver `TsLength` arm below but stays on
-                // the concrete representation instead of erasing.
-                if matches!(
-                    self.mir.types.get(base_ty),
-                    Some(Type::List(_) | Type::Set(_))
-                ) && smelt_stdlib::typescript_field_rule(self.symbol_source_name(*field)?)
-                    == Some(smelt_stdlib::FieldRule::TsLength)
-                {
-                    return Ok(RustExpr::atom(format!("({}.len() as f64)", self.local_value(*base)?)));
-                }
-                // A tuple's `.length` is its arity, fixed by its type. Rust
-                // tuples have no `length` field, so the raw fallback below
-                // was E0609.
-                if let Some(Type::Tuple(items)) = self.mir.types.get(base_ty)
-                    && smelt_stdlib::typescript_field_rule(self.symbol_source_name(*field)?)
-                        == Some(smelt_stdlib::FieldRule::TsLength)
-                {
-                    return Ok(RustExpr::chain(format!("{}.0", items.len())));
-                }
-                // A value whose static type is a GENERATED union is dispatched
-                // through its own enum arms: when every arm declares the
-                // property at one type, the read is that type and each arm
-                // projects its own struct field. Erasing first would throw away
-                // a type the source already fixed, and in a crate that interns
-                // no `unknown` there is no erased carrier to answer with at all.
-                if smelt_stdlib::typescript_field_rule(self.symbol_source_name(*field)?)
-                    == Some(smelt_stdlib::FieldRule::TsLength)
-                    && let Some(text) = self.concrete_union_length_read_expr(*base)?
-                {
-                    return Ok(text);
-                }
-                if let Some(text) = self.concrete_union_field_read_expr(*base, *field)? {
-                    return Ok(text);
-                }
-                // A `never` receiver (a callback parameter typed `T[keyof T]`
-                // over `{}`) has no value of its own and is stored erased, so
-                // a read through it is the erased read too. Falling through to
-                // the struct-field fallback named whichever generated struct
-                // happens to declare the field.
-                if matches!(
-                    self.mir.types.get(base_ty),
-                    Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Never)
-                ) || self.is_erased_class_type(base_ty)
-                {
-                    let field_name = self.symbol_source_name(*field)?;
-                    let field_rule = smelt_stdlib::typescript_field_rule(field_name);
-                    let base_text = self.local_value(*base)?;
-                    // A concrete-union receiver stores a tagged enum; project it
-                    // back to `SmeltUnknown` before the erased-object field match.
-                    let scrutinee =
-                        self.erase_concrete_union_expr(&base_text.cloned_value(), base_ty);
-                    if field_rule == Some(smelt_stdlib::FieldRule::TsLength) {
-                        // A callable's `.length` is its declared arity, which the
-                        // erasure boundary parks in the function-length registry
-                        // (an `Rc<dyn Fn>` has nowhere to carry it). Without this
-                        // arm an erased callable answered `null`, and es-toolkit
-                        // `rest(func)` — whose default split point is
-                        // `func.length - 1` — reshaped every call wrongly.
-                        return Ok(RustExpr::atom(self.carrier_format(format_args!(
-                            "match {scrutinee} {{ SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), value @ SmeltUnknown::Function(_) => SmeltUnknown::Number({function_length}(&value)), SmeltUnknown::Object(map) => match smelt_get_object_field(&map, \"length\") {{ SmeltUnknown::Undefined | SmeltUnknown::Null if map.contains_key(\"{SMELT_CALL}\") => SmeltUnknown::Number({function_length}(&SmeltUnknown::Object(map))), value => value }}, _ => SmeltUnknown::Null }}",
-                            function_length =
-                                smelt_stdlib::runtime_symbols::function_length::READ,
-                        ))));
-                    }
-                    // `AbortController`/`AbortSignal` methods are surfaced as
-                    // runtime-helper-bound closures that mutate the shared abort
-                    // record (see `smelt_abort_method`). Plain data fields
-                    // (`signal`, `aborted`, ...) keep the ordinary erased-object
-                    // read; the helper only intercepts a method read when the
-                    // receiver actually carries an abort marker.
-                    if matches!(
-                        field_name,
-                        "abort"
-                            | "addEventListener"
-                            | "removeEventListener"
-                            | "dispatchEvent"
-                            | "throwIfAborted"
-                    ) {
-                        return Ok(RustExpr::atom(self.carrier_format(format_args!(
-                            "match {scrutinee} {{ SmeltUnknown::Object(map) => smelt_host_method(&map, {field_name:?}).unwrap_or_else(|| smelt_get_object_field(&map, {field_name:?})), _ => SmeltUnknown::Undefined }}"
-                        ))));
-                    }
-                    // `Function.prototype.apply`/`call` must resolve when the
-                    // erased receiver is a `SmeltUnknown::Function` (not just an
-                    // object). The plain object field match below returns
-                    // `Undefined` for a function receiver, collapsing every
-                    // invocation to a null callback (see `partial`/`partialRight`).
-                    // The runtime helper binds the callable with the correct
-                    // this-dropping/argument-spreading semantics and falls back to
-                    // the ordinary field read for object receivers.
-                    if matches!(field_name, "apply" | "call") {
-                        return Ok(RustExpr::chain(format!(
-                            "smelt_function_method({scrutinee}, {field_name:?})"
-                        )));
-                    }
-                    // `Object.prototype.valueOf` exists on EVERY value, so it can
-                    // never resolve through the own-field read: a boxed primitive
-                    // (`Object(1)`, `new Number(1)`) is a marker object with no own
-                    // `valueOf`, and an erased primitive is not an object at all.
-                    // Both used to collapse to a null callback, which is what made
-                    // `isEqualWith(1, Object(1), noop)` answer `false`. The runtime
-                    // helper unwraps the wrapper and still prefers a user-defined
-                    // own `valueOf` when the receiver has one.
-                    if field_name == "valueOf" {
-                        return Ok(RustExpr::chain(format!("smelt_value_of_method({scrutinee})")));
-                    }
-                    // Every receiver shape through one prelude helper: an object
-                    // record, an erased ARRAY (whose `length`, indices and named
-                    // side-table properties are all readable), and the
-                    // `Object.prototype` sentinel. Inlining an object-only `match`
-                    // here answered `undefined` for `arr.x` and for
-                    // `Object.prototype.toString`.
-                    return Ok(RustExpr::chain(format!(
-                        "smelt_get_unknown_field(&{scrutinee}, {field_name:?})"
-                    )));
-                }
-                if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
-                    && (matches!(
-                        self.mir.types.get(*inner),
-                        Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
-                    ) || self.is_erased_class_type(*inner))
-                {
-                    let field_name = self.symbol_source_name(*field)?;
-                    let base_text = self.local_value(*base)?;
-                    if smelt_stdlib::typescript_field_rule(field_name)
-                        == Some(smelt_stdlib::FieldRule::TsLength)
-                    {
-                        return Ok(RustExpr::atom(self.carrier_format(format_args!(
-                            "match {base_text}.clone().unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"length\"), _ => SmeltUnknown::Null }}"
-                        ))));
-                    }
-                    return Ok(RustExpr::chain(self.carrier_format(format_args!(
-                        "smelt_get_unknown_field(&{base_text}.clone().unwrap_or(SmeltUnknown::Undefined), {field_name:?})"
-                    ))));
-                }
-                if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
-                    && let Some(Type::Dict(key_ty, _)) = self.mir.types.get(*inner)
-                    && self.mir.types.get(*key_ty) == Some(&Type::String)
-                {
-                    let field_name = self.symbol_source_name(*field)?;
-                    let base_text = self.local_value(*base)?;
-                    return Ok(RustExpr::postfix_on(&base_text, format!(
-                        "{base_text}.as_ref().and_then(|_smelt_value| _smelt_value.get({field_name:?}))"
-                    )));
-                }
-                if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
-                    && self.is_regexp_class_symbol(*name)?
-                {
-                    return self.regexp_field_expr(&self.local_value(*base)?, *field);
-                }
-                if self.is_url_search_params_class_type(base_ty)? {
-                    return self
-                        .url_search_params_field_expr(&self.local_value(*base)?, *field);
-                }
-                if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
-                    && let Some(kind) = self.match_class_kind(*name)?
-                {
-                    return self.match_field_expr(&self.local_value(*base)?, kind, *field);
-                }
-                // A REFERENCE class reached through an optional receiver keeps
-                // its handle: its fields live behind `Rc<RefCell<Inner>>`, so
-                // the read is `.0.borrow().field`, never a field of the handle
-                // itself. Checked before the structural-record arm below because
-                // a reference class is still record-shaped structurally — that
-                // arm emitted `_smelt_value.field` and the generated crate did
-                // not compile (E0609).
-                if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
-                    && self.is_reference_class_type(*inner)
-                    && self.class_has_named_field(*inner, *field)
-                    && let Some(field_ty) = self
-                        .structural_record_fields(*inner)
-                        .and_then(|fields| {
-                            fields
-                                .iter()
-                                .find(|candidate| candidate.name == *field)
-                                .map(|candidate| candidate.ty)
-                        })
-                {
-                    let base_text = self.local_value(*base)?;
-                    let field_name = sanitize_ident(self.symbol_name(*field)?);
-                    let read = format!("_smelt_value.0.borrow().{field_name}.clone()");
-                    return if matches!(self.mir.types.get(field_ty), Some(Type::Optional(_))) {
-                        Ok(RustExpr::postfix_on(&base_text, format!("{base_text}.as_ref().and_then(|_smelt_value| {read})")))
-                    } else {
-                        Ok(RustExpr::postfix_on(&base_text, format!("{base_text}.as_ref().map(|_smelt_value| {read})")))
-                    };
-                }
-                if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
-                    && let Some(fields) = self.structural_record_fields(*inner)
-                    && let Some(field_ty) = fields
-                        .iter()
-                        .find(|candidate| candidate.name == *field)
-                        .map(|candidate| candidate.ty)
-                {
-                    let base_text = self.local_value(*base)?;
-                    let field_name = sanitize_ident(self.symbol_name(*field)?);
-                    let read = if crate::accessor_prelude::is_accessor_field_of_type(self.mir, *inner, *field) {
-                        crate::accessor_prelude::read_expr(&RustExpr::path(format!("_smelt_value.{field_name}")))
-                    } else {
-                        RustExpr::chain(format!("_smelt_value.{field_name}.clone()")).ending_in_clone()
-                    };
-                    return if matches!(self.mir.types.get(field_ty), Some(Type::Optional(_))) {
-                        Ok(RustExpr::postfix_on(&base_text, format!("{base_text}.as_ref().and_then(|_smelt_value| {read})")))
-                    } else {
-                        Ok(RustExpr::postfix_on(&base_text, format!("{base_text}.as_ref().map(|_smelt_value| {read})")))
-                    };
-                }
-                // A JavaScript function is an object: a property read on one
-                // answers its own-property bag, where `prototype` is
-                // materialised on first read and where a source-written member
-                // (`wrapper.placeholder`, `partialed.prototype`) lands. The
-                // receiver is erased first so the read shares the one bag every
-                // representation of that function reads through, and so
-                // `prototype.constructor` can be the function itself.
-                //
-                // `Function.prototype`'s own members keep their existing
-                // answers: `apply`/`call`/`bind` are resolved by the
-                // callable-interface and erased-receiver paths, and `length` /
-                // `name` by the arity registry, so routing them here would
-                // change which helper answers them.
-                if matches!(self.mir.types.get(base_ty), Some(Type::Function(_))) {
-                    let field_name = self.symbol_source_name(*field)?;
-                    if matches!(field_name, "apply" | "call" | "bind" | "length" | "name") {
-                        return Ok(self.null_value());
-                    }
-                    let base_text = self.local_value(*base)?;
-                    let erased = self.erase_rendered(&base_text.cloned_value(), base_ty)?;
-                    return Ok(RustExpr::chain(format!(
-                        "smelt_get_unknown_field(&{erased}, {field_name:?})"
-                    )));
-                }
-                if smelt_stdlib::typescript_field_rule(self.symbol_source_name(*field)?)
-                    == Some(smelt_stdlib::FieldRule::TsConstructor)
-                {
-                    return Ok(self.null_value());
-                }
-                // `.apply` / `.call` / `.bind` on a callable-interface value are
-                // Function.prototype methods on the *underlying callable*, not
-                // named struct fields. The interface struct has no such field
-                // (reading `receiver.apply` is an `E0609`), so read the synthetic
-                // `__smelt_call` storage slot and erase that callable to a
-                // `SmeltUnknown::Function`. The erased-call coercion the caller
-                // wraps this read in extracts and invokes it; `.bind` routes the
-                // same way and yields a closure over the erased callable. Erasing
-                // only the `__smelt_call` field (rather than the whole struct)
-                // keeps the callable live — a whole-struct `into_smelt_unknown`
-                // erases every function field to `Null`.
-                if matches!(self.symbol_source_name(*field)?, "apply" | "call" | "bind")
-                    && let Some(call_ty) = self.callable_interface_call_field_ty(base_ty)
-                {
-                    let call_field = { let receiver = self.local_value(*base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.{SMELT_CALL}.clone()")) }.ending_in_clone();
-                    return self.erase_rendered(&call_field, call_ty);
-                }
-                if matches!(self.mir.types.get(base_ty), Some(Type::String)) {
-                    return self.string_field_expr(&self.local_value(*base)?, *field);
-                }
-                if let Some(getter) = self.descriptor_getter_expr(*base, *field)? {
-                    return Ok(getter);
-                }
-                if self.storage_field_is_function(base_ty, *field) {
-                    // A function-typed field of a REFERENCE class lives inside
-                    // the shared cell like every other declared field, so it is
-                    // read through `.0.borrow()`. Without this the arm below
-                    // named a field the handle newtype does not have (E0609);
-                    // it is reached before the general reference-class field arm
-                    // further down, so the projection has to be repeated here.
-                    if self.is_reference_class_type(base_ty)
-                        && self.class_has_named_field(base_ty, *field)
-                    {
-                        return Ok({ let receiver = self.local_value(*base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.0.borrow().{}.clone()", sanitize_ident(self.symbol_name(*field)?))) }.ending_in_clone());
-                    }
-                    return Ok({ let receiver = self.local_value(*base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.{}.clone()", sanitize_ident(self.symbol_name(*field)?))) }.ending_in_clone());
-                }
-                if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
-                    && let Some(method_text) = self.class_method_reference_expr(
-                        &self.local_value(*base)?,
-                        *name,
-                        *field,
-                    )?
-                {
-                    return Ok(method_text);
-                }
-                if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
-                    && matches!(self.mir.types.get(*inner), Some(Type::Function(_)))
-                {
-                    return Ok(self.null_value());
-                }
-                // A dotted read of an UNDECLARED member on an index-signature
-                // class (`bag.name` where `name` is not a struct field) is a
-                // keyed lookup into the runtime store (issue #84). Declared
-                // fields keep their concrete struct access via the fallback
-                // below; only names with no matching field route to the store.
-                if let Some((_key_ty, value_ty)) = self.class_index_store_types(base_ty)
-                    && !self.class_has_named_field(base_ty, *field)
-                {
-                    let base_text = self.local_value(*base)?;
-                    let key = self.symbol_source_name(*field)?;
-                    let store_text =
-                        RustExpr::postfix_on(&base_text, format!("{base_text}.{}", smelt_hir::CLASS_INDEX_STORE_FIELD));
-                    let default_value = self.default_value(value_ty)?;
-                    let string_key_ty = self.type_id(Type::String)?;
-                    let getter = if self.dict_uses_smelt_record(string_key_ty)
-                        || self.dict_uses_js_key_map(string_key_ty)
-                    {
-                        RustExpr::postfix_on(&store_text, format!("{store_text}.get(&{key:?}.to_owned())"))
-                    } else {
-                        RustExpr::postfix_on(&store_text, format!("{store_text}.get(&{key:?}.to_owned()).cloned()"))
-                    };
-                    return Ok(RustExpr::postfix_on(&getter, format!("{getter}.unwrap_or({default_value})")));
-                }
-                // A dotted read of a member a CALLABLE-OBJECT record does not
-                // declare. JavaScript lets a function own arbitrary properties,
-                // and TypeScript accepts such a read wherever the receiver's
-                // static shape is widened (or the author suppressed the check —
-                // es-toolkit's `flow` spec reads `curried.placeholder` off a
-                // `CurriedFunction1`). The struct has no such Rust field, so the
-                // plain fallback below emitted `receiver.placeholder`, an E0609
-                // in the generated crate. The value's own properties live in the
-                // erased callable's property bag, so read the source-spelled key
-                // from there and answer `undefined` when it carries none —
-                // exactly what JavaScript answers for an absent property.
-                if !self.class_has_named_field(base_ty, *field)
-                    && self.callable_interface_call_field_ty(base_ty).is_some()
-                {
-                    let base_text = self.local_value(*base)?;
-                    let key = self.symbol_source_name(*field)?;
-                    return Ok(RustExpr::postfix_on(&base_text, format!("{base_text}.{SMELT_CALL}.smelt_property({key:?})")));
-                }
-                // A declared field of a reference class lives inside the shared
-                // cell. Read it through a narrow `borrow()` and clone the value
-                // out so the borrow guard is a short-lived temporary that ends
-                // with the statement — never held across a re-entrant call.
-                if self.is_reference_class_type(base_ty)
-                    && self.class_has_named_field(base_ty, *field)
-                {
-                    return Ok({ let receiver = self.local_value(*base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.0.borrow().{}.clone()", sanitize_ident(self.symbol_name(*field)?))) }.ending_in_clone());
-                }
-                let field_text = { let receiver = self.local_value(*base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.{}", sanitize_ident(self.symbol_name(*field)?))) };
-                // An accessor field runs its getter on every read; see
-                // `crate::accessor_prelude`.
-                if crate::accessor_prelude::is_accessor_field_of_type(self.mir, base_ty, *field) {
-                    return Ok(crate::accessor_prelude::read_expr(&field_text));
-                }
-                Ok(field_text)
-            }
+            Place::Field { base, field } => self.field_place_expr(*base, *field),
             Place::Index {
                 base,
                 index,
                 negative,
-            } => {
-                let base_ty = self.local_decl(*base)?.ty;
-                if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
-                    && self.is_match_class_symbol(*name)?
-                {
-                    return self.match_index_expr(&self.local_value(*base)?, index);
-                }
-                // An indexed read on a typed-array view decodes ONE element at
-                // the view's own width and signedness. A negative or fractional
-                // index is a named property in JavaScript, not an element, and
-                // `get` answers `None` for it — the same "no such element"
-                // answer an out-of-range read gets.
-                if let Some(text) = self.typed_array_index_read_expr(base_ty, *base, index)? {
-                    return Ok(text);
-                }
-                // A generated union of tuples/lists reads each arm at its own
-                // type instead of erasing (see `concrete_union_index_reads`).
-                if let Some(text) = self.concrete_union_index_read_expr(*base, index, *negative)? {
-                    return Ok(text);
-                }
-                match self.mir.types.get(base_ty) {
-                    Some(Type::List(item_ty)) => {
-                        // A list index READ only ever calls `.get(..).cloned()`
-                        // and `.len()` — both take `&self`, so the receiver must
-                        // borrow the backing `Vec` immutably. Using the mutable
-                        // form here (`borrow_mut()`) is not just unnecessary: when
-                        // `base` is a shared closure capture (`Rc<RefCell<Vec<_>>>`)
-                        // the `.len()` inside the normalized-index argument expands
-                        // to a SECOND `borrow_mut()` of the same cell, so the single
-                        // `arr.get({ ... arr.len() ... })` expression holds two
-                        // simultaneous mutable borrows and panics at runtime with
-                        // "already borrowed". Two simultaneous shared `borrow()`s
-                        // are allowed, matching the sibling string/optional-list
-                        // read arms below. The same argument is why the list's own
-                        // shared buffer is read through `list_read_expr`: the
-                        // `.len()` in the index argument takes a second borrow of
-                        // that cell while this one is live.
-                        let base_text = self.local_value(*base)?;
-                        let index_text =
-                            self.normalized_read_index_expr(&RustExpr::postfix_on(&base_text, format!("{base_text}.len()")), index, *negative)?;
-                        let missing = self.element_missing_value(*item_ty)?;
-                        let read_expr = list_read_expr(&base_text);
-                        // `unwrap_or` takes its argument BY VALUE, so the
-                        // out-of-range value is constructed on every read and then
-                        // dropped unused on the overwhelmingly common in-range one.
-                        // A JavaScript index read is in range almost always, and in
-                        // a loop this is per element: `sumBy` built and dropped a
-                        // `Default::default()` ten thousand times per call to
-                        // answer a question that never came up. `unwrap_or_else`
-                        // costs nothing when the element is present.
-                        // `element_missing_value` is a pure value expression,
-                        // so moving it into a closure cannot change what it means.
-                        Ok(RustExpr::postfix_on(&read_expr, format!(
-                            "{read_expr}.get({index_text}).cloned().unwrap_or_else(|| {missing})"
-                        )))
-                    }
-                    Some(Type::Optional(inner_ty))
-                        if matches!(self.mir.types.get(*inner_ty), Some(Type::List(_))) =>
-                    {
-                        let Some(Type::List(item_ty)) = self.mir.types.get(*inner_ty) else {
-                            return Ok(self.null_value());
-                        };
-                        let base_text = self.local_value(*base)?;
-                        let index_text = self.normalized_read_index_expr(
-                            &RustExpr::postfix_on(&base_text, format!("{base_text}.as_ref().map_or(0, SmeltList::len)")),
-                            index,
-                            *negative,
-                        )?;
-                        let access =
-                            if matches!(self.mir.types.get(*item_ty), Some(Type::Optional(_))) {
-                                "values.borrow().get({index_text}).cloned().flatten()"
-                            } else {
-                                "values.borrow().get({index_text}).cloned()"
-                            };
-                        Ok(RustExpr::postfix_on(&base_text, format!(
-                            "{base_text}.as_ref().and_then(|values| {})",
-                            access.replace("{index_text}", &index_text)
-                        )))
-                    }
-                    Some(Type::Dict(key_ty, value_ty)) => {
-                        let base_text = self.local_value(*base)?;
-                        self.dict_index_read_expr(&base_text, *key_ty, *value_ty, index)
-                    }
-                    Some(Type::String) => {
-                        let base_text = self.local_value(*base)?;
-                        let index_text = self.normalized_read_index_expr(
-                            &RustExpr::postfix_on(&base_text, format!("{base_text}.chars().count()")),
-                            index,
-                            *negative,
-                        )?;
-                        // A string index read is TOTAL, like the list read
-                        // above: `''[0]` is `undefined`, never a throw, so an
-                        // out-of-range index answers the element type's missing
-                        // value (`""`) instead of panicking. A caller that must
-                        // see the miss (`s[i] === undefined`, `s[i] ?? f`, an
-                        // optional slot) reads through
-                        // `optional_element_read_expr` instead.
-                        Ok(RustExpr::postfix_on(&base_text, format!(
-                            "{base_text}.chars().nth({index_text}).map(|ch| ch.to_string()).unwrap_or_default()"
-                        )))
-                    }
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
-                        // A concrete generated union is not a `SmeltUnknown`, so
-                        // the runtime-narrowing `match` below cannot scrutinise
-                        // it directly: it goes through the union's
-                        // `IntoSmeltUnknown` boundary adapter first, exactly as
-                        // the INDEX operand of the same read already does.
-                        // Without it the arms read `expected SmeltUnion127,
-                        // found SmeltUnknown` (6 of the router slice's errors).
-                        let base_text = self.erase_concrete_union_expr(
-                            &self.local_value(*base)?,
-                            base_ty,
-                        );
-                        self.unknown_index_expr(&base_text, index)
-                    }
-                    // A narrowed optional union or `unknown` holds the value
-                    // the narrowing proved, whichever arm that is.
-                    Some(Type::Optional(_)) if self.is_optional_of_dynamic_shape(base_ty) => {
-                        let erased = self.erase_rendered(&self.local_value(*base)?, base_ty)?;
-                        self.unknown_index_expr(&erased, index)
-                    }
-                    Some(Type::Tuple(items)) => {
-                        let tuple_index = self.tuple_index(index, items.len())?;
-                        Ok(RustExpr::tuple_field(&self.local_value(*base)?, tuple_index))
-                    }
-                    // A class with an index signature backs keyed reads with a
-                    // real store field (issue #84). A non-optional keyed read
-                    // (declared value type has no `undefined`) reads the store by
-                    // key, defaulting a missing key to the value type's default.
-                    Some(Type::Class { .. })
-                        if self.class_index_store_types(base_ty).is_some() =>
-                    {
-                        let (key_ty, value_ty) = self
-                            .class_index_store_types(base_ty)
-                            .ok_or_else(|| EmitError::new("class index store types missing"))?;
-                        let base_text = self.local_value(*base)?;
-                        let store_text =
-                            RustExpr::postfix_on(&base_text, format!("{base_text}.{}", smelt_hir::CLASS_INDEX_STORE_FIELD));
-                        let optional_read =
-                            self.dict_index_optional_read_expr(&store_text, key_ty, value_ty, index)?;
-                        // An optional store value has already been flattened by
-                        // the read, so the result IS the value type — a missing
-                        // key and a stored `undefined` are the same `None`. Its
-                        // default is that `None`, so defaulting again would try
-                        // to `unwrap_or` an `Option<inner>` with an `Option`.
-                        if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-                            return Ok(optional_read);
-                        }
-                        let default_value = self.default_value(value_ty)?;
-                        Ok(RustExpr::postfix_on(&optional_read, format!("{optional_read}.unwrap_or({default_value})")))
-                    }
-                    // A class receiver read with a RUN-TIME key. The key can
-                    // name any declared member (a field, a method, a host
-                    // body reader), so it is looked up on the value's erased
-                    // view, which carries the fields and prototype members of
-                    // a program class and resolves a host class's modeled
-                    // members (`smelt_host_method`). Answering `undefined`
-                    // unconditionally made `raw[key]()` (Hono's request body
-                    // cache) call nothing.
-                    Some(Type::Class { .. }) if self.mir.types.get(self.operand_ty(index)?) == Some(&Type::String)
-                        && self.context.demand().has(Need::Unknown) =>
-                    {
-                        let base_text =
-                            RustExpr::atom(self.carrier_format(format_args!("({}).clone().into_smelt_unknown()", self.local_value(*base)?)));
-                        let index_ty = self.operand_ty(index)?;
-                        let key_text =
-                            self.property_key_to_string_expr(&self.operand_expr(index)?, index_ty)?;
-                        Ok(RustExpr::chain(format!("smelt_get_unknown_field(&{base_text}, &{key_text})")))
-                    }
-                    // No modelled keyed storage on this receiver, so the key
-                    // is not a property of it: JavaScript answers `undefined`
-                    // for a missing property, which is a DIFFERENT value from
-                    // `null` under `===` (see `absent_value`).
-                    _ => Ok(self.absent_value()),
-                }
-            }
+            } => self.index_place_expr(*base, index, *negative),
         }
     }
 
@@ -1503,5 +943,598 @@ fn descriptor_literal_expr(literal: &smelt_hir::Literal) -> RustExpr {
         smelt_hir::Literal::Symbol(_)
         | smelt_hir::Literal::Undefined
         | smelt_hir::Literal::None => RustExpr::atom("Default::default()"),
+    }
+}
+
+impl FunctionEmitter<'_> {
+    /// A field read.
+    fn field_place_expr(&self, base: LocalId, field: Symbol) -> Result<RustExpr, EmitError> {
+        let base_ty = self.local_decl(base)?.ty;
+        if let Some(Type::Dict(key, value)) = self.mir.types.get(base_ty) {
+            let key_text = self.dict_field_key_expr(*key, field)?;
+            let base_text = self.local_value(base)?;
+            if matches!(self.mir.types.get(*value), Some(Type::Optional(_))) {
+                if self.dict_uses_smelt_record(*key) || self.dict_uses_js_key_map(*key) {
+                    return Ok(RustExpr::postfix_on(&base_text, format!("{base_text}.get(&{key_text}).flatten()")));
+                }
+                return Ok(RustExpr::postfix_on(&base_text, format!("{base_text}.get(&{key_text}).cloned().flatten()")));
+            }
+            if self.mir.types.get(*key) == Some(&Type::String)
+                && self.renders_erased(*value)?
+            {
+                // A property the record does not hold reads as
+                // `undefined` in JavaScript, never `null`. The two are
+                // distinguishable under `===`, so answering `Null` here
+                // silently defeats every `value === undefined` guard the
+                // source writes over a dynamic record. A DOTTED read is a
+                // property read, so a miss consults the prototype entries
+                // an erased class instance carries before answering
+                // `undefined` (`err.getResponse` after `'getResponse' in
+                // err` narrowed an erased error to a record arm).
+                return Ok(RustExpr::postfix_on(&base_text, format!(
+                    "{base_text}.get(&{key_text}).unwrap_or_else(|| smelt_record_inherited(&{base_text}, &{key_text}))"
+                )));
+            }
+            if self.dict_uses_smelt_record(*key) || self.dict_uses_js_key_map(*key) {
+                return Ok(RustExpr::postfix_on(&base_text, format!(
+                    "{base_text}.get(&{key_text}).expect(\"missing field\")"
+                )));
+            }
+            return Ok(RustExpr::postfix_on(&base_text, format!(
+                "{base_text}.get(&{key_text}).cloned().expect(\"missing field\")"
+            )));
+        }
+        // A `.length` read on a CONCRETE collection (typed list or set)
+        // projects to the backing `Vec`/`HashSet` length as an `f64`,
+        // matching how list mutation helpers surface `.len() as f64`.
+        // Without this arm the read falls through to the raw struct-field
+        // fallback (`base.length`), which no collection type has. This
+        // mirrors the erased-receiver `TsLength` arm below but stays on
+        // the concrete representation instead of erasing.
+        if matches!(
+            self.mir.types.get(base_ty),
+            Some(Type::List(_) | Type::Set(_))
+        ) && smelt_stdlib::typescript_field_rule(self.symbol_source_name(field)?)
+            == Some(smelt_stdlib::FieldRule::TsLength)
+        {
+            return Ok(RustExpr::atom(format!("({}.len() as f64)", self.local_value(base)?)));
+        }
+        // A tuple's `.length` is its arity, fixed by its type. Rust
+        // tuples have no `length` field, so the raw fallback below
+        // was E0609.
+        if let Some(Type::Tuple(items)) = self.mir.types.get(base_ty)
+            && smelt_stdlib::typescript_field_rule(self.symbol_source_name(field)?)
+                == Some(smelt_stdlib::FieldRule::TsLength)
+        {
+            return Ok(RustExpr::chain(format!("{}.0", items.len())));
+        }
+        // A value whose static type is a GENERATED union is dispatched
+        // through its own enum arms: when every arm declares the
+        // property at one type, the read is that type and each arm
+        // projects its own struct field. Erasing first would throw away
+        // a type the source already fixed, and in a crate that interns
+        // no `unknown` there is no erased carrier to answer with at all.
+        if smelt_stdlib::typescript_field_rule(self.symbol_source_name(field)?)
+            == Some(smelt_stdlib::FieldRule::TsLength)
+            && let Some(text) = self.concrete_union_length_read_expr(base)?
+        {
+            return Ok(text);
+        }
+        if let Some(text) = self.concrete_union_field_read_expr(base, field)? {
+            return Ok(text);
+        }
+        // A `never` receiver (a callback parameter typed `T[keyof T]`
+        // over `{}`) has no value of its own and is stored erased, so
+        // a read through it is the erased read too. Falling through to
+        // the struct-field fallback named whichever generated struct
+        // happens to declare the field.
+        if matches!(
+            self.mir.types.get(base_ty),
+            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Never)
+        ) || self.is_erased_class_type(base_ty)
+        {
+            let field_name = self.symbol_source_name(field)?;
+            let field_rule = smelt_stdlib::typescript_field_rule(field_name);
+            let base_text = self.local_value(base)?;
+            // A concrete-union receiver stores a tagged enum; project it
+            // back to `SmeltUnknown` before the erased-object field match.
+            let scrutinee =
+                self.erase_concrete_union_expr(&base_text.cloned_value(), base_ty);
+            if field_rule == Some(smelt_stdlib::FieldRule::TsLength) {
+                // A callable's `.length` is its declared arity, which the
+                // erasure boundary parks in the function-length registry
+                // (an `Rc<dyn Fn>` has nowhere to carry it). Without this
+                // arm an erased callable answered `null`, and es-toolkit
+                // `rest(func)` — whose default split point is
+                // `func.length - 1` — reshaped every call wrongly.
+                return Ok(RustExpr::atom(self.carrier_format(format_args!(
+                    "match {scrutinee} {{ SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), value @ SmeltUnknown::Function(_) => SmeltUnknown::Number({function_length}(&value)), SmeltUnknown::Object(map) => match smelt_get_object_field(&map, \"length\") {{ SmeltUnknown::Undefined | SmeltUnknown::Null if map.contains_key(\"{SMELT_CALL}\") => SmeltUnknown::Number({function_length}(&SmeltUnknown::Object(map))), value => value }}, _ => SmeltUnknown::Null }}",
+                    function_length =
+                        smelt_stdlib::runtime_symbols::function_length::READ,
+                ))));
+            }
+            // `AbortController`/`AbortSignal` methods are surfaced as
+            // runtime-helper-bound closures that mutate the shared abort
+            // record (see `smelt_abort_method`). Plain data fields
+            // (`signal`, `aborted`, ...) keep the ordinary erased-object
+            // read; the helper only intercepts a method read when the
+            // receiver actually carries an abort marker.
+            if matches!(
+                field_name,
+                "abort"
+                    | "addEventListener"
+                    | "removeEventListener"
+                    | "dispatchEvent"
+                    | "throwIfAborted"
+            ) {
+                return Ok(RustExpr::atom(self.carrier_format(format_args!(
+                    "match {scrutinee} {{ SmeltUnknown::Object(map) => smelt_host_method(&map, {field_name:?}).unwrap_or_else(|| smelt_get_object_field(&map, {field_name:?})), _ => SmeltUnknown::Undefined }}"
+                ))));
+            }
+            // `Function.prototype.apply`/`call` must resolve when the
+            // erased receiver is a `SmeltUnknown::Function` (not just an
+            // object). The plain object field match below returns
+            // `Undefined` for a function receiver, collapsing every
+            // invocation to a null callback (see `partial`/`partialRight`).
+            // The runtime helper binds the callable with the correct
+            // this-dropping/argument-spreading semantics and falls back to
+            // the ordinary field read for object receivers.
+            if matches!(field_name, "apply" | "call") {
+                return Ok(RustExpr::chain(format!(
+                    "smelt_function_method({scrutinee}, {field_name:?})"
+                )));
+            }
+            // `Object.prototype.valueOf` exists on EVERY value, so it can
+            // never resolve through the own-field read: a boxed primitive
+            // (`Object(1)`, `new Number(1)`) is a marker object with no own
+            // `valueOf`, and an erased primitive is not an object at all.
+            // Both used to collapse to a null callback, which is what made
+            // `isEqualWith(1, Object(1), noop)` answer `false`. The runtime
+            // helper unwraps the wrapper and still prefers a user-defined
+            // own `valueOf` when the receiver has one.
+            if field_name == "valueOf" {
+                return Ok(RustExpr::chain(format!("smelt_value_of_method({scrutinee})")));
+            }
+            // Every receiver shape through one prelude helper: an object
+            // record, an erased ARRAY (whose `length`, indices and named
+            // side-table properties are all readable), and the
+            // `Object.prototype` sentinel. Inlining an object-only `match`
+            // here answered `undefined` for `arr.x` and for
+            // `Object.prototype.toString`.
+            return Ok(RustExpr::chain(format!(
+                "smelt_get_unknown_field(&{scrutinee}, {field_name:?})"
+            )));
+        }
+        self.optional_or_host_field_place_expr(base, field, base_ty)
+    }
+
+    /// A field read through an optional receiver or a host class.
+    fn optional_or_host_field_place_expr(
+        &self,
+        base: LocalId,
+        field: Symbol,
+        base_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
+            && (matches!(
+                self.mir.types.get(*inner),
+                Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
+            ) || self.is_erased_class_type(*inner))
+        {
+            let field_name = self.symbol_source_name(field)?;
+            let base_text = self.local_value(base)?;
+            if smelt_stdlib::typescript_field_rule(field_name)
+                == Some(smelt_stdlib::FieldRule::TsLength)
+            {
+                return Ok(RustExpr::atom(self.carrier_format(format_args!(
+                    "match {base_text}.clone().unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"length\"), _ => SmeltUnknown::Null }}"
+                ))));
+            }
+            return Ok(RustExpr::chain(self.carrier_format(format_args!(
+                "smelt_get_unknown_field(&{base_text}.clone().unwrap_or(SmeltUnknown::Undefined), {field_name:?})"
+            ))));
+        }
+        if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
+            && let Some(Type::Dict(key_ty, _)) = self.mir.types.get(*inner)
+            && self.mir.types.get(*key_ty) == Some(&Type::String)
+        {
+            let field_name = self.symbol_source_name(field)?;
+            let base_text = self.local_value(base)?;
+            return Ok(RustExpr::postfix_on(&base_text, format!(
+                "{base_text}.as_ref().and_then(|_smelt_value| _smelt_value.get({field_name:?}))"
+            )));
+        }
+        if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
+            && self.is_regexp_class_symbol(*name)?
+        {
+            return self.regexp_field_expr(&self.local_value(base)?, field);
+        }
+        if self.is_url_search_params_class_type(base_ty)? {
+            return self
+                .url_search_params_field_expr(&self.local_value(base)?, field);
+        }
+        if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
+            && let Some(kind) = self.match_class_kind(*name)?
+        {
+            return self.match_field_expr(&self.local_value(base)?, kind, field);
+        }
+        // A REFERENCE class reached through an optional receiver keeps
+        // its handle: its fields live behind `Rc<RefCell<Inner>>`, so
+        // the read is `.0.borrow().field`, never a field of the handle
+        // itself. Checked before the structural-record arm below because
+        // a reference class is still record-shaped structurally — that
+        // arm emitted `_smelt_value.field` and the generated crate did
+        // not compile (E0609).
+        if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
+            && self.is_reference_class_type(*inner)
+            && self.class_has_named_field(*inner, field)
+            && let Some(field_ty) = self
+                .structural_record_fields(*inner)
+                .and_then(|fields| {
+                    fields
+                        .iter()
+                        .find(|candidate| candidate.name == field)
+                        .map(|candidate| candidate.ty)
+                })
+        {
+            let base_text = self.local_value(base)?;
+            let field_name = sanitize_ident(self.symbol_name(field)?);
+            let read = format!("_smelt_value.0.borrow().{field_name}.clone()");
+            return if matches!(self.mir.types.get(field_ty), Some(Type::Optional(_))) {
+                Ok(RustExpr::postfix_on(&base_text, format!("{base_text}.as_ref().and_then(|_smelt_value| {read})")))
+            } else {
+                Ok(RustExpr::postfix_on(&base_text, format!("{base_text}.as_ref().map(|_smelt_value| {read})")))
+            };
+        }
+        if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
+            && let Some(fields) = self.structural_record_fields(*inner)
+            && let Some(field_ty) = fields
+                .iter()
+                .find(|candidate| candidate.name == field)
+                .map(|candidate| candidate.ty)
+        {
+            let base_text = self.local_value(base)?;
+            let field_name = sanitize_ident(self.symbol_name(field)?);
+            let read = if crate::accessor_prelude::is_accessor_field_of_type(self.mir, *inner, field) {
+                crate::accessor_prelude::read_expr(&RustExpr::path(format!("_smelt_value.{field_name}")))
+            } else {
+                RustExpr::chain(format!("_smelt_value.{field_name}.clone()")).ending_in_clone()
+            };
+            return if matches!(self.mir.types.get(field_ty), Some(Type::Optional(_))) {
+                Ok(RustExpr::postfix_on(&base_text, format!("{base_text}.as_ref().and_then(|_smelt_value| {read})")))
+            } else {
+                Ok(RustExpr::postfix_on(&base_text, format!("{base_text}.as_ref().map(|_smelt_value| {read})")))
+            };
+        }
+        self.named_field_place_expr(base, field, base_ty)
+    }
+
+    /// A field read by name, on function values, strings and classes.
+    fn named_field_place_expr(
+        &self,
+        base: LocalId,
+        field: Symbol,
+        base_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        // A JavaScript function is an object: a property read on one
+        // answers its own-property bag, where `prototype` is
+        // materialised on first read and where a source-written member
+        // (`wrapper.placeholder`, `partialed.prototype`) lands. The
+        // receiver is erased first so the read shares the one bag every
+        // representation of that function reads through, and so
+        // `prototype.constructor` can be the function itself.
+        //
+        // `Function.prototype`'s own members keep their existing
+        // answers: `apply`/`call`/`bind` are resolved by the
+        // callable-interface and erased-receiver paths, and `length` /
+        // `name` by the arity registry, so routing them here would
+        // change which helper answers them.
+        if matches!(self.mir.types.get(base_ty), Some(Type::Function(_))) {
+            let field_name = self.symbol_source_name(field)?;
+            if matches!(field_name, "apply" | "call" | "bind" | "length" | "name") {
+                return Ok(self.null_value());
+            }
+            let base_text = self.local_value(base)?;
+            let erased = self.erase_rendered(&base_text.cloned_value(), base_ty)?;
+            return Ok(RustExpr::chain(format!(
+                "smelt_get_unknown_field(&{erased}, {field_name:?})"
+            )));
+        }
+        if smelt_stdlib::typescript_field_rule(self.symbol_source_name(field)?)
+            == Some(smelt_stdlib::FieldRule::TsConstructor)
+        {
+            return Ok(self.null_value());
+        }
+        // `.apply` / `.call` / `.bind` on a callable-interface value are
+        // Function.prototype methods on the *underlying callable*, not
+        // named struct fields. The interface struct has no such field
+        // (reading `receiver.apply` is an `E0609`), so read the synthetic
+        // `__smelt_call` storage slot and erase that callable to a
+        // `SmeltUnknown::Function`. The erased-call coercion the caller
+        // wraps this read in extracts and invokes it; `.bind` routes the
+        // same way and yields a closure over the erased callable. Erasing
+        // only the `__smelt_call` field (rather than the whole struct)
+        // keeps the callable live — a whole-struct `into_smelt_unknown`
+        // erases every function field to `Null`.
+        if matches!(self.symbol_source_name(field)?, "apply" | "call" | "bind")
+            && let Some(call_ty) = self.callable_interface_call_field_ty(base_ty)
+        {
+            let call_field = { let receiver = self.local_value(base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.{SMELT_CALL}.clone()")) }.ending_in_clone();
+            return self.erase_rendered(&call_field, call_ty);
+        }
+        if matches!(self.mir.types.get(base_ty), Some(Type::String)) {
+            return self.string_field_expr(&self.local_value(base)?, field);
+        }
+        if let Some(getter) = self.descriptor_getter_expr(base, field)? {
+            return Ok(getter);
+        }
+        if self.storage_field_is_function(base_ty, field) {
+            // A function-typed field of a REFERENCE class lives inside
+            // the shared cell like every other declared field, so it is
+            // read through `.0.borrow()`. Without this the arm below
+            // named a field the handle newtype does not have (E0609);
+            // it is reached before the general reference-class field arm
+            // further down, so the projection has to be repeated here.
+            if self.is_reference_class_type(base_ty)
+                && self.class_has_named_field(base_ty, field)
+            {
+                return Ok({ let receiver = self.local_value(base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.0.borrow().{}.clone()", sanitize_ident(self.symbol_name(field)?))) }.ending_in_clone());
+            }
+            return Ok({ let receiver = self.local_value(base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.{}.clone()", sanitize_ident(self.symbol_name(field)?))) }.ending_in_clone());
+        }
+        if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
+            && let Some(method_text) = self.class_method_reference_expr(
+                &self.local_value(base)?,
+                *name,
+                field,
+            )?
+        {
+            return Ok(method_text);
+        }
+        if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
+            && matches!(self.mir.types.get(*inner), Some(Type::Function(_)))
+        {
+            return Ok(self.null_value());
+        }
+        // A dotted read of an UNDECLARED member on an index-signature
+        // class (`bag.name` where `name` is not a struct field) is a
+        // keyed lookup into the runtime store (issue #84). Declared
+        // fields keep their concrete struct access via the fallback
+        // below; only names with no matching field route to the store.
+        if let Some((_key_ty, value_ty)) = self.class_index_store_types(base_ty)
+            && !self.class_has_named_field(base_ty, field)
+        {
+            let base_text = self.local_value(base)?;
+            let key = self.symbol_source_name(field)?;
+            let store_text =
+                RustExpr::postfix_on(&base_text, format!("{base_text}.{}", smelt_hir::CLASS_INDEX_STORE_FIELD));
+            let default_value = self.default_value(value_ty)?;
+            let string_key_ty = self.type_id(Type::String)?;
+            let getter = if self.dict_uses_smelt_record(string_key_ty)
+                || self.dict_uses_js_key_map(string_key_ty)
+            {
+                RustExpr::postfix_on(&store_text, format!("{store_text}.get(&{key:?}.to_owned())"))
+            } else {
+                RustExpr::postfix_on(&store_text, format!("{store_text}.get(&{key:?}.to_owned()).cloned()"))
+            };
+            return Ok(RustExpr::postfix_on(&getter, format!("{getter}.unwrap_or({default_value})")));
+        }
+        // A dotted read of a member a CALLABLE-OBJECT record does not
+        // declare. JavaScript lets a function own arbitrary properties,
+        // and TypeScript accepts such a read wherever the receiver's
+        // static shape is widened (or the author suppressed the check —
+        // es-toolkit's `flow` spec reads `curried.placeholder` off a
+        // `CurriedFunction1`). The struct has no such Rust field, so the
+        // plain fallback below emitted `receiver.placeholder`, an E0609
+        // in the generated crate. The value's own properties live in the
+        // erased callable's property bag, so read the source-spelled key
+        // from there and answer `undefined` when it carries none —
+        // exactly what JavaScript answers for an absent property.
+        if !self.class_has_named_field(base_ty, field)
+            && self.callable_interface_call_field_ty(base_ty).is_some()
+        {
+            let base_text = self.local_value(base)?;
+            let key = self.symbol_source_name(field)?;
+            return Ok(RustExpr::postfix_on(&base_text, format!("{base_text}.{SMELT_CALL}.smelt_property({key:?})")));
+        }
+        // A declared field of a reference class lives inside the shared
+        // cell. Read it through a narrow `borrow()` and clone the value
+        // out so the borrow guard is a short-lived temporary that ends
+        // with the statement — never held across a re-entrant call.
+        if self.is_reference_class_type(base_ty)
+            && self.class_has_named_field(base_ty, field)
+        {
+            return Ok({ let receiver = self.local_value(base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.0.borrow().{}.clone()", sanitize_ident(self.symbol_name(field)?))) }.ending_in_clone());
+        }
+        let field_text = { let receiver = self.local_value(base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.{}", sanitize_ident(self.symbol_name(field)?))) };
+        // An accessor field runs its getter on every read; see
+        // `crate::accessor_prelude`.
+        if crate::accessor_prelude::is_accessor_field_of_type(self.mir, base_ty, field) {
+            return Ok(crate::accessor_prelude::read_expr(&field_text));
+        }
+        Ok(field_text)
+    }
+
+    /// An index read.
+    fn index_place_expr(
+        &self,
+        base: LocalId,
+        index: &Operand,
+        negative: NegativeIndex,
+    ) -> Result<RustExpr, EmitError> {
+        let base_ty = self.local_decl(base)?.ty;
+        if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
+            && self.is_match_class_symbol(*name)?
+        {
+            return self.match_index_expr(&self.local_value(base)?, index);
+        }
+        // An indexed read on a typed-array view decodes ONE element at
+        // the view's own width and signedness. A negative or fractional
+        // index is a named property in JavaScript, not an element, and
+        // `get` answers `None` for it — the same "no such element"
+        // answer an out-of-range read gets.
+        if let Some(text) = self.typed_array_index_read_expr(base_ty, base, index)? {
+            return Ok(text);
+        }
+        // A generated union of tuples/lists reads each arm at its own
+        // type instead of erasing (see `concrete_union_index_reads`).
+        if let Some(text) = self.concrete_union_index_read_expr(base, index, negative)? {
+            return Ok(text);
+        }
+        match self.mir.types.get(base_ty) {
+            Some(Type::List(item_ty)) => {
+                // A list index READ only ever calls `.get(..).cloned()`
+                // and `.len()` — both take `&self`, so the receiver must
+                // borrow the backing `Vec` immutably. Using the mutable
+                // form here (`borrow_mut()`) is not just unnecessary: when
+                // `base` is a shared closure capture (`Rc<RefCell<Vec<_>>>`)
+                // the `.len()` inside the normalized-index argument expands
+                // to a SECOND `borrow_mut()` of the same cell, so the single
+                // `arr.get({ ... arr.len() ... })` expression holds two
+                // simultaneous mutable borrows and panics at runtime with
+                // "already borrowed". Two simultaneous shared `borrow()`s
+                // are allowed, matching the sibling string/optional-list
+                // read arms below. The same argument is why the list's own
+                // shared buffer is read through `list_read_expr`: the
+                // `.len()` in the index argument takes a second borrow of
+                // that cell while this one is live.
+                let base_text = self.local_value(base)?;
+                let index_text =
+                    self.normalized_read_index_expr(&RustExpr::postfix_on(&base_text, format!("{base_text}.len()")), index, negative)?;
+                let missing = self.element_missing_value(*item_ty)?;
+                let read_expr = list_read_expr(&base_text);
+                // `unwrap_or` takes its argument BY VALUE, so the
+                // out-of-range value is constructed on every read and then
+                // dropped unused on the overwhelmingly common in-range one.
+                // A JavaScript index read is in range almost always, and in
+                // a loop this is per element: `sumBy` built and dropped a
+                // `Default::default()` ten thousand times per call to
+                // answer a question that never came up. `unwrap_or_else`
+                // costs nothing when the element is present.
+                // `element_missing_value` is a pure value expression,
+                // so moving it into a closure cannot change what it means.
+                Ok(RustExpr::postfix_on(&read_expr, format!(
+                    "{read_expr}.get({index_text}).cloned().unwrap_or_else(|| {missing})"
+                )))
+            }
+            Some(Type::Optional(inner_ty))
+                if matches!(self.mir.types.get(*inner_ty), Some(Type::List(_))) =>
+            {
+                let Some(Type::List(item_ty)) = self.mir.types.get(*inner_ty) else {
+                    return Ok(self.null_value());
+                };
+                let base_text = self.local_value(base)?;
+                let index_text = self.normalized_read_index_expr(
+                    &RustExpr::postfix_on(&base_text, format!("{base_text}.as_ref().map_or(0, SmeltList::len)")),
+                    index,
+                    negative,
+                )?;
+                let access =
+                    if matches!(self.mir.types.get(*item_ty), Some(Type::Optional(_))) {
+                        "values.borrow().get({index_text}).cloned().flatten()"
+                    } else {
+                        "values.borrow().get({index_text}).cloned()"
+                    };
+                Ok(RustExpr::postfix_on(&base_text, format!(
+                    "{base_text}.as_ref().and_then(|values| {})",
+                    access.replace("{index_text}", &index_text)
+                )))
+            }
+            Some(Type::Dict(key_ty, value_ty)) => {
+                let base_text = self.local_value(base)?;
+                self.dict_index_read_expr(&base_text, *key_ty, *value_ty, index)
+            }
+            Some(Type::String) => {
+                let base_text = self.local_value(base)?;
+                let index_text = self.normalized_read_index_expr(
+                    &RustExpr::postfix_on(&base_text, format!("{base_text}.chars().count()")),
+                    index,
+                    negative,
+                )?;
+                // A string index read is TOTAL, like the list read
+                // above: `''[0]` is `undefined`, never a throw, so an
+                // out-of-range index answers the element type's missing
+                // value (`""`) instead of panicking. A caller that must
+                // see the miss (`s[i] === undefined`, `s[i] ?? f`, an
+                // optional slot) reads through
+                // `optional_element_read_expr` instead.
+                Ok(RustExpr::postfix_on(&base_text, format!(
+                    "{base_text}.chars().nth({index_text}).map(|ch| ch.to_string()).unwrap_or_default()"
+                )))
+            }
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
+                // A concrete generated union is not a `SmeltUnknown`, so
+                // the runtime-narrowing `match` below cannot scrutinise
+                // it directly: it goes through the union's
+                // `IntoSmeltUnknown` boundary adapter first, exactly as
+                // the INDEX operand of the same read already does.
+                // Without it the arms read `expected SmeltUnion127,
+                // found SmeltUnknown` (6 of the router slice's errors).
+                let base_text = self.erase_concrete_union_expr(
+                    &self.local_value(base)?,
+                    base_ty,
+                );
+                self.unknown_index_expr(&base_text, index)
+            }
+            // A narrowed optional union or `unknown` holds the value
+            // the narrowing proved, whichever arm that is.
+            Some(Type::Optional(_)) if self.is_optional_of_dynamic_shape(base_ty) => {
+                let erased = self.erase_rendered(&self.local_value(base)?, base_ty)?;
+                self.unknown_index_expr(&erased, index)
+            }
+            Some(Type::Tuple(items)) => {
+                let tuple_index = self.tuple_index(index, items.len())?;
+                Ok(RustExpr::tuple_field(&self.local_value(base)?, tuple_index))
+            }
+            // A class with an index signature backs keyed reads with a
+            // real store field (issue #84). A non-optional keyed read
+            // (declared value type has no `undefined`) reads the store by
+            // key, defaulting a missing key to the value type's default.
+            Some(Type::Class { .. })
+                if self.class_index_store_types(base_ty).is_some() =>
+            {
+                let (key_ty, value_ty) = self
+                    .class_index_store_types(base_ty)
+                    .ok_or_else(|| EmitError::new("class index store types missing"))?;
+                let base_text = self.local_value(base)?;
+                let store_text =
+                    RustExpr::postfix_on(&base_text, format!("{base_text}.{}", smelt_hir::CLASS_INDEX_STORE_FIELD));
+                let optional_read =
+                    self.dict_index_optional_read_expr(&store_text, key_ty, value_ty, index)?;
+                // An optional store value has already been flattened by
+                // the read, so the result IS the value type — a missing
+                // key and a stored `undefined` are the same `None`. Its
+                // default is that `None`, so defaulting again would try
+                // to `unwrap_or` an `Option<inner>` with an `Option`.
+                if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+                    return Ok(optional_read);
+                }
+                let default_value = self.default_value(value_ty)?;
+                Ok(RustExpr::postfix_on(&optional_read, format!("{optional_read}.unwrap_or({default_value})")))
+            }
+            // A class receiver read with a RUN-TIME key. The key can
+            // name any declared member (a field, a method, a host
+            // body reader), so it is looked up on the value's erased
+            // view, which carries the fields and prototype members of
+            // a program class and resolves a host class's modeled
+            // members (`smelt_host_method`). Answering `undefined`
+            // unconditionally made `raw[key]()` (Hono's request body
+            // cache) call nothing.
+            Some(Type::Class { .. }) if self.mir.types.get(self.operand_ty(index)?) == Some(&Type::String)
+                && self.context.demand().has(Need::Unknown) =>
+            {
+                let base_text =
+                    RustExpr::atom(self.carrier_format(format_args!("({}).clone().into_smelt_unknown()", self.local_value(base)?)));
+                let index_ty = self.operand_ty(index)?;
+                let key_text =
+                    self.property_key_to_string_expr(&self.operand_expr(index)?, index_ty)?;
+                Ok(RustExpr::chain(format!("smelt_get_unknown_field(&{base_text}, &{key_text})")))
+            }
+            // No modelled keyed storage on this receiver, so the key
+            // is not a property of it: JavaScript answers `undefined`
+            // for a missing property, which is a DIFFERENT value from
+            // `null` under `===` (see `absent_value`).
+            _ => Ok(self.absent_value()),
+        }
     }
 }

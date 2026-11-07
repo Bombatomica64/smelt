@@ -65,5 +65,7 @@ per-`Type` mechanics.
 - **Behind the seam (private)** — the structural-record / function-shape
   adapters and the per-`Type` match arms that decide the concrete Rust text.
 
-Lives in `crates/smelt-codegen-rust/src/emitter/coercion.rs`; a record's field-by-field
-crossings are in `emitter/coercion/record.rs`, behind the same seam.
+Lives in `crates/smelt-codegen-rust/src/emitter/coercion.rs`, with the `erase`, `extract`
+and `tag_check` verbs in `emitter/coercion/{erase,extract,tag}.rs`. The private adapters sit
+behind the same seam: a record's field-by-field crossings in `coercion/record.rs` and
+`coercion/record_adapter.rs`, function shapes in `coercion/function_adapter.rs`.

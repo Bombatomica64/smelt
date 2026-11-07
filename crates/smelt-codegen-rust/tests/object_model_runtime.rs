@@ -452,7 +452,7 @@ fn a_match_result_reads_its_named_properties_through_every_receiver_path() {
     // * a place expression (`emitter/place.rs`), which routes the read through
     //   the one prelude chain `smelt_get_unknown_field`, and
     // * a field read against an already-materialized receiver value
-    //   (`emitter/call_runtime.rs::field_access_text`), which is what an
+    //   (`emitter/field_access.rs::field_access_expr`), which is what an
     //   optional receiver, a `?.` chain and a union-typed local go through.
     //
     // The second inlined an OBJECT-ONLY `match`, so once a match result became

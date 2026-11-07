@@ -9,7 +9,7 @@
 //!
 //! Smelt views a class instance through an interface type by building the
 //! interface's record from the instance's members (the structural adapter in
-//! `core.rs`). A prototype method becomes a closure bound to the instance
+//! `coercion/record_adapter.rs`). A prototype method becomes a closure bound to the instance
 //! (`virtual_method_storage_field_expr`), but an own CALLABLE FIELD used to be
 //! copied as a bare value: a later `iface.m(..)` then called the stored function
 //! with no receiver installed (`this` read `undefined`) and never saw a

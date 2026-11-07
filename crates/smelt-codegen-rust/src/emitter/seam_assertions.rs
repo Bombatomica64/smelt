@@ -51,7 +51,7 @@
 use crate::rust::RustType;
 use super::*;
 use crate::rust::RustShape;
-use call::CallMonomorphization;
+use call_generics::CallMonomorphization;
 
 impl FunctionEmitter<'_> {
     /// The Rust name of the function currently being emitted, for messages.
