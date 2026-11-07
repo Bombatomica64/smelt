@@ -6,6 +6,11 @@
 //! byte offset into an index asks this module for its text. TypeScript bodies
 //! go through the `smelt_utf16_*` runtime helpers (`runtime/string_units.rs`,
 //! demanded by `RuntimeDemand::scan_string_units`); Python bodies use `chars()`.
+//!
+//! This is the emitter's ONE seam for string indices: no other emitter module
+//! spells a `smelt_utf16_*` helper or a `chars()` index walk, so a change of
+//! string representation (UTF-16 storage) replaces this module and the runtime
+//! file, not the emit sites.
 
 use smelt_hir::Language;
 
@@ -87,6 +92,45 @@ impl FunctionEmitter<'_> {
             format!("smelt_utf16_index_of_byte(&{receiver}, {byte})")
         } else {
             format!("{receiver}[..{byte}].chars().count()")
+        }
+    }
+
+    /// The `String` of `needed` units cut from repetitions of the `&str` `pad`
+    /// (a pad's fill, `padStart`/`padEnd`).
+    pub(super) fn string_padding_text(&self, pad: &str, needed: &str) -> String {
+        if self.indexes_utf16() {
+            format!("smelt_utf16_slice(&{pad}.repeat({needed}.div_ceil(smelt_utf16_len({pad}))), 0, {needed})")
+        } else {
+            format!("{pad}.chars().cycle().take({needed}).collect()")
+        }
+    }
+
+    /// The `f64` code at the `usize` index `index` of the `&str` `receiver`
+    /// (`charCodeAt`), NaN past the end.
+    pub(super) fn string_code_unit_at_text(&self, receiver: &str, index: &str) -> String {
+        if self.indexes_utf16() {
+            format!("smelt_utf16_unit_at({receiver}, {index}).map_or(f64::NAN, f64::from)")
+        } else {
+            format!("match {receiver}.as_bytes().get(..={index}) {{ Some(smelt_prefix) if smelt_prefix.is_ascii() => f64::from(smelt_prefix[{index}]), _ => {receiver}.chars().nth({index}).map_or(f64::NAN, |ch| ch as u32 as f64) }}")
+        }
+    }
+
+    /// The `Option<u32>` code point starting at the `usize` index `index` of
+    /// `receiver` (`codePointAt`).
+    pub(super) fn string_code_point_at_text(&self, receiver: &str, index: &str) -> String {
+        if self.indexes_utf16() {
+            format!("smelt_utf16_code_point_at(&{receiver}, {index})")
+        } else {
+            format!("{receiver}.chars().nth({index}).map(u32::from)")
+        }
+    }
+
+    /// The `Vec<String>` of one string per index unit of `receiver` (`split("")`).
+    pub(super) fn string_units_text(&self, receiver: &str) -> String {
+        if self.indexes_utf16() {
+            format!("smelt_utf16_units(&{receiver})")
+        } else {
+            format!("{receiver}.chars().map(|ch| ch.to_string()).collect::<Vec<_>>()")
         }
     }
 }

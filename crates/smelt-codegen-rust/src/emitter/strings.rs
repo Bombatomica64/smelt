@@ -328,11 +328,7 @@ impl FunctionEmitter<'_> {
             smelt_hir::StringPadOp::Start => "format!(\"{}{}\", padding, value)",
             smelt_hir::StringPadOp::End => "format!(\"{}{}\", value, padding)",
         };
-        let padding = if self.indexes_utf16() {
-            "smelt_utf16_slice(&pad.repeat(needed.div_ceil(smelt_utf16_len(pad))), 0, needed)"
-        } else {
-            "pad.chars().cycle().take(needed).collect()"
-        };
+        let padding = self.string_padding_text("pad", "needed");
         Ok(RustExpr::atom(format!(
             "{{ let value = &{operand_expr}; let target_len = {target_len_text} as usize; let pad = &{pad_text}; let current_len = {current_len}; if current_len >= target_len || pad.is_empty() {{ value.to_owned() }} else {{ let needed = target_len - current_len; let padding: String = {padding}; {result_text} }} }}",
             current_len = self.string_len_text("value"),
@@ -1062,11 +1058,7 @@ impl FunctionEmitter<'_> {
         // character by character; any other string takes the decoding path,
         // which is exactly the previous text. The closure keeps a borrowed
         // receiver's temporaries alive for the whole read.
-        let code_at = if self.indexes_utf16() {
-            "smelt_utf16_unit_at(smelt_text, smelt_index).map_or(f64::NAN, f64::from)"
-        } else {
-            "match smelt_text.as_bytes().get(..=smelt_index) { Some(smelt_prefix) if smelt_prefix.is_ascii() => f64::from(smelt_prefix[smelt_index]), _ => smelt_text.chars().nth(smelt_index).map_or(f64::NAN, |ch| ch as u32 as f64) }"
-        };
+        let code_at = self.string_code_unit_at_text("smelt_text", "smelt_index");
         Ok(RustExpr::atom(format!(
             "(|smelt_text: &str, smelt_index: f64| if smelt_index < 0.0 {{ f64::NAN }} else {{ let smelt_index = smelt_index as usize; {code_at} }})(&{}, {} as f64)",
             self.operand_borrow_expr(operand)?,
@@ -1094,11 +1086,7 @@ impl FunctionEmitter<'_> {
             ));
         }
         let receiver = self.operand_borrow_expr(operand)?.parenthesized_if_needed();
-        let code_point = if self.indexes_utf16() {
-            format!("smelt_utf16_code_point_at(&{receiver}, smelt_index as usize)")
-        } else {
-            format!("{receiver}.chars().nth(smelt_index as usize).map(u32::from)")
-        };
+        let code_point = self.string_code_point_at_text(&receiver, "smelt_index as usize");
         Ok(RustExpr::atom(format!(
             "{{ let smelt_index = {index} as f64; if smelt_index < 0.0 {{ None }} else {{ {code_point}.map(f64::from) }} }}",
             index = self.operand_expr(index)?.as_cast_operand(),
@@ -1318,17 +1306,13 @@ impl FunctionEmitter<'_> {
             let separator_unknown = self
                 .erase_concrete_union_expr(&self.operand_expr(separator)?, self.operand_ty(separator)?);
             self.carrier_format(format_args!(
-                "{{ let smelt_haystack = {haystack_text}; match {separator_unknown} {{ SmeltUnknown::Object(smelt_object) if smelt_object.contains_key(\"source\") => SmeltRegExp::new(match smelt_object.get(\"source\").cloned() {{ Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }}, match smelt_object.get(\"flags\").cloned() {{ Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }}).split_string(&smelt_haystack), smelt_separator_unknown => {{ let smelt_separator = match smelt_separator_unknown {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), {smelt_bigint_arm}SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}; if smelt_separator.is_empty() {{ if smelt_haystack.is_empty() {{ Vec::new() }} else {{ {units} }} }} else {{ smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() }} }} }} }}", units = if self.indexes_utf16() { "smelt_utf16_units(&smelt_haystack)" } else { "smelt_haystack.chars().map(|ch| ch.to_string()).collect::<Vec<_>>()" }, smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),")
+                "{{ let smelt_haystack = {haystack_text}; match {separator_unknown} {{ SmeltUnknown::Object(smelt_object) if smelt_object.contains_key(\"source\") => SmeltRegExp::new(match smelt_object.get(\"source\").cloned() {{ Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }}, match smelt_object.get(\"flags\").cloned() {{ Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }}).split_string(&smelt_haystack), smelt_separator_unknown => {{ let smelt_separator = match smelt_separator_unknown {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), {smelt_bigint_arm}SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}; if smelt_separator.is_empty() {{ if smelt_haystack.is_empty() {{ Vec::new() }} else {{ {units} }} }} else {{ smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() }} }} }} }}", units = self.string_units_text("smelt_haystack"), smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),")
             ))
         } else {
             let separator_text = self.string_like_operand_expr(separator, "string split")?;
             format!(
                 "{{ let smelt_haystack = {haystack_text}; let smelt_separator = {separator_text}; if smelt_separator.is_empty() {{ if smelt_haystack.is_empty() {{ Vec::new() }} else {{ {units} }} }} else {{ smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() }} }}",
-                units = if self.indexes_utf16() {
-                    "smelt_utf16_units(&smelt_haystack)"
-                } else {
-                    "smelt_haystack.chars().map(|ch| ch.to_string()).collect::<Vec<_>>()"
-                },
+                units = self.string_units_text("smelt_haystack"),
             )
         };
         let result = RustExpr::from(if let Some(limit_operand) = limit {
