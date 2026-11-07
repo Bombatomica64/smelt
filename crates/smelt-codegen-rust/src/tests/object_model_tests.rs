@@ -38,7 +38,7 @@ export function tagArray(): unknown {
         "a named write on an array receiver must store into the array:\n{body}"
     );
     assert!(
-        source.contains("else { array.set_named_property(key, value); }"),
+        source.contains("else { array.set_named_property(key_text, value); }"),
         "the runtime index-assign helper must keep the array for a non-index key"
     );
     assert!(
@@ -207,7 +207,7 @@ export function chainProbe(value: unknown, key: string): boolean {
     // own property (a boxed string's `length`, a byte view's elements) is
     // visible to both without being written twice.
     assert!(
-        source.contains("fn smelt_has_own_property(value: &SmeltUnknown, key: &str) -> bool {"),
+        source.contains("fn smelt_has_own_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Sized)) -> bool {"),
         "the prelude must define the own-property authority:\n{source}"
     );
     assert!(

@@ -79,7 +79,7 @@ export function fill(d: number | undefined, rec: Record<string, number>): number
         "{source}"
     );
     assert!(
-        source.contains("rec.insert(\"k\".to_owned(), __smelt_logical_value_"),
+        source.contains("rec.insert(JsString::from(\"k\"), __smelt_logical_value_"),
         "{source}"
     );
 }
@@ -115,5 +115,5 @@ export function run(flag: boolean, r1: Record<string, number>, r2: Record<string
     // `1 | "a"` and the two records: generated unions built at the ternary.
     assert!(source.matches("= if flag { SmeltUnion").count() >= 2, "{source}");
     // `Doc | "text"`: the string arm is a union variant, not an erased value.
-    assert!(source.contains("::M0(\"text\".to_owned());"), "{source}");
+    assert!(source.contains("::M0(JsString::from(\"text\"));"), "{source}");
 }

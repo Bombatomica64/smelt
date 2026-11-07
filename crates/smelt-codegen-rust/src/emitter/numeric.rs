@@ -71,9 +71,9 @@ impl FunctionEmitter<'_> {
                 is_float_literal = true;
                 format!("{}.0", self.operand_function_length(operand)?)
             }
-            Some(Type::String) => self.string_len_text(&receiver_text.parenthesized_if_needed()),
+            Some(Type::String | Type::PyStr) => self.string_len_text(&receiver_text.parenthesized_if_needed()),
             Some(Type::Optional(inner))
-                if matches!(self.mir.types.get(*inner), Some(Type::String)) =>
+                if matches!(self.mir.types.get(*inner), Some(Type::String | Type::PyStr)) =>
             {
                 format!("{receiver_text}.as_ref().map_or(0, |value| {})", self.string_len_text("value"))
             }
@@ -579,10 +579,10 @@ impl FunctionEmitter<'_> {
         radix: &Operand,
     ) -> Result<RustExpr, EmitError> {
         let operand_ty = self.mir.types.get(self.operand_ty(operand)?);
-        let operand_is_string = matches!(operand_ty, Some(Type::String));
+        let operand_is_string = matches!(operand_ty, Some(Type::String | Type::PyStr));
         let operand_is_optional_string = matches!(
             operand_ty,
-            Some(Type::Optional(inner)) if matches!(self.mir.types.get(*inner), Some(Type::String))
+            Some(Type::Optional(inner)) if matches!(self.mir.types.get(*inner), Some(Type::String | Type::PyStr))
         );
         if !(operand_is_string || operand_is_optional_string)
             || !matches!(

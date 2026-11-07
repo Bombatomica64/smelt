@@ -393,13 +393,13 @@ impl ModuleBuilder<'_> {
         }
         let operand = self.expression(&attr.value, body)?;
         let operand_ty = Self::expr_ty(body, operand);
-        if self.ctx.krate.types.get(operand_ty) != Some(&Type::String) {
+        if self.ctx.krate.types.get(operand_ty) != Some(&Type::PyStr) {
             return Err(SmeltError::unsupported(
                 span,
                 "string case methods require a str receiver",
             ));
         }
-        let ty = self.intern_type(Type::String);
+        let ty = self.intern_type(Type::PyStr);
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::StringCase { op, operand },
             ty,

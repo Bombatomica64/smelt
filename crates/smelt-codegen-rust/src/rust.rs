@@ -79,6 +79,9 @@ enum ExprFact {
     Plain,
     /// `"literal".to_owned()`, the emitter's own spelling of a string constant.
     OwnedLiteral,
+    /// `JsString::from("literal")`, the emitter's spelling of a JavaScript
+    /// string constant.
+    JsLiteral,
     /// The unit value `()`.
     Unit,
     /// The `self` receiver.
@@ -197,6 +200,17 @@ impl RustExpr {
     #[must_use]
     pub fn string_literal(value: &str) -> Self {
         Self::chain(format!("{value:?}.to_owned()")).owned_literal()
+    }
+
+    /// A JavaScript string constant: `JsString::from("x")`.
+    ///
+    /// The literal body is escaped with Rust's debug string formatter. A
+    /// Python `str` or a host string (a URL, a header name) is a Rust `String`
+    /// and uses [`Self::string_literal`] instead.
+    #[must_use]
+    pub fn js_string_literal(value: &str) -> Self {
+        let text = if value.is_empty() { JS_STRING_EMPTY.to_owned() } else { format!("{JS_STRING_FROM}{value:?})") };
+        Self { fact: ExprFact::JsLiteral, ..Self::chain(text) }
     }
 
     /// This expression, recorded as spelling `"literal".to_owned()`.
@@ -409,6 +423,13 @@ impl std::ops::Deref for RustExpr {
 /// The `.to_owned()` that follows the emitter's own spelling of a string constant.
 const TO_OWNED_SUFFIX: &str = ".to_owned()";
 
+/// The prefix of [`RustExpr::js_string_literal`]'s spelling; the literal and a
+/// closing parenthesis follow.
+const JS_STRING_FROM: &str = "JsString::from(";
+
+/// [`RustExpr::js_string_literal`]'s spelling of the empty string.
+const JS_STRING_EMPTY: &str = "JsString::new()";
+
 /// Renders the erased-string construction for a rendered `String`-typed expression.
 ///
 /// `SmeltUnknown::String` holds a shared immutable `Rc<str>` because JavaScript
@@ -422,6 +443,10 @@ const TO_OWNED_SUFFIX: &str = ".to_owned()";
 pub fn erased_string(value: &RustExpr) -> RustExpr {
     if value.fact == ExprFact::OwnedLiteral {
         let literal = &value.text[..value.text.len() - TO_OWNED_SUFFIX.len()];
+        return RustExpr::atom(format!("SmeltUnknown::String({literal}.into())"));
+    }
+    if value.fact == ExprFact::JsLiteral {
+        let literal = value.text.strip_prefix(JS_STRING_FROM).and_then(|rest| rest.strip_suffix(')')).unwrap_or("\"\"");
         return RustExpr::atom(format!("SmeltUnknown::String({literal}.into())"));
     }
     if value.precedence == Precedence::Path {
@@ -550,7 +575,9 @@ pub fn sanitize_identifier(name: &str) -> String {
 /// `struct Box` shadows `std::boxed::Box` for the whole crate, and every
 /// prelude line that writes `Box<dyn ..>` then refers to the user's struct
 /// (E0107). Renaming the source item the way a keyword is renamed keeps both:
-/// the declaration and every reference go through this function.
+/// the declaration and every reference go through this function. `JsString`
+/// and `JsStr` are the runtime's JavaScript string types, which every
+/// TypeScript crate spells unqualified in the same way.
 ///
 /// `main` is the same case one level up: the crate root defines the binary's
 /// entry point `fn main`, so a source function named `main` (`async function
@@ -559,6 +586,7 @@ fn is_rust_prelude_name(name: &str) -> bool {
     matches!(
         name,
         "Box" | "Vec" | "Option" | "Result" | "String" | "Some" | "None" | "Ok" | "Err" | "main"
+            | "JsString" | "JsStr"
     )
 }
 
@@ -642,6 +670,22 @@ mod tests {
         assert_eq!(
             erased_string(&RustExpr::string_literal("hi")).as_str(),
             r#"SmeltUnknown::String("hi".into())"#
+        );
+    }
+
+    /// A JavaScript string literal is spelled through `JsString` and erases
+    /// from its `&'static str` the same way; the empty string is `new()`.
+    #[test]
+    fn spells_and_erases_a_javascript_string_literal() {
+        assert_eq!(RustExpr::js_string_literal("a\"b").as_str(), r#"JsString::from("a\"b")"#);
+        assert_eq!(RustExpr::js_string_literal("").as_str(), "JsString::new()");
+        assert_eq!(
+            erased_string(&RustExpr::js_string_literal("hi")).as_str(),
+            r#"SmeltUnknown::String("hi".into())"#
+        );
+        assert_eq!(
+            erased_string(&RustExpr::js_string_literal("")).as_str(),
+            r#"SmeltUnknown::String("".into())"#
         );
     }
 

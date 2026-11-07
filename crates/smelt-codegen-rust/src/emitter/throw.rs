@@ -99,7 +99,8 @@ impl FunctionEmitter<'_> {
             return Ok(RustExpr::atom(format!("SmeltPyException::from_error(&*{error_text})")));
         }
         match self.mir.types.get(exception_ty) {
-            Some(Type::String) => Ok(RustExpr::postfix_on(&error_text, format!("{error_text}.to_string()"))),
+            Some(Type::String) => Ok(RustExpr::chain(format!("JsString::from({error_text}.to_string())"))),
+            Some(Type::PyStr) => Ok(RustExpr::postfix_on(&error_text, format!("{error_text}.to_string()"))),
             Some(Type::Unknown) => Ok(thrown::thrown_value_expr(error_text)),
             _ => self.default_value(exception_ty),
         }

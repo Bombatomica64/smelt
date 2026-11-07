@@ -74,7 +74,7 @@ fn smelt_sqlite_error(message: impl ::std::fmt::Display) -> Box<dyn ::std::error
 #[allow(dead_code)]
 impl SmeltSqliteDatabase {
     /// `new DatabaseSync(path)`; `":memory:"` is a private in-memory database.
-    pub fn open(path: &str) -> Result<Self, Box<dyn ::std::error::Error>> {
+    pub fn open(path: &(impl SmeltHostText + ?Sized)) -> Result<Self, Box<dyn ::std::error::Error>> { let path = path.host_text(); let path: &str = &path;
         let connection = if path == ":memory:" { rusqlite::Connection::open_in_memory() } else { rusqlite::Connection::open(path) };
         let connection = connection.map_err(smelt_sqlite_error)?;
         Ok(Self { id: smelt_next_object_id(), connection: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltSqliteConnection::Open(connection))) })
@@ -86,11 +86,11 @@ impl SmeltSqliteDatabase {
         action(connection)
     }
     /// `db.exec(sql)`: run every statement in `sql`.
-    pub fn exec(&self, sql: &str) -> Result<(), Box<dyn ::std::error::Error>> {
+    pub fn exec(&self, sql: &(impl SmeltHostText + ?Sized)) -> Result<(), Box<dyn ::std::error::Error>> { let sql = sql.host_text(); let sql: &str = &sql;
         self.with(|connection| connection.execute_batch(sql).map_err(smelt_sqlite_error))
     }
     /// `db.prepare(sql)`: compile now, so a syntax error throws here.
-    pub fn prepare(&self, sql: &str) -> Result<SmeltSqliteStatement, Box<dyn ::std::error::Error>> {
+    pub fn prepare(&self, sql: &(impl SmeltHostText + ?Sized)) -> Result<SmeltSqliteStatement, Box<dyn ::std::error::Error>> { let sql = sql.host_text(); let sql: &str = &sql;
         self.with(|connection| connection.prepare_cached(sql).map(|_| ()).map_err(smelt_sqlite_error))?;
         Ok(SmeltSqliteStatement { id: smelt_next_object_id(), database: self.clone(), sql: ::std::rc::Rc::from(sql) })
     }
@@ -162,6 +162,10 @@ impl SmeltSqliteBind for String {
     fn smelt_sqlite_value(&self, _position: usize) -> Result<rusqlite::types::Value, Box<dyn ::std::error::Error>> { Ok(rusqlite::types::Value::Text(self.clone())) }
 }
 
+impl SmeltSqliteBind for JsString {
+    fn smelt_sqlite_value(&self, _position: usize) -> Result<rusqlite::types::Value, Box<dyn ::std::error::Error>> { Ok(rusqlite::types::Value::Text(self.to_string_lossy())) }
+}
+
 /// Node refuses booleans; the program converts (`done ? 1 : 0`).
 impl SmeltSqliteBind for bool {
     fn smelt_sqlite_value(&self, position: usize) -> Result<rusqlite::types::Value, Box<dyn ::std::error::Error>> { Err(smelt_sqlite_unbindable(position)) }
@@ -175,9 +179,9 @@ impl<T: SmeltSqliteBind> SmeltSqliteBind for Option<T> {
 }
 
 /// A string-keyed record is a named-parameter object (`{ id: 1 }`).
-impl<V: SmeltSqliteBind + Clone> SmeltSqliteBind for SmeltRecord<String, V> {
+impl<V: SmeltSqliteBind + Clone> SmeltSqliteBind for SmeltRecord<JsString, V> {
     fn smelt_sqlite_value(&self, position: usize) -> Result<rusqlite::types::Value, Box<dyn ::std::error::Error>> { Err(smelt_sqlite_unbindable(position)) }
-    fn smelt_sqlite_named(&self, name: &str, position: usize) -> Option<Result<rusqlite::types::Value, Box<dyn ::std::error::Error>>> { self.get(name).map(|value| value.smelt_sqlite_value(position)) }
+    fn smelt_sqlite_named(&self, name: &str, position: usize) -> Option<Result<rusqlite::types::Value, Box<dyn ::std::error::Error>>> { self.get(&*JsString::from(name)).map(|value| value.smelt_sqlite_value(position)) }
     fn smelt_sqlite_is_named(&self) -> bool { true }
 }
 
@@ -211,7 +215,7 @@ fn smelt_sqlite_column(value: rusqlite::types::ValueRef<'_>) -> Result<SmeltUnkn
             return Err(smelt_sqlite_error(format!("Value is too large to be represented as a JavaScript number: {integer}")));
         }
         rusqlite::types::ValueRef::Real(real) => SmeltUnknown::Number(real),
-        rusqlite::types::ValueRef::Text(text) => SmeltUnknown::String(String::from_utf8_lossy(text).into()),
+        rusqlite::types::ValueRef::Text(text) => SmeltUnknown::String(JsString::from(&*String::from_utf8_lossy(text))),
         rusqlite::types::ValueRef::Blob(bytes) => SmeltUint8Array::from_bytes(bytes.to_vec()).into_smelt_unknown(),
     })
 }

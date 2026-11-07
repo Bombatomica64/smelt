@@ -242,13 +242,13 @@ impl FunctionEmitter<'_> {
         {
             let callable_text = self.erase(callable)?;
             let mut entries = vec![format!(
-                "smelt_object.push((\"{SMELT_CALL}\".to_owned(), {callable_text}));"
+                "smelt_object.push((JsString::from(\"{SMELT_CALL}\"), {callable_text}));"
             )];
             for (key, value) in props {
                 let key_text = self.symbol_source_name(*key)?;
                 let value_text = self.erase(value)?;
                 entries.push(format!(
-                    "smelt_object.push(({key_text:?}.to_owned(), {value_text}));"
+                    "smelt_object.push((JsString::from({key_text:?}), {value_text}));"
                 ));
             }
             // Dynamic record sources (`Object.assign(fn, def)` with a variable

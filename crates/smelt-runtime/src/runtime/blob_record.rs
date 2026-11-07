@@ -24,7 +24,7 @@ fn smelt_blob_parts_bytes(parts: SmeltUnknown) -> Vec<u8> {
     if let SmeltUnknown::Array(items) = parts {
         for item in items.iter() {
             match item {
-                SmeltUnknown::String(text) => bytes.extend_from_slice(text.as_bytes()),
+                SmeltUnknown::String(text) => bytes.extend_from_slice(text.to_string_lossy().as_bytes()),
                 SmeltUnknown::Object(map) if map.contains_key("__smelt_blob") => {
                     bytes.extend_from_slice(&smelt_blob_record_bytes(&map));
                 }
@@ -86,7 +86,7 @@ fn smelt_blob_record_bytes(map: &SmeltObject) -> Vec<u8> {
     if let Some(SmeltUnknown::Array(elements)) = map.get("__smelt_blob_bytes") {
         return elements.iter().filter_map(|element| match element { SmeltUnknown::Number(value) => Some(value as u8), _ => None }).collect();
     }
-    match map.get("content") { Some(SmeltUnknown::String(text)) => text.as_bytes().to_vec(), _ => Vec::new() }
+    match map.get("content") { Some(SmeltUnknown::String(text)) => text.to_string_lossy().into_bytes(), _ => Vec::new() }
 }
 
 /// Build the erased `Blob`/`File` record for the reflected constructor.

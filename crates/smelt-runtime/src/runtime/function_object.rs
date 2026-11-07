@@ -49,7 +49,7 @@
 fn smelt_function_property_lookup(identity: &SmeltFunctionIdentity, name: &str) -> Option<SmeltUnknown> { identity.0.properties.borrow().as_ref().and_then(|bag| bag.get(name)) }
 
 /// Store one own property on the function value with this canonical identity.
-fn smelt_set_function_property_key(identity: &SmeltFunctionIdentity, name: &str, value: SmeltUnknown) { identity.0.properties.borrow_mut().get_or_insert_with(|| SmeltObject::new(Vec::new())).insert(name.to_owned(), value); }
+fn smelt_set_function_property_key(identity: &SmeltFunctionIdentity, name: &str, value: SmeltUnknown) { identity.0.properties.borrow_mut().get_or_insert_with(|| SmeltObject::new(Vec::<(JsString, SmeltUnknown)>::new())).insert(name.to_owned(), value); }
 
 /// Store one own property on a function value (JS `f.name = value`).
 ///
@@ -113,7 +113,7 @@ fn smelt_construct_like(value: SmeltUnknown, args: Vec<SmeltUnknown>) -> SmeltUn
     match (value, args.as_slice()) {
         (SmeltUnknown::Array(_), [SmeltUnknown::Number(length)]) => SmeltUnknown::Array(SmeltArray::from(vec![SmeltUnknown::Undefined; *length as usize])),
         (SmeltUnknown::Array(_), _) => SmeltUnknown::Array(SmeltArray::from(args)),
-        _ => SmeltUnknown::Object(SmeltObject::new(Vec::new())),
+        _ => SmeltUnknown::Object(SmeltObject::new(Vec::<(JsString, SmeltUnknown)>::new())),
     }
 }
 
@@ -142,7 +142,7 @@ fn smelt_instance_of_value(value: &SmeltUnknown, target: &SmeltUnknown) -> bool 
     if let SmeltUnknown::Object(class) = target && let Some(SmeltUnknown::String(covered)) = class.get("__smelt_class_value") {
         let SmeltUnknown::Object(instance) = value else { return false; };
         let Some(SmeltUnknown::String(name)) = instance.get("__smelt_class") else { return false; };
-        return covered.split(',').any(|class_name| class_name == &*name);
+        return covered.to_string_lossy().split(',').any(|class_name| name.eq_str(class_name));
     }
     let Some(function) = smelt_callable_of(target) else { return false; };
     let prototype = smelt_function_value_property(&function, "prototype");

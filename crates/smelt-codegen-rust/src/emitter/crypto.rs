@@ -163,7 +163,7 @@ impl FunctionEmitter<'_> {
     fn crypto_usages_expr(&self, usages: &Operand) -> Result<RustExpr, EmitError> {
         let usages_ty = self.operand_ty(usages)?;
         if matches!(self.mir.types.get(usages_ty), Some(Type::List(item))
-            if matches!(self.mir.types.get(*item), Some(Type::String)))
+            if matches!(self.mir.types.get(*item), Some(Type::String | Type::PyStr)))
         {
             return Ok(RustExpr::atom(format!("({}).borrow().clone()", self.operand_expr(usages)?)).ending_in_clone());
         }

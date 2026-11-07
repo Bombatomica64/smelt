@@ -67,6 +67,8 @@ pub(crate) enum Need {
     ParseNumber,
     /// The UTF-16 index helpers every JavaScript string index goes through.
     StringUnits,
+    /// The `JsString` UTF-16 string type and its borrowed `JsStr` view.
+    JsString,
     /// Python's `repr`, for a container `print` shows.
     PyRepr,
     /// Mutable closure captures shared through the capture registry.
@@ -241,6 +243,8 @@ const REQUIRES: &[(Need, &[Need])] = &[
             Need::DepChronoTz,
             Need::DepTokio,
             Need::StringUnits,
+            // The erased string payload is a `JsString`.
+            Need::JsString,
         ],
     ),
     (Need::SmeltList, &[Need::ObjectIds]),
@@ -251,7 +255,7 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::PythonDictRead, &[Need::PyException]),
     (Need::PythonListRead, &[Need::PyException]),
     (Need::PrimSet, &[Need::ObjectIds]),
-    (Need::DepRegex, &[Need::ObjectIds, Need::StringUnits]),
+    (Need::DepRegex, &[Need::ObjectIds, Need::StringUnits, Need::JsString]),
     (Need::Date, &[Need::ObjectIds, Need::HostOrigins]),
     // These are emitted inside the carrier's block, or carry its values.
     (Need::IteratorResult, &[Need::Unknown]),
@@ -327,6 +331,12 @@ impl RuntimeDemand {
         let mut demand = Self::default();
         demand.scan_declarations(mir);
         demand.scan_types(mir);
+        // A TypeScript body spells its strings `JsString`.
+        if mir.functions.iter().any(|function| function.language == smelt_hir::Language::TypeScript)
+            || mir.closures.iter().any(|closure| closure.language == smelt_hir::Language::TypeScript)
+        {
+            demand.add(Need::JsString);
+        }
         for function in &mir.functions {
             demand.scan_body(mir, &function.locals, &function.blocks, function.return_ty);
             if function.language == smelt_hir::Language::TypeScript {
@@ -545,7 +555,7 @@ impl RuntimeDemand {
                 // A class value returned at `string` is its string conversion,
                 // which goes through the erased form.
                 if let Terminator::Return(operand) = terminator
-                    && matches!(mir.types.get(return_ty), Some(Type::String))
+                    && matches!(mir.types.get(return_ty), Some(Type::String | Type::PyStr))
                     && operand_is_class_local(mir, locals, operand)
                 {
                     self.add(Need::Unknown);
@@ -801,7 +811,7 @@ fn local_is_string(mir: &Mir, locals: &[LocalDecl], local: LocalId) -> bool {
 /// Whether a value of type `ty` may be a string (see [`local_is_string`]).
 fn type_may_be_string(mir: &Mir, ty: smelt_hir::TypeId) -> bool {
     match mir.types.get(ty) {
-        Some(Type::String) => true,
+        Some(Type::String | Type::PyStr) => true,
         Some(Type::Optional(inner)) => type_may_be_string(mir, *inner),
         Some(Type::Union(members)) => members.iter().any(|member| type_may_be_string(mir, *member)),
         _ => false,

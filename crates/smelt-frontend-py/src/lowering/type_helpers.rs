@@ -69,7 +69,7 @@ impl ModuleBuilder<'_> {
         match self.ctx.krate.types.get(receiver_ty) {
             Some(Type::List(elem)) | Some(Type::Set(elem)) => Ok(*elem),
             Some(Type::Dict(_, val)) => Ok(*val),
-            Some(Type::String) => Ok(receiver_ty),
+            Some(Type::PyStr) => Ok(receiver_ty),
             Some(Type::Tuple(items)) => items.first().copied().ok_or_else(|| {
                 SmeltError::unsupported(
                     Span::new(self.file_id, 0, 0),
@@ -168,7 +168,7 @@ impl ModuleBuilder<'_> {
             Some(Type::List(elem) | Type::Set(elem)) => Some(*elem),
             Some(Type::Dict(key, _)) => Some(*key),
             Some(Type::Tuple(items)) => items.first().copied(),
-            Some(Type::String) => Some(iter_ty),
+            Some(Type::PyStr) => Some(iter_ty),
             _ => None,
         }
     }

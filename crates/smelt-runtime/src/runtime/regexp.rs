@@ -125,8 +125,8 @@ impl SmeltRegExp {
     /// an unescaped `/` outside a character class reads back as `\/`, so
     /// `new RegExp('a/b').source` is `a\/b` exactly as for the literal
     /// `/a\/b/`, and the two compare equal.
-    pub fn new(source: String, flags: String) -> Self {
-        let source = Self::escape_pattern_source(source);
+    pub fn new(source: impl ::std::fmt::Display, flags: impl ::std::fmt::Display) -> Self {
+        let (source, flags) = (Self::escape_pattern_source(source.to_string()), flags.to_string());
         Self { id: smelt_next_object_id(), source: source.into(), flags: flags.into(), last_index: ::std::rc::Rc::new(::std::cell::RefCell::new(0)), compiled: ::std::rc::Rc::default() }
     }
     /// Escape every unescaped `/` outside a character class (`EscapeRegExpPattern`).
@@ -185,7 +185,7 @@ impl SmeltRegExp {
     /// sticky regex reads and advances `lastIndex`. A global regex resets
     /// `lastIndex` to 0 and answers every whole match, built by
     /// `SmeltMatch::from_global_matches`; no match at all is `None` (`null`).
-    pub fn match_string(&self, haystack: &str) -> Option<SmeltMatch> {
+    pub fn match_string(&self, haystack: &JsStr) -> Option<SmeltMatch> {
         if !self.has_flag('g') { return self.exec(haystack); }
         self.match_all_strings(haystack).map(|matches| SmeltMatch::from_global_matches(matches, haystack))
     }
@@ -194,16 +194,18 @@ impl SmeltRegExp {
     /// The spec resets `lastIndex` to 0 first and leaves it there. Called
     /// directly where the regex is statically known to be global, which is
     /// where the frontend types the result `string[] | null`.
-    pub fn match_all_strings(&self, haystack: &str) -> Option<Vec<String>> {
+    pub fn match_all_strings(&self, haystack: &JsStr) -> Option<Vec<JsString>> {
         *self.last_index.borrow_mut() = 0;
         let regex = self.compiled();
-        let matches = regex.find_iter(haystack).filter_map(Result::ok).map(|value| value.as_str().to_owned()).collect::<Vec<_>>();
+        let haystack = haystack.to_string_lossy();
+        let matches = regex.find_iter(&haystack).filter_map(Result::ok).map(|value| JsString::from(value.as_str())).collect::<Vec<_>>();
         if matches.is_empty() { None } else { Some(matches) }
     }
     /// Split a string with JavaScript RegExp separator semantics.
-    pub fn split_string(&self, haystack: &str) -> Vec<String> {
+    pub fn split_string(&self, haystack: &JsStr) -> Vec<JsString> {
         let regex = self.compiled();
-        regex.split(haystack).filter_map(Result::ok).map(str::to_owned).collect::<Vec<_>>()
+        let haystack = haystack.to_string_lossy();
+        regex.split(&haystack).filter_map(Result::ok).map(JsString::from).collect::<Vec<_>>()
     }
     /// Replace matches with JavaScript RegExp-aware String.prototype.replace semantics.
     ///
@@ -213,7 +215,8 @@ impl SmeltRegExp {
     /// this walks `captures_iter` rather than `find_iter`. The global and
     /// single-replacement cases are one loop that stops after the first
     /// match, so the two cannot disagree about the expansion.
-    pub fn replace_string(&self, haystack: &str, replacement: &str, force_all: bool) -> String {
+    pub fn replace_string(&self, haystack: &JsStr, replacement: &JsStr, force_all: bool) -> JsString {
+        let (haystack, replacement) = (&*haystack.to_string_lossy(), &*replacement.to_string_lossy());
         let regex = self.compiled();
         let replace_all = force_all || self.has_flag('g');
         let mut output = String::new();
@@ -226,7 +229,7 @@ impl SmeltRegExp {
             if !replace_all { break; }
         }
         output.push_str(haystack.get(last_end..).unwrap_or(""));
-        output
+        JsString::from(output)
     }
     /// Execute this RegExp and return a concrete `SmeltMatch` result.
     ///
@@ -234,7 +237,8 @@ impl SmeltRegExp {
     /// named groups, `index`, `input`) instead of an erased `SmeltUnknown`
     /// property bag; callers erase it explicitly at a dynamic boundary via
     /// `SmeltMatch::into_smelt_unknown` when required.
-    pub fn exec(&self, haystack: &str) -> Option<SmeltMatch> {
+    pub fn exec(&self, haystack: &JsStr) -> Option<SmeltMatch> {
+        let haystack = &*haystack.to_string_lossy();
         let regex = self.compiled();
         //~ `lastIndex` and a match's `index` count UTF-16 code units.
         let start = if self.has_flag('g') || self.has_flag('y') { smelt_utf16_byte_of(haystack, *self.last_index.borrow()).unwrap_or_else(|byte| byte) } else { 0 };
@@ -252,7 +256,8 @@ impl SmeltRegExp {
         Some(SmeltMatch::from_captures(&regex, &captures, haystack, start, self.has_flag('d')))
     }
     /// Return concrete `SmeltMatch` results for String.prototype.matchAll.
-    pub fn match_all_indices(&self, haystack: &str) -> Vec<SmeltMatch> {
+    pub fn match_all_indices(&self, haystack: &JsStr) -> Vec<SmeltMatch> {
+        let haystack = &*haystack.to_string_lossy();
         let regex = self.compiled();
         regex.captures_iter(haystack).filter_map(Result::ok).filter_map(|captures| {
             captures.get(0)?;
@@ -260,8 +265,14 @@ impl SmeltRegExp {
         }
         ).collect::<Vec<_>>()
     }
+    /// `String.prototype.search`: the code unit index of the first match, if any.
+    pub fn search_index(&self, haystack: &JsStr) -> Option<usize> {
+        let haystack = haystack.to_string_lossy();
+        let found = self.compiled().find(&haystack).ok().flatten()?;
+        Some(smelt_utf16_index_of_byte(&haystack, found.start()))
+    }
     /// Test this RegExp against a string with JavaScript lastIndex updates.
-    pub fn test(&self, haystack: &str) -> bool {
+    pub fn test(&self, haystack: &JsStr) -> bool {
         self.exec(haystack).is_some()
     }
 }
@@ -285,8 +296,8 @@ impl IntoSmeltUnknown for SmeltRegExp {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let last_index = *self.last_index.borrow() as f64;
         SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([
-        ("source".to_owned(), SmeltUnknown::String(self.source.into())),
-        ("flags".to_owned(), SmeltUnknown::String(self.flags.into())),
+        ("source".to_owned(), SmeltUnknown::String(JsString::from(&*self.source))),
+        ("flags".to_owned(), SmeltUnknown::String(JsString::from(&*self.flags))),
         ("lastIndex".to_owned(), SmeltUnknown::Number(last_index)),
         ("__smelt_regexp".to_owned(), SmeltUnknown::Bool(true)),
         ])))

@@ -129,7 +129,11 @@ impl FunctionEmitter<'_> {
     /// wants -- a hand-written port would not build a fresh `String` per
     /// evaluation just to name a type.
     pub(in crate::emitter) fn typeof_value(&self, value: &Operand) -> Result<RustExpr, EmitError> {
-        Ok({ let receiver = self.typeof_str_expr(value)?; RustExpr::postfix_on(&receiver, format!("{receiver}.to_owned()")) })
+        let receiver = self.typeof_str_expr(value)?;
+        if self.indexes_utf16() {
+            return Ok(RustExpr::chain(format!("JsString::from({receiver})")));
+        }
+        Ok(RustExpr::postfix_on(&receiver, format!("{receiver}.to_owned()")))
     }
 
     /// Emits the JavaScript `typeof` spelling for a value as a `&'static str`.

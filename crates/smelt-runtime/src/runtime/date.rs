@@ -96,7 +96,7 @@ impl IntoSmeltUnknown for SmeltDate {
 impl SmeltFromUnknown for SmeltDate {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         if let Some(origin) = smelt_restore_host_origin::<Self>(&value) { return origin; }
-        let time_ms = match &value { SmeltUnknown::Number(time_ms) => *time_ms, SmeltUnknown::Object(map) => match map.get("__smelt_date") { Some(SmeltUnknown::Number(time_ms)) => time_ms, _ => f64::NAN }, SmeltUnknown::String(text) => chrono::DateTime::parse_from_rfc3339(text).map(|date| date.timestamp_millis() as f64).unwrap_or(f64::NAN), _ => f64::NAN };
+        let time_ms = match &value { SmeltUnknown::Number(time_ms) => *time_ms, SmeltUnknown::Object(map) => match map.get("__smelt_date") { Some(SmeltUnknown::Number(time_ms)) => time_ms, _ => f64::NAN }, SmeltUnknown::String(text) => chrono::DateTime::parse_from_rfc3339(&text.to_string_lossy()).map(|date| date.timestamp_millis() as f64).unwrap_or(f64::NAN), _ => f64::NAN };
         Self::new(time_ms)
     }
 }

@@ -28,11 +28,11 @@ const present = headers.has("content-type");
         "the fetch prelude must be emitted:\n{source}"
     );
     assert!(
-        source.contains(".get(&\"content-type\".to_owned())"),
+        source.contains(".get(&JsString::from(\"content-type\"))"),
         "`Headers.get` must be a method call on the value:\n{source}"
     );
     assert!(
-        source.contains("let value: Option<String>"),
+        source.contains("let value: Option<JsString>"),
         "`Headers.get` must keep its `string | null` type:\n{source}"
     );
     assert!(
@@ -208,7 +208,7 @@ const count = params.size;
         "a string initializer parses a query:\n{source}"
     );
     assert!(
-        source.contains("let first: Option<String>"),
+        source.contains("let first: Option<JsString>"),
         "`get` must keep its `string | null` type:\n{source}"
     );
     assert!(
@@ -444,7 +444,7 @@ const status = made.status;
         "the ambient init must be emitted as a struct:\n{source}"
     );
     assert!(
-        source.contains("status: Option<f64>") && source.contains("status_text: Option<String>"),
+        source.contains("status: Option<f64>") && source.contains("status_text: Option<JsString>"),
         "the init's scalar keys must be typed options:\n{source}"
     );
     assert!(

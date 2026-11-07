@@ -92,7 +92,7 @@ fn smelt_vitest_mock_new(implementation: Option<SmeltUnknown>) -> SmeltUnknown {
     let id = smelt_next_object_id();
     let state = ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltVitestMockState { once: ::std::collections::VecDeque::new(), default: implementation.as_ref().and_then(smelt_vitest_mock_callable).map(SmeltVitestMockOutcome::Implementation), calls: Vec::new(), results: Vec::new() }));
     SMELT_VITEST_MOCKS.with(|mocks| { mocks.borrow_mut().insert(id, state.clone()); });
-    let object = SmeltObject::new(Vec::new());
+    let object = SmeltObject::new(Vec::<(JsString, SmeltUnknown)>::new());
     object.insert("__smelt_vitest_mock".to_owned(), SmeltUnknown::Number(id as f64));
     let call_state = state.clone();
     object.insert("__smelt_call".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let outcome = { let mut state = call_state.borrow_mut(); state.calls.push(args.clone()); state.once.pop_front().or_else(|| state.default.clone()) }; let result = match outcome { None => Ok(SmeltUnknown::Undefined), Some(SmeltVitestMockOutcome::Return(value)) => Ok(value), Some(SmeltVitestMockOutcome::Resolve(value)) => Ok(SmeltUnknown::Promise(SmeltPromise::resolved(value))), Some(SmeltVitestMockOutcome::Reject(value)) => Ok(SmeltUnknown::Promise(SmeltPromise::rejected(value))), Some(SmeltVitestMockOutcome::Implementation(callback)) => (callback)(args) }; if let Ok(value) = &result { call_state.borrow_mut().results.push(value.clone()); } result })));
@@ -167,13 +167,13 @@ fn smelt_asymmetric_constructor_name(value: &SmeltUnknown) -> Option<String> { m
 /// The primitive wrappers name a tag; every other constructor is matched by
 /// the value's own class identity, through the same view
 /// `Object.prototype.toString` reports.
-fn smelt_asymmetric_any(actual: &SmeltUnknown, constructor: Option<&SmeltUnknown>) -> bool { let Some(name) = constructor.and_then(smelt_asymmetric_constructor_name) else { return false; }; match name.as_str() { "Number" => matches!(actual, SmeltUnknown::Number(_)), "String" => matches!(actual, SmeltUnknown::String(_)), "Boolean" => matches!(actual, SmeltUnknown::Bool(_)), "Symbol" => matches!(actual, SmeltUnknown::Symbol(_)), "Function" => matches!(actual, SmeltUnknown::Function(_)), "Array" => matches!(actual, SmeltUnknown::Array(_)), "Object" => matches!(actual, SmeltUnknown::Object(_) | SmeltUnknown::Array(_)), "Promise" => matches!(actual, SmeltUnknown::Promise(_)), other => smelt_object_to_string_tag(actual) == format!("[object {other}]") || matches!(actual, SmeltUnknown::Object(map) if matches!(map.get("__smelt_class"), Some(SmeltUnknown::String(class)) if &*class == other) || matches!(map.get("__smelt_error"), Some(SmeltUnknown::String(class)) if &*class == other)) } }
+fn smelt_asymmetric_any(actual: &SmeltUnknown, constructor: Option<&SmeltUnknown>) -> bool { let Some(name) = constructor.and_then(smelt_asymmetric_constructor_name) else { return false; }; match name.as_str() { "Number" => matches!(actual, SmeltUnknown::Number(_)), "String" => matches!(actual, SmeltUnknown::String(_)), "Boolean" => matches!(actual, SmeltUnknown::Bool(_)), "Symbol" => matches!(actual, SmeltUnknown::Symbol(_)), "Function" => matches!(actual, SmeltUnknown::Function(_)), "Array" => matches!(actual, SmeltUnknown::Array(_)), "Object" => matches!(actual, SmeltUnknown::Object(_) | SmeltUnknown::Array(_)), "Promise" => matches!(actual, SmeltUnknown::Promise(_)), other => smelt_object_to_string_tag(actual) == format!("[object {other}]") || matches!(actual, SmeltUnknown::Object(map) if matches!(map.get("__smelt_class"), Some(SmeltUnknown::String(class)) if class.eq_str(other)) || matches!(map.get("__smelt_error"), Some(SmeltUnknown::String(class)) if class.eq_str(other))) } }
 
 
 /// `toMatchObject`: the expected value's properties are a RECURSIVE SUBSET
 /// of the actual value's, at every level; an array still has to have the
 /// same length, and any other value compares by ordinary vitest equality.
-fn smelt_vitest_match_object(actual: &SmeltUnknown, expected: &SmeltUnknown, seen: &mut ::std::collections::HashSet<(usize, usize)>) -> bool { if smelt_asymmetric_marker(expected).is_some() { return smelt_vitest_asymmetric_equals(actual, expected, seen); } match (actual, expected) { (SmeltUnknown::Object(actual), SmeltUnknown::Object(expected)) => expected.iter().filter(|(key, _)| smelt_is_for_in_object_key(expected, key)).all(|(key, want)| actual.get(&key).is_some_and(|have| smelt_vitest_match_object(&have, &want, seen))), (SmeltUnknown::Array(actual), SmeltUnknown::Array(expected)) => actual.len() == expected.len() && actual.iter().zip(expected.iter()).all(|(have, want)| smelt_vitest_match_object(&have, &want, seen)), _ => smelt_vitest_asymmetric_equals(actual, expected, seen) } }
+fn smelt_vitest_match_object(actual: &SmeltUnknown, expected: &SmeltUnknown, seen: &mut ::std::collections::HashSet<(usize, usize)>) -> bool { if smelt_asymmetric_marker(expected).is_some() { return smelt_vitest_asymmetric_equals(actual, expected, seen); } match (actual, expected) { (SmeltUnknown::Object(actual), SmeltUnknown::Object(expected)) => expected.iter().filter(|(key, _)| smelt_is_for_in_object_key(expected, &key.to_string_lossy())).all(|(key, want)| actual.get(&key).is_some_and(|have| smelt_vitest_match_object(&have, &want, seen))), (SmeltUnknown::Array(actual), SmeltUnknown::Array(expected)) => actual.len() == expected.len() && actual.iter().zip(expected.iter()).all(|(have, want)| smelt_vitest_match_object(&have, &want, seen)), _ => smelt_vitest_asymmetric_equals(actual, expected, seen) } }
 
 /// Whether `actual` satisfies one asymmetric matcher.
 fn smelt_asymmetric_match(actual: &SmeltUnknown, kind: &str, sample: &[SmeltUnknown], seen: &mut ::std::collections::HashSet<(usize, usize)>) -> bool {
@@ -183,7 +183,7 @@ fn smelt_asymmetric_match(actual: &SmeltUnknown, kind: &str, sample: &[SmeltUnkn
         "arrayContaining" => { let SmeltUnknown::Array(values) = actual else { return false; }; let items = values.clone().into_vec(); let wanted = match sample.first() { Some(SmeltUnknown::Array(expected)) => expected.clone().into_vec(), _ => Vec::new() }; wanted.iter().all(|want| items.iter().any(|have| smelt_vitest_asymmetric_equals(have, want, seen))) }
         "objectContaining" => { let SmeltUnknown::Object(map) = actual else { return false; }; let Some(SmeltUnknown::Object(expected)) = sample.first() else { return false; }; expected.iter().all(|(key, want)| map.get(&key).is_some_and(|have| smelt_vitest_asymmetric_equals(&have, &want, seen))) }
         "stringContaining" => { let (SmeltUnknown::String(text), Some(SmeltUnknown::String(part))) = (actual, sample.first()) else { return false; }; text.contains(&**part) }
-        "stringMatching" => { let SmeltUnknown::String(text) = actual else { return false; }; match sample.first() { Some(SmeltUnknown::String(pattern)) => SmeltRegExp::new(pattern.to_string(), String::new()).test(text), Some(SmeltUnknown::Object(map)) if map.contains_key("__smelt_regexp") => { let source = match map.get("source") { Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }; let flags = match map.get("flags") { Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }; SmeltRegExp::new(source, flags).test(text) } _ => false } }
+        "stringMatching" => { let SmeltUnknown::String(text) = actual else { return false; }; match sample.first() { Some(SmeltUnknown::String(pattern)) => SmeltRegExp::new(pattern.to_string(), String::new()).test(&text), Some(SmeltUnknown::Object(map)) if map.contains_key("__smelt_regexp") => { let source = match map.get("source") { Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }; let flags = match map.get("flags") { Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }; SmeltRegExp::new(source, flags).test(&text) } _ => false } }
         "closeTo" => { let (SmeltUnknown::Number(value), Some(SmeltUnknown::Number(target))) = (actual, sample.first()) else { return false; }; let precision = match sample.get(1) { Some(SmeltUnknown::Number(precision)) => *precision, _ => 2.0 }; (value - target).abs() < 10f64.powf(-precision) / 2.0 }
         "matchObject" => { let Some(expected) = sample.first() else { return false; }; smelt_vitest_match_object(actual, expected, seen) }
         _ => false,
@@ -203,7 +203,7 @@ fn smelt_vitest_asymmetric_equals(left: &SmeltUnknown, right: &SmeltUnknown, see
     if !smelt_asymmetric_present(left, 32) && !smelt_asymmetric_present(right, 32) { return smelt_unknown_structural_eq(left, right, seen); }
     match (left, right) {
         (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.len() == right.len() && left.iter().zip(right.iter()).all(|(left, right)| smelt_vitest_asymmetric_equals(&left, &right, seen)),
-        (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => { let left_keys = smelt_own_object_keys(left).len(); let right_keys = smelt_own_object_keys(right).len(); left_keys == right_keys && left.iter().filter(|(key, _)| smelt_is_for_in_object_key(left, key)).all(|(key, value)| right.get(&key).is_some_and(|other| smelt_vitest_asymmetric_equals(&value, &other, seen))) }
+        (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => { let left_keys = smelt_own_object_keys(left).len(); let right_keys = smelt_own_object_keys(right).len(); left_keys == right_keys && left.iter().filter(|(key, _)| smelt_is_for_in_object_key(left, &key.to_string_lossy())).all(|(key, value)| right.get(&key).is_some_and(|other| smelt_vitest_asymmetric_equals(&value, &other, seen))) }
         _ => smelt_unknown_structural_eq(left, right, seen),
     }
 }
@@ -235,7 +235,8 @@ fn smelt_vitest_restore_all_mocks() { let spies = SMELT_VITEST_SPIES.with(|spies
 /// behaviour still runs; its `mockRestore` puts the member back. A target
 /// that is not an object has no member to replace, so it yields a bare
 /// recording mock rather than failing the program.
-fn smelt_vitest_spy_on(target: &SmeltUnknown, name: &str) -> SmeltUnknown {
+fn smelt_vitest_spy_on(target: &SmeltUnknown, name: &(impl SmeltHostText + ?Sized)) -> SmeltUnknown {
+    let name = name.host_text(); let name: &str = &name;
     let SmeltUnknown::Object(object) = target else { return smelt_vitest_mock_new(None); };
     let own = object.get(name);
     let original = smelt_host_method(object, name).or_else(|| own.clone());

@@ -467,7 +467,7 @@ fn emit_class_type(
                         &TypeSubstitution::lexical(&scoped_type_params),
                     )
                     .unwrap_or_else(|_| "SmeltUnknown".to_owned());
-                    let value = materialized_static_value(field.value.as_ref());
+                    let value = materialized_static_value(field.value.as_ref(), mir.types.get(field.ty) != Some(&smelt_hir::Type::PyStr));
                     impl_writer.block(
                         format!("fn __smelt_static_{field_name}() -> {field_ty}"),
                         |function_writer| function_writer.line(value),

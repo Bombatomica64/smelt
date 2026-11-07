@@ -134,11 +134,12 @@ fn smelt_crypto_random_values_erased(view: SmeltUnknown) -> SmeltUnknown {
 // @smelt:item smelt_crypto_digest when crypto_digest
 /// `crypto.subtle.digest(algorithm, data)`: hash bytes by algorithm name.
 #[allow(dead_code)]
-fn smelt_crypto_digest(algorithm: &str, data: &[u8]) -> Result<SmeltArrayBuffer, Box<dyn ::std::error::Error>> {
+fn smelt_crypto_digest(algorithm: &(impl SmeltHostText + ?Sized), data: &[u8]) -> Result<SmeltArrayBuffer, Box<dyn ::std::error::Error>> {
     //~ One `Digest` import covers both crates: `sha1` and `sha2` are two
     //~ faces of the same `digest` traits, so `sha1::Digest` IS
     //~ `sha2::Digest` and importing it twice would not compile.
     use sha1::Digest as _;
+    let algorithm = algorithm.host_text(); let algorithm: &str = &algorithm;
     let name = algorithm.trim().to_ascii_lowercase();
     if name == "sha-1" { let mut hasher = sha1::Sha1::new(); hasher.update(data); return Ok(SmeltArrayBuffer::from_bytes(hasher.finalize().to_vec())); }
     if name == "sha-256" { let mut hasher = sha2::Sha256::new(); hasher.update(data); return Ok(SmeltArrayBuffer::from_bytes(hasher.finalize().to_vec())); }
@@ -233,7 +234,7 @@ fn smelt_crypto_hmac_tag(hash: &str, key: &[u8], data: &[u8]) -> Vec<u8> {
 
 /// `crypto.subtle.importKey(format, keyData, algorithm, extractable, usages)`.
 #[allow(dead_code)]
-fn smelt_crypto_import_key(format: &str, key: Vec<u8>, algorithm: &str, hash: &str, extractable: bool, usages: Vec<String>) -> Result<SmeltCryptoKey, Box<dyn ::std::error::Error>> {
+fn smelt_crypto_import_key(format: &(impl SmeltHostText + ?Sized), key: Vec<u8>, algorithm: &(impl SmeltHostText + ?Sized), hash: &(impl SmeltHostText + ?Sized), extractable: bool, usages: Vec<impl SmeltHostText>) -> Result<SmeltCryptoKey, Box<dyn ::std::error::Error>> { let format = format.host_text(); let format: &str = &format; let algorithm = algorithm.host_text(); let algorithm: &str = &algorithm; let hash = hash.host_text(); let hash: &str = &hash; let usages = usages.into_iter().map(SmeltHostText::into_host_string).collect::<Vec<String>>();
     if format != "raw" || !algorithm.trim().eq_ignore_ascii_case("HMAC") { return Err(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("NotSupportedError".into())), ("message".to_owned(), SmeltUnknown::String("Algorithm: Unrecognized name".into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))))); }
     let Some(hash) = smelt_crypto_hmac_hash(hash) else { return Err(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("NotSupportedError".into())), ("message".to_owned(), SmeltUnknown::String("Algorithm: Unrecognized name".into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))))); };
     Ok(SmeltCryptoKey { id: smelt_next_object_id(), algorithm: "HMAC".to_owned(), hash: hash.to_owned(), key: ::std::rc::Rc::new(key), extractable, usages })
@@ -241,7 +242,7 @@ fn smelt_crypto_import_key(format: &str, key: Vec<u8>, algorithm: &str, hash: &s
 
 /// `crypto.subtle.sign(algorithm, key, data)`: the MAC as an `ArrayBuffer`.
 #[allow(dead_code)]
-fn smelt_crypto_sign(algorithm: &str, key: &SmeltCryptoKey, data: &[u8]) -> Result<SmeltArrayBuffer, Box<dyn ::std::error::Error>> {
+fn smelt_crypto_sign(algorithm: &(impl SmeltHostText + ?Sized), key: &SmeltCryptoKey, data: &[u8]) -> Result<SmeltArrayBuffer, Box<dyn ::std::error::Error>> { let algorithm = algorithm.host_text(); let algorithm: &str = &algorithm;
     if !algorithm.trim().eq_ignore_ascii_case(&key.algorithm) { return Err(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("InvalidAccessError".into())), ("message".to_owned(), SmeltUnknown::String("The requested operation is not valid for the provided key".into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))))); }
     Ok(SmeltArrayBuffer::from_bytes(smelt_crypto_hmac_tag(&key.hash, &key.key, data)))
 }
@@ -249,7 +250,7 @@ fn smelt_crypto_sign(algorithm: &str, key: &SmeltCryptoKey, data: &[u8]) -> Resu
 /// `crypto.subtle.verify(algorithm, key, signature, data)`, comparing the
 /// tags in constant time.
 #[allow(dead_code)]
-fn smelt_crypto_verify(algorithm: &str, key: &SmeltCryptoKey, signature: &[u8], data: &[u8]) -> Result<bool, Box<dyn ::std::error::Error>> {
+fn smelt_crypto_verify(algorithm: &(impl SmeltHostText + ?Sized), key: &SmeltCryptoKey, signature: &[u8], data: &[u8]) -> Result<bool, Box<dyn ::std::error::Error>> { let algorithm = algorithm.host_text(); let algorithm: &str = &algorithm;
     if !algorithm.trim().eq_ignore_ascii_case(&key.algorithm) { return Err(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("InvalidAccessError".into())), ("message".to_owned(), SmeltUnknown::String("The requested operation is not valid for the provided key".into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))))); }
     let expected = smelt_crypto_hmac_tag(&key.hash, &key.key, data);
     Ok(expected.len() == signature.len() && expected.iter().zip(signature).fold(0_u8, |acc, (left, right)| acc | (left ^ right)) == 0)

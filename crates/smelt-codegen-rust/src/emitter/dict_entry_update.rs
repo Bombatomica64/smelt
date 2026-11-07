@@ -71,7 +71,7 @@ impl FunctionEmitter<'_> {
         // The key is coerced exactly as every other dict write coerces it: a
         // string-keyed container takes a JavaScript property-key string, any
         // other key type takes the container's key type directly.
-        let key_text = if self.mir.types.get(key_ty) == Some(&Type::String) {
+        let key_text = if self.mir.types.get(key_ty).is_some_and(Type::is_text) {
             let source_key = self.operand_ty(index)?;
             let index_text = self.operand_expr(index)?;
             self.property_key_to_string_expr(&index_text, source_key)?

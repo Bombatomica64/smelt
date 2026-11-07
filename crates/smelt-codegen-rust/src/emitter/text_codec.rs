@@ -189,7 +189,7 @@ impl FunctionEmitter<'_> {
                 let list_ty = self.type_id(Type::List(string_ty))?;
                 (
                     RustExpr::atom(format!(
-                        "SmeltList::new((0..{receiver}.length() as usize).map(|index| index.to_string()).collect::<Vec<_>>())"
+                        "SmeltList::new((0..{receiver}.length() as usize).map(|index| JsString::from(index.to_string())).collect::<Vec<_>>())"
                     )),
                     list_ty,
                 )
@@ -200,7 +200,7 @@ impl FunctionEmitter<'_> {
                 let list_ty = self.type_id(Type::List(pair_ty))?;
                 (
                     RustExpr::atom(format!(
-                        "SmeltList::new({receiver}.to_elements().into_iter().enumerate().map(|(index, element)| (index.to_string(), element)).collect::<Vec<_>>())"
+                        "SmeltList::new({receiver}.to_elements().into_iter().enumerate().map(|(index, element)| (JsString::from(index.to_string()), element)).collect::<Vec<_>>())"
                     )),
                     list_ty,
                 )

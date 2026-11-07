@@ -5,7 +5,7 @@ fn break_in_try (FuncId(0)) -> Int throws
     %2 user i: Int
     %3 temp: Bool
     %4 temp: Int
-    %5 user smelt_pending_thrown: Unknown
+    %5 user smelt_pending_thrown: __SmeltPyException
     %6 temp: Bool
     %7 temp: Bool
     %8 temp: Int
@@ -23,7 +23,7 @@ fn break_in_try (FuncId(0)) -> Int throws
   bb2:
     %4 = move %2 + 1
     %2 = move %4
-    %5 = undefined
+    %5 = py_exception_new [] []
     %6 = false
     goto bb4
   bb3:
@@ -62,7 +62,7 @@ fn continue_in_try (FuncId(1)) -> Int throws
     %2 user i: Int
     %3 temp: Bool
     %4 temp: Int
-    %5 user smelt_pending_thrown: Unknown
+    %5 user smelt_pending_thrown: __SmeltPyException
     %6 temp: Bool
     %7 temp: Bool
     %8 temp: Int
@@ -80,7 +80,7 @@ fn continue_in_try (FuncId(1)) -> Int throws
   bb2:
     %4 = move %2 + 1
     %2 = move %4
-    %5 = undefined
+    %5 = py_exception_new [] []
     %6 = false
     goto bb4
   bb3:
@@ -118,9 +118,9 @@ fn nested (FuncId(2)) -> None throws
     %1 user i: Int
     %2 temp: Bool
     %3 temp: Int
-    %4 user smelt_pending_thrown: Unknown
+    %4 user smelt_pending_thrown: __SmeltPyException
     %5 temp: Bool
-    %6 user smelt_pending_thrown: Unknown
+    %6 user smelt_pending_thrown: __SmeltPyException
     %7 temp: Bool
     %8 temp: Bool
     %9 temp: None
@@ -138,13 +138,13 @@ fn nested (FuncId(2)) -> None throws
   bb2:
     %3 = move %1 + 1
     %1 = move %3
-    %4 = undefined
+    %4 = py_exception_new [] []
     %5 = false
     goto bb4
   bb3:
     return none
   bb4:
-    %6 = undefined
+    %6 = py_exception_new [] []
     %7 = false
     goto bb8
   bb5:

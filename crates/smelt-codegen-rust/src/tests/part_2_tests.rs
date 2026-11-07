@@ -55,7 +55,7 @@ function parseValue(value: any): number {
         .map_or(source.as_str(), |(_, program)| program);
 
     assert!(
-        program.contains("SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string()"),
+        program.contains("SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string()"),
         "expected erased input to pass through JavaScript string coercion: {program}"
     );
     assert!(
@@ -72,8 +72,8 @@ const value = Number.parseInt("42");
 "#,
     );
 
-    assert!(source.contains("fn smelt_parse_int(text: &str, radix: f64) -> f64"), "{source}");
-    assert!(source.contains("smelt_parse_int(&\"42\".to_owned(), (0 as f64).trunc())"), "{source}");
+    assert!(source.contains("fn smelt_parse_int(text: &(impl SmeltHostText + ?Sized), radix: f64) -> f64"), "{source}");
+    assert!(source.contains("smelt_parse_int(&JsString::from(\"42\"), (0 as f64).trunc())"), "{source}");
 }
 
 #[test]
@@ -173,8 +173,8 @@ const floatValue = parseFloat("42.5");
 "#,
     );
 
-    assert!(source.contains("smelt_parse_int(&\"42\".to_owned(), (0 as f64).trunc())"), "{source}");
-    assert!(source.contains("smelt_parse_float(&\"42.5\".to_owned())"), "{source}");
+    assert!(source.contains("smelt_parse_int(&JsString::from(\"42\"), (0 as f64).trunc())"), "{source}");
+    assert!(source.contains("smelt_parse_float(&JsString::from(\"42.5\"))"), "{source}");
 }
 
 #[test]
@@ -373,7 +373,7 @@ const no = isBoxedNumber(42);
 ",
     );
 
-    assert!(source.contains("\"__smelt_number\".to_owned()"), "{source}");
+    assert!(source.contains("JsString::from(\"__smelt_number\")"), "{source}");
     assert!(
         source.contains("value.contains_key(\"__smelt_number\")"),
         "{source}"
@@ -784,7 +784,7 @@ const asValue = encodeURI;
     // Both the direct call and the first-class value form route through the
     // shared percent-encoding runtime helper.
     assert!(source.contains("fn smelt_encode_uri("), "{source}");
-    assert!(source.contains("= smelt_encode_uri("), "{source}");
+    assert!(source.contains("= JsString::from(smelt_encode_uri("), "{source}");
 }
 
 #[test]
@@ -810,7 +810,7 @@ export function tag(value: unknown): string {
     // (variant plus host identity markers), not through field reads on the
     // prototype sentinel.
     assert!(source.contains("fn smelt_object_to_string_tag("), "{source}");
-    assert!(source.contains("= smelt_object_to_string_tag(&("), "{source}");
+    assert!(source.contains("= smelt_abort_signal_object(&object); match method.as_str() { \"abort\" => { if let Some(signal) = signal { smelt_abort_signal_fire(&signal, smelt_abort_reason_argument(&args)); } Ok(SmeltUnknown::Undefined) } \"dispatchEvent\" => { if let Some(signal) = signal { smelt_abort_signal_fire(&signal, smelt_abort_default_reason()); } Ok(SmeltUnknown::Bool(true)) } \"throwIfAborted\" => { if let Some(signal) = signal { if matches!(signal.get(\"aborted\"), Some(SmeltUnknown::Bool(true))) { return Err(smelt_throw(signal.get(\"reason\").unwrap_or(SmeltUnknown::Undefined))); } } Ok(SmeltUnknown::Undefined) } \"addEventListener\" => { if let Some(signal) = signal { let event_type = match args.first() { Some(SmeltUnknown::String(value)) => value.to_string(), _ => String::new() }; if event_type == \"abort\" { if let Some(listener @ SmeltUnknown::Function(_)) = args.get(1).cloned() { let mut listeners = match signal.get(\"__smelt_abort_listeners\") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }; listeners.push(listener); signal.insert(\"__smelt_abort_listeners\".to_owned(), SmeltUnknown::Array(listeners.into())); } } } Ok(SmeltUnknown::Undefined) } \"removeEventListener\" => { if let Some(signal) = signal { if let Some(target @ SmeltUnknown::Function(_)) = args.get(1).cloned() { let listeners: Vec<SmeltUnknown> = match signal.get(\"__smelt_abort_listeners\") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }.into_iter().filter(|listener| !listener.js_strict_eq(&target)).collect("), "{source}");
 }
 
 #[test]

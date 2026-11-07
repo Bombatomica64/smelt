@@ -84,7 +84,7 @@ fn smelt_class_constructor(class_name: String) -> SmeltUnknown { SMELT_CLASS_CON
 /// opaque `"__smelt_proto:*"` string sentinels.
 fn smelt_reflected_marker_class(map: &SmeltObject) -> Option<String> {
     let (marker, class) = [("__smelt_date", "Date"), ("__smelt_map", "Map"), ("__smelt_set", "Set"), ("__smelt_regexp", "RegExp"), ("__smelt_dataview", "DataView"), ("__smelt_buffer", "Buffer"), ("__smelt_error", "Error"), ("__smelt_file", "File"), ("__smelt_number", "Number"), ("__smelt_boolean", "Boolean"), ("__smelt_int8array", "Int8Array"), ("__smelt_uint8array", "Uint8Array"), ("__smelt_uint8clampedarray", "Uint8ClampedArray"), ("__smelt_int16array", "Int16Array"), ("__smelt_uint16array", "Uint16Array"), ("__smelt_int32array", "Int32Array"), ("__smelt_uint32array", "Uint32Array"), ("__smelt_float32array", "Float32Array"), ("__smelt_float64array", "Float64Array"), ("__smelt_bigint64array", "BigInt64Array"), ("__smelt_biguint64array", "BigUint64Array")].into_iter().find(|(marker, _)| map.contains_key(marker))?;
-    if let Some(SmeltUnknown::String(name)) = map.get(marker) { if smelt_builtin_construct_kind(&name).is_some() { return Some(name.to_string()); } }
+    if let Some(SmeltUnknown::String(name)) = map.get(marker) { if smelt_builtin_construct_kind(&name.to_string_lossy()).is_some() { return Some(name.to_string_lossy()); } }
     Some(class.to_owned())
 }
 //~ Emit the marker→constructor-class lookup behind `x.constructor`.

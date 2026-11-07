@@ -97,7 +97,7 @@ impl ModuleBuilder<'_> {
                 "json.dumps() value must be JSON-serializable",
             ));
         }
-        let ty = self.intern_type(Type::String);
+        let ty = self.intern_type(Type::PyStr);
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::JsonStringify { value },
             ty,
@@ -134,7 +134,7 @@ impl ModuleBuilder<'_> {
             ));
         }
         let text = self.expression(&call.arguments.args[0], body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, text)) != Some(&Type::String) {
+        if self.ctx.krate.types.get(Self::expr_ty(body, text)) != Some(&Type::PyStr) {
             return Err(SmeltError::unsupported(
                 self.span(call.arguments.args[0].range()),
                 "json.loads() text argument must be a string",
@@ -173,8 +173,8 @@ impl ModuleBuilder<'_> {
         }
         let pattern = self.expression(&call.arguments.args[0], body)?;
         let haystack = self.expression(&call.arguments.args[1], body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, pattern)) != Some(&Type::String)
-            || self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String)
+        if self.ctx.krate.types.get(Self::expr_ty(body, pattern)) != Some(&Type::PyStr)
+            || self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::PyStr)
         {
             return Err(SmeltError::unsupported(
                 self.span(call.range()),
@@ -215,7 +215,7 @@ impl ModuleBuilder<'_> {
                 let replacement = self.expression(&call.arguments.args[1], body)?;
                 let haystack = self.expression(&call.arguments.args[2], body)?;
                 self.require_string_exprs(&[pattern, replacement, haystack], body, call.range())?;
-                let ty = self.intern_type(Type::String);
+                let ty = self.intern_type(Type::PyStr);
                 Ok(Some(body.push_expr(HirExpr {
                     kind: ExprKind::RegexReplace {
                         op: StringReplaceOp::All,
@@ -237,7 +237,7 @@ impl ModuleBuilder<'_> {
                 let pattern = self.expression(&call.arguments.args[0], body)?;
                 let haystack = self.expression(&call.arguments.args[1], body)?;
                 self.require_string_exprs(&[pattern, haystack], body, call.range())?;
-                let str_ty = self.intern_type(Type::String);
+                let str_ty = self.intern_type(Type::PyStr);
                 let ty = self.intern_type(Type::List(str_ty));
                 Ok(Some(body.push_expr(HirExpr {
                     kind: ExprKind::RegexSplit { pattern, haystack },
@@ -276,7 +276,7 @@ impl ModuleBuilder<'_> {
                         "open(...).read() currently supports no read size argument",
                     ));
                 }
-                let ty = self.intern_type(Type::String);
+                let ty = self.intern_type(Type::PyStr);
                 Ok(Some(body.push_expr(HirExpr {
                     kind: ExprKind::FileReadText { path },
                     ty,
@@ -317,7 +317,7 @@ impl ModuleBuilder<'_> {
                         "datetime.datetime.now()/utcnow() currently support no arguments",
                     ));
                 }
-                let ty = self.intern_type(Type::String);
+                let ty = self.intern_type(Type::PyStr);
                 let now = body.push_expr(HirExpr {
                     kind: ExprKind::DateNow,
                     ty: self.intern_type(Type::Int),
@@ -360,7 +360,7 @@ impl ModuleBuilder<'_> {
                     ty: Self::expr_ty(body, seconds),
                     span: self.span(call.range()),
                 });
-                let ty = self.intern_type(Type::String);
+                let ty = self.intern_type(Type::PyStr);
                 Ok(Some(body.push_expr(HirExpr {
                     kind: ExprKind::DateToIsoString { timestamp_ms },
                     ty,
@@ -390,7 +390,7 @@ impl ModuleBuilder<'_> {
         let Some(url) = self.urlparse_url_argument(parse_call, body)? else {
             return Ok(None);
         };
-        let ty = self.intern_type(Type::String);
+        let ty = self.intern_type(Type::PyStr);
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::UrlField { field, url },
             ty,
@@ -417,7 +417,7 @@ impl ModuleBuilder<'_> {
         let Some(url) = self.urlparse_url_argument(parse_call, body)? else {
             return Ok(None);
         };
-        let ty = self.intern_type(Type::String);
+        let ty = self.intern_type(Type::PyStr);
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::UrlField { field, url },
             ty,
@@ -479,7 +479,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<(), SmeltError> {
         if exprs
             .iter()
-            .all(|expr| self.ctx.krate.types.get(Self::expr_ty(body, *expr)) == Some(&Type::String))
+            .all(|expr| self.ctx.krate.types.get(Self::expr_ty(body, *expr)) == Some(&Type::PyStr))
         {
             Ok(())
         } else {

@@ -1,6 +1,6 @@
 fn main (FuncId(0)) -> None
   locals
-    %0 user greeting: String
+    %0 user greeting: PyStr
     %1 temp: None
   bb0:
     %0 = "hello"

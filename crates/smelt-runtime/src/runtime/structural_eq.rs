@@ -13,7 +13,7 @@ fn smelt_unknown_structural_eq(left: &SmeltUnknown, right: &SmeltUnknown, seen: 
         (SmeltUnknown::BigInt(left), SmeltUnknown::BigInt(right)) => left == right,
 // @smelt:end
 // @smelt:if unknown
-        (SmeltUnknown::String(left), SmeltUnknown::String(right)) => ::std::rc::Rc::ptr_eq(left, right) || left == right,
+        (SmeltUnknown::String(left), SmeltUnknown::String(right)) => left == right,
         (SmeltUnknown::Symbol(left), SmeltUnknown::Symbol(right)) => left == right,
         (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.len() == right.len() && left.iter().zip(right.iter()).all(|(left, right)| smelt_unknown_structural_eq(&left, &right, seen)),
         (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => smelt_object_structural_eq(left, right, seen),
@@ -35,7 +35,7 @@ fn smelt_unknown_structural_eq(left: &SmeltUnknown, right: &SmeltUnknown, seen: 
 /// `__smelt_class` records which prototype an instance came from;
 /// JavaScript exposes none of the three as an own property, so deep equality
 /// and the matching hash both skip them.
-fn smelt_is_own_structural_key(key: &str) -> bool { !key.starts_with("__smelt_proto:") && !key.starts_with("__smelt_method:") && key != "__smelt_class" }
+fn smelt_is_own_structural_key(key: &JsStr) -> bool { !key.eq_str_prefix("__smelt_proto:") && !key.eq_str_prefix("__smelt_method:") && !key.eq_str("__smelt_class") }
 
 fn smelt_object_structural_eq(left: &SmeltObject, right: &SmeltObject, seen: &mut ::std::collections::HashSet<(usize, usize)>) -> bool {
     if left.contains_key("__smelt_date") || right.contains_key("__smelt_date") { let left_date = smelt_unknown_date_value(&SmeltUnknown::Object(left.clone())); let right_date = smelt_unknown_date_value(&SmeltUnknown::Object(right.clone())); return left_date == right_date || (left_date.is_nan() && right_date.is_nan()); }

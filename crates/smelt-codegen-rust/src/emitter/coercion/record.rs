@@ -68,7 +68,7 @@ pub(crate) fn emit_record_into_smelt_unknown_impl(
                     ));
                 }
                 fn_writer.line(
-                    "SmeltUnknown::Object(SmeltObject::new(Vec::from([",
+                    "SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([",
                 );
                 for field in fields {
                     if !field.visibility.is_own_property() {
@@ -154,7 +154,7 @@ pub(crate) fn type_supports_from_unknown(
             Type::Bool
             | Type::Int
             | Type::Float
-            | Type::String
+            | Type::String | Type::PyStr
             | Type::Unknown
             | Type::TypeParam { .. },
         ) => true,
@@ -481,7 +481,7 @@ pub(crate) fn record_field_unknown_expr(mir: &Mir, value_text: &RustExpr, ty: Ty
         Some(Type::Bool) => RustExpr::atom(format!("SmeltUnknown::Bool({value_text})")),
         Some(Type::Int | Type::FixedInt(_) | Type::Float) => RustExpr::atom(format!("SmeltUnknown::Number({value_text} as f64)")),
         Some(Type::BigInt) => RustExpr::atom(format!("SmeltUnknown::BigInt(({value_text}).clone())")),
-        Some(Type::String) => erased_string(value_text),
+        Some(Type::String | Type::PyStr) => erased_string(value_text),
         Some(Type::Optional(inner)) => {
             let inner_text = record_field_unknown_expr(mir, &RustExpr::path("value"), *inner)?;
             RustExpr::postfix_on(&value_text, format!("{value_text}.map_or(SmeltUnknown::Undefined, |value| {inner_text})"))
@@ -492,7 +492,7 @@ pub(crate) fn record_field_unknown_expr(mir: &Mir, value_text: &RustExpr, ty: Ty
                 "SmeltUnknown::Array({value_text}.into_iter().map(|value| {item_text}).collect())"
             ))
         }
-        Some(Type::Dict(key, item)) if matches!(mir.types.get(*key), Some(Type::String)) => {
+        Some(Type::Dict(key, item)) if matches!(mir.types.get(*key), Some(Type::String | Type::PyStr)) => {
             let item_text = record_field_unknown_expr(mir, &RustExpr::path("value"), *item)?;
             RustExpr::atom(format!(
                 "SmeltUnknown::Object(SmeltObject::new({value_text}.into_iter().map(|(key, value)| (key, {item_text})).collect()))"

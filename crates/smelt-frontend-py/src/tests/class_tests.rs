@@ -657,7 +657,7 @@ class codes(IntEnum):
     ensure(
         codes.fields.iter().any(|field| {
             symbol(&ctx, field.name).ok() == Some("phrase")
-                && matches!(ctx.krate.types.get(field.ty), Some(Type::String))
+                && matches!(ctx.krate.types.get(field.ty), Some(Type::PyStr))
         }),
         "expected phrase to retain the string parameter type",
     )?;
@@ -1477,7 +1477,7 @@ def first(p: Pair[int, str]) -> int:
     ensure_eq(&items.len(), &2, "tuple arity")?;
     ensure(
         matches!(ctx.krate.types.get(items[0]), Some(Type::Int))
-            && matches!(ctx.krate.types.get(items[1]), Some(Type::String)),
+            && matches!(ctx.krate.types.get(items[1]), Some(Type::PyStr)),
         "alias parameters must be replaced by the supplied arguments",
     )?;
     Ok(())

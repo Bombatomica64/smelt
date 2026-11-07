@@ -37,13 +37,13 @@ pub struct SmeltMatch {
     id: usize,
     /// Numbered capture groups; entry 0 is the whole match. An absent
     /// optional group is `None` (JavaScript `undefined`).
-    groups: ::std::rc::Rc<Vec<Option<String>>>,
+    groups: ::std::rc::Rc<Vec<Option<JsString>>>,
     /// Named capture groups keyed by name (plus a snake_case alias).
-    named: ::std::rc::Rc<::std::collections::HashMap<String, Option<String>>>,
+    named: ::std::rc::Rc<::std::collections::HashMap<String, Option<JsString>>>,
     /// Zero-based UTF-16 offset of the match within `input` (`.index`).
     match_index: usize,
     /// The full string that was searched (`.input`).
-    input: ::std::rc::Rc<str>,
+    input: JsString,
     /// Each numbered group's UTF-16 `[start, end)` (`.indices`), kept only
     /// when the regexp has the `d` flag; an absent group is `None`.
     spans: Option<::std::rc::Rc<Vec<Option<(f64, f64)>>>>,
@@ -65,10 +65,10 @@ impl SmeltMatch {
         let unit_of = |byte: usize| smelt_units_to_number(smelt_utf16_index_of_byte(input, offset + byte));
         let match_index = captures.get(0).map_or(0, |whole| smelt_utf16_index_of_byte(input, offset + whole.start()));
         let spans = spans.then(|| ::std::rc::Rc::new((0..captures.len()).map(|index| captures.get(index).map(|group| (unit_of(group.start()), unit_of(group.end())))).collect::<Vec<_>>()));
-        let groups = (0..captures.len()).map(|index| captures.get(index).map(|value| value.as_str().to_owned())).collect::<Vec<_>>();
+        let groups = (0..captures.len()).map(|index| captures.get(index).map(|value| JsString::from(value.as_str()))).collect::<Vec<_>>();
         let mut named = ::std::collections::HashMap::new();
         for name in regex.capture_names().flatten() {
-            let value = captures.name(name).map(|value| value.as_str().to_owned());
+            let value = captures.name(name).map(|value| JsString::from(value.as_str()));
             named.insert(name.to_owned(), value.clone());
             let mut snake = String::new();
             for (index, ch) in name.chars().enumerate() {
@@ -76,7 +76,7 @@ impl SmeltMatch {
             }
             named.insert(snake, value);
         }
-        Self { id: smelt_next_object_id(), groups: ::std::rc::Rc::new(groups), named: ::std::rc::Rc::new(named), match_index, input: input.into(), spans }
+        Self { id: smelt_next_object_id(), groups: ::std::rc::Rc::new(groups), named: ::std::rc::Rc::new(named), match_index, input: JsString::from(input), spans }
     }
     /// Build the array a GLOBAL `String.prototype.match` answers.
     ///
@@ -86,8 +86,8 @@ impl SmeltMatch {
     /// entries are the whole matches (all present), there are no named
     /// groups, and `index` is 0 with `input` the searched string, which a
     /// global match's reader does not consult.
-    fn from_global_matches(matches: Vec<String>, input: &str) -> Self {
-        Self { id: smelt_next_object_id(), groups: ::std::rc::Rc::new(matches.into_iter().map(Some).collect()), named: ::std::rc::Rc::default(), match_index: 0, input: input.into(), spans: None }
+    fn from_global_matches(matches: Vec<JsString>, input: &JsStr) -> Self {
+        Self { id: smelt_next_object_id(), groups: ::std::rc::Rc::new(matches.into_iter().map(Some).collect()), named: ::std::rc::Rc::default(), match_index: 0, input: input.to_owned(), spans: None }
     }
 // @smelt:if smelt_list
     //~ The array view names `SmeltList`, which only exists when the
@@ -99,7 +99,7 @@ impl SmeltMatch {
     /// `None` (`undefined`). The list keeps the match's identity (`===`)
     /// but copies its entries: array methods lowered against it only read
     /// (writes to a match are not lowered through it).
-    pub fn to_array_view(&self) -> SmeltList<Option<String>> {
+    pub fn to_array_view(&self) -> SmeltList<Option<JsString>> {
         SmeltList::with_id(self.id, self.groups.as_ref().clone())
     }
     /// `match.indices`: each group's `[start, end]` when the regexp has the
@@ -109,7 +109,7 @@ impl SmeltMatch {
     }
 // @smelt:end
     /// Read a numbered capture group (`match[n]`).
-    fn group(&self, index: usize) -> Option<&str> {
+    fn group(&self, index: usize) -> Option<&JsStr> {
         self.groups.get(index).and_then(|value| value.as_deref())
     }
     /// Read a numbered capture group as an owned optional string.
@@ -117,18 +117,18 @@ impl SmeltMatch {
     /// Consumer index reads (`match[n]`) are typed `Optional(String)`; a
     /// group that did not participate in the match is `None` (JavaScript
     /// `undefined`).
-    pub fn group_owned(&self, index: usize) -> Option<String> {
+    pub fn group_owned(&self, index: usize) -> Option<JsString> {
         self.groups.get(index).cloned().flatten()
     }
     /// Read a named capture group (`match.groups.name`).
-    fn named_group(&self, name: &str) -> Option<&str> {
+    fn named_group(&self, name: &str) -> Option<&JsStr> {
         self.named.get(name).and_then(|value| value.as_deref())
     }
     /// Read a named capture group as an owned optional string.
     ///
     /// Consumer named-group reads (`match.groups.name`) are typed
     /// `Optional(String)`; a group that did not participate is `None`.
-    pub fn named_group_owned(&self, name: &str) -> Option<String> {
+    pub fn named_group_owned(&self, name: &str) -> Option<JsString> {
         self.named.get(name).cloned().flatten()
     }
     /// The zero-based match offset (`match.index`).
@@ -136,12 +136,12 @@ impl SmeltMatch {
         self.match_index as f64
     }
     /// The full searched string (`match.input`).
-    fn input(&self) -> &str {
+    fn input(&self) -> &JsStr {
         &self.input
     }
     /// The full searched string as an owned value (`match.input`).
-    pub fn input_owned(&self) -> String {
-        self.input.to_string()
+    pub fn input_owned(&self) -> JsString {
+        self.input.clone()
     }
     /// Number of numbered capture groups, including the whole match.
     fn len(&self) -> usize {
@@ -184,8 +184,8 @@ impl SmeltMatch {
 /// `cloneDeepWith`) still finds them through its typed list handle.
 impl IntoSmeltUnknown for SmeltMatch {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        let elements = self.groups.iter().map(|value| value.clone().map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))).collect::<Vec<_>>();
-        let groups = self.named.iter().map(|(name, value)| (name.clone(), value.clone().map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into())))).collect::<Vec<_>>();
+        let elements = self.groups.iter().map(|value| value.clone().map_or(SmeltUnknown::Undefined, SmeltUnknown::String)).collect::<Vec<_>>();
+        let groups = self.named.iter().map(|(name, value)| (name.clone(), value.clone().map_or(SmeltUnknown::Undefined, SmeltUnknown::String))).collect::<Vec<_>>();
         let array = SmeltArray::with_id(self.id, elements);
         //~ Derived from this match, and rewritten by its every erasure.
         smelt_array_store_named_properties(&array, [("index", SmeltUnknown::Number(self.match_index as f64)), ("input", SmeltUnknown::String(self.input)), ("groups", SmeltUnknown::Object(SmeltObject::new(groups)))], true);
@@ -203,13 +203,13 @@ impl IntoSmeltUnknown for SmeltMatch {
 /// numbered groups; the extra properties are then simply absent.
 impl SmeltFromUnknown for SmeltMatch {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let group_of = |value: SmeltUnknown| match value { SmeltUnknown::String(text) => Some(text.to_string()), _ => None };
+        let group_of = |value: SmeltUnknown| match value { SmeltUnknown::String(text) => Some(text), _ => None };
         match value {
             SmeltUnknown::Array(values) => {
                 let mut named = ::std::collections::HashMap::new();
-                if let Some(SmeltUnknown::Object(entries)) = values.named_property("groups") { for (name, entry) in entries.iter() { named.insert(name, group_of(entry)); } }
+                if let Some(SmeltUnknown::Object(entries)) = values.named_property("groups") { for (name, entry) in entries.iter() { named.insert(name.to_string_lossy(), group_of(entry)); } }
                 let match_index = match values.named_property("index") { Some(SmeltUnknown::Number(index)) if index.is_finite() && index >= 0.0 => index as usize, _ => 0 };
-                let input = match values.named_property("input") { Some(SmeltUnknown::String(input)) => input, _ => ::std::rc::Rc::default() };
+                let input = match values.named_property("input") { Some(SmeltUnknown::String(input)) => input, _ => JsString::new() };
                 let id = values.id;
                 Self { id, groups: ::std::rc::Rc::new(values.into_vec().into_iter().map(group_of).collect()), named: ::std::rc::Rc::new(named), match_index, input, spans: None }
             }
@@ -217,9 +217,9 @@ impl SmeltFromUnknown for SmeltMatch {
                 let mut groups = Vec::new();
                 while let Some(entry) = map.get(&groups.len().to_string()) { groups.push(group_of(entry)); }
                 let mut named = ::std::collections::HashMap::new();
-                if let Some(SmeltUnknown::Object(entries)) = map.get("groups") { for (name, entry) in entries.iter() { named.insert(name, group_of(entry)); } }
+                if let Some(SmeltUnknown::Object(entries)) = map.get("groups") { for (name, entry) in entries.iter() { named.insert(name.to_string_lossy(), group_of(entry)); } }
                 let match_index = match map.get("index") { Some(SmeltUnknown::Number(index)) if index.is_finite() && index >= 0.0 => index as usize, _ => 0 };
-                let input = match map.get("input") { Some(SmeltUnknown::String(input)) => input, _ => ::std::rc::Rc::default() };
+                let input = match map.get("input") { Some(SmeltUnknown::String(input)) => input, _ => JsString::new() };
                 Self { id: map.id, groups: ::std::rc::Rc::new(groups), named: ::std::rc::Rc::new(named), match_index, input, spans: None }
             }
             _ => Self::default(),

@@ -430,7 +430,7 @@ def greet(name: str, count: int) -> str:
                     op: BinOp::Add,
                     ..
                 }
-            ) && ctx.krate.types.get(expr.ty) == Some(&Type::String)
+            ) && ctx.krate.types.get(expr.ty) == Some(&Type::PyStr)
         }),
         "expected f-string to lower to a String addition chain",
     )?;

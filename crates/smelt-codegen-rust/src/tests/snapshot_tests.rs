@@ -12,13 +12,18 @@ pub(super) fn assert_emitted_source_snapshot(name: &str, source: &str, case_star
     assert_no_legacy_callback_fallbacks(&emitted);
     let emitted = match case_start {
         Some(case_start) => {
-            let start = emitted
-                .find(case_start)
-                .unwrap_or_else(|| panic!("missing case-specific module start `{case_start}`"));
+            // The case starts in the program, so the search begins past the
+            // runtime prelude, whose items can spell the same name (`fn add`
+            // is `JsString`'s `Add` impl).
+            let program = emitted.find("@smelt:prelude-end").map_or(emitted.as_str(), |marker| &emitted[marker..]);
+            let case_text = program.find(case_start).map_or_else(
+                || panic!("missing case-specific module start `{case_start}`"),
+                |offset| &program[offset..],
+            );
             format!(
                 "{}\n\n// ... shared generated runtime prelude omitted from selective snapshot ...\n\n{}",
                 emitted.lines().take(2).collect::<Vec<_>>().join("\n"),
-                &emitted[start..]
+                case_text
             )
         }
         // No case marker: snapshot the whole emitted module as-is.
@@ -43,13 +48,18 @@ pub(super) fn assert_emitted_py_source_snapshot(
     assert_no_legacy_callback_fallbacks(&emitted);
     let emitted = match case_start {
         Some(case_start) => {
-            let start = emitted
-                .find(case_start)
-                .unwrap_or_else(|| panic!("missing case-specific module start `{case_start}`"));
+            // The case starts in the program, so the search begins past the
+            // runtime prelude, whose items can spell the same name (`fn add`
+            // is `JsString`'s `Add` impl).
+            let program = emitted.find("@smelt:prelude-end").map_or(emitted.as_str(), |marker| &emitted[marker..]);
+            let case_text = program.find(case_start).map_or_else(
+                || panic!("missing case-specific module start `{case_start}`"),
+                |offset| &program[offset..],
+            );
             format!(
                 "{}\n\n// ... shared generated runtime prelude omitted from selective snapshot ...\n\n{}",
                 emitted.lines().take(2).collect::<Vec<_>>().join("\n"),
-                &emitted[start..]
+                case_text
             )
         }
         // No case marker: snapshot the whole emitted module as-is.
@@ -103,7 +113,9 @@ function countPositive(values: number[]): number {
   return count;
 }
 ",
-        None,
+        // The JavaScript string runtime item alone is longer than the
+        // snapshot budget, so the snapshot starts at the program.
+        Some("@smelt:prelude-end"),
     );
 }
 
@@ -117,7 +129,9 @@ function makeAdder(base: number): (value: number) => number {
   return (value: number): number => value + base;
 }
 ",
-        None,
+        // The JavaScript string runtime item alone is longer than the
+        // snapshot budget, so the snapshot starts at the program.
+        Some("@smelt:prelude-end"),
     );
 }
 
@@ -160,7 +174,9 @@ function append(values: number[], value: number): number[] {
   return values;
 }
 ",
-        None,
+        // The JavaScript string runtime item alone is longer than the
+        // snapshot budget, so the snapshot starts at the program.
+        Some("@smelt:prelude-end"),
     );
 }
 
@@ -205,7 +221,9 @@ function contains(): boolean {
   return values.has("b");
 }
 "#,
-        None,
+        // The JavaScript string runtime item alone is longer than the
+        // snapshot budget, so the snapshot starts at the program.
+        Some("@smelt:prelude-end"),
     );
 }
 
@@ -220,7 +238,9 @@ test("adds", () => {
   expect(1 + 2).toBe(3);
 });
 "#,
-        None,
+        // The JavaScript string runtime item alone is longer than the
+        // snapshot budget, so the snapshot starts at the program.
+        Some("@smelt:prelude-end"),
     );
 }
 

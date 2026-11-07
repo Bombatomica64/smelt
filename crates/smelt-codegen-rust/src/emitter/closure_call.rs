@@ -640,7 +640,7 @@ impl FunctionEmitter<'_> {
             .collect::<Result<Vec<_>, EmitError>>()?
             .join(", ");
         Ok(RustExpr::atom(format!(
-            "{{ let __smelt_function_key = {key_text}; match __smelt_function_key.as_str() {{ {cases_text}, _ => panic!(\"unknown function table key: {{}}\", __smelt_function_key) }} }}"
+            "{{ let __smelt_function_key = {key_text}; match __smelt_function_key.to_string().as_str() {{ {cases_text}, _ => panic!(\"unknown function table key: {{}}\", __smelt_function_key) }} }}"
         )))
     }
 

@@ -144,7 +144,7 @@ impl ModuleBuilder<'_> {
                 ));
             }
             let pattern = self.expression(&keyword.value, body)?;
-            if self.ctx.krate.types.get(Self::expr_ty(body, pattern)) != Some(&Type::String) {
+            if self.ctx.krate.types.get(Self::expr_ty(body, pattern)) != Some(&Type::PyStr) {
                 return Err(SmeltError::unsupported(
                     self.span(keyword.value.range()),
                     "pytest.raises match keyword must lower to a string regex pattern",
@@ -161,7 +161,7 @@ impl ModuleBuilder<'_> {
         range: TextRange,
         body: &mut Body,
     ) -> smelt_hir::LocalId {
-        let ty = self.intern_type(Type::String);
+        let ty = self.intern_type(Type::PyStr);
         let symbol = self.intern_name("__smelt_pytest_exception");
         body.push_local(LocalDecl {
             name: Some(symbol),
@@ -180,7 +180,7 @@ impl ModuleBuilder<'_> {
         block: smelt_hir::BlockId,
     ) {
         let (exception_local, pattern) = match_values;
-        let string_ty = self.intern_type(Type::String);
+        let string_ty = self.intern_type(Type::PyStr);
         let bool_ty = self.intern_type(Type::Bool);
         let caught = body.push_expr(HirExpr {
             kind: ExprKind::Local(exception_local),
@@ -243,7 +243,7 @@ impl ModuleBuilder<'_> {
         range: TextRange,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
-        let ty = self.intern_type(Type::String);
+        let ty = self.intern_type(Type::PyStr);
         body.push_expr(HirExpr {
             kind: ExprKind::Literal(Literal::String(value.to_owned())),
             ty,

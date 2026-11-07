@@ -508,18 +508,20 @@ pub(crate) fn operand_type(
             Err(BindingUnsupportedReason::ProjectedOperand)
         }
         Operand::Const(constant) => {
-            literal_type(mir, constant).ok_or(BindingUnsupportedReason::MissingLiteralType)
+            literal_type(mir, caller.language, constant).ok_or(BindingUnsupportedReason::MissingLiteralType)
         }
     }
 }
 
-/// Find the interned primitive type represented by a MIR literal.
-fn literal_type(mir: &Mir, constant: &Constant) -> Option<TypeId> {
+/// Find the interned primitive type represented by a MIR literal in a body
+/// written in `language` (a string literal is that language's string type).
+fn literal_type(mir: &Mir, language: smelt_hir::Language, constant: &Constant) -> Option<TypeId> {
     let expected = match constant {
         Constant::Bool(_) => Type::Bool,
         Constant::Int(_) => Type::Int,
         Constant::Float(_) => Type::Float,
         Constant::BigInt(_) => Type::BigInt,
+        Constant::String(_) if language == smelt_hir::Language::Python => Type::PyStr,
         Constant::String(_) => Type::String,
         Constant::None | Constant::Undefined => Type::None,
         Constant::Symbol(_) => Type::Unknown,
@@ -968,17 +970,17 @@ mod tests {
         let unknown_ty = types.intern(Type::Unknown);
         let mir = mir_with_types(types);
 
-        assert_eq!(literal_type(&mir, &Constant::Bool(true)), Some(bool_ty));
-        assert_eq!(literal_type(&mir, &Constant::Int(1)), Some(int_ty));
-        assert_eq!(literal_type(&mir, &Constant::Float(1.0)), Some(float_ty));
+        assert_eq!(literal_type(&mir, smelt_hir::Language::TypeScript, &Constant::Bool(true)), Some(bool_ty));
+        assert_eq!(literal_type(&mir, smelt_hir::Language::TypeScript, &Constant::Int(1)), Some(int_ty));
+        assert_eq!(literal_type(&mir, smelt_hir::Language::TypeScript, &Constant::Float(1.0)), Some(float_ty));
         assert_eq!(
-            literal_type(&mir, &Constant::String("value".to_owned())),
+            literal_type(&mir, smelt_hir::Language::TypeScript, &Constant::String("value".to_owned())),
             Some(string_ty)
         );
-        assert_eq!(literal_type(&mir, &Constant::None), Some(none_ty));
-        assert_eq!(literal_type(&mir, &Constant::Undefined), Some(none_ty));
+        assert_eq!(literal_type(&mir, smelt_hir::Language::TypeScript, &Constant::None), Some(none_ty));
+        assert_eq!(literal_type(&mir, smelt_hir::Language::TypeScript, &Constant::Undefined), Some(none_ty));
         assert_eq!(
-            literal_type(&mir, &Constant::Symbol("key".to_owned())),
+            literal_type(&mir, smelt_hir::Language::TypeScript, &Constant::Symbol("key".to_owned())),
             Some(unknown_ty)
         );
     }

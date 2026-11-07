@@ -67,9 +67,9 @@ impl FunctionEmitter<'_> {
                     None => "None".to_owned(),
                     Some(suffix) => match self.mir.types.get(self.operand_ty(suffix)?) {
                         Some(Type::Optional(_)) => {
-                            format!("({}).as_deref()", self.operand_expr(suffix)?)
+                            format!("({}).map(|smelt_suffix| smelt_suffix.to_string()).as_deref()", self.operand_expr(suffix)?)
                         }
-                        _ => format!("Some({}.as_str())", text(1)?),
+                        _ => format!("Some({}.to_string().as_str())", text(1)?),
                     },
                 };
                 RustExpr::postfix_on(&prelude::PATH_BASENAME_FN, format!("{}(&{}, {suffix})", prelude::PATH_BASENAME_FN, text(0)?))
@@ -144,7 +144,7 @@ impl FunctionEmitter<'_> {
             .transpose()?
             .unwrap_or_else(|| RustExpr::chain("\"utf8\".to_owned()"));
         let data_ty = self.operand_ty(data)?;
-        if matches!(self.mir.types.get(data_ty), Some(Type::String)) {
+        if matches!(self.mir.types.get(data_ty), Some(Type::String | Type::PyStr)) {
             let text = self.string_like_operand_expr(data, "hash.update data")?;
             return Ok(RenderedCall::propagating(RustExpr::postfix_on(&prelude::HASH_UPDATE_TEXT_FN, format!(
                 "{}(&{hash}, &{text}, &{encoding})",

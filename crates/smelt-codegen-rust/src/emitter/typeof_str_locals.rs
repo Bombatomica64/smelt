@@ -3,7 +3,7 @@
 //! JavaScript `typeof` answers one of seven fixed spellings, so the value a
 //! `Rvalue::TypeofValue` produces is naturally a `&'static str`
 //! ([`FunctionEmitter::typeof_str_expr`]). MIR types the destination local
-//! `Type::String`, though, because MIR has one string type and no notion of a
+//! `Type::String | Type::PyStr`, though, because MIR has one string type and no notion of a
 //! borrowed one -- so emitting the local as a Rust `String` costs an allocation
 //! per evaluation that the value never needed.
 //!
@@ -122,7 +122,7 @@ fn definition_candidates(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> 
     typeof_defs
 }
 
-/// Whether a local is an ordinary `Type::String` compiler temporary.
+/// Whether a local is an ordinary `Type::String | Type::PyStr` compiler temporary.
 ///
 /// Only a temporary qualifies: a source-named binding can be observed by a
 /// debugger, a closure capture, or a later emitter pass that spells its declared
@@ -137,7 +137,7 @@ fn is_plain_string_temp(mir: &Mir, function: &MirFunction, local: LocalId) -> bo
 
 /// Whether a `TypeId` resolves to the MIR string type.
 fn is_string_ty(mir: &Mir, ty: TypeId) -> bool {
-    mir.types.get(ty) == Some(&Type::String)
+    mir.types.get(ty).is_some_and(Type::is_text)
 }
 
 /// Whether every read of `local` in `function` sits in a supported position.

@@ -640,8 +640,9 @@ fn method_names_match(mir: &Mir, left: FuncId, right: FuncId) -> bool {
 /// Render a primitive class-level value captured by specialization.
 ///
 /// Static members are emitted as associated getter functions because owned
-/// values such as `String` cannot be Rust `const` items.
-pub(crate) fn materialized_static_value(literal: Option<&smelt_hir::Literal>) -> RustExpr {
+/// values such as `String` cannot be Rust `const` items. `js_text` says
+/// whether a string value is a JavaScript string (`JsString`).
+pub(crate) fn materialized_static_value(literal: Option<&smelt_hir::Literal>, js_text: bool) -> RustExpr {
     match literal {
         Some(smelt_hir::Literal::Bool(value)) => RustExpr::chain(value.to_string()),
         Some(smelt_hir::Literal::Int(value)) => RustExpr::chain(value.to_string()),
@@ -655,6 +656,7 @@ pub(crate) fn materialized_static_value(literal: Option<&smelt_hir::Literal>) ->
             RustExpr::atom("f64::NEG_INFINITY")
         }
         Some(smelt_hir::Literal::Float(value)) => RustExpr::chain(format!("{value:?}")),
+        Some(smelt_hir::Literal::String(value)) if js_text => RustExpr::js_string_literal(value),
         Some(smelt_hir::Literal::String(value)) => RustExpr::chain(format!("{value:?}.to_owned()")).owned_literal(),
         Some(smelt_hir::Literal::BigInt(digits)) => crate::bigint_prelude::literal_expr(digits),
         Some(

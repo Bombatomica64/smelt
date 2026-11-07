@@ -55,7 +55,7 @@ fn multiple_unannotated_functions_lower() -> Result<(), String> {
     let module = crate::tests::module(&ctx, module_id)?;
     ensure_eq(&module.items.len(), &3, "item count")?;
 
-    let expected = [Type::Int, Type::String, Type::Bool];
+    let expected = [Type::Int, Type::PyStr, Type::Bool];
     for (index, want) in expected.iter().enumerate() {
         let Item::Function(func) = item(&ctx, module.items[index])? else {
             return Err(format!("item {index} is not a function"));
@@ -198,7 +198,7 @@ fn unannotated_return_still_resolves_via_ty() -> Result<(), String> {
     // No annotation was present; `ty` resolved the body's `str(x)` to `str`.
     ensure_eq(
         &ctx.krate.types.get(func.return_ty),
-        &Some(&Type::String),
+        &Some(&Type::PyStr),
         "ty-inferred return type for unannotated function",
     )?;
     Ok(())

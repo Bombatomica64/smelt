@@ -363,7 +363,7 @@ fn member(mir: &Mir, name: Symbol, kind: BoundMemberKind) -> Option<BoundMember>
 /// method's ownership analysis, which a shared trait signature cannot follow.
 fn plain_member_type(mir: &Mir, ty: TypeId) -> bool {
     match mir.types.get(ty) {
-        Some(Type::Float | Type::Int | Type::Bool | Type::String | Type::BigInt | Type::None) => true,
+        Some(Type::Float | Type::Int | Type::Bool | Type::String | Type::PyStr | Type::BigInt | Type::None) => true,
         Some(Type::Class { args, .. }) => args.is_empty(),
         Some(Type::List(item) | Type::Optional(item)) => plain_member_type(mir, *item),
         _ => false,

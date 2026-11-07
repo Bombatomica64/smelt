@@ -565,6 +565,7 @@ fn type_ref(mir: &Mir, ty: TypeId) -> String {
         Type::FixedInt(width) => width.rust_name().to_owned(),
         Type::BigInt => "BigInt".to_owned(),
         Type::String => "String".to_owned(),
+        Type::PyStr => "PyStr".to_owned(),
         Type::Unknown => "Unknown".to_owned(),
         Type::Never => "Never".to_owned(),
         Type::TypeParam { name } => mir.symbols.get(*name).unwrap_or("<unknown>").to_owned(),

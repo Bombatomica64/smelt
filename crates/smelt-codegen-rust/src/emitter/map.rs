@@ -52,7 +52,7 @@ impl FunctionEmitter<'_> {
                 let dict_text = self.operand_borrow_expr(dict)?;
                 let key_text = self.operand_expr(key)?;
                 let key_value = match self.mir.types.get(self.operand_ty(key)?) {
-                    Some(Type::String) => key_text,
+                    Some(Type::String | Type::PyStr) => key_text,
                     Some(Type::Bool) => RustExpr::postfix_on(&key_text, format!("{key_text}.to_string()")),
                     // The same number rule as every other property key.
                     Some(Type::Int | Type::Float) => {
@@ -101,7 +101,7 @@ impl FunctionEmitter<'_> {
     /// Whether a string-keyed dict's values are the erased dynamic type.
     ///
     /// The byte-buffer record helpers are defined over
-    /// `SmeltRecord<String, SmeltUnknown>` only — that is the sole shape a
+    /// `SmeltRecord<JsString, SmeltUnknown>` only — that is the sole shape a
     /// marker-bearing host record can arrive as through the structural ABI — so the
     /// projections consult this before delegating to them, and keep their ordinary
     /// key/value filters for every concretely-typed record.
@@ -184,7 +184,7 @@ impl FunctionEmitter<'_> {
             )));
         }
         if dest_ty == *value_ty
-            && self.mir.types.get(*key_ty) == Some(&Type::String)
+            && self.mir.types.get(*key_ty).is_some_and(Type::is_text)
             && self.renders_erased(*value_ty)?
         {
             // An absent key reads as `undefined`, matching JavaScript's
@@ -411,7 +411,7 @@ impl FunctionEmitter<'_> {
         if operand_ty == key_ty {
             return self.value_at_type(key, key_ty);
         }
-        if self.mir.types.get(key_ty) == Some(&Type::String) {
+        if self.mir.types.get(key_ty).is_some_and(Type::is_text) {
             let key_text = self.operand_expr(key)?;
             return self.property_key_to_string_expr(&key_text, operand_ty);
         }
@@ -715,8 +715,8 @@ impl FunctionEmitter<'_> {
         else {
             return Ok(None);
         };
-        if self.mir.types.get(*source_key) != Some(&Type::String)
-            || self.mir.types.get(*target_key) != Some(&Type::String)
+        if self.mir.types.get(*source_key).is_none_or(|candidate| !candidate.is_text())
+            || self.mir.types.get(*target_key).is_none_or(|candidate| !candidate.is_text())
         {
             return Ok(None);
         }
@@ -745,7 +745,7 @@ impl FunctionEmitter<'_> {
                 &self.render_scope(),
             );
         };
-        if self.mir.types.get(*key_ty) != Some(&Type::String) {
+        if self.mir.types.get(*key_ty).is_none_or(|candidate| !candidate.is_text()) {
             return self.rendered_at_type(
                 &self.operand_expr(source)?,
                 self.operand_ty(source)?,
@@ -802,7 +802,7 @@ impl FunctionEmitter<'_> {
                 && matches!(
                     self.mir.types.get(dest_ty),
                     Some(Type::Dict(key_ty, value_ty))
-                        if self.mir.types.get(*key_ty) == Some(&Type::String)
+                        if self.mir.types.get(*key_ty).is_some_and(Type::is_text)
                             && self.mir.types.get(*value_ty) == Some(&Type::Unknown)
                 )
             {
@@ -856,7 +856,7 @@ impl FunctionEmitter<'_> {
         ) {
             return match op {
                 smelt_hir::DictProjectionOp::FromEntries => Ok(RustExpr::atom(self.carrier_format(format_args!(
-                    "match {dict_text} {{ SmeltUnknown::Array(entries) => entries.into_iter().filter_map(|entry| match entry {{ SmeltUnknown::Array(values) if values.len() >= 2 => {{ let mut values = values.into_iter(); let key = match values.next()? {{ SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), _ => return None }}; Some((key, values.next()?)) }}, _ => None }}).collect::<SmeltRecord<String, SmeltUnknown>>(), _ => SmeltRecord::new() }}"
+                    "match {dict_text} {{ SmeltUnknown::Array(entries) => entries.into_iter().filter_map(|entry| match entry {{ SmeltUnknown::Array(values) if values.len() >= 2 => {{ let mut values = values.into_iter(); let key = match values.next()? {{ SmeltUnknown::String(value) => value, SmeltUnknown::Number(value) => JsString::from(smelt_number_to_string(value)), SmeltUnknown::Bool(value) => JsString::from(value.to_string()), _ => return None }}; Some((key, values.next()?)) }}, _ => None }}).collect::<SmeltRecord<JsString, SmeltUnknown>>(), _ => SmeltRecord::new() }}"
                 )))),
                 // A byte-backed host record's own enumerable properties are its
                 // *element indices*: `Object.keys(new Uint8Array(1))` is `['0']`,
@@ -904,7 +904,7 @@ impl FunctionEmitter<'_> {
                     elements = smelt_stdlib::runtime_symbols::byte_buffer::OWN_ELEMENTS,
                 )))),
                 smelt_hir::DictProjectionOp::Entries => Ok(RustExpr::atom(self.carrier_format(format_args!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => {elements}(&SmeltUnknown::Object(map.clone())).map_or_else(|| map.clone().into_iter().filter(|(key, _)| !key.starts_with(\"{SMELT_SYMBOL}\") && !key.starts_with(\"{SMELT_PROTO}:\") && !key.starts_with(\"{SMELT_METHOD}:\") && key != \"{SMELT_CLASS}\").collect::<Vec<_>>(), |values| values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect::<Vec<_>>()), SmeltUnknown::Array(values) => values.own_entries(), _ => Vec::new() }}",
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => {elements}(&SmeltUnknown::Object(map.clone())).map_or_else(|| map.clone().into_iter().filter(|(key, _)| !key.starts_with(\"{SMELT_SYMBOL}\") && !key.starts_with(\"{SMELT_PROTO}:\") && !key.starts_with(\"{SMELT_METHOD}:\") && key != \"{SMELT_CLASS}\").collect::<Vec<_>>(), |values| values.into_iter().enumerate().map(|(index, value)| (JsString::from(index.to_string()), value)).collect::<Vec<_>>()), SmeltUnknown::Array(values) => values.own_entries(), _ => Vec::new() }}",
                     elements = smelt_stdlib::runtime_symbols::byte_buffer::OWN_ELEMENTS,
                 )))),
             };
@@ -941,7 +941,7 @@ impl FunctionEmitter<'_> {
                 else {
                     return Err(EmitError::new("dict projection receiver must be a dict"));
                 };
-                if self.mir.types.get(*key_ty) == Some(&Type::String) {
+                if self.mir.types.get(*key_ty).is_some_and(Type::is_text) {
                     // `Object.keys` returns own enumerable string keys; exclude
                     // both symbol keys and Smelt's internal marker keys
                     // (`__smelt_date`, `__smelt_regexp`/`source`/`flags`, ...),
@@ -1002,7 +1002,7 @@ impl FunctionEmitter<'_> {
                 else {
                     return Err(EmitError::new("dict projection receiver must be a dict"));
                 };
-                if self.mir.types.get(*key_ty) == Some(&Type::String) {
+                if self.mir.types.get(*key_ty).is_some_and(Type::is_text) {
                     Ok(RustExpr::chain(format!("smelt_own_keys(&{dict_text})")))
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     Ok(RustExpr::chain(format!("smelt_own_js_map_keys(&{dict_text})")))
@@ -1018,7 +1018,7 @@ impl FunctionEmitter<'_> {
                 else {
                     return Err(EmitError::new("dict projection receiver must be a dict"));
                 };
-                if self.mir.types.get(*key_ty) == Some(&Type::String) {
+                if self.mir.types.get(*key_ty).is_some_and(Type::is_text) {
                     // Every string-keyed backing goes through the same helper: it
                     // takes `&SmeltRecord<String, _>`, which each of them derefs to,
                     // and it owns the own-key filtering plus the prototype-chain
@@ -1049,9 +1049,10 @@ impl FunctionEmitter<'_> {
                 // Symbol VALUES, not descriptions — see the erased arm above. A
                 // `String`-keyed backing stores them prefixed, a `SmeltUnknown`-keyed
                 // one stores the tag directly, and both hand back the tag.
-                if self.mir.types.get(*key_ty) == Some(&Type::String) {
+                if self.mir.types.get(*key_ty).is_some_and(Type::is_text) {
+                    let key_text = self.host_utf8_text(RustExpr::path("key"));
                     Ok(RustExpr::atom_on(&dict_text, format!(
-                        "{dict_text}.keys().filter_map(|key| smelt_own_symbol_key_value(&key)).collect::<Vec<_>>()"
+                        "{dict_text}.keys().filter_map(|key| smelt_own_symbol_key_value(&{key_text})).collect::<Vec<_>>()"
                     )))
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     // The mirror image of the `Keys` arm: the same own-entry
@@ -1070,7 +1071,7 @@ impl FunctionEmitter<'_> {
                 else {
                     return Err(EmitError::new("dict projection receiver must be a dict"));
                 };
-                if self.mir.types.get(*key_ty) == Some(&Type::String) {
+                if self.mir.types.get(*key_ty).is_some_and(Type::is_text) {
                     if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
                         && !self.records_may_hold_markers()
                     {
@@ -1108,7 +1109,7 @@ impl FunctionEmitter<'_> {
                 else {
                     return Err(EmitError::new("dict projection receiver must be a dict"));
                 };
-                if self.mir.types.get(*key_ty) == Some(&Type::String) {
+                if self.mir.types.get(*key_ty).is_some_and(Type::is_text) {
                     if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
                         && !self.records_may_hold_markers()
                     {
@@ -1119,7 +1120,7 @@ impl FunctionEmitter<'_> {
                         // its decoded elements; see the `Keys` arm above.
                         if self.dict_holds_erased_values(self.operand_ty(dict)?) {
                             return Ok(RustExpr::chain(format!(
-                                "{helper}(&{dict_text}).map_or_else(|| {dict_text}.iter().filter(|(key, _)| !key.starts_with(\"{SMELT_SYMBOL}\") && !key.starts_with(\"{SMELT_PROTO}:\") && !key.starts_with(\"{SMELT_METHOD}:\") && key != \"{SMELT_CLASS}\").collect::<Vec<_>>(), |values| values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect::<Vec<_>>())",
+                                "{helper}(&{dict_text}).map_or_else(|| {dict_text}.iter().filter(|(key, _)| !key.starts_with(\"{SMELT_SYMBOL}\") && !key.starts_with(\"{SMELT_PROTO}:\") && !key.starts_with(\"{SMELT_METHOD}:\") && key != \"{SMELT_CLASS}\").collect::<Vec<_>>(), |values| values.into_iter().enumerate().map(|(index, value)| (JsString::from(index.to_string()), value)).collect::<Vec<_>>())",
                                 helper = smelt_stdlib::runtime_symbols::byte_buffer::RECORD_ELEMENTS,
                             )));
                         }
@@ -1155,7 +1156,7 @@ impl FunctionEmitter<'_> {
         value: &Operand,
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
-        if !matches!(self.mir.types.get(dest_ty), Some(Type::String)) {
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::String | Type::PyStr)) {
             return Err(EmitError::new("JSON stringify destination must be string"));
         }
         if !self.is_json_serializable_type(self.operand_ty(value)?) {
@@ -1185,9 +1186,9 @@ impl FunctionEmitter<'_> {
         // instances and nested objects alike.
         let value_ty = self.operand_ty(value)?;
         let value_text = self.erase_rendered(&self.operand_expr(value)?, value_ty)?;
-        Ok(RustExpr::atom(format!(
+        Ok(RustExpr::chain(self.text_from_string(&format!(
             "serde_json::to_string(&{value_text}).expect(\"JSON serialization failed\")"
-        )))
+        ))))
     }
 
 }

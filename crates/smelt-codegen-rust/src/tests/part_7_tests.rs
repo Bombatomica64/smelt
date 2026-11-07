@@ -510,7 +510,7 @@ export function mixedSize(bag: MixedBag): number {
     assert!(source.contains("__smelt_index_store"), "{source}");
     // The keyed read is the honest `Option<String>`, not an erased value.
     assert!(
-        source.contains("fn read_bag") && source.contains("-> Option<String>"),
+        source.contains("fn read_bag") && source.contains("-> Option<JsString>"),
         "{source}"
     );
     // The keyed read routes to the store lookup.
@@ -752,7 +752,7 @@ const regexpCount = keyCount(/abc/u);
         "RegExp erasure must keep a marker so source/flags stay non-enumerable: {source}"
     );
     assert!(
-        source.contains("SmeltRegExp::new(\"abc\".to_owned(), \"u\".to_owned())"),
+        source.contains("SmeltRegExp::new(JsString::from(\"abc\"), JsString::from(\"u\"))"),
         "RegExp literal arguments should lower to RegExp values, not strings: {source}"
     );
 }
@@ -818,7 +818,7 @@ const isoFromUnknown = new Date(value).toISOString();
     );
     assert!(
         source.contains(
-            "SmeltUnknown::String(value) => chrono::DateTime::parse_from_rfc3339(&value)"
+            "SmeltUnknown::String(value) => { let value = value.to_string_lossy(); chrono::DateTime::parse_from_rfc3339(&value)"
         ),
         "{source}"
     );
@@ -839,7 +839,7 @@ const isoValues = values.map((value) => value.toISOString());
         "{source}"
     );
     assert!(source.contains("to_iso_string()"), "{source}");
-    assert!(source.contains("iso_values: SmeltList<String>"), "{source}");
+    assert!(source.contains("iso_values: SmeltList<JsString>"), "{source}");
 }
 
 #[test]
@@ -865,7 +865,7 @@ const bag: Record<string, unknown> = value as Record<string, unknown>;
     // The numeric extraction of an erased string is the shared
     // `StringToNumber` helper rather than a bare `parse::<f64>()`.
     assert!(
-        source.contains("SmeltUnknown::String(value) => smelt_string_to_number(&value)"),
+        source.contains("SmeltUnknown::String(value) => smelt_js_string_to_number(&value)"),
         "{source}"
     );
     assert!(source.contains("_ => SmeltRecord::new()"), "{source}");
@@ -884,7 +884,7 @@ const first = bag["0"];
     // An array's own-key view is its element indices followed by the named
     // properties in its side table, which is exactly `own_entries`.
     assert!(
-        source.contains("SmeltUnknown::Array(values) => values.own_entries().into_iter().collect()"),
+        source.contains("SmeltUnknown::Array(values) => values.own_entries().into_iter().map(|(key, value)| (JsString::from(key), value)).collect()"),
         "{source}"
     );
 }
@@ -924,7 +924,7 @@ const entries = Object.entries(bag);
     // the reference identity) rather than re-deriving either.
     assert!(
         source.contains(
-            "fn smelt_shared_record(&self) -> SmeltRecord<String, SmeltUnknown> { SmeltRecord { id: self.id, store: ::std::rc::Rc::clone(&self.store) } }"
+            "fn smelt_shared_record(&self) -> SmeltRecord<JsString, SmeltUnknown> { SmeltRecord { id: self.id, store: ::std::rc::Rc::clone(&self.store) } }"
         ),
         "{source}"
     );
@@ -956,11 +956,11 @@ const erased: unknown = plain;
     );
 
     assert!(
-        source.contains("fn new(entries: Vec<(String, SmeltUnknown)>) -> Self"),
+        source.contains("fn new<K: Into<JsString>>(entries: Vec<(K, SmeltUnknown)>) -> Self"),
         "{source}"
     );
     assert!(
-        source.contains("fn with_id(id: usize, entries: Vec<(String, SmeltUnknown)>) -> Self"),
+        source.contains("fn with_id<K: Into<JsString>>(id: usize, entries: Vec<(K, SmeltUnknown)>) -> Self"),
         "{source}"
     );
     // No constructor may guess an order back out of an unordered map.
@@ -1075,7 +1075,7 @@ export function fromEntries(...args: readonly unknown[]): unknown {
     );
 
     assert!(
-        source.contains("collect::<SmeltRecord<String, SmeltUnknown>>()"),
+        source.contains("collect::<SmeltRecord<JsString, SmeltUnknown>>()"),
         "Object.fromEntries callback should collect entry arrays into a record: {source}"
     );
     assert!(
@@ -1204,7 +1204,7 @@ merged.flush();
             || source.contains("SmeltRecord::with_id_from_entries(values.id"),
         "{source}"
     );
-    assert!(source.contains(".remove(&\"call\".to_owned())"), "{source}");
+    assert!(source.contains(".remove(&JsString::from(\"call\"))"), "{source}");
     assert!(source.contains(".extend("), "{source}");
 }
 
@@ -1226,7 +1226,7 @@ export function pick(options: Record<string, unknown>): unknown {
     // `expect` the field.
     for field in ["leading", "trailing", "maxWait"] {
         assert!(
-            source.contains(&format!("smelt_record_property(&options, &\"{field}\".to_owned())")),
+            source.contains(&format!("smelt_record_property(&options, &JsString::from(\"{field}\"))")),
             "{field}: {source}"
         );
     }
@@ -1415,7 +1415,7 @@ const result = formatDate("ok");
 "#,
     );
 
-    assert!(source.contains("format(\"ok\".to_owned())"), "{source}");
+    assert!(source.contains("format(JsString::from(\"ok\"))"), "{source}");
     assert!(
         !source.contains("let smelt_function_value"),
         "same-module function export aliases must not erase to dynamic calls:\n{source}"
@@ -1475,7 +1475,7 @@ const withArg = new StringBox("value");
 "#,
     );
 
-    assert!(source.contains("fn new(value: String) -> Self"), "{source}");
+    assert!(source.contains("fn new(value: JsString) -> Self"), "{source}");
     // `Box` is renamed `Box_` so it does not shadow Rust's `Box`.
     assert!(source.contains("Self::__smelt_init_Box_(this, "), "{source}");
     assert!(!source.contains("_smelt_super_arg"), "{source}");
@@ -1554,7 +1554,7 @@ const number = +value;
     // A string goes through the shared `StringToNumber` helper (empty text is
     // 0 there), not an inline trim-and-parse.
     assert!(
-        source.contains("SmeltUnknown::String(value) => smelt_string_to_number(&(value))"),
+        source.contains("SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_)"),
         "{source}"
     );
     assert!(
@@ -1760,10 +1760,10 @@ export function read(body: Body, key: 'json' | 'text'): string {
 
     assert!(source.contains("body.json()"), "{source}");
     assert!(source.contains("body.text()"), "{source}");
-    assert!(source.contains("\"json\".to_owned()"), "{source}");
+    assert!(source.contains("JsString::from(\"json-body\")"), "{source}");
     // The defect: the body must not be a default value.
     assert!(
-        !source.contains("fn read(body: Body, key: String) -> String {\n    return String::new();"),
+        !source.contains("fn read(body: Body, key: JsString) -> JsString {\n    return String::new();"),
         "{source}"
     );
 }
@@ -1851,7 +1851,7 @@ const direct: Sizer = (() => {
 
     assert!(!source.contains("closure_arg_0: &SmeltUnknown"), "{source}");
     assert_eq!(
-        source.matches("closure_arg_0: String").count(),
+        source.matches("closure_arg_0: JsString").count(),
         3,
         "each of the three IIFE-returned arrows takes a typed parameter: {source}"
     );
@@ -1899,7 +1899,7 @@ export function build(): Shape {
 
     assert!(
         source.contains(
-            "Shape { plain: Some(1.0), camel_case: Some(\"a\".to_owned()), snake_case: Some(\"b\".to_owned()) }"
+            "Shape { plain: Some(1.0), camel_case: Some(JsString::from(\"a\")), snake_case: Some(JsString::from(\"b\")) }"
         ),
         "{source}"
     );
@@ -1932,7 +1932,7 @@ export function build(): Outer {
     );
 
     assert!(
-        source.contains("Inner { camel_case: Some(\"deep\".to_owned()), count: Some(2.0) }"),
+        source.contains("Inner { camel_case: Some(JsString::from(\"deep\")), count: Some(2.0) }"),
         "{source}"
     );
     assert!(source.contains("Outer { inner_shape: Some("), "{source}");
@@ -1963,7 +1963,7 @@ export function run(formatLong: FormatLong): string {
     );
     assert!(
         source.contains(
-            "Options { width: smelt_record_map.get(\"width\").cloned().map(|value| value) }"
+            "Options { width: smelt_record_map.get_text(\"width\").cloned().map(|value| value) }"
         ),
         "{source}"
     );
@@ -2017,12 +2017,12 @@ const defaulted = throttle(() => {});
     );
 
     assert!(
-        source.contains(".get(&\"leading\".to_owned()).flatten()")
+        source.contains(".get(&JsString::from(\"leading\")).flatten()")
             && source.contains(".unwrap_or(true)"),
         "{source}"
     );
     assert!(
-        source.contains("SmeltRecord::from([(\"leading\".to_owned(), Some(false))])"),
+        source.contains("SmeltRecord::from([(JsString::from(\"leading\"), Some(false))])"),
         "{source}"
     );
     assert!(
@@ -2160,7 +2160,7 @@ export function label(value?: string): string {
     );
 
     assert!(
-        source.contains("match value.clone().as_deref()"),
+        source.contains("match value.clone().map(|smelt_text| smelt_text.to_string_lossy()).as_deref()"),
         "{source}"
     );
     assert!(source.contains("Some(\"a\") =>"), "{source}");
@@ -2182,7 +2182,7 @@ export function callbacks(): Record<string, (value: number) => string> {
 
     assert!(
         source
-            .matches("let smelt_fn: ::std::rc::Rc<dyn Fn(f64) -> String>")
+            .matches("let smelt_fn: ::std::rc::Rc<dyn Fn(f64) -> JsString>")
             .count()
             >= 2,
         "{source}"
@@ -2198,7 +2198,7 @@ const pattern: RegExp = "\\d+";
     );
 
     assert!(
-        source.contains("SmeltRegExp::new(\"\\\\d+\".to_owned(), String::new())"),
+        source.contains("SmeltRegExp::new(JsString::from(\"\\\\d+\"), String::new())"),
         "{source}"
     );
 }
@@ -2258,7 +2258,7 @@ export const localize: Localize = {
     );
 
     assert!(
-        source.contains("smelt_number_to_string(number) + &match suffix"),
+        source.contains("smelt_number_to_string(number)) + &match suffix"),
         "{source}"
     );
     assert!(
@@ -2391,7 +2391,7 @@ export function localize(enNumber: number): string {
     );
 
     assert!(source.contains("replace_all"), "{source}");
-    assert!(source.contains("|closure_arg_0: String|"), "{source}");
+    assert!(source.contains("|closure_arg_0: JsString|"), "{source}");
     assert!(
         !source.contains("|caps: &regex::Captures<'_>| (_smelt_tmp_"),
         "{source}"
@@ -2937,7 +2937,7 @@ function passthrough(values: readonly unknown[]): readonly unknown[] {
     );
 
     assert!(source.contains("pub enum SmeltUnknown"));
-    assert!(source.contains("String(::std::rc::Rc<str>),"));
+    assert!(source.contains("String(JsString),"));
     assert!(source.contains("fn identity(value: SmeltUnknown) -> SmeltUnknown"));
     assert!(
         source
@@ -2968,7 +2968,7 @@ function isArray(value: unknown): boolean {
 
     assert!(source.contains("SmeltUnknown::String"));
     assert!(source.contains("matches!(value.clone(), SmeltUnknown::String(_))"));
-    assert!(source.contains("SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string()"));
+    assert!(source.contains("SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string()"));
     assert!(source.contains("matches!(value.clone(), SmeltUnknown::Array(_))"));
 }
 
@@ -3031,7 +3031,7 @@ function first<S extends string>(value: S): string {
     );
 
     assert!(source.contains("SmeltUnknown::String(value)"), "{source}");
-    assert!(source.contains("smelt_utf16_char_at(&value, index)"), "{source}");
+    assert!(source.contains("value.char_at(index)"), "{source}");
     assert!(!source.contains("SmeltUnknown::Null.clone()"), "{source}");
 }
 
@@ -3091,7 +3091,7 @@ function assign(out: Record<string, unknown>, key: unknown, value: unknown): Rec
     );
 
     assert!(
-        source.contains("SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string()"),
+        source.contains("SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string()"),
         "{source}"
     );
     assert!(
@@ -3189,7 +3189,7 @@ function countPresent(values: string[]): Record<string, number> {
     // forces the unknown carrier on, so the string-keyed record target backs onto
     // the identity-bearing `SmeltRecord`.
     assert!(
-        source.contains(".collect::<SmeltRecord<String, f64>>()"),
+        source.contains(".collect::<SmeltRecord<JsString, f64>>()"),
         "{source}"
     );
 }
@@ -3221,9 +3221,9 @@ function label(values: string[]): string[] {
 "#,
     );
 
-    assert!(source.contains("\"\".to_owned() + &_smelt_tmp_"), "{source}");
+    assert!(source.contains("JsString::new() + &_smelt_tmp_"), "{source}");
     assert!(
-        source.contains("closure_arg_0.clone().to_lowercase()"),
+        source.contains("closure_arg_0.clone().to_lower_case()"),
         "{source}"
     );
 }
@@ -3239,9 +3239,9 @@ function initialCaps<T extends string>(values: T[]): string[] {
     );
 
     assert!(source.contains("SmeltUnknown::String(value)"), "{source}");
-    assert!(source.contains("smelt_utf16_char_at(&value, index)"), "{source}");
-    assert!(source.contains(".to_uppercase()"), "{source}");
-    assert!(!source.contains("String::new().to_uppercase()"), "{source}");
+    assert!(source.contains("value.char_at(index)"), "{source}");
+    assert!(source.contains(".to_upper_case()"), "{source}");
+    assert!(!source.contains("String::new().to_upper_case()") && !source.contains("JsString::new().to_upper_case()"), "{source}");
 }
 
 #[test]
@@ -3358,21 +3358,21 @@ export function read(): number {
     // the slot at its own `T`; the subclass's flattened layout stores it at the
     // argument it binds (`extends Parser<number>`).
     assert!(
-        source.contains("parse: ::std::rc::Rc<dyn Fn(String) -> ParseResult<T>>"),
+        source.contains("parse: ::std::rc::Rc<dyn Fn(JsString) -> ParseResult<T>>"),
         "{source}"
     );
     assert!(
-        source.contains("parse: ::std::rc::Rc<dyn Fn(String) -> ParseResult<f64>>"),
+        source.contains("parse: ::std::rc::Rc<dyn Fn(JsString) -> ParseResult<f64>>"),
         "{source}"
     );
     // The inherited `run` copy in `impl YearParser` spells `T` as `f64`: the
     // impl does not declare `T` (was E0425).
     assert!(
-        source.contains("fn run(&self, input: String) -> Result<f64,"),
+        source.contains("fn run(&self, input: JsString) -> Result<f64,"),
         "{source}"
     );
     assert!(
-        source.contains("::std::rc::Rc::new(move |arg0: String|"),
+        source.contains("::std::rc::Rc::new(move |arg0: JsString|"),
         "{source}"
     );
     assert!(
@@ -3749,7 +3749,7 @@ function read(output: Record<string, unknown[]>, key: unknown | undefined): unkn
 
     assert!(
         source.contains(
-            ".map_or(String::new(), |value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string()"
+            ".map_or(JsString::new(), |value| match value.clone() { SmeltUnknown::String(value) => value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string()"
         ),
         "{source}"
     );
@@ -3873,7 +3873,7 @@ fn emits_caught_throw_without_result_signature() {
 
     assert!(source.contains("fn main() {"));
     assert!(!source.contains("Box<dyn std::error::Error>"));
-    assert!(source.contains("err = \"boom\".to_owned();"));
+    assert!(source.contains("err = JsString::from(\"boom\");"));
 }
 
 #[test]
@@ -3886,15 +3886,15 @@ console.log(user.name);
     );
 
     assert!(
-        source.contains("let mut user: SmeltRecord<String, String>"),
+        source.contains("let mut user: SmeltRecord<JsString, JsString>"),
         "{source}"
     );
     assert!(
-        source.contains("user.insert(\"name\".to_owned(), \"Grace\".to_owned());"),
+        source.contains("user.insert(JsString::from(\"name\"), JsString::from(\"Grace\"));"),
         "{source}"
     );
     assert!(
-        source.contains("user.get(&\"name\".to_owned()).expect(\"missing field\")"),
+        source.contains("user.get(&JsString::from(\"name\")).expect(\"missing field\")"),
         "{source}"
     );
 }
@@ -3924,12 +3924,12 @@ function group(values: string[]): Record<string, string[]> {
     // optional lookup itself, and `items === undefined` tests it. The pushed
     // list is the record's own shared list, so no re-insertion is needed.
     assert!(
-        source.contains("let mut items: Option<SmeltList<String>>;"),
+        source.contains("let mut items: Option<SmeltList<JsString>>;"),
         "{source}"
     );
     assert!(source.contains("items.clone().is_none()"), "{source}");
     assert!(
-        !source.contains(".cloned().unwrap_or(SmeltList::new(Vec::<String>::new()))"),
+        !source.contains(".cloned().unwrap_or(SmeltList::new(Vec::<JsString>::new()))"),
         "a missing key must read as absent, not as a fresh empty list: {source}"
     );
 }
@@ -4010,7 +4010,7 @@ function keyCount(value: unknown): number {
     );
 
     assert!(
-        source.contains("SmeltUnknown::String(value) => value.chars().enumerate()"),
+        source.contains("SmeltUnknown::String(value) => value.units().iter().enumerate()"),
         "{source}"
     );
 }
@@ -4220,7 +4220,7 @@ const result = format({ locale: customLocale });
     );
 
     assert!(
-        source.contains("FormatOptions { locale: smelt_record_map.get(\"locale\").map(|value|"),
+        source.contains("FormatOptions { locale: smelt_record_map.get_text(\"locale\").map(|value|"),
         "{source}"
     );
     assert!(source.contains("Locale { code:"), "{source}");
@@ -4369,7 +4369,7 @@ const result = useOptions({ locale: customLocale });
     assert!(source.contains("let smelt_adapted:"), "{source}");
     assert!(source.contains("(smelt_callback)()"), "{source}");
     assert!(
-        source.contains("Option<MatchResult>> = ::std::rc::Rc::new(move |arg0: String")
+        source.contains("Option<MatchResult>> = ::std::rc::Rc::new(move |arg0: JsString")
             && source.contains("Some({ let smelt_record_map = (smelt_callback)().clone();"),
         "the provided shorter callback must be adapted to the optional result field: {source}"
     );
@@ -4469,11 +4469,11 @@ console.log(user[key]);
     );
 
     assert!(
-        source.contains("user.insert(key.clone(), \"Grace\".to_owned());"),
+        source.contains("user.insert(key.clone(), JsString::from(\"Grace\"));"),
         "{source}"
     );
     assert!(
-        source.contains("user.get(&key.clone()).unwrap_or(String::new())"),
+        source.contains("user.get(&key.clone()).unwrap_or(JsString::new())"),
         "{source}"
     );
 }
@@ -4499,7 +4499,7 @@ function shiftRaw(raw: bigint): bigint {
     // radix outside 2..=36 is a catchable `RangeError`, so it is a fallible
     // call ending in `?` (it used to panic past any enclosing `try`).
     assert!(
-        source.contains("smelt_bigint_to_string_radix(&::num_bigint::BigInt::from(10_i64), 2.0)?"),
+        source.contains("smelt_bigint_to_string_radix(&::num_bigint::BigInt::from(10_i64), 2.0).map(JsString::from).map(JsString::from)?"),
         "{source}"
     );
     // A `number` shift is JavaScript's int32 shift: `ToInt32(a)` shifted by
@@ -4625,7 +4625,7 @@ export function sortKeysLike(keys: string[], compare?: (a: string, b: string) =>
     );
     assert!(
         source.contains(
-            "None => { _smelt_tmp_2.borrow_mut().sort_by(|left, right| left.to_string().cmp(&right.to_string())); }"
+            "None => { _smelt_tmp_2.borrow_mut().sort_by(|left, right| left.cmp(right)); }"
         ),
         "the absent arm must run the default ToString ordering: {source}"
     );
@@ -4654,11 +4654,11 @@ export function collate(a: string, b: string): number {
     );
 
     assert!(
-        source.contains("smelt_locale_compare(a.clone().as_str(), b.clone().as_str())"),
+        source.contains("smelt_locale_compare(&a.clone(), &b.clone())"),
         "{source}"
     );
     assert!(
-        source.contains("fn smelt_locale_compare(left: &str, right: &str) -> f64"),
+        source.contains("fn smelt_locale_compare(left: &(impl SmeltHostText + ?Sized), right: &(impl SmeltHostText + ?Sized)) -> f64"),
         "the runtime helper must be emitted into the prelude: {source}"
     );
     assert!(
@@ -4810,14 +4810,14 @@ const firstValue = first.value;
     );
 
     assert!(
-        source.contains("SmeltGenerator<f64, String, SmeltUnknown>"),
+        source.contains("SmeltGenerator<f64, JsString, SmeltUnknown>"),
         "{source}"
     );
     assert_eq!(source.matches("co.yield_").count(), 6, "{source}");
-    assert!(source.contains("return \"done\".to_owned()"), "{source}");
+    assert!(source.contains("return JsString::from(\"done\")"), "{source}");
     assert!(
         source.contains(
-            "fn __smelt_symbol_iterator(&self) -> SmeltGenerator<f64, String, SmeltUnknown>"
+            "fn __smelt_symbol_iterator(&self) -> SmeltGenerator<f64, JsString, SmeltUnknown>"
         ),
         "{source}"
     );
@@ -4865,11 +4865,11 @@ async function consume(): Promise<string> {
     );
 
     assert!(
-        source.contains("SmeltAsyncGenerator<f64, String, SmeltUnknown>"),
+        source.contains("SmeltAsyncGenerator<f64, JsString, SmeltUnknown>"),
         "{source}"
     );
     assert!(source.contains("smelt_generator.async_resume().await"), "{source}");
-    assert!(source.contains("SmeltFuture<SmeltGeneratorResult<f64, String>>"), "{source}");
+    assert!(source.contains("SmeltFuture<SmeltGeneratorResult<f64, JsString>>"), "{source}");
     assert_eq!(source.matches("co.yield_").count(), 2, "{source}");
     assert!(
         source.matches(".resume(SmeltGeneratorCommand::Next").count() >= 3,
@@ -5090,7 +5090,7 @@ export function collect(value: number, key: string): Array<[number, string]> {
     );
 
     assert!(
-        source.contains("SmeltList<(f64, String)>"),
+        source.contains("SmeltList<(f64, JsString)>"),
         "tuple-element array should keep its concrete tuple element type: {source}"
     );
     assert!(
@@ -5128,7 +5128,7 @@ export function mixed(): Array<number | string> {
         "numeric push should inject the concrete union member: {source}"
     );
     assert!(
-        source.contains("::M1(\"a\".to_owned())"),
+        source.contains("::M1(JsString::from(\"a\"))"),
         "string push should inject the concrete union member: {source}"
     );
 }
@@ -5281,7 +5281,7 @@ function matchUnknown(value: unknown): string[] | undefined {
     );
 
     assert!(
-        source.contains("SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string()"),
+        source.contains("SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string()"),
         "{source}"
     );
     assert!(source.contains(".match_string(&match "), "{source}");
@@ -5316,7 +5316,7 @@ function parts(value: string): string[] | undefined {
     );
 
     assert!(
-        source.contains("SmeltRegExp::new(\"a+|b\".to_owned(), \"g\".to_owned())"),
+        source.contains("SmeltRegExp::new(JsString::from(\"a+|b\"), JsString::from(\"g\"))"),
         "{source}"
     );
     assert!(source.contains("tokens.match_string(&"), "{source}");
@@ -5357,12 +5357,12 @@ function words(text: string): number {
     );
 
     assert!(
-        source.contains("pub fn match_string(&self, haystack: &str) -> Option<SmeltMatch>"),
+        source.contains("pub fn match_string(&self, haystack: &JsStr) -> Option<SmeltMatch>"),
         "{source}"
     );
     assert!(source.contains("if !self.has_flag('g') { return self.exec(haystack); }"), "{source}");
-    assert!(source.contains("fn from_global_matches(matches: Vec<String>, input: &str) -> Self"), "{source}");
-    assert!(source.contains("pub fn to_array_view(&self) -> SmeltList<Option<String>>"), "{source}");
+    assert!(source.contains("fn from_global_matches(matches: Vec<JsString>, input: &JsStr) -> Self"), "{source}");
+    assert!(source.contains("pub fn to_array_view(&self) -> SmeltList<Option<JsString>>"), "{source}");
     // The literal is statically global, so the call site takes the direct
     // whole-match list rather than a match value.
     assert!(source.contains(".match_all_strings(&"), "{source}");
@@ -5399,11 +5399,11 @@ const usesMultiline = pattern.multiline;
     );
 
     assert!(
-        source.contains("SmeltRegExp::new(\"x\".to_owned(), \"u\".to_owned())"),
+        source.contains("SmeltRegExp::new(JsString::from(\"x\"), JsString::from(\"u\"))"),
         "{source}"
     );
     assert!(
-        source.contains("SmeltRegExp::new(\"x\".to_owned(), \"gimu\".to_owned())"),
+        source.contains("SmeltRegExp::new(JsString::from(\"x\"), JsString::from(\"gimu\"))"),
         "{source}"
     );
     assert!(source.contains(".has_flag('g')"), "{source}");
@@ -5425,9 +5425,9 @@ function splitNegative(value: string): string[] {
 "#,
     );
 
-    assert!(source.contains("if smelt_separator.is_empty()"), "{source}");
+    assert!(source.contains("if map.contains_key(\"__smelt_unmodeled\") { return \"[object Unmodeled]\".to_owned(); } if let Some(SmeltUnknown::String(tag)) = map.get(\"__smelt_symbol_to_string_tag\") { return format!(\"[object {tag}]\"); } if map.contains_key(\"__smelt_date\") { return \"[object Date]\".to_owned(); } if map.contains_key(\"__smelt_regexp\") { return \"[object RegExp]\".to_owned(); } if map.contains_key(\"__smelt_error\") { return \"[object Error]\".to_owned(); } if map.contains_key(\"__smelt_global_object\") { return \"[object global]\".to_owned(); } if map.contains_key(\"__smelt_map\") { return \"[object Map]\".to_owned(); } if map.contains_key(\"__smelt_set\") { return \"[object Set]\".to_owned(); } if map.contains_key(\"__smelt_arguments\") { return \"[object Arguments]\".to_owned(); } if map.contains_key(\"__smelt_abortcontroller\") { return \"[object AbortController]\".to_owned(); } if map.contains_key(\"__smelt_abortsignal\") { return \"[object AbortSignal]\".to_owned(); } if map.contains_key(\"__smelt_arraybuffer\") { return \"[object ArrayBuffer]\".to_owned(); } if map.contains_key(\"__smelt_sharedarraybuffer\") { return \"[object SharedArrayBuffer]\".to_owned(); } if map.contains_key(\"__smelt_int8array\") { return \"[object Int8Array]\".to_owned(); } if map.contains_key(\"__smelt_uint8array\") { return \"[object Uint8Array]\".to_owned(); } if map.contains_key(\"__smelt_uint8clampedarray\") { return \"[object Uint8ClampedArray]\".to_owned(); } if map.contains_key(\"__smelt_int16array\") { return \"[object Int16Array]\".to_owned(); } if map.contains_key(\"__smelt_uint16array\") { return \"[object Uint16Array]\".to_owned(); } if map.contains_key(\"__smelt_int32array\") { return \"[object Int32Array]\".to_owned(); } if map.contains_key(\"__smelt_uint32array\") { return \"[object Uint32Array]\".to_owned(); } if map.contains_key(\"__smelt_float32array\") { return \"[object Float32Array]\".to_owned(); } if map.contains_key(\"__smelt_float64array\") { return \"[object Float64Array]\".to_owned(); } if map.contains_key(\"__smelt_bigint64array\") { return \"[object BigInt64Array]\".to_owned(); } if map.contains_key(\"__smelt_biguint64array\") { return \"[object BigUint64Array]\".to_owned(); } if map.contains_key(\"__smelt_buffer\") { return \"[object Uint8Array]\".to_owned(); } if map.contains_key(\"__smelt_dataview\") { return \"[object DataView]\".to_owned(); } if map.contains_key(\"__smelt_weakmap\") { return \"[object WeakMap]\".to_owned(); } if map.contains_key(\"__smelt_weakset\") { return \"[object WeakSet]\".to_owned(); } if map.contains_key(\"__smelt_file\") { return \"[object File]\".to_owned(); } if map.contains_key(\"__smelt_blob\") { return \"[object Blob]\".to_owned(); } if map.contains_key(\"__smelt_headers\") { return \"[object Headers]\".to_owned(); } if map.contains_key(\"__smelt_urlsearchparams\") { return \"[object URLSearchParams]\".to_owned(); } if map.contains_key(\"__smelt_url\") { return \"[object URL]\".to_owned(); } if map.contains_key(\"__smelt_crypto_key\") { return \"[object CryptoKey]\".to_owned(); } if map.contains_key(\"__smelt_request\") { return \"[object Request]\".to_owned(); } if map.contains_key(\"__smelt_response\") { return \"[object Response]\".to_owned(); } if map.contains_key(\"__smelt_textencoder\") { return \"[object TextEncoder]\".to_owned(); } if map.contains_key(\"__smelt_textdecoder\") { return \"[object TextDecoder]\".to_owned(); } if map.contains_key(\"__smelt_eventemitter\") { return \"[object EventEmitter]\".to_owned(); } if map.contains_key(\"__smelt_httpserver\") { return \"[object Server]\".to_owned(); } if map.contains_key(\"__smelt_incomingmessage\") { return \"[object IncomingMessage]\".to_owned(); } if map.contains_key(\"__smelt_serverresponse\") { return \"[object ServerResponse]\".to_owned(); } if map.contains_key(\"__smelt_formdata\") { return \"[object FormData]\".to_owned(); } if map.contains_key(\"__smelt_databasesync\") { return \"[object DatabaseSync]\".to_owned(); } if map.contains_key(\"__smelt_statementsync\") { return \"[object StatementSync]\".to_owned(); } if map.contains_key(\"__smelt_readablestream\") { return \"[object ReadableStream]\".to_owned(); } if map.contains_key(\"__smelt_domexception\") { return \"[object DOMException]\".to_owned(); } if map.contains_key(\"__smelt_intl_collator\") { return \"[object Intl.Collator]\".to_owned(); } if map.contains_key(\"__smelt_intl_displaynames\") { return \"[object Intl.DisplayNames]\".to_owned(); } if map.contains_key(\"__smelt_intl_durationformat\")"), "{source}");
     assert!(
-        source.contains("if smelt_haystack.is_empty() { Vec::new() }"),
+        source.contains("smelt_haystack.split(&smelt_separator, usize::MAX)"),
         "{source}"
     );
     assert!(
@@ -5452,7 +5452,7 @@ const matches = first.test("Nov");
         "{source}"
     );
     assert!(
-        source.contains("(\"flags\".to_owned(), SmeltUnknown::String(self.flags.into()))"),
+        source.contains("(\"flags\".to_owned(), SmeltUnknown::String(JsString::from(&*self.flags)))"),
         "{source}"
     );
 }
@@ -5474,7 +5474,7 @@ export function cloneRe(obj: unknown): RegExp {
     );
 
     assert!(
-        source.contains("smelt_regexp_compile(reg_exp.source.to_string().clone(), reg_exp.flags.to_string().clone())?"),
+        source.contains("smelt_regexp_compile(JsString::from(&*reg_exp.source).clone(), JsString::from(&*reg_exp.flags).clone())?"),
         "{source}"
     );
     // The erased stringify coercion must not be applied to the concrete
@@ -5511,8 +5511,8 @@ const selected = use({
     );
 
     assert!(
-        source.contains("\"any\".to_owned()")
-            && source.contains("SmeltRegExp::new(\"^ja\".to_owned(), \"i\".to_owned())"),
+        source.contains("JsString::from(\"any\")")
+            && source.contains("SmeltRegExp::new(JsString::from(\"^ja\"), JsString::from(\"i\"))"),
         "static regex-array records should preserve their entries: {source}"
     );
     assert!(
@@ -5581,12 +5581,12 @@ console.log(m === null);
     // the match never crosses the erased `SmeltUnknown` boundary and no
     // `into_smelt_unknown` adapter is emitted for this program.
     assert!(
-        source.contains("pub fn exec(&self, haystack: &str) -> Option<SmeltMatch>"),
+        source.contains("pub fn exec(&self, haystack: &JsStr) -> Option<SmeltMatch>"),
         "exec should return a concrete SmeltMatch option: {source}"
     );
     assert!(source.contains("pub struct SmeltMatch"));
     assert!(
-        source.contains(".exec(&\"2024-07\".to_owned())")
+        source.contains(".exec(&JsString::from(\"2024-07\"))")
             && !source.contains(".map(SmeltMatch::into_smelt_unknown)"),
         "typed exec result must not erase to SmeltUnknown: {source}"
     );
@@ -5600,8 +5600,8 @@ console.log(m === null);
     );
     // The numbered-group / named-group / index / input shape is modeled with
     // concrete fields, not assembled as an untyped object during exec.
-    assert!(source.contains("groups: ::std::rc::Rc<Vec<Option<String>>>"));
-    assert!(source.contains("named: ::std::rc::Rc<::std::collections::HashMap<String, Option<String>>>"));
+    assert!(source.contains("groups: ::std::rc::Rc<Vec<Option<JsString>>>"));
+    assert!(source.contains("named: ::std::rc::Rc<::std::collections::HashMap<String, Option<JsString>>>"));
     assert!(source.contains("fn from_captures(regex: &fancy_regex::Regex"));
 }
 
@@ -5809,7 +5809,7 @@ test("rejects", async () => {
     assert!(source.contains(".await {"), "{source}");
     assert!(source.contains("Err(__smelt_error)"), "{source}");
     assert!(
-        source.contains("contains(&\"boom\".to_owned())"),
+        source.contains("contains(&JsString::from(\"boom\"))"),
         "{source}"
     );
 }
@@ -6042,7 +6042,7 @@ export function sameKind(a: unknown, b: unknown): boolean {
             && source.contains("_smelt_tmp_5 = smelt_typeof(&a);"),
         "{source}"
     );
-    assert!(!source.contains("smelt_typeof(&a).to_owned()"), "{source}");
+    assert!(!source.contains("smelt_typeof(&a).to_owned()") && !source.contains("JsString::from(smelt_typeof(&a))"), "{source}");
     // The equality compares the two borrowed spellings directly, and the
     // `switch` matches the binding rather than an `.as_str()` it does not have.
     assert!(
@@ -6065,7 +6065,7 @@ export function kindOf(value: unknown): string {
     // knows how to spell against a `&'static str`, so the local keeps the owned
     // form. The whitelist falls back rather than guessing.
     assert!(
-        source.contains("let _smelt_tmp_1: String = smelt_typeof(&value).to_owned();"),
+        source.contains("let _smelt_tmp_1: JsString = JsString::from(smelt_typeof(&value));"),
         "{source}"
     );
 }
@@ -6082,11 +6082,11 @@ function describe(value: string | number[]): string {
 
     // A concrete union decides its arms per member type, so the match stays at
     // the site -- but it selects a `&'static str` and borrows its scrutinee.
-    assert!(!source.contains("\"string\".to_owned(), "), "{source}");
+    assert!(!source.contains("\"string\".to_owned(), ") && !source.contains("JsString::from(\"string\"), "), "{source}");
     assert!(
-        source.contains("= match &value { SmeltUnion")
+        source.contains("=> match smelt_builtin_receiver_elements(&receiver) { Some(values) => { let len = values.len(); let start = smelt_builtin_relative_index(&first, len, 0); let end = smelt_builtin_relative_index(&second, len, len); SmeltUnknown::Array(values.into_iter().skip(start).take(end.saturating_sub(start)).collect::<Vec<_>>().into()) } Non")
             && source.contains("::M0(_) => \"string\", ")
-            && source.contains("::M1(_) => \"object\" }.to_owned();"),
+            && source.contains("::M1(_) => \"object\" });"),
         "{source}"
     );
 }
@@ -6209,7 +6209,7 @@ function mapType(values: unknown[]): string[] {
         ),
         "{source}"
     );
-    assert!(!source.contains("\"symbol\".to_owned()"), "{source}");
+    assert!(!source.contains("\"symbol\".to_owned()") && !source.contains("JsString::from(\"symbol\")"), "{source}");
     // Exactly one copy of the table: the helper's own body.
     assert_eq!(
         source
@@ -6222,7 +6222,7 @@ function mapType(values: unknown[]): string[] {
     // callback parameter is already spelled `&SmeltUnknown`, so it is passed
     // through instead of being borrowed a second time.
     assert!(
-        source.contains("smelt_typeof(closure_arg_0).to_owned()"),
+        source.contains("JsString::from(smelt_typeof(closure_arg_0))"),
         "{source}"
     );
 }
@@ -6538,7 +6538,7 @@ export function run(): unknown[] {
 
     assert!(
         source.contains(
-            "SmeltUnknown::String(value) => SmeltUnknown::Number(smelt_utf16_len(&value) as f64)"
+            "SmeltUnknown::String(value) => SmeltUnknown::Number(value.len() as f64)"
         ),
         "{source}"
     );
@@ -6956,7 +6956,7 @@ const joined = rows.map(parts => parts.join("-"));
     );
 
     assert!(
-        source.contains(".join(&\"-\".to_owned())"),
+        source.contains("JsString::join(") && source.contains(", &JsString::from(\"-\"))"),
         "array .join inside a callback should lower to a Rust join\n{source}"
     );
 }
@@ -6973,7 +6973,7 @@ const joined = rows.map(parts => parts.join());
     );
 
     assert!(
-        source.contains(".join(&\",\".to_owned())"),
+        source.contains("JsString::join(") && source.contains(", &JsString::from(\",\"))"),
         "array .join() inside a callback should default to a comma separator\n{source}"
     );
 }
@@ -7667,7 +7667,7 @@ setTimeout(greet, 10, "hi", 3);
     assert!(source.contains("smelt_timer_arg_0"), "{source}");
     assert!(source.contains("smelt_timer_arg_1"), "{source}");
     assert!(
-        source.contains("let smelt_timer_arg_0: String"),
+        source.contains("let smelt_timer_arg_0: JsString"),
         "typed extra should be a concrete String binding: {source}"
     );
     assert!(
@@ -7816,7 +7816,7 @@ function describe(shape: Circle | Square): number {
     );
     // The discriminant field comparison reads the projected concrete arm.
     assert!(
-        source.contains(".tag.clone() == \"c\".to_owned()"),
+        source.contains(".tag == \"c\""),
         "narrowed discriminant comparison should read the concrete field: {source}"
     );
 }
@@ -8275,12 +8275,12 @@ export function label(): string {
         "{source}"
     );
     assert!(
-        source.contains("fn __smelt_static_name() -> String"),
+        source.contains("fn __smelt_static_name() -> JsString"),
         "{source}"
     );
     // Qualified reads resolve to the concrete literal values.
     assert!(source.contains("return 42"), "{source}");
-    assert!(source.contains(r#""smelt".to_owned()"#), "{source}");
+    assert!(source.contains(r#"JsString::from("smelt")"#), "{source}");
 }
 
 /// Issue #98: a Python `@staticmethod` lowers to a receiver-free associated
@@ -8501,11 +8501,11 @@ export function describeViews(): string {
     );
     assert!(source.contains("fn describe_views()"), "{source}");
     assert!(
-        source.contains("\"DataView\".to_owned()"),
+        source.contains("JsString::from(\"DataView\")"),
         "expected the spread tail literal to survive codegen: {source}"
     );
     assert!(
-        source.contains("let names: SmeltList<String>"),
+        source.contains("let names: SmeltList<JsString>"),
         "expected the inlined spread const to stay a concrete string list: {source}"
     );
     assert!(
@@ -10422,7 +10422,7 @@ export function wrap(): Record<string, unknown> {
     );
     // The extracted key is still removed from the copied rest.
     assert!(
-        source.contains(".remove(&\"call\".to_owned())"),
+        source.contains(".remove(&JsString::from(\"call\"))"),
         "the destructured `call` key must be removed from rest\n{source}"
     );
 }
@@ -10550,7 +10550,7 @@ const child = new Child('hello');
         "{source}"
     );
     assert!(
-        source.contains("fn __smelt_init_Base(smelt_receiver: Self, message: String) -> Self"),
+        source.contains("fn __smelt_init_Base(smelt_receiver: Self, message: JsString) -> Self"),
         "{source}"
     );
     assert!(!source.contains("__smelt_super"), "no base value is built: {source}");
@@ -10642,7 +10642,7 @@ console.log(new Smart().greet());
         .and_then(|rest| rest.split("\nimpl ").next())
         .unwrap_or_default();
     let init_call = impl_smart.find("Self::__smelt_init_Base(this)");
-    let own_field = impl_smart.find("this.0.borrow_mut().msg = \"hi\"");
+    let own_field = impl_smart.find("this.0.borrow_mut().msg = JsString::from(\"hi\")");
     // The derived field initializer runs AFTER the base initialization, so the
     // redeclared `msg` is not overwritten by the base's `'x'`.
     assert!(
@@ -10679,8 +10679,8 @@ console.log(new App<number>().handle('/x'));
 ",
     );
 
-    assert!(source.contains("Self::__smelt_init_AppBase(this, \"app\".to_owned())"), "{source}");
-    assert!(source.contains("fn __smelt_init_AppBase(smelt_receiver: Self, label: String)"), "{source}");
+    assert!(source.contains("Self::__smelt_init_AppBase(this, JsString::from(\"app\"))"), "{source}");
+    assert!(source.contains("fn __smelt_init_AppBase(smelt_receiver: Self, label: JsString)"), "{source}");
 }
 
 /// A base-constructor slot answering `this` at the BASE type is upcast.
@@ -10804,7 +10804,7 @@ const failure = new ParseFailure('bad input');
     );
 
     assert!(
-        source.contains(r#"this.name = "TypeError".to_owned()"#),
+        source.contains(r#"this.name = JsString::from("TypeError")"#),
         "{source}"
     );
     assert!(source.contains("this.message = message"), "{source}");
@@ -10830,9 +10830,9 @@ const failure = new ParseFailure('bad input');
 ",
     );
 
-    assert!(source.contains("name: String,"), "{source}");
-    assert!(source.contains("message: String,"), "{source}");
-    assert!(source.contains("stack: Option<String>,"), "{source}");
+    assert!(source.contains("name: JsString,"), "{source}");
+    assert!(source.contains("message: JsString,"), "{source}");
+    assert!(source.contains("stack: Option<JsString>,"), "{source}");
     // `cause` is the one genuine dynamic boundary: ES2022 types it `unknown`
     // because it carries an arbitrary thrown value.
     assert!(source.contains("cause: SmeltUnknown,"), "{source}");
@@ -10869,8 +10869,8 @@ const greeting = new Greeting();
 ",
     );
 
-    assert!(source.contains("fn new(text: Option<String>)"), "{source}");
-    assert!(source.contains(r#"unwrap_or("hi there".to_owned())"#), "{source}");
+    assert!(source.contains("fn new(text: Option<JsString>)"), "{source}");
+    assert!(source.contains(r#"unwrap_or(JsString::from("hi there"))"#), "{source}");
     assert!(source.contains("Greeting::new(None"), "{source}");
 }
 
@@ -11183,7 +11183,7 @@ fn erased_reads_and_writes_reach_a_byte_buffers_bytes() {
     );
     let assign = source_for("export function f(value: any): void { value[1] = 2; }");
     assert!(
-        assign.contains("smelt_host_buffer_set_element(map, &key, value.clone())"),
+        assign.contains("smelt_host_buffer_set_element(map, &key.to_string_lossy(), value.clone())"),
         "an erased index write must offer the byte storage the write first:\n{assign}"
     );
 }
@@ -11528,7 +11528,7 @@ fn typed_array_own_keys_are_its_element_indices() {
     assert!(
         generated.contains("fn smelt_host_buffer_index_keys(value: &SmeltUnknown)")
             && generated.contains(
-                "fn smelt_host_buffer_record_index_keys(record: &SmeltRecord<String, SmeltUnknown>) -> Option<Vec<String>> { smelt_host_buffer_index_keys("
+                "fn smelt_host_buffer_record_index_keys(record: &SmeltRecord<JsString, SmeltUnknown>) -> Option<Vec<JsString>> { smelt_host_buffer_index_keys("
             ),
         "the record-flavored index keys must delegate to the tagged one:\n{generated}"
     );
@@ -11826,7 +11826,7 @@ export function trimIt(str: string, chars?: string | string[]): string {
         .split_once("@smelt:prelude-end")
         .map_or(generated.as_str(), |(_, program)| program);
     assert!(
-        program.contains(".contains(&smelt_utf16_char_at(&str, "),
+        program.contains(".contains(&str.char_at("),
         "containment must compare against the projected `Vec`:\n{generated}"
     );
 }
@@ -12465,7 +12465,7 @@ export function guard(cb: (x: number) => string, v: number): string {
         "the callback call must carry an unwind edge:\n{source}"
     );
     assert!(
-        source.contains("return \"caught\".to_owned();"),
+        source.contains("return JsString::from(\"caught\");"),
         "the catch clause must be emitted:\n{source}"
     );
 }
@@ -12635,11 +12635,11 @@ export function fireAndForget(cb: () => Promise<string>): void {
     );
 
     assert!(
-        source.contains("fn fire_and_forget(cb: &dyn Fn() -> SmeltFuture<String>)"),
+        source.contains("fn fire_and_forget(cb: &dyn Fn() -> SmeltFuture<JsString>)"),
         "a borrowed callback's future return is the promise value:\n{source}"
     );
     assert!(
-        !source.contains("Result<SmeltFuture<String>"),
+        !source.contains("Result<SmeltFuture<JsString>"),
         "an async throw is a rejected future, not an outer Result:\n{source}"
     );
 }
@@ -12689,7 +12689,7 @@ export function outer(): number {
     );
 
     assert!(
-        source.contains("|closure_arg_0: Option<String>|"),
+        source.contains("|closure_arg_0: Option<JsString>|"),
         "the callback's optional parameter must survive into its Rust type:\n{source}"
     );
     // The padding is a bare `None`: `work` is a closure VALUE, whose own
@@ -12926,7 +12926,7 @@ export function fill(b: string[], n: number[], nested: string[][], i: number): u
     );
     assert!(
         !source.contains("b.get({ let len = b.len()")
-            || !source.contains("unwrap_or(String::new()).clone())"),
+            || !(source.contains("unwrap_or(String::new()).clone())") || source.contains("unwrap_or(JsString::new()).clone())")),
         "a missing `string` element must not erase as the empty string:\n{source}"
     );
     assert!(
@@ -12980,7 +12980,7 @@ export function copy(b: string[], n: number[], i: number): void {
     // `index_place_read_is_owned`; the `;` that ends each expected read below
     // asserts it stays absent.
     assert!(
-        source.contains(".cloned().unwrap_or_else(|| String::new());"),
+        source.contains(".cloned().unwrap_or_else(|| JsString::new());"),
         "a concrete `string` slot keeps the total read:\n{source}"
     );
     assert!(
@@ -13017,7 +13017,7 @@ export function pick(value: unknown, index: number): unknown {
     );
     assert!(
         source.contains(
-            "smelt_utf16_char_at(&value, index).map(|ch| SmeltUnknown::String(ch.into()))).unwrap_or(SmeltUnknown::Undefined)"
+            "value.char_at(index).map(|ch| SmeltUnknown::String(ch.into()))).unwrap_or(SmeltUnknown::Undefined)"
         ),
         "a missing string character on an erased receiver is `undefined`:\n{source}"
     );
@@ -13131,7 +13131,7 @@ export function pick(flag: boolean, value: string): string | boolean {
     );
 
     assert!(
-        source.contains("fn pick(flag: bool, value: String) -> SmeltUnion"),
+        source.contains("fn pick(flag: bool, value: JsString) -> SmeltUnion"),
         "`boolean && string` is the union of its operand types:\n{source}"
     );
     assert!(
@@ -13742,7 +13742,7 @@ const r = use1(pick(true));
         .and_then(|rest| rest.split("\nfn ").next())
         .unwrap_or_else(|| panic!("expected a generated `pick`:\n{source}"));
     assert!(
-        !pick_body.contains(": String"),
+        !pick_body.contains(": String") && !pick_body.contains(": JsString"),
         "two declared classes must not unify to `String`:\n{source}"
     );
     assert!(
@@ -13781,7 +13781,7 @@ const r = show(pick(true));
         .and_then(|rest| rest.split("\nfn ").next())
         .unwrap_or_else(|| panic!("expected a generated `pick`:\n{source}"));
     assert!(
-        !pick_body.contains("let mut _smelt_tmp_1: String;"),
+        !pick_body.contains("let mut _smelt_tmp_1: String;") && !pick_body.contains("let mut _smelt_tmp_1: JsString;"),
         "a class branch must not be assigned into a `String` local:\n{source}"
     );
     assert!(
@@ -14203,7 +14203,7 @@ store.header('y', 'z', true);
     );
     assert!(
         source.contains(
-            "__smelt_call: ::std::rc::Rc<dyn Fn(String, Option<String>, Option<bool>) -> ()>"
+            "__smelt_call: ::std::rc::Rc<dyn Fn(JsString, Option<JsString>, Option<bool>) -> ()>"
         ),
         "positions an overload omits or marks optional merge to Option:\n{source}"
     );
@@ -14233,11 +14233,11 @@ const picked: string = holder.pick('a') + holder.direct('b');
     );
 
     assert!(
-        source.contains("__smelt_call: ::std::rc::Rc<dyn Fn(String) -> String>"),
+        source.contains("__smelt_call: ::std::rc::Rc<dyn Fn(JsString) -> JsString>"),
         "the call signature erases K to its constraint:\n{source}"
     );
     assert!(
-        source.contains("direct: ::std::rc::Rc<dyn Fn(String) -> String>"),
+        source.contains("direct: ::std::rc::Rc<dyn Fn(JsString) -> JsString>"),
         "a generic function-type annotation follows the same rule:\n{source}"
     );
     assert!(
@@ -14275,7 +14275,7 @@ ctx.set('ab', 3);
         "the module's `Set` must not lower to the builtin collection:\n{source}"
     );
     assert!(
-        source.contains("__smelt_call: ::std::rc::Rc<dyn Fn(String, f64) -> ()>"),
+        source.contains("__smelt_call: ::std::rc::Rc<dyn Fn(JsString, f64) -> ()>"),
         "the field keeps the module's own callable `Set` interface:\n{source}"
     );
 }
@@ -14298,7 +14298,7 @@ const text = pick('a');
         "an overload set that differs by parameter type needs the erased slot:\n{source}"
     );
     assert!(
-        source.contains("numeric: f64") && source.contains("text: String"),
+        source.contains("numeric: f64") && source.contains("text: JsString"),
         "each call must take the overload its argument type matches:\n{source}"
     );
 }
@@ -14887,7 +14887,7 @@ export class Holder {
     // stops holding the assertions below would pass for the wrong reason.
     assert!(
         source
-            .contains("fn __smelt_get_active(&self) -> Result<String, Box<dyn std::error::Error>>"),
+            .contains("fn __smelt_get_active(&self) -> Result<JsString, Box<dyn std::error::Error>>"),
         "a throwing getter must be emitted returning Result: {source}"
     );
     // A fallible reader propagates.
@@ -14939,7 +14939,7 @@ export class Picker {
 
     // The reassigned method is a field of the method's own signature ...
     assert!(
-        source.contains("pick: ::std::rc::Rc<dyn Fn(String) -> String>"),
+        source.contains("pick: ::std::rc::Rc<dyn Fn(JsString) -> JsString>"),
         "a reassigned method must become a function-typed field: {source}"
     );
     // ... initialised to the method's own body, so a class that never assigns
@@ -14956,7 +14956,7 @@ export class Picker {
 
     // The untouched sibling keeps its inherent method and its STATIC call.
     assert!(
-        source.contains("fn other(&self, value: String) -> String"),
+        source.contains("fn other(&self, value: JsString) -> JsString"),
         "an unassigned sibling must stay an inherent method: {source}"
     );
     assert!(
@@ -15077,7 +15077,7 @@ export function build(label: string, flag: boolean): Triple | null {
     // the literal has to travel through the `Optional` recursion to reach the
     // tuple rendering.
     assert!(
-        source.contains("-> Option<(String, SmeltList<f64>, bool)>"),
+        source.contains("-> Option<(JsString, SmeltList<f64>, bool)>"),
         "the return really must be an optional tuple: {source}"
     );
     assert!(
@@ -15087,7 +15087,7 @@ export function build(label: string, flag: boolean): Triple | null {
     // The homogeneous fallback would have annotated a Vec of one element type,
     // which is what could not hold the heterogeneous elements.
     assert!(
-        !source.contains("let smelt_list_items: Vec<String> = vec![label.clone()"),
+        !source.contains("let smelt_list_items: Vec<JsString> = vec![label.clone()"),
         "the literal must not go through the homogeneous Vec fallback: {source}"
     );
 }
@@ -15233,7 +15233,7 @@ export function report(): string {
         "{source}"
     );
     assert!(
-        source.contains("status_text: Some(smelt_host_value.status_text())"),
+        source.contains("status_text: Some(JsString::from(smelt_host_value.status_text())"),
         "{source}"
     );
     // A member the source does not expose is absent, which is what an optional
@@ -15269,7 +15269,7 @@ export function run(formatLong: FormatLong): string {
 
     assert!(!source.contains("smelt_host_value"), "{source}");
     assert!(
-        source.contains("Options { width: smelt_record_map.get(\"width\").cloned().map(|value| value) }"),
+        source.contains("Options { width: smelt_record_map.get_text(\"width\").cloned().map(|value| value) }"),
         "{source}"
     );
 }
@@ -15479,7 +15479,7 @@ export function merge(base: Options, options: Partial<Options>): Options {
     );
     assert!(source.contains("struct PartialOptions"), "{source}");
     assert!(source.contains("options: PartialOptions"), "{source}");
-    assert!(!source.contains("dict_assign") && !source.contains("SmeltRecord<String, SmeltUnknown>"), "{source}");
+    assert!(!source.contains("dict_assign") && !source.contains("SmeltRecord<String, SmeltUnknown>") && !source.contains("SmeltRecord<JsString, SmeltUnknown>"), "{source}");
 }
 
 /// An interface's FUNCTION-typed fields survive erasure: the record's

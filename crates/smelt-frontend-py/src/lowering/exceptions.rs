@@ -212,7 +212,7 @@ impl ModuleBuilder<'_> {
     /// `str()`, `repr()` and an f-string interpolation.
     fn has_python_text(&self, ty: TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
-            Some(Type::Int | Type::Float | Type::Bool | Type::String | Type::None) => true,
+            Some(Type::Int | Type::Float | Type::Bool | Type::PyStr | Type::None) => true,
             Some(Type::Optional(item) | Type::List(item)) => self.has_python_text(*item),
             // The runtime writes a tuple's `repr` for one to six elements.
             Some(Type::Tuple(items)) => {
@@ -220,10 +220,10 @@ impl ModuleBuilder<'_> {
             }
             Some(Type::Set(item)) => matches!(
                 self.ctx.krate.types.get(*item),
-                Some(Type::Int | Type::Bool | Type::String)
+                Some(Type::Int | Type::Bool | Type::PyStr)
             ),
             Some(Type::Dict(key, value)) => {
-                matches!(self.ctx.krate.types.get(*key), Some(Type::Int | Type::Bool | Type::String))
+                matches!(self.ctx.krate.types.get(*key), Some(Type::Int | Type::Bool | Type::PyStr))
                     && self.has_python_text(*value)
             }
             Some(Type::Class { name, .. }) => matches!(
@@ -244,7 +244,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let value_ty = Self::expr_ty(body, value);
-        let str_ty = self.intern_type(Type::String);
+        let str_ty = self.intern_type(Type::PyStr);
         if !repr && value_ty == str_ty {
             return Ok(value);
         }

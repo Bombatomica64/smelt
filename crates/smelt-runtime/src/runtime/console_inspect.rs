@@ -32,7 +32,17 @@ fn smelt_inspect_len(text: &str) -> usize { text.encode_utf16().count() }
 /// Single quotes unless the string contains one; then double quotes, then
 /// backticks, and single quotes with `\'` escapes when it contains all three.
 fn smelt_inspect_quote(value: &str) -> String {
-    let quote = if !value.contains('\'') {
+    let quote = smelt_inspect_quote_char(value);
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push(quote);
+    for ch in value.chars() { smelt_inspect_escape(&mut out, ch, quote); }
+    out.push(quote);
+    out
+}
+
+/// The quote `strEscape` picks for `value`.
+fn smelt_inspect_quote_char(value: &str) -> char {
+    if !value.contains('\'') {
         '\''
     } else if !value.contains('"') {
         '"'
@@ -40,21 +50,35 @@ fn smelt_inspect_quote(value: &str) -> String {
         '`'
     } else {
         '\''
-    };
+    }
+}
+
+/// Appends `ch` to a string quoted with `quote`, escaped as `strEscape` does.
+fn smelt_inspect_escape(out: &mut String, ch: char, quote: char) {
+    let code = ch as u32;
+    match ch {
+        '\u{8}' => out.push_str("\\b"),
+        '\t' => out.push_str("\\t"),
+        '\n' => out.push_str("\\n"),
+        '\u{c}' => out.push_str("\\f"),
+        '\r' => out.push_str("\\r"),
+        '\\' => out.push_str("\\\\"),
+        '\'' if quote == '\'' => out.push_str("\\'"),
+        _ if code < 0x20 || (0x7f..0xa0).contains(&code) => out.push_str(&format!("\\x{code:02X}")),
+        _ => out.push(ch),
+    }
+}
+
+/// `strEscape` over a JavaScript string: a lone surrogate shows as its
+/// `\uXXXX` escape in lowercase hex, as Node prints it.
+fn smelt_inspect_quote_js(value: &JsStr) -> String {
+    let quote = smelt_inspect_quote_char(&value.to_string_lossy());
     let mut out = String::with_capacity(value.len() + 2);
     out.push(quote);
-    for ch in value.chars() {
-        let code = ch as u32;
-        match ch {
-            '\u{8}' => out.push_str("\\b"),
-            '\t' => out.push_str("\\t"),
-            '\n' => out.push_str("\\n"),
-            '\u{c}' => out.push_str("\\f"),
-            '\r' => out.push_str("\\r"),
-            '\\' => out.push_str("\\\\"),
-            '\'' if quote == '\'' => out.push_str("\\'"),
-            _ if code < 0x20 || (0x7f..0xa0).contains(&code) => out.push_str(&format!("\\x{code:02X}")),
-            _ => out.push(ch),
+    for decoded in value.chars_lossless() {
+        match decoded {
+            Ok(ch) => smelt_inspect_escape(&mut out, ch, quote),
+            Err(lone) => { let _ = ::std::fmt::Write::write_fmt(&mut out, format_args!("\\u{lone:04x}")); }
         }
     }
     out.push(quote);
@@ -63,16 +87,17 @@ fn smelt_inspect_quote(value: &str) -> String {
 
 /// `formatPrimitive` for a string entry: a long multi-line string is split at
 /// its newlines into `'line\n' +` pieces, one per row.
-fn smelt_inspect_string(ctx: &SmeltInspectContext, value: &str) -> String {
-    let length = smelt_inspect_len(value);
+fn smelt_inspect_string(ctx: &SmeltInspectContext, value: &JsStr) -> String {
+    let length = value.len();
     if length > 16 && length + ctx.indentation + 4 > 80 {
-        let lines = value.split_inclusive('\n').collect::<Vec<_>>();
+        let units = value.units();
+        let lines = units.split_inclusive(|unit| *unit == u16::from(b'\n')).collect::<Vec<_>>();
         if lines.len() > 1 {
             let separator = format!(" +\n{}", " ".repeat(ctx.indentation + 2));
-            return lines.iter().map(|line| smelt_inspect_quote(line)).collect::<Vec<_>>().join(&separator);
+            return lines.iter().map(|line| smelt_inspect_quote_js(JsStr::from_units(line))).collect::<Vec<_>>().join(&separator);
         }
     }
-    smelt_inspect_quote(value)
+    smelt_inspect_quote_js(value)
 }
 
 /// A property key: bare when it is an identifier (`/^[a-zA-Z_][a-zA-Z_0-9]*$/`), quoted otherwise.
@@ -282,8 +307,13 @@ impl SmeltInspect for bool {
 }
 
 impl SmeltInspect for String {
-    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, _depth: usize) -> String { smelt_inspect_string(ctx, self) }
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, _depth: usize) -> String { smelt_inspect_string(ctx, &JsString::from(self.as_str())) }
     fn smelt_console_text(&self) -> String { self.clone() }
+}
+
+impl SmeltInspect for JsString {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, _depth: usize) -> String { smelt_inspect_string(ctx, self) }
+    fn smelt_console_text(&self) -> String { self.to_string_lossy() }
 }
 
 impl SmeltInspect for () {
@@ -356,10 +386,11 @@ impl SmeltInspect for ::num_bigint::BigInt {
 
 // @smelt:item impl_SmeltInspect_for_SmeltRecord when unknown
 
-impl<V: SmeltInspect + Clone> SmeltInspect for SmeltRecord<String, V> {
+impl<V: SmeltInspect + Clone> SmeltInspect for SmeltRecord<JsString, V> {
     fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
-        let pairs = self.iter().filter(|(key, _)| !key.starts_with("__smelt")).collect::<Vec<_>>();
-        let entries = pairs.iter().map(|(key, value)| (key.as_str(), value as &dyn SmeltInspect)).collect::<Vec<_>>();
+        let pairs = self.iter().filter(|(key, _)| !key.eq_str_prefix("__smelt")).collect::<Vec<_>>();
+        let key_texts = pairs.iter().map(|(key, _)| key.to_string_lossy()).collect::<Vec<_>>();
+                let entries = pairs.iter().zip(&key_texts).map(|((_, value), key)| (key.as_str(), value as &dyn SmeltInspect)).collect::<Vec<_>>();
         smelt_inspect_object(ctx, depth, "", &entries)
     }
 }
@@ -397,10 +428,11 @@ impl SmeltInspect for SmeltUnknown {
             }
             Self::Object(object) => {
                 let pairs = object.iter().collect::<Vec<_>>();
-                if pairs.iter().any(|(key, value)| key.starts_with("__smelt") || matches!(value, Self::Function(_))) {
+                if pairs.iter().any(|(key, value)| key.eq_str_prefix("__smelt") || matches!(value, Self::Function(_))) {
                     return self.to_string();
                 }
-                let entries = pairs.iter().map(|(key, value)| (key.as_str(), value as &dyn SmeltInspect)).collect::<Vec<_>>();
+                let key_texts = pairs.iter().map(|(key, _)| key.to_string_lossy()).collect::<Vec<_>>();
+                let entries = pairs.iter().zip(&key_texts).map(|((_, value), key)| (key.as_str(), value as &dyn SmeltInspect)).collect::<Vec<_>>();
                 smelt_inspect_object(ctx, depth, "", &entries)
             }
             Self::Symbol(_) | Self::Function(_) | Self::Promise(_) => self.to_string(),

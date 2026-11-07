@@ -2280,6 +2280,7 @@ impl ModuleBuilder<'_> {
                 | Type::BigInt
                 | Type::Float
                 | Type::String
+                | Type::PyStr
                 | Type::Unknown
                 | Type::TypeParam { .. }
                 | Type::Class { .. }

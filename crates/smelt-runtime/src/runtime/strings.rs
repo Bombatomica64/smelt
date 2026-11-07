@@ -34,7 +34,7 @@
 /// punctuation and symbols — ICU sorts those before digits and letters, while
 /// scalar order interleaves them. All of those need real CLDR collation tables;
 /// a program that depends on them needs an `Intl` implementation, not this.
-fn smelt_locale_compare(left: &str, right: &str) -> f64 {
+fn smelt_locale_compare(left: &(impl SmeltHostText + ?Sized), right: &(impl SmeltHostText + ?Sized)) -> f64 { let left = left.host_text(); let left: &str = &left; let right = right.host_text(); let right: &str = &right;
     let primary = left
         .chars()
         .flat_map(char::to_lowercase)

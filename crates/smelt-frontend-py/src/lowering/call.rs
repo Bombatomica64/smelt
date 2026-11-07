@@ -786,7 +786,7 @@ impl ModuleBuilder<'_> {
         span: Span,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let string_ty = self.intern_type(Type::String);
+        let string_ty = self.intern_type(Type::PyStr);
         let dict_ty = self.intern_type(Type::Dict(string_ty, value_ty));
         let mut chunks = Vec::new();
         let mut entries = Vec::new();

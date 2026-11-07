@@ -169,6 +169,7 @@ pub fn normalize_type(types: &mut TypeInterner, ty: TypeId, options: NormalizeOp
         | Type::BigInt
         | Type::Float
         | Type::String
+        | Type::PyStr
         | Type::Unknown
         | Type::Never
         | Type::TypeParam { .. }
