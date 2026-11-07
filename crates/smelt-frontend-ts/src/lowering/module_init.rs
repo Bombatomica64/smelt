@@ -1256,6 +1256,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 exports.insert(alias.clone(), *item_id);
             }
         }
+        // The module's own `export { local as exported }` specifiers, including
+        // re-exports of an import (`import { matcher } from ..; export { matcher }`)
+        // whose alias another module already published to the shared map, so the
+        // novelty test above does not see it.
+        let own = self
+            .export_renames
+            .iter()
+            .filter(|(_, local)| !self.imports.is_namespace(local))
+            .filter_map(|(exported, local)| Some((exported.clone(), self.items.get(local).copied()?)))
+            .collect::<Vec<_>>();
+        for (exported, item_id) in own {
+            exports.entry(exported).or_insert(item_id);
+        }
         self.publish_exported_predicates(&exports);
         self.ctx
             .module_exports
@@ -3946,10 +3959,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
             // `export { globalThis_ as globalThis }` re-exports a local under a
             // second spelling. This prepass runs before statement lowering, so
             // record the rename and let `record_module_global_object_aliases`
-            // project any later-discovered global-object alias onto it.
-            if local != exported {
-                self.export_renames.insert(exported.clone(), local.clone());
-            }
+            // project any later-discovered global-object alias onto it. A
+            // same-name specifier is recorded too: `import { matcher } from ..;
+            // export { matcher }` names an import this prepass has not bound
+            // yet, and `record_module_exports` publishes it once it is.
+            self.export_renames.insert(exported.clone(), local.clone());
             // A namespace import is the value the specifier exports, whatever
             // item of the same name the module also sees.
             if self.imports.is_namespace(&local) {

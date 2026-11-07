@@ -625,7 +625,15 @@ impl<'builder> ModuleBuilder<'builder> {
         if let Expression::StaticMemberExpression(member) = &call.callee
             && self.crate_namespace_member_item(member).is_some()
         {
-            return Ok(None);
+            // An object namespace (`export const Ns = { double }`) lowers through
+            // its own member-call rule; an import namespace through the ordinary
+            // member call, which resolves `P.map` to the module's export.
+            return match &member.object {
+                Expression::Identifier(object) if !self.imports.is_namespace(object.name.as_str()) => {
+                    self.namespace_member_call(call, body)
+                }
+                _ => Ok(None),
+            };
         }
         self.receiver_frames.push(ReceiverFrame::of(call));
         let lowered = match self.dispatched_receiver_owns_member(call, body) {

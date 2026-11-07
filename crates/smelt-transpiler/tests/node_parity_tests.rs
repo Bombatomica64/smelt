@@ -238,6 +238,13 @@ fn block_local_classes() -> TestResult {
     verify_node_parity("block_local_classes")
 }
 
+/// A block-local alias redeclared later is the later block's type, and
+/// `new Map(..)` takes the map arm of a union contextual type.
+#[test]
+fn block_local_type_alias_redeclaration() -> TestResult {
+    verify_node_parity("block_local_type_alias_redeclaration")
+}
+
 /// Enum members auto-increment, string members fold, numeric members map back
 /// to their names, and an enum may be declared inside a function.
 #[test]
@@ -346,6 +353,13 @@ fn narrowed_union_receivers() -> TestResult {
 #[test]
 fn namespace_generic_calls() -> TestResult {
     verify_node_parity_with("namespace_generic_calls", &["lib.ts"])
+}
+
+/// A namespace re-exported under a name is the module's namespace in the
+/// importer, and a class may name itself from its own members.
+#[test]
+fn namespace_reexports() -> TestResult {
+    verify_node_parity_with("namespace_reexports", &["index.ts", "patterns.ts", "symbols.ts"])
 }
 
 /// A spread fills a rest parameter element by element through a function value.

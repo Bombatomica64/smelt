@@ -179,10 +179,20 @@ fn read_may_run_accessor(body: &Body, types: &TypeInterner, kind: &ExprKind) -> 
 }
 
 /// Whether evaluating `id` reads a module global, itself or in a child.
-fn reads_global(body: &Body, id: ExprId) -> bool {
-    expr_kind(body, id).is_some_and(|kind| {
-        matches!(kind, ExprKind::GlobalGet { .. }) || children(kind).into_iter().any(|child| reads_global(body, child))
-    })
+///
+/// `memo` holds the answer for every expression already asked, so asking it of
+/// each expression of a body visits every expression once instead of once per
+/// enclosing expression.
+fn reads_global(body: &Body, id: ExprId, memo: &mut HashMap<ExprId, bool>) -> bool {
+    if let Some(known) = memo.get(&id) {
+        return *known;
+    }
+    let answer = expr_kind(body, id).is_some_and(|kind| {
+        matches!(kind, ExprKind::GlobalGet { .. })
+            || children(kind).into_iter().any(|child| reads_global(body, child, memo))
+    });
+    memo.insert(id, answer);
+    answer
 }
 
 /// Which fields the statements of the crate can write.
@@ -270,6 +280,7 @@ fn receiver_has_fields(body: &Body, types: &TypeInterner, receiver: ExprId) -> b
 fn early_reads(body: &Body, krate: &smelt_hir::Crate, assigned_fields: &FieldWrites) -> HashSet<ExprId> {
     let types = &krate.types;
     let mut memo = HashMap::new();
+    let mut global_memo = HashMap::new();
     let mut reads = HashSet::new();
     for expr in &body.exprs {
         let siblings = children(&expr.kind);
@@ -285,7 +296,7 @@ fn early_reads(body: &Body, krate: &smelt_hir::Crate, assigned_fields: &FieldWri
             {
                 reads.insert(child);
             }
-            later_reads_global |= reads_global(body, child);
+            later_reads_global |= reads_global(body, child, &mut global_memo);
             let is_lazy_read = match expr_kind(body, child) {
                 Some(ExprKind::Field { receiver, field }) => {
                     let receiver_ty = usize::try_from(receiver.0).ok().and_then(|index| body.exprs.get(index)).map(|receiver_expr| receiver_expr.ty);
