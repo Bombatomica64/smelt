@@ -83,3 +83,9 @@ fn iterator_protocol() -> TestResult {
 fn builtin_names_shadowed() -> TestResult {
     verify_python_parity("builtin_names_shadowed")
 }
+
+/// A user method spelled like a builtin collection method is the user's.
+#[test]
+fn builtin_method_names_on_classes() -> TestResult {
+    verify_python_parity("builtin_method_names_on_classes")
+}
