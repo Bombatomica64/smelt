@@ -259,4 +259,23 @@ impl FunctionEmitter<'_> {
         }
     }
 
+
+    /// Validates two same-typed set operands.
+    pub(super) fn validate_set_pair_operands(
+        &self,
+        left: &Operand,
+        right: &Operand,
+        context: &str,
+    ) -> Result<TypeId, EmitError> {
+        let left_ty = self.operand_ty(left)?;
+        if self.operand_ty(right)? != left_ty {
+            return Err(EmitError::new(format!(
+                "{context} operands must have the same set type"
+            )));
+        }
+        if !matches!(self.mir.types.get(left_ty), Some(Type::Set(_))) {
+            return Err(EmitError::new(format!("{context} operands must be sets")));
+        }
+        Ok(left_ty)
+    }
 }

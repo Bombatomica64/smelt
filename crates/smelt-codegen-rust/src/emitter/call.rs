@@ -3904,3 +3904,37 @@ fn type_params_pinned_by_values(
         })
     })
 }
+
+impl FunctionEmitter<'_> {
+    /// `await` of a value.
+    pub(super) fn await_rvalue_expr(
+        &self,
+        operand: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        if self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::None) {
+            return self.default_value(dest_ty);
+        }
+        Ok(RustExpr::loose(format!("{}.await?", self.await_operand_expr(operand)?)))
+    }
+
+    /// A built-in async operation at its destination.
+    pub(super) fn async_rvalue_expr(
+        &self,
+        op: smelt_hir::AsyncOp,
+        args: &[Operand],
+        dest_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        let text = self.async_op_expr(op, args, dest_ty)?;
+        if matches!(op, smelt_hir::AsyncOp::Sleep)
+            && let Some(Type::Future(item)) = self.mir.types.get(dest_ty)
+            && self.mir.types.get(*item) != Some(&Type::None)
+        {
+            return Ok(RustExpr::atom(format!(
+                "SmeltFuture::from_future(Box::pin(async move {{ {text}.await?; Ok::<_, {ERROR_BOX}>({}) }}))",
+                self.default_value(*item)?,
+            )));
+        }
+        Ok(text)
+    }
+}

@@ -916,4 +916,42 @@ impl FunctionEmitter<'_> {
     }
 
     // Sorted-list helpers continue in `list_ordering.rs`.
+
+    /// `concat` of two lists, at the destination type.
+    pub(super) fn list_concat_at_dest_expr(
+        &self,
+        left: &Operand,
+        right: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        let text = self.list_concat_expr(left, right)?;
+        let source_ty = self.concat_result_list_ty(left, right)?;
+        self.rendered_at_type(&text, source_ty, dest_ty, &self.render_scope())
+    }
+
+    /// One erased `concat` argument.
+    ///
+    /// One erased `concat` argument, normalized by JavaScript's
+    /// `IsConcatSpreadable` rule. The argument's static type does not say
+    /// whether it is an array, so the array-vs-scalar choice happens at
+    /// runtime in the prelude helper rather than being guessed here.
+    pub(super) fn concat_spread_expr(&self, value: &Operand) -> Result<RustExpr, EmitError> {
+        let value_ty = self.operand_ty(value)?;
+        let value_text = self.erase_rendered(&self.operand_expr(value)?, value_ty)?;
+        Ok(RustExpr::chain(format!("smelt_concat_spread({value_text})")))
+    }
+
+    /// `indexOf`-style search, at the destination type.
+    pub(super) fn list_search_at_dest_expr(
+        &self,
+        op: smelt_hir::ListSearchOp,
+        list: &Operand,
+        item: &Operand,
+        from_index: Option<&Operand>,
+        dest_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        let text = self.list_search_expr(op, list, item, from_index)?;
+        let float_ty = self.type_id(Type::Float)?;
+        self.rendered_at_type(&text, float_ty, dest_ty, &self.render_scope())
+    }
 }

@@ -14,7 +14,9 @@
 //!
 //! See CONTEXT.md (## Coercion).
 
+mod function_adapter;
 pub(crate) mod record;
+mod record_adapter;
 
 use crate::rust::RustType;
 use crate::rust::RustExpr;
@@ -3648,3 +3650,32 @@ fn erased_to_list_expr(text: &RustExpr, item_text: Option<&str>, char_text: &Rus
     ))
 }
 
+
+impl FunctionEmitter<'_> {
+    /// An asserted cast of an erased value to `target`, then to the destination.
+    pub(super) fn unknown_cast_expr(
+        &self,
+        unknown_value: &Operand,
+        target: TypeId,
+        dest_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        let source = self.operand_ty(unknown_value)?;
+        let value_text = self.operand_expr(unknown_value)?;
+        if let Some(collected) =
+            self.generator_items_expr(&value_text, source, target)?
+        {
+            return self.rendered_at_type(&collected, target, dest_ty, &self.render_scope());
+        }
+        if let Some(projected) =
+            self.project_union_value(&value_text, source, target)?
+        {
+            return self.rendered_at_type(&projected, target, dest_ty, &self.render_scope());
+        }
+        let cast_text = if self.renders_erased(target)? {
+            self.erase(unknown_value)?
+        } else {
+            self.extract(unknown_value, target, &self.render_scope())?
+        };
+        self.rendered_at_type(&cast_text, target, dest_ty, &self.render_scope())
+    }
+}

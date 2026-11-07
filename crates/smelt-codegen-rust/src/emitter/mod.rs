@@ -101,16 +101,19 @@ impl Drop for HoistedModuleItemScope<'_, '_> {
 /// in a couple of instructions and removes that cost without changing behavior.
 pub(crate) type BlockIdSet = rustc_hash::FxHashSet<smelt_mir::BlockId>;
 
+mod aggregate_literal;
 mod backend_erasure;
 pub(crate) mod bound_dispatch;
 mod bigint;
 pub(crate) mod typedness;
 mod binary_ops;
 mod call;
-mod call_runtime;
+mod callable_object;
+mod callback_handle;
 mod class_keyed_write;
 mod capture_analysis;
 mod cfg_queries;
+mod closure_call;
 mod closures;
 mod coercion;
 pub(crate) use coercion::record as record_coercion;
@@ -119,6 +122,7 @@ mod console_inspect;
 mod construct;
 mod control_flow_match;
 mod core;
+mod date_clock;
 mod dict_entry_update;
 pub(crate) mod emit_role;
 mod flow_state;
@@ -126,10 +130,14 @@ mod local_binding;
 mod helper_reservation;
 mod blob;
 mod fetch_types;
+mod field_access;
 /// Emission of the operations that can throw.
 mod fallible_op;
 mod url;
 mod fixed_int;
+mod function_item;
+mod generator;
+mod generic_trial;
 mod abort_signal;
 mod crypto;
 mod host_module;
@@ -138,6 +146,7 @@ mod text_codec;
 mod typed_array;
 mod host_member_read;
 mod host_interop;
+mod inherited_render;
 mod json_decode;
 mod http_server;
 mod list;
@@ -146,8 +155,11 @@ mod list_ordering;
 mod list_query;
 pub(crate) mod literals;
 mod local_analysis;
+mod local_declaration;
+mod local_use;
 mod map;
 mod numeric;
+mod operand;
 mod optional_access;
 mod place;
 mod post_dominance;
@@ -155,6 +167,7 @@ mod receiver_bound_slot;
 mod record_slot_abi;
 mod render_scope;
 mod rendered_value;
+mod rvalue;
 /// Debug-only emitter self-consistency checks; the module does not exist in a
 /// release build, so neither do its assertions or their call sites.
 #[cfg(debug_assertions)]
@@ -167,9 +180,12 @@ mod strings_io;
 mod throw;
 mod throwing_join;
 mod tuple;
+mod type_facts;
 mod typeof_str_locals;
 mod types;
 mod union;
+mod vitest_mock;
+mod virtual_slots;
 /// Property writes through an erased view of a reference-class instance.
 pub(crate) mod view_write_through;
 pub(crate) mod weak_receiver;
@@ -181,7 +197,7 @@ use types::MutablePrefix;
 pub(crate) use union::emit_union_definitions;
 pub(crate) use json_decode::emit_json_decoders;
 pub(crate) use console_inspect::emit_console_inspect_support;
-pub(crate) use core::is_erased_unknown_rest_function_in;
+pub(crate) use callback_handle::is_erased_unknown_rest_function_in;
 
 /// Process-wide runtime state an emitted native test resets before its body,
 /// so mock state one test installs does not leak into the next.
@@ -501,7 +517,7 @@ impl EmitContext {
             // Keyed by the emitted-signature key, not the bare Rust name: a
             // method's name is unique only inside its own `impl` block (see
             // `FunctionEmitter::emitted_signature_key_in`).
-            let signature_key = core::emitted_signature_key_in(
+            let signature_key = function_item::emitted_signature_key_in(
                 function,
                 &rust_name,
                 |symbol| mir.symbols.get(symbol).map(str::to_owned),

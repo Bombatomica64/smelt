@@ -1,0 +1,136 @@
+//! Rendering an inherited method's copy on a subclass, and a base initializer's
+//! copy: the class-parameter substitution and the receiver upcast they need.
+use super::*;
+use crate::rust::RustExpr;
+
+impl<'mir> FunctionEmitter<'mir> {
+    /// An emitter for `function` re-emitted as an INHERITED copy into the
+    /// subclass `owner`'s `impl` block (see [`emit_role::EmitRole::InheritedCopy`]).
+    ///
+    /// `function` is the type-substituted clone
+    /// (`crate::classes::substituted_inherited_member`); the same substitution
+    /// is recorded for the closures the copy emits.
+    pub(crate) fn inherited_copy(
+        mir: &'mir Mir,
+        context: &'mir EmitContext,
+        function: &'mir MirFunction,
+        owner: Symbol,
+    ) -> Result<Self, EmitError> {
+        let mut emitter = Self::new(mir, context, function)?;
+        let substitution = emitter.inherited_substitution(owner);
+        emitter.role = emit_role::EmitRole::InheritedCopy {
+            owner,
+            substitution,
+        };
+        Ok(emitter)
+    }
+
+    /// An emitter for an ancestor CONSTRUCTOR rendered as the base initializer
+    /// copy that runs inside `owner`'s `impl` (see `crate::base_init` and
+    /// [`emit_role::EmitRole::BaseInitializerCopy`]).
+    pub(crate) fn base_initializer_copy(
+        mir: &'mir Mir,
+        context: &'mir EmitContext,
+        function: &'mir MirFunction,
+        owner: Symbol,
+    ) -> Result<Self, EmitError> {
+        let mut emitter = Self::new(mir, context, function)?;
+        let substitution = emitter.inherited_substitution(owner);
+        emitter.role = emit_role::EmitRole::BaseInitializerCopy {
+            substitution,
+            receiver: emit_role::BaseInitializerReceiver {
+                owner,
+                // The constructor's instance is local 0
+                // (`HirOrigin::ClassConstructor` lowering allocates it there);
+                // in the copy it is the receiver.
+                receivers: HashSet::from([LocalId(0)]),
+            },
+        };
+        Ok(emitter)
+    }
+
+    /// The substitution an inherited or base-initializer copy of this
+    /// emitter's function into `owner`'s `impl` applies (see
+    /// [`emit_role::InheritedSubstitution`]).
+    ///
+    /// Closures get the whole map. The copy's own emitter also renders closure
+    /// DECLARATIONS (a callback's header, its slot type), which are spelled in
+    /// the base's scope, so it applies the map too, but only to names `owner`
+    /// does not declare: the copy's substituted locals spell `owner`'s own
+    /// parameters, and a name both classes declare (`Middle<T> extends
+    /// Base<T[]>`) must keep meaning `owner`'s there.
+    pub(super) fn inherited_substitution(&self, owner: Symbol) -> emit_role::InheritedSubstitution {
+        let substitutions =
+            crate::classes::inherited_member_substitution(self.mir, self.function, owner);
+        let owner_params: HashSet<Symbol> = crate::classes::find_class(self.mir, owner)
+            .map(|class| class.type_params.iter().map(|param| param.name).collect())
+            .unwrap_or_default();
+        emit_role::InheritedSubstitution {
+            own: substitutions
+                .iter()
+                .filter(|(name, _)| !owner_params.contains(name))
+                .map(|(name, ty)| (*name, *ty))
+                .collect(),
+            closures: substitutions,
+        }
+    }
+
+    /// Upcast the base-initializer receiver where its DECLARING base type is
+    /// asked for, e.g. `onError = (h): Base => { ..; return this }` stored by
+    /// the base constructor.
+    ///
+    /// In the copy the receiver's Rust value is `Self` (the derived class)
+    /// while MIR still types it at the declaring base, and the flattened
+    /// structs are distinct Rust types with no subtyping between them. The
+    /// value is rebuilt at the base type through the same member-wise
+    /// structural adapter a base-typed value handed to a derived-typed slot
+    /// already uses (Hono's `basePath`): a reference class's callable members
+    /// are shared `Rc`s capturing the original instance, so calls through the
+    /// upcast value still reach it. `None` when `operand` is not the receiver
+    /// or the target is the owner class itself.
+    pub(super) fn base_initializer_receiver_upcast_expr(
+        &self,
+        operand: &Operand,
+        target: TypeId,
+        scope: &RenderScope,
+    ) -> Result<Option<RustExpr>, EmitError> {
+        let Some(receiver) = self.role.base_initializer() else {
+            return Ok(None);
+        };
+        let owner = receiver.owner;
+        let local = match operand {
+            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => *local,
+            _ => return Ok(None),
+        };
+        if !receiver.receivers.contains(&local) {
+            return Ok(None);
+        }
+        let Some(Type::Class { name, .. }) = self.mir.types.get(target) else {
+            return Ok(None);
+        };
+        if *name == owner {
+            return Ok(None);
+        }
+        let Some(owner_ty) = crate::base_init::constructed_class_ty(self.mir, owner)? else {
+            return Ok(None);
+        };
+        let value_text = self.operand_expr(operand)?;
+        self.structural_record_adapter(&value_text, owner_ty, target, scope)
+    }
+
+    /// Whether this emitter renders a base initializer copy.
+    pub(super) const fn is_base_initializer_copy(&self) -> bool {
+        self.role.base_initializer().is_some()
+    }
+
+    /// Whether `local` is the constructor instance of a base initializer copy,
+    /// i.e. the receiver the copy was handed.
+    ///
+    /// Its Rust type is `Self` (the impl's class), never the declaring base's
+    /// name, which is a different struct under flattening.
+    pub(super) fn is_base_initializer_receiver(&self, local: LocalId) -> bool {
+        self.role
+            .base_initializer()
+            .is_some_and(|receiver| receiver.receivers.contains(&local))
+    }
+}
