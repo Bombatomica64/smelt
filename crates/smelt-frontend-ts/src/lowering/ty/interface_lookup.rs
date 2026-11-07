@@ -462,6 +462,26 @@ impl ModuleBuilder<'_> {
         })
     }
 
+    /// [`Self::find_type_alias`] for a reference spelled `source_name` in this
+    /// module: an alias declared by another module is in scope only where it is
+    /// imported. Without the check a module's `type Iterator<n, it>` captured
+    /// every other module's reference to the global `Iterator<T, R, N>`.
+    pub(in crate::lowering) fn visible_type_alias(
+        &self,
+        name: smelt_hir::Symbol,
+        source_name: &str,
+    ) -> Option<&smelt_hir::TypeAlias> {
+        let alias = self.find_type_alias(name)?;
+        if alias.span.file == self.file_id {
+            return Some(alias);
+        }
+        // Imports are recorded with their source before any type is
+        // predeclared (`predeclare_import_provenance`), so this holds in the
+        // predeclaration pass as well as the body pass.
+        (self.imports.import_source(source_name).is_some() || self.imports.is_imported_binding(source_name))
+            .then_some(alias)
+    }
+
     /// Find the latest previously lowered class declaration by symbol.
     ///
     /// Mirrors [`ModuleBuilder::find_interface`]: a `.ts` class may refine a

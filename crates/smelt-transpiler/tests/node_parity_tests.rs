@@ -166,6 +166,12 @@ fn conditional_base_class() -> TestResult {
     verify_node_parity("conditional_base_class")
 }
 
+/// A type alias another module declares is in scope only where it is imported.
+#[test]
+fn type_alias_scope() -> TestResult {
+    verify_node_parity_with("type_alias_scope", &["helpers.ts"])
+}
+
 /// A parameter does not hide a module constant from other functions.
 #[test]
 fn parameter_shadows_module_const() -> TestResult {

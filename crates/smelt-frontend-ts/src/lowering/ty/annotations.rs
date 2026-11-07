@@ -1247,7 +1247,7 @@ impl ModuleBuilder<'_> {
             )?;
             return Ok(self.substituted_fields(&interface.fields, &substitutions));
         }
-        if let Some(alias) = self.find_type_alias(symbol).cloned() {
+        if let Some(alias) = self.visible_type_alias(symbol, name_text).cloned() {
             let lowered_args = args
                 .iter()
                 .map(|arg| self.ts_type_to_hir(arg))
@@ -2641,7 +2641,7 @@ impl ModuleBuilder<'_> {
                         args: instantiated_args,
                     }));
                 }
-                if let Some(alias) = self.find_type_alias(symbol).cloned() {
+                if let Some(alias) = self.visible_type_alias(symbol, &name_text).cloned() {
                     let lowered_args = args
                         .iter()
                         .map(|arg| self.ts_type_to_hir(arg))
@@ -3387,7 +3387,8 @@ impl ModuleBuilder<'_> {
                 let alias_fields = self.types.alias_fields(name)
                     .cloned()
                     .unwrap_or_default();
-                let alias_field = if let Some(alias) = self.find_type_alias(name).cloned() {
+                let spelling = source_spelling(&self.ctx.krate, name).unwrap_or_default().to_owned();
+                let alias_field = if let Some(alias) = self.visible_type_alias(name, &spelling).cloned() {
                     let substitutions = self.type_argument_substitution(
                         &alias.type_params,
                         &args,
