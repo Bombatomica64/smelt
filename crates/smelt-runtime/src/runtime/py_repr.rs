@@ -25,7 +25,7 @@ impl SmeltPyRepr for String {
     fn py_repr(&self) -> String {
         //~ Single quotes, unless the text holds a `'` and no `"`.
         let quote = if self.contains('\'') && !self.contains('"') { '"' } else { '\'' };
-        let mut out = String::with_capacity(self.len() + 2);
+        let mut out = Self::with_capacity(self.len() + 2);
         out.push(quote);
         for ch in self.chars() {
             match ch {
@@ -34,7 +34,7 @@ impl SmeltPyRepr for String {
                 '\r' => out.push_str("\\r"),
                 '\t' => out.push_str("\\t"),
                 ch if ch == quote => { out.push('\\'); out.push(ch); }
-                ch if (ch as u32) < 0x20 || ch as u32 == 0x7f => out.push_str(&format!("\\x{:02x}", ch as u32)),
+                ch if (ch as u32) < 0x20 || ch as u32 == 0x7f => { let code = u32::from(ch); out.push_str("\\x"); out.extend([code >> 4, code & 0xf].map(|digit| char::from_digit(digit, 16).unwrap_or('0'))); }
                 ch => out.push(ch),
             }
         }

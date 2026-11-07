@@ -72,6 +72,20 @@ fn smelt_utf16_len(text: &str) -> usize {
     if text.is_ascii() { text.len() } else { smelt_utf16_units_in(text.as_bytes()) }
 }
 
+/// A count or index of code units as a JavaScript number: exact, since a
+/// string's length is far below 2^53.
+#[allow(dead_code)]
+const fn smelt_units_to_number(units: usize) -> f64 {
+    units as f64
+}
+
+/// A JavaScript number as a count or index of code units: truncated toward
+/// zero, NaN and negatives `0`, anything past `usize::MAX` saturating.
+#[allow(dead_code)]
+const fn smelt_units_from_number(number: f64) -> usize {
+    number as usize
+}
+
 /// The UTF-16 index of the byte offset `byte` of `text`, which is a char boundary.
 #[allow(dead_code)]
 fn smelt_utf16_index_of_byte(text: &str, byte: usize) -> usize {
@@ -81,7 +95,7 @@ fn smelt_utf16_index_of_byte(text: &str, byte: usize) -> usize {
 /// The UTF-16 code units of the characters whose first byte is in the word
 /// `word` (eight bytes of a string, little-endian).
 #[allow(dead_code)]
-fn smelt_utf16_units_in_word(word: u64) -> usize {
+const fn smelt_utf16_units_in_word(word: u64) -> usize {
     const HIGH: u64 = 0x8080_8080_8080_8080;
     let continuation = (word & !(word << 1) & HIGH).count_ones() as usize;
     let four_byte = (word & (word << 1) & (word << 2) & (word << 3) & HIGH).count_ones() as usize;
@@ -91,9 +105,9 @@ fn smelt_utf16_units_in_word(word: u64) -> usize {
 /// The UTF-16 code units of the characters whose first byte is in `bytes`.
 #[allow(dead_code)]
 fn smelt_utf16_units_in(bytes: &[u8]) -> usize {
-    let mut words = bytes.chunks_exact(8);
-    let whole: usize = words.by_ref().map(|word| smelt_utf16_units_in_word(u64::from_le_bytes([word[0], word[1], word[2], word[3], word[4], word[5], word[6], word[7]]))).sum();
-    whole + words.remainder().iter().map(|byte| usize::from(byte & 0xC0 != 0x80) + usize::from(*byte >= 0xF0)).sum::<usize>()
+    let (words, rest) = bytes.as_chunks::<8>();
+    let whole: usize = words.iter().map(|word| smelt_utf16_units_in_word(u64::from_le_bytes(*word))).sum();
+    whole + rest.iter().map(|byte| usize::from(byte & 0xC0 != 0x80) + usize::from(*byte >= 0xF0)).sum::<usize>()
 }
 
 /// The byte offset where UTF-16 index `unit` of `text` starts, clamped to the
@@ -138,9 +152,7 @@ fn smelt_utf16_slice(text: &str, start: usize, end: usize) -> String {
 /// The code unit at UTF-16 index `unit` of `text` (`charCodeAt`), if any.
 #[allow(dead_code)]
 fn smelt_utf16_unit_at(text: &str, unit: usize) -> Option<u16> {
-    if let Some(prefix) = text.as_bytes().get(..=unit) {
-        if prefix.is_ascii() { return Some(u16::from(prefix[unit])); }
-    }
+    if let Some(prefix) = text.as_bytes().get(..=unit).filter(|prefix| prefix.is_ascii()) { return Some(u16::from(prefix[unit])); }
     let (byte, half) = match smelt_utf16_byte_of(text, unit) { Ok(byte) => (byte, 0), Err(byte) => (byte, 1) };
     let mut units = [0; 2];
     text[byte..].chars().next().map(|ch| ch.encode_utf16(&mut units)[half])
@@ -150,23 +162,15 @@ fn smelt_utf16_unit_at(text: &str, unit: usize) -> Option<u16> {
 /// one unit, or a whole pair at its first unit and `""` at its second.
 #[allow(dead_code)]
 fn smelt_utf16_char_at(text: &str, unit: usize) -> Option<String> {
-    if let Some(prefix) = text.as_bytes().get(..=unit) {
-        if prefix.is_ascii() { return Some(char::from(prefix[unit]).to_string()); }
-    }
-    match smelt_utf16_byte_of(text, unit) {
-        Ok(byte) => text[byte..].chars().next().map(String::from),
-        Err(_) => Some(String::new()),
-    }
+    if let Some(prefix) = text.as_bytes().get(..=unit).filter(|prefix| prefix.is_ascii()) { return Some(char::from(prefix[unit]).to_string()); }
+    smelt_utf16_byte_of(text, unit).map_or_else(|_| Some(String::new()), |byte| text[byte..].chars().next().map(String::from))
 }
 
 /// The code point starting at UTF-16 index `unit` of `text` (`codePointAt`):
 /// a whole surrogate pair, else the lone unit there.
 #[allow(dead_code)]
 fn smelt_utf16_code_point_at(text: &str, unit: usize) -> Option<u32> {
-    match smelt_utf16_byte_of(text, unit) {
-        Ok(byte) => text[byte..].chars().next().map(u32::from),
-        Err(_) => smelt_utf16_unit_at(text, unit).map(u32::from),
-    }
+    smelt_utf16_byte_of(text, unit).map_or_else(|_| smelt_utf16_unit_at(text, unit).map(u32::from), |byte| text[byte..].chars().next().map(u32::from))
 }
 
 /// One string per code unit of `text` (`s.split("")`): a pair is its whole
@@ -1795,7 +1799,7 @@ fn smelt_function_value_property(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknow
 /// `@@toStringTag`-bearing `name` becomes the tag, matching `[object JSON]` /
 /// `[object Math]`). Class instances and unmarked records are plain
 /// `[object Object]`, exactly like JavaScript objects without a custom tag.
-fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String { match value { SmeltUnknown::Null => "[object Null]".to_owned(), SmeltUnknown::Undefined => "[object Undefined]".to_owned(), SmeltUnknown::Bool(_) => "[object Boolean]".to_owned(), SmeltUnknown::Number(_) => "[object Number]".to_owned(), SmeltUnknown::String(_) => "[object String]".to_owned(), SmeltUnknown::Symbol(_) => "[object Symbol]".to_owned(), SmeltUnknown::Array(_) => "[object Array]".to_owned(), SmeltUnknown::Function(_) => "[object Function]".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned(), SmeltUnknown::Object(map) => { if map.contains_key("__smelt_unmodeled") { return "[object Unmodeled]".to_owned(); } if let Some(SmeltUnknown::String(tag)) = map.get("__smelt_symbol_to_string_tag") { return format!("[object {tag}]"); } if map.contains_key("__smelt_date") { return "[object Date]".to_owned(); } if map.contains_key("__smelt_regexp") { return "[object RegExp]".to_owned(); } if map.contains_key("__smelt_error") { return "[object Error]".to_owned(); } if map.contains_key("__smelt_global_object") { return "[object global]".to_owned(); } if map.contains_key("__smelt_map") { return "[object Map]".to_owned(); } if map.contains_key("__smelt_set") { return "[object Set]".to_owned(); } if map.contains_key("__smelt_arguments") { return "[object Arguments]".to_owned(); } if map.contains_key("__smelt_abortcontroller") { return "[object AbortController]".to_owned(); } if map.contains_key("__smelt_abortsignal") { return "[object AbortSignal]".to_owned(); } if map.contains_key("__smelt_arraybuffer") { return "[object ArrayBuffer]".to_owned(); } if map.contains_key("__smelt_sharedarraybuffer") { return "[object SharedArrayBuffer]".to_owned(); } if map.contains_key("__smelt_int8array") { return "[object Int8Array]".to_owned(); } if map.contains_key("__smelt_uint8array") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_uint8clampedarray") { return "[object Uint8ClampedArray]".to_owned(); } if map.contains_key("__smelt_int16array") { return "[object Int16Array]".to_owned(); } if map.contains_key("__smelt_uint16array") { return "[object Uint16Array]".to_owned(); } if map.contains_key("__smelt_int32array") { return "[object Int32Array]".to_owned(); } if map.contains_key("__smelt_uint32array") { return "[object Uint32Array]".to_owned(); } if map.contains_key("__smelt_float32array") { return "[object Float32Array]".to_owned(); } if map.contains_key("__smelt_float64array") { return "[object Float64Array]".to_owned(); } if map.contains_key("__smelt_bigint64array") { return "[object BigInt64Array]".to_owned(); } if map.contains_key("__smelt_biguint64array") { return "[object BigUint64Array]".to_owned(); } if map.contains_key("__smelt_buffer") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_dataview") { return "[object DataView]".to_owned(); } if map.contains_key("__smelt_weakmap") { return "[object WeakMap]".to_owned(); } if map.contains_key("__smelt_weakset") { return "[object WeakSet]".to_owned(); } if map.contains_key("__smelt_file") { return "[object File]".to_owned(); } if map.contains_key("__smelt_blob") { return "[object Blob]".to_owned(); } if map.contains_key("__smelt_headers") { return "[object Headers]".to_owned(); } if map.contains_key("__smelt_urlsearchparams") { return "[object URLSearchParams]".to_owned(); } if map.contains_key("__smelt_url") { return "[object URL]".to_owned(); } if map.contains_key("__smelt_crypto_key") { return "[object CryptoKey]".to_owned(); } if map.contains_key("__smelt_request") { return "[object Request]".to_owned(); } if map.contains_key("__smelt_response") { return "[object Response]".to_owned(); } if map.contains_key("__smelt_textencoder") { return "[object TextEncoder]".to_owned(); } if map.contains_key("__smelt_textdecoder") { return "[object TextDecoder]".to_owned(); } if map.contains_key("__smelt_eventemitter") { return "[object EventEmitter]".to_owned(); } if map.contains_key("__smelt_httpserver") { return "[object Server]".to_owned(); } if map.contains_key("__smelt_incomingmessage") { return "[object IncomingMessage]".to_owned(); } if map.contains_key("__smelt_serverresponse") { return "[object ServerResponse]".to_owned(); } if map.contains_key("__smelt_formdata") { return "[object FormData]".to_owned(); } if map.contains_key("__smelt_databasesync") { return "[object DatabaseSync]".to_owned(); } if map.contains_key("__smelt_statementsync") { return "[object StatementSync]".to_owned(); } if map.contains_key("__smelt_readablestream") { return "[object ReadableStream]".to_owned(); } if map.contains_key("__smelt_domexception") { return "[object DOMException]".to_owned(); } if map.contains_key("__smelt_intl_collator") { return "[object Intl.Collator]".to_owned(); } if map.contains_key("__smelt_intl_displaynames") { return "[object Intl.DisplayNames]".to_owned(); } if map.contains_key("__smelt_intl_durationformat") { return "[object Intl.DurationFormat]".to_owned(); } if map.contains_key("__smelt_intl_listformat") { return "[object Intl.ListFormat]".to_owned(); } if map.contains_key("__smelt_intl_locale") { return "[object Intl.Locale]".to_owned(); } if map.contains_key("__smelt_intl_numberformat") { return "[object Intl.NumberFormat]".to_owned(); } if map.contains_key("__smelt_intl_pluralrules") { return "[object Intl.PluralRules]".to_owned(); } if map.contains_key("__smelt_intl_segmenter") { return "[object Intl.Segmenter]".to_owned(); } if map.contains_key("__smelt_number") { return "[object Number]".to_owned(); } if map.contains_key("__smelt_boolean") { return "[object Boolean]".to_owned(); } if map.contains_key("__smelt_string") { return "[object String]".to_owned(); } if map.contains_key("__smelt_symbol") { return "[object Symbol]".to_owned(); } if map.contains_key("__smelt_builtin_namespace") { if let Some(SmeltUnknown::String(name)) = map.get("name") { return format!("[object {name}]"); } } "[object Object]".to_owned() } } }
+fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String { match value { SmeltUnknown::Null => "[object Null]".to_owned(), SmeltUnknown::Undefined => "[object Undefined]".to_owned(), SmeltUnknown::Bool(_) => "[object Boolean]".to_owned(), SmeltUnknown::Number(_) => "[object Number]".to_owned(), SmeltUnknown::String(_) => "[object String]".to_owned(), SmeltUnknown::Symbol(_) => "[object Symbol]".to_owned(), SmeltUnknown::Array(_) => "[object Array]".to_owned(), SmeltUnknown::Function(_) => "[object Function]".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned(), SmeltUnknown::Object(map) => { if map.contains_key("__smelt_unmodeled") { return "[object Unmodeled]".to_owned(); } if let Some(SmeltUnknown::String(tag)) = map.get("__smelt_symbol_to_string_tag") { return format!("[object {tag}]"); } if map.contains_key("__smelt_date") { return "[object Date]".to_owned(); } if map.contains_key("__smelt_regexp") { return "[object RegExp]".to_owned(); } if map.contains_key("__smelt_error") { return "[object Error]".to_owned(); } if map.contains_key("__smelt_global_object") { return "[object global]".to_owned(); } if map.contains_key("__smelt_map") { return "[object Map]".to_owned(); } if map.contains_key("__smelt_set") { return "[object Set]".to_owned(); } if map.contains_key("__smelt_arguments") { return "[object Arguments]".to_owned(); } if map.contains_key("__smelt_abortcontroller") { return "[object AbortController]".to_owned(); } if map.contains_key("__smelt_abortsignal") { return "[object AbortSignal]".to_owned(); } if map.contains_key("__smelt_arraybuffer") { return "[object ArrayBuffer]".to_owned(); } if map.contains_key("__smelt_sharedarraybuffer") { return "[object SharedArrayBuffer]".to_owned(); } if map.contains_key("__smelt_int8array") { return "[object Int8Array]".to_owned(); } if map.contains_key("__smelt_uint8array") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_uint8clampedarray") { return "[object Uint8ClampedArray]".to_owned(); } if map.contains_key("__smelt_int16array") { return "[object Int16Array]".to_owned(); } if map.contains_key("__smelt_uint16array") { return "[object Uint16Array]".to_owned(); } if map.contains_key("__smelt_int32array") { return "[object Int32Array]".to_owned(); } if map.contains_key("__smelt_uint32array") { return "[object Uint32Array]".to_owned(); } if map.contains_key("__smelt_float32array") { return "[object Float32Array]".to_owned(); } if map.contains_key("__smelt_float64array") { return "[object Float64Array]".to_owned(); } if map.contains_key("__smelt_bigint64array") { return "[object BigInt64Array]".to_owned(); } if map.contains_key("__smelt_biguint64array") { return "[object BigUint64Array]".to_owned(); } if map.contains_key("__smelt_buffer") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_dataview") { return "[object DataView]".to_owned(); } if map.contains_key("__smelt_weakmap") { return "[object WeakMap]".to_owned(); } if map.contains_key("__smelt_weakset") { return "[object WeakSet]".to_owned(); } if map.contains_key("__smelt_file") { return "[object File]".to_owned(); } if map.contains_key("__smelt_blob") { return "[object Blob]".to_owned(); } if map.contains_key("__smelt_headers") { return "[object Headers]".to_owned(); } if map.contains_key("__smelt_urlsearchparams") { return "[object URLSearchParams]".to_owned(); } if map.contains_key("__smelt_url") { return "[object URL]".to_owned(); } if map.contains_key("__smelt_crypto_key") { return "[object CryptoKey]".to_owned(); } if map.contains_key("__smelt_request") { return "[object Request]".to_owned(); } if map.contains_key("__smelt_response") { return "[object Response]".to_owned(); } if map.contains_key("__smelt_textencoder") { return "[object TextEncoder]".to_owned(); } if map.contains_key("__smelt_textdecoder") { return "[object TextDecoder]".to_owned(); } if map.contains_key("__smelt_eventemitter") { return "[object EventEmitter]".to_owned(); } if map.contains_key("__smelt_httpserver") { return "[object Server]".to_owned(); } if map.contains_key("__smelt_incomingmessage") { return "[object IncomingMessage]".to_owned(); } if map.contains_key("__smelt_serverresponse") { return "[object ServerResponse]".to_owned(); } if map.contains_key("__smelt_formdata") { return "[object FormData]".to_owned(); } if map.contains_key("__smelt_databasesync") { return "[object DatabaseSync]".to_owned(); } if map.contains_key("__smelt_statementsync") { return "[object StatementSync]".to_owned(); } if map.contains_key("__smelt_readablestream") { return "[object ReadableStream]".to_owned(); } if map.contains_key("__smelt_domexception") { return "[object DOMException]".to_owned(); } if map.contains_key("__smelt_intl_collator") { return "[object Intl.Collator]".to_owned(); } if map.contains_key("__smelt_intl_displaynames") { return "[object Intl.DisplayNames]".to_owned(); } if map.contains_key("__smelt_intl_durationformat") { return "[object Intl.DurationFormat]".to_owned(); } if map.contains_key("__smelt_intl_listformat") { return "[object Intl.ListFormat]".to_owned(); } if map.contains_key("__smelt_intl_locale") { return "[object Intl.Locale]".to_owned(); } if map.contains_key("__smelt_intl_numberformat") { return "[object Intl.NumberFormat]".to_owned(); } if map.contains_key("__smelt_intl_pluralrules") { return "[object Intl.PluralRules]".to_owned(); } if map.contains_key("__smelt_intl_segmenter") { return "[object Intl.Segmenter]".to_owned(); } if map.contains_key("__smelt_number") { return "[object Number]".to_owned(); } if map.contains_key("__smelt_boolean") { return "[object Boolean]".to_owned(); } if map.contains_key("__smelt_string") { return "[object String]".to_owned(); } if map.contains_key("__smelt_symbol") { return "[object Symbol]".to_owned(); } if let Some(SmeltUnknown::String(name)) = map.get("name").filter(|_| map.contains_key("__smelt_builtin_namespace")) { return format!("[object {name}]"); } "[object Object]".to_owned() } } }
 
 impl PartialEq for SmeltObject { fn eq(&self, other: &Self) -> bool { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_eq(self, other, &mut smelt_seen) } }
 impl Eq for SmeltObject {}
@@ -2332,7 +2336,7 @@ fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     if let Some(element) = smelt_host_buffer_element(map, field) { return element; }
     if field == "constructor" && !map.contains_key("constructor") { if let Some(class) = smelt_marker_constructor_class(map) { return smelt_builtin_namespace(class); } }
     if map.contains_key("__smelt_global_object") && !map.contains_key(field) && smelt_builtin_construct_kind(field).is_some() { return smelt_builtin_namespace(field); }
-    if !map.contains_key(field) { if let Some(SmeltUnknown::String(text)) = map.get("__smelt_string").and(map.get("value")) { if field == "length" { return SmeltUnknown::Number(smelt_utf16_len(&text) as f64); } if let Ok(index) = field.parse::<usize>() { return smelt_utf16_char_at(&text, index).map_or(SmeltUnknown::Undefined, |character| SmeltUnknown::String(character.into())); } } }
+    if let Some(SmeltUnknown::String(text)) = map.get("__smelt_string").and_then(|_| map.get("value")).filter(|_| !map.contains_key(field)) { if field == "length" { return SmeltUnknown::Number(smelt_units_to_number(smelt_utf16_len(&text))); } if let Ok(index) = field.parse::<usize>() { return smelt_utf16_char_at(&text, index).map_or(SmeltUnknown::Undefined, |character| SmeltUnknown::String(character.into())); } }
     if !map.contains_key(field) { if let Some(SmeltUnknown::String(class)) = map.get("__smelt_builtin_namespace").and(map.get("name")) { if field == "prototype" { return smelt_builtin_prototype_object(&class); } if let Some(member) = smelt_builtin_member_value(&class, "static", field) { return member; } } }
     if let Some(SmeltUnknown::String(class)) = map.get("__smelt_builtin_prototype") { if let Some(member) = smelt_builtin_member_value(&class, "prototype", field) { return member; } }
     if field == "size" { if let Some(SmeltUnknown::Array(pairs)) = map.get("__smelt_map") { return SmeltUnknown::Number(pairs.len() as f64); } }
@@ -2594,7 +2598,7 @@ fn smelt_string_prototype_member(receiver: &::std::rc::Rc<str>, field: &str) -> 
 
 /// Read a property off an erased string: `length`, a character index, or a `String.prototype` method.
 fn smelt_get_string_field(text: &::std::rc::Rc<str>, field: &str) -> SmeltUnknown {
-    if field == "length" { return SmeltUnknown::Number(smelt_utf16_len(text) as f64); }
+    if field == "length" { return SmeltUnknown::Number(smelt_units_to_number(smelt_utf16_len(text))); }
     if let Ok(index) = field.parse::<usize>() { return smelt_utf16_char_at(text, index).map_or(SmeltUnknown::Undefined, |ch| SmeltUnknown::String(ch.into())); }
     smelt_string_prototype_member(text, field).unwrap_or(SmeltUnknown::Undefined)
 }
@@ -2725,9 +2729,18 @@ fn smelt_erased_units_find(haystack: &[u16], needle: &[u16], from: usize) -> Opt
 /// Pad `text` to `target` code units with repetitions of `fill` (`padStart`/`padEnd`).
 fn smelt_erased_padding(len: usize, target: f64, fill: &str) -> String {
     let fill_len = smelt_utf16_len(fill);
-    if fill_len == 0 || target <= len as f64 { return String::new(); }
-    let needed = target as usize - len;
+    let target_units = smelt_units_from_number(target);
+    if fill_len == 0 || target_units <= len { return String::new(); }
+    let needed = target_units - len;
     smelt_utf16_slice(&fill.repeat(needed.div_ceil(fill_len)), 0, needed)
+}
+
+/// The code unit index an erased `charAt`-style argument names in a string of
+/// `len` units: `None` when it is negative or past the end.
+fn smelt_erased_unit_index(value: &SmeltUnknown, len: usize) -> Option<usize> {
+    let index = smelt_erased_integer(value);
+    if index < 0.0 { return None; }
+    Some(smelt_units_from_number(index)).filter(|unit| *unit < len)
 }
 
 /// Apply `String.prototype[name]` to an erased string receiver.
@@ -2742,15 +2755,18 @@ fn smelt_string_prototype_apply(text: &str, name: &str, args: Vec<SmeltUnknown>)
     let range = |start: usize, end: usize| smelt_utf16_slice(text, start, end);
     match name {
         "at" => smelt_erased_at_index(args.first(), len).map_or(SmeltUnknown::Undefined, |index| string(range(index, index + 1))),
-        "charAt" => { let index = smelt_erased_integer(&arg(0)); if index >= 0.0 && index < len as f64 { string(range(index as usize, index as usize + 1)) } else { string(String::new()) } }
-        "charCodeAt" | "codePointAt" => { let index = smelt_erased_integer(&arg(0)); if index >= 0.0 && index < len as f64 { let code = if name == "charCodeAt" { u32::from(units[index as usize]) } else { smelt_utf16_code_point_at(text, index as usize).unwrap_or(0) }; SmeltUnknown::Number(f64::from(code)) } else if name == "charCodeAt" { SmeltUnknown::Number(f64::NAN) } else { SmeltUnknown::Undefined } }
+        "charAt" => string(smelt_erased_unit_index(&arg(0), len).map_or_else(String::new, |index| range(index, index + 1))),
+        "charCodeAt" | "codePointAt" => smelt_erased_unit_index(&arg(0), len).map_or_else(
+            || if name == "charCodeAt" { SmeltUnknown::Number(f64::NAN) } else { SmeltUnknown::Undefined },
+            |index| { let code = if name == "charCodeAt" { u32::from(units[index]) } else { smelt_utf16_code_point_at(text, index).unwrap_or(0) }; SmeltUnknown::Number(f64::from(code)) },
+        ),
         "concat" => { let mut result = text.to_owned(); for argument in &args { result.push_str(&smelt_erased_to_js_string(argument)); } string(result) }
-        "includes" | "indexOf" => { let needle: Vec<u16> = arg_text(0).encode_utf16().collect(); let from = smelt_erased_clamped_position(args.get(1), len, 0); let found = smelt_erased_units_find(&units, &needle, from); if name == "includes" { SmeltUnknown::Bool(found.is_some()) } else { SmeltUnknown::Number(found.map_or(-1.0, |index| index as f64)) } }
+        "includes" | "indexOf" => { let needle: Vec<u16> = arg_text(0).encode_utf16().collect(); let from = smelt_erased_clamped_position(args.get(1), len, 0); let found = smelt_erased_units_find(&units, &needle, from); if name == "includes" { SmeltUnknown::Bool(found.is_some()) } else { SmeltUnknown::Number(found.map_or(-1.0, smelt_units_to_number)) } }
         "lastIndexOf" => {
             let needle: Vec<u16> = arg_text(0).encode_utf16().collect();
-            let from = match args.get(1) { None | Some(SmeltUnknown::Undefined) => len, Some(value) => { let number = smelt_unknown_to_number(value); if number.is_nan() { len } else { number.trunc().clamp(0.0, len as f64) as usize } } };
+            let from = match args.get(1) { None | Some(SmeltUnknown::Undefined) => len, Some(value) => { let number = smelt_unknown_to_number(value); if number.is_nan() { len } else { smelt_units_from_number(number).min(len) } } };
             if needle.len() > len { return SmeltUnknown::Number(-1.0); }
-            SmeltUnknown::Number((0..=from.min(len - needle.len())).rev().find(|start| units[*start..*start + needle.len()] == *needle).map_or(-1.0, |index| index as f64))
+            SmeltUnknown::Number((0..=from.min(len - needle.len())).rev().find(|start| units[*start..*start + needle.len()] == *needle).map_or(-1.0, smelt_units_to_number))
         }
         "startsWith" => { let needle: Vec<u16> = arg_text(0).encode_utf16().collect(); let start = smelt_erased_clamped_position(args.get(1), len, 0); SmeltUnknown::Bool(units[start..].starts_with(&needle)) }
         "endsWith" => { let needle: Vec<u16> = arg_text(0).encode_utf16().collect(); let end = smelt_erased_clamped_position(args.get(1), len, len); SmeltUnknown::Bool(units[..end].ends_with(&needle)) }
@@ -3664,7 +3680,7 @@ impl SmeltMatch {
     /// Build a `SmeltMatch` from a compiled regex and its captures, found in
     /// `input[offset..]`; `spans` keeps the group indices (the `d` flag).
     fn from_captures(regex: &fancy_regex::Regex, captures: &fancy_regex::Captures<'_>, input: &str, offset: usize, spans: bool) -> Self {
-        let unit_of = |byte: usize| smelt_utf16_index_of_byte(input, offset + byte) as f64;
+        let unit_of = |byte: usize| smelt_units_to_number(smelt_utf16_index_of_byte(input, offset + byte));
         let match_index = captures.get(0).map_or(0, |whole| smelt_utf16_index_of_byte(input, offset + whole.start()));
         let spans = spans.then(|| ::std::rc::Rc::new((0..captures.len()).map(|index| captures.get(index).map(|group| (unit_of(group.start()), unit_of(group.end())))).collect::<Vec<_>>()));
         let groups = (0..captures.len()).map(|index| captures.get(index).map(|value| value.as_str().to_owned())).collect::<Vec<_>>();

@@ -300,7 +300,6 @@ impl ModuleBuilder<'_> {
         };
         let mut needle = self.argument(needle_argument, body)?;
         let string_ty = self.ctx.krate.types.intern(Type::String);
-        let haystack_ty = Self::expr_ty(body, haystack);
         if self.is_string_compatible_type(haystack_ty) || self.type_contains_unknown(haystack_ty)
         {
             haystack = body.push_expr(Expr {

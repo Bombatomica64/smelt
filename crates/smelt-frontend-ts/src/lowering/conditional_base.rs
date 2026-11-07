@@ -78,8 +78,7 @@ impl ModuleBuilder<'_> {
         let cond = body.push_local(LocalDecl { name: Some(symbol), ty: bool_ty, mutable: false, span });
         let pat = body.push_pattern(Pattern::Binding(cond));
         body.push_stmt_to_block(block, Stmt::Let { pat, ty: bool_ty, value: Some(cond_value) });
-        let selected = self.select_on(cond, span, body, |this, arm, body| {
-            let class = [when_true, when_false][arm];
+        let selected = self.select_on(cond, span, body, [when_true, when_false], |this, class, body| {
             this.identifier_expression(class, span.start, span.end, body)
         })?;
         self.binding_declaration(&declarator.id, Some(selected), None, false, body, block)?;
@@ -144,8 +143,8 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let root = root.to_owned();
-        self.select_on(class.cond, span, body, |this, arm, body| {
-            this.classes.push_alias(root.clone(), class.arms[arm].clone());
+        self.select_on(class.cond, span, body, class.arms, |this, arm, body| {
+            this.classes.push_alias(root.clone(), arm);
             let lowered = lower(this, body);
             this.classes.pop_alias();
             lowered
@@ -154,15 +153,17 @@ impl ModuleBuilder<'_> {
     }
 
     /// `cond ? arm(0) : arm(1)`, typed as the union of what the arms answer.
-    fn select_on(
+    fn select_on<A>(
         &mut self,
         cond: smelt_hir::LocalId,
         span: smelt_hir::Span,
         body: &mut Body,
-        mut arm: impl FnMut(&mut Self, usize, &mut Body) -> Result<smelt_hir::ExprId, SmeltError>,
+        arms: [A; 2],
+        mut arm: impl FnMut(&mut Self, A, &mut Body) -> Result<smelt_hir::ExprId, SmeltError>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let then_expr = arm(self, 0, body)?;
-        let else_expr = arm(self, 1, body)?;
+        let [when_true, when_false] = arms;
+        let then_expr = arm(self, when_true, body)?;
+        let else_expr = arm(self, when_false, body)?;
         let then_ty = Self::expr_ty(body, then_expr);
         let else_ty = Self::expr_ty(body, else_expr);
         let ty = if then_ty == else_ty {

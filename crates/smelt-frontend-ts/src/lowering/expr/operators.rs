@@ -273,7 +273,7 @@ impl ModuleBuilder<'_> {
         &mut self,
         key_expr: &Expression<'_>,
         receiver_expr: &Expression<'_>,
-        span: smelt_hir::Span,
+        span: Span,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);

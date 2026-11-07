@@ -1249,8 +1249,8 @@ impl FunctionEmitter<'_> {
         kind: smelt_hir::StringSliceKind,
     ) -> Result<RustExpr, EmitError> {
         let operand_expr = self.string_like_operand_expr(operand, "string substring")?;
-        let bound = |bound: Option<&Operand>, absent: &str| -> Result<String, EmitError> {
-            Ok(match bound {
+        let bound = |given: Option<&Operand>, absent: &str| -> Result<String, EmitError> {
+            Ok(match given {
                 Some(bound) => format!(
                     "{{ let smelt_bound = {} as f64; if smelt_bound.is_nan() {{ 0.0 }} else {{ smelt_bound.trunc() }} }}",
                     self.operand_expr(bound)?.as_cast_operand()

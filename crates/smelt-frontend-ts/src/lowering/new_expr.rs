@@ -198,7 +198,6 @@ impl ModuleBuilder<'_> {
                             self.erase_with(ErasureReason::ByName, "new on dynamic callee"),
                         )
                     });
-                let span = self.span(new_expr.span.start, new_expr.span.end);
                 if new_expr.arguments.iter().any(Argument::is_spread) {
                     let spread_item_ty =
                         self.erase_with(ErasureReason::DynamicOperator, "spread arguments");
@@ -547,7 +546,6 @@ impl ModuleBuilder<'_> {
                     continue;
                 };
                 if self.ctx.krate.types.get(bound) == Some(&Type::Unknown) && Self::expr_ty(body, *arg) != bound {
-                    let span = self.span(new_expr.span.start, new_expr.span.end);
                     *arg = body.push_expr(Expr { kind: ExprKind::TypeAssert { value: *arg }, ty: bound, span });
                 }
             }

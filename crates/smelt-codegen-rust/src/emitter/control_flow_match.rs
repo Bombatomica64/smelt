@@ -71,7 +71,7 @@ impl FunctionEmitter<'_> {
             // Control resumes at the shared join; its tail decides divergence.
             self.emit_block(self.block(join)?, out)?;
         } else {
-            self.flow.record(super::flow_state::Flow::from_diverges(arms_diverge));
+            self.flow.record(flow_state::Flow::from_diverges(arms_diverge));
         }
         Ok(())
     }
@@ -146,7 +146,7 @@ impl FunctionEmitter<'_> {
         block: &BasicBlock,
         hoisted_join: Option<smelt_mir::BlockId>,
         out: &mut String,
-    ) -> Result<super::flow_state::Flow, EmitError> {
+    ) -> Result<flow_state::Flow, EmitError> {
         if hoisted_join.is_some() {
             self.emit_block_as_match_arm(block, out)?;
             Ok(self.flow.last_flow())

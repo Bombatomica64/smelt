@@ -712,7 +712,7 @@ pub(crate) fn super_copy_name(mir: &Mir, function: &MirFunction) -> Option<Strin
 /// a `super` call: `function` is declared on a strict ancestor, and the method
 /// of that name `receiver` has is another one.
 pub(crate) fn is_super_call(mir: &Mir, receiver: Symbol, function: FuncId) -> bool {
-    let Some(declared) = mir.functions.get(function.0 as usize) else {
+    let Some(declared) = usize::try_from(function.0).ok().and_then(|index| mir.functions.get(index)) else {
         return false;
     };
     if !matches!(declared.origin, smelt_mir::HirOrigin::ClassMethod { class, .. } if class != receiver) {
@@ -737,16 +737,16 @@ pub(crate) fn super_calls(mir: &Mir) -> Vec<(Symbol, FuncId)> {
         .chain(mir.closures.iter().map(|closure| (&closure.locals, &closure.blocks)));
     for (locals, blocks) in bodies {
         for block in blocks {
-            let Some(smelt_mir::Terminator::Call { callee: smelt_mir::Callee::Static(function), args, .. }) =
+            let Some(Terminator::Call { callee: smelt_mir::Callee::Static(function), args, .. }) =
                 &block.terminator
             else {
                 continue;
             };
-            let Some(receiver) = args.first().and_then(smelt_mir::Operand::local) else {
+            let Some(receiver) = args.first().and_then(Operand::local) else {
                 continue;
             };
             let Some(Type::Class { name, .. }) =
-                locals.get(receiver.0 as usize).and_then(|local| mir.types.get(local.ty))
+                usize::try_from(receiver.0).ok().and_then(|index| locals.get(index)).and_then(|local| mir.types.get(local.ty))
             else {
                 continue;
             };
