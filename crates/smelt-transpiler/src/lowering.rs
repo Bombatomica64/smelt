@@ -29,10 +29,11 @@ use crate::source_files::{
 };
 use crate::specialization::PreparedSpecialization;
 use crate::timing;
+use crate::ts_facts::TsCheck;
 
 mod driver;
 
-use driver::{ManifestSeed, ModuleInputs, RecoverableLowering, SeededLowering};
+use driver::{ManifestSeed, ModuleInputs, PredeclaredLowering, RecoverableLowering, SeededLowering};
 
 /// Represents a lowered crate with its modules.
 pub(crate) type LoweredCrate = (smelt_hir::Crate, Vec<(String, ModuleId)>);
@@ -136,6 +137,23 @@ impl ManifestLowering {
         })
     }
 
+    /// Runs what every lowering does first, in the order it must happen: the
+    /// checker over all sources, then the seed scan, then the predeclaration
+    /// pass, so no module body lowers before the crate-wide facts exist.
+    fn prepare(&self) -> Result<Prepared<'_>, Box<dyn std::error::Error>> {
+        let ordered = self.sources.iter().collect::<Vec<_>>();
+        let ts_check = crate::ts_facts::analyze_sources(&ordered);
+        ts_check.report_failure();
+        let seed = ManifestSeed::scan(&ordered, &self.module_names, self.outside_crate.clone());
+        let lowering = SeededLowering::new(seed).predeclare(&ordered, &self.file_ids)?;
+        Ok(Prepared { ordered, ts_check, lowering })
+    }
+
+    /// The whole-crate inputs of this run's module lowerings.
+    fn module_inputs<'run>(&'run self, ts_check: &'run TsCheck) -> ModuleInputs<'run> {
+        ModuleInputs { specialization: &self.specialization, ts_facts: ts_check.facts.as_ref() }
+    }
+
     /// Lowers every source into one crate; the first file that fails stops it.
     pub(crate) fn lower(self) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
         self.lower_checked().map(|(lowered, _)| lowered)
@@ -146,12 +164,8 @@ impl ManifestLowering {
         self,
     ) -> Result<(LoweredCrate, Vec<ManifestDiagnostic>), Box<dyn std::error::Error>> {
         timing::measure("manifest.frontend_lower", || {
-            let ordered = self.sources.iter().collect::<Vec<_>>();
-            let ts_check = crate::ts_facts::analyze_sources(&ordered);
-            ts_check.report_failure();
-            let inputs = ModuleInputs { specialization: &self.specialization, ts_facts: ts_check.facts.as_ref() };
-            let seed = ManifestSeed::scan(&ordered, &self.module_names, self.outside_crate.clone());
-            let mut lowering = SeededLowering::new(seed).predeclare(&ordered, &self.file_ids)?;
+            let Prepared { ordered, ts_check, mut lowering } = self.prepare()?;
+            let inputs = self.module_inputs(&ts_check);
             let mut modules = Vec::new();
             for ((source, file_id), name) in ordered.iter().zip(&self.file_ids).zip(&self.module_names) {
                 let module = lowering
@@ -188,13 +202,9 @@ impl ManifestLowering {
         erasure: Option<&crate::erasure::ErasureSettings>,
     ) -> Result<Vec<ManifestDiagnostic>, Box<dyn std::error::Error>> {
         let _quiet = QuietPanics::install();
-        let ordered = self.sources.iter().collect::<Vec<_>>();
-        let ts_check = crate::ts_facts::analyze_sources(&ordered);
-        ts_check.report_failure();
-        let inputs = ModuleInputs { specialization: &self.specialization, ts_facts: ts_check.facts.as_ref() };
-        let seed = ManifestSeed::scan(&ordered, &self.module_names, self.outside_crate.clone());
-        let mut lowering =
-            RecoverableLowering::new(SeededLowering::new(seed).predeclare(&ordered, &self.file_ids)?);
+        let Prepared { ordered, ts_check, lowering: predeclared } = self.prepare()?;
+        let inputs = self.module_inputs(&ts_check);
+        let mut lowering = RecoverableLowering::new(predeclared);
         let mut diagnostics = Vec::new();
         for (source, file_id) in ordered.iter().zip(&self.file_ids) {
             match lowering.lower_source(source, *file_id, inputs) {
@@ -225,6 +235,16 @@ impl ManifestLowering {
         }
         Ok(diagnostics)
     }
+}
+
+/// A run ready to lower its first module; see [`ManifestLowering::prepare`].
+struct Prepared<'run> {
+    /// Every source of the run, in dependency order.
+    ordered: Vec<&'run ManifestSource>,
+    /// What the checker made of the sources.
+    ts_check: TsCheck,
+    /// The predeclared lowering context.
+    lowering: PredeclaredLowering,
 }
 
 /// The name of the module a program enters through.

@@ -111,8 +111,8 @@ impl SeededLowering {
         // may key a member by a symbol another module (possibly one ordered
         // later in an import cycle) declares.
         for (source, file_id) in sources.iter().zip(file_ids) {
-            let path = source.path.display().to_string();
-            if SourceLang::from_path(&path).is_ok_and(SourceLang::is_typescript) {
+            if source.lang.is_typescript() {
+                let path = source.path.display().to_string();
                 smelt_frontend_ts::predeclare_unique_symbol_consts_with_path(
                     &source.source,
                     *file_id,
@@ -285,5 +285,32 @@ impl RecoverableLowering {
             Self::Lowering(lowering) => Some(lowering.krate()),
             Self::Poisoned => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::manifest::read_manifest_source;
+
+    /// A laid typed version carries TypeScript under a `.js` path, so language is
+    /// the source's and not the path's: its unique symbols are predeclared. A
+    /// module ordered before it in an import cycle reads them from here.
+    #[test]
+    fn a_laid_js_source_predeclares_its_unique_symbols() -> Result<(), Box<dyn std::error::Error>> {
+        let directory = tempfile::tempdir()?;
+        let written = directory.path().join("index.ts");
+        std::fs::write(&written, "export const tag: unique symbol = Symbol(\"tag\");\n")?;
+        let mut laid = read_manifest_source(written)?;
+        laid.path = directory.path().join("index.js");
+
+        let seed = ManifestSeed::scan(&[&laid], &["index".to_owned()], HashSet::new());
+        let lowering = SeededLowering::new(seed).predeclare(&[&laid], &[FileId(0)])?;
+        let path = laid.path.display().to_string();
+        let symbols = lowering.ts.predeclared_unique_symbols.get(&path);
+        if symbols.is_some_and(|names| names.contains_key("tag")) {
+            return Ok(());
+        }
+        Err(format!("`tag` was not predeclared for {path}: {symbols:?}").into())
     }
 }
