@@ -318,8 +318,12 @@ pub enum Command {
         top: usize,
     },
 
-    /// Remove the output target directory (not implemented yet)
-    Clean,
+    /// Remove the output target directory
+    Clean {
+        /// Remove files smelt did not write without asking
+        #[arg(long)]
+        force: bool,
+    },
     /// Print the JSON Schema for Smelt.toml
     DumpSchema,
 }

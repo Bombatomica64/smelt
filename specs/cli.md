@@ -31,7 +31,7 @@ All commands accept `--manifest-path <path>` (defaults to `./Smelt.toml`).
 | `smelt check`            | Run the check pipeline; do not emit                  | partial      |
 | `smelt dump-hir <file>`  | Print HIR for a single source file                   | ✅ done       |
 | `smelt dump-mir <file>`  | Print MIR for a single source file                   | ✅ done       |
-| `smelt clean`            | Remove `output.target`                               | ❌ todo       |
+| `smelt clean`            | Remove `output.target`                               | ✅ done       |
 | `smelt dump-schema`      | Print the JSON Schema for `Smelt.toml`               | ✅ done       |
 
 ### `smelt new <name>`
@@ -85,6 +85,8 @@ Same as above but lowers to MIR and pretty-prints.
 
 Remove `output.target` recursively. Prompt for confirmation if it contains files not produced by smelt (heuristic: files without the smelt-generated header). Skip prompt with `--force`.
 
+Produced by smelt: `.rs` files starting with the `@generated` header, `Cargo.toml`, `Cargo.lock`, `smelt-erasure.json` and `smelt-typedness.json` at the top of the target, and Cargo's `target/` inside it. Without a terminal there is no prompt: foreign files make the command fail and name `--force`. A target that is the project directory, or contains it, is refused even with `--force`.
+
 ## Manifest Loading
 
 `smelt-transpiler::config_parser::parse(path)` reads, deserializes via `toml`, validates, and returns `Config`. Validation rules:
@@ -137,7 +139,6 @@ Telemetry: none. Ever.
 
 ## Current Gaps (state of the code → what's missing)
 
-- `smelt clean` is still unimplemented in `crates/smelt-transpiler/src/cli.rs`.
 - `smelt-frontend-ts`'s `checker.rs` shells out to `tsc` and `oxlint` via `npx` and has no caller; type errors come from the embedded checker (see `smelt check`).
 - No call to `smelt-hir`, `smelt-mir`, or `smelt-codegen-rust` exists from the CLI yet.
 - Manifest validator does not enforce the missing-entries check.
@@ -165,7 +166,6 @@ The list below is the v1.0 roadmap for `smelt-cli`, ordered by dependency. Items
 
 ### Commands
 
-- [ ] `smelt clean` — remove `output.target`, with confirmation prompt unless `--force`.
 - [x] `smelt check` — reports the embedded TypeScript checker's diagnostics; `--deny-type-errors` fails on them.
 - [ ] `smelt build` — wire HIR → MIR → codegen once those crates exist; invoke `cargo build` if `output.build = true`.
 - [x] `smelt dump-hir <file>` — invoke frontend, run validator, call `smelt_hir::pretty::print`.
