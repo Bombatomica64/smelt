@@ -114,7 +114,8 @@ fn direct_reasons(module: &ModuleInput) -> BTreeSet<DetectionReason> {
 /// Conservatively identifies Python definition-time behavior.
 fn python_reasons(source: &str) -> BTreeSet<DetectionReason> {
     let mut reasons = BTreeSet::new();
-    for line in source.lines().map(str::trim_start) {
+    for raw_line in source.lines() {
+        let line = raw_line.trim_start();
         if line.starts_with('@') {
             reasons.insert(DetectionReason::PythonDecorator);
         }
@@ -128,7 +129,10 @@ fn python_reasons(source: &str) -> BTreeSet<DetectionReason> {
         {
             reasons.insert(DetectionReason::PythonDefinitionHook);
         }
-        if is_python_factory_binding(line) {
+        // Only a module-level binding is exported, so the line is tested with
+        // its indentation: `x = f(..)` inside a function body runs at call
+        // time, not at definition time.
+        if is_python_factory_binding(raw_line) {
             reasons.insert(DetectionReason::PythonFactoryBinding);
         }
     }
@@ -365,5 +369,26 @@ mod tests {
             detected.is_empty(),
             "ordinary class construction is not a factory binding"
         );
+    }
+
+    /// A call bound inside a function body runs when the function is called,
+    /// so it never makes the module a candidate; the same binding at module
+    /// level still does.
+    #[test]
+    fn a_call_bound_inside_a_function_is_not_a_factory_binding() {
+        let indented = detect_specialization_modules(&[module(
+            "main.py",
+            HostLanguage::Python,
+            "async def main() -> None:\n    results = await gather(work(2), work(3))\n",
+            &[],
+        )]);
+        assert!(indented.is_empty(), "a body-local binding must not start the host");
+        let top_level = detect_specialization_modules(&[module(
+            "main.py",
+            HostLanguage::Python,
+            "handler = make_handler(config)\n",
+            &[],
+        )]);
+        assert_eq!(top_level.len(), 1, "a module-level factory binding is still a candidate");
     }
 }
