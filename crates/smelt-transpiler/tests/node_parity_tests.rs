@@ -142,6 +142,12 @@ fn namespace_generic_call() -> TestResult {
     verify_node_parity_with("namespace_generic_call", &["lib.ts"])
 }
 
+/// A field typed `T | boolean` is stored erased at every instantiation.
+#[test]
+fn generic_union_field() -> TestResult {
+    verify_node_parity("generic_union_field")
+}
+
 /// A parameter does not hide a module constant from other functions.
 #[test]
 fn parameter_shadows_module_const() -> TestResult {

@@ -2594,10 +2594,27 @@ impl FunctionEmitter<'_> {
         fields
             .into_iter()
             .map(|mut field| {
-                field.ty = substitute_existing_type(self.mir, field.ty, &substitutions);
+                // A union with a type-parameter member has no Rust generic to
+                // carry it, so the struct declares the field erased whatever the
+                // record is instantiated at: every read and adapter sees that.
+                let stored_erased = self.union_member_is_type_param(field.ty);
+                field.ty = match self.existing_type_id(Type::Unknown) {
+                    Some(unknown) if stored_erased => unknown,
+                    _ => substitute_existing_type(self.mir, field.ty, &substitutions),
+                };
                 field
             })
             .collect()
+    }
+
+    /// Whether `ty` is a union one of whose members is a type parameter.
+    fn union_member_is_type_param(&self, ty: TypeId) -> bool {
+        matches!(
+            self.mir.types.get(ty),
+            Some(Type::Union(members)) if members.iter().any(|member| {
+                matches!(self.mir.types.get(*member), Some(Type::TypeParam { .. }))
+            })
+        )
     }
 
     /// Find the ID of an already interned type.

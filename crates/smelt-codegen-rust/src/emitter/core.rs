@@ -1450,6 +1450,21 @@ impl<'mir> FunctionEmitter<'mir> {
         target: TypeId,
         scope: &RenderScope,
     ) -> Result<Option<String>, EmitError> {
+        // The callee's own `Box<T>` of the same record: its `T` is bound from this
+        // value, so there is nothing to convert and no spelling of `T` here.
+        if let (Some(Type::Class { name: from, .. }), Some(Type::Class { name: to, args })) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+            && from == to
+            && !args.is_empty()
+            && args.iter().all(|arg| {
+                matches!(
+                    self.mir.types.get(*arg),
+                    Some(Type::TypeParam { name, .. }) if !self.current_function_has_type_param(*name)
+                )
+            })
+        {
+            return Ok(Some(format!("{value_text}.clone()")));
+        }
         // A reference class is a handle newtype over `Rc<RefCell<Inner>>`, not a
         // field-wise struct, so it cannot be rebuilt with a `Name { field: .. }`
         // literal (that fails with E0560). When the source already has the
