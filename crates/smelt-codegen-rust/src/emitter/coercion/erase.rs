@@ -674,13 +674,14 @@ impl FunctionEmitter<'_> {
     /// Box a fixed set of already-erased `(key, value)` entry expressions into a
     /// `SmeltUnknown` object.
     ///
-    /// `entries_text` is the comma-joined Rust text of `(String, SmeltUnknown)`
-    /// tuples whose values have already crossed the seam. This owns the outer
+    /// `entries_text` is the comma-joined Rust text of `(K, SmeltUnknown)`
+    /// tuples, `K` being this body's string type, whose values have already crossed the seam. This owns the outer
     /// `SmeltUnknown::Object(SmeltObject::new(..))` construction so literal-object
     /// erase paths need not spell the variant.
     pub(in crate::emitter) fn erase_object_expr(&self, entries_text: &RustExpr) -> RustExpr {
         RustExpr::atom(self.carrier_format(format_args!(
-            "SmeltUnknown::Object(SmeltObject::new(Vec::from([{entries_text}])))"
+            "SmeltUnknown::Object(SmeltObject::new(Vec::<({}, SmeltUnknown)>::from([{entries_text}])))",
+            self.text_type_name(),
         )))
     }
 

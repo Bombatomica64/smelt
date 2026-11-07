@@ -74,7 +74,7 @@ fn smelt_map_entry_key_is(entry: &SmeltUnknown, key: &SmeltUnknown) -> bool {
 /// prototype entries an erased object carries (`__smelt_proto:` for
 /// `Object.create`, `__smelt_method:` for a class method), else `undefined`.
 #[allow(dead_code)]
-fn smelt_record_inherited(record: &SmeltRecord<String, SmeltUnknown>, key: &str) -> SmeltUnknown { record.get(&format!("__smelt_proto:{key}")).or_else(|| record.get(&format!("__smelt_method:{key}"))).unwrap_or(SmeltUnknown::Undefined) }
+fn smelt_record_inherited(record: &SmeltRecord<JsString, SmeltUnknown>, key: &str) -> SmeltUnknown { record.get(&*JsString::from(format!("__smelt_proto:{key}"))).or_else(|| record.get(&*JsString::from(format!("__smelt_method:{key}")))).unwrap_or(SmeltUnknown::Undefined) }
 
 /// What a property read answers for the stored `value`: an accessor record
 /// (`{ __smelt_get: getter }`, an object literal's `get`) is called.
@@ -92,14 +92,14 @@ fn smelt_resolve_accessor(value: SmeltUnknown) -> SmeltUnknown {
 /// A dotted property read on a string-keyed record of erased values: the own
 /// entry, else the prototype entries, with an accessor called.
 #[allow(dead_code)]
-fn smelt_record_property(record: &SmeltRecord<String, SmeltUnknown>, key: &str) -> SmeltUnknown {
-    smelt_resolve_accessor(record.get(&key.to_owned()).unwrap_or_else(|| smelt_record_inherited(record, key)))
+fn smelt_record_property(record: &SmeltRecord<JsString, SmeltUnknown>, key: &(impl SmeltHostText + ?Sized)) -> SmeltUnknown { let key = key.host_text(); let key: &str = &key;
+    smelt_resolve_accessor(record.get(&*JsString::from(key)).unwrap_or_else(|| smelt_record_inherited(record, key)))
 }
 // @smelt:item-end
 
 // @smelt:item smelt_get_object_field
 // @smelt:if unknown
-fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
+fn smelt_get_object_field(map: &SmeltObject, field: &(impl SmeltHostText + ?Sized)) -> SmeltUnknown { let field = field.host_text(); let field: &str = &field;
 // @smelt:end
 // @smelt:if vitest_mock
     //~ Vitest exposes a `.mock` accessor on every mock function carrying
@@ -110,7 +110,7 @@ fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     //~ recorded argument arrays; `results` mirrors the recorded return
     //~ values, so `mockFn.mock.calls.length` flows through the ordinary
     //~ array-length path.
-    if field == "mock" { if let Some(state) = smelt_vitest_mock_state(&SmeltUnknown::Object(map.clone())) { let state = state.borrow(); let calls = state.calls.iter().map(|call| SmeltUnknown::Array(call.clone().into())).collect::<Vec<_>>(); let results = state.results.clone(); let mock = SmeltObject::new(Vec::new()); mock.insert("calls".to_owned(), SmeltUnknown::Array(calls.into())); mock.insert("results".to_owned(), SmeltUnknown::Array(results.into())); return SmeltUnknown::Object(mock); } }
+    if field == "mock" { if let Some(state) = smelt_vitest_mock_state(&SmeltUnknown::Object(map.clone())) { let state = state.borrow(); let calls = state.calls.iter().map(|call| SmeltUnknown::Array(call.clone().into())).collect::<Vec<_>>(); let results = state.results.clone(); let mock = SmeltObject::new(Vec::<(JsString, SmeltUnknown)>::new()); mock.insert("calls".to_owned(), SmeltUnknown::Array(calls.into())); mock.insert("results".to_owned(), SmeltUnknown::Array(results.into())); return SmeltUnknown::Object(mock); } }
 // @smelt:end
 // @smelt:if unknown
     //~ An erased `Map` is a marker object `{ __smelt_map: [[k, v], ...] }`.
@@ -165,7 +165,7 @@ fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     //~ synthesized on read, exactly like the erased `Map`'s `.size` below. An
     //~ own field still wins, and the payload's *methods* stay on the
     //~ prototype rather than becoming own members.
-    if let Some(SmeltUnknown::String(text)) = map.get("__smelt_string").and_then(|_| map.get("value")).filter(|_| !map.contains_key(field)) { if field == "length" { return SmeltUnknown::Number(smelt_units_to_number(smelt_utf16_len(&text))); } if let Ok(index) = field.parse::<usize>() { return smelt_utf16_char_at(&text, index).map_or(SmeltUnknown::Undefined, |character| SmeltUnknown::String(character.into())); } }
+    if let Some(SmeltUnknown::String(text)) = map.get("__smelt_string").and_then(|_| map.get("value")).filter(|_| !map.contains_key(field)) { if field == "length" { return SmeltUnknown::Number(smelt_units_to_number(text.len())); } if let Ok(index) = field.parse::<usize>() { return text.char_at(index).map_or(SmeltUnknown::Undefined, SmeltUnknown::String); } }
     //~ A builtin read as a value is a marker record (`smelt_builtin_namespace`),
     //~ and JavaScript answers property reads on it: `Array.prototype` is the
     //~ builtin's prototype object and `Array.isArray` is a function value. Both
@@ -173,8 +173,8 @@ fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     //~ of a member and its call spelling agree. An own field still wins, and an
     //~ unmodeled member stays `undefined` rather than becoming a callable that
     //~ cannot run.
-    if !map.contains_key(field) { if let Some(SmeltUnknown::String(class)) = map.get("__smelt_builtin_namespace").and(map.get("name")) { if field == "prototype" { return smelt_builtin_prototype_object(&class); } if let Some(member) = smelt_builtin_member_value(&class, "static", field) { return member; } } }
-    if let Some(SmeltUnknown::String(class)) = map.get("__smelt_builtin_prototype") { if let Some(member) = smelt_builtin_member_value(&class, "prototype", field) { return member; } }
+    if !map.contains_key(field) { if let Some(SmeltUnknown::String(class)) = map.get("__smelt_builtin_namespace").and_then(|_| map.get("name")) { if field == "prototype" { return smelt_builtin_prototype_object(&class.to_string_lossy()); } if let Some(member) = smelt_builtin_member_value(&class.to_string_lossy(), "static", field) { return member; } } }
+    if let Some(SmeltUnknown::String(class)) = map.get("__smelt_builtin_prototype") { if let Some(member) = smelt_builtin_member_value(&class.to_string_lossy(), "prototype", field) { return member; } }
     if field == "size" { if let Some(SmeltUnknown::Array(pairs)) = map.get("__smelt_map") { return SmeltUnknown::Number(pairs.len() as f64); } }
     //~ Same synthesis for an erased `Set` (`{ __smelt_set: [members...] }`):
     //~ real Sets expose `.size` through `Set.prototype`, absent from the marker
@@ -344,7 +344,7 @@ fn smelt_object_prototype_member(field: &str) -> Option<SmeltUnknown> {
 // `Array.prototype`'s methods; anything else is `undefined`.
 // @smelt:item smelt_get_array_field when unknown
 /// Read a property off an erased JavaScript array (`arr.k` / `arr[k]`).
-fn smelt_get_array_field(values: &SmeltArray, field: &str) -> SmeltUnknown {
+fn smelt_get_array_field(values: &SmeltArray, field: &(impl SmeltHostText + ?Sized)) -> SmeltUnknown { let field = field.host_text(); let field: &str = &field;
     if field == "length" { return SmeltUnknown::Number(values.len() as f64); }
     if let Ok(index) = field.parse::<usize>() { return values.get(index).unwrap_or(SmeltUnknown::Undefined); }
     values.named_property(field).or_else(|| smelt_array_prototype_member(values, field)).unwrap_or(SmeltUnknown::Undefined)
@@ -376,7 +376,7 @@ fn smelt_get_array_field(values: &SmeltArray, field: &str) -> SmeltUnknown {
 //~ what makes `f.prototype` an object rather than `undefined`, and what
 //~ lets a property source code wrote onto a function read back.
 /// Read a property off any erased value (JS `value.field`).
-fn smelt_get_unknown_field(value: &SmeltUnknown, field: &str) -> SmeltUnknown {
+fn smelt_get_unknown_field(value: &SmeltUnknown, field: &(impl SmeltHostText + ?Sized)) -> SmeltUnknown { let field = field.host_text(); let field: &str = &field;
     match value {
         SmeltUnknown::Object(object) if object.contains_key("__smelt_unmodeled") => value.clone(),
         //~ A marker-bearing host record resolves its MODELED MEMBERS first.
@@ -425,13 +425,13 @@ fn smelt_get_unknown_field(value: &SmeltUnknown, field: &str) -> SmeltUnknown {
 //~ would double them in a clone), so they belong here and not on the
 //~ prototype half.
 /// Whether a boxed-`String` wrapper answers `key` as one of its OWN properties.
-fn smelt_boxed_string_own_property(map: &SmeltObject, key: &str) -> bool { let Some(SmeltUnknown::String(text)) = map.get("__smelt_string").and(map.get("value")) else { return false; }; key == "length" || key.parse::<usize>().is_ok_and(|index| index < smelt_utf16_len(&text)) }
+fn smelt_boxed_string_own_property(map: &SmeltObject, key: &str) -> bool { let Some(SmeltUnknown::String(text)) = map.get("__smelt_string").and_then(|_| map.get("value")) else { return false; }; key == "length" || key.parse::<usize>().is_ok_and(|index| index < text.len()) }
 /// Whether `value` has `key` as an own property (JS `Object.hasOwn`).
-fn smelt_has_own_property(value: &SmeltUnknown, key: &str) -> bool {
+fn smelt_has_own_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Sized)) -> bool { let key = key.host_text(); let key: &str = &key;
     match value {
         SmeltUnknown::Object(map) => map.contains_key(key) || smelt_host_buffer_element(map, key).is_some() || smelt_boxed_string_own_property(map, key),
         SmeltUnknown::Array(values) => key == "length" || values.named_keys().contains(&key.to_owned()) || key.parse::<usize>().is_ok_and(|index| index < values.len()),
-        SmeltUnknown::String(text) => key == "length" || key.parse::<usize>().is_ok_and(|index| index < smelt_utf16_len(text)),
+        SmeltUnknown::String(text) => key == "length" || key.parse::<usize>().is_ok_and(|index| index < text.len()),
         _ => false,
     }
 }
@@ -442,7 +442,7 @@ fn smelt_has_own_property(value: &SmeltUnknown, key: &str) -> bool {
 //~ and `String.prototype`, and every object -- array and string wrapper
 //~ included -- inherits `Object.prototype`'s members.
 /// Whether `value` has `key` as an own OR inherited property (JS `key in value`).
-fn smelt_has_property(value: &SmeltUnknown, key: &str) -> bool {
+fn smelt_has_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Sized)) -> bool { let key = key.host_text(); let key: &str = &key;
     if smelt_has_own_property(value, key) { return true; }
     match value {
         //~ A method of an erased class instance lives on its prototype, which

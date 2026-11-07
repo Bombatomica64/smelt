@@ -712,8 +712,9 @@ impl FunctionEmitter<'_> {
         }
         // `ToNumber` a string operand through the shared `StringToNumber`
         // helper, the same rule the `SmeltUnknown` paths apply.
+        let js_text = self.mir.types.get(if lhs_is_string { lhs_ty } else { rhs_ty }) == Some(&Type::String);
         let string_to_number =
-            |text: String| crate::string_to_number_prelude::string_to_number_call(&text);
+            |text: String| crate::string_to_number_prelude::string_to_number_call(&text, js_text);
         let float_ty = self.type_id(Type::Float)?;
         let lhs_text = if lhs_is_string {
             string_to_number(self.operand_expr(lhs)?.into_string())
@@ -1469,6 +1470,37 @@ impl FunctionEmitter<'_> {
         self.rendered_at_type(&value, inner, target, &self.render_scope())
     }
 
+    /// A JavaScript string compared for (in)equality with a string constant:
+    /// `text == "literal"`, through `JsString`'s `PartialEq<&str>`.
+    ///
+    /// Comparing against `JsString::from("literal")` builds a string to
+    /// compare and drops it; the text comparison encodes nothing and
+    /// allocates nothing. Equality of code units and of UTF-8 text agree for
+    /// every constant, since a constant that holds a lone surrogate is not a
+    /// `Constant::String`.
+    fn js_string_literal_equality_expr(
+        &self,
+        op: smelt_hir::BinOp,
+        lhs: &Operand,
+        rhs: &Operand,
+    ) -> Result<Option<RustExpr>, EmitError> {
+        let negate = match op {
+            smelt_hir::BinOp::Eq | smelt_hir::BinOp::StrictEq | smelt_hir::BinOp::JsStrictEq => false,
+            smelt_hir::BinOp::NotEq | smelt_hir::BinOp::StrictNotEq | smelt_hir::BinOp::JsStrictNotEq => true,
+            _ => return Ok(None),
+        };
+        let (value, literal) = match (lhs, rhs) {
+            (value, Operand::Const(Constant::String(literal))) | (Operand::Const(Constant::String(literal)), value) => (value, literal),
+            _ => return Ok(None),
+        };
+        if matches!(value, Operand::Const(_)) || self.mir.types.get(self.operand_ty(value)?) != Some(&Type::String) {
+            return Ok(None);
+        }
+        let value_text = self.operand_borrow_expr(value)?;
+        let op_text = if negate { "!=" } else { "==" };
+        Ok(Some(RustExpr::loose(format!("{} {op_text} {literal:?}", value_text.parenthesized_if_needed()))))
+    }
+
     /// A binary operator, trying each operand-shaped rule before the plain Rust form.
     pub(super) fn binary_expr(
         &self,
@@ -1493,6 +1525,9 @@ impl FunctionEmitter<'_> {
             return Ok(text);
         }
         if let Some(text) = self.strict_identity_expr(op, lhs, rhs)? {
+            return Ok(text);
+        }
+        if let Some(text) = self.js_string_literal_equality_expr(op, lhs, rhs)? {
             return Ok(text);
         }
         if let Some(text) = self.string_addition_expr(op, lhs, rhs, dest_ty)? {

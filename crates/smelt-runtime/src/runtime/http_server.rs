@@ -105,26 +105,26 @@ impl SmeltIncomingMessage {
     //~ composition: no dispatch site needs to know which of the two
     //~ receivers it holds.
     /// `on`/`addListener`/`once`, forwarded to the composed emitter.
-    pub fn add(&self, event: &str, callback: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>>>, once: bool) -> Self {
+    pub fn add(&self, event: &(impl SmeltHostText + ?Sized), callback: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>>>, once: bool) -> Self { let event = event.host_text(); let event: &str = &event;
         self.emitter.add(event, callback, once);
         //~ Node's `req.on(..)` answers the REQUEST, not the emitter, so
         //~ `req.on(..).on(..)` chains on the request's own type.
         self.clone()
     }
     /// `off`/`removeListener`, forwarded to the composed emitter.
-    pub fn remove(&self, event: &str, callback: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>>>) -> Self {
+    pub fn remove(&self, event: &(impl SmeltHostText + ?Sized), callback: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>>>) -> Self { let event = event.host_text(); let event: &str = &event;
         self.emitter.remove(event, callback);
         self.clone()
     }
     /// `removeAllListeners`, forwarded to the composed emitter.
-    pub fn remove_all(&self, event: &str) -> Self {
+    pub fn remove_all(&self, event: &(impl SmeltHostText + ?Sized)) -> Self { let event = event.host_text(); let event: &str = &event;
         self.emitter.remove_all(event);
         self.clone()
     }
     /// `listenerCount`, forwarded to the composed emitter.
-    pub fn listener_count(&self, event: &str) -> f64 { self.emitter.listener_count(event) }
+    pub fn listener_count(&self, event: &(impl SmeltHostText + ?Sized)) -> f64 { let event = event.host_text(); let event: &str = &event; self.emitter.listener_count(event) }
     /// `emit`, forwarded to the composed emitter.
-    pub fn emit(&self, event: &str, args: Vec<SmeltUnknown>) -> Result<bool, Box<dyn ::std::error::Error>> { self.emitter.emit(event, args) }
+    pub fn emit(&self, event: &(impl SmeltHostText + ?Sized), args: Vec<SmeltUnknown>) -> Result<bool, Box<dyn ::std::error::Error>> { let event = event.host_text(); let event: &str = &event; self.emitter.emit(event, args) }
     /// Hand the collected body to the listeners the handler registered.
     ///
     /// One `data` for a non-empty body then one `end`, which is the
@@ -195,7 +195,7 @@ impl SmeltServerResponse {
         status
     }
     /// `res.setHeader(name, value)`: set or REPLACE, case-insensitively.
-    pub fn set_header(&self, name: &str, value: &str) {
+    pub fn set_header(&self, name: &(impl SmeltHostText + ?Sized), value: &(impl SmeltHostText + ?Sized)) { let name = name.host_text(); let name: &str = &name; let value = value.host_text(); let value: &str = &value;
         let key = name.to_ascii_lowercase();
         let mut headers = self.headers.borrow_mut();
         if let Some(existing) = headers.iter_mut().find(|(entry, _)| *entry == key) {
@@ -205,7 +205,7 @@ impl SmeltServerResponse {
         headers.push((key, value.to_owned()));
     }
     /// `res.getHeader(name)`: the pending value, or null.
-    pub fn get_header(&self, name: &str) -> Option<String> { let key = name.to_ascii_lowercase(); self.headers.borrow().iter().find(|(entry, _)| *entry == key).map(|(_, value)| value.clone()) }
+    pub fn get_header(&self, name: &(impl SmeltHostText + ?Sized)) -> Option<String> { let name = name.host_text(); let name: &str = &name; let key = name.to_ascii_lowercase(); self.headers.borrow().iter().find(|(entry, _)| *entry == key).map(|(_, value)| value.clone()) }
     /// `res.writeHead(status, headers?)`: set the status, merge headers.
     ///
     /// Merge rather than replace, as Node does: `writeHead` applies its
@@ -221,7 +221,7 @@ impl SmeltServerResponse {
         self.clone()
     }
     /// `res.write(chunk)`: append to the buffered body.
-    pub fn write(&self, chunk: &str) -> bool { self.body.borrow_mut().extend_from_slice(chunk.as_bytes()); true }
+    pub fn write(&self, chunk: &(impl SmeltHostText + ?Sized)) -> bool { let chunk = chunk.host_text(); let chunk: &str = &chunk; self.body.borrow_mut().extend_from_slice(chunk.as_bytes()); true }
     /// `res.end(chunk?)`: append the last chunk and send.
     ///
     /// Ending twice is a no-op rather than an error, which is how Node

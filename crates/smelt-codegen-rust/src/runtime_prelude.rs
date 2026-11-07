@@ -129,9 +129,6 @@ pub(crate) fn flag(context: &EmitContext, name: &str) -> Option<bool> {
         "callable_of" => Some(demand.has(Need::Construct) || demand.has(Need::InstanceOfValue)),
         "write_through" => Some(context.erased_view_write_through()),
         "reads_this" => Some(context.program_reads_this()),
-        // JavaScript strings are still UTF-8 `String`: generated code spells
-        // them `JsString`, which the alias item names.
-        "utf16_strings" => Some(false),
         _ => need_of_flag(name).map(|need| demand.has(need)),
     }
 }

@@ -147,7 +147,7 @@ export function plainJson(owner: string): string {
         "{ledger}"
     );
     assert!(
-        ledger.contains("Do not know how to serialize a BigInt\".to_owned()))?"),
+        ledger.contains("Do not know how to serialize a BigInt\".to_owned())).map(JsString::from)?"),
         "{ledger}"
     );
     let plain = emitted_function_body(&source, "fn plain_json(");

@@ -81,7 +81,7 @@ pub(crate) fn json_decode_entry_name(ty: TypeId) -> String {
 fn literal_condition(value_text: &RustExpr, literal: &smelt_hir::Literal) -> Option<String> {
     match literal {
         smelt_hir::Literal::String(text) => Some(format!(
-            "matches!({value_text}, SmeltUnknown::String(text) if &**text == {text:?})"
+            "matches!({value_text}, SmeltUnknown::String(text) if text.eq_str({text:?}))"
         )),
         smelt_hir::Literal::Float(number) => Some(format!(
             "matches!({value_text}, SmeltUnknown::Number(number) if *number == {number:?}_f64)"
@@ -359,7 +359,7 @@ impl FunctionEmitter<'_> {
                 self.carrier_format(format_args!(
                     "let SmeltUnknown::Object(object) = value else {{ return smelt_decode_fail(path, {expected:?}, value); }};\n    \
                      let mut entries = Vec::with_capacity(object.len());\n    \
-                     for (key, item) in object.iter() {{ let mark = smelt_decode_enter_key(path, &key); let decoded = {item_call}?; path.truncate(mark); entries.push((key, decoded)); }}\n    \
+                     for (key, item) in object.iter() {{ let mark = smelt_decode_enter_key(path, &key.to_string_lossy()); let decoded = {item_call}?; path.truncate(mark); entries.push((key, decoded)); }}\n    \
                      Ok(SmeltRecord::with_id_from_entries(smelt_next_object_id(), entries))"
                 ))
             }
@@ -539,7 +539,7 @@ impl FunctionEmitter<'_> {
         let decode = self.json_decode_call(ty, &RustExpr::loose("&value"), deps);
         Ok(format!(
             "\n/// `JSON.parse` into `{expected}`: parse, then decode strictly, throwing a catchable `TypeError` on a mismatch.\n\
-             fn {name}(text: &str) -> Result<{rust_ty}, Box<dyn ::std::error::Error>> {{\n    \
+             fn {name}(text: &(impl SmeltHostText + ?Sized)) -> Result<{rust_ty}, Box<dyn ::std::error::Error>> {{\n    \
              let value = {parse}(text)?;\n    \
              let path = &mut String::new();\n    \
              {decode}.map_err(smelt_decode_throw)\n}}\n",
@@ -687,7 +687,7 @@ fn smelt_decode_received(value: &SmeltUnknown) -> String {{
         SmeltUnknown::Undefined => "undefined".to_owned(),
         SmeltUnknown::Bool(flag) => format!("boolean {{flag}}"),
         SmeltUnknown::Number(number) => if number.fract() == 0.0 && number.abs() < 1e21 {{ format!("number {{number:.0}}") }} else {{ format!("number {{number}}") }},
-        SmeltUnknown::String(text) => {{ let shown: String = text.chars().take(40).collect(); let quoted = serde_json::to_string(&shown).unwrap_or_default(); if text.chars().count() > 40 {{ format!("string {{}}...", quoted) }} else {{ format!("string {{quoted}}") }} }}
+        SmeltUnknown::String(text) => {{ let shown: String = text.slice(0, 40).to_string_lossy(); let quoted = serde_json::to_string(&shown).unwrap_or_default(); if text.len() > 40 {{ format!("string {{}}...", quoted) }} else {{ format!("string {{quoted}}") }} }}
         SmeltUnknown::Array(_) => "array".to_owned(),
         SmeltUnknown::Object(_) => "object".to_owned(),
         _ => "value".to_owned(),
@@ -763,8 +763,8 @@ fn smelt_decode_index(value: &SmeltUnknown, path: &mut String) -> Result<usize, 
 }}
 
 /// Decode a JSON string.
-fn smelt_decode_string(value: &SmeltUnknown, path: &mut String) -> Result<String, SmeltDecodeIssue> {{
-    match value {{ SmeltUnknown::String(text) => Ok(text.to_string()), other => smelt_decode_fail(path, "string", other) }}
+fn smelt_decode_string(value: &SmeltUnknown, path: &mut String) -> Result<JsString, SmeltDecodeIssue> {{
+    match value {{ SmeltUnknown::String(text) => Ok(text.clone()), other => smelt_decode_fail(path, "string", other) }}
 }}
 
 /// Decode a JSON boolean.

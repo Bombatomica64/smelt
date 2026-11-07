@@ -17,7 +17,10 @@ impl FunctionEmitter<'_> {
         value: &Rvalue,
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
-        let text = self.rvalue_expr_for_dest_inner(value, dest_ty)?;
+        let mut text = self.rvalue_expr_for_dest_inner(value, dest_ty)?;
+        if rvalue_answers_host_text(value) {
+            text = self.host_text_at_type(text, dest_ty);
+        }
         // List-producing operations (concat/slice/flat/map/copy/…) emit a bare
         // `Vec`, but `Type::List` now lowers to the identity-bearing `SmeltList`.
         // Coerce through `Into` at this single choke point: it is a no-op when the
@@ -655,6 +658,58 @@ impl FunctionEmitter<'_> {
             Rvalue::HostGlobalPresent { class } => self.host_global_present_expr(*class),
             Rvalue::Await(operand) => self.await_rvalue_expr(operand, dest_ty),
             Rvalue::AsyncOp { op, args } => self.async_rvalue_expr(*op, args, dest_ty),
+        }
+    }
+}
+
+/// Whether `value` is a host API call (URLs, headers, bodies, form data,
+/// blobs, crypto, text codecs, the environment, files) or a formatting
+/// operation (number radix and fixed-point text, dates, `toString` tags)
+/// whose string results are UTF-8 `String`s built by Rust formatting.
+fn rvalue_answers_host_text(value: &Rvalue) -> bool {
+    matches!(
+        value,
+        Rvalue::CryptoOp { .. }
+            | Rvalue::HostModuleCall { .. }
+            | Rvalue::FormDataOp { .. }
+            | Rvalue::UrlSearchParamsOp { .. }
+            | Rvalue::UrlOp { .. }
+            | Rvalue::TextDecoderOp { .. }
+            | Rvalue::TextEncoderOp { .. }
+            | Rvalue::ProcessEnvRead { .. }
+            | Rvalue::ServerResponseOp { .. }
+            | Rvalue::RequestOp { .. }
+            | Rvalue::ResponseOp { .. }
+            | Rvalue::HeadersOp { .. }
+            | Rvalue::HttpGetText { .. }
+            | Rvalue::UrlField { .. }
+            | Rvalue::FileReadText { .. }
+            | Rvalue::BlobOp { .. }
+            | Rvalue::NumericToStringRadix { .. }
+            | Rvalue::NumericToFixed { .. }
+            | Rvalue::ObjectToStringTag { .. }
+            | Rvalue::DateToIsoString { .. }
+            | Rvalue::DateToString { .. }
+            | Rvalue::DateToUtcString { .. }
+    )
+}
+
+impl FunctionEmitter<'_> {
+    /// A host call's `text` at the JavaScript string destination `dest_ty`.
+    ///
+    /// Host internals answer UTF-8 `String`; a JavaScript string is a
+    /// `JsString`, so the result is transcoded at this edge (`JsString::from`,
+    /// mapped through an `Option`). A result that is already a `JsString`
+    /// passes through `From`'s identity impl unchanged, so the adapter is
+    /// sound whichever a host emitter produced. Other destinations are left
+    /// alone.
+    fn host_text_at_type(&self, text: RustExpr, dest_ty: TypeId) -> RustExpr {
+        match self.mir.types.get(dest_ty) {
+            Some(Type::String) => RustExpr::chain(format!("JsString::from({text})")),
+            Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String) => {
+                RustExpr::atom(format!("({text}).map(JsString::from)"))
+            }
+            _ => text,
         }
     }
 }

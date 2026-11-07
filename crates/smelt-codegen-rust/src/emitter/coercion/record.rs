@@ -68,7 +68,7 @@ pub(crate) fn emit_record_into_smelt_unknown_impl(
                     ));
                 }
                 fn_writer.line(
-                    "SmeltUnknown::Object(SmeltObject::new(Vec::from([",
+                    "SmeltUnknown::Object(SmeltObject::new(Vec::<(String, SmeltUnknown)>::from([",
                 );
                 for field in fields {
                     if !field.visibility.is_own_property() {

@@ -255,15 +255,15 @@ impl FunctionEmitter<'_> {
         // (issue #84), mirroring the computed `bag[k] = value` write, so
         // it round-trips to a later read. Declared fields keep their
         // concrete struct-field assignment via the tail path below.
-        if let Some((_key_ty, value_ty)) = self.class_index_store_types(base_ty)
+        if let Some((key_ty, value_ty)) = self.class_index_store_types(base_ty)
             && !self.class_has_named_field(base_ty, field)
         {
             let rendered_value = self.rvalue_expr_for_dest(value, value_ty)?;
             out.push_str(&format!(
-                "    {}.{}.insert({:?}.to_owned(), {rendered_value});\n",
+                "    {}.{}.insert({}, {rendered_value});\n",
                 self.local_mut_value(base)?,
                 smelt_hir::CLASS_INDEX_STORE_FIELD,
-                self.symbol_source_name(field)?,
+                self.dict_field_key_expr(key_ty, field)?,
             ));
             return Ok(true);
         }

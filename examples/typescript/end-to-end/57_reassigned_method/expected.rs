@@ -66,8 +66,684 @@ fn smelt_string_to_number(text: &str) -> f64 {
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
 
-/// A JavaScript string, held as UTF-8 `String` text.
-type JsString = String;
+/// `StringToNumber` of a JavaScript string: past the white space it trims, a
+/// number is ASCII, so any other unit (a lone surrogate included) is `NaN`.
+#[allow(dead_code)]
+fn smelt_js_string_to_number(text: &JsStr) -> f64 {
+    let text = text.trim();
+    if text.units().iter().any(|unit| *unit >= 0x80) { return f64::NAN; }
+    smelt_string_to_number(&text.to_string_lossy())
+}
+
+/// A count or index of code units as a JavaScript number: exact, since a
+/// string's length is far below 2^53.
+#[allow(dead_code)]
+const fn smelt_units_to_number(units: usize) -> f64 {
+    units as f64
+}
+
+/// A JavaScript number as a count or index of code units: truncated toward
+/// zero, NaN and negatives `0`, anything past `usize::MAX` saturating.
+#[allow(dead_code)]
+const fn smelt_units_from_number(number: f64) -> usize {
+    number as usize
+}
+
+/// A JavaScript string: immutable UTF-16 code units, shared by reference count.
+///
+/// Lone surrogates are representable. Equality, hashing and ordering are by
+/// code unit, which is ECMAScript's order (`"😀" < "\u{FFFF}"`). A clone shares
+/// the buffer; [`JsString::push_str`] and `+` append in place when this handle
+/// is the buffer's only owner and copy it first when it is shared.
+#[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct JsString(::std::rc::Rc<Vec<u16>>);
+
+/// A borrowed JavaScript string: a slice of UTF-16 code units.
+///
+/// The view `&JsString` derefs to, as `&String` derefs to `&str`. Its equality,
+/// hash and order are the code units', so a `JsString` key is found by a
+/// `&JsStr` lookup.
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+pub struct JsStr([u16]);
+
+impl JsStr {
+    /// Views code units as a string.
+    #[allow(unsafe_code)]
+    const fn from_units(units: &[u16]) -> &Self {
+        unsafe { &*(::std::ptr::from_ref::<[u16]>(units) as *const Self) }
+    }
+
+    /// The code units.
+    const fn units(&self) -> &[u16] {
+        &self.0
+    }
+
+    /// The JavaScript `length`: the number of code units.
+    const fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Whether this is the empty string.
+    const fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// The code unit at `index` (`charCodeAt`), if any.
+    fn unit_at(&self, index: usize) -> Option<u16> {
+        self.0.get(index).copied()
+    }
+
+    /// The one-unit string at `index` (`charAt`, `s[i]`), if any. At either
+    /// half of a surrogate pair this is that lone half.
+    fn char_at(&self, index: usize) -> Option<JsString> {
+        self.0.get(index).map(|unit| JsString::from_units(&[*unit]))
+    }
+
+    /// The code point at `index` (`codePointAt`): a whole surrogate pair when
+    /// `index` holds its leading half, else the unit there.
+    fn code_point_at(&self, index: usize) -> Option<u32> {
+        let first = *self.0.get(index)?;
+        let second = self.0.get(index + 1).copied().filter(|unit| (0xD800..0xDC00).contains(&first) && (0xDC00..0xE000).contains(unit));
+        Some(second.map_or_else(|| u32::from(first), |second| 0x10000 + ((u32::from(first) - 0xD800) << 10) + (u32::from(second) - 0xDC00)))
+    }
+
+    /// The code units `start..end`, clamped to the string; empty when
+    /// `end <= start`. A cut may split a surrogate pair, leaving lone halves.
+    fn slice(&self, start: usize, end: usize) -> JsString {
+        let end = end.min(self.0.len());
+        if end <= start { return JsString::default(); }
+        JsString::from_units(&self.0[start..end])
+    }
+
+    /// [`Self::slice`] as a borrowed view.
+    fn sub(&self, start: usize, end: usize) -> &Self {
+        let end = end.min(self.0.len());
+        Self::from_units(self.0.get(start.min(end)..end).unwrap_or(&[]))
+    }
+
+    /// The first index at or after `from` where `needle` occurs (`indexOf`).
+    ///
+    /// `from` past the end is the end, so an empty needle is found at
+    /// `min(from, length)`, as in JavaScript.
+    fn index_of(&self, needle: impl SmeltJsPattern, from: usize) -> Option<usize> {
+        needle.with_units(|needle| self.index_of_units(needle, from))
+    }
+
+    /// [`Self::index_of`] over a needle's code units.
+    fn index_of_units(&self, needle: &[u16], from: usize) -> Option<usize> {
+        let haystack = &self.0;
+        let from = from.min(haystack.len());
+        let Some((&first, rest)) = needle.split_first() else { return Some(from) };
+        let last_start = haystack.len().checked_sub(needle.len())?;
+        let mut at = from;
+        while at <= last_start {
+            at += haystack[at..=last_start].iter().position(|unit| *unit == first)?;
+            if haystack[at + 1..at + needle.len()] == *rest { return Some(at); }
+            at += 1;
+        }
+        None
+    }
+
+    /// The last index at or before `from` where `needle` occurs (`lastIndexOf`).
+    fn last_index_of(&self, needle: impl SmeltJsPattern, from: usize) -> Option<usize> {
+        needle.with_units(|needle| {
+        let haystack = &self.0;
+        let last_start = haystack.len().checked_sub(needle.len())?;
+        (0..=from.min(last_start)).rev().find(|at| haystack[*at..*at + needle.len()] == *needle)
+        })
+    }
+
+    /// Whether `needle` occurs anywhere (`includes`).
+    fn contains(&self, needle: impl SmeltJsPattern) -> bool {
+        self.index_of(needle, 0).is_some()
+    }
+
+    /// Whether the string starts with `prefix` (`startsWith`).
+    fn starts_with(&self, prefix: impl SmeltJsPattern) -> bool {
+        prefix.with_units(|prefix| self.0.starts_with(prefix))
+    }
+
+    /// Whether the string ends with `suffix` (`endsWith`).
+    fn ends_with(&self, suffix: impl SmeltJsPattern) -> bool {
+        suffix.with_units(|suffix| self.0.ends_with(suffix))
+    }
+
+    /// The string with JavaScript white space removed from both ends (`trim`).
+    fn trim(&self) -> &Self {
+        self.trim_start().trim_end()
+    }
+
+    /// The string with leading JavaScript white space removed (`trimStart`).
+    fn trim_start(&self) -> &Self {
+        let start = self.0.iter().position(|unit| !js_is_white_space(*unit)).unwrap_or(self.0.len());
+        Self::from_units(&self.0[start..])
+    }
+
+    /// The string with trailing JavaScript white space removed (`trimEnd`).
+    fn trim_end(&self) -> &Self {
+        let end = self.0.iter().rposition(|unit| !js_is_white_space(*unit)).map_or(0, |last| last + 1);
+        Self::from_units(&self.0[..end])
+    }
+
+    /// The string repeated `count` times (`repeat`).
+    fn repeat(&self, count: usize) -> JsString {
+        JsString::from(self.0.repeat(count))
+    }
+
+    /// The pieces between occurrences of `separator` (`split`), at most
+    /// `limit` of them. An empty separator splits into single code units.
+    fn split(&self, separator: impl SmeltJsPattern, limit: usize) -> Vec<JsString> {
+        separator.with_units(|separator| self.split_units(separator, limit))
+    }
+
+    /// [`Self::split`] over a separator's code units.
+    fn split_units(&self, separator: &[u16], limit: usize) -> Vec<JsString> {
+        let mut pieces = Vec::new();
+        if limit == 0 { return pieces; }
+        if separator.is_empty() {
+            pieces.extend(self.0.iter().take(limit).map(|unit| JsString::from_units(&[*unit])));
+            return pieces;
+        }
+        let mut start = 0;
+        while let Some(at) = self.index_of_units(separator, start) {
+            pieces.push(self.slice(start, at));
+            if pieces.len() == limit { return pieces; }
+            start = at + separator.len();
+        }
+        pieces.push(self.slice(start, self.len()));
+        pieces
+    }
+
+    /// The string with its first occurrence of `pattern` replaced by
+    /// `replacement` (`replace` with a string pattern and a plain
+    /// replacement, no `$` substitutions).
+    fn replace_first(&self, pattern: impl SmeltJsPattern, replacement: &Self) -> JsString {
+        pattern.with_units(|pattern| self.index_of_units(pattern, 0).map_or_else(|| self.to_owned(), |at| {
+            let mut out = Vec::with_capacity(self.len() - pattern.len() + replacement.len());
+            out.extend_from_slice(&self.0[..at]);
+            out.extend_from_slice(&replacement.0);
+            out.extend_from_slice(&self.0[at + pattern.len()..]);
+            JsString::from(out)
+        }))
+    }
+
+    /// The string with every occurrence of `pattern` replaced by `replacement`
+    /// (`replaceAll` with a string pattern and a plain replacement). An empty
+    /// pattern matches before every unit and at the end.
+    fn replace_all(&self, pattern: impl SmeltJsPattern, replacement: &Self) -> JsString {
+        pattern.with_units(|pattern| self.replace_all_units(pattern, replacement))
+    }
+
+    /// [`Self::replace_all`] over a pattern's code units.
+    fn replace_all_units(&self, pattern: &[u16], replacement: &Self) -> JsString {
+        let mut out = Vec::with_capacity(self.len());
+        if pattern.is_empty() {
+            for unit in &self.0 {
+                out.extend_from_slice(&replacement.0);
+                out.push(*unit);
+            }
+            out.extend_from_slice(&replacement.0);
+            return JsString::from(out);
+        }
+        let mut start = 0;
+        while let Some(at) = self.index_of_units(pattern, start) {
+            out.extend_from_slice(&self.0[start..at]);
+            out.extend_from_slice(&replacement.0);
+            start = at + pattern.len();
+        }
+        out.extend_from_slice(&self.0[start..]);
+        JsString::from(out)
+    }
+
+    /// The characters, decoded: `Ok` for a scalar value, `Err` for a lone
+    /// surrogate.
+    fn chars_lossless(&self) -> impl Iterator<Item = Result<char, u16>> + '_ {
+        char::decode_utf16(self.0.iter().copied()).map(|decoded| decoded.map_err(|lone| lone.unpaired_surrogate()))
+    }
+
+    /// The code points (`for...of`, `Array.from`, `[...s]`): a surrogate pair
+    /// is one code point, a lone surrogate is its own.
+    fn code_points(&self) -> impl Iterator<Item = u32> + '_ {
+        self.chars_lossless().map(|decoded| decoded.map_or_else(u32::from, u32::from))
+    }
+
+    /// One string per code point (`[...s]`): a surrogate pair is one piece.
+    fn code_point_strings(&self) -> Vec<JsString> {
+        let mut pieces = Vec::with_capacity(self.len());
+        let mut at = 0;
+        while at < self.0.len() {
+            let width = if self.code_point_at(at).is_some_and(|point| point > 0xFFFF) { 2 } else { 1 };
+            pieces.push(JsString::from_units(&self.0[at..at + width]));
+            at += width;
+        }
+        pieces
+    }
+
+    /// Whether the string has no lone surrogate (`isWellFormed`).
+    fn is_well_formed(&self) -> bool {
+        self.chars_lossless().all(|decoded| decoded.is_ok())
+    }
+
+    /// The string with each lone surrogate replaced by U+FFFD (`toWellFormed`).
+    fn to_well_formed(&self) -> JsString {
+        if self.is_well_formed() { return self.to_owned(); }
+        let mut out = Vec::with_capacity(self.len());
+        for decoded in self.chars_lossless() {
+            let mut buffer = [0; 2];
+            out.extend_from_slice(decoded.unwrap_or('\u{FFFD}').encode_utf16(&mut buffer));
+        }
+        JsString::from(out)
+    }
+
+    /// UTF-8 text, a lone surrogate becoming U+FFFD: what Node writes to stdout.
+    fn to_string_lossy(&self) -> String {
+        if self.0.iter().all(|unit| *unit < 0x80) {
+            return self.0.iter().map(|unit| char::from(u8::try_from(*unit).unwrap_or(b'?'))).collect();
+        }
+        self.chars_lossless().map(|decoded| decoded.unwrap_or('\u{FFFD}')).collect()
+    }
+
+    /// UTF-8 text when the string is well formed, `None` when it holds a lone
+    /// surrogate.
+    fn to_str_exact(&self) -> Option<String> {
+        self.chars_lossless().collect::<Result<String, u16>>().ok()
+    }
+
+    /// The string upper-cased by the Unicode default rules (`toUpperCase`); a
+    /// lone surrogate passes through unchanged.
+    fn to_upper_case(&self) -> JsString {
+        self.map_case(u8::to_ascii_uppercase, str::to_uppercase)
+    }
+
+    /// The string lower-cased by the Unicode default rules (`toLowerCase`); a
+    /// lone surrogate passes through unchanged.
+    fn to_lower_case(&self) -> JsString {
+        self.map_case(u8::to_ascii_lowercase, str::to_lowercase)
+    }
+
+    /// Case mapping: `ascii` per unit when the text is ASCII, else `full` over
+    /// each well-formed run, so the standard library's special casing and
+    /// final-sigma rules apply and lone surrogates stay where they are.
+    fn map_case(&self, ascii: fn(&u8) -> u8, full: fn(&str) -> String) -> JsString {
+        if self.0.iter().all(|unit| *unit < 0x80) {
+            return JsString::from(self.0.iter().map(|unit| u16::from(ascii(&u8::try_from(*unit).unwrap_or(b'?')))).collect::<Vec<u16>>());
+        }
+        let mut out = Vec::with_capacity(self.len());
+        let mut run = String::new();
+        for decoded in self.chars_lossless() {
+            match decoded {
+                Ok(ch) => run.push(ch),
+                Err(lone) => {
+                    out.extend(full(&run).encode_utf16());
+                    run.clear();
+                    out.push(lone);
+                }
+            }
+        }
+        out.extend(full(&run).encode_utf16());
+        JsString::from(out)
+    }
+
+    /// The code units' bytes in native order, for hashing.
+    #[allow(unsafe_code)]
+    const fn byte_view(&self) -> &[u8] {
+        unsafe { ::std::slice::from_raw_parts(self.0.as_ptr().cast::<u8>(), self.0.len() * 2) }
+    }
+
+    /// Whether the string starts with the text `prefix`.
+    fn eq_str_prefix(&self, prefix: &str) -> bool {
+        let mut units = self.0.iter();
+        prefix.encode_utf16().all(|unit| units.next() == Some(&unit))
+    }
+
+    /// The rest of the string after the text `prefix`, when it starts with it.
+    fn strip_str_prefix(&self, prefix: &str) -> Option<&Self> {
+        let mut at = 0;
+        for unit in prefix.encode_utf16() {
+            if self.0.get(at) != Some(&unit) { return None; }
+            at += 1;
+        }
+        Some(Self::from_units(&self.0[at..]))
+    }
+
+    /// Whether the string holds exactly the text `other`.
+    fn eq_str(&self, other: &str) -> bool {
+        let mut units = other.encode_utf16();
+        self.0.iter().all(|unit| units.next() == Some(*unit)) && units.next().is_none()
+    }
+}
+
+/// Whether `unit` is JavaScript white space or a line terminator, the set
+/// `trim` removes: TAB, VT, FF, SP, NBSP, ZWNBSP, the `Zs` category, LF, CR,
+/// LS and PS.
+const fn js_is_white_space(unit: u16) -> bool {
+    matches!(unit, 0x09..=0x0D | 0x20 | 0xA0 | 0x1680 | 0x2000..=0x200A | 0x2028 | 0x2029 | 0x202F | 0x205F | 0x3000 | 0xFEFF)
+}
+
+impl JsString {
+    /// The empty string.
+    fn new() -> Self {
+        Self::default()
+    }
+
+    /// A string holding a copy of `units`.
+    fn from_units(units: &[u16]) -> Self {
+        Self(::std::rc::Rc::new(units.to_vec()))
+    }
+
+    /// The borrowed view.
+    fn as_js_str(&self) -> &JsStr {
+        JsStr::from_units(&self.0)
+    }
+
+    /// Appends `other`, in place when this handle is the buffer's only owner.
+    fn push_str(&mut self, other: &JsStr) {
+        if other.is_empty() { return; }
+        ::std::rc::Rc::make_mut(&mut self.0).extend_from_slice(&other.0);
+    }
+
+    /// Appends one code unit, in place when this handle is the only owner.
+    fn push_unit(&mut self, unit: u16) {
+        ::std::rc::Rc::make_mut(&mut self.0).push(unit);
+    }
+
+    /// The pieces joined with `separator` between them (`Array.join`).
+    fn join<I>(pieces: I, separator: &JsStr) -> Self
+    where
+        I: IntoIterator,
+        I::Item: AsRef<JsStr>,
+    {
+        let mut out = Vec::new();
+        for (index, piece) in pieces.into_iter().enumerate() {
+            if index > 0 { out.extend_from_slice(&separator.0); }
+            out.extend_from_slice(&piece.as_ref().0);
+        }
+        Self::from(out)
+    }
+}
+
+impl ::std::ops::Deref for JsString {
+    type Target = JsStr;
+
+    fn deref(&self) -> &JsStr {
+        JsStr::from_units(&self.0)
+    }
+}
+
+impl ::std::borrow::Borrow<JsStr> for JsString {
+    fn borrow(&self) -> &JsStr {
+        self
+    }
+}
+
+impl AsRef<JsStr> for JsString {
+    fn as_ref(&self) -> &JsStr {
+        self
+    }
+}
+
+impl AsRef<Self> for JsStr {
+    fn as_ref(&self) -> &Self {
+        self
+    }
+}
+
+impl ToOwned for JsStr {
+    type Owned = JsString;
+
+    fn to_owned(&self) -> JsString {
+        JsString::from_units(&self.0)
+    }
+}
+
+impl From<Vec<u16>> for JsString {
+    fn from(units: Vec<u16>) -> Self {
+        Self(::std::rc::Rc::new(units))
+    }
+}
+
+impl From<&str> for JsString {
+    fn from(text: &str) -> Self {
+        Self::from(text.encode_utf16().collect::<Vec<u16>>())
+    }
+}
+
+impl From<String> for JsString {
+    fn from(text: String) -> Self {
+        Self::from(text.as_str())
+    }
+}
+
+impl From<&String> for JsString {
+    fn from(text: &String) -> Self {
+        Self::from(text.as_str())
+    }
+}
+
+impl From<char> for JsString {
+    fn from(ch: char) -> Self {
+        let mut buffer = [0; 2];
+        Self::from_units(ch.encode_utf16(&mut buffer))
+    }
+}
+
+impl From<&JsStr> for JsString {
+    fn from(text: &JsStr) -> Self {
+        text.to_owned()
+    }
+}
+
+impl From<&Self> for JsString {
+    fn from(text: &Self) -> Self {
+        text.clone()
+    }
+}
+
+impl ::std::ops::Add<&JsStr> for JsString {
+    type Output = Self;
+
+    fn add(mut self, other: &JsStr) -> Self {
+        self.push_str(other);
+        self
+    }
+}
+
+impl ::std::ops::AddAssign<&JsStr> for JsString {
+    fn add_assign(&mut self, other: &JsStr) {
+        self.push_str(other);
+    }
+}
+
+impl<P: AsRef<JsStr>> FromIterator<P> for JsString {
+    fn from_iter<I: IntoIterator<Item = P>>(pieces: I) -> Self {
+        let mut out = Vec::new();
+        for piece in pieces { out.extend_from_slice(&piece.as_ref().0); }
+        Self::from(out)
+    }
+}
+
+impl PartialEq<str> for JsStr {
+    fn eq(&self, other: &str) -> bool {
+        self.eq_str(other)
+    }
+}
+
+impl PartialEq<&str> for JsStr {
+    fn eq(&self, other: &&str) -> bool {
+        self.eq_str(other)
+    }
+}
+
+impl PartialEq<str> for JsString {
+    fn eq(&self, other: &str) -> bool {
+        self.eq_str(other)
+    }
+}
+
+impl PartialEq<&str> for JsString {
+    fn eq(&self, other: &&str) -> bool {
+        self.eq_str(other)
+    }
+}
+
+impl PartialEq<JsStr> for JsString {
+    fn eq(&self, other: &JsStr) -> bool {
+        **self == *other
+    }
+}
+
+impl PartialEq<JsString> for JsStr {
+    fn eq(&self, other: &JsString) -> bool {
+        *self == **other
+    }
+}
+
+impl ::std::fmt::Display for JsStr {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        let mut buffer = [0u8; 256];
+        let mut filled = 0;
+        for decoded in self.chars_lossless() {
+            if filled + 4 > buffer.len() {
+                formatter.write_str(::std::str::from_utf8(&buffer[..filled]).map_err(|_utf8| ::std::fmt::Error)?)?;
+                filled = 0;
+            }
+            filled += decoded.unwrap_or('\u{FFFD}').encode_utf8(&mut buffer[filled..]).len();
+        }
+        formatter.write_str(::std::str::from_utf8(&buffer[..filled]).map_err(|_utf8| ::std::fmt::Error)?)
+    }
+}
+
+impl ::std::fmt::Display for JsString {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::std::fmt::Display::fmt(&**self, formatter)
+    }
+}
+
+impl ::std::fmt::Debug for JsStr {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        use ::std::fmt::Write as _;
+        formatter.write_char('"')?;
+        for decoded in self.chars_lossless() {
+            match decoded {
+                Ok(ch) => for escaped in ch.escape_debug() { formatter.write_char(escaped)?; },
+                Err(lone) => write!(formatter, "\\u{{{lone:x}}}")?,
+            }
+        }
+        formatter.write_char('"')
+    }
+}
+
+impl ::std::fmt::Debug for JsString {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::std::fmt::Debug::fmt(&**self, formatter)
+    }
+}
+
+/// A search argument of the string methods: a JavaScript string, or text the
+/// emitter wrote as a Rust `&str` literal, encoded without allocating when it
+/// is short.
+pub trait SmeltJsPattern {
+    /// Calls `read` with the pattern's code units.
+    fn with_units<R>(&self, read: impl FnOnce(&[u16]) -> R) -> R;
+}
+
+impl SmeltJsPattern for str {
+    fn with_units<R>(&self, read: impl FnOnce(&[u16]) -> R) -> R {
+        let mut buffer = [0u16; 64];
+        if self.len() <= buffer.len() {
+            let mut filled = 0;
+            for unit in self.encode_utf16() { buffer[filled] = unit; filled += 1; }
+            return read(&buffer[..filled]);
+        }
+        read(&self.encode_utf16().collect::<Vec<u16>>())
+    }
+}
+
+impl SmeltJsPattern for String {
+    fn with_units<R>(&self, read: impl FnOnce(&[u16]) -> R) -> R {
+        self.as_str().with_units(read)
+    }
+}
+
+impl SmeltJsPattern for JsStr {
+    fn with_units<R>(&self, read: impl FnOnce(&[u16]) -> R) -> R {
+        read(&self.0)
+    }
+}
+
+impl SmeltJsPattern for JsString {
+    fn with_units<R>(&self, read: impl FnOnce(&[u16]) -> R) -> R {
+        read(&self.0)
+    }
+}
+
+impl<T: SmeltJsPattern + ?Sized> SmeltJsPattern for &T {
+    fn with_units<R>(&self, read: impl FnOnce(&[u16]) -> R) -> R {
+        (**self).with_units(read)
+    }
+}
+
+/// The reads of a `HashMap` keyed by JavaScript strings by a key the emitter
+/// spelled as a Rust `&str` literal (a source property name).
+pub trait SmeltJsKeyedMap<V> {
+    /// The value at the key `key`, if any.
+    fn get_text(&self, key: &str) -> Option<&V>;
+}
+
+impl<V, S: ::std::hash::BuildHasher> SmeltJsKeyedMap<V> for ::std::collections::HashMap<JsString, V, S> {
+    fn get_text(&self, key: &str) -> Option<&V> {
+        key.with_units(|units| self.get(JsStr::from_units(units)))
+    }
+}
+
+impl SmeltHostText for JsStr {
+    fn host_text(&self) -> ::std::borrow::Cow<'_, str> {
+        ::std::borrow::Cow::Owned(self.to_string_lossy())
+    }
+}
+
+impl SmeltHostText for JsString {
+    fn host_text(&self) -> ::std::borrow::Cow<'_, str> {
+        ::std::borrow::Cow::Owned(self.to_string_lossy())
+    }
+}
+
+/// Text a host API reads as UTF-8: URLs, header names and values, request
+/// bodies, digests. Host internals keep `String`, because their data model is
+/// UTF-8 bytes on the wire; a JavaScript string crosses into them here, a
+/// lone surrogate becoming U+FFFD as it does on Node's wire.
+pub trait SmeltHostText {
+    /// The UTF-8 text, borrowed when it already is UTF-8.
+    fn host_text(&self) -> ::std::borrow::Cow<'_, str>;
+
+    /// The UTF-8 text as an owned `String`, for a host value that keeps it.
+    fn into_host_string(self) -> String where Self: Sized {
+        self.host_text().into_owned()
+    }
+}
+
+impl SmeltHostText for str {
+    fn host_text(&self) -> ::std::borrow::Cow<'_, str> {
+        ::std::borrow::Cow::Borrowed(self)
+    }
+}
+
+impl SmeltHostText for String {
+    fn host_text(&self) -> ::std::borrow::Cow<'_, str> {
+        ::std::borrow::Cow::Borrowed(self)
+    }
+
+    fn into_host_string(self) -> String {
+        self
+    }
+}
+
+impl<T: SmeltHostText + ?Sized> SmeltHostText for &T {
+    fn host_text(&self) -> ::std::borrow::Cow<'_, str> {
+        (**self).host_text()
+    }
+}
 
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
@@ -97,8 +773,8 @@ struct RouterInner {
 impl Default for RouterInner {
     fn default() -> Self {
         Self {
-            log: String::new(),
-            pick: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { String::new() }); smelt_default_callback },
+            log: JsString::new(),
+            pick: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback },
         }
     }
 }
@@ -146,7 +822,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 impl Router {
     fn new() -> Self {
-    let mut this: Self = Router(::std::rc::Rc::new(::std::cell::RefCell::new(RouterInner { log: String::new(), pick: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { String::new() }); smelt_default_callback } })));
+    let mut this: Self = Router(::std::rc::Rc::new(::std::cell::RefCell::new(RouterInner { log: JsString::new(), pick: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback } })));
     this.0.borrow_mut().log = JsString::new();
     let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: JsString| {
     let _smelt_tmp_1: JsString = JsString::from("slow:") + &closure_arg_0.clone();

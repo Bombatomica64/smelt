@@ -136,7 +136,7 @@ impl FunctionEmitter<'_> {
                 let host_text = match args.get(1) {
                     Some(host) => {
                         let string_ty = self.type_id(Type::String)?;
-                        format!("Some({})", self.value_at_type(host, string_ty)?)
+                        format!("Some(({}).to_string())", self.value_at_type(host, string_ty)?)
                     }
                     None => "None".to_owned(),
                 };
@@ -181,7 +181,7 @@ impl FunctionEmitter<'_> {
             .ok_or_else(|| {
                 EmitError::new("`server.address()` needs the AddressInfo record the frontend declares")
             })?;
-        let fields = format!("address: {address}, family: {family}, port: {port}");
+        let fields = format!("address: JsString::from({address}), family: JsString::from({family}), port: {port}");
         if self.context.is_reference_class(interface.name) {
             return Ok(RustExpr::chain(format!(
                 "AddressInfo(::std::rc::Rc::new(::std::cell::RefCell::new(AddressInfoInner {{ {fields} }})))"
@@ -225,8 +225,8 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         let receiver = self.operand_expr(message)?;
         Ok(match op {
-            smelt_hir::IncomingMessageOp::Method => RustExpr::postfix_on(&receiver, format!("{receiver}.method()")),
-            smelt_hir::IncomingMessageOp::Url => RustExpr::postfix_on(&receiver, format!("{receiver}.url()")),
+            smelt_hir::IncomingMessageOp::Method => RustExpr::chain(format!("JsString::from({receiver}.method())")),
+            smelt_hir::IncomingMessageOp::Url => RustExpr::chain(format!("JsString::from({receiver}.url())")),
             smelt_hir::IncomingMessageOp::Headers => {
                 let container = self.signature_type(dest_ty)?;
                 RustExpr::loose(format!(
@@ -292,7 +292,7 @@ impl FunctionEmitter<'_> {
             }
             smelt_hir::ServerResponseOp::End => {
                 let chunk = match args.first() {
-                    Some(chunk) => format!("Some({})", self.value_at_type(chunk, string_ty)?),
+                    Some(chunk) => format!("Some(({}).to_string())", self.value_at_type(chunk, string_ty)?),
                     None => "None".to_owned(),
                 };
                 RustExpr::postfix_on(&receiver, format!("{receiver}.end({chunk})"))

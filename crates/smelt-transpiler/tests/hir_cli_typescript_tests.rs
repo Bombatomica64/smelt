@@ -2805,7 +2805,7 @@ console.log(applyAll([new DaySetter(3)], bad) === bad, isNaN(bad.getTime()));
     ensure(
         !set_slots.is_empty()
             && set_slots.iter().all(|line| {
-                *line == "set: ::std::rc::Rc<dyn Fn(SmeltDate, SmeltRecord<String, bool>) -> SmeltDate>,"
+                *line == "set: ::std::rc::Rc<dyn Fn(SmeltDate, SmeltRecord<JsString, bool>) -> SmeltDate>,"
             }),
         format!("the `set` slot is fixed at the `Date` bound, got {set_slots:?}"),
     )?;

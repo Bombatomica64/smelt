@@ -905,7 +905,7 @@ function shallowClone(obj: object): object {
     // instance is still classified as a class instance, not a plain object.
     assert!(
         source.contains(
-            "SmeltUnknown::String(sentinel) if &**sentinel == \"__smelt_proto:class\" => { fields.push((\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true))); }"
+            "SmeltUnknown::String(sentinel) if sentinel.eq_str(\"__smelt_proto:class\") => { fields.push((\"__smelt_class\".into(), SmeltUnknown::Bool(true))); }"
         ),
         "a class prototype must carry the class marker onto the fresh object: {source}"
     );
@@ -1026,7 +1026,7 @@ console.log(result);
 ",
     );
 
-    assert!(source.contains("match status.as_str() {"));
+    assert!(source.contains("match status.to_string_lossy().as_str() {"), "{source}");
     assert!(source.contains("\"pending\" => {"));
     assert!(source.contains("return JsString::from(\"Waiting\");"));
     assert!(source.contains("_ => {"));
@@ -1052,7 +1052,7 @@ console.log(result);
         source.contains("_smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: JsString| {"),
         "{source}"
     );
-    assert!(source.contains("match closure_arg_0.as_str() {"));
+    assert!(source.contains("match closure_arg_0.to_string_lossy().as_str() {"), "{source}");
     assert!(source.contains("\"pending\" => {"));
     assert!(source.contains("JsString::from(\"Waiting\")"));
     assert!(source.contains("_ => {"));
@@ -1090,7 +1090,7 @@ console.log(result);
 ",
     );
 
-    assert!(source.contains("match kind.as_str() {"), "{source}");
+    assert!(source.contains("match receiver { SmeltUnknown::Function(function) => { let method = method.to_owned(); SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let receiver_method = smelt_is_receiver_method(&function); let forwarded: Vec<SmeltUnknown> = if method == \"apply\" { let mut forwarded = if receiver_method { ::std::vec![args.first().map_or(SmeltUnknown::Undefined, Clone::clone)] } else { Vec::new() }; if let Some(SmeltUnknown::Array(values)) = args.get(1) { forwarded.extend(values.clone().into_vec()); } forwarded } else if receiver_method { args.into_iter().collect() } else {"), "{source}");
     assert!(source.contains("\"loop\" => {"), "{source}");
     assert!(source.contains("\"double\" => {"), "{source}");
     // The early-return arm diverges inline.
@@ -1238,7 +1238,7 @@ fn emits_fetch_as_a_response_assembling_future() {
     );
 
     assert!(
-        source.contains("reqwest::get(JsString::from(\"https://example.com\"))"),
+        source.contains("reqwest::get(JsString::from(\"https://example.com\").to_string()"),
         "{source}"
     );
     assert!(source.contains("SmeltResponse::from_parts"), "{source}");
@@ -2133,7 +2133,7 @@ export function unescape(str: string): string {
          callback:\n{body}"
     );
     assert!(
-        body.contains("SmeltRecord<String, JsString>"),
+        body.contains("SmeltRecord<JsString, JsString>"),
         "the rebuilt constant must keep the source's concrete string-to-string \
          type:\n{body}"
     );

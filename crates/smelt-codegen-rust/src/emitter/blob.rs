@@ -43,7 +43,7 @@ impl FunctionEmitter<'_> {
         };
         let name_text = match name {
             Some(name_operand) => format!("Some(({}).clone())", self.operand_expr(name_operand)?),
-            None => "None".to_owned(),
+            None => "None::<String>".to_owned(),
         };
         let last_modified_text = match last_modified {
             Some(operand) => format!("Some(({}) as f64)", self.operand_expr(operand)?),
@@ -89,7 +89,7 @@ impl FunctionEmitter<'_> {
             // bytes are already in memory: the source awaits them, so the value
             // has to be a real future or the `await` has nothing to poll.
             smelt_hir::BlobOp::Text => Ok(RustExpr::atom(format!(
-                "{{ let smelt_blob = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(smelt_blob.to_text()) }})) }}"
+                "{{ let smelt_blob = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(JsString::from(smelt_blob.to_text())) }})) }}"
             ))),
             smelt_hir::BlobOp::ArrayBuffer => Ok(RustExpr::atom(self.carrier_format(format_args!(
                 "{{ let smelt_blob = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltArrayBuffer::from_bytes(smelt_blob.to_bytes())) }})) }}"
@@ -108,7 +108,7 @@ impl FunctionEmitter<'_> {
                 };
                 let content_type = match args.get(2) {
                     None => "None".to_owned(),
-                    Some(arg) => format!("Some({})", self.value_at_type(arg, string_ty)?),
+                    Some(arg) => format!("Some(({}).to_string())", self.value_at_type(arg, string_ty)?),
                 };
                 Ok(RustExpr::postfix_on(&receiver, format!(
                     "{receiver}.slice({}, {}, {content_type})",

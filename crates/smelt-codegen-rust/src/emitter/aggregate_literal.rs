@@ -177,7 +177,7 @@ impl FunctionEmitter<'_> {
                 .map(|(key, entry_value)| {
                     Ok(format!(
                         "({}, {})",
-                        self.value_at_type(key, self.type_id(Type::String)?)?,
+                        self.value_at_type(key, self.type_id(self.text_type())?)?,
                         self.erase(entry_value)?
                     ))
                 })

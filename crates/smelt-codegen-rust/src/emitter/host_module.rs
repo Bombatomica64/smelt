@@ -67,9 +67,9 @@ impl FunctionEmitter<'_> {
                     None => "None".to_owned(),
                     Some(suffix) => match self.mir.types.get(self.operand_ty(suffix)?) {
                         Some(Type::Optional(_)) => {
-                            format!("({}).as_deref()", self.operand_expr(suffix)?)
+                            format!("({}).map(|smelt_suffix| smelt_suffix.to_string()).as_deref()", self.operand_expr(suffix)?)
                         }
-                        _ => format!("Some({}.as_str())", text(1)?),
+                        _ => format!("Some({}.to_string().as_str())", text(1)?),
                     },
                 };
                 RustExpr::postfix_on(&prelude::PATH_BASENAME_FN, format!("{}(&{}, {suffix})", prelude::PATH_BASENAME_FN, text(0)?))

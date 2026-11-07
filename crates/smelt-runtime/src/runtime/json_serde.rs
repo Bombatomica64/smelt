@@ -21,7 +21,7 @@ impl serde::Serialize for SmeltUnknown {
             Self::BigInt(_) => Err(serde::ser::Error::custom("Do not know how to serialize a BigInt")),
 // @smelt:end
 // @smelt:if unknown
-            Self::String(value) => serializer.serialize_str(value),
+            Self::String(value) => serializer.serialize_str(&value.to_string_lossy()),
             Self::Symbol(_) => serializer.serialize_none(),
             Self::Array(values) => serde::Serialize::serialize(&*values.values.borrow(), serializer),
             //~ `JSON.stringify` serializes an object's OWN ENUMERABLE
@@ -51,7 +51,7 @@ impl serde::Serialize for SmeltUnknown {
             //~ (`smelt_host_buffer_own_elements`) decides it for every
             //~ byte-backed shape, and `Object.keys`, `for...in` and this
             //~ serializer cannot drift apart.
-            Self::Object(values) => { use serde::ser::SerializeMap as _; if let Some(elements) = smelt_host_buffer_own_elements(self) { let mut map = serializer.serialize_map(Some(elements.len()))?; for (index, element) in elements.iter().enumerate() { map.serialize_entry(&index.to_string(), element)?; } return map.end(); } let shape = smelt_for_in_object_shape(values); let store = values.store.borrow(); let included = |entry: &&SmeltFieldEntry<String, SmeltUnknown>| !matches!(entry.value, Self::Undefined | Self::Function(_) | Self::Symbol(_)) && smelt_is_for_in_shape_key(shape, &entry.key); let mut map = serializer.serialize_map(Some(store.entries().iter().filter(included).count()))?; for entry in store.entries().iter().filter(included) { map.serialize_entry(&entry.key, &entry.value)?; } map.end() },
+            Self::Object(values) => { use serde::ser::SerializeMap as _; if let Some(elements) = smelt_host_buffer_own_elements(self) { let mut map = serializer.serialize_map(Some(elements.len()))?; for (index, element) in elements.iter().enumerate() { map.serialize_entry(&index.to_string(), element)?; } return map.end(); } let shape = smelt_for_in_object_shape(values); let store = values.store.borrow(); let included = |entry: &&SmeltFieldEntry<JsString, SmeltUnknown>| !matches!(entry.value, Self::Undefined | Self::Function(_) | Self::Symbol(_)) && smelt_is_for_in_shape_key(shape, &entry.key); let mut map = serializer.serialize_map(Some(store.entries().iter().filter(included).count()))?; for entry in store.entries().iter().filter(included) { map.serialize_entry(&entry.key, &entry.value)?; } map.end() },
             //~ A function or symbol VALUE is not JSON: inside an array
             //~ it is `null` and as a property it is omitted (the Object
             //~ arm's filter below drops it). Serializing the native-code

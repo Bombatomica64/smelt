@@ -169,7 +169,10 @@ impl FunctionEmitter<'_> {
                 "toUpperCase" | "to_upper_case" | "toLowerCase" | "to_lower_case"
             )
         {
+            let js = self.mir.types.get(inner_ty) == Some(&Type::String);
             let rust_method_name = match self.symbol_name(method)? {
+                "toUpperCase" | "to_upper_case" if js => "to_upper_case",
+                "toLowerCase" | "to_lower_case" if js => "to_lower_case",
                 "toUpperCase" | "to_upper_case" => "to_uppercase",
                 "toLowerCase" | "to_lower_case" => "to_lowercase",
                 _ => {
@@ -562,7 +565,7 @@ impl FunctionEmitter<'_> {
                         let scrutinee = self
                             .erase_concrete_union_expr(&index_text.cloned_value(), index_ty);
                         RustExpr::atom(self.carrier_format(format_args!(
-                            "match {scrutinee} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
+                            "match {scrutinee} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
                         )))
                     }
                     _ => RustExpr::atom("f64::NAN"),

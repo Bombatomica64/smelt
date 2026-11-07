@@ -108,18 +108,28 @@ impl FunctionEmitter<'_> {
         field: Symbol,
     ) -> Result<RustExpr, EmitError> {
         if let Some(property) = self.host_data_property(receiver_ty, field)? {
-            return Ok(RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.{}()", property.accessor)));
+            return Ok(host_data_property_read(receiver_text, &property));
         }
         if let Some(Type::Dict(key, value)) = self.mir.types.get(receiver_ty)
             && self.mir.types.get(*key).is_some_and(Type::is_text)
         {
             let field_name = self.symbol_source_name(field)?;
+            // The lookup of a source property name: a JavaScript record or map
+            // is keyed by `JsString`, which a `&str` does not borrow as.
+            let js_keyed = self.mir.types.get(*key) == Some(&Type::String);
+            let lookup = if js_keyed && self.dict_uses_smelt_record(*key) {
+                format!("get_text({field_name:?})")
+            } else if js_keyed {
+                format!("get(&*JsString::from({field_name:?}))")
+            } else {
+                format!("get({field_name:?})")
+            };
             if matches!(self.mir.types.get(*value), Some(Type::Optional(_))) {
                 if self.dict_uses_smelt_record(*key) {
-                    return Ok(RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.get({field_name:?}).flatten()")));
+                    return Ok(RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.{lookup}.flatten()")));
                 }
                 return Ok(RustExpr::postfix_on(&receiver_text, format!(
-                    "{receiver_text}.get({field_name:?}).cloned().flatten()"
+                    "{receiver_text}.{lookup}.cloned().flatten()"
                 )));
             }
             // Same rule as the plain place read (`emitter::place`): a record
@@ -130,17 +140,17 @@ impl FunctionEmitter<'_> {
             if self.renders_erased(*value)? {
                 let cloned = if self.dict_uses_smelt_record(*key) { "" } else { ".cloned()" };
                 return Ok(RustExpr::postfix_on(&receiver_text, format!(
-                    "{receiver_text}.get({field_name:?}){cloned}.unwrap_or({})",
+                    "{receiver_text}.{lookup}{cloned}.unwrap_or({})",
                     self.absent_value()
                 )));
             }
             if self.dict_uses_smelt_record(*key) {
                 return Ok(RustExpr::postfix_on(&receiver_text, format!(
-                    "{receiver_text}.get({field_name:?}).expect(\"missing field\")"
+                    "{receiver_text}.{lookup}.expect(\"missing field\")"
                 )));
             }
             return Ok(RustExpr::postfix_on(&receiver_text, format!(
-                "{receiver_text}.get({field_name:?}).cloned().expect(\"missing field\")"
+                "{receiver_text}.{lookup}.cloned().expect(\"missing field\")"
             )));
         }
         if let Some(text) = self.concrete_union_member_read_expr(receiver_text, receiver_ty, field)? {
@@ -471,8 +481,8 @@ impl FunctionEmitter<'_> {
         field: Symbol,
     ) -> Result<RustExpr, EmitError> {
         Ok(match self.symbol_name(field)? {
-            "source" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.source.to_string()")),
-            "flags" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.flags.to_string()")),
+            "source" => RustExpr::chain(format!("JsString::from(&*{receiver_text}.source)")),
+            "flags" => RustExpr::chain(format!("JsString::from(&*{receiver_text}.flags)")),
             "global" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.has_flag('g')")),
             "ignoreCase" | "ignore_case" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.has_flag('i')")),
             "multiline" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.has_flag('m')")),
@@ -488,7 +498,7 @@ impl FunctionEmitter<'_> {
                 RustExpr::atom(format!("(*{receiver_text}.last_index.borrow() as f64)"))
             }
             "constructor" => {
-                RustExpr::atom("SmeltUnknown::Object(SmeltObject::new(Vec::from([])))")
+                RustExpr::atom("SmeltUnknown::Object(SmeltObject::new(Vec::<(JsString, SmeltUnknown)>::new()))")
             }
             // A property a RegExp does not have reads `undefined`.
             _ => self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined")),
@@ -601,4 +611,15 @@ impl FunctionEmitter<'_> {
             Ok(RustExpr::opaque(format!("{store_text}.get(&{key_text}).cloned(){flatten}")))
         }
     }
+}
+
+/// The read of a host data property off `receiver_text`: its accessor call,
+/// with a text property (a URL part, a status text, an encoding name), which
+/// the host type answers as a UTF-8 `String`, taken as a JavaScript string.
+pub(super) fn host_data_property_read(receiver_text: &RustExpr, property: &smelt_stdlib::HostDataProperty) -> RustExpr {
+    let call = format!("{receiver_text}.{}()", property.accessor);
+    if property.ty == smelt_stdlib::HostPrimitive::String {
+        return RustExpr::chain(format!("JsString::from({call})"));
+    }
+    RustExpr::postfix_on(receiver_text, call)
 }

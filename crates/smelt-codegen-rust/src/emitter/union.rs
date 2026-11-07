@@ -1541,7 +1541,7 @@ impl FunctionEmitter<'_> {
                 let Some(ty) = self.find_type_id(&primitive) else {
                     return Ok(None);
                 };
-                UnionArmRead::Host(ty, property.accessor)
+                UnionArmRead::Host(ty, property)
             } else if matches!(self.mir.types.get(*member), Some(Type::Float | Type::Bool)) {
                 UnionArmRead::Absent
             } else {
@@ -1604,8 +1604,8 @@ impl FunctionEmitter<'_> {
                     UnionArmRead::Field(ty) => {
                         (format!("smelt_union_arm.{field_name}.clone()"), *ty)
                     }
-                    UnionArmRead::Host(ty, accessor) => {
-                        (format!("smelt_union_arm.{accessor}()"), *ty)
+                    UnionArmRead::Host(ty, property) => {
+                        (field_access::host_data_property_read(&RustExpr::path("smelt_union_arm"), property).into_string(), *ty)
                     }
                 };
                 let value = if read_is_optional
@@ -2008,8 +2008,8 @@ pub(super) enum UnionArmIndexRead {
 pub(super) enum UnionArmRead {
     /// A record arm's declared field, of this type.
     Field(TypeId),
-    /// A modeled host class's data property: its type and Rust accessor.
-    Host(TypeId, &'static str),
+    /// A modeled host class's data property: its type and how it is read.
+    Host(TypeId, smelt_stdlib::HostDataProperty),
     /// A `number`/`boolean` arm: JavaScript reads `undefined`.
     Absent,
 }

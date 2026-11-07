@@ -9,8 +9,8 @@ expression: emitted
 
 fn main() {
     let word: JsString = JsString::from("Smelt");
-    let lower: JsString = word.clone().to_lowercase();
-    let upper: JsString = word.clone().to_uppercase();
+    let lower: JsString = word.clone().to_lower_case();
+    let upper: JsString = word.clone().to_upper_case();
     let trimmed: JsString = word.clone().trim().to_owned();
     let _smelt_tmp_16: JsString = word.clone();
     let _smelt_tmp_17: JsString = JsString::from("Sm");
@@ -18,12 +18,12 @@ fn main() {
     let _smelt_tmp_19: JsString = word.clone();
     let _smelt_tmp_20: JsString = JsString::from("lt");
     let ends: bool = word.clone().ends_with(&_smelt_tmp_20);
-    let first: f64 = { let smelt_haystack = &&word; smelt_haystack.find(&JsString::from("m")).map_or(-1.0, |idx| smelt_utf16_index_of_byte(&smelt_haystack, idx) as f64) };
-    let last: f64 = { let smelt_haystack = &&word; smelt_haystack.rfind(&JsString::from("t")).map_or(-1.0, |idx| smelt_utf16_index_of_byte(&smelt_haystack, idx) as f64) };
-    let replaced: JsString = word.clone().replacen(&JsString::from("Sm"), &JsString::from("sm"), 1);
+    let first: f64 = word.index_of(&JsString::from("m"), 0).map_or(-1.0, |smelt_index| smelt_index as f64);
+    let last: f64 = word.last_index_of(&JsString::from("t"), usize::MAX).map_or(-1.0, |smelt_index| smelt_index as f64);
+    let replaced: JsString = word.clone().replace_first(&JsString::from("Sm"), &JsString::from("sm"));
     let repeated: JsString = word.clone().repeat(3.0 as usize);
-    let padded_start: JsString = { let value = &word.clone(); let target_len = 8.0 as usize; let pad = &JsString::from("0"); let current_len = smelt_utf16_len(&value); if current_len >= target_len || pad.is_empty() { value.to_owned() } else { let needed = target_len - current_len; let padding: String = smelt_utf16_slice(&pad.repeat(needed.div_ceil(smelt_utf16_len(pad))), 0, needed); format!("{}{}", padding, value) } };
-    let ch: JsString = { let smelt_index = 1.0 as f64; if smelt_index < 0.0 { None } else { smelt_utf16_char_at(&word, smelt_index as usize) } }.unwrap_or_default();
-    let code: f64 = (|smelt_text: &str, smelt_index: f64| if smelt_index < 0.0 { f64::NAN } else { let smelt_index = smelt_index as usize; smelt_utf16_unit_at(smelt_text, smelt_index).map_or(f64::NAN, f64::from) })(&word, 2.0 as f64);
+    let padded_start: JsString = { let value = &word.clone(); let target_len = 8.0 as usize; let pad = &JsString::from("0"); let current_len = value.len(); if current_len >= target_len || pad.is_empty() { value.to_owned() } else { let needed = target_len - current_len; let padding: JsString = pad.repeat(needed.div_ceil(pad.len())).slice(0, needed); padding + value } };
+    let ch: JsString = { let smelt_index = 1.0 as f64; if smelt_index < 0.0 { None } else { word.char_at(smelt_index as usize) } }.unwrap_or_default();
+    let code: f64 = (|smelt_text: &JsStr, smelt_index: f64| if smelt_index < 0.0 { f64::NAN } else { let smelt_index = smelt_index as usize; smelt_text.unit_at(smelt_index).map_or(f64::NAN, f64::from) })(&word, 2.0 as f64);
     return;
 }

@@ -103,6 +103,10 @@ pub trait SmeltPropertyKey {
 
 impl SmeltPropertyKey for str { fn smelt_array_index(&self) -> Option<u32> { smelt_canonical_array_index(self) } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(self.as_bytes()) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { smelt_field_fingerprint(self.as_bytes()) } #[inline] fn smelt_is_internal_key(&self) -> bool { self.starts_with("__smelt") } }
 impl SmeltPropertyKey for String { fn smelt_array_index(&self) -> Option<u32> { smelt_canonical_array_index(self) } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(self.as_bytes()) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { smelt_field_fingerprint(self.as_bytes()) } #[inline] fn smelt_is_internal_key(&self) -> bool { self.starts_with("__smelt") } }
+//~ A JavaScript string key hashes its code units' bytes, which `JsString`
+//~ and the borrowed `JsStr` share, so a `&JsStr` lookup finds a stored key.
+impl SmeltPropertyKey for JsStr { fn smelt_array_index(&self) -> Option<u32> { if self.len() > 10 || !self.units().iter().all(|unit| (u16::from(b'0')..=u16::from(b'9')).contains(unit)) { return None; } smelt_canonical_array_index(&self.to_string_lossy()) } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(self.byte_view()) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { smelt_field_fingerprint(self.byte_view()) } #[inline] fn smelt_is_internal_key(&self) -> bool { self.eq_str_prefix("__smelt") } }
+impl SmeltPropertyKey for JsString { fn smelt_array_index(&self) -> Option<u32> { (**self).smelt_array_index() } #[inline] fn smelt_key_hash(&self) -> u64 { (**self).smelt_key_hash() } #[inline] fn smelt_key_fingerprint(&self) -> u32 { (**self).smelt_key_fingerprint() } #[inline] fn smelt_is_internal_key(&self) -> bool { (**self).smelt_is_internal_key() } }
 
 /// Return the position a newly inserted key takes in a JavaScript own-key order.
 ///

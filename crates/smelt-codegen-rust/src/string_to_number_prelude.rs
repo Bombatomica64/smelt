@@ -36,8 +36,18 @@
 /// The emitted helper's name, so emit sites and the prelude agree on it.
 pub(crate) const STRING_TO_NUMBER_FN: &str = "smelt_string_to_number";
 
-/// The call text that converts the `&str`-coercible expression `text` with
-/// the JavaScript rule, for an emit site that builds its code with `format!`.
-pub(crate) fn string_to_number_call(text: &str) -> String {
-    format!("{STRING_TO_NUMBER_FN}(&({text}))")
+/// The emitted helper over a JavaScript string (`&JsStr`).
+pub(crate) const JS_STRING_TO_NUMBER_FN: &str = "smelt_js_string_to_number";
+
+/// The call text that converts the string expression `text` with the
+/// JavaScript rule, for an emit site that builds its code with `format!`.
+///
+/// `js_text` says whether `text` is a JavaScript string (`JsString`, read
+/// through `smelt_js_string_to_number`) or a Rust `String`/`&str`.
+pub(crate) fn string_to_number_call(text: &str, js_text: bool) -> String {
+    if js_text {
+        format!("{JS_STRING_TO_NUMBER_FN}(&({text}))")
+    } else {
+        format!("{STRING_TO_NUMBER_FN}(&({text}))")
+    }
 }

@@ -62,6 +62,17 @@ fn smelt_string_to_number(text: &str) -> f64 {
     if end != bytes.len() { return f64::NAN; }
     unsigned.parse::<f64>().map_or(f64::NAN, |value| sign * value)
 }
+// @smelt:if js_string
+
+/// `StringToNumber` of a JavaScript string: past the white space it trims, a
+/// number is ASCII, so any other unit (a lone surrogate included) is `NaN`.
+#[allow(dead_code)]
+fn smelt_js_string_to_number(text: &JsStr) -> f64 {
+    let text = text.trim();
+    if text.units().iter().any(|unit| *unit >= 0x80) { return f64::NAN; }
+    smelt_string_to_number(&text.to_string_lossy())
+}
+// @smelt:end
 
 // @smelt:item-end
 
@@ -80,7 +91,7 @@ const fn smelt_is_js_whitespace(ch: char) -> bool {
 /// ECMA-262 `parseInt(text, radix)`, with `radix` as the number the caller
 /// passed (`0` when it was absent or `undefined`).
 #[allow(dead_code)]
-fn smelt_parse_int(text: &str, radix: f64) -> f64 {
+fn smelt_parse_int(text: &(impl SmeltHostText + ?Sized), radix: f64) -> f64 { let text = text.host_text(); let text: &str = &text;
     let text = text.trim_start_matches(smelt_is_js_whitespace);
     let (sign, text) = match text.as_bytes().first() { Some(b'-') => (-1.0, &text[1..]), Some(b'+') => (1.0, &text[1..]), _ => (1.0, text) };
     //~ `ToInt32(radix)`: NaN and the infinities are 0, everything else wraps
@@ -116,7 +127,7 @@ fn smelt_parse_int(text: &str, radix: f64) -> f64 {
 
 /// ECMA-262 `parseFloat(text)`: the longest `StrDecimalLiteral` prefix.
 #[allow(dead_code)]
-fn smelt_parse_float(text: &str) -> f64 {
+fn smelt_parse_float(text: &(impl SmeltHostText + ?Sized)) -> f64 { let text = text.host_text(); let text: &str = &text;
     let text = text.trim_start_matches(smelt_is_js_whitespace);
     let bytes = text.as_bytes();
     let signed = usize::from(matches!(bytes.first(), Some(b'+' | b'-')));

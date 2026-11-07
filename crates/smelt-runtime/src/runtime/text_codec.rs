@@ -68,7 +68,7 @@ impl SmeltTextEncoder {
     /// `encoding`: always `"utf-8"` per the spec.
     pub fn encoding(&self) -> String { "utf-8".to_owned() }
     /// `encode(input)`: the input's UTF-8 bytes.
-    pub fn encode(&self, input: &str) -> SmeltUint8Array { SmeltUint8Array::from_bytes(input.as_bytes().to_vec()) }
+    pub fn encode(&self, input: &(impl SmeltHostText + ?Sized)) -> SmeltUint8Array { let input = input.host_text(); let input: &str = &input; SmeltUint8Array::from_bytes(input.as_bytes().to_vec()) }
 }
 
 // @smelt:item-end
@@ -111,7 +111,7 @@ impl SmeltTextDecoder {
     //~ `"utf-8"`, not `"utf8"`. The frontend has already refused every label
     //~ that is not a UTF-8 row, so the canonical name is known here.
     /// A decoder for an encoding label, which is always a UTF-8 label.
-    pub fn from_label(_label: &str) -> Self { Self::new() }
+    pub fn from_label(_label: &(impl SmeltHostText + ?Sized)) -> Self { Self::new() }
     /// JS reference identity of this decoder.
     pub fn id(&self) -> usize { self.id }
     /// `encoding`: the normalized encoding label.

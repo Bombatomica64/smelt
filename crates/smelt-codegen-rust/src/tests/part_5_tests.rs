@@ -749,11 +749,11 @@ const limited = word.split(",", 2);
 "#,
     );
 
-    assert!(source.contains("if smelt_separator.is_empty()"));
     assert!(
         source.contains(
-            "smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>()"
-        )
+            "smelt_haystack.split(&smelt_separator, usize::MAX)"
+        ),
+        "{source}"
     );
     assert!(source.contains("else if smelt_limit.is_sign_positive()"));
 }
@@ -808,11 +808,11 @@ const numberJoined = numbers.join("-");
 "#,
     );
 
-    assert!(source.contains(".join(&JsString::from(\"-\"));"));
-    assert!(source.contains(".join(&JsString::from(\",\"));"));
+    assert!(source.contains("JsString::join(") && source.contains(", &JsString::from(\"-\"))"), "{source}");
+    assert!(source.contains(", &JsString::from(\",\"))"), "{source}");
     // A numeric item stringifies the way `String(item)` does, which is
     // JavaScript's rule and not Rust's `Display`.
-    assert!(source.contains(".iter().map(|item| { smelt_number_to_string(*item) })"));
+    assert!(source.contains(".iter().map(|item| JsString::from({ smelt_number_to_string(*item) }))"), "{source}");
 }
 
 #[test]
@@ -913,7 +913,7 @@ function sliceOptional(start?: number, end?: number): string {
     assert!(source.contains("let smelt_index = 1.0 as i64"));
     assert!(source.contains("clamp(0, smelt_len) as usize"));
     assert!(source.contains(".cloned().collect::<Vec<_>>()"));
-    assert!(source.contains("{ let smelt_len_units = smelt_utf16_len(&word); { let smelt_start = 0usize; smelt_utf16_slice(&word, smelt_start, smelt_start.saturating_add(smelt_len_units.saturating_sub(0usize))) } }"), "{source}");
+    assert!(source.contains("{ let smelt_len_units = word.len(); { let smelt_start = 0usize; word.slice(smelt_start, smelt_start.saturating_add(smelt_len_units.saturating_sub(0usize))) } }"), "{source}");
     assert!(source.matches("if smelt_index < 0").count() >= 2);
     assert!(source.contains(".unwrap_or(0.0)"));
     assert!(source.contains(".unwrap_or(smelt_len_units as f64)"), "{source}");
@@ -1061,7 +1061,7 @@ const asRecord: unknown = obj;
     // Direction 2: the object literal stays an unmarked `SmeltRecord`, never a
     // `SmeltJsMap`.
     assert!(
-        source.contains("let obj: SmeltRecord<String, f64> ="),
+        source.contains("let obj: SmeltRecord<JsString, f64> ="),
         "{source}"
     );
     assert!(

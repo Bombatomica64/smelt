@@ -67,7 +67,7 @@ impl SmeltEventEmitter {
     /// `on`/`addListener`/`once`: append a listener.
     ///
     /// Appending is what makes listeners fire in REGISTRATION order.
-    pub fn add(&self, event: &str, callback: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>>>, once: bool) -> Self {
+    pub fn add(&self, event: &(impl SmeltHostText + ?Sized), callback: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>>>, once: bool) -> Self { let event = event.host_text(); let event: &str = &event;
         let identity = smelt_canonical_function_identity(&callback);
         self.listeners.borrow_mut().push(SmeltEventListener { event: event.to_owned(), callback, once, identity });
         //~ Every registration/removal answers the emitter, so
@@ -80,7 +80,7 @@ impl SmeltEventEmitter {
     /// same function was registered more than once, so the search runs
     /// from the end. Removing a listener that was never added is not an
     /// error.
-    pub fn remove(&self, event: &str, callback: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>>>) -> Self {
+    pub fn remove(&self, event: &(impl SmeltHostText + ?Sized), callback: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>>>) -> Self { let event = event.host_text(); let event: &str = &event;
         let identity = smelt_canonical_function_identity(callback);
         let mut listeners = self.listeners.borrow_mut();
         if let Some(index) = listeners.iter().rposition(|listener| listener.event == event && listener.identity == identity) { listeners.remove(index); }
@@ -88,19 +88,19 @@ impl SmeltEventEmitter {
         self.clone()
     }
     /// `removeAllListeners(name)`: drop every listener for one event.
-    pub fn remove_all(&self, event: &str) -> Self {
+    pub fn remove_all(&self, event: &(impl SmeltHostText + ?Sized)) -> Self { let event = event.host_text(); let event: &str = &event;
         self.listeners.borrow_mut().retain(|listener| listener.event != event);
         self.clone()
     }
     /// `listenerCount(name)`.
-    pub fn listener_count(&self, event: &str) -> f64 { self.listeners.borrow().iter().filter(|listener| listener.event == event).count() as f64 }
+    pub fn listener_count(&self, event: &(impl SmeltHostText + ?Sized)) -> f64 { let event = event.host_text(); let event: &str = &event; self.listeners.borrow().iter().filter(|listener| listener.event == event).count() as f64 }
     /// `emit(name, ...args)`: call the listeners, and answer whether any ran.
     ///
     /// Iterates a SNAPSHOT of the matching listeners, which is what makes
     /// a listener added during the emit wait for the next one while a
     /// listener removed during it still runs. `once` entries leave the live
     /// list before any call, so a re-entrant `emit` cannot run one twice.
-    pub fn emit(&self, event: &str, args: Vec<SmeltUnknown>) -> Result<bool, Box<dyn ::std::error::Error>> {
+    pub fn emit(&self, event: &(impl SmeltHostText + ?Sized), args: Vec<SmeltUnknown>) -> Result<bool, Box<dyn ::std::error::Error>> { let event = event.host_text(); let event: &str = &event;
         let snapshot: Vec<SmeltEventListener> = self.listeners.borrow().iter().filter(|listener| listener.event == event).cloned().collect();
         if snapshot.is_empty() {
             return Ok(false);

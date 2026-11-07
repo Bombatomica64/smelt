@@ -18,7 +18,21 @@
 // Text leaves through `Display`, which writes UTF-8 and replaces a lone
 // surrogate with U+FFFD, as Node does on stdout.
 
-// @smelt:item JsString when js_string & utf16_strings
+// @smelt:item JsString when js_string
+/// A count or index of code units as a JavaScript number: exact, since a
+/// string's length is far below 2^53.
+#[allow(dead_code)]
+const fn smelt_units_to_number(units: usize) -> f64 {
+    units as f64
+}
+
+/// A JavaScript number as a count or index of code units: truncated toward
+/// zero, NaN and negatives `0`, anything past `usize::MAX` saturating.
+#[allow(dead_code)]
+const fn smelt_units_from_number(number: f64) -> usize {
+    number as usize
+}
+
 /// A JavaScript string: immutable UTF-16 code units, shared by reference count.
 ///
 /// Lone surrogates are representable. Equality, hashing and ordering are by
@@ -26,7 +40,7 @@
 /// the buffer; [`JsString::push_str`] and `+` append in place when this handle
 /// is the buffer's only owner and copy it first when it is shared.
 #[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct JsString(::std::rc::Rc<Vec<u16>>);
+pub struct JsString(::std::rc::Rc<Vec<u16>>);
 
 /// A borrowed JavaScript string: a slice of UTF-16 code units.
 ///
@@ -35,7 +49,7 @@ struct JsString(::std::rc::Rc<Vec<u16>>);
 /// `&JsStr` lookup.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
-struct JsStr([u16]);
+pub struct JsStr([u16]);
 
 impl JsStr {
     /// Views code units as a string.
@@ -77,12 +91,9 @@ impl JsStr {
     /// `index` holds its leading half, else the unit there.
     fn code_point_at(&self, index: usize) -> Option<u32> {
         let first = *self.0.get(index)?;
-        if (0xD800..0xDC00).contains(&first)
-            && let Some(second) = self.0.get(index + 1).copied().filter(|unit| (0xDC00..0xE000).contains(unit))
-        {
-            return Some(0x10000 + ((u32::from(first) - 0xD800) << 10) + (u32::from(second) - 0xDC00));
-        }
-        Some(u32::from(first))
+        //~ No let chain: generated crates may use an edition before 2024.
+        let second = self.0.get(index + 1).copied().filter(|unit| (0xD800..0xDC00).contains(&first) && (0xDC00..0xE000).contains(unit));
+        Some(second.map_or_else(|| u32::from(first), |second| 0x10000 + ((u32::from(first) - 0xD800) << 10) + (u32::from(second) - 0xDC00)))
     }
 
     /// The code units `start..end`, clamped to the string; empty when
@@ -103,8 +114,13 @@ impl JsStr {
     ///
     /// `from` past the end is the end, so an empty needle is found at
     /// `min(from, length)`, as in JavaScript.
-    fn index_of(&self, needle: &Self, from: usize) -> Option<usize> {
-        let (haystack, needle) = (&self.0, &needle.0);
+    fn index_of(&self, needle: impl SmeltJsPattern, from: usize) -> Option<usize> {
+        needle.with_units(|needle| self.index_of_units(needle, from))
+    }
+
+    /// [`Self::index_of`] over a needle's code units.
+    fn index_of_units(&self, needle: &[u16], from: usize) -> Option<usize> {
+        let haystack = &self.0;
         let from = from.min(haystack.len());
         let Some((&first, rest)) = needle.split_first() else { return Some(from) };
         let last_start = haystack.len().checked_sub(needle.len())?;
@@ -119,25 +135,27 @@ impl JsStr {
     }
 
     /// The last index at or before `from` where `needle` occurs (`lastIndexOf`).
-    fn last_index_of(&self, needle: &Self, from: usize) -> Option<usize> {
-        let (haystack, needle) = (&self.0, &needle.0);
+    fn last_index_of(&self, needle: impl SmeltJsPattern, from: usize) -> Option<usize> {
+        needle.with_units(|needle| {
+        let haystack = &self.0;
         let last_start = haystack.len().checked_sub(needle.len())?;
         (0..=from.min(last_start)).rev().find(|at| haystack[*at..*at + needle.len()] == *needle)
+        })
     }
 
     /// Whether `needle` occurs anywhere (`includes`).
-    fn contains(&self, needle: &Self) -> bool {
+    fn contains(&self, needle: impl SmeltJsPattern) -> bool {
         self.index_of(needle, 0).is_some()
     }
 
     /// Whether the string starts with `prefix` (`startsWith`).
-    fn starts_with(&self, prefix: &Self) -> bool {
-        self.0.starts_with(&prefix.0)
+    fn starts_with(&self, prefix: impl SmeltJsPattern) -> bool {
+        prefix.with_units(|prefix| self.0.starts_with(prefix))
     }
 
     /// Whether the string ends with `suffix` (`endsWith`).
-    fn ends_with(&self, suffix: &Self) -> bool {
-        self.0.ends_with(&suffix.0)
+    fn ends_with(&self, suffix: impl SmeltJsPattern) -> bool {
+        suffix.with_units(|suffix| self.0.ends_with(suffix))
     }
 
     /// The string with JavaScript white space removed from both ends (`trim`).
@@ -164,7 +182,12 @@ impl JsStr {
 
     /// The pieces between occurrences of `separator` (`split`), at most
     /// `limit` of them. An empty separator splits into single code units.
-    fn split(&self, separator: &Self, limit: usize) -> Vec<JsString> {
+    fn split(&self, separator: impl SmeltJsPattern, limit: usize) -> Vec<JsString> {
+        separator.with_units(|separator| self.split_units(separator, limit))
+    }
+
+    /// [`Self::split`] over a separator's code units.
+    fn split_units(&self, separator: &[u16], limit: usize) -> Vec<JsString> {
         let mut pieces = Vec::new();
         if limit == 0 { return pieces; }
         if separator.is_empty() {
@@ -172,7 +195,7 @@ impl JsStr {
             return pieces;
         }
         let mut start = 0;
-        while let Some(at) = self.index_of(separator, start) {
+        while let Some(at) = self.index_of_units(separator, start) {
             pieces.push(self.slice(start, at));
             if pieces.len() == limit { return pieces; }
             start = at + separator.len();
@@ -184,20 +207,25 @@ impl JsStr {
     /// The string with its first occurrence of `pattern` replaced by
     /// `replacement` (`replace` with a string pattern and a plain
     /// replacement, no `$` substitutions).
-    fn replace_first(&self, pattern: &Self, replacement: &Self) -> JsString {
-        self.index_of(pattern, 0).map_or_else(|| self.to_owned(), |at| {
+    fn replace_first(&self, pattern: impl SmeltJsPattern, replacement: &Self) -> JsString {
+        pattern.with_units(|pattern| self.index_of_units(pattern, 0).map_or_else(|| self.to_owned(), |at| {
             let mut out = Vec::with_capacity(self.len() - pattern.len() + replacement.len());
             out.extend_from_slice(&self.0[..at]);
             out.extend_from_slice(&replacement.0);
             out.extend_from_slice(&self.0[at + pattern.len()..]);
             JsString::from(out)
-        })
+        }))
     }
 
     /// The string with every occurrence of `pattern` replaced by `replacement`
     /// (`replaceAll` with a string pattern and a plain replacement). An empty
     /// pattern matches before every unit and at the end.
-    fn replace_all(&self, pattern: &Self, replacement: &Self) -> JsString {
+    fn replace_all(&self, pattern: impl SmeltJsPattern, replacement: &Self) -> JsString {
+        pattern.with_units(|pattern| self.replace_all_units(pattern, replacement))
+    }
+
+    /// [`Self::replace_all`] over a pattern's code units.
+    fn replace_all_units(&self, pattern: &[u16], replacement: &Self) -> JsString {
         let mut out = Vec::with_capacity(self.len());
         if pattern.is_empty() {
             for unit in &self.0 {
@@ -208,7 +236,7 @@ impl JsStr {
             return JsString::from(out);
         }
         let mut start = 0;
-        while let Some(at) = self.index_of(pattern, start) {
+        while let Some(at) = self.index_of_units(pattern, start) {
             out.extend_from_slice(&self.0[start..at]);
             out.extend_from_slice(&replacement.0);
             start = at + pattern.len();
@@ -307,6 +335,30 @@ impl JsStr {
         JsString::from(out)
     }
 
+    /// The code units' bytes in native order, for hashing.
+    #[allow(unsafe_code)]
+    const fn byte_view(&self) -> &[u8] {
+        //~ A `u16` slice is a valid `u8` slice of twice the length: `u8`
+        //~ has alignment 1 and every byte pattern is a value.
+        unsafe { ::std::slice::from_raw_parts(self.0.as_ptr().cast::<u8>(), self.0.len() * 2) }
+    }
+
+    /// Whether the string starts with the text `prefix`.
+    fn eq_str_prefix(&self, prefix: &str) -> bool {
+        let mut units = self.0.iter();
+        prefix.encode_utf16().all(|unit| units.next() == Some(&unit))
+    }
+
+    /// The rest of the string after the text `prefix`, when it starts with it.
+    fn strip_str_prefix(&self, prefix: &str) -> Option<&Self> {
+        let mut at = 0;
+        for unit in prefix.encode_utf16() {
+            if self.0.get(at) != Some(&unit) { return None; }
+            at += 1;
+        }
+        Some(Self::from_units(&self.0[at..]))
+    }
+
     /// Whether the string holds exactly the text `other`.
     fn eq_str(&self, other: &str) -> bool {
         //~ Compare without encoding `other` into a buffer: equal strings
@@ -354,12 +406,12 @@ impl JsString {
     fn join<I>(pieces: I, separator: &JsStr) -> Self
     where
         I: IntoIterator,
-        I::Item: ::std::borrow::Borrow<JsStr>,
+        I::Item: AsRef<JsStr>,
     {
         let mut out = Vec::new();
         for (index, piece) in pieces.into_iter().enumerate() {
             if index > 0 { out.extend_from_slice(&separator.0); }
-            out.extend_from_slice(&::std::borrow::Borrow::<JsStr>::borrow(&piece).0);
+            out.extend_from_slice(&piece.as_ref().0);
         }
         Self::from(out)
     }
@@ -459,10 +511,10 @@ impl ::std::ops::AddAssign<&JsStr> for JsString {
     }
 }
 
-impl<P: ::std::borrow::Borrow<JsStr>> FromIterator<P> for JsString {
+impl<P: AsRef<JsStr>> FromIterator<P> for JsString {
     fn from_iter<I: IntoIterator<Item = P>>(pieces: I) -> Self {
         let mut out = Vec::new();
-        for piece in pieces { out.extend_from_slice(&piece.borrow().0); }
+        for piece in pieces { out.extend_from_slice(&piece.as_ref().0); }
         Self::from(out)
     }
 }
@@ -547,13 +599,133 @@ impl ::std::fmt::Debug for JsString {
     }
 }
 
+/// A search argument of the string methods: a JavaScript string, or text the
+/// emitter wrote as a Rust `&str` literal, encoded without allocating when it
+/// is short.
+pub trait SmeltJsPattern {
+    /// Calls `read` with the pattern's code units.
+    fn with_units<R>(&self, read: impl FnOnce(&[u16]) -> R) -> R;
+}
+
+impl SmeltJsPattern for str {
+    fn with_units<R>(&self, read: impl FnOnce(&[u16]) -> R) -> R {
+        let mut buffer = [0u16; 64];
+        if self.len() <= buffer.len() {
+            //~ A UTF-16 encoding is never longer than the UTF-8 one.
+            let mut filled = 0;
+            for unit in self.encode_utf16() { buffer[filled] = unit; filled += 1; }
+            return read(&buffer[..filled]);
+        }
+        read(&self.encode_utf16().collect::<Vec<u16>>())
+    }
+}
+
+impl SmeltJsPattern for String {
+    fn with_units<R>(&self, read: impl FnOnce(&[u16]) -> R) -> R {
+        self.as_str().with_units(read)
+    }
+}
+
+impl SmeltJsPattern for JsStr {
+    fn with_units<R>(&self, read: impl FnOnce(&[u16]) -> R) -> R {
+        read(&self.0)
+    }
+}
+
+impl SmeltJsPattern for JsString {
+    fn with_units<R>(&self, read: impl FnOnce(&[u16]) -> R) -> R {
+        read(&self.0)
+    }
+}
+
+impl<T: SmeltJsPattern + ?Sized> SmeltJsPattern for &T {
+    fn with_units<R>(&self, read: impl FnOnce(&[u16]) -> R) -> R {
+        (**self).with_units(read)
+    }
+}
+
+/// The reads of a `HashMap` keyed by JavaScript strings by a key the emitter
+/// spelled as a Rust `&str` literal (a source property name).
+pub trait SmeltJsKeyedMap<V> {
+    /// The value at the key `key`, if any.
+    fn get_text(&self, key: &str) -> Option<&V>;
+}
+
+impl<V, S: ::std::hash::BuildHasher> SmeltJsKeyedMap<V> for ::std::collections::HashMap<JsString, V, S> {
+    fn get_text(&self, key: &str) -> Option<&V> {
+        key.with_units(|units| self.get(JsStr::from_units(units)))
+    }
+}
+
+impl SmeltHostText for JsStr {
+    fn host_text(&self) -> ::std::borrow::Cow<'_, str> {
+        ::std::borrow::Cow::Owned(self.to_string_lossy())
+    }
+}
+
+impl SmeltHostText for JsString {
+    fn host_text(&self) -> ::std::borrow::Cow<'_, str> {
+        ::std::borrow::Cow::Owned(self.to_string_lossy())
+    }
+}
+
 // @smelt:item-end
 
-// @smelt:item JsStringAlias when js_string & !utf16_strings
-//~ The spelling stage of the migration: generated code names `JsString`
-//~ while a JavaScript string is still a UTF-8 `String`. The compiled crate
-//~ holds the real type above, so these lines are alternate text.
-//= /// A JavaScript string, held as UTF-8 `String` text.
-//= type JsString = String;
+// @smelt:item impl_serde_for_JsString when dep_serde_json & js_string
+//~ JSON text is UTF-8 in serde's data model, so a string crosses it as its
+//~ UTF-8 text; a lone surrogate becomes U+FFFD there.
+impl serde::Serialize for JsString {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {
+        serializer.serialize_str(&self.to_string_lossy())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for JsString {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: serde::Deserializer<'de> {
+        <String as serde::Deserialize>::deserialize(deserializer).map(Self::from)
+    }
+}
+
+// @smelt:item-end
+
+//~ Emitted in every crate: a host item (headers, URLs, JSON, parsing) takes
+//~ its text arguments through this trait whichever language called it, and
+//~ the `JsString` item adds the impls for JavaScript strings.
+// @smelt:item SmeltHostText
+/// Text a host API reads as UTF-8: URLs, header names and values, request
+/// bodies, digests. Host internals keep `String`, because their data model is
+/// UTF-8 bytes on the wire; a JavaScript string crosses into them here, a
+/// lone surrogate becoming U+FFFD as it does on Node's wire.
+pub trait SmeltHostText {
+    /// The UTF-8 text, borrowed when it already is UTF-8.
+    fn host_text(&self) -> ::std::borrow::Cow<'_, str>;
+
+    /// The UTF-8 text as an owned `String`, for a host value that keeps it.
+    fn into_host_string(self) -> String where Self: Sized {
+        self.host_text().into_owned()
+    }
+}
+
+impl SmeltHostText for str {
+    fn host_text(&self) -> ::std::borrow::Cow<'_, str> {
+        ::std::borrow::Cow::Borrowed(self)
+    }
+}
+
+impl SmeltHostText for String {
+    fn host_text(&self) -> ::std::borrow::Cow<'_, str> {
+        ::std::borrow::Cow::Borrowed(self)
+    }
+
+    fn into_host_string(self) -> String {
+        self
+    }
+}
+
+impl<T: SmeltHostText + ?Sized> SmeltHostText for &T {
+    fn host_text(&self) -> ::std::borrow::Cow<'_, str> {
+        (**self).host_text()
+    }
+}
 
 // @smelt:item-end

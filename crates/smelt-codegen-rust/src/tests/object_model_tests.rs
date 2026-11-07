@@ -207,7 +207,7 @@ export function chainProbe(value: unknown, key: string): boolean {
     // own property (a boxed string's `length`, a byte view's elements) is
     // visible to both without being written twice.
     assert!(
-        source.contains("fn smelt_has_own_property(value: &SmeltUnknown, key: &str) -> bool {"),
+        source.contains("fn smelt_has_own_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Sized)) -> bool {"),
         "the prelude must define the own-property authority:\n{source}"
     );
     assert!(

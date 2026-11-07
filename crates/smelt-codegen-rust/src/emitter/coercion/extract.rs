@@ -135,13 +135,13 @@ impl FunctionEmitter<'_> {
                     .iter()
                     .map(|key| {
                         format!(
-                            "({key:?}.to_owned(), smelt_get_unknown_field(&smelt_function_value, {key:?}))"
+                            "(JsString::from({key:?}), smelt_get_unknown_field(&smelt_function_value, {key:?}))"
                         )
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
                 self.carrier_format(format_args!(
-                    " smelt_function_value @ SmeltUnknown::Function(_) => {{ let smelt_record_map = SmeltRecord::from_iter([(\"{SMELT_CALL}\".to_owned(), smelt_function_value.clone()), {entries}].into_iter().filter(|(_, value)| !matches!(value, SmeltUnknown::Undefined))); {adapter} }},"
+                    " smelt_function_value @ SmeltUnknown::Function(_) => {{ let smelt_record_map = SmeltRecord::from_iter([(JsString::from(\"{SMELT_CALL}\"), smelt_function_value.clone()), {entries}].into_iter().filter(|(_, value)| !matches!(value, SmeltUnknown::Undefined))); {adapter} }},"
                 ))
             } else {
                 String::new()
@@ -286,7 +286,7 @@ impl FunctionEmitter<'_> {
                 "match {smelt_owned_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), {smelt_bigint_arm}SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => !::num_traits::Zero::is_zero(&value),")
             )))),
             Some(Type::Float) => Ok(RustExpr::atom(self.carrier_format(format_args!(
-                "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
+                "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
             )))),
             Some(Type::Int) => self.extract_int(&smelt_owned_text),
             // Reading an erased value out into a `String` slot is not the JS
@@ -310,8 +310,13 @@ impl FunctionEmitter<'_> {
             // pads with `undefined`) the type's default is the closest the slot
             // can come -- and it is at least the SAME answer on both sides of a
             // comparison.
-            Some(Type::String | Type::PyStr) => Ok(RustExpr::atom(self.carrier_format(format_args!(
-                "match {smelt_owned_text} {{ {smelt_bigint_arm}SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),")
+            // A JavaScript string target takes the erased payload itself and
+            // transcodes only the text a non-string value coerces to.
+            Some(Type::String) => Ok(RustExpr::atom(self.carrier_format(format_args!(
+                "match {smelt_owned_text} {{ SmeltUnknown::String(value) => value, smelt_other => JsString::from(match smelt_other {{ {smelt_bigint_arm}SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}) }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),")
+            )))),
+            Some(Type::PyStr) => Ok(RustExpr::atom(self.carrier_format(format_args!(
+                "match {smelt_owned_text} {{ {smelt_bigint_arm}SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),")
             )))),
             // Iterable-to-list extraction inspects the source through the
             // `SmeltUnknown` variant space (array/string/`Symbol.iterator`). The
@@ -324,7 +329,14 @@ impl FunctionEmitter<'_> {
             // preserves the backing array id, so already-erased callers are
             // unaffected.
             Some(Type::List(_)) if self.list_items_render_as_unknown(target, scope) => {
-                Ok(erased_to_list_expr(text, None, &self.carrier_expr(&RustExpr::atom("SmeltUnknown::String(ch.to_string().into())"))))
+                Ok(erased_to_list_expr(text, None, &self.carrier_expr(&RustExpr::atom("SmeltUnknown::String(ch)"))))
+            }
+            Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::String) => {
+                Ok(erased_to_list_expr(
+                    text,
+                    Some("<JsString as SmeltFromUnknown>::smelt_from_unknown(value)"),
+                    &RustExpr::path("ch"),
+                ))
             }
             Some(Type::List(item)) if self.mir.types.get(*item).is_some_and(Type::is_text) => {
                 Ok(erased_to_list_expr(
@@ -338,7 +350,7 @@ impl FunctionEmitter<'_> {
             Some(Type::List(item)) => {
                 let item_text = self.extract_rendered(&RustExpr::path("value"), *item, scope)?;
                 let char_text =
-                    self.extract_rendered(&self.carrier_expr(&RustExpr::atom("SmeltUnknown::String(ch.to_string().into())")), *item, scope)?;
+                    self.extract_rendered(&self.carrier_expr(&RustExpr::atom("SmeltUnknown::String(ch)")), *item, scope)?;
                 Ok(erased_to_list_expr(text, Some(&item_text), &char_text))
             }
             Some(Type::Dict(key, item))
@@ -346,13 +358,19 @@ impl FunctionEmitter<'_> {
                     && self.mir.types.get(*item) == Some(&Type::Unknown) =>
             {
                 Ok(RustExpr::atom(self.carrier_format(format_args!(
-                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(value) => value.smelt_shared_record(), SmeltUnknown::Array(values) => values.own_entries().into_iter().collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| (index.to_string(), SmeltUnknown::String(ch.to_string().into()))).collect(), SmeltUnknown::Function(value) => SmeltRecord::from([(\"{SMELT_CALL}\".to_owned(), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() }}"
+                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(value) => value.smelt_shared_record(), SmeltUnknown::Array(values) => values.own_entries().into_iter().map(|(key, value)| (JsString::from(key), value)).collect(), SmeltUnknown::String(value) => value.units().iter().enumerate().map(|(index, unit)| (JsString::from(index.to_string()), SmeltUnknown::String(JsString::from_units(&[*unit])))).collect(), SmeltUnknown::Function(value) => SmeltRecord::from([(JsString::from(\"{SMELT_CALL}\"), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() }}"
+                ))))
+            }
+            Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) => {
+                let item_text = self.extract_rendered(&RustExpr::path("value"), *item, scope)?;
+                Ok(RustExpr::atom(self.carrier_format(format_args!(
+                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(values) => SmeltRecord::with_id_from_entries(values.id, values.into_iter().map(|(key, value)| (key, {item_text}))), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (JsString::from(index.to_string()), {item_text})).collect(), SmeltUnknown::String(value) => value.units().iter().enumerate().map(|(index, unit)| {{ let value = SmeltUnknown::String(JsString::from_units(&[*unit])); (JsString::from(index.to_string()), {item_text}) }}).collect(), _ => SmeltRecord::new() }}"
                 ))))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key).is_some_and(Type::is_text) => {
                 let item_text = self.extract_rendered(&RustExpr::path("value"), *item, scope)?;
                 Ok(RustExpr::atom(self.carrier_format(format_args!(
-                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(values) => SmeltRecord::with_id_from_entries(values.id, values.into_iter().map(|(key, value)| (key, {item_text}))), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), {item_text})).collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| {{ let value = SmeltUnknown::String(ch.to_string().into()); (index.to_string(), {item_text}) }}).collect(), _ => SmeltRecord::new() }}"
+                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(values) => SmeltRecord::with_id_from_entries(values.id, values.into_iter().map(|(key, value)| (key.to_string_lossy(), {item_text}))), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), {item_text})).collect(), SmeltUnknown::String(value) => value.code_point_strings().into_iter().enumerate().map(|(index, ch)| {{ let value = SmeltUnknown::String(ch); (index.to_string(), {item_text}) }}).collect(), _ => SmeltRecord::new() }}"
                 ))))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key).is_none_or(|candidate| !candidate.is_text()) => {
@@ -754,8 +772,9 @@ pub(in crate::emitter) fn erased_to_list_expr(text: &RustExpr, item_text: Option
             "{{ let smelt_list_id = values.id; let smelt_list = SmeltList::with_id(smelt_list_id, values.into_iter().map(|value| {item}).collect::<Vec<_>>()); smelt_array_props_adopt(smelt_list_id, &smelt_list.storage()); smelt_list }}"
         ),
     };
+    // A string iterates by code point; each `ch` is the `JsString` of one.
     let string_arm =
-        format!("SmeltList::new(value.chars().map(|ch| {char_text}).collect::<Vec<_>>())");
+        format!("SmeltList::new(value.code_point_strings().into_iter().map(|ch| {char_text}).collect::<Vec<_>>())");
     let bytes_arm = convert("smelt_bytes");
     let arguments_arm = convert("smelt_args");
     let map_arm = convert("pairs.into_vec()");
@@ -924,7 +943,7 @@ impl FunctionEmitter<'_> {
     /// Extraction at an integer.
     fn extract_int(&self, smelt_owned_text: &RustExpr) -> Result<RustExpr, EmitError> {
         Ok(RustExpr::atom(self.carrier_format(format_args!(
-            "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }}, SmeltUnknown::String(value) => smelt_string_to_number(&value) as i64, SmeltUnknown::Bool(value) => if value {{ 1_i64 }} else {{ 0_i64 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value) as i64,")
+            "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }}, SmeltUnknown::String(value) => smelt_js_string_to_number(&value) as i64, SmeltUnknown::Bool(value) => if value {{ 1_i64 }} else {{ 0_i64 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value) as i64,")
         ))))
     }
 

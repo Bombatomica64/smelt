@@ -430,7 +430,7 @@ export function chunk(size: number): number {
         "a thrown payload must not spill an erased SmeltUnknown temporary:\n{source}"
     );
     assert!(
-        !source.contains("SmeltRecord<String, SmeltUnknown>;"),
+        !source.contains("SmeltRecord<String, SmeltUnknown>;") && !source.contains("SmeltRecord<JsString, SmeltUnknown>;"),
         "a thrown payload must not spill a staged record temporary:\n{source}"
     );
     for line in source.lines() {

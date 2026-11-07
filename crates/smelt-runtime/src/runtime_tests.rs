@@ -121,10 +121,10 @@ mod record_family {
     /// An object view of a record shares the record's store.
     #[test]
     fn an_object_built_from_a_record_shares_its_store() {
-        let record: SmeltRecord<String, SmeltUnknown> = SmeltRecord::new();
+        let record: SmeltRecord<JsString, SmeltUnknown> = SmeltRecord::new();
         let object = SmeltObject::from_unknown_record(record.clone());
         object.insert("a".to_owned(), SmeltUnknown::Number(1.0));
-        assert!(record.contains_key("a"), "the view and the record are one object");
+        assert!(record.has_text_key("a"), "the view and the record are one object");
     }
 
     /// Integer-like keys enumerate in ascending order, before string keys.
@@ -148,7 +148,7 @@ mod record_family {
     /// Past the linear scan limit, the store still finds every key.
     #[test]
     fn a_large_object_keeps_every_field() {
-        let object = SmeltObject::new(Vec::new());
+        let object = SmeltObject::new(Vec::<(JsString, SmeltUnknown)>::new());
         for index in 0..200 {
             object.insert(format!("key{index}"), SmeltUnknown::Number(f64::from(index)));
         }
@@ -222,7 +222,7 @@ mod unknown_family {
             SmeltUnknown::Number(1.0),
             text("0"),
             SmeltUnknown::Array(SmeltArray::new(Vec::new())),
-            SmeltUnknown::Object(SmeltObject::new(Vec::new())),
+            SmeltUnknown::Object(SmeltObject::new(Vec::<(JsString, SmeltUnknown)>::new())),
         ] {
             assert!(smelt_erased_truthy(&truthy), "{truthy:?} is truthy");
         }
@@ -247,7 +247,7 @@ mod unknown_family {
         assert_eq!(smelt_object_to_string_tag(&SmeltUnknown::Number(1.0)), "[object Number]", "number");
         assert_eq!(smelt_object_to_string_tag(&text("x")), "[object String]", "string");
         assert_eq!(smelt_object_to_string_tag(&SmeltUnknown::Array(SmeltArray::new(Vec::new()))), "[object Array]", "array");
-        assert_eq!(smelt_object_to_string_tag(&SmeltUnknown::Object(SmeltObject::new(Vec::new()))), "[object Object]", "object");
+        assert_eq!(smelt_object_to_string_tag(&SmeltUnknown::Object(SmeltObject::new(Vec::<(JsString, SmeltUnknown)>::new()))), "[object Object]", "object");
     }
 
     /// Structural equality compares contents and survives a cycle.
@@ -567,16 +567,16 @@ mod regexp_family {
     #[test]
     fn a_global_regexp_matches_every_occurrence() {
         let regexp = SmeltRegExp::new("a".to_owned(), "g".to_owned());
-        assert_eq!(regexp.replace_string("banana", "o", false), "bonono", "`g` replaces all");
+        assert_eq!(regexp.replace_string(&JsString::from("banana"), &JsString::from("o"), false), "bonono", "`g` replaces all");
         let once = SmeltRegExp::new("a".to_owned(), String::new());
-        assert_eq!(once.replace_string("banana", "o", false), "bonana", "without `g` only the first");
+        assert_eq!(once.replace_string(&JsString::from("banana"), &JsString::from("o"), false), "bonana", "without `g` only the first");
     }
 
     /// Case folding is the `i` flag's job.
     #[test]
     fn flags_change_matching() {
-        assert!(SmeltRegExp::new("ABC".to_owned(), "i".to_owned()).test("abc"), "`i` folds case");
-        assert!(!SmeltRegExp::new("ABC".to_owned(), String::new()).test("abc"), "without it, case counts");
+        assert!(SmeltRegExp::new("ABC".to_owned(), "i".to_owned()).test(&JsString::from("abc")), "`i` folds case");
+        assert!(!SmeltRegExp::new("ABC".to_owned(), String::new()).test(&JsString::from("abc")), "without it, case counts");
     }
 }
 
@@ -668,7 +668,7 @@ mod host_family {
     /// A blob holds its bytes and a form holds its entries in order.
     #[test]
     fn blobs_and_forms_hold_their_contents() {
-        let blob = SmeltBlob::from_string_parts(vec!["ab".to_owned(), "c".to_owned()], "text/plain".to_owned(), None, None);
+        let blob = SmeltBlob::from_string_parts(vec!["ab".to_owned(), "c".to_owned()], "text/plain".to_owned(), None::<String>, None);
         assert_eq!(blob.size(), 3.0, "parts concatenate");
         let form = SmeltFormData::new();
         form.append("k", SmeltFormDataValue::Text("v".to_owned()));
@@ -731,16 +731,16 @@ mod js_string_family {
     fn searches_answer_like_javascript() {
         let text = JsString::from("a😀ba😀b");
         let needle = JsString::from("😀b");
-        assert_eq!(text.index_of(&needle, 0), Some(1), "first occurrence");
-        assert_eq!(text.index_of(&needle, 2), Some(5), "from skips the first");
-        assert_eq!(text.index_of(&needle, 99), None, "from past the end");
-        assert_eq!(text.index_of(&JsString::new(), 3), Some(3), "an empty needle is found at from");
-        assert_eq!(text.index_of(&JsString::new(), 99), Some(8), "...clamped to the length");
-        assert_eq!(text.last_index_of(&needle, usize::MAX), Some(5), "last occurrence");
-        assert_eq!(text.last_index_of(&needle, 4), Some(1), "at or before from");
-        assert_eq!(text.index_of(&units(&[0xDE00]), 0), Some(2), "a lone half matches inside a pair");
-        assert!(text.contains(&JsString::from("ba")), "includes");
-        assert!(text.starts_with(&JsString::from("a😀")) && text.ends_with(&JsString::from("😀b")), "prefix and suffix");
+        assert_eq!(text.index_of(&*needle, 0), Some(1), "first occurrence");
+        assert_eq!(text.index_of(&*needle, 2), Some(5), "from skips the first");
+        assert_eq!(text.index_of(&*needle, 99), None, "from past the end");
+        assert_eq!(text.index_of("", 3), Some(3), "an empty needle is found at from");
+        assert_eq!(text.index_of("", 99), Some(8), "...clamped to the length");
+        assert_eq!(text.last_index_of(&*needle, usize::MAX), Some(5), "last occurrence");
+        assert_eq!(text.last_index_of(&*needle, 4), Some(1), "at or before from");
+        assert_eq!(text.index_of(units(&[0xDE00]), 0), Some(2), "a lone half matches inside a pair");
+        assert!(text.contains("ba"), "includes");
+        assert!(text.starts_with("a😀") && text.ends_with("😀b"), "prefix and suffix");
     }
 
     /// Order is by code unit: U+1F600 (`D83D DE00`) sorts before U+FFFF, the
@@ -834,12 +834,12 @@ mod js_string_family {
     #[test]
     fn transforms_work_on_code_units() {
         let text = JsString::from("a,b,,c");
-        assert_eq!(text.split(&JsString::from(","), usize::MAX), ["a", "b", "", "c"].map(JsString::from), "split");
-        assert_eq!(text.split(&JsString::from(","), 2), ["a", "b"].map(JsString::from), "split with a limit");
-        assert_eq!(JsString::from("😀").split(&JsString::new(), usize::MAX), vec![units(&[0xD83D]), units(&[0xDE00])], "split(\"\") gives code units");
-        assert_eq!(JsString::from("ab").replace_all(&JsString::new(), &JsString::from("-")), "-a-b-", "an empty pattern");
-        assert_eq!(text.replace_all(&JsString::from(","), &JsString::from(";")), "a;b;;c", "replaceAll");
-        assert_eq!(text.replace_first(&JsString::from(","), &JsString::from(";")), "a;b,,c", "replace");
+        assert_eq!(text.split(",", usize::MAX), ["a", "b", "", "c"].map(JsString::from), "split");
+        assert_eq!(text.split(",", 2), ["a", "b"].map(JsString::from), "split with a limit");
+        assert_eq!(JsString::from("😀").split("", usize::MAX), vec![units(&[0xD83D]), units(&[0xDE00])], "split(\"\") gives code units");
+        assert_eq!(JsString::from("ab").replace_all("", &JsString::from("-")), "-a-b-", "an empty pattern");
+        assert_eq!(text.replace_all(",", &JsString::from(";")), "a;b;;c", "replaceAll");
+        assert_eq!(text.replace_first(",", &JsString::from(";")), "a;b,,c", "replace");
         assert_eq!(JsString::from("\u{FEFF}\u{a0} x \n").trim(), "x", "ZWNBSP and NBSP are white space");
         assert_eq!(JsString::from("\u{85}x").trim(), "\u{85}x", "NEL is not JavaScript white space");
         assert_eq!(JsString::from("ab").repeat(3), "ababab", "repeat");

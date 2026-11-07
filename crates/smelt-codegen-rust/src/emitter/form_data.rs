@@ -53,7 +53,7 @@ impl FunctionEmitter<'_> {
             smelt_hir::FormDataOp::Keys => {
                 let list_ty = self.type_id(Type::List(string_ty))?;
                 self.rendered_at_type(
-                    &RustExpr::atom(format!("SmeltList::new({receiver}.keys())")),
+                    &RustExpr::atom(format!("SmeltList::new({receiver}.keys().into_iter().map(JsString::from).collect::<Vec<_>>())")),
                     list_ty,
                     dest_ty,
                     &self.render_scope(),
@@ -104,7 +104,7 @@ impl FunctionEmitter<'_> {
                 let arm = self.form_data_value_to_union_expr(&RustExpr::path("smelt_entry"), value_ty)?;
                 self.rendered_at_type(
                     &RustExpr::atom(format!(
-                        "SmeltList::new({receiver}.entries_in_order().into_iter().map(|(smelt_name, smelt_entry)| (smelt_name, {arm})).collect::<Vec<_>>())"
+                        "SmeltList::new({receiver}.entries_in_order().into_iter().map(|(smelt_name, smelt_entry)| (JsString::from(smelt_name), {arm})).collect::<Vec<_>>())"
                     )),
                     source_ty,
                     dest_ty,
@@ -164,7 +164,7 @@ impl FunctionEmitter<'_> {
             .collect::<Vec<_>>();
         let call_text = self.callback_invocation_expr(&function_ty, &forwarded.join(", "));
         Ok(RustExpr::atom(format!(
-            "{{ let smelt_callback = {closure_expr}; for (smelt_name, smelt_entry) in {receiver}.entries_in_order() {{ let smelt_value = {value_arm}; let _ = {call_text}; }} () }}"
+            "{{ let smelt_callback = {closure_expr}; for (smelt_name, smelt_entry) in {receiver}.entries_in_order() {{ let smelt_name = JsString::from(smelt_name); let smelt_value = {value_arm}; let _ = {call_text}; }} () }}"
         )))
     }
 
@@ -192,13 +192,13 @@ impl FunctionEmitter<'_> {
         };
         let string_ty = self.type_id(Type::String)?;
         let filename_text = match filename {
-            None => "None".to_owned(),
+            None => "None::<String>".to_owned(),
             Some(operand) => format!("Some({})", self.value_at_type(operand, string_ty)?),
         };
         let value_ty = self.operand_ty(value)?;
         let value_text = self.operand_expr(value)?;
         if matches!(self.mir.types.get(value_ty), Some(Type::String | Type::PyStr)) {
-            return Ok(RustExpr::atom(format!("SmeltFormDataValue::Text(({value_text}).clone())")));
+            return Ok(RustExpr::atom(format!("SmeltFormDataValue::Text(({value_text}).to_string())")));
         }
         if self.is_blob_class_type(value_ty)? {
             return Ok(RustExpr::chain(format!(
@@ -210,7 +210,7 @@ impl FunctionEmitter<'_> {
             let mut arms = Vec::new();
             for (index, member) in members.iter().enumerate() {
                 let arm = if matches!(self.mir.types.get(*member), Some(Type::String | Type::PyStr)) {
-                    "SmeltFormDataValue::Text(smelt_entry)".to_owned()
+                    "SmeltFormDataValue::Text(smelt_entry.to_string())".to_owned()
                 } else if self.is_blob_class_type(*member)? {
                     format!("smelt_form_data_file_value(smelt_entry, {filename_text})")
                 } else {
@@ -255,7 +255,7 @@ impl FunctionEmitter<'_> {
                 EmitError::new("the FormData entry value union has no File member")
             })?;
         let text_arm = self
-            .inject_union_value(&RustExpr::path("smelt_text"), string_ty, union_ty, &self.render_scope())?
+            .inject_union_value(&RustExpr::chain("JsString::from(smelt_text)"), string_ty, union_ty, &self.render_scope())?
             .ok_or_else(|| EmitError::new("the FormData entry value has no string member"))?;
         let file_arm = self
             .inject_union_value(&RustExpr::path("smelt_file"), file_ty, union_ty, &self.render_scope())?

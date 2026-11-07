@@ -835,7 +835,10 @@ impl FunctionEmitter<'_> {
         list_text: &RustExpr,
     ) -> Result<Option<RustExpr>, EmitError> {
         match self.mir.types.get(element_ty) {
-            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr) => Ok(Some(RustExpr::postfix_on(&list_text, format!(
+            // JavaScript's default order compares strings by code unit, which
+            // is `JsString`'s own order.
+            Some(Type::String) => Ok(Some(RustExpr::postfix_on(&list_text, format!("{list_text}.sort_by(|left, right| left.cmp(right))")))),
+            Some(Type::Bool | Type::Int | Type::Float | Type::PyStr) => Ok(Some(RustExpr::postfix_on(&list_text, format!(
                 "{list_text}.sort_by(|left, right| left.to_string().cmp(&right.to_string()))"
             )))),
             Some(Type::TypeParam { name }) if self.current_function_has_type_param(*name) => {
@@ -845,10 +848,12 @@ impl FunctionEmitter<'_> {
                 let left_key = self.js_string_coercion_match_expr(
                     &self.erase_concrete_union_expr(&RustExpr::chain("left.clone()").ending_in_clone(), element_ty),
                     self.absent_spelling(),
+                    self.indexes_utf16(),
                 );
                 let right_key = self.js_string_coercion_match_expr(
                     &self.erase_concrete_union_expr(&RustExpr::chain("right.clone()").ending_in_clone(), element_ty),
                     self.absent_spelling(),
+                    self.indexes_utf16(),
                 );
                 Ok(Some(RustExpr::postfix_on(&list_text, format!(
                     "{list_text}.sort_by(|left, right| ({left_key}).cmp(&({right_key})))"

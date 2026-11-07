@@ -181,20 +181,24 @@ impl FunctionEmitter<'_> {
             Some(Type::Float | Type::Int) => format!(
                 "{{ let smelt_width = ({space_text}) as f64; if smelt_width >= 1.0 {{ \" \".repeat(smelt_width.min(10.0) as usize) }} else {{ String::new() }} }}"
             ),
-            Some(Type::String | Type::PyStr) => format!("({space_text}).chars().take(10).collect::<String>()"),
+            Some(Type::String) => format!("({space_text}).slice(0, 10).to_string_lossy()"),
+            Some(Type::PyStr) => format!("({space_text}).chars().take(10).collect::<String>()"),
             Some(Type::Optional(inner)) if matches!(self.mir.types.get(*inner), Some(Type::Float | Type::Int)) => format!(
                 "({space_text}).map_or(String::new(), |smelt_width| {{ let smelt_width = smelt_width as f64; if smelt_width >= 1.0 {{ \" \".repeat(smelt_width.min(10.0) as usize) }} else {{ String::new() }} }})"
             ),
-            Some(Type::Optional(inner)) if matches!(self.mir.types.get(*inner), Some(Type::String | Type::PyStr)) => {
+            Some(Type::Optional(inner)) if matches!(self.mir.types.get(*inner), Some(Type::String)) => {
+                format!("({space_text}).map_or(String::new(), |smelt_space| smelt_space.slice(0, 10).to_string_lossy())")
+            }
+            Some(Type::Optional(inner)) if matches!(self.mir.types.get(*inner), Some(Type::PyStr)) => {
                 format!("({space_text}).map_or(String::new(), |smelt_space| smelt_space.chars().take(10).collect::<String>())")
             }
             Some(Type::Unknown | Type::Union(_)) => self.carrier_format(format_args!(
-                "match ({}) {{ SmeltUnknown::Number(smelt_width) if smelt_width >= 1.0 => \" \".repeat(smelt_width.min(10.0) as usize), SmeltUnknown::String(smelt_space) => smelt_space.chars().take(10).collect::<String>(), _ => String::new() }}",
+                "match ({}) {{ SmeltUnknown::Number(smelt_width) if smelt_width >= 1.0 => \" \".repeat(smelt_width.min(10.0) as usize), SmeltUnknown::String(smelt_space) => smelt_space.slice(0, 10).to_string_lossy(), _ => String::new() }}",
                 self.erase(space)?
             )),
             _ => "String::new()".to_owned(),
         };
-        Ok(RustExpr::chain(format!("smelt_json_indent(&{text_text}, &{indent})")))
+        Ok(RustExpr::chain(self.text_from_string(&format!("smelt_json_indent(&{text_text}, &{indent})"))))
     }
 
     /// Converts a DateArg-compatible operand to a numeric timestamp expression.

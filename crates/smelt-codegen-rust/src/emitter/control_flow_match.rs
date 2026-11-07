@@ -226,6 +226,11 @@ impl FunctionEmitter<'_> {
                 {
                     self.place_expr(&Place::Local(*local))
                 }
+                // A JavaScript string is matched by its text against the
+                // `&str` case labels.
+                Operand::Copy(place) | Operand::Move(place) if self.mir.types.get(operand_ty) == Some(&Type::String) => {
+                    Ok({ let receiver = self.place_expr(place)?; RustExpr::postfix_on(&receiver, format!("{receiver}.to_string_lossy().as_str()")) })
+                }
                 Operand::Copy(place) | Operand::Move(place) => {
                     Ok({ let receiver = self.place_expr(place)?; RustExpr::postfix_on(&receiver, format!("{receiver}.as_str()")) })
                 }
@@ -236,7 +241,11 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(operand_ty),
             Some(Type::Optional(inner)) if self.mir.types.get(*inner).is_some_and(Type::is_text)
         ) {
-            Ok({ let receiver = self.operand_expr(operand)?; RustExpr::postfix_on(&receiver, format!("{receiver}.as_deref()")) })
+            let receiver = self.operand_expr(operand)?;
+            if matches!(self.mir.types.get(operand_ty), Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String)) {
+                return Ok(RustExpr::postfix_on(&receiver, format!("{receiver}.map(|smelt_text| smelt_text.to_string_lossy()).as_deref()")));
+            }
+            Ok(RustExpr::postfix_on(&receiver, format!("{receiver}.as_deref()")))
         } else {
             self.operand_expr(operand)
         }

@@ -91,7 +91,7 @@ impl SmeltHeaders {
     /// JS reference identity of this header list.
     pub fn id(&self) -> usize { self.id }
     /// Build a header list from name/value pairs, appending in order.
-    pub fn from_pairs(pairs: Vec<(String, String)>) -> Self { let headers = Self::new(); for (name, value) in pairs { headers.append(&name, &value); } headers }
+    pub fn from_pairs<N: SmeltHostText, V: SmeltHostText>(pairs: Vec<(N, V)>) -> Self { let headers = Self::new(); for (name, value) in pairs { headers.append(&name, &value); } headers }
     /// The spec's header-name normalization: lower-cased.
     fn normalize_name(name: &str) -> String { name.trim().to_ascii_lowercase() }
     /// The spec's header-value normalization: strip HTTP whitespace.
@@ -100,20 +100,20 @@ impl SmeltHeaders {
     ///
     /// `None` is the source `null`: the name is not in the list. The
     /// return type is the source type, so no caller has to re-narrow it.
-    pub fn get(&self, name: &str) -> Option<String> {
+    pub fn get(&self, name: &(impl SmeltHostText + ?Sized)) -> Option<String> { let name = name.host_text(); let name: &str = &name;
         let key = Self::normalize_name(name);
         let values: Vec<String> = self.entries.borrow().iter().filter(|(entry_name, _)| *entry_name == key).map(|(_, value)| value.clone()).collect();
         if values.is_empty() { None } else { Some(values.join(", ")) }
     }
     /// `has(name)`.
-    pub fn has(&self, name: &str) -> bool { let key = Self::normalize_name(name); self.entries.borrow().iter().any(|(entry_name, _)| *entry_name == key) }
+    pub fn has(&self, name: &(impl SmeltHostText + ?Sized)) -> bool { let name = name.host_text(); let name: &str = &name; let key = Self::normalize_name(name); self.entries.borrow().iter().any(|(entry_name, _)| *entry_name == key) }
     /// `append(name, value)`: add a pair, keeping existing ones.
-    pub fn append(&self, name: &str, value: &str) { self.entries.borrow_mut().push((Self::normalize_name(name), Self::normalize_value(value))); }
+    pub fn append(&self, name: &(impl SmeltHostText + ?Sized), value: &(impl SmeltHostText + ?Sized)) { let name = name.host_text(); let name: &str = &name; let value = value.host_text(); let value: &str = &value; self.entries.borrow_mut().push((Self::normalize_name(name), Self::normalize_value(value))); }
     /// `set(name, value)`: replace every value for the name.
     ///
     /// The first existing pair's position is kept, matching the spec's
     /// "set the value of the first such header and remove the others".
-    pub fn set(&self, name: &str, value: &str) {
+    pub fn set(&self, name: &(impl SmeltHostText + ?Sized), value: &(impl SmeltHostText + ?Sized)) { let name = name.host_text(); let name: &str = &name; let value = value.host_text(); let value: &str = &value;
         let key = Self::normalize_name(name);
         let normalized = Self::normalize_value(value);
         let mut entries = self.entries.borrow_mut();
@@ -126,7 +126,7 @@ impl SmeltHeaders {
         entries.retain(|(entry_name, _)| { if *entry_name != key { return true; } let first = !kept; kept = true; first });
     }
     /// `delete(name)`: remove every pair with the name.
-    pub fn delete(&self, name: &str) { let key = Self::normalize_name(name); self.entries.borrow_mut().retain(|(entry_name, _)| *entry_name != key); }
+    pub fn delete(&self, name: &(impl SmeltHostText + ?Sized)) { let name = name.host_text(); let name: &str = &name; let key = Self::normalize_name(name); self.entries.borrow_mut().retain(|(entry_name, _)| *entry_name != key); }
     /// The spec's iteration order: sorted by name, values combined.
     ///
     /// `set-cookie` is the exception the spec carves out: its values are
@@ -232,7 +232,7 @@ impl SmeltFromUnknown for SmeltHeaders {
             let SmeltUnknown::Array(pair) = pair else { continue };
             let pair = pair.into_vec();
             let (Some(SmeltUnknown::String(name)), Some(SmeltUnknown::String(entry_value))) = (pair.first().cloned(), pair.get(1).cloned()) else { continue };
-            headers.append(&name, &entry_value);
+            headers.append(&name.to_string_lossy(), &entry_value.to_string_lossy());
         }
         headers
     }
@@ -290,26 +290,26 @@ impl SmeltUrlSearchParams {
     /// JS reference identity of this parameter list.
     pub fn id(&self) -> usize { self.id }
     /// Build a parameter list from name/value pairs, in order.
-    pub fn from_pairs(pairs: Vec<(String, String)>) -> Self { let params = Self::new(); params.entries.borrow_mut().extend(pairs); params }
+    pub fn from_pairs<N: SmeltHostText, V: SmeltHostText>(pairs: Vec<(N, V)>) -> Self { let params = Self::new(); params.entries.borrow_mut().extend(pairs.into_iter().map(|(name, value)| (name.into_host_string(), value.into_host_string()))); params }
     /// Parse a query string (with or without a leading `?`).
     ///
     /// `url::form_urlencoded` owns the decoding: `+` is a space, `%XX` is
     /// a byte, and a pair with no `=` has the empty string as its value.
-    pub fn from_query(query: &str) -> Self {
+    pub fn from_query(query: &(impl SmeltHostText + ?Sized)) -> Self { let query = query.host_text(); let query: &str = &query;
         let trimmed = query.strip_prefix('?').unwrap_or(query);
         let pairs = url::form_urlencoded::parse(trimmed.as_bytes()).map(|(name, value): (::std::borrow::Cow<'_, str>, ::std::borrow::Cow<'_, str>)| (name.into_owned(), value.into_owned())).collect::<Vec<(String, String)>>();
         Self::from_pairs(pairs)
     }
     /// `get(name)`: the FIRST value for a name, or `null`.
-    pub fn get(&self, name: &str) -> Option<String> { self.entries.borrow().iter().find(|(entry_name, _)| entry_name == name).map(|(_, value)| value.clone()) }
+    pub fn get(&self, name: &(impl SmeltHostText + ?Sized)) -> Option<String> { let name = name.host_text(); let name: &str = &name; self.entries.borrow().iter().find(|(entry_name, _)| entry_name == name).map(|(_, value)| value.clone()) }
     /// `getAll(name)`: every value for a name, in order.
-    pub fn get_all(&self, name: &str) -> Vec<String> { self.entries.borrow().iter().filter(|(entry_name, _)| entry_name == name).map(|(_, value)| value.clone()).collect() }
+    pub fn get_all(&self, name: &(impl SmeltHostText + ?Sized)) -> Vec<String> { let name = name.host_text(); let name: &str = &name; self.entries.borrow().iter().filter(|(entry_name, _)| entry_name == name).map(|(_, value)| value.clone()).collect() }
     /// `has(name)`.
-    pub fn has(&self, name: &str) -> bool { self.entries.borrow().iter().any(|(entry_name, _)| entry_name == name) }
+    pub fn has(&self, name: &(impl SmeltHostText + ?Sized)) -> bool { let name = name.host_text(); let name: &str = &name; self.entries.borrow().iter().any(|(entry_name, _)| entry_name == name) }
     /// `append(name, value)`.
-    pub fn append(&self, name: &str, value: &str) { self.entries.borrow_mut().push((name.to_owned(), value.to_owned())); self.update_owner(); }
+    pub fn append(&self, name: &(impl SmeltHostText + ?Sized), value: &(impl SmeltHostText + ?Sized)) { let name = name.host_text(); let name: &str = &name; let value = value.host_text(); let value: &str = &value; self.entries.borrow_mut().push((name.to_owned(), value.to_owned())); self.update_owner(); }
     /// `set(name, value)`: replace the first value, drop the rest.
-    pub fn set(&self, name: &str, value: &str) {
+    pub fn set(&self, name: &(impl SmeltHostText + ?Sized), value: &(impl SmeltHostText + ?Sized)) { let name = name.host_text(); let name: &str = &name; let value = value.host_text(); let value: &str = &value;
         let mut entries = self.entries.borrow_mut();
         let position = entries.iter().position(|(entry_name, _)| entry_name == name);
         let Some(index) = position else { entries.push((name.to_owned(), value.to_owned())); drop(entries); self.update_owner(); return; };
@@ -320,7 +320,7 @@ impl SmeltUrlSearchParams {
         self.update_owner();
     }
     /// `delete(name)`: remove every pair with the name.
-    pub fn delete(&self, name: &str) { self.entries.borrow_mut().retain(|(entry_name, _)| entry_name != name); self.update_owner(); }
+    pub fn delete(&self, name: &(impl SmeltHostText + ?Sized)) { let name = name.host_text(); let name: &str = &name; self.entries.borrow_mut().retain(|(entry_name, _)| entry_name != name); self.update_owner(); }
     /// `sort()`: stable sort by name, keeping equal names in order.
     pub fn sort(&self) { self.entries.borrow_mut().sort_by(|left, right| left.0.cmp(&right.0)); self.update_owner(); }
     /// `toString()`: the urlencoded serialization.
@@ -381,7 +381,7 @@ fn smelt_url_search_params_host_method(object: &SmeltObject, name: &str) -> Opti
 /// Rebuild a parameter list from an erased value.
 impl SmeltFromUnknown for SmeltUrlSearchParams {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        if let SmeltUnknown::String(query) = &value { return Self::from_query(query); }
+        if let SmeltUnknown::String(query) = &value { return Self::from_query(&query.to_string_lossy()); }
         //~ The retained origin first: a record that came from an
         //~ erasure in this thread narrows back to the same object, which
         //~ is what JavaScript does. The structural rebuild below is for a
@@ -394,7 +394,7 @@ impl SmeltFromUnknown for SmeltUrlSearchParams {
             let SmeltUnknown::Array(pair) = pair else { continue };
             let pair = pair.into_vec();
             let (Some(SmeltUnknown::String(name)), Some(SmeltUnknown::String(entry_value))) = (pair.first().cloned(), pair.get(1).cloned()) else { continue };
-            params.append(&name, &entry_value);
+            params.append(&name.to_string_lossy(), &entry_value.to_string_lossy());
         }
         params
     }
@@ -460,7 +460,7 @@ impl SmeltBody {
     ///
     /// Carries `text/plain;charset=UTF-8` as its implied type, which the
     /// holder's constructor appends when the caller set no `Content-Type`.
-    pub fn from_text(text: &str) -> Self { let mut body = Self::from_payload(SmeltBodyPayload::Bytes(text.as_bytes().to_vec())); body.content_type = Some("text/plain;charset=UTF-8".to_owned()); body }
+    pub fn from_text(text: &(impl SmeltHostText + ?Sized)) -> Self { let text = text.host_text(); let text: &str = &text; let mut body = Self::from_payload(SmeltBodyPayload::Bytes(text.as_bytes().to_vec())); body.content_type = Some("text/plain;charset=UTF-8".to_owned()); body }
     /// A buffered body holding `bytes`.
     pub fn from_bytes(bytes: Vec<u8>) -> Self { Self::from_payload(SmeltBodyPayload::Bytes(bytes)) }
     //~ The spec's "extract a body" step for a `Blob` carries the blob's
@@ -611,7 +611,7 @@ impl SmeltResponse {
     /// unless the caller already set one — the spec's "extract a body"
     /// step, which is why `new Response('hi').headers.get('content-type')`
     /// is `text/plain;charset=UTF-8` and not `null`.
-    pub fn from_parts(status: f64, status_text: String, headers: SmeltHeaders, body: SmeltBody) -> Self {
+    pub fn from_parts(status: f64, status_text: impl SmeltHostText, headers: SmeltHeaders, body: SmeltBody) -> Self { let status_text = status_text.host_text().into_owned();
         if let Some(content_type) = body.content_type() { if !headers.has("content-type") {
             headers.append("content-type", &content_type);
         } }
@@ -772,7 +772,7 @@ impl SmeltRequestInit {
     /// `about:client` — pass through, which falling back to the spelled
     /// text gives for free. This is the same rule `from_parts` applies to
     /// the request URL itself.
-    pub fn serialize_referrer(referrer: &str) -> String { ::url::Url::parse(referrer).map_or_else(|_| referrer.to_owned(), |parsed| parsed.to_string()) }
+    pub fn serialize_referrer(referrer: &(impl SmeltHostText + ?Sized)) -> String { let referrer = referrer.host_text(); let referrer: &str = &referrer; ::url::Url::parse(referrer).map_or_else(|_| referrer.to_owned(), |parsed| parsed.to_string()) }
 }
 
 //~ Emit the `SmeltRequest` struct and its comparisons.
@@ -839,9 +839,9 @@ impl SmeltRequest {
     /// a `Content-Type` adds it unless the caller set one, exactly as on a
     /// response — the pairing belongs to the body, so both holders get it
     /// from the same place.
-    pub fn from_parts(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody) -> Self { Self::assemble(input, method, headers, body, smelt_default_request_init()) }
+    pub fn from_parts(input: &(impl SmeltHostText + ?Sized), method: String, headers: SmeltHeaders, body: SmeltBody) -> Self { let input = input.host_text(); let input: &str = &input; Self::assemble(input, method, headers, body, smelt_default_request_init()) }
     /// The same assembly, carrying the stored `RequestInit` members.
-    pub fn from_parts_with_init(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody, init: SmeltRequestInit) -> Self { Self::assemble(input, method, headers, body, ::std::rc::Rc::new(init)) }
+    pub fn from_parts_with_init(input: &(impl SmeltHostText + ?Sized), method: String, headers: SmeltHeaders, body: SmeltBody, init: SmeltRequestInit) -> Self { let input = input.host_text(); let input: &str = &input; Self::assemble(input, method, headers, body, ::std::rc::Rc::new(init)) }
     /// The assembly both constructors share, over an already-shared `init`.
     fn assemble(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody, init: ::std::rc::Rc<SmeltRequestInit>) -> Self {
         let url = if input == "about:blank" || smelt_url_is_serialized_http(input) { input.to_owned() } else { ::url::Url::parse(input).map_or_else(|_| input.to_owned(), |parsed| parsed.to_string()) };

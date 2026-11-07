@@ -367,8 +367,8 @@ impl FunctionEmitter<'_> {
             }
         }
         let probe = self.carrier_format(format_args!(
-            "matches!(value.get(\"{SMELT_CLASS}\"), Some(SmeltUnknown::String(smelt_class_name)) if matches!(&*smelt_class_name, {}))",
-            names.join(" | ")
+            "matches!(value.get(\"{SMELT_CLASS}\"), Some(SmeltUnknown::String(smelt_class_name)) if {})",
+            names.iter().map(|name| format!("smelt_class_name.eq_str({name})")).collect::<Vec<_>>().join(" || ")
         ));
         let value_text = self.operand_expr(value)?;
         Ok(Some(if optional {

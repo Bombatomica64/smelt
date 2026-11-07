@@ -14,7 +14,7 @@ fn smelt_fresh_identity(value: SmeltUnknown) -> SmeltUnknown { match value { Sme
 // by es-toolkit `cloneDeep` (Error) and remeda `clone` (host objects it
 // delegates to the platform). Primitives/functions/promises pass through.
 // @smelt:item smelt_structured_clone when structured_clone
-fn smelt_structured_clone(value: SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Object(map) => { let cloned: Vec<(String, SmeltUnknown)> = map.iter().map(|(key, field)| (key, smelt_structured_clone(field))).collect(); SmeltUnknown::Object(SmeltObject::with_id(smelt_next_object_id(), cloned)) }, SmeltUnknown::Array(array) => SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), array.into_vec().into_iter().map(smelt_structured_clone).collect())), other => other } }
+fn smelt_structured_clone(value: SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Object(map) => { let cloned: Vec<(JsString, SmeltUnknown)> = map.iter().map(|(key, field)| (key, smelt_structured_clone(field))).collect(); SmeltUnknown::Object(SmeltObject::with_id(smelt_next_object_id(), cloned)) }, SmeltUnknown::Array(array) => SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), array.into_vec().into_iter().map(smelt_structured_clone).collect())), other => other } }
 // @smelt:item-end
 
 // `Object.create(proto)` must mint a FRESH object. Two failure modes make
@@ -93,7 +93,7 @@ fn smelt_register_object_prototype(id: usize, prototype: SmeltUnknown) { SMELT_O
 fn smelt_recorded_object_prototype(id: usize) -> Option<SmeltUnknown> { SMELT_OBJECT_PROTOTYPES.with(|prototypes| prototypes.borrow().get(&id).cloned()) }
 
 /// Create a fresh erased object from a runtime prototype value (`Object.create`).
-fn smelt_object_from_prototype(prototype: SmeltUnknown) -> SmeltUnknown { let mut fields: Vec<(String, SmeltUnknown)> = Vec::new(); match &prototype { SmeltUnknown::String(sentinel) if &**sentinel == "__smelt_proto:class" => { fields.push(("__smelt_class".to_owned(), SmeltUnknown::Bool(true))); }, SmeltUnknown::Object(map) => { for (key, value) in map.iter() { if key == "__smelt_class" || key.starts_with("__smelt_proto:") { fields.push((key, value)); } else { fields.push((format!("__smelt_proto:{key}"), value)); } } }, _ => {} } let object = SmeltObject::new(fields); if smelt_prototype_slot_is_observable(&prototype) { smelt_register_object_prototype(object.id, prototype); } SmeltUnknown::Object(object) }
+fn smelt_object_from_prototype(prototype: SmeltUnknown) -> SmeltUnknown { let mut fields: Vec<(JsString, SmeltUnknown)> = Vec::new(); match &prototype { SmeltUnknown::String(sentinel) if sentinel.eq_str("__smelt_proto:class") => { fields.push(("__smelt_class".into(), SmeltUnknown::Bool(true))); }, SmeltUnknown::Object(map) => { for (key, value) in map.iter() { if key.eq_str("__smelt_class") || key.eq_str_prefix("__smelt_proto:") { fields.push((key, value)); } else { fields.push((JsString::from(format!("__smelt_proto:{key}")), value)); } } }, _ => {} } let object = SmeltObject::new(fields); if smelt_prototype_slot_is_observable(&prototype) { smelt_register_object_prototype(object.id, prototype); } SmeltUnknown::Object(object) }
 // @smelt:item-end
 
 // `Object.defineProperty(o, k, d)` and `Object.defineProperties(o, ds)`

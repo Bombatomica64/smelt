@@ -114,7 +114,7 @@ impl FunctionEmitter<'_> {
                 };
                 let value_text = self.string_like_operand_expr(value, "base64 input")?;
                 (
-                    RenderedCall::propagating(RustExpr::postfix_on(&adapter, format!("{adapter}({value_text}.as_str())"))),
+                    RenderedCall::propagating(RustExpr::postfix_on(&adapter, format!("{adapter}(&{value_text})"))),
                     self.type_id(Type::String)?,
                 )
             }
@@ -181,7 +181,7 @@ impl FunctionEmitter<'_> {
                 };
                 let value_text = self.string_like_operand_expr(value, "URI decoder input")?;
                 (
-                    RenderedCall::propagating(RustExpr::postfix_on(&adapter, format!("{adapter}({value_text}.as_str())"))),
+                    RenderedCall::propagating(RustExpr::postfix_on(&adapter, format!("{adapter}(&{value_text})"))),
                     self.type_id(Type::String)?,
                 )
             }
@@ -191,7 +191,20 @@ impl FunctionEmitter<'_> {
                 )));
             }
         };
-        Ok(FallibleOpCall { text, source_ty })
+        // A throwing op that answers text (`JSON.stringify`, `atob`, a
+        // decode, a digest) builds it as a UTF-8 `String`; a JavaScript string
+        // result is that text as a `JsString`. `From`'s identity impl keeps an
+        // op that already answers `JsString` unchanged.
+        let answered = if self.mir.types.get(source_ty) == Some(&Type::String) && !matches!(op, Rvalue::JsonParse { .. }) {
+            if text.propagates() {
+                text.map_call(|call| format!("{call}.map(JsString::from)"))
+            } else {
+                text.map_call(|call| format!("JsString::from({call})"))
+            }
+        } else {
+            text
+        };
+        Ok(FallibleOpCall { text: answered, source_ty })
     }
 
     /// Renders `JSON.parse`. A source-declared, decodable target is a typed

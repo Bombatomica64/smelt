@@ -477,7 +477,7 @@ impl FunctionEmitter<'_> {
             // silently becomes a fabricated default callback.
             let prototype_fallback = if source_is_erased {
                 format!(
-                    ".or_else(|| smelt_record_map.get({proto_key:?})).or_else(|| smelt_record_map.get({method_key:?}))",
+                    ".or_else(|| smelt_record_map.get_text({proto_key:?})).or_else(|| smelt_record_map.get_text({method_key:?}))",
                     proto_key = format!("{SMELT_PROTO}:{field_key}"),
                     method_key = format!(
                         "{prefix}{field_key}",
@@ -501,10 +501,10 @@ impl FunctionEmitter<'_> {
                     }
                 }
                 format!(
-                    "smelt_record_map.get({field_key:?}).or_else(|| smelt_record_map.get({camel:?})){prototype_fallback}"
+                    "smelt_record_map.get_text({field_key:?}).or_else(|| smelt_record_map.get_text({camel:?})){prototype_fallback}"
                 )
             } else {
-                format!("smelt_record_map.get({field_key:?}){prototype_fallback}")
+                format!("smelt_record_map.get_text({field_key:?}){prototype_fallback}")
             };
             let lookup_value = if let Some(Type::Dict(key, _)) = self.mir.types.get(source_value) {
                 if self.dict_uses_smelt_record(*key) {

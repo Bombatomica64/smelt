@@ -865,7 +865,7 @@ const bag: Record<string, unknown> = value as Record<string, unknown>;
     // The numeric extraction of an erased string is the shared
     // `StringToNumber` helper rather than a bare `parse::<f64>()`.
     assert!(
-        source.contains("SmeltUnknown::String(value) => smelt_string_to_number(&value)"),
+        source.contains("SmeltUnknown::String(value) => smelt_js_string_to_number(&value)"),
         "{source}"
     );
     assert!(source.contains("_ => SmeltRecord::new()"), "{source}");
@@ -884,7 +884,7 @@ const first = bag["0"];
     // An array's own-key view is its element indices followed by the named
     // properties in its side table, which is exactly `own_entries`.
     assert!(
-        source.contains("SmeltUnknown::Array(values) => values.own_entries().into_iter().collect()"),
+        source.contains("SmeltUnknown::Array(values) => values.own_entries().into_iter().map(|(key, value)| (JsString::from(key), value)).collect()"),
         "{source}"
     );
 }
@@ -924,7 +924,7 @@ const entries = Object.entries(bag);
     // the reference identity) rather than re-deriving either.
     assert!(
         source.contains(
-            "fn smelt_shared_record(&self) -> SmeltRecord<String, SmeltUnknown> { SmeltRecord { id: self.id, store: ::std::rc::Rc::clone(&self.store) } }"
+            "fn smelt_shared_record(&self) -> SmeltRecord<JsString, SmeltUnknown> { SmeltRecord { id: self.id, store: ::std::rc::Rc::clone(&self.store) } }"
         ),
         "{source}"
     );
@@ -956,11 +956,11 @@ const erased: unknown = plain;
     );
 
     assert!(
-        source.contains("fn new(entries: Vec<(String, SmeltUnknown)>) -> Self"),
+        source.contains("fn new<K: Into<JsString>>(entries: Vec<(K, SmeltUnknown)>) -> Self"),
         "{source}"
     );
     assert!(
-        source.contains("fn with_id(id: usize, entries: Vec<(String, SmeltUnknown)>) -> Self"),
+        source.contains("fn with_id<K: Into<JsString>>(id: usize, entries: Vec<(K, SmeltUnknown)>) -> Self"),
         "{source}"
     );
     // No constructor may guess an order back out of an unordered map.
@@ -1075,7 +1075,7 @@ export function fromEntries(...args: readonly unknown[]): unknown {
     );
 
     assert!(
-        source.contains("collect::<SmeltRecord<String, SmeltUnknown>>()"),
+        source.contains("collect::<SmeltRecord<JsString, SmeltUnknown>>()"),
         "Object.fromEntries callback should collect entry arrays into a record: {source}"
     );
     assert!(
@@ -1226,7 +1226,7 @@ export function pick(options: Record<string, unknown>): unknown {
     // `expect` the field.
     for field in ["leading", "trailing", "maxWait"] {
         assert!(
-            source.contains(&format!("smelt_record_property(&options, &\"{field}\".to_owned())")),
+            source.contains(&format!("smelt_record_property(&options, &JsString::from(\"{field}\"))")),
             "{field}: {source}"
         );
     }
@@ -1554,7 +1554,7 @@ const number = +value;
     // A string goes through the shared `StringToNumber` helper (empty text is
     // 0 there), not an inline trim-and-parse.
     assert!(
-        source.contains("SmeltUnknown::String(value) => smelt_string_to_number(&(value))"),
+        source.contains("SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_)"),
         "{source}"
     );
     assert!(
@@ -1760,7 +1760,7 @@ export function read(body: Body, key: 'json' | 'text'): string {
 
     assert!(source.contains("body.json()"), "{source}");
     assert!(source.contains("body.text()"), "{source}");
-    assert!(source.contains("JsString::from(\"json\")"), "{source}");
+    assert!(source.contains("JsString::from(\"json-body\")"), "{source}");
     // The defect: the body must not be a default value.
     assert!(
         !source.contains("fn read(body: Body, key: JsString) -> JsString {\n    return String::new();"),
@@ -1963,7 +1963,7 @@ export function run(formatLong: FormatLong): string {
     );
     assert!(
         source.contains(
-            "Options { width: smelt_record_map.get(\"width\").cloned().map(|value| value) }"
+            "Options { width: smelt_record_map.get_text(\"width\").cloned().map(|value| value) }"
         ),
         "{source}"
     );
@@ -2017,7 +2017,7 @@ const defaulted = throttle(() => {});
     );
 
     assert!(
-        source.contains(".get(&\"leading\".to_owned()).flatten()")
+        source.contains(".get(&JsString::from(\"leading\")).flatten()")
             && source.contains(".unwrap_or(true)"),
         "{source}"
     );
@@ -2160,7 +2160,7 @@ export function label(value?: string): string {
     );
 
     assert!(
-        source.contains("match value.clone().as_deref()"),
+        source.contains("match value.clone().map(|smelt_text| smelt_text.to_string_lossy()).as_deref()"),
         "{source}"
     );
     assert!(source.contains("Some(\"a\") =>"), "{source}");
@@ -2258,7 +2258,7 @@ export const localize: Localize = {
     );
 
     assert!(
-        source.contains("smelt_number_to_string(number) + &match suffix"),
+        source.contains("smelt_number_to_string(number)) + &match suffix"),
         "{source}"
     );
     assert!(
@@ -2937,7 +2937,7 @@ function passthrough(values: readonly unknown[]): readonly unknown[] {
     );
 
     assert!(source.contains("pub enum SmeltUnknown"));
-    assert!(source.contains("String(::std::rc::Rc<str>),"));
+    assert!(source.contains("String(JsString),"));
     assert!(source.contains("fn identity(value: SmeltUnknown) -> SmeltUnknown"));
     assert!(
         source
@@ -2968,7 +2968,7 @@ function isArray(value: unknown): boolean {
 
     assert!(source.contains("SmeltUnknown::String"));
     assert!(source.contains("matches!(value.clone(), SmeltUnknown::String(_))"));
-    assert!(source.contains("SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string()"));
+    assert!(source.contains("SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string()"));
     assert!(source.contains("matches!(value.clone(), SmeltUnknown::Array(_))"));
 }
 
@@ -3031,7 +3031,7 @@ function first<S extends string>(value: S): string {
     );
 
     assert!(source.contains("SmeltUnknown::String(value)"), "{source}");
-    assert!(source.contains("smelt_utf16_char_at(&value, index)"), "{source}");
+    assert!(source.contains("value.char_at(index)"), "{source}");
     assert!(!source.contains("SmeltUnknown::Null.clone()"), "{source}");
 }
 
@@ -3091,7 +3091,7 @@ function assign(out: Record<string, unknown>, key: unknown, value: unknown): Rec
     );
 
     assert!(
-        source.contains("SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string()"),
+        source.contains("SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string()"),
         "{source}"
     );
     assert!(
@@ -3189,7 +3189,7 @@ function countPresent(values: string[]): Record<string, number> {
     // forces the unknown carrier on, so the string-keyed record target backs onto
     // the identity-bearing `SmeltRecord`.
     assert!(
-        source.contains(".collect::<SmeltRecord<String, f64>>()"),
+        source.contains(".collect::<SmeltRecord<JsString, f64>>()"),
         "{source}"
     );
 }
@@ -3223,7 +3223,7 @@ function label(values: string[]): string[] {
 
     assert!(source.contains("JsString::new() + &_smelt_tmp_"), "{source}");
     assert!(
-        source.contains("closure_arg_0.clone().to_lowercase()"),
+        source.contains("closure_arg_0.clone().to_lower_case()"),
         "{source}"
     );
 }
@@ -3239,9 +3239,9 @@ function initialCaps<T extends string>(values: T[]): string[] {
     );
 
     assert!(source.contains("SmeltUnknown::String(value)"), "{source}");
-    assert!(source.contains("smelt_utf16_char_at(&value, index)"), "{source}");
-    assert!(source.contains(".to_uppercase()"), "{source}");
-    assert!(!source.contains("String::new().to_uppercase()"), "{source}");
+    assert!(source.contains("value.char_at(index)"), "{source}");
+    assert!(source.contains(".to_upper_case()"), "{source}");
+    assert!(!source.contains("String::new().to_upper_case()") && !source.contains("JsString::new().to_upper_case()"), "{source}");
 }
 
 #[test]
@@ -3749,7 +3749,7 @@ function read(output: Record<string, unknown[]>, key: unknown | undefined): unkn
 
     assert!(
         source.contains(
-            ".map_or(String::new(), |value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string()"
+            ".map_or(JsString::new(), |value| match value.clone() { SmeltUnknown::String(value) => value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string()"
         ),
         "{source}"
     );
@@ -3890,11 +3890,11 @@ console.log(user.name);
         "{source}"
     );
     assert!(
-        source.contains("user.insert(\"name\".to_owned(), JsString::from(\"Grace\"));"),
+        source.contains("user.insert(JsString::from(\"name\"), JsString::from(\"Grace\"));"),
         "{source}"
     );
     assert!(
-        source.contains("user.get(&\"name\".to_owned()).cloned().expect(\"missing field\")"),
+        source.contains("user.get(&JsString::from(\"name\")).cloned().expect(\"missing field\")"),
         "{source}"
     );
 }
@@ -4010,7 +4010,7 @@ function keyCount(value: unknown): number {
     );
 
     assert!(
-        source.contains("SmeltUnknown::String(value) => value.chars().enumerate()"),
+        source.contains("SmeltUnknown::String(value) => value.units().iter().enumerate()"),
         "{source}"
     );
 }
@@ -4220,7 +4220,7 @@ const result = format({ locale: customLocale });
     );
 
     assert!(
-        source.contains("FormatOptions { locale: smelt_record_map.get(\"locale\").map(|value|"),
+        source.contains("FormatOptions { locale: smelt_record_map.get_text(\"locale\").map(|value|"),
         "{source}"
     );
     assert!(source.contains("Locale { code:"), "{source}");
@@ -4473,7 +4473,7 @@ console.log(user[key]);
         "{source}"
     );
     assert!(
-        source.contains("user.get(&key.clone()).cloned().unwrap_or(String::new())"),
+        source.contains("user.get(&key.clone()).cloned().unwrap_or(JsString::new())"),
         "{source}"
     );
 }
@@ -4499,7 +4499,7 @@ function shiftRaw(raw: bigint): bigint {
     // radix outside 2..=36 is a catchable `RangeError`, so it is a fallible
     // call ending in `?` (it used to panic past any enclosing `try`).
     assert!(
-        source.contains("smelt_bigint_to_string_radix(&::num_bigint::BigInt::from(10_i64), 2.0)?"),
+        source.contains("smelt_bigint_to_string_radix(&::num_bigint::BigInt::from(10_i64), 2.0).map(JsString::from).map(JsString::from)?"),
         "{source}"
     );
     // A `number` shift is JavaScript's int32 shift: `ToInt32(a)` shifted by
@@ -4625,7 +4625,7 @@ export function sortKeysLike(keys: string[], compare?: (a: string, b: string) =>
     );
     assert!(
         source.contains(
-            "None => { _smelt_tmp_2.borrow_mut().sort_by(|left, right| left.to_string().cmp(&right.to_string())); }"
+            "None => { _smelt_tmp_2.borrow_mut().sort_by(|left, right| left.cmp(right)); }"
         ),
         "the absent arm must run the default ToString ordering: {source}"
     );
@@ -4658,7 +4658,7 @@ export function collate(a: string, b: string): number {
         "{source}"
     );
     assert!(
-        source.contains("fn smelt_locale_compare(left: &str, right: &str) -> f64"),
+        source.contains("fn smelt_locale_compare(left: &(impl SmeltHostText + ?Sized), right: &(impl SmeltHostText + ?Sized)) -> f64"),
         "the runtime helper must be emitted into the prelude: {source}"
     );
     assert!(
@@ -5281,7 +5281,7 @@ function matchUnknown(value: unknown): string[] | undefined {
     );
 
     assert!(
-        source.contains("SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string()"),
+        source.contains("SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string()"),
         "{source}"
     );
     assert!(source.contains(".match_string(&match "), "{source}");
@@ -5357,12 +5357,12 @@ function words(text: string): number {
     );
 
     assert!(
-        source.contains("pub fn match_string(&self, haystack: &str) -> Option<SmeltMatch>"),
+        source.contains("pub fn match_string(&self, haystack: &JsStr) -> Option<SmeltMatch>"),
         "{source}"
     );
     assert!(source.contains("if !self.has_flag('g') { return self.exec(haystack); }"), "{source}");
-    assert!(source.contains("fn from_global_matches(matches: Vec<String>, input: &str) -> Self"), "{source}");
-    assert!(source.contains("pub fn to_array_view(&self) -> SmeltList<Option<String>>"), "{source}");
+    assert!(source.contains("fn from_global_matches(matches: Vec<JsString>, input: &JsStr) -> Self"), "{source}");
+    assert!(source.contains("pub fn to_array_view(&self) -> SmeltList<Option<JsString>>"), "{source}");
     // The literal is statically global, so the call site takes the direct
     // whole-match list rather than a match value.
     assert!(source.contains(".match_all_strings(&"), "{source}");
@@ -5425,9 +5425,9 @@ function splitNegative(value: string): string[] {
 "#,
     );
 
-    assert!(source.contains("if smelt_separator.is_empty()"), "{source}");
+    assert!(source.contains("if map.contains_key(\"__smelt_unmodeled\") { return \"[object Unmodeled]\".to_owned(); } if let Some(SmeltUnknown::String(tag)) = map.get(\"__smelt_symbol_to_string_tag\") { return format!(\"[object {tag}]\"); } if map.contains_key(\"__smelt_date\") { return \"[object Date]\".to_owned(); } if map.contains_key(\"__smelt_regexp\") { return \"[object RegExp]\".to_owned(); } if map.contains_key(\"__smelt_error\") { return \"[object Error]\".to_owned(); } if map.contains_key(\"__smelt_global_object\") { return \"[object global]\".to_owned(); } if map.contains_key(\"__smelt_map\") { return \"[object Map]\".to_owned(); } if map.contains_key(\"__smelt_set\") { return \"[object Set]\".to_owned(); } if map.contains_key(\"__smelt_arguments\") { return \"[object Arguments]\".to_owned(); } if map.contains_key(\"__smelt_abortcontroller\") { return \"[object AbortController]\".to_owned(); } if map.contains_key(\"__smelt_abortsignal\") { return \"[object AbortSignal]\".to_owned(); } if map.contains_key(\"__smelt_arraybuffer\") { return \"[object ArrayBuffer]\".to_owned(); } if map.contains_key(\"__smelt_sharedarraybuffer\") { return \"[object SharedArrayBuffer]\".to_owned(); } if map.contains_key(\"__smelt_int8array\") { return \"[object Int8Array]\".to_owned(); } if map.contains_key(\"__smelt_uint8array\") { return \"[object Uint8Array]\".to_owned(); } if map.contains_key(\"__smelt_uint8clampedarray\") { return \"[object Uint8ClampedArray]\".to_owned(); } if map.contains_key(\"__smelt_int16array\") { return \"[object Int16Array]\".to_owned(); } if map.contains_key(\"__smelt_uint16array\") { return \"[object Uint16Array]\".to_owned(); } if map.contains_key(\"__smelt_int32array\") { return \"[object Int32Array]\".to_owned(); } if map.contains_key(\"__smelt_uint32array\") { return \"[object Uint32Array]\".to_owned(); } if map.contains_key(\"__smelt_float32array\") { return \"[object Float32Array]\".to_owned(); } if map.contains_key(\"__smelt_float64array\") { return \"[object Float64Array]\".to_owned(); } if map.contains_key(\"__smelt_bigint64array\") { return \"[object BigInt64Array]\".to_owned(); } if map.contains_key(\"__smelt_biguint64array\") { return \"[object BigUint64Array]\".to_owned(); } if map.contains_key(\"__smelt_buffer\") { return \"[object Uint8Array]\".to_owned(); } if map.contains_key(\"__smelt_dataview\") { return \"[object DataView]\".to_owned(); } if map.contains_key(\"__smelt_weakmap\") { return \"[object WeakMap]\".to_owned(); } if map.contains_key(\"__smelt_weakset\") { return \"[object WeakSet]\".to_owned(); } if map.contains_key(\"__smelt_file\") { return \"[object File]\".to_owned(); } if map.contains_key(\"__smelt_blob\") { return \"[object Blob]\".to_owned(); } if map.contains_key(\"__smelt_headers\") { return \"[object Headers]\".to_owned(); } if map.contains_key(\"__smelt_urlsearchparams\") { return \"[object URLSearchParams]\".to_owned(); } if map.contains_key(\"__smelt_url\") { return \"[object URL]\".to_owned(); } if map.contains_key(\"__smelt_crypto_key\") { return \"[object CryptoKey]\".to_owned(); } if map.contains_key(\"__smelt_request\") { return \"[object Request]\".to_owned(); } if map.contains_key(\"__smelt_response\") { return \"[object Response]\".to_owned(); } if map.contains_key(\"__smelt_textencoder\") { return \"[object TextEncoder]\".to_owned(); } if map.contains_key(\"__smelt_textdecoder\") { return \"[object TextDecoder]\".to_owned(); } if map.contains_key(\"__smelt_eventemitter\") { return \"[object EventEmitter]\".to_owned(); } if map.contains_key(\"__smelt_httpserver\") { return \"[object Server]\".to_owned(); } if map.contains_key(\"__smelt_incomingmessage\") { return \"[object IncomingMessage]\".to_owned(); } if map.contains_key(\"__smelt_serverresponse\") { return \"[object ServerResponse]\".to_owned(); } if map.contains_key(\"__smelt_formdata\") { return \"[object FormData]\".to_owned(); } if map.contains_key(\"__smelt_databasesync\") { return \"[object DatabaseSync]\".to_owned(); } if map.contains_key(\"__smelt_statementsync\") { return \"[object StatementSync]\".to_owned(); } if map.contains_key(\"__smelt_readablestream\") { return \"[object ReadableStream]\".to_owned(); } if map.contains_key(\"__smelt_domexception\") { return \"[object DOMException]\".to_owned(); } if map.contains_key(\"__smelt_intl_collator\") { return \"[object Intl.Collator]\".to_owned(); } if map.contains_key(\"__smelt_intl_displaynames\") { return \"[object Intl.DisplayNames]\".to_owned(); } if map.contains_key(\"__smelt_intl_durationformat\")"), "{source}");
     assert!(
-        source.contains("if smelt_haystack.is_empty() { Vec::new() }"),
+        source.contains("smelt_haystack.split(&smelt_separator, usize::MAX)"),
         "{source}"
     );
     assert!(
@@ -5452,7 +5452,7 @@ const matches = first.test("Nov");
         "{source}"
     );
     assert!(
-        source.contains("(\"flags\".to_owned(), SmeltUnknown::String(self.flags.into()))"),
+        source.contains("(\"flags\".to_owned(), SmeltUnknown::String(JsString::from(&*self.flags)))"),
         "{source}"
     );
 }
@@ -5474,7 +5474,7 @@ export function cloneRe(obj: unknown): RegExp {
     );
 
     assert!(
-        source.contains("smelt_regexp_compile(reg_exp.source.to_string().clone(), reg_exp.flags.to_string().clone())?"),
+        source.contains("smelt_regexp_compile(JsString::from(&*reg_exp.source).clone(), JsString::from(&*reg_exp.flags).clone())?"),
         "{source}"
     );
     // The erased stringify coercion must not be applied to the concrete
@@ -5581,7 +5581,7 @@ console.log(m === null);
     // the match never crosses the erased `SmeltUnknown` boundary and no
     // `into_smelt_unknown` adapter is emitted for this program.
     assert!(
-        source.contains("pub fn exec(&self, haystack: &str) -> Option<SmeltMatch>"),
+        source.contains("pub fn exec(&self, haystack: &JsStr) -> Option<SmeltMatch>"),
         "exec should return a concrete SmeltMatch option: {source}"
     );
     assert!(source.contains("pub struct SmeltMatch"));
@@ -5600,8 +5600,8 @@ console.log(m === null);
     );
     // The numbered-group / named-group / index / input shape is modeled with
     // concrete fields, not assembled as an untyped object during exec.
-    assert!(source.contains("groups: ::std::rc::Rc<Vec<Option<String>>>"));
-    assert!(source.contains("named: ::std::rc::Rc<::std::collections::HashMap<String, Option<String>>>"));
+    assert!(source.contains("groups: ::std::rc::Rc<Vec<Option<JsString>>>"));
+    assert!(source.contains("named: ::std::rc::Rc<::std::collections::HashMap<String, Option<JsString>>>"));
     assert!(source.contains("fn from_captures(regex: &fancy_regex::Regex"));
 }
 
@@ -6042,7 +6042,7 @@ export function sameKind(a: unknown, b: unknown): boolean {
             && source.contains("_smelt_tmp_5 = smelt_typeof(&a);"),
         "{source}"
     );
-    assert!(!source.contains("smelt_typeof(&a).to_owned()"), "{source}");
+    assert!(!source.contains("smelt_typeof(&a).to_owned()") && !source.contains("JsString::from(smelt_typeof(&a))"), "{source}");
     // The equality compares the two borrowed spellings directly, and the
     // `switch` matches the binding rather than an `.as_str()` it does not have.
     assert!(
@@ -6065,7 +6065,7 @@ export function kindOf(value: unknown): string {
     // knows how to spell against a `&'static str`, so the local keeps the owned
     // form. The whitelist falls back rather than guessing.
     assert!(
-        source.contains("let _smelt_tmp_1: JsString = smelt_typeof(&value).to_owned();"),
+        source.contains("let _smelt_tmp_1: JsString = JsString::from(smelt_typeof(&value));"),
         "{source}"
     );
 }
@@ -6084,9 +6084,9 @@ function describe(value: string | number[]): string {
     // the site -- but it selects a `&'static str` and borrows its scrutinee.
     assert!(!source.contains("\"string\".to_owned(), ") && !source.contains("JsString::from(\"string\"), "), "{source}");
     assert!(
-        source.contains("= match &value { SmeltUnion")
+        source.contains("=> match smelt_builtin_receiver_elements(&receiver) { Some(values) => { let len = values.len(); let start = smelt_builtin_relative_index(&first, len, 0); let end = smelt_builtin_relative_index(&second, len, len); SmeltUnknown::Array(values.into_iter().skip(start).take(end.saturating_sub(start)).collect::<Vec<_>>().into()) } Non")
             && source.contains("::M0(_) => \"string\", ")
-            && source.contains("::M1(_) => \"object\" }.to_owned();"),
+            && source.contains("::M1(_) => \"object\" });"),
         "{source}"
     );
 }
@@ -6222,7 +6222,7 @@ function mapType(values: unknown[]): string[] {
     // callback parameter is already spelled `&SmeltUnknown`, so it is passed
     // through instead of being borrowed a second time.
     assert!(
-        source.contains("smelt_typeof(closure_arg_0).to_owned()"),
+        source.contains("JsString::from(smelt_typeof(closure_arg_0))"),
         "{source}"
     );
 }
@@ -6538,7 +6538,7 @@ export function run(): unknown[] {
 
     assert!(
         source.contains(
-            "SmeltUnknown::String(value) => SmeltUnknown::Number(smelt_utf16_len(&value) as f64)"
+            "SmeltUnknown::String(value) => SmeltUnknown::Number(value.len() as f64)"
         ),
         "{source}"
     );
@@ -6956,7 +6956,7 @@ const joined = rows.map(parts => parts.join("-"));
     );
 
     assert!(
-        source.contains(".join(&JsString::from(\"-\"))"),
+        source.contains("JsString::join(") && source.contains(", &JsString::from(\"-\"))"),
         "array .join inside a callback should lower to a Rust join\n{source}"
     );
 }
@@ -6973,7 +6973,7 @@ const joined = rows.map(parts => parts.join());
     );
 
     assert!(
-        source.contains(".join(&JsString::from(\",\"))"),
+        source.contains("JsString::join(") && source.contains(", &JsString::from(\",\"))"),
         "array .join() inside a callback should default to a comma separator\n{source}"
     );
 }
@@ -7816,7 +7816,7 @@ function describe(shape: Circle | Square): number {
     );
     // The discriminant field comparison reads the projected concrete arm.
     assert!(
-        source.contains(".tag.clone() == JsString::from(\"c\")"),
+        source.contains(".tag == \"c\""),
         "narrowed discriminant comparison should read the concrete field: {source}"
     );
 }
@@ -11528,7 +11528,7 @@ fn typed_array_own_keys_are_its_element_indices() {
     assert!(
         generated.contains("fn smelt_host_buffer_index_keys(value: &SmeltUnknown)")
             && generated.contains(
-                "fn smelt_host_buffer_record_index_keys(record: &SmeltRecord<String, SmeltUnknown>) -> Option<Vec<String>> { smelt_host_buffer_index_keys("
+                "fn smelt_host_buffer_record_index_keys(record: &SmeltRecord<JsString, SmeltUnknown>) -> Option<Vec<JsString>> { smelt_host_buffer_index_keys("
             ),
         "the record-flavored index keys must delegate to the tagged one:\n{generated}"
     );
@@ -11826,7 +11826,7 @@ export function trimIt(str: string, chars?: string | string[]): string {
         .split_once("@smelt:prelude-end")
         .map_or(generated.as_str(), |(_, program)| program);
     assert!(
-        program.contains(".contains(&smelt_utf16_char_at(&str, "),
+        program.contains(".contains(&str.char_at("),
         "containment must compare against the projected `Vec`:\n{generated}"
     );
 }
@@ -12926,7 +12926,7 @@ export function fill(b: string[], n: number[], nested: string[][], i: number): u
     );
     assert!(
         !source.contains("b.get({ let len = b.len()")
-            || !source.contains("unwrap_or(String::new()).clone())"),
+            || !(source.contains("unwrap_or(String::new()).clone())") || source.contains("unwrap_or(JsString::new()).clone())")),
         "a missing `string` element must not erase as the empty string:\n{source}"
     );
     assert!(
@@ -12980,7 +12980,7 @@ export function copy(b: string[], n: number[], i: number): void {
     // `index_place_read_is_owned`; the `;` that ends each expected read below
     // asserts it stays absent.
     assert!(
-        source.contains(".cloned().unwrap_or_else(|| String::new());"),
+        source.contains(".cloned().unwrap_or_else(|| JsString::new());"),
         "a concrete `string` slot keeps the total read:\n{source}"
     );
     assert!(
@@ -13017,7 +13017,7 @@ export function pick(value: unknown, index: number): unknown {
     );
     assert!(
         source.contains(
-            "smelt_utf16_char_at(&value, index).map(|ch| SmeltUnknown::String(ch.into()))).unwrap_or(SmeltUnknown::Undefined)"
+            "value.char_at(index).map(|ch| SmeltUnknown::String(ch.into()))).unwrap_or(SmeltUnknown::Undefined)"
         ),
         "a missing string character on an erased receiver is `undefined`:\n{source}"
     );
@@ -15233,7 +15233,7 @@ export function report(): string {
         "{source}"
     );
     assert!(
-        source.contains("status_text: Some(smelt_host_value.status_text())"),
+        source.contains("status_text: Some(JsString::from(smelt_host_value.status_text())"),
         "{source}"
     );
     // A member the source does not expose is absent, which is what an optional
@@ -15269,7 +15269,7 @@ export function run(formatLong: FormatLong): string {
 
     assert!(!source.contains("smelt_host_value"), "{source}");
     assert!(
-        source.contains("Options { width: smelt_record_map.get(\"width\").cloned().map(|value| value) }"),
+        source.contains("Options { width: smelt_record_map.get_text(\"width\").cloned().map(|value| value) }"),
         "{source}"
     );
 }
@@ -15479,7 +15479,7 @@ export function merge(base: Options, options: Partial<Options>): Options {
     );
     assert!(source.contains("struct PartialOptions"), "{source}");
     assert!(source.contains("options: PartialOptions"), "{source}");
-    assert!(!source.contains("dict_assign") && !source.contains("SmeltRecord<String, SmeltUnknown>"), "{source}");
+    assert!(!source.contains("dict_assign") && !source.contains("SmeltRecord<String, SmeltUnknown>") && !source.contains("SmeltRecord<JsString, SmeltUnknown>"), "{source}");
 }
 
 /// An interface's FUNCTION-typed fields survive erasure: the record's

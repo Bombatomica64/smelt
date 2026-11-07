@@ -101,7 +101,7 @@ impl FunctionEmitter<'_> {
     /// Whether a string-keyed dict's values are the erased dynamic type.
     ///
     /// The byte-buffer record helpers are defined over
-    /// `SmeltRecord<String, SmeltUnknown>` only — that is the sole shape a
+    /// `SmeltRecord<JsString, SmeltUnknown>` only — that is the sole shape a
     /// marker-bearing host record can arrive as through the structural ABI — so the
     /// projections consult this before delegating to them, and keep their ordinary
     /// key/value filters for every concretely-typed record.
@@ -823,7 +823,7 @@ impl FunctionEmitter<'_> {
         ) {
             return match op {
                 smelt_hir::DictProjectionOp::FromEntries => Ok(RustExpr::atom(self.carrier_format(format_args!(
-                    "match {dict_text} {{ SmeltUnknown::Array(entries) => entries.into_iter().filter_map(|entry| match entry {{ SmeltUnknown::Array(values) if values.len() >= 2 => {{ let mut values = values.into_iter(); let key = match values.next()? {{ SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), _ => return None }}; Some((key, values.next()?)) }}, _ => None }}).collect::<SmeltRecord<String, SmeltUnknown>>(), _ => SmeltRecord::new() }}"
+                    "match {dict_text} {{ SmeltUnknown::Array(entries) => entries.into_iter().filter_map(|entry| match entry {{ SmeltUnknown::Array(values) if values.len() >= 2 => {{ let mut values = values.into_iter(); let key = match values.next()? {{ SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), _ => return None }}; Some((key, values.next()?)) }}, _ => None }}).collect::<SmeltRecord<JsString, SmeltUnknown>>(), _ => SmeltRecord::new() }}"
                 )))),
                 // A byte-backed host record's own enumerable properties are its
                 // *element indices*: `Object.keys(new Uint8Array(1))` is `['0']`,
@@ -1120,9 +1120,9 @@ impl FunctionEmitter<'_> {
         // instances and nested objects alike.
         let value_ty = self.operand_ty(value)?;
         let value_text = self.erase_rendered(&self.operand_expr(value)?, value_ty)?;
-        Ok(RustExpr::atom(format!(
+        Ok(RustExpr::chain(self.text_from_string(&format!(
             "serde_json::to_string(&{value_text}).expect(\"JSON serialization failed\")"
-        )))
+        ))))
     }
 
 }

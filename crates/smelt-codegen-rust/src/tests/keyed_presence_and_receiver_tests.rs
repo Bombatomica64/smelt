@@ -150,7 +150,7 @@ console.log(kind(new PathError('x')));
         source.contains("matches!(value.get(\"__smelt_class\")"),
         "{source}"
     );
-    assert!(source.contains("\"BaseError\" | \"PathError\""), "{source}");
+    assert!(source.contains("\"BaseError\") || smelt_class_name.eq_str(\"PathError\""), "{source}");
 }
 
 /// A truthiness guard over a union of object arms is folded only for a
@@ -210,7 +210,7 @@ console.log(log.join(','));
         .split("\n}\n")
         .next()
         .unwrap_or_default();
-    let continuation = run.find("k.clone() == JsString::from(\"w\")").unwrap_or(0);
+    let continuation = run.find("k == \"w\"").unwrap_or(0);
     let first_if = run.find("if _smelt_tmp").unwrap_or(usize::MAX);
     assert!(
         first_if < continuation && !run[first_if..continuation].contains("} else {"),
@@ -484,7 +484,7 @@ const first = queue.shift();
 console.log(first ? first.join(',') : 'none');
 ",
     );
-    assert!(source.contains(".join("), "{source}");
+    assert!(source.contains("JsString::join("), "{source}");
 }
 
 /// The generated program below the runtime prelude, so a test's negative

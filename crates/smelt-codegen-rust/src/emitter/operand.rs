@@ -273,6 +273,32 @@ impl FunctionEmitter<'_> {
         value_text: &RustExpr,
         source_key: TypeId,
     ) -> Result<RustExpr, EmitError> {
+        if !self.indexes_utf16() {
+            return self.property_key_rust_string(value_text, source_key);
+        }
+        // A JavaScript property key is a `JsString`: a string key is itself,
+        // an absent optional key keeps its empty text, and every other key is
+        // its `String` text transcoded.
+        match self.mir.types.get(source_key) {
+            Some(Type::String) => Ok(value_text.cloned_value()),
+            Some(Type::Optional(inner)) => {
+                let owned_value_text = value_text.cloned_value();
+                let inner_text = self.property_key_to_string_expr(&RustExpr::path("value"), *inner)?;
+                Ok(RustExpr::postfix_on(&owned_value_text, format!(
+                    "{owned_value_text}.map_or(JsString::new(), |value| {inner_text})"
+                )))
+            }
+            _ => Ok(RustExpr::chain(format!("JsString::from({})", self.property_key_rust_string(value_text, source_key)?))),
+        }
+    }
+
+    /// [`Self::property_key_to_string_expr`] as a Rust `String`, the key type
+    /// of a Python dict and the text a JavaScript key is built from.
+    fn property_key_rust_string(
+        &self,
+        value_text: &RustExpr,
+        source_key: TypeId,
+    ) -> Result<RustExpr, EmitError> {
         // The caller's `value_text` is usually already an owned temporary (an
         // `operand_expr` render clones the local it reads), so ask for an owned
         // copy through `cloned_value` rather than appending `.clone()`
@@ -280,7 +306,8 @@ impl FunctionEmitter<'_> {
         // `groupBy`/`countBy`/`keyBy` loop, and the second copy bought nothing.
         let owned_value_text = value_text.cloned_value();
         match self.mir.types.get(source_key) {
-            Some(Type::String | Type::PyStr) => Ok(owned_value_text),
+            Some(Type::String) => Ok(RustExpr::postfix_on(&owned_value_text, format!("{owned_value_text}.to_string()"))),
+            Some(Type::PyStr) => Ok(owned_value_text),
             Some(Type::Bool) => Ok(RustExpr::postfix_on(&value_text, format!("{value_text}.to_string()"))),
             // A property KEY is a stringified number, and JavaScript's rule is
             // the one that applies: `({ [1e21]: 1 })` has the key `"1e+21"`,
@@ -295,7 +322,7 @@ impl FunctionEmitter<'_> {
                 fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
             ))),
             Some(Type::Optional(inner)) => {
-                let inner_text = self.property_key_to_string_expr(&RustExpr::path("value"), *inner)?;
+                let inner_text = self.property_key_rust_string(&RustExpr::path("value"), *inner)?;
                 Ok(RustExpr::postfix_on(&owned_value_text, format!(
                     "{owned_value_text}.map_or(String::new(), |value| {inner_text})"
                 )))
@@ -304,7 +331,7 @@ impl FunctionEmitter<'_> {
                 Ok(Self::regexp_literal_expr(value_text))
             }
             Some(Type::List(item_ty)) => {
-                let item_text = self.property_key_to_string_expr(&RustExpr::path("value"), *item_ty)?;
+                let item_text = self.property_key_rust_string(&RustExpr::path("value"), *item_ty)?;
                 Ok(RustExpr::atom_on(&owned_value_text, format!(
                     "{owned_value_text}.into_iter().map(|value| {item_text}).collect::<Vec<_>>().join(\",\")"
                 )))

@@ -234,12 +234,14 @@ const REQUIRES: &[(Need, &[Need])] = &[
             Need::DepChronoTz,
             Need::DepTokio,
             Need::StringUnits,
+            // The erased string payload is a `JsString`.
+            Need::JsString,
         ],
     ),
     (Need::SmeltList, &[Need::ObjectIds]),
     (Need::PyRepr, &[Need::PythonNumberFormat]),
     (Need::PrimSet, &[Need::ObjectIds]),
-    (Need::DepRegex, &[Need::ObjectIds, Need::StringUnits]),
+    (Need::DepRegex, &[Need::ObjectIds, Need::StringUnits, Need::JsString]),
     (Need::Date, &[Need::ObjectIds, Need::HostOrigins]),
     // These are emitted inside the carrier's block, or carry its values.
     (Need::IteratorResult, &[Need::Unknown]),

@@ -16,6 +16,9 @@ impl FunctionEmitter<'_> {
         field: Symbol,
     ) -> Result<RustExpr, EmitError> {
         let field_name = self.symbol_source_name(field)?;
+        if self.mir.types.get(key) == Some(&Type::String) {
+            return Ok(RustExpr::js_string_literal(field_name));
+        }
         if self.mir.types.get(key).is_some_and(Type::is_text) {
             return Ok(RustExpr::chain(format!("{field_name:?}.to_owned()")).owned_literal());
         }
@@ -900,7 +903,7 @@ impl FunctionEmitter<'_> {
                         if smelt_key == "length" {{
                             SmeltUnknown::Number({string_len} as f64)
                         }} else {{
-                            smelt_key.parse::<usize>().ok().and_then(|index| {char_at}.map(|ch| SmeltUnknown::String(ch.into()))).unwrap_or(SmeltUnknown::Undefined)
+                            smelt_key.to_string().parse::<usize>().ok().and_then(|index| {char_at}.map(|ch| SmeltUnknown::String(ch.into()))).unwrap_or(SmeltUnknown::Undefined)
                         }}
                     }}
                     SmeltUnknown::Array(values) => smelt_get_array_field(&values, &{key_text}),
@@ -925,7 +928,7 @@ impl FunctionEmitter<'_> {
                 let scrutinee =
                     self.erase_concrete_union_expr(&index_text.cloned_value(), index_ty);
                 RustExpr::atom(self.carrier_format(format_args!(
-                    "match {scrutinee} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
+                    "match {scrutinee} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
                 )))
             }
             _ => RustExpr::atom("f64::NAN"),
@@ -1337,11 +1340,11 @@ impl FunctionEmitter<'_> {
         // keyed lookup into the runtime store (issue #84). Declared
         // fields keep their concrete struct access via the fallback
         // below; only names with no matching field route to the store.
-        if let Some((_key_ty, value_ty)) = self.class_index_store_types(base_ty)
+        if let Some((key_ty, value_ty)) = self.class_index_store_types(base_ty)
             && !self.class_has_named_field(base_ty, field)
         {
             let base_text = self.local_value(base)?;
-            let key = self.symbol_source_name(field)?;
+            let key = self.dict_field_key_expr(key_ty, field)?;
             let store_text =
                 RustExpr::postfix_on(&base_text, format!("{base_text}.{}", smelt_hir::CLASS_INDEX_STORE_FIELD));
             let default_value = self.default_value(value_ty)?;
@@ -1349,9 +1352,9 @@ impl FunctionEmitter<'_> {
             let getter = if self.dict_uses_smelt_record(string_key_ty)
                 || self.dict_uses_js_key_map(string_key_ty)
             {
-                RustExpr::postfix_on(&store_text, format!("{store_text}.get(&{key:?}.to_owned())"))
+                RustExpr::postfix_on(&store_text, format!("{store_text}.get(&{key})"))
             } else {
-                RustExpr::postfix_on(&store_text, format!("{store_text}.get(&{key:?}.to_owned()).cloned()"))
+                RustExpr::postfix_on(&store_text, format!("{store_text}.get(&{key}).cloned()"))
             };
             return Ok(RustExpr::postfix_on(&getter, format!("{getter}.unwrap_or({default_value})")));
         }

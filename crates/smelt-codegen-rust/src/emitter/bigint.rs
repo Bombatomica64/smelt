@@ -363,7 +363,7 @@ impl FunctionEmitter<'_> {
                 let erased =
                     self.erase_rendered(&self.operand_expr(value)?, self.operand_ty(value)?)?;
                 Ok(RenderedCall::propagating(RustExpr::atom(format!(
-                    "serde_json::to_string(&{erased}).map_err(|_| smelt_bigint_type_error_value(\"Do not know how to serialize a BigInt\".to_owned()))"
+                    "serde_json::to_string(&{erased}).map(JsString::from).map_err(|_| smelt_bigint_type_error_value(\"Do not know how to serialize a BigInt\".to_owned()))"
                 ))))
             }
             BigIntOp::ToStringRadix => {
@@ -376,7 +376,7 @@ impl FunctionEmitter<'_> {
                         RustExpr::cast(format!("{radix_operand} as f64"))
                     };
                 Ok(RenderedCall::propagating(RustExpr::chain(format!(
-                    "smelt_bigint_to_string_radix({}, {radix_text})",
+                    "smelt_bigint_to_string_radix({}, {radix_text}).map(JsString::from)",
                     self.bigint_operand_ref_expr(arg(0)?)?
                 ))))
             }

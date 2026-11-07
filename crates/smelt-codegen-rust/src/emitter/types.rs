@@ -324,8 +324,11 @@ impl FunctionEmitter<'_> {
                 Ok(RustType::composed(format!("{container}<{item}>"), [&item]))
             }
             Type::Dict(key, value) if self.dict_uses_smelt_record(*key) => {
+                // The key is the source language's string: `JsString` for a
+                // TypeScript record, `String` for a Python dict.
+                let key_name = if self.mir.types.get(*key) == Some(&Type::PyStr) { "String" } else { "JsString" };
                 let value = self.rust_type(*value, false, substitution)?;
-                Ok(RustType::composed(self.carrier_format(format_args!("SmeltRecord<String, {value}>")), [&value]).on_carrier())
+                Ok(RustType::composed(self.carrier_format(format_args!("SmeltRecord<{key_name}, {value}>")), [&value]).on_carrier())
             }
             Type::Dict(key, value) if self.dict_uses_js_key_map(*key) => {
                 let key = self.rust_type(*key, false, substitution)?;

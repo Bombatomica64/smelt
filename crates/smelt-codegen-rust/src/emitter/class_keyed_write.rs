@@ -83,7 +83,7 @@ impl FunctionEmitter<'_> {
         let index_ty = self.operand_ty(index)?;
         let key_text = self.property_key_to_string_expr(&self.operand_expr(index)?, index_ty)?;
         Ok(Some(RustExpr::atom(format!(
-            "{{ let smelt_keyed_value = {}; let smelt_key: String = {key_text}; match smelt_key.as_str() {{ {} _ => {{}} }} }}",
+            "{{ let smelt_keyed_value = {}; let smelt_key = ({key_text}).to_string(); match smelt_key.as_str() {{ {} _ => {{}} }} }}",
             self.operand_expr(value_operand)?,
             arms.join(" ")
         ))))
