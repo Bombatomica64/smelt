@@ -49,6 +49,23 @@ fn paths_match(frontend: &str, materialized: &str) -> bool {
     }
 }
 
+/// Whether `source` parses as exactly one `function` expression.
+fn source_is_function_expression(source: &str) -> bool {
+    let wrapped = format!("const __smelt_probe = ({source});");
+    let allocator = Allocator::default();
+    let parsed = Parser::new(&allocator, &wrapped, SourceType::default().with_typescript(true))
+        .with_options(ParseOptions::default())
+        .parse();
+    parsed.diagnostics.is_empty()
+        && matches!(
+            parsed.program.body.first(),
+            Some(Statement::VariableDeclaration(variable))
+                if variable.declarations.first().and_then(|declaration| declaration.init.as_ref()).is_some_and(|init| {
+                    matches!(init.without_parentheses(), Expression::FunctionExpression(_))
+                })
+        )
+}
+
 impl ModuleBuilder<'_> {
     /// Returns whether provenance points at a nested function expression.
     pub(super) fn materialized_callable_needs_lift(
@@ -59,7 +76,7 @@ impl ModuleBuilder<'_> {
         let end = usize::try_from(provenance.span.end).unwrap_or(usize::MAX);
         self.source
             .get(start..end)
-            .is_some_and(|source| source.trim_start().starts_with("function"))
+            .is_some_and(source_is_function_expression)
     }
 
     /// Lifts a source-mapped decorator callable into a hidden class method.
@@ -686,5 +703,20 @@ fn materialized_field_visibility(name: &str, is_private: bool) -> Visibility {
         Visibility::Private
     } else {
         Visibility::Public
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::source_is_function_expression;
+
+    /// A span is a function expression by its syntax, not by a text prefix.
+    #[test]
+    fn function_expression_is_read_from_the_syntax() {
+        assert!(source_is_function_expression("function (value) { return value; }"));
+        assert!(source_is_function_expression("  function named() {}"));
+        assert!(!source_is_function_expression("functionName => functionName + 1"), "an arrow whose parameter starts with `function`");
+        assert!(!source_is_function_expression("(value) => value"));
+        assert!(!source_is_function_expression("function () {} + 1"), "a larger expression");
     }
 }
