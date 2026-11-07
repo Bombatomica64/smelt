@@ -695,7 +695,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let Some(static_item) = self.resolve_class_static_method(
-            &class.static_methods.clone(),
+            &self.static_methods_through_chain(class),
             member.property.name.as_str(),
         ) else {
             return Ok(None);
@@ -772,8 +772,23 @@ impl ModuleBuilder<'_> {
         let Item::Class(class) = self.item_ref(class_item) else {
             return false;
         };
-        self.resolve_class_static_method(&class.static_methods.clone(), member.property.name.as_str())
+        self.resolve_class_static_method(&self.static_methods_through_chain(class), member.property.name.as_str())
             .is_some()
+    }
+
+    /// The static methods `class` declares, then those of each ancestor: a
+    /// subclass inherits its base's statics.
+    fn static_methods_through_chain(&self, class: &smelt_hir::Class) -> Vec<smelt_hir::ItemId> {
+        let mut methods = class.static_methods.clone();
+        let mut base = class.base;
+        for _ in 0..64_u32 {
+            let Some(declared) = base.and_then(|name| self.class_by_symbol(name)) else {
+                break;
+            };
+            methods.extend(declared.static_methods.iter().copied());
+            base = declared.base;
+        }
+        methods
     }
 
     /// Return the static method item on a class matching `method_name`, if any.

@@ -154,6 +154,12 @@ fn super_method_call() -> TestResult {
     verify_node_parity("super_method_call")
 }
 
+/// A subclass reads and calls its ancestors' statics.
+#[test]
+fn inherited_statics() -> TestResult {
+    verify_node_parity("inherited_statics")
+}
+
 /// A parameter does not hide a module constant from other functions.
 #[test]
 fn parameter_shadows_module_const() -> TestResult {

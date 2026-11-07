@@ -371,8 +371,8 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let in_flight = self.classes.statics_in_flight(class_name.name.as_str());
-        let static_fields = if let Some(fields) = in_flight {
-            fields
+        let (own_fields, mut base) = if let Some(fields) = in_flight {
+            (fields, self.classes.base(class_name.name.as_str()).map(|base| base.0))
         } else {
             let Some(class_item) = self.classes.item(class_name.name.as_str()) else {
                 return Ok(None);
@@ -380,8 +380,17 @@ impl ModuleBuilder<'_> {
             let Item::Class(class) = self.item_ref(class_item) else {
                 return Ok(None);
             };
-            class.static_fields.as_slice()
+            (class.static_fields.as_slice(), class.base)
         };
+        // A subclass inherits its ancestors' statics, after its own.
+        let mut static_fields = own_fields.to_vec();
+        for _ in 0..64_u32 {
+            let Some(declared) = base.and_then(|name| self.class_by_symbol(name)) else {
+                break;
+            };
+            static_fields.extend(declared.static_fields.iter().cloned());
+            base = declared.base;
+        }
         // Static field names are interned through the source-name path, which
         // case-folds camelCase to snake_case (`PI` -> `pi`). Compare against the
         // same folded spelling so qualified reads like `Class.PI` resolve.
