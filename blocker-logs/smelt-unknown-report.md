@@ -31,7 +31,7 @@ classifying each into one of three categories:
 Heuristics are conservative: an ambiguous line is counted as *avoidable*, so the
 metric never hides erasure — the worst case is over-reporting, which is safe for
 a gate that must not silently regress. The classification rules live and are
-documented in `crates/smelt-cli/src/unknown_report.rs` (`classify_line`).
+documented in `crates/smelt-transpiler/src/unknown_report/classify.rs` (`classify_line`).
 
 ## Methodology
 
