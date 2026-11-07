@@ -71,3 +71,9 @@ fn lambda_arithmetic() -> TestResult {
 fn str_code_point_indices() -> TestResult {
     verify_python_parity("str_code_point_indices")
 }
+
+/// A class with `__iter__`/`__next__` drives `for` until `StopIteration`.
+#[test]
+fn iterator_protocol() -> TestResult {
+    verify_python_parity("iterator_protocol")
+}
