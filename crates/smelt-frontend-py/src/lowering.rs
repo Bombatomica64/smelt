@@ -135,6 +135,12 @@ pub(crate) struct ModuleBuilder<'ctx> {
     /// Module-scope and class-body bindings, used to resolve what a
     /// decorator, base class or metaclass expression denotes.
     bindings: ModuleBindings,
+    /// User exception classes of this module, each with its chain: its own
+    /// name, then each base up to `BaseException`.
+    exception_classes: HashMap<String, Vec<String>>,
+    /// The caught-exception local of each enclosing `except` clause, innermost
+    /// last, which a bare `raise` re-raises.
+    handled_exceptions: Vec<smelt_hir::LocalId>,
 }
 
 /// What kind of body the lowering cursor is in.
@@ -338,6 +344,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             specialization,
             resolved_types: analysis.resolved_types,
             bindings: analysis.bindings,
+            exception_classes: HashMap::new(),
+            handled_exceptions: Vec::new(),
         }
     }
 
@@ -391,6 +399,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             return Err(vec![SmeltError::specialization_required(span, name)]);
         }
         self.replay_specialization_output(&mut body);
+        self.collect_exception_classes(module);
 
         // Pass 1 — collect top-level function/class declarations so later
         // statements can reference them in calls. Each statement pass 1 takes
@@ -453,6 +462,12 @@ impl ModuleBuilder<'_> {
                 }
                 true
             }
+            Stmt::ClassDef(class) if self.exception_classes.contains_key(class.name.as_str()) => {
+                if let Err(err) = self.exception_class_def(class) {
+                    errors.push(err);
+                }
+                true
+            }
             Stmt::ClassDef(class) => {
                 if !self.is_materialized_metaclass_definition(class, module)
                     && let Err(err) = self.class_def(class, module, hir_module)
@@ -511,6 +526,8 @@ include!("lowering/types.rs");
 include!("lowering/statement.rs");
 // Control-flow statement lowering helpers.
 include!("lowering/control_flow.rs");
+// Exception classes, `raise` and `try`/`except`.
+include!("lowering/exceptions.rs");
 // Match statement and block lowering helpers.
 include!("lowering/match.rs");
 // Literal and base expression lowering helpers.

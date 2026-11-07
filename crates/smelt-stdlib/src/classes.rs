@@ -25,6 +25,18 @@ pub enum StdlibClass {
     MatchGroups,
     /// Remeda parser helper result class synthesized during TypeScript lowering.
     MatchFnResult,
+    /// A raised Python exception of any class, builtin or user-defined, backed
+    /// by the generated concrete `SmeltPyException` runtime type (the class's
+    /// name chain up to `BaseException` and the constructor arguments).
+    /// Python exception classes carry no fields of their own here, so one
+    /// type holds every one of them, and an `except` clause naming a base
+    /// binds an instance of any subclass.
+    PyException,
+    /// `e.args` of a Python exception, backed by the generated concrete
+    /// `SmeltPyExceptionArgs` runtime type. `BaseException.args` is
+    /// `tuple[Any, ...]`: its elements have no static type, so the value
+    /// offers only what every element has, its `str` and `repr`.
+    PyExceptionArgs,
     /// JavaScript `RegExp`, backed by the generated regex runtime shim.
     RegExp,
     /// JavaScript `Set`, represented by set HIR values.
@@ -330,7 +342,7 @@ impl StdlibClass {
     /// (the same `SmeltMatch` value under a second name).
     #[must_use]
     pub const fn has_concrete_runtime_type(self) -> bool {
-        self.erases_through_adapter() || matches!(self, Self::MatchGroups)
+        self.erases_through_adapter() || matches!(self, Self::MatchGroups | Self::PyException | Self::PyExceptionArgs)
     }
 
     /// Return whether values of this class are the generated `SmeltBlob` type.
@@ -380,6 +392,14 @@ pub const MATCH_CLASS_NAME: &str = "__SmeltMatch";
 
 /// Reserved synthetic class name for `matchResult.groups` named-group access.
 pub const MATCH_GROUPS_CLASS_NAME: &str = "__SmeltMatchGroups";
+
+/// Reserved synthetic class name of a Python exception value, the type the
+/// Python frontend gives every exception (see [`StdlibClass::PyException`]).
+pub const PY_EXCEPTION_CLASS_NAME: &str = "__SmeltPyException";
+
+/// Reserved synthetic class name of a Python exception's `args` (see
+/// [`StdlibClass::PyExceptionArgs`]).
+pub const PY_EXCEPTION_ARGS_CLASS_NAME: &str = "__SmeltPyExceptionArgs";
 
 /// `Array.prototype` methods that READ an array without mutating it.
 ///
@@ -440,6 +460,8 @@ pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
         "Map" => Some(StdlibClass::Map),
         MATCH_CLASS_NAME => Some(StdlibClass::Match),
         MATCH_GROUPS_CLASS_NAME => Some(StdlibClass::MatchGroups),
+        PY_EXCEPTION_CLASS_NAME => Some(StdlibClass::PyException),
+        PY_EXCEPTION_ARGS_CLASS_NAME => Some(StdlibClass::PyExceptionArgs),
         "MatchFnResult" => Some(StdlibClass::MatchFnResult),
         "RegExp" => Some(StdlibClass::RegExp),
         "Set" => Some(StdlibClass::Set),

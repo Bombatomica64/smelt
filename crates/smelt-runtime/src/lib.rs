@@ -131,6 +131,7 @@ mod runtime {
     include!("runtime/record.rs");
     include!("runtime/reflection.rs");
     include!("runtime/py_repr.rs");
+    include!("runtime/py_exception.rs");
     include!("runtime/regexp.rs");
     include!("runtime/regexp_match.rs");
     include!("runtime/sqlite.rs");

@@ -108,3 +108,11 @@ fn user_open_shadows_builtin() -> TestResult {
 fn dict_insertion_order() -> TestResult {
     verify_python_parity("dict_insertion_order")
 }
+
+/// User and builtin exception classes: `raise`, `except` by class, tuple and
+/// base class, bare `except` and `raise`, `else`, `finally`, `e.args`, and an
+/// iterator whose `__next__` raises something other than `StopIteration`.
+#[test]
+fn exception_classes() -> TestResult {
+    verify_python_parity("exception_classes")
+}

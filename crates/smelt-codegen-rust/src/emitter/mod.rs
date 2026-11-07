@@ -189,6 +189,7 @@ mod strings_io;
 mod throw;
 mod throwing_join;
 mod truthiness;
+mod py_exception;
 mod tuple;
 mod type_facts;
 pub(crate) use type_facts::dict_renders_as_index_map;

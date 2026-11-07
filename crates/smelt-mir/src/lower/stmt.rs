@@ -741,8 +741,10 @@ struct FinallyPlan {
     after: BlockId,
     /// The exceptional exit's handler block.
     handler_block: BlockId,
-    /// The erased local holding the thrown value while the clause runs.
+    /// The local holding the thrown value while the clause runs.
     thrown: LocalId,
+    /// Its type: the erased `thrown_ty`, or a Python body's exception type.
+    thrown_ty: smelt_hir::TypeId,
     /// Whether the clause was entered by a throw (and must rethrow).
     pending: LocalId,
     /// The `try` body's span, for the synthesized rethrow block.
@@ -772,8 +774,12 @@ impl FinallyPlan {
                 Some(span),
             ));
         };
+        let thrown_ty = match (ctx.source_language(span), ctx.py_thrown_ty) {
+            (smelt_hir::Language::Python, Some(py_thrown_ty)) => py_thrown_ty,
+            _ => unknown_ty,
+        };
         let thrown = ctx.function.push_local(LocalDecl {
-            ty: unknown_ty,
+            ty: thrown_ty,
             kind: LocalKind::UserBinding(name),
             span,
         });
@@ -785,6 +791,7 @@ impl FinallyPlan {
             after,
             handler_block,
             thrown,
+            thrown_ty,
             pending,
             span,
         })
@@ -811,11 +818,15 @@ impl FinallyPlan {
 
     /// Clears the protocol locals at the `try` entry (cursor's block).
     fn arm(&self, ctx: &mut LoweringCtx<'_>) -> Result<(), LowerError> {
+        // A Python exception local has no `undefined`; it starts as an
+        // exception of no class and no arguments, which no path observes.
+        let cleared = if Some(self.thrown_ty) == ctx.py_thrown_ty {
+            Rvalue::PyExceptionNew { classes: Vec::new(), args: Vec::new() }
+        } else {
+            Rvalue::Use(Operand::Const(Constant::Undefined))
+        };
         let statements = &mut ctx.block_mut()?.statements;
-        statements.push(Statement::Assign {
-            dest: self.thrown,
-            value: Rvalue::Use(Operand::Const(Constant::Undefined)),
-        });
+        statements.push(Statement::Assign { dest: self.thrown, value: cleared });
         statements.push(Statement::Assign {
             dest: self.pending,
             value: Rvalue::Use(Operand::Const(Constant::Bool(false))),

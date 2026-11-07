@@ -135,6 +135,8 @@ pub(crate) enum Need {
     PythonDivision,
     /// Python's raising `d[k]` read.
     PythonDictRead,
+    /// A raised Python exception, `SmeltPyException`.
+    PyException,
     /// A class read as a value.
     ClassValue,
     /// `globalThis` as a value.
@@ -236,6 +238,9 @@ const REQUIRES: &[(Need, &[Need])] = &[
     ),
     (Need::SmeltList, &[Need::ObjectIds]),
     (Need::PyRepr, &[Need::PythonNumberFormat]),
+    (Need::PyException, &[Need::PyRepr]),
+    (Need::PythonDivision, &[Need::PyException]),
+    (Need::PythonDictRead, &[Need::PyException]),
     (Need::PrimSet, &[Need::ObjectIds]),
     (Need::DepRegex, &[Need::ObjectIds, Need::StringUnits]),
     (Need::Date, &[Need::ObjectIds, Need::HostOrigins]),
@@ -488,6 +493,7 @@ impl RuntimeDemand {
         }
         match class {
             StdlibClass::Headers => self.add(Need::Headers),
+            StdlibClass::PyException | StdlibClass::PyExceptionArgs => self.add(Need::PyException),
             StdlibClass::Response => self.add(Need::Response),
             StdlibClass::Request => self.add(Need::Request),
             StdlibClass::EventEmitter => self.add(Need::EventEmitter),

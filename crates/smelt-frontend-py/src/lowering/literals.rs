@@ -139,6 +139,9 @@ impl ModuleBuilder<'_> {
                 }
                 let receiver = self.expression(&attr.value, body)?;
                 let receiver_ty = Self::expr_ty(body, receiver);
+                if receiver_ty == self.py_exception_type() {
+                    return self.exception_attribute_expr(receiver, attr, body);
+                }
                 let field = self.intern_name(attr.attr.as_str());
                 let field_ty = self.field_type(receiver_ty, field)?;
                 Ok(body.push_expr(HirExpr {

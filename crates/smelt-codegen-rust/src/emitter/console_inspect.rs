@@ -371,7 +371,7 @@ impl FunctionEmitter<'_> {
                     && self.type_has_py_repr(*value)
             }
             Some(Type::Set(item)) => self.set_container_name(*item) == "SmeltPrimSet" && self.type_has_py_repr(*item),
-            _ => false,
+            _ => self.is_py_exception_type(ty) || self.is_py_exception_args_type(ty),
         }
     }
 
@@ -399,6 +399,9 @@ impl FunctionEmitter<'_> {
                     self.operand_expr(operand)?
                 ),
             ))
+        } else if self.is_py_exception_type(ty) || self.is_py_exception_args_type(ty) {
+            // `print(e)` writes `str(e)`, the exception's `Display`.
+            Ok(("{}", self.operand_expr(operand)?.into_string()))
         } else if absent == AbsentSpelling::None
             && matches!(
                 self.mir.types.get(ty),

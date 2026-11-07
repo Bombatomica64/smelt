@@ -22,6 +22,9 @@ impl ModuleBuilder<'_> {
             ));
         }
 
+        if let Some(expr) = self.exception_call_expression(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.stdlib_module_call_expression(call, body)? {
             return Ok(expr);
         }

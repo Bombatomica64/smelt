@@ -81,6 +81,9 @@ impl FunctionEmitter<'_> {
                 Ok(RustExpr::atom(format!("{}::M0({arm})", union::union_name(ty))).delegating_with([&arm]))
             }
             Type::TypeParam { .. } | Type::Union(_) => Ok(self.null_value()),
+            Type::Class { .. } if self.is_py_exception_type(ty) => {
+                Ok(RustExpr::atom("SmeltPyException::default()"))
+            }
             Type::Class { name, .. } if self.is_regexp_class_symbol(*name)? => {
                 Ok(RustExpr::atom("SmeltRegExp::new(String::new(), String::new())"))
             }

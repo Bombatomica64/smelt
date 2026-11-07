@@ -2363,6 +2363,37 @@ macro_rules! op_group_transcribed {
                 call("@python_dict_read".to_owned())
                 needs(PythonDictRead)
                 => (format!("python_dict_read {dict}, {key}"));
+            /// A Python exception instance: an instance of the class whose own
+            /// name and bases up to `BaseException` are `classes`, built from
+            /// the constructor arguments `BaseException.__init__` keeps.
+            PyExceptionNew {
+                /// The class's own name first, then each base.
+                classes: [Vec<$crate::Symbol>],
+                /// The constructor arguments.
+                args: many,
+            }
+                needs(PyException)
+                => (format!("py_exception_new {classes:?} [{}]", args.join(", ")));
+            /// `e.args`: the constructor arguments of an exception, as the
+            /// runtime's `SmeltPyExceptionArgs`.
+            PyExceptionArgs {
+                /// The exception.
+                exception: one,
+            }
+                needs(PyException)
+                => (format!("py_exception_args {exception}"));
+            /// Whether an `except` clause naming `classes` catches `exception`.
+            PyExceptionCaughtBy {
+                /// The caught exception.
+                exception: one,
+                /// The classes the clause names.
+                classes: [Vec<$crate::Symbol>],
+                /// Whether the clause catches an error the runtime raised
+                /// without a class: true when it names only builtin classes.
+                catches_unclassified: [bool],
+            }
+                needs(PyException)
+                => (format!("py_exception_caught_by {exception}, {classes:?}, {catches_unclassified}"));
             /// `btoa` / `atob`: the base64 transcoders of the web platform.
             ///
             /// Fallible in both directions: `btoa` refuses a code point above U+00FF

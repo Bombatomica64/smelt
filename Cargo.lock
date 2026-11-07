@@ -3055,6 +3055,7 @@ dependencies = [
  "serde",
  "smelt-frontend-ts",
  "smelt-hir",
+ "smelt-stdlib",
 ]
 
 [[package]]

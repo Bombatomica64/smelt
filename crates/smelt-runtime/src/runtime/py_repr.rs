@@ -12,6 +12,9 @@
 trait SmeltPyRepr {
     /// The text `repr(self)` answers.
     fn py_repr(&self) -> String;
+    /// The text `str(self)` answers, which is the `repr` for every value but a
+    /// string and an exception.
+    fn py_str(&self) -> String { self.py_repr() }
 }
 
 impl SmeltPyRepr for i64 { fn py_repr(&self) -> String { self.to_string() } }
@@ -22,6 +25,7 @@ impl<T: SmeltPyRepr> SmeltPyRepr for Option<T> { fn py_repr(&self) -> String { s
 impl<T: SmeltPyRepr + ?Sized> SmeltPyRepr for ::std::rc::Rc<T> { fn py_repr(&self) -> String { (**self).py_repr() } }
 
 impl SmeltPyRepr for String {
+    fn py_str(&self) -> String { self.clone() }
     fn py_repr(&self) -> String {
         //~ Single quotes, unless the text holds a `'` and no `"`.
         let quote = if self.contains('\'') && !self.contains('"') { '"' } else { '\'' };

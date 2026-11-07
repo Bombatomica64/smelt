@@ -172,7 +172,7 @@ import pytest
 
 def test_raises():
     with pytest.raises(Exception):
-        raise "boom"
+        raise ValueError("boom")
 "#);
     let mut ctx = HirCtx::new();
     let module_id = lower_path_module(source, "tests/test_raises.py", &mut ctx)?;
@@ -208,7 +208,7 @@ fn pytest_raises_match_excinfo_and_callable_form_lower() -> TestResult {
 import pytest
 
 def boom() -> None:
-    raise "boom"
+    raise ValueError("boom")
 
 def test_raises_forms():
     with pytest.raises(Exception, match="boom") as excinfo:
