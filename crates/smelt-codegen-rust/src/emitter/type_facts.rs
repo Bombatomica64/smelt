@@ -427,10 +427,9 @@ impl FunctionEmitter<'_> {
     /// runtime shim; the identity lookup lives in the shared `smelt-stdlib`
     /// registry instead of inline name comparisons.
     pub(super) fn is_regexp_class_symbol(&self, name: Symbol) -> Result<bool, EmitError> {
-        Ok(
-            smelt_stdlib::typescript_stdlib_class(self.symbol_name(name)?)
-                == Some(smelt_stdlib::StdlibClass::RegExp),
-        )
+        // A class the program declares under the name is its own class.
+        Ok(crate::stdlib::stdlib_class_of_class_symbol(self.mir, name)
+            == Some(smelt_stdlib::StdlibClass::RegExp))
     }
 
     /// Returns the synthetic match-result class identity named by a symbol, if any.

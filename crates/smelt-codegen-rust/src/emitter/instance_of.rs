@@ -62,6 +62,12 @@ impl FunctionEmitter<'_> {
         if let Some(check) = self.host_override_instance_of_expr(value, value_ty, class_name)? {
             return Ok(check);
         }
+        // A class the program declares is its own class, whatever host class
+        // its name spells: answered by the class hierarchy, or by the erased
+        // instance's class marker.
+        if self.mir.has_class(class) {
+            return self.declared_class_instance_of_expr(value, value_ty, class);
+        }
         // One list of builtin error classes, shared with the erasure that stamps
         // `__smelt_error` for a user class whose base chain reaches one
         // (`host_base_markers`), so the probe and the marker cannot disagree.
@@ -296,6 +302,22 @@ impl FunctionEmitter<'_> {
                  check cannot be answered at runtime. A modeled class needs a host-object \
                  registry marker and an `IntoSmeltUnknown` that stamps it."
             ))));
+        }
+        if let Some(check) = self.erased_user_class_instance_of_expr(value, value_ty, class)? {
+            return Ok(check);
+        }
+        Ok(RustExpr::path("false"))
+    }
+
+    /// `value instanceof C` for a class `C` the program declares.
+    fn declared_class_instance_of_expr(
+        &self,
+        value: &Operand,
+        value_ty: TypeId,
+        class: Symbol,
+    ) -> Result<RustExpr, EmitError> {
+        if let Some(Type::Class { name, .. }) = self.mir.types.get(value_ty) {
+            return Ok(RustExpr::from(self.class_extends_or_equals(*name, class).to_string()));
         }
         if let Some(check) = self.erased_user_class_instance_of_expr(value, value_ty, class)? {
             return Ok(check);

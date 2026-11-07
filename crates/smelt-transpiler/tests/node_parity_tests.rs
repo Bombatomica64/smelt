@@ -298,3 +298,10 @@ fn regexp_absent_values() -> TestResult {
 fn env_names_case_sensitive() -> TestResult {
     verify_node_parity("env_names_case_sensitive")
 }
+
+/// A class the program declares under a host constructor's name is that class,
+/// for `new` and for `instanceof`.
+#[test]
+fn declared_class_shadows_host() -> TestResult {
+    verify_node_parity("declared_class_shadows_host")
+}
