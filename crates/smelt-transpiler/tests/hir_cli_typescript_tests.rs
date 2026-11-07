@@ -1912,7 +1912,7 @@ fn build_types_cycle_early_reads_of_a_pending_class() -> TestResult {
     smelt(&["--manifest-path", &manifest, "build"])?;
     let generated = fs::read_to_string(project.path().join("dist/src/main.rs"))?;
     for typed in [
-        "let label: String = c.__smelt_get_label()",
+        "let label: JsString = c.__smelt_get_label()",
         "let done: bool = c.finalized",
         "let res: Option<SmeltResponse> = c.__smelt_get___smelt_symbol_unique__at_",
     ] {
@@ -2719,7 +2719,7 @@ console.log(words.check("  hi "), words.check("   "), words.validate("x"));
     for expected in [
         "validate: ::std::rc::Rc<dyn Fn(&Value) -> bool>,",
         "validate: ::std::rc::Rc<dyn Fn(f64) -> bool>,",
-        "validate: ::std::rc::Rc<dyn Fn(String) -> bool>,",
+        "validate: ::std::rc::Rc<dyn Fn(JsString) -> bool>,",
     ] {
         ensure(
             slots.contains(&expected),

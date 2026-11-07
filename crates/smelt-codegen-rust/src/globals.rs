@@ -37,7 +37,7 @@ pub(crate) fn emit_mutable_globals(mir: &Mir, context: &EmitContext) -> Result<S
         let init = match &global.init {
             MirGlobalInit::Constant(constant) => emitter::literals::constant_expr(
                 constant,
-                !matches!(mir.types.get(global.ty), Some(smelt_hir::Type::PyStr)),
+                !matches!(mir.types.get(global.ty), Some(Type::PyStr)),
             ),
             MirGlobalInit::Call(func_id) => {
                 let function = mir

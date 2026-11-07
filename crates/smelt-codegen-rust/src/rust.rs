@@ -446,7 +446,7 @@ pub fn erased_string(value: &RustExpr) -> RustExpr {
         return RustExpr::atom(format!("SmeltUnknown::String({literal}.into())"));
     }
     if value.fact == ExprFact::JsLiteral {
-        let literal = if value.text == JS_STRING_EMPTY { "\"\"" } else { &value.text[JS_STRING_FROM.len()..value.text.len() - 1] };
+        let literal = value.text.strip_prefix(JS_STRING_FROM).and_then(|rest| rest.strip_suffix(')')).unwrap_or("\"\"");
         return RustExpr::atom(format!("SmeltUnknown::String({literal}.into())"));
     }
     if value.precedence == Precedence::Path {
