@@ -164,7 +164,7 @@ impl ModuleBuilder<'_> {
         }
         if self.erased_or_union_surface(callee_ty) {
             let unknown_ty = self.erase_unless_unknown(callee_ty, ErasureReason::ByName);
-            if self.call_has_spread_arguments_or_source_spread(call) {
+            if Self::call_has_spread_arguments(call) {
                 let args = self.packed_spread_call_arguments(unknown_ty, call, body)?;
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::ClosureCallSpread { callee, args },
@@ -313,7 +313,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<Vec<smelt_hir::ExprId>, SmeltError> {
         let rest = self.list_rest_param(function);
-        if rest.is_some() && self.call_has_spread_arguments_or_source_spread(call) {
+        if rest.is_some() && Self::call_has_spread_arguments(call) {
             return self.spread_closure_call_arguments(function, rest, call, body);
         }
         let limit = if rest.is_some() { usize::MAX } else { function.params.len() };
@@ -416,7 +416,7 @@ impl ModuleBuilder<'_> {
         let Some(Type::Function(function)) = self.ctx.krate.types.get(callable_ty).cloned()
         else {
             if self.erased_or_union_surface(callee_ty) {
-                if self.call_has_spread_arguments_or_source_spread(call) {
+                if Self::call_has_spread_arguments(call) {
                     let unknown_ty = self.erase_unless_unknown(callee_ty, ErasureReason::ByName);
                     let args = self.packed_spread_call_arguments(unknown_ty, call, body)?;
                     let callee = if self.ctx.krate.types.get(callee_ty)
@@ -482,7 +482,7 @@ impl ModuleBuilder<'_> {
                 "calls through function types with never parameters are not lowered",
             ));
         }
-        if self.call_has_spread_arguments_or_source_spread(call) {
+        if Self::call_has_spread_arguments(call) {
             let item_ty = function
                 .rest
                 .and_then(|index| function.params.get(index).copied())

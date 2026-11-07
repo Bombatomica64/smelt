@@ -1201,7 +1201,7 @@ impl ModuleBuilder<'_> {
                 span,
             })));
         }
-        if self.call_has_spread_arguments_or_source_spread(call) {
+        if Self::call_has_spread_arguments(call) {
             return Ok(None);
         }
         let float_ty = self.ctx.krate.types.intern(Type::Float);

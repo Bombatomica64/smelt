@@ -343,3 +343,9 @@ fn coalesce_asserted_fallback_is_lazy() -> TestResult {
 fn conditional_primitive_arms() -> TestResult {
     verify_node_parity("conditional_primitive_arms")
 }
+
+/// An argument is spread only when the call writes `...arg`.
+#[test]
+fn spread_is_syntax() -> TestResult {
+    verify_node_parity("spread_is_syntax")
+}

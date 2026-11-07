@@ -94,7 +94,7 @@ impl ModuleBuilder<'_> {
                 // `ClosureCallSpread`. Emitting a dynamic `ClosureCall` here
                 // would lose the spread, leaving the call-site flatten
                 // heuristic to misread the individual operands.
-                if self.call_has_spread_arguments_or_source_spread(call) {
+                if Self::call_has_spread_arguments(call) {
                     let args = self.packed_spread_call_arguments(ty, call, body)?;
                     return Ok(Some(body.push_expr(Expr {
                         kind: ExprKind::ClosureCallSpread { callee, args },
@@ -146,7 +146,7 @@ impl ModuleBuilder<'_> {
         // lowering below is only correct for a concrete function whose Rust rest
         // parameter absorbs the trailing list, not for a dynamic dispatch that
         // would otherwise wrap the rest list in a single extra `Array` argument.
-        if self.call_has_spread_arguments_or_source_spread(call) && callee_dispatches_dynamically {
+        if Self::call_has_spread_arguments(call) && callee_dispatches_dynamically {
             // not a new erasure: names the tagged item type of the runtime
             // call ABI's packed argument list; the call keeps its typed result
             let unknown_ty = self.unknown_type();
@@ -173,7 +173,7 @@ impl ModuleBuilder<'_> {
                 _ => None,
             }
         });
-        if self.call_has_spread_arguments_or_source_spread(call)
+        if Self::call_has_spread_arguments(call)
             && let Some(item_ty) = variadic_item_ty
         {
             let packed = self.packed_spread_call_arguments(item_ty, call, body)?;
@@ -188,7 +188,7 @@ impl ModuleBuilder<'_> {
         }
         let rest = self.list_rest_param(&function);
         let fixed_param_count = rest.map_or(function.params.len(), |rest| rest.index);
-        if rest.is_some() && self.call_has_spread_arguments_or_source_spread(call) {
+        if rest.is_some() && Self::call_has_spread_arguments(call) {
             let args = self.spread_closure_call_arguments(&function, rest, call, body)?;
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::ClosureCall { callee, args },
