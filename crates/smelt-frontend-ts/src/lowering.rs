@@ -4,6 +4,7 @@ mod ambient_globals;
 mod bigint;
 mod body_arena;
 mod checker_types;
+mod super_method;
 mod null_absent;
 mod open_array_hint;
 mod tuple_rest;

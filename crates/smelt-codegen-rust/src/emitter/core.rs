@@ -93,6 +93,7 @@ impl<'mir> FunctionEmitter<'mir> {
             role: emit_role::EmitRole::Own {
                 generics: emit_role::OwnGenerics::Declared,
             },
+            method_name: None,
             hoisted_module_item: std::cell::Cell::new(false),
             inherited_bound_suspended: std::cell::Cell::new(false),
             flow: flow_state::ControlFlowState::default(),

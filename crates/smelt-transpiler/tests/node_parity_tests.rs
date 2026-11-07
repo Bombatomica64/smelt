@@ -148,6 +148,12 @@ fn generic_union_field() -> TestResult {
     verify_node_parity("generic_union_field")
 }
 
+/// `super.method()` runs the base implementation, through every level.
+#[test]
+fn super_method_call() -> TestResult {
+    verify_node_parity("super_method_call")
+}
+
 /// A parameter does not hide a module constant from other functions.
 #[test]
 fn parameter_shadows_module_const() -> TestResult {

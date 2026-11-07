@@ -233,6 +233,9 @@ impl<'builder> ModuleBuilder<'builder> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if let Some(call) = self.super_method_call(call, body)? {
+            return Ok(call);
+        }
         let receiver_key = match &call.callee {
             Expression::StaticMemberExpression(member)
                 if smelt_stdlib::is_array_non_mutating_method(member.property.name.as_str()) =>

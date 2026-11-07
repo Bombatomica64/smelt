@@ -1621,6 +1621,9 @@ pub(crate) struct FunctionEmitter<'mir> {
     /// [`emit_role`]. Fixed by the constructor, except an own item's
     /// [`emit_role::OwnGenerics`] decision.
     role: emit_role::EmitRole,
+    /// The name a method is emitted under instead of its own: the copy a
+    /// `super` call reaches (`classes::super_copy_name`).
+    method_name: Option<String>,
     /// Set while rendering text that is HOISTED to module level.
     ///
     /// `function_item_erased_accessor` builds the body of a module-level
