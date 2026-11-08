@@ -191,7 +191,27 @@ macro_rules! define_rvalue_is_fallible {
                             smelt_hir::op_fallible!($($fact $fact_value)*)
                         }
                     )*
-                    _ => false,
+                    // The hand-written variants outside the op table: none of
+                    // them throws. Listed, not `_`, so a new variant must
+                    // state its fallibility here.
+                    Self::Use(..)
+                    | Self::DictEntryPush { .. }
+                    | Self::GeneratorYield { .. }
+                    | Self::List(..)
+                    | Self::Set(..)
+                    | Self::Dict(..)
+                    | Self::Tuple(..)
+                    | Self::Binary { .. }
+                    | Self::Unary { .. }
+                    | Self::UnionMethod { .. }
+                    | Self::BoundMethod { .. }
+                    | Self::BoundField { .. }
+                    | Self::Struct { .. }
+                    | Self::ExternalClassInstance { .. }
+                    | Self::Closure { .. }
+                    | Self::GlobalGet { .. }
+                    | Self::GlobalSet { .. }
+                    | Self::Await(..) => false,
                 }
             }
         }
@@ -226,7 +246,26 @@ macro_rules! define_rvalue_mutated_receiver {
                         }
                     )*
                     Self::DictEntryPush { entry, .. } => Some(entry),
-                    _ => None,
+                    // The other hand-written variants build or read values and
+                    // mutate no collection operand. Listed, not `_`, so a new
+                    // variant must state what it mutates here.
+                    Self::Use(..)
+                    | Self::GeneratorYield { .. }
+                    | Self::List(..)
+                    | Self::Set(..)
+                    | Self::Dict(..)
+                    | Self::Tuple(..)
+                    | Self::Binary { .. }
+                    | Self::Unary { .. }
+                    | Self::UnionMethod { .. }
+                    | Self::BoundMethod { .. }
+                    | Self::BoundField { .. }
+                    | Self::Struct { .. }
+                    | Self::ExternalClassInstance { .. }
+                    | Self::Closure { .. }
+                    | Self::GlobalGet { .. }
+                    | Self::GlobalSet { .. }
+                    | Self::Await(..) => None,
                 }
             }
         }
