@@ -172,3 +172,44 @@ The generated crate does not compile (`cargo test`: 18,799 errors).
 - `E[k]` reverse mapping with an out-of-range numeric key yields `""` (the
   record read default) where JavaScript yields `undefined`, which TypeScript
   types `string`.
+
+## Round 2: merge of origin/main (#326, #328) and ts-pattern codegen names
+
+The merge had no textual conflicts. New general rules since then, each with a
+Node parity fixture that fails before the change:
+
+| rule | fixture |
+| --- | --- |
+| `sanitize_identifier` reserves every Rust prelude item the generated crate spells unqualified and every non-`smelt` runtime root item (`Fn FnMut FnOnce Clone Copy Default Drop Eq Ord PartialEq PartialOrd AsRef From Into FromIterator IntoIterator Iterator IntoFuture Send Sized ToOwned ToString drop DateLike IntoSmeltUnknown`, besides the existing list). `tests/reserved_name_tests.rs` derives the required set from the fully enabled runtime and every committed example crate | `prelude_named_items` (102 E0404 before) |
+| a block- or suite-local `type`/`interface` reusing a name the crate declares gets its own scoped symbol (as block-local classes do); a block-local class is scoped when an earlier type took the name | `block_local_type_alias_redeclaration` (union-after-interface block) |
+| free functions are de-duplicated by rendered name (a module body function vs the module's own export); a static method sharing an instance method's name renders `<name>_<id>`; a lone `_` renames like a keyword | `rendered_name_collisions` |
+
+ts-pattern generated test crate: 18,799 -> 384 compile errors. Every class the
+first round listed is gone (E0404 `Fn`, `indexmap`, `_`, derive, E0428, E0592,
+E0609). What remains is type errors:
+
+- ~200 `expected T, found SmeltUnknown` and 52 closure-parameter mismatches
+  (`Fn(&JsString)` vs `Fn(&SmeltUnknown)`): record adapters between
+  instantiations of the generic `Match<..>` interface do not adapt
+  function-valued fields across type arguments (the coercion seam's
+  `record_adapter`), and erased values flow into typed record/list/union slots
+  without extraction. Largest files: exhaustive_match_test (61),
+  variadic_tuples_test (48), types_test (30).
+- Calling a symbol-keyed static method through the class value
+  (`Counter[key]()`) panics at run time on main as well (ts-pattern's matcher
+  protocol does exactly this).
+
+### Oracle classes (origin/main bf19f38ee binary vs branch 7f2edc4cc binary)
+
+- ts-pattern: main's binary did not finish within 1500 s (killed); the branch
+  builds it (73 rows).
+- 9 TypeScript `dump-hir` arena listings (accepted; goldens updated).
+- es-toolkit, remeda, hono: reserved-name renames (`drop` -> `drop_` including
+  `drop.rs` -> `drop_.rs`, `ToString` -> `ToString_`), a source local `_` ->
+  `__`, scoped block-local types (new `PersonSmeltSuiteF..`, `CSVSmeltSuiteF..`
+  structs where one collapsed struct existed) and the resulting renumbering of
+  interned `SmeltUnion`/`SmeltCallableObject` names. Test results unchanged.
+- radash: `_.keys({})` in its tests now calls radash's own `keys` export
+  instead of the `Object.keys` builtin (crate namespace members are calls to
+  their exports); its erased typedness count rises by 2 (the export's
+  `TValue extends object` parameter). Tests unchanged (383/4).
