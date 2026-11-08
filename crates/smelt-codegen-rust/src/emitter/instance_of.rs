@@ -389,7 +389,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn call_virtual_function_field_expr(
         &self,
         receiver: &Operand,
-        method_name: &str,
+        method: Symbol,
         args: &[Operand],
     ) -> Result<Option<RustExpr>, EmitError> {
         let receiver_ty = self.operand_ty(receiver)?;
@@ -398,8 +398,7 @@ impl FunctionEmitter<'_> {
             .into_iter()
             .flatten()
             .find(|field| {
-                self.symbol_name(field.name)
-                    .is_ok_and(|name| sanitize_ident(name) == method_name)
+                field.name == method
             })
         else {
             return Ok(None);
@@ -408,6 +407,9 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
 
+        // The function-valued FIELD of the method's symbol, spelled as that
+        // struct declares it (a field, not the method's planned name).
+        let method_name = self.context.names().field(self.mir, field.name);
         let receiver_text = self.operand_expr(receiver)?;
         let rendered_args = args
             .iter()

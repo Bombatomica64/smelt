@@ -14,7 +14,6 @@
       "clippy::shadow_unrelated": 12,
       "clippy::unwrap_used": 11,
       "clippy::wildcard_enum_match_arm": 1,
-      "unreachable_pub": 1,
       "unused_qualifications": 8
     },
     "smelt-frontend-py": {
@@ -57,9 +56,8 @@
       "clippy::shadow_unrelated": 6,
       "clippy::unreachable": 2,
       "clippy::use_debug": 2,
-      "clippy::wildcard_enum_match_arm": 26,
-      "trivial_casts": 1,
-      "unfulfilled_lint_expectations": 2
+      "clippy::wildcard_enum_match_arm": 16,
+      "trivial_casts": 1
     },
     "smelt-runtime": {
       "clippy::assigning_clones": 3,

@@ -506,7 +506,7 @@ impl ModuleBuilder<'_> {
         };
 
         // Declare the mutable accumulator and seed it with an empty collection.
-        let acc_name = self.intern_name("__smelt_comp_acc");
+        let acc_name = self.intern_synthesized_name("__smelt_comp_acc");
         let acc_local = body.push_local(LocalDecl {
             name: Some(acc_name),
             ty: acc_ty,

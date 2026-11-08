@@ -13,7 +13,7 @@ use smelt_mir::{
     Terminator,
 };
 
-use crate::{EmitError, emitter::EmitContext, generic_bindings, rust::RustIdent};
+use crate::{EmitError, emitter::EmitContext, generic_bindings};
 
 /// The trait bounds every generated type parameter carries.
 ///
@@ -31,18 +31,10 @@ use crate::{EmitError, emitter::EmitContext, generic_bindings, rust::RustIdent};
 pub(crate) const GENERATED_TYPE_PARAM_BOUNDS: &str =
     "Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static";
 
-/// Return the sanitized Rust storage type name for a MIR class.
-///
-/// Class names can originate from TypeScript or Python identifiers, so this
-/// function is the single place class storage emission applies Rust identifier
-/// sanitization before combining names with generic arguments.
-pub(crate) fn class_name_text(mir: &Mir, class: &MirClass) -> Result<String, EmitError> {
-    Ok(RustIdent::new(
-        mir.symbols
-            .get(class.name)
-            .ok_or_else(|| EmitError::new("class has unknown symbol"))?,
-    )
-    .into_string())
+/// Return the Rust storage type name of a MIR class, from the crate's name
+/// plan (see [`crate::names`]).
+pub(crate) fn class_name_text(context: &EmitContext, class: &MirClass) -> Result<String, EmitError> {
+    Ok(context.names().type_name(class.name)?.as_str().to_owned())
 }
 
 /// Render the generic parameter declaration suffix for a class, such as `<T>`.
@@ -76,7 +68,7 @@ fn type_param_idents(
         .map(|param| {
             mir.symbols
                 .get(param.name)
-                .map(|name| (param.name, RustIdent::new(name).into_string()))
+                .map(|name| (param.name, crate::names::type_param(name).into_string()))
                 .ok_or_else(|| {
                     EmitError::new(format!("{owner_kind} type parameter has unknown symbol"))
                 })
@@ -341,7 +333,35 @@ pub(crate) fn effective_class_fields(mir: &Mir, class: &MirClass) -> Vec<MirFiel
             }
         }
     }
+    // TypeScript declaration merging: `interface Shape { kind: string }` beside
+    // `class Shape { .. }` adds `kind` to every Shape instance. Both are one
+    // symbol and one generated struct (see `names::type_claim_order`, where the
+    // class owns it), so the interface's members the class does not declare
+    // are fields of that struct, defaulted by the constructor like any field
+    // the constructor leaves unassigned. A member the class implements as a
+    // method stays a method.
+    if let Some(merged) = mir.interface_named(class.name) {
+        let methods = class_method_names(mir, class);
+        for field in &merged.fields {
+            if !slots.contains_key(&field.name) && !methods.contains(&field.name) {
+                slots.insert(field.name, fields.len());
+                fields.push(field.clone());
+            }
+        }
+    }
     fields
+}
+
+/// The method names `class` answers, its own and inherited.
+fn class_method_names(mir: &Mir, class: &MirClass) -> HashSet<Symbol> {
+    effective_class_methods(mir, class)
+        .into_iter()
+        .filter_map(|method| mir.functions.get(usize::try_from(method.0).ok()?))
+        .filter_map(|function| match function.origin {
+            smelt_mir::HirOrigin::ClassMethod { method, .. } => Some(method),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Map each class in an inheritance `chain` (`chain[0]` the receiving class,
@@ -678,20 +698,18 @@ pub(crate) fn materialized_static_value(literal: Option<&smelt_hir::Literal>, js
 /// declarations describe the effective surface while keeping generated storage
 /// valid.
 pub(crate) fn effective_interface_fields(mir: &Mir, interface: &MirInterface) -> Vec<MirField> {
-    // Keyed by the sanitized Rust name in a map: the linear `find` (which
-    // re-sanitized every candidate) made a long `extends` chain cubic.
+    // Keyed by the field's symbol in a map (the linear `find` made a long
+    // `extends` chain cubic). Not by its rendering: two symbols that render
+    // alike are two fields, which the name plan renames apart
+    // (`names::RustNames::field`), where keying by rendering merged them.
+    let _ = mir;
     let mut fields: Vec<MirField> = Vec::new();
-    let mut slots: HashMap<String, usize> = HashMap::new();
+    let mut slots: HashMap<Symbol, usize> = HashMap::new();
     for field in &interface.fields {
-        let field_name = mir
-            .symbols
-            .get(field.name)
-            .map(RustIdent::new)
-            .map_or_else(|| "field".to_owned(), RustIdent::into_string);
-        if let Some(existing) = slots.get(&field_name).and_then(|slot| fields.get_mut(*slot)) {
+        if let Some(existing) = slots.get(&field.name).and_then(|slot| fields.get_mut(*slot)) {
             *existing = field.clone();
         } else {
-            slots.insert(field_name, fields.len());
+            slots.insert(field.name, fields.len());
             fields.push(field.clone());
         }
     }
@@ -700,14 +718,17 @@ pub(crate) fn effective_interface_fields(mir: &Mir, interface: &MirInterface) ->
 
 /// The name of the copy of the ancestor method `function` that a `super` call
 /// reaches on a subclass, whose own method of that name is the override.
-pub(crate) fn super_copy_name(mir: &Mir, function: &MirFunction) -> Option<String> {
+///
+/// Composed from the planned class and method names after the emitter's
+/// `smelt_super_` prefix, which no source member name can carry.
+pub(crate) fn super_copy_name(context: &EmitContext, function: &MirFunction) -> Option<String> {
     let smelt_mir::HirOrigin::ClassMethod { class, method, .. } = function.origin else {
         return None;
     };
     Some(format!(
         "smelt_super_{}_{}",
-        crate::rust::sanitize_ident(mir.symbols.get(class)?),
-        crate::rust::sanitize_ident(mir.symbols.get(method)?)
+        context.names().type_name(class).ok()?,
+        context.names().method(method)?
     ))
 }
 

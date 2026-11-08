@@ -33,7 +33,7 @@ use smelt_hir::{Type, TypeId};
 use smelt_mir::MirField;
 
 use super::render_scope::RenderScope;
-use super::{EmitError, FunctionEmitter, sanitize_ident};
+use super::{EmitError, FunctionEmitter};
 
 impl FunctionEmitter<'_> {
     /// Emit an interface record slot filled by a class instance's callable
@@ -77,7 +77,7 @@ impl FunctionEmitter<'_> {
         if !matches!(self.mir.types.get(source_field.ty), Some(Type::Function(_))) {
             return Ok(None);
         }
-        let field_name = sanitize_ident(self.symbol_name(source_field.name)?);
+        let field_name = self.context.names().field_text(self.mir, source_field.name);
         let field_read = if self.is_reference_class_type(source) {
             RustExpr::chain(format!("smelt_slot_receiver.0.borrow().{field_name}.clone()")).ending_in_clone()
         } else {

@@ -327,7 +327,7 @@ impl ModuleBuilder<'_> {
                 self.ctx
                     .krate
                     .symbols
-                    .intern(&format!("{prefix}{source_name}"))
+                    .intern_synthesized(&smelt_hir::SynthesizedName::new(format!("{prefix}{source_name}")))
             })
         };
         let (method_type_params, return_ty, lowered) = self.with_method_type_parameter_scope(

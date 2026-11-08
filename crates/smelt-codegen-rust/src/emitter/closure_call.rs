@@ -278,7 +278,14 @@ impl FunctionEmitter<'_> {
         if callee_text.is_unit() {
             return self.default_value(dest_ty);
         }
-        let emitted_params = self.emitted_function_param_types(&callee_text)?;
+        // A callee that renders as a crate function's name IS that function:
+        // no local can take a crate function's name (see
+        // `names::RustNames::body_scope`), so the text identifies it, and the
+        // emitted signature is then looked up by the function's identity.
+        let emitted_params = match self.context.names().function_named(callee_text.as_str()) {
+            Some(function) => self.emitted_function_param_types(&function_item::SignatureKey::Free(function))?,
+            None => None,
+        };
         let local_function = match callee {
             Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => {
                 match self.mir.types.get(self.local_decl(*local)?.ty) {

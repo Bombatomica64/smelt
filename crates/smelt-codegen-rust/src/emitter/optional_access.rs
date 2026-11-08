@@ -156,7 +156,7 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         let (receiver_text, inner_ty, is_optional) = self.optional_receiver_parts(receiver)?;
-        let method_name = sanitize_ident(self.symbol_name(method)?);
+        let method_name = self.method_rust_name(method)?;
         let args_text = args
             .iter()
             .map(|arg| self.operand_expr(arg))

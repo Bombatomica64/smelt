@@ -65,7 +65,6 @@
 
 use crate::rust::RustExpr;
 use super::*;
-use crate::rust::RustIdent;
 
 /// Name of the per-type value decoder for a composite `ty`.
 fn decoder_fn_name(ty: TypeId) -> String {
@@ -452,8 +451,7 @@ impl FunctionEmitter<'_> {
         ));
         let mut inits = Vec::new();
         for (index, field) in interface.fields.iter().enumerate() {
-            let rust_field = RustIdent::new(self.mir.symbols.get(field.name).unwrap_or("field"))
-                .into_string();
+            let rust_field = self.context.names().field(self.mir, field.name).into_string();
             let key = self
                 .mir
                 .names

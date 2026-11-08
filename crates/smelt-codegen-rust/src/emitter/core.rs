@@ -28,7 +28,7 @@ impl<'mir> FunctionEmitter<'mir> {
             })
             .transpose()?
             .unwrap_or(none_ty);
-        let bindings = Self::local_bindings(mir, function)?;
+        let bindings = Self::local_bindings(mir, context, function)?;
         let declared_locals = function.params.iter().copied().collect();
         let folded_throw_payloads = throw::folded_throw_payload_locals(mir, function);
         let predeclared_locals = predeclared_locals_for_function(mir, function)
@@ -186,17 +186,27 @@ impl<'mir> FunctionEmitter<'mir> {
     }
 
     /// Builds a stable Rust binding for every MIR local in a function.
+    ///
+    /// Every name is claimed from one body scope (see
+    /// [`crate::names::RustNames::body_scope`]): a source spelling is escaped
+    /// away from the emitter's `smelt_*` template temporaries and runtime
+    /// helpers, and no local takes the name of a crate function or type the
+    /// body could refer to, so a parameter `fooBar` cannot shadow the function
+    /// `foo_bar` it calls. The emitter's own names (`_smelt_tmp_N`, `arg_N`,
+    /// the receiver) are minted into the same scope, so they never clash
+    /// with a source local either.
     fn local_bindings(
         mir: &'mir Mir,
+        context: &'mir EmitContext,
         function: &'mir MirFunction,
     ) -> Result<HashMap<LocalId, LocalBinding>, EmitError> {
         let mut bindings = HashMap::new();
-        let mut used = HashSet::new();
+        let mut scope = context.names().body_scope();
         let mut next_arg = 0usize;
 
         for (idx, local) in function.locals.iter().enumerate() {
             let local_id = LocalId(compact_index(idx, "local index does not fit u32")?);
-            let base_name = match local.kind {
+            let name = match local.kind {
                 LocalKind::Param { symbol } => {
                     if matches!(function.origin, HirOrigin::ClassMethod { .. })
                         && function.params.first() == Some(&local_id)
@@ -212,39 +222,35 @@ impl<'mir> FunctionEmitter<'mir> {
                         } else {
                             LocalBinding::Receiver
                         };
-                        used.insert(binding.text().into_owned());
+                        scope.hold(&binding.text());
                         bindings.insert(local_id, binding);
                         continue;
                     } else if let Some(name) = symbol
-                        .and_then(|param_symbol| mir.symbols.get(param_symbol))
-                        .map(sanitize_ident)
-                        .filter(|name| !name.is_empty())
+                        .and_then(|param_symbol| crate::names::Spelling::of(mir, param_symbol))
+                        .filter(|name| !name.text().is_empty())
                     {
-                        name
+                        scope.claim(name)
                     } else if matches!(
                         function.origin,
                         HirOrigin::ClassConstructor { .. } | HirOrigin::ClassMethod { .. }
                     ) {
-                        format!("arg_{}", local_id.0)
+                        scope.claim_minted(&format!("arg_{}", local_id.0))
                     } else {
-                        let name = format!("arg_{next_arg}");
+                        let name = scope.claim_minted(&format!("arg_{next_arg}"));
                         next_arg = next_arg
                             .checked_add(1)
                             .ok_or_else(|| EmitError::new("argument index overflowed usize"))?;
                         name
                     }
                 }
-                LocalKind::Temp => format!("_smelt_tmp_{}", local_id.0),
+                LocalKind::Temp => scope.claim_minted(&format!("_smelt_tmp_{}", local_id.0)),
                 LocalKind::UserBinding(symbol) => {
-                    let name = mir
-                        .symbols
-                        .get(symbol)
+                    let name = crate::names::Spelling::of(mir, symbol)
                         .ok_or_else(|| EmitError::new("local has unknown symbol"))?;
-                    sanitize_ident(name)
+                    scope.claim(name)
                 }
             };
-            let name = unique_local_name(base_name, &mut used);
-            bindings.insert(local_id, LocalBinding::Plain(name));
+            bindings.insert(local_id, LocalBinding::Plain(name.as_str().to_owned()));
         }
 
         Ok(bindings)
@@ -461,21 +467,6 @@ impl<'mir> FunctionEmitter<'mir> {
     }
 }
 
-/// Returns a unique local name derived from `base_name`.
-fn unique_local_name(base_name: String, used: &mut HashSet<String>) -> String {
-    if used.insert(base_name.clone()) {
-        return base_name;
-    }
-
-    let mut suffix = 1usize;
-    loop {
-        let candidate = format!("{base_name}_{suffix}");
-        if used.insert(candidate.clone()) {
-            return candidate;
-        }
-        suffix = suffix.saturating_add(1);
-    }
-}
 
 /// Return all direct successor blocks of a terminator.
 pub(super) fn terminator_successors(terminator: &Terminator) -> Vec<smelt_mir::BlockId> {

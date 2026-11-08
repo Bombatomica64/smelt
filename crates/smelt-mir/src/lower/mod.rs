@@ -252,7 +252,7 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
             .then(|| {
                 (
                     mir.types.intern(Type::Unknown),
-                    mir.symbols.intern(PENDING_THROWN_LOCAL),
+                    mir.symbols.intern_synthesized(&smelt_hir::SynthesizedName::new(PENDING_THROWN_LOCAL)),
                 )
             }),
         py_thrown_ty: None,
@@ -264,7 +264,7 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
                 .iter()
                 .any(|module| module.source.language == smelt_hir::Language::Python))
         .then(|| {
-            let name = mir.symbols.intern(smelt_stdlib::PY_EXCEPTION_CLASS_NAME);
+            let name = mir.symbols.intern_synthesized(&smelt_hir::SynthesizedName::new(smelt_stdlib::PY_EXCEPTION_CLASS_NAME));
             mir.types.intern(Type::Class { name, args: vec![] })
         }),
         ..shared_helpers

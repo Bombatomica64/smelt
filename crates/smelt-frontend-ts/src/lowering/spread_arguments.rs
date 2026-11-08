@@ -138,7 +138,7 @@ impl ModuleBuilder<'_> {
             arguments.extend(after);
             return Ok(arguments);
         };
-        let spread_name = self.intern_source_name("__smelt_spread");
+        let spread_name = self.intern_synthesized_name("__smelt_spread");
         let operand_local = self.capture_bind_value(operand, operand_ty, spread_name, span, body);
         let index_ty = self.ctx.krate.types.intern(Type::Int);
         for offset in 0..covered {
@@ -273,7 +273,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
 
-        let spread_name = self.intern_source_name("__smelt_spread");
+        let spread_name = self.intern_synthesized_name("__smelt_spread");
         let operand_local = self.capture_bind_value(operand, operand_ty, spread_name, span, body);
         let receiver_ty = if optional {
             self.throw_when_spread_operand_is_absent(operand_local, operand_ty, span, body);

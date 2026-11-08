@@ -176,7 +176,7 @@ impl ModuleBuilder<'_> {
 
     /// The one HIR type of every Python exception value.
     fn py_exception_type(&mut self) -> TypeId {
-        let name = self.intern_name(smelt_stdlib::PY_EXCEPTION_CLASS_NAME);
+        let name = self.intern_synthesized_name(smelt_stdlib::PY_EXCEPTION_CLASS_NAME);
         self.intern_type(Type::Class { name, args: vec![] })
     }
 
@@ -579,7 +579,7 @@ impl ModuleBuilder<'_> {
                 format!("exception attribute `{}` is not supported; only `args` is", attr.attr),
             ));
         }
-        let name = self.intern_name(smelt_stdlib::PY_EXCEPTION_ARGS_CLASS_NAME);
+        let name = self.intern_synthesized_name(smelt_stdlib::PY_EXCEPTION_ARGS_CLASS_NAME);
         let ty = self.intern_type(Type::Class { name, args: vec![] });
         Ok(body.push_expr(HirExpr { kind: ExprKind::PyExceptionArgs { exception }, ty, span }))
     }

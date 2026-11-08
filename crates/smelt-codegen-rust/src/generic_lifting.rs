@@ -19,8 +19,8 @@ use smelt_mir::{
 };
 
 use crate::{
-    EmitError, bound_traits::BoundTraitPlan, classes::{GENERATED_TYPE_PARAM_BOUNDS, class_name_text, type_param_in_dict_key},
-    generic_bindings, id_index, rust::RustIdent,
+    EmitError, bound_traits::BoundTraitPlan, classes::{GENERATED_TYPE_PARAM_BOUNDS, type_param_in_dict_key},
+    generic_bindings, id_index,
 };
 
 /// Per function, whether a call site passes an erased argument at a bare
@@ -1384,6 +1384,7 @@ pub(crate) fn callback_generic_params(
     owned: &HashSet<(FuncId, LocalId)>,
     bounds: &BoundTraitPlan,
     erased_arguments: &ErasedArgumentMemo,
+    plan: &crate::names::RustNames,
 ) -> Result<Vec<(LocalId, String)>, EmitError> {
     if !function_emits_rust_generics(mir, function, owned, bounds, erased_arguments) {
         return Ok(Vec::new());
@@ -1394,7 +1395,7 @@ pub(crate) fn callback_generic_params(
             .symbols
             .get(type_param.name)
             .ok_or_else(|| EmitError::new("function type parameter has unknown symbol"))?;
-        taken.insert(RustIdent::new(name).into_string());
+        taken.insert(crate::names::type_param(name).into_string());
     }
     // Emitted crate types share the generated names' namespace. A source
     // `class F0` lowers to a Rust struct `F0`, and a generated type parameter
@@ -1402,15 +1403,8 @@ pub(crate) fn callback_generic_params(
     // body resolves against the type parameter instead of the struct. Reserving
     // every emitted class and interface name is the general rule; reserving only
     // source *type-parameter* names was too narrow.
-    for class in &mir.classes {
-        taken.insert(class_name_text(mir, class)?);
-    }
-    for interface in &mir.interfaces {
-        let name = mir
-            .symbols
-            .get(interface.name)
-            .ok_or_else(|| EmitError::new("interface has unknown symbol"))?;
-        taken.insert(RustIdent::new(name).into_string());
+    for decl in crate::names::type_claim_order(mir) {
+        taken.insert(plan.type_name(decl.name())?.as_str().to_owned());
     }
     let mut next = 0usize;
     let mut named = Vec::new();
@@ -1482,7 +1476,7 @@ pub(crate) fn function_impl_generics_list(
                 .map(|name| {
                     format!(
                         "{}: {bound_trait}{GENERATED_TYPE_PARAM_BOUNDS}",
-                        RustIdent::new(name).into_string()
+                        crate::names::type_param(name)
                     )
                 })
                 .ok_or_else(|| EmitError::new("function type parameter has unknown symbol"))

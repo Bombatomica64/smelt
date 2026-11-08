@@ -59,21 +59,11 @@ use std::collections::{HashMap, HashSet};
 use indexmap::IndexMap;
 
 use smelt_hir::{Symbol, Type, TypeId};
-use smelt_mir::{BasicBlock, FuncId, Mir, MirClass, MirFunction, MirInterface, Rvalue, Statement};
+use smelt_mir::{BasicBlock, Mir, MirClass, MirFunction, MirInterface, Rvalue, Statement};
 
 use crate::classes::{effective_class_fields, effective_interface_fields};
-use crate::rust::RustIdent;
-
-/// Method names every generated type parameter already has through its common
-/// bounds (`Clone + Default + IntoSmeltUnknown + SmeltFromUnknown`); a trait
-/// method of the same name would make `a.clone()` ambiguous (`E0034`).
-const RESERVED_MEMBER_NAMES: &[&str] = &[
-    "clone",
-    "clone_from",
-    "default",
-    "into_smelt_unknown",
-    "smelt_from_unknown",
-];
+use crate::EmitError;
+use crate::names::RustNames;
 
 /// The traits generated for bounded type parameters, keyed by bound name.
 #[derive(Debug, Default)]
@@ -100,7 +90,14 @@ pub(crate) struct BoundMember {
     /// Source member name.
     pub(crate) name: Symbol,
     /// Rust method name in the trait.
+    ///
+    /// Escaped as an associated item (see [`crate::names`]): never a method of
+    /// the bounds every generated type parameter carries (`Clone + Default +
+    /// IntoSmeltUnknown + SmeltFromUnknown`), which would make `a.clone()`
+    /// ambiguous (`E0034`). A method member is the class method's planned name.
     pub(crate) rust_name: String,
+    /// The Rust field a stored member is read from on an implementor.
+    pub(crate) field_name: String,
     /// What the member is.
     pub(crate) kind: BoundMemberKind,
 }
@@ -137,15 +134,9 @@ pub(crate) struct Implementor {
 
 /// How one implementor provides one member.
 #[derive(Debug, Clone)]
-#[expect(
-    variant_size_differences,
-    reason = "a handful per planned trait; boxing the function id would only add indirection"
-)]
 pub(crate) enum MemberImpl {
     /// Call the class's own (possibly inherited) method.
     Method {
-        /// The resolved method.
-        function: FuncId,
         /// Whether that method returns a `Result`.
         throws: bool,
     },
@@ -161,7 +152,10 @@ pub(crate) enum MemberImpl {
 
 impl BoundTraitPlan {
     /// Plan the trait of every bound the program reads members through.
-    pub(crate) fn compute(mir: &Mir) -> Self {
+    ///
+    /// Each trait's name (`<Bound>Like`) is claimed in the crate's type
+    /// namespace, so it can never shadow a declared type.
+    pub(crate) fn compute(mir: &Mir, names: &mut RustNames) -> Result<Self, EmitError> {
         let mut uses: IndexMap<Symbol, BoundUses> = IndexMap::new();
         let bodies = mir
             .functions
@@ -171,21 +165,15 @@ impl BoundTraitPlan {
         for blocks in bodies {
             collect_uses(blocks, &mut uses);
         }
-        let taken: HashSet<String> = mir
-            .classes
-            .iter()
-            .map(|class| class.name)
-            .chain(mir.interfaces.iter().map(|interface| interface.name))
-            .filter_map(|name| mir.symbols.get(name))
-            .map(|name| RustIdent::new(name).into_string())
-            .collect();
         let mut traits = IndexMap::new();
         for (bound, bound_uses) in uses {
-            if let Some(planned) = plan_trait(mir, bound, &bound_uses, &taken) {
+            if let Some(mut planned) = plan_trait(mir, names, bound, &bound_uses) {
+                let base_name = format!("{}Like", names.type_name(bound)?);
+                names.claim_generated_type(&base_name).as_str().clone_into(&mut planned.trait_name);
                 traits.insert(bound, planned);
             }
         }
-        Self { traits }
+        Ok(Self { traits })
     }
 
     /// The trait planned for `bound`, if any.
@@ -261,9 +249,9 @@ enum BoundDecl<'mir> {
 /// Plan one bound's trait, or `None` when it cannot have one (module docs).
 fn plan_trait(
     mir: &Mir,
+    names: &RustNames,
     bound: Symbol,
     uses: &BoundUses,
-    taken: &HashSet<String>,
 ) -> Option<BoundTrait> {
     let decl = if let Some(class) = crate::classes::find_class(mir, bound) {
         class.type_params.is_empty().then_some(BoundDecl::Class(class))?
@@ -279,7 +267,6 @@ fn plan_trait(
     let mut seen_names = HashSet::new();
     let mut keep = |candidate: Option<BoundMember>, kept: &mut Vec<BoundMember>| {
         if let Some(planned) = candidate
-            && !RESERVED_MEMBER_NAMES.contains(&planned.rust_name.as_str())
             && seen_names.insert(planned.rust_name.clone())
         {
             kept.push(planned);
@@ -287,13 +274,13 @@ fn plan_trait(
     };
     for &method in &uses.methods {
         let planned = bound_method_signature(mir, &decl, method).and_then(|(params, ret)| {
-            member(mir, method, BoundMemberKind::Method { params, ret, throws: false })
+            member(mir, names, method, BoundMemberKind::Method { params, ret, throws: false })
         });
         keep(planned, &mut members);
     }
     for &field in &uses.fields {
         let planned = bound_field_type(mir, &decl, field)
-            .and_then(|ty| member(mir, field, BoundMemberKind::Field { ty }));
+            .and_then(|ty| member(mir, names, field, BoundMemberKind::Field { ty }));
         keep(planned, &mut members);
     }
     if members.is_empty() {
@@ -332,25 +319,26 @@ fn plan_trait(
         }
     }
 
-    let base_name = format!("{}Like", RustIdent::new(mir.symbols.get(bound)?).into_string());
-    let mut trait_name = base_name.clone();
-    let mut suffix = 1usize;
-    while taken.contains(&trait_name) {
-        trait_name = format!("{base_name}{suffix}");
-        suffix = suffix.checked_add(1)?;
-    }
     Some(BoundTrait {
-        trait_name,
+        // Claimed by the caller in the crate's type namespace.
+        trait_name: String::new(),
         members,
         implementors,
     })
 }
 
-/// Build a member record with its sanitized Rust name.
-fn member(mir: &Mir, name: Symbol, kind: BoundMemberKind) -> Option<BoundMember> {
+/// Build a member record with its Rust names: the trait method's (the class
+/// method's planned name for a method) and the implementor field's.
+fn member(mir: &Mir, names: &RustNames, name: Symbol, kind: BoundMemberKind) -> Option<BoundMember> {
+    let spelling = crate::names::Spelling::of(mir, name)?;
+    let rust_name = match (&kind, names.method(name)) {
+        (BoundMemberKind::Method { .. }, Some(planned)) => planned.as_str().to_owned(),
+        _ => crate::names::trait_member(spelling).into_string(),
+    };
     Some(BoundMember {
         name,
-        rust_name: crate::sanitize_ident(mir.symbols.get(name)?),
+        rust_name,
+        field_name: names.field_text(mir, name),
         kind,
     })
 }
@@ -567,7 +555,6 @@ fn implement_member(mir: &Mir, name: Symbol, is_class: bool, member: &BoundMembe
             let function = resolve_class_method(mir, crate::classes::find_class(mir, name)?, member.name)?;
             let (own_params, own_ret) = method_function_signature(function)?;
             (own_params == *params && own_ret == *ret).then_some(MemberImpl::Method {
-                function: function.id,
                 throws: function.can_throw,
             })
         }

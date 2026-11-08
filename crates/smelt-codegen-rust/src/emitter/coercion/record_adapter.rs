@@ -73,7 +73,7 @@ impl FunctionEmitter<'_> {
         if target_fields.is_empty() {
             return None;
         }
-        let field_key = |field: &MirField| self.symbol_name(field.name).ok().map(sanitize_ident);
+        let field_key = |field: &MirField| Some(self.context.names().field_text(self.mir, field.name));
         // A DOWNCAST: the target declares every source field and adds more
         // (`base as Derived` where `interface Derived extends Base`). `tsc`
         // only accepts an assertion between comparable types, and a target that
@@ -198,10 +198,10 @@ impl FunctionEmitter<'_> {
             }
             return Ok(Some(self.default_value(target)?));
         };
-        let target_name = sanitize_ident(self.symbol_name(*name)?);
+        let target_name = self.type_rust_name(*name)?;
         let mut field_text = Vec::new();
         for (source_field_match, target_field) in adapted_fields {
-            let field_name = sanitize_ident(self.symbol_name(target_field.name)?);
+            let field_name = self.context.names().field_text(self.mir, target_field.name);
             let mut value_at_slot_abi = false;
             let value = if let Some(value) =
                 self.virtual_method_storage_field_expr(source, target, target_field.name)?
@@ -215,7 +215,7 @@ impl FunctionEmitter<'_> {
             } {
                 value
             } else if let Some(source_field) = source_field_match {
-                let source_field_name = sanitize_ident(self.symbol_name(source_field.name)?);
+                let source_field_name = self.context.names().field_text(self.mir, source_field.name);
                 // A reference-class source keeps its fields inside the shared
                 // `Rc<RefCell<Inner>>` cell, so they are read through it.
                 let source_base = if self.is_reference_class_type(source) {
@@ -375,7 +375,7 @@ impl FunctionEmitter<'_> {
         };
         let mut field_text = Vec::new();
         for target_field in &target_fields {
-            let field_name = sanitize_ident(self.symbol_name(target_field.name)?);
+            let field_name = self.context.names().field_text(self.mir, target_field.name);
             let member = self.symbol_source_name(target_field.name)?.to_owned();
             let read =
                 self.host_class_member_read(&RustExpr::path("smelt_host_value"), source, &member)?;
@@ -393,7 +393,7 @@ impl FunctionEmitter<'_> {
             };
             field_text.push(format!("{field_name}: {value}"));
         }
-        let target_name = sanitize_ident(self.symbol_name(*name)?);
+        let target_name = self.type_rust_name(*name)?;
         if !args.is_empty() {
             field_text.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
         }
@@ -436,7 +436,7 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         }
 
-        let target_name = sanitize_ident(self.symbol_name(*name)?);
+        let target_name = self.type_rust_name(*name)?;
         // The target class/interface may be parameterized by type params (e.g.
         // `CurriedFunction1<T1, _>`). Those names are only legal to spell in the
         // adapter body when they are actually in scope for the function being
@@ -466,7 +466,7 @@ impl FunctionEmitter<'_> {
         let mut field_text = Vec::new();
         for field in target_fields {
             let field_key = self.symbol_name(field.name)?;
-            let field_name = sanitize_ident(field_key);
+            let field_name = self.context.names().field_text(self.mir, field.name);
             // A JavaScript member read falls through to the prototype when the
             // own property is absent, which is what `smelt_get_object_field`
             // already does for the erased-object path. A record projection is
@@ -639,7 +639,7 @@ impl FunctionEmitter<'_> {
         let mut entries = Vec::new();
         for field in source_fields {
             let key = self.symbol_name(field.name)?;
-            let field_name = sanitize_ident(key);
+            let field_name = self.context.names().field_text(self.mir, field.name);
             let source_value = if source_is_reference_class {
                 RustExpr::chain(format!("smelt_struct_value.0.borrow().{field_name}.clone()")).ending_in_clone()
             } else {
@@ -748,27 +748,18 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name, args }) = self.mir.types.get(ty) else {
             return None;
         };
-        if let Some(interface) = self
-            .mir
-            .interfaces
-            .iter()
-            .find(|interface| interface.name == *name)
-        {
-            let fields = crate::classes::effective_interface_fields(self.mir, interface);
+        // The struct that owns the symbol answers: a class over a same-named
+        // interface, which merges into it (see `names::type_claim_order`).
+        if let Some(class) = crate::classes::find_class(self.mir, *name) {
             return Some(self.substitute_record_field_type_params(
-                &interface.type_params,
+                &class.type_params,
                 args,
-                fields,
+                crate::classes::effective_class_fields(self.mir, class),
             ));
         }
-        crate::classes::find_class(self.mir, *name)
-            .map(|class| {
-                self.substitute_record_field_type_params(
-                    &class.type_params,
-                    args,
-                    crate::classes::effective_class_fields(self.mir, class),
-                )
-            })
+        let interface = self.mir.interfaces.iter().find(|interface| interface.name == *name)?;
+        let fields = crate::classes::effective_interface_fields(self.mir, interface);
+        Some(self.substitute_record_field_type_params(&interface.type_params, args, fields))
     }
 
     /// How many type parameters the class named `name` declares.

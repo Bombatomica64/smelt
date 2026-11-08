@@ -59,7 +59,7 @@ impl ModuleBuilder<'_> {
             }
             None => receiver,
         };
-        let callee_symbol = self.intern_source_name("__smelt_bind_callee");
+        let callee_symbol = self.intern_synthesized_name("__smelt_bind_callee");
         let callee_local =
             self.capture_bind_value(receiver, function_ty, callee_symbol, span, outer_body);
         let mut bound_captures = Vec::new();
@@ -67,7 +67,7 @@ impl ModuleBuilder<'_> {
             let param_ty = function.params.get(index).copied();
             let value = self.argument_with_hint(argument, outer_body, param_ty)?;
             let value_ty = Self::expr_ty(outer_body, value);
-            let symbol = self.intern_source_name(&format!("__smelt_bind_arg_{index}"));
+            let symbol = self.intern_synthesized_name(&format!("__smelt_bind_arg_{index}"));
             let local = self.capture_bind_value(value, value_ty, symbol, span, outer_body);
             bound_captures.push((local, symbol, value_ty));
         }

@@ -5,7 +5,7 @@ use crate::rust::RustType;
 use crate::rust::RustExpr;
 use crate::runtime_demand::Need;
 use super::*;
-use crate::rust::{RustIdent, RustShape};
+use crate::rust::RustShape;
 use smelt_hir::{ErasureReason, FunctionType};
 
 /// Whether a callback parameter declared mutable gets a `&mut ` prefix.
@@ -463,7 +463,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustType, EmitError> {
         match substitution.resolve(name)? {
             Resolved::Spelled(param) => Ok(RustType::with_shape(
-                RustIdent::new(self.symbol_name(param)?).into_string(),
+                crate::names::type_param(self.symbol_name(param)?).into_string(),
                 RustShape::Generic,
             )),
             // The substituted type is a *caller-side* type: its own type
@@ -617,7 +617,7 @@ impl FunctionEmitter<'_> {
             self.note_backend_erasure(ErasureReason::UnresolvedClass, class);
             return Ok(RustType::erased());
         }
-        let type_name = sanitize_ident(self.symbol_name(name)?);
+        let type_name = self.type_rust_name(name)?;
         // A parameter the declaration dropped is dropped here too, and
         // at the same positions: `generic_elision` is the one answer
         // both sides read (see that module's docs for the rule).

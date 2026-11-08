@@ -130,7 +130,7 @@ impl ModuleBuilder<'_> {
             .iter()
             .map(|arg| self.expression(arg, body))
             .collect::<Result<Vec<_>, _>>()?;
-        let alias = self.intern_name(&format!("__smelt$super${method}"));
+        let alias = self.intern_synthesized_name(&format!("__smelt$super${method}"));
         Ok(body.push_expr(HirExpr {
             kind: ExprKind::Method {
                 receiver,

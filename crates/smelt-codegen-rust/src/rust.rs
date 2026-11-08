@@ -470,45 +470,6 @@ impl std::fmt::Display for RustExpr {
     }
 }
 
-/// A valid Rust identifier rendered from source-language or MIR data.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RustIdent(String);
-
-impl RustIdent {
-    /// Sanitizes arbitrary text into a valid Rust identifier.
-    ///
-    /// Invalid characters are replaced with underscores, leading digits are
-    /// escaped by replacement, and Rust keywords receive a trailing underscore.
-    #[must_use]
-    pub fn new(name: &str) -> Self {
-        Self(sanitize_identifier(name))
-    }
-
-    /// Returns the rendered identifier text.
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    /// Consumes the identifier and returns the rendered source text.
-    #[must_use]
-    pub fn into_string(self) -> String {
-        self.0
-    }
-}
-
-/// Sanitizes an identifier into a Rust-safe spelling.
-pub(crate) fn sanitize_ident(name: &str) -> String {
-    RustIdent::new(name).into_string()
-}
-
-impl std::fmt::Display for RustIdent {
-    /// Writes the rendered identifier text.
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(self.as_str())
-    }
-}
-
 /// A line-oriented writer for Rust source with indentation support.
 #[derive(Debug, Default, Clone)]
 pub struct CodeWriter {
@@ -558,132 +519,9 @@ impl CodeWriter {
     }
 }
 
-/// Sanitizes arbitrary text into a valid Rust identifier string.
-#[must_use]
-pub fn sanitize_identifier(name: &str) -> String {
-    let mut out = String::with_capacity(name.len());
-    for (idx, ch) in name.chars().enumerate() {
-        if ch == '_' || ch.is_ascii_alphanumeric() && (idx > 0 || !ch.is_ascii_digit()) {
-            out.push(ch);
-        } else {
-            out.push('_');
-        }
-    }
-
-    // A lone `_` is the wildcard pattern, never an identifier (`{ _: v }` is
-    // an ordinary JavaScript property name).
-    if out.is_empty() || out == "_" || is_rust_keyword(&out) || is_rust_prelude_name(&out) {
-        out.push('_');
-    }
-    out
-}
-
-/// Returns true when the identifier names an item of Rust's prelude that the
-/// generated runtime spells unqualified.
-///
-/// A source class named `Box` or `Vec` is legal TypeScript, but declaring
-/// `struct Box` shadows `std::boxed::Box` for the whole crate, and every
-/// prelude line that writes `Box<dyn ..>` then refers to the user's struct
-/// (E0107). Renaming the source item the way a keyword is renamed keeps both:
-/// the declaration and every reference go through this function. `JsString`
-/// and `JsStr` are the runtime's JavaScript string types, which every
-/// TypeScript crate spells unqualified in the same way.
-///
-/// `main` is the same case one level up: the crate root defines the binary's
-/// entry point `fn main`, so a source function named `main` (`async function
-/// main() {..}; main()`, a common script shape) was a second `main` (E0428).
-///
-/// The list is every Rust prelude item the runtime or the emitter spells
-/// unqualified (closure types `dyn Fn(..)`, `impl Clone for`, derives,
-/// `IntoIterator` bounds) and every runtime item declared at the crate root
-/// without a `smelt` prefix (`JsString`, `DateLike`, `IntoSmeltUnknown`): a
-/// source `type Fn` declared as `struct Fn` hid the `Fn` trait from every
-/// closure type of the crate (E0404). `tests/reserved_name_tests.rs` derives
-/// the required set from the rendered runtime and the committed example crates
-/// and fails when a name is missing here.
-fn is_rust_prelude_name(name: &str) -> bool {
-    matches!(
-        name,
-        "Box" | "Vec" | "Option" | "Result" | "String" | "Some" | "None" | "Ok" | "Err" | "main"
-            | "JsString" | "JsStr"
-            | "AsRef" | "Clone" | "Copy" | "Default" | "Drop" | "Eq" | "Ord" | "PartialEq" | "PartialOrd"
-            | "Fn" | "FnMut" | "FnOnce" | "From" | "Into" | "FromIterator" | "IntoIterator" | "Iterator"
-            | "IntoFuture" | "Send" | "Sized" | "ToOwned" | "ToString" | "drop"
-            | "DateLike" | "IntoSmeltUnknown"
-    )
-}
-
-/// Returns true when the identifier is reserved by Rust.
-///
-/// This is the full keyword list of the Rust 2024 edition generated crates
-/// are built with: the strict keywords, the 2018 additions (`async`, `await`,
-/// `dyn`), and every reserved keyword, including `gen`, which the 2024 edition
-/// reserved for generator blocks. A name on it is renamed with a trailing `_`
-/// (not spelled as a raw identifier) because `self`, `Self`, `super` and
-/// `crate` cannot be raw identifiers at all, and one scheme for every keyword
-/// keeps a declaration and its references agreeing without knowing which
-/// edition introduced the word. The weak keywords (`union`, `raw`, `safe`,
-/// `macro_rules`) remain valid identifiers and are deliberately absent.
-fn is_rust_keyword(name: &str) -> bool {
-    matches!(
-        name,
-        "as" | "break"
-            | "const"
-            | "continue"
-            | "crate"
-            | "else"
-            | "enum"
-            | "extern"
-            | "false"
-            | "fn"
-            | "for"
-            | "if"
-            | "impl"
-            | "in"
-            | "let"
-            | "loop"
-            | "match"
-            | "mod"
-            | "move"
-            | "mut"
-            | "pub"
-            | "ref"
-            | "return"
-            | "self"
-            | "Self"
-            | "static"
-            | "struct"
-            | "super"
-            | "trait"
-            | "true"
-            | "type"
-            | "unsafe"
-            | "use"
-            | "where"
-            | "while"
-            | "async"
-            | "await"
-            | "dyn"
-            | "abstract"
-            | "become"
-            | "box"
-            | "do"
-            | "final"
-            | "macro"
-            | "override"
-            | "priv"
-            | "typeof"
-            | "unsized"
-            | "virtual"
-            | "yield"
-            | "try"
-            | "gen"
-    )
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{CodeWriter, RustExpr, RustIdent, erased_string, sanitize_identifier};
+    use super::{CodeWriter, RustExpr, erased_string};
 
     /// The emitter's own literal spelling erases straight from the `&'static str`,
     /// so a constant JavaScript string costs one allocation, not a `String` that is
@@ -764,23 +602,6 @@ mod tests {
         assert_eq!(RustExpr::cast("a as i64").as_cast_operand(), "a as i64");
         assert_eq!(RustExpr::loose("a + b").as_cast_operand(), "(a + b)");
         assert_eq!(RustExpr::opaque("a").parenthesized_if_needed(), "(a)");
-    }
-
-    #[test]
-    fn sanitizes_invalid_and_reserved_identifiers() {
-        assert_eq!(sanitize_identifier("valid_name"), "valid_name");
-        assert_eq!(sanitize_identifier("1st-value"), "_st_value");
-        assert_eq!(sanitize_identifier("fn"), "fn_");
-        // Reserved by the 2024 edition only; `fn gen` does not parse there.
-        assert_eq!(sanitize_identifier("gen"), "gen_");
-        for reserved in ["async", "await", "dyn", "try", "abstract", "become", "box", "do",
-            "final", "macro", "override", "priv", "typeof", "unsized", "virtual", "yield"]
-        {
-            assert_eq!(sanitize_identifier(reserved), format!("{reserved}_"));
-        }
-        // Weak keywords are ordinary identifiers.
-        assert_eq!(sanitize_identifier("union"), "union");
-        assert_eq!(RustIdent::new("self").as_str(), "self_");
     }
 
     #[test]

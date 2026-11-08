@@ -122,7 +122,7 @@ impl ModuleBuilder<'_> {
                     source_ty,
                     fields,
                 } => {
-                    let spread_name = self.intern_source_name("__smelt_spread");
+                    let spread_name = self.intern_synthesized_name("__smelt_spread");
                     let local = self.capture_bind_value(source, source_ty, spread_name, span, body);
                     for (slot, target_field) in target_fields.iter().enumerate() {
                         let Some(source_field) =
@@ -173,7 +173,7 @@ impl ModuleBuilder<'_> {
                     let field_ty = target_fields.get(slot).map(|field| field.ty);
                     let value = self.expression_with_hint(&property.value, body, field_ty)?;
                     let value_ty = Self::expr_ty(body, value);
-                    let value_name = self.intern_source_name("__smelt_spread_value");
+                    let value_name = self.intern_synthesized_name("__smelt_spread_value");
                     let local = self.capture_bind_value(value, value_ty, value_name, span, body);
                     let read = body.push_expr(Expr {
                         kind: ExprKind::Local(local),

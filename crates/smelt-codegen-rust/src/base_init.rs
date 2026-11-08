@@ -36,7 +36,8 @@ use std::collections::HashSet;
 
 use smelt_mir::{Callee, FuncId, HirOrigin, Mir, MirClass, MirFunction, Terminator};
 
-use crate::{EmitError, id_index, sanitize_ident};
+use crate::emitter::EmitContext;
+use crate::{EmitError, id_index};
 
 /// The parameter name an initializer copy receives the instance under.
 ///
@@ -49,12 +50,8 @@ pub(crate) const BASE_INIT_RECEIVER: &str = "smelt_receiver";
 /// Named after the class whose constructor body it is, so a class several
 /// levels down carries one initializer per ancestor and the names never clash
 /// with each other or with a source method.
-pub(crate) fn base_initializer_name(mir: &Mir, base: smelt_hir::Symbol) -> Result<String, EmitError> {
-    let name = mir
-        .symbols
-        .get(base)
-        .ok_or_else(|| EmitError::new("base initializer references an unknown class symbol"))?;
-    Ok(format!("__smelt_init_{}", sanitize_ident(name)))
+pub(crate) fn base_initializer_name(context: &EmitContext, base: smelt_hir::Symbol) -> Result<String, EmitError> {
+    Ok(format!("__smelt_init_{}", context.names().type_name(base)?))
 }
 
 /// The type a class's constructor builds, `Class { name, args }` as interned.

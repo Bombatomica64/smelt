@@ -4660,7 +4660,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_11: JsString;
     let _smelt_tmp_2: App<JsString> = App::new(Default::default());
     a = _smelt_tmp_2;
-    let _smelt_tmp_3: App<JsString> = a.clone();
+    let _smelt_tmp_3: App<JsString> = a.clone_();
     b = _smelt_tmp_3;
     _smelt_tmp_4 = b.router.clone();
     _smelt_tmp_5 = (_smelt_tmp_4.add.clone())(JsString::from("GET"), JsString::from("/x"), &JsString::from("h"));
@@ -4722,7 +4722,7 @@ impl<E: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> App<E> 
     this.get_path = _smelt_tmp_6.clone();
     return this;
     }
-    fn clone(&self) -> App<E> {
+    fn clone_(&self) -> App<E> {
     let _smelt_tmp_1: Options<E> = Options { strict: None::<bool>, router: Some(self.router.clone()), get_path: Some(self.get_path.clone()), _smelt_phantom: ::std::marker::PhantomData };
     let _smelt_tmp_2: App<E> = App::new(_smelt_tmp_1);
     return _smelt_tmp_2;
@@ -4735,7 +4735,7 @@ impl<E: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> App<E> 
     #[allow(dead_code)]
     fn __smelt_proto_entries(&self) -> Vec<(String, SmeltUnknown)> {
         let mut smelt_proto_entries: Vec<(String, SmeltUnknown)> = Vec::new();
-        smelt_proto_entries.push(("__smelt_method:clone".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.clone(); Ok((smelt_result).into_smelt_unknown()) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("App::clone")); SmeltUnknown::Function(smelt_method) }));
+        smelt_proto_entries.push(("__smelt_method:clone".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.clone_(); Ok((smelt_result).into_smelt_unknown()) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("App::clone")); SmeltUnknown::Function(smelt_method) }));
         smelt_proto_entries
     }
 }

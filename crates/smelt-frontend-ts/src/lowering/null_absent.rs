@@ -159,7 +159,7 @@ impl ModuleBuilder<'_> {
                 span,
             });
         }
-        let name = self.intern_source_name("__smelt_nullable");
+        let name = self.intern_synthesized_name("__smelt_nullable");
         let local = self.capture_bind_value(operand, operand_ty, name, span, body);
         let read = |body: &mut Body| {
             body.push_expr(Expr {

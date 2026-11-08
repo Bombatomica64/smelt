@@ -987,8 +987,11 @@ function zip(
 ",
     );
 
+    // The parameter renders apart from the free function it shares a source
+    // name with (a body's locals never take a crate function's name), so the
+    // call is unambiguously the captured callback.
     assert!(
-        source.contains("fn_(closure_arg_0,"),
+        source.contains("fn__1(closure_arg_0,"),
         "captured callback should not adopt the same-named free function ABI: {source}"
     );
     assert!(

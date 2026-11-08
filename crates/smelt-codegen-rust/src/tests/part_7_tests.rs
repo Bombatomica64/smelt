@@ -7136,8 +7136,11 @@ def update(model: Model) -> int:
 
     smelt_mir::opt::optimize(&mut mir);
     let emitted = emit_source(&mir).expect("Rust source");
-    assert!(emitted.contains("model.__smelt_set_value(7);"), "{emitted}");
-    assert!(emitted.contains("model.__smelt_get_value()"), "{emitted}");
+    // The accessors are SOURCE methods here (the fixture spells what the
+    // specialization would mint), so their names are moved out of the
+    // emitter's reserved `__smelt` namespace; the dispatch is unchanged.
+    assert!(emitted.contains("model.src_smelt_set_value(7);"), "{emitted}");
+    assert!(emitted.contains("model.src_smelt_get_value()"), "{emitted}");
     assert!(
         !emitted.contains("model.value ="),
         "descriptor retained direct storage assignment\n{emitted}"
