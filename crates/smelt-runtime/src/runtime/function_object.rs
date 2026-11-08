@@ -168,8 +168,9 @@ fn smelt_same_prototype_link(left: &SmeltUnknown, right: &SmeltUnknown) -> bool 
 
 // @smelt:item smelt_class_value when class_value & unknown
 /// A class as a runtime value: callable through `__smelt_call` when its
-/// constructor is known, named, and carrying the classes `instanceof` accepts
-/// (itself and its subclasses, comma separated).
-fn smelt_class_value(name: &str, covered: &str, constructor: SmeltUnknown) -> SmeltUnknown { SmeltUnknown::Object(SmeltObject::new(Vec::from([("name".to_owned(), SmeltUnknown::String(name.into())), ("__smelt_class_value".to_owned(), SmeltUnknown::String(covered.into())), ("__smelt_call".to_owned(), constructor)]))) }
+/// constructor is known, named, carrying the classes `instanceof` accepts
+/// (itself and its subclasses, comma separated), and holding its static
+/// methods as own properties, keyed as `smelt_property_key` keys them.
+fn smelt_class_value(name: &str, covered: &str, constructor: SmeltUnknown, statics: Vec<(String, SmeltUnknown)>) -> SmeltUnknown { let mut entries = Vec::from([("name".to_owned(), SmeltUnknown::String(name.into())), ("__smelt_class_value".to_owned(), SmeltUnknown::String(covered.into())), ("__smelt_call".to_owned(), constructor)]); entries.extend(statics); SmeltUnknown::Object(SmeltObject::new(entries)) }
 
 // @smelt:item-end

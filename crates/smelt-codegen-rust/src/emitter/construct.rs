@@ -81,8 +81,19 @@ impl FunctionEmitter<'_> {
         }
         let constructor_text =
             constructor.map_or_else(|| Ok(RustExpr::undefined()), |ctor| self.erase(ctor))?;
+        // Static methods are own properties of the class object
+        // (`class_proto::class_static_entries`).
+        let statics = crate::class_proto::class_static_entries(self.mir, self.context, class)?
+            .into_iter()
+            .map(|(key, adapter)| format!("({key:?}.to_owned(), {adapter})"))
+            .collect::<Vec<_>>();
+        let statics_text = if statics.is_empty() {
+            "Vec::new()".to_owned()
+        } else {
+            format!("vec![{}]", statics.join(", "))
+        };
         Ok(RustExpr::chain(format!(
-            "smelt_class_value({:?}, {:?}, {constructor_text})",
+            "smelt_class_value({:?}, {:?}, {constructor_text}, {statics_text})",
             covered[0],
             covered.join(",")
         )))

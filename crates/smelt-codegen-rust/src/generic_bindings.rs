@@ -311,6 +311,39 @@ pub(crate) fn bind_class_type_params(
     bindings
 }
 
+/// Bind a generated record's own type parameters to the arguments its Rust
+/// type is instantiated at, as the record's struct fields see them.
+///
+/// Unlike [`bind_class_type_params`], which answers whether a CALL can be
+/// monomorphized and so declines (`Erased`) for a union or type-parameter
+/// argument, this states what Rust instantiated: `Match<SmeltUnion1339>`
+/// instantiates `&i` as `&SmeltUnion1339`, whatever a call would decide. Each
+/// argument renders by its own rule (a union as its generated enum or the
+/// carrier, a type parameter spelled where the scope declares it). `never`
+/// stays erased: it has no value, and rendering it records an erasure.
+pub(crate) fn bind_record_instantiation(
+    mir: &Mir,
+    record_type_params: &[Symbol],
+    record_ty: TypeId,
+) -> CalleeTypeParamBindings {
+    let mut bindings = unbound_bindings(record_type_params);
+    let Some(Type::Class { args, .. }) = mir.types.get(record_ty) else {
+        return unsupported_bindings(record_type_params, BindingUnsupportedReason::ShapeMismatch);
+    };
+    if args.len() != record_type_params.len() {
+        return unsupported_bindings(record_type_params, BindingUnsupportedReason::ShapeMismatch);
+    }
+    for (name, arg) in record_type_params.iter().zip(args) {
+        let observation = if matches!(mir.types.get(*arg), Some(Type::Never) | None) {
+            TypeParamBinding::Erased
+        } else {
+            TypeParamBinding::Concrete(*arg)
+        };
+        bindings.observe(*name, observation);
+    }
+    bindings
+}
+
 /// Build a binding map declaring `type_params`, every entry `Unbound`.
 fn unbound_bindings(type_params: &[Symbol]) -> CalleeTypeParamBindings {
     CalleeTypeParamBindings {

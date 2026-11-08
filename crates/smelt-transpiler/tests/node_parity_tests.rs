@@ -520,6 +520,22 @@ fn sibling_reads_before_a_state_change() -> TestResult {
 #[test]
 fn object_assign_write_through() -> TestResult {
     verify_node_parity("object_assign_write_through")
+
+/// A generic record rebuilt from the erased instantiation a generic function
+/// returns converts its callable fields across the type argument, a nested
+/// callback included, and a callback handed to a slot meets the slot's
+/// declared ABI (ts-pattern's `Match<i>`).
+#[test]
+fn record_callable_type_arguments() -> TestResult {
+    verify_node_parity("record_callable_type_arguments")
+}
+
+/// A class value carries its static methods, so a computed-key call finds
+/// them, and a block-local class used as a value constructs that class, not
+/// another class of the same name.
+#[test]
+fn class_value_statics() -> TestResult {
+    verify_node_parity("class_value_statics")
 }
 
 /// A lone surrogate survives in a template literal part and an object key, and

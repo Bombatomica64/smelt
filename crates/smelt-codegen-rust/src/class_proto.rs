@@ -208,8 +208,32 @@ fn method_adapter(
     function: &MirFunction,
     rust_method: &str,
 ) -> Result<RustExpr, EmitError> {
+    erased_callable_adapter(mir, function, &MethodReceiver::Instance, rust_method)
+}
+
+/// What an erased adapter calls its method on.
+enum MethodReceiver {
+    /// An instance method: the adapter captures `self` and skips the `this`
+    /// parameter.
+    Instance,
+    /// A static method, called as an associated function of this Rust type.
+    Static(String),
+}
+
+/// The erased adapter for one method: arguments in through
+/// `SmeltFromUnknown`, the typed call, the result erased back out.
+fn erased_callable_adapter(
+    mir: &Mir,
+    function: &MirFunction,
+    receiver: &MethodReceiver,
+    rust_method: &str,
+) -> Result<RustExpr, EmitError> {
+    let skipped = match receiver {
+        MethodReceiver::Instance => 1,
+        MethodReceiver::Static(_) => 0,
+    };
     let mut args = Vec::new();
-    for (index, param) in function.params.iter().skip(1).enumerate() {
+    for (index, param) in function.params.iter().skip(skipped).enumerate() {
         let local = local_decl(function, *param)
             .ok_or_else(|| EmitError::new("class method parameter has no local declaration"))?;
         // The parameter's TYPE decides how it is recovered. This used to reach
@@ -228,8 +252,12 @@ fn method_adapter(
     // callback's own return type is the same `Result`, so the `?` propagates
     // the thrown value across the seam rather than swallowing it.
     let try_operator = if function.can_throw { "?" } else { "" };
+    let (capture, callee) = match receiver {
+        MethodReceiver::Instance => ("let smelt_receiver = self.clone(); ", "smelt_receiver.".to_owned()),
+        MethodReceiver::Static(class) => ("", format!("{class}::")),
+    };
     let call = format!(
-        "smelt_receiver.{rust_method}({}){try_operator}",
+        "{callee}{rust_method}({}){try_operator}",
         args.join(", ")
     );
     let result = if matches!(mir.types.get(function.return_ty), Some(Type::None)) {
@@ -243,7 +271,7 @@ fn method_adapter(
     // `instance.m === OtherInstance.m` answers `true` as it does in JavaScript.
     let identity = method_identity_expr(mir, function)?;
     let body = format!(
-        "{{ let smelt_receiver = self.clone(); \
+        "{{ {capture}\
          move |smelt_args: Vec<SmeltUnknown>| {{ let _ = &smelt_args; \
          let smelt_result = {call}; Ok({result}) }} }}"
     );
@@ -414,6 +442,76 @@ pub(crate) fn class_has_proto_entries(
         .filter_map(|method| function_by_id(mir, method))
         .any(|function| method_is_proto_eligible(mir, context, function))
         || constructor_adapter(mir, context, class).is_ok_and(|adapter| adapter.is_some())
+}
+
+/// A class's static methods as `(property key, erased function)` entries of its
+/// class value.
+///
+/// In JavaScript a static method is an own property of the class object, so
+/// `Counter[key]()` and `pattern[P.matcher]()` on a class read through a
+/// value find it there. A class value carried only its name and constructor,
+/// so every such read missed and the call panicked. The key is the method's
+/// source property name, which for a symbol-named method (`static [key]()`) is
+/// the folded symbol key `smelt_property_key` computes from the runtime symbol.
+///
+/// The eligibility is [`method_is_proto_eligible`]'s, minus the receiver: a
+/// generic class (no `Class::method` can be spelled without its arguments), a
+/// generic, async or generator method, a rest parameter, or a parameter or
+/// return the carrier cannot cross leaves the method out, as before.
+pub(crate) fn class_static_entries(
+    mir: &Mir,
+    context: &EmitContext,
+    class: smelt_hir::Symbol,
+) -> Result<Vec<(String, RustExpr)>, EmitError> {
+    let Some(found) = crate::classes::find_class(mir, class) else {
+        return Ok(Vec::new());
+    };
+    if !found.type_params.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rust_class = sanitize_ident(
+        mir.symbols
+            .get(class)
+            .ok_or_else(|| EmitError::new("class value references an unknown class symbol"))?,
+    );
+    let mut entries = Vec::new();
+    for function in &mir.functions {
+        let HirOrigin::ClassStaticMethod { class: owner, method, .. } = function.origin else {
+            continue;
+        };
+        if owner != class
+            || !function.type_params.is_empty()
+            || function.is_async
+            || function.is_generator
+            || function.rest.is_some()
+            || !return_type_is_erasable(mir, function.return_ty)
+            || !function.params.iter().all(|param| {
+                local_decl(function, *param)
+                    .is_some_and(|local| type_supports_from_unknown(mir, context, local.ty))
+            })
+        {
+            continue;
+        }
+        let source_name = mir
+            .names
+            .get(method)
+            .or_else(|| mir.symbols.get(method))
+            .ok_or_else(|| EmitError::new("static method references an unknown symbol"))?
+            .to_owned();
+        let rust_method = sanitize_ident(
+            mir.symbols
+                .get(method)
+                .ok_or_else(|| EmitError::new("static method references an unknown symbol"))?,
+        );
+        let adapter = erased_callable_adapter(
+            mir,
+            function,
+            &MethodReceiver::Static(rust_class.clone()),
+            &rust_method,
+        )?;
+        entries.push((source_name, adapter));
+    }
+    Ok(entries)
 }
 
 /// Look up a MIR function by id.

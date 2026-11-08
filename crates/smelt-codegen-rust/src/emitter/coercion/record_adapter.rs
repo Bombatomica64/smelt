@@ -678,7 +678,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Returns whether a dictionary value can be meaningfully assigned to a field.
-    fn can_render_dict_value_as(&self, source: TypeId, target: TypeId) -> bool {
+    pub(super) fn can_render_dict_value_as(&self, source: TypeId, target: TypeId) -> bool {
         self.can_render_non_function_dict_value_as(source, target)
             || self.can_adapt_rendered_function_value(source, target)
     }

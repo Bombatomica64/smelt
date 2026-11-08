@@ -138,16 +138,21 @@ impl FunctionEmitter<'_> {
         // fixed-arity slot), so each of those must render as the list's
         // element rather than as the list.
         if let Some((rest, element)) = self.trailing_rest_element(source_function) {
-            return self.can_render_non_function_dict_value_as(
+            return self.can_render_dict_value_as(
                 source_function.return_ty,
                 target_function.return_ty,
             ) && target_function.params.iter().enumerate().all(|(index, target_param)| {
                 let into = if index < rest { source_function.params[index] } else { element };
-                self.can_render_non_function_dict_value_as(*target_param, into)
+                self.can_render_dict_value_as(*target_param, into)
             });
         }
+        // A parameter or return that is itself a callable converts through
+        // this same adapter, parameters contravariantly: `ts-pattern`'s
+        // `otherwise: (handler: (value: i) => R) => R` read off a
+        // `Match<unknown>` and stored in a `Match<number[]>` wraps `handler`
+        // back into `(value: unknown) => R` before calling the stored slot.
         let shared = source_function.params.len().min(target_function.params.len());
-        self.can_render_non_function_dict_value_as(
+        self.can_render_dict_value_as(
             source_function.return_ty,
             target_function.return_ty,
         ) && source_function
@@ -156,7 +161,7 @@ impl FunctionEmitter<'_> {
             .take(shared)
             .zip(target_function.params.iter().take(shared))
             .all(|(source_param, target_param)| {
-                self.can_render_non_function_dict_value_as(*target_param, *source_param)
+                self.can_render_dict_value_as(*target_param, *source_param)
             })
     }
 
@@ -421,11 +426,29 @@ impl FunctionEmitter<'_> {
         // to the end of the statement, so `&(expr)` is valid for a value
         // with no name.
         let text = match target_function.params.get(index) {
+            // A conversion consumes its value, and the adapter receives a
+            // by-shared-reference parameter as `&T`: it converts an owned
+            // copy. An unconverted parameter is forwarded as it came.
+            Some(target_param)
+                if *target_param != source_param
+                    && self.callback_param_is_shared_reference(
+                        target_function,
+                        index,
+                        *target_param,
+                    ) =>
+            {
+                self.rendered_at_type(
+                    &RustExpr::chain(format!("arg{index}.clone()")).ending_in_clone(),
+                    *target_param,
+                    source_param,
+                    scope,
+                )?
+            }
             Some(target_param) => self.rendered_at_type(
                 &RustExpr::path(format!("arg{index}")),
                 *target_param,
                 source_param,
-                                    scope,
+                scope,
             )?,
             None => self.default_value(source_param)?,
         };
