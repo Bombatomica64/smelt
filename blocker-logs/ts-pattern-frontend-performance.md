@@ -123,3 +123,52 @@ type-heavy code.
 expressions in 132, etc.). Their interned types, `dump-mir`, generated crates and
 stderr are byte-identical, as are all five corpora. A change that stops
 re-lowering cannot keep the arena listing identical.
+
+## Whole build
+
+| run | checker | frontend total | MIR + emit | wall | peak RSS | result |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| previous agent | - | - | - | >6600 s | 10.8 GB | timeout |
+| base `src` + tests | - | - | - | - | - | per-file timeouts above (900 s) |
+| final tree | 90-114 s | 93-124 s | 3.6 s | 98-127 s | 2.49 GB | exit 0, 69 generated files |
+
+The checker share (~110 s over src + 48 tests) is now `get_type_at_location`
+plus conversion of ~1.5M structurally distinct types in a debug build.
+
+## Frontend blockers fixed (each with a Node parity fixture)
+
+| blocker | rule | fixture |
+| --- | --- | --- |
+| `TSEnumDeclaration` in a function body | a block-local enum folds like a module enum (auto-increment from 0 and from the last number, string members), registered for the rest of the module, not published to importers; numeric members get the reverse mapping `E[n]` (constant key folds, other keys index the `{"0": "A", ..}` table, later member wins on duplicate values) | `enums` |
+| "array callback methods require exactly one callback argument" | with an arity other than one, `Array.prototype` claims only array-like receivers (list, tuple, union with a list arm, erased, type parameter) | `namespace_reexports` |
+| `P.map` etc. on a namespace | a member a crate module's namespace exports is a call to that export before any name-keyed builtin handler; `import { P }` of `export { Ns as P }` / `export * as P` binds the namespace; a same-name re-export of an import (`import { m }; export { m }`) is published | `namespace_reexports` |
+| "property names must be static identifiers or string literals" (`[P.matcher]()`) | resolved by the re-export rules above: `P.matcher` reaches the `Symbol.for` const | `namespace_reexports` |
+| "new Map([...]) requires a Map<K, V> type annotation" (2 sites) | a block-local alias redeclared later replaces the earlier one's fields and takes precedence over an earlier same-named interface; `new Map` takes the only map arm of a union contextual type | `block_local_type_alias_redeclaration` |
+| "namespace member item is not usable as an expression" (`P.string`) | a computed module-level const read through a namespace is a `GlobalGet`, as a named import of it is | `namespace_reexports` (`P.boxed.n`) |
+| "instanceof target `Some` is not a lowered class" | a class named from inside its own members (or bound under a block-scoped name) is nominal before its item exists | `namespace_reexports` |
+| MIR "abstract class cannot be constructed" (`P.instanceOf(Abstract)`) | an abstract class value carries no constructor closure | unit test `abstract_class_value_tests` |
+| main-thread stack overflow in MIR | the CLI runs on a 1 GiB-stack thread (same error text and exit status) | full build |
+
+The "spread call requires at least one argument" errors the previous agent saw
+did not reproduce on main 04a2861c.
+
+## What remains
+
+The generated crate does not compile (`cargo test`: 18,799 errors).
+
+- 18,784 `E0404 expected trait, found struct Fn`: ts-pattern declares a type
+  `Fn` (`unstable_Fn`), emitted as `struct Fn`, which shadows the `Fn` trait
+  every closure type uses. `sanitize_identifier` in
+  `crates/smelt-codegen-rust/src/rust.rs` renames only `Box Vec Option Result
+  String Some None Ok Err main`; the general fix is the whole Rust prelude
+  (`Fn FnMut FnOnce Clone Copy Default Drop Iterator Into From ...`). Not made:
+  codegen, and disk was below the 25 GB stop line.
+- 8 `E0433 indexmap`: the crate uses `indexmap` without declaring it.
+- 4 `_` used as an identifier; 2 derive token errors.
+- 1 `E0428 is_matching` defined twice.
+- Pre-existing codegen gap, also on base: a `static` and an instance member of
+  one name (`static [P.matcher]()` and `[P.matcher]()`, or `static foo` and
+  `foo`) emit two Rust methods of one name (`E0592`).
+- `E[k]` reverse mapping with an out-of-range numeric key yields `""` (the
+  record read default) where JavaScript yields `undefined`, which TypeScript
+  types `string`.
