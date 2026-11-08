@@ -289,6 +289,14 @@ impl FunctionEmitter<'_> {
                 self.rendered_at_type(&self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null")), self.type_id(Type::Unknown)?, *inner, scope)?
             )));
         }
+        // The same distinction in a `null | undefined` slot (`Option<()>`, see
+        // the frontend's `null_or_undefined_join`): `null` is the present unit.
+        if matches!(operand, Operand::Const(Constant::None))
+            && let Some(Type::Optional(inner)) = self.mir.types.get(target)
+            && *inner == self.none_ty
+        {
+            return Ok(RustExpr::chain("Some(())"));
+        }
         if matches!(
             operand,
             Operand::Const(Constant::None | Constant::Undefined)

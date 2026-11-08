@@ -26,6 +26,12 @@ pub struct SmeltSymbol(::std::rc::Rc<str>);
 impl SmeltSymbol {
     /// The symbol a frontend spelling names.
     fn from_spelling(spelling: &str) -> Self { Self(spelling.into()) }
+    //~ Each `Symbol(d)` site counts its evaluations per thread. The first keeps
+    //~ the site's spelling, which is what a key folded from the site at compile
+    //~ time names; later ones append `#<n>`, which no fold produces, so they
+    //~ are distinct symbols with the same description.
+    /// A `Symbol(d)` evaluation at the site `base` names: a fresh symbol.
+    fn unique(base: SmeltSymbol) -> SmeltSymbol { thread_local! { static SMELT_SYMBOL_EVALUATIONS: ::std::cell::RefCell<::std::collections::HashMap<::std::rc::Rc<str>, u64>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); } let count = SMELT_SYMBOL_EVALUATIONS.with(|counts| { let mut counts = counts.borrow_mut(); let count = counts.entry(base.0.clone()).or_insert(0); let seen = *count; *count += 1; seen }); if count == 0 { base } else { Self(format!("{}#{count}", base.0).into()) } }
     /// The symbol an erased `SmeltUnknown::Symbol` payload names.
     fn from_shared(spelling: ::std::rc::Rc<str>) -> Self { Self(spelling) }
     /// The opaque spelling this symbol is identified by.
@@ -85,8 +91,11 @@ mod smelt_prop_key {
         /// The string an ERASED object stores this key under: a string key is
         /// itself and a symbol key its reserved `__smelt_symbol` spelling.
         pub fn storage_key(&self) -> JsString { match &self.0 { SmeltPropKeyRepr::String(text) => text.clone(), SmeltPropKeyRepr::Symbol(symbol) => JsString::from(symbol.storage_key()) } }
-        /// The inverse of [`Self::storage_key`]: a key read off an erased object.
-        pub fn from_storage_key(key: &JsString) -> Self { let text = key.to_string_lossy(); match smelt_own_symbol_key_value(&text) { Some(SmeltUnknown::Symbol(spelling)) => Self(SmeltPropKeyRepr::Symbol(SmeltSymbol::from_shared(spelling))), _ => Self(SmeltPropKeyRepr::String(key.clone())) } }
+        //~ A string only names a symbol when it carries the reserved prefix, so
+        //~ the common key never leaves the borrowed check.
+        /// The inverse of [`Self::storage_key`]: a key read off an erased object,
+        /// or a string slot holding a symbol key in its reserved spelling.
+        pub fn from_storage_key(key: &JsString) -> Self { if !key.eq_str_prefix("__smelt_symbol") { return Self(SmeltPropKeyRepr::String(key.clone())); } match smelt_own_symbol_key_value(&key.to_string_lossy()) { Some(SmeltUnknown::Symbol(spelling)) => Self(SmeltPropKeyRepr::Symbol(SmeltSymbol::from_shared(spelling))), _ => Self(SmeltPropKeyRepr::String(key.clone())) } }
         /// The array index this key names, when it is a canonical one.
         fn array_index(&self) -> Option<u32> { match &self.0 { SmeltPropKeyRepr::String(text) => text.smelt_array_index(), SmeltPropKeyRepr::Symbol(_) => None } }
         /// Where JavaScript's own-key order puts this key: array indices first
@@ -100,8 +109,11 @@ mod smelt_prop_key {
     //~ Only a placeholder for a slot codegen declares before its first write.
     impl Default for SmeltPropKey { fn default() -> Self { Self(SmeltPropKeyRepr::String(JsString::new())) } }
     impl SmeltJsKeyEq for SmeltPropKey { fn same_js_key(&self, other: &Self) -> bool { self == other } fn js_key_hash(&self) -> Option<u64> { Some(smelt_js_hash_one(self)) } }
-    impl IntoSmeltUnknown for SmeltPropKey { fn into_smelt_unknown(self) -> SmeltUnknown { self.to_unknown() } }
-    impl SmeltFromUnknown for SmeltPropKey { fn smelt_from_unknown(value: SmeltUnknown) -> Self { value.smelt_to_prop_key() } }
+    //~ Deliberately no `IntoSmeltUnknown`/`SmeltFromUnknown` here: those are
+    //~ what `SmeltJsMap<K, _>`'s MAP adapters require of `K`, and a record
+    //~ keyed by property keys is an object, not a Map. Without them the two
+    //~ record adapters below are the only erasure a property-key record has.
+    //~ A key crosses through `to_unknown` and `smelt_to_prop_key`.
 
     /// JavaScript's `ToPropertyKey`: the one constructor of [`SmeltPropKey`].
     pub trait SmeltToPropKey {
@@ -110,8 +122,11 @@ mod smelt_prop_key {
     }
 
     impl SmeltToPropKey for SmeltPropKey { fn smelt_to_prop_key(&self) -> SmeltPropKey { self.clone() } }
-    impl SmeltToPropKey for JsString { fn smelt_to_prop_key(&self) -> SmeltPropKey { SmeltPropKey(SmeltPropKeyRepr::String(self.clone())) } }
-    impl SmeltToPropKey for str { fn smelt_to_prop_key(&self) -> SmeltPropKey { SmeltPropKey(SmeltPropKeyRepr::String(JsString::from(self))) } }
+    //~ A string is its own key, except Smelt's reserved symbol spelling: a
+    //~ statically folded `{ [K]: v }` key, and a symbol held in a `keyof T`
+    //~ (`string`) slot, are stored under it, and both name the symbol.
+    impl SmeltToPropKey for JsString { fn smelt_to_prop_key(&self) -> SmeltPropKey { SmeltPropKey::from_storage_key(self) } }
+    impl SmeltToPropKey for str { fn smelt_to_prop_key(&self) -> SmeltPropKey { SmeltPropKey::from_storage_key(&JsString::from(self)) } }
     impl SmeltToPropKey for String { fn smelt_to_prop_key(&self) -> SmeltPropKey { self.as_str().smelt_to_prop_key() } }
     impl SmeltToPropKey for SmeltSymbol { fn smelt_to_prop_key(&self) -> SmeltPropKey { SmeltPropKey(SmeltPropKeyRepr::Symbol(self.clone())) } }
     //~ A number key is its canonical `Number::toString`: `1.0` is `"1"`, `-0`
@@ -151,11 +166,18 @@ fn smelt_prop_key_string_entries<V: Clone>(map: &SmeltJsMap<SmeltPropKey, V>) ->
 /// `Object.getOwnPropertySymbols`: the symbol keys, in insertion order.
 fn smelt_prop_key_symbols<V: Clone>(map: &SmeltJsMap<SmeltPropKey, V>) -> Vec<SmeltSymbol> { map.iter().filter_map(|(key, _)| key.as_symbol().cloned()).collect() }
 
+//~ The erasure adapters of a property-key record: a plain object whose symbol
+//~ keys are stored under their reserved spelling, and back.
+impl<V: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltJsMap<SmeltPropKey, V> { fn into_smelt_unknown(self) -> SmeltUnknown { smelt_prop_key_record_to_unknown(&self, IntoSmeltUnknown::into_smelt_unknown) } }
+impl<V: SmeltFromUnknown> SmeltFromUnknown for SmeltJsMap<SmeltPropKey, V> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { smelt_prop_key_record_from_unknown(value, V::smelt_from_unknown) } }
+
 /// A property-key record from an erased object's own entries.
 fn smelt_prop_key_record_from_unknown<V>(value: SmeltUnknown, mut item: impl FnMut(SmeltUnknown) -> V) -> SmeltJsMap<SmeltPropKey, V> { match value { SmeltUnknown::Object(values) => values.into_iter().map(|(key, value)| (SmeltPropKey::from_storage_key(&key), item(value))).collect(), SmeltUnknown::Array(values) => values.into_vec().into_iter().enumerate().map(|(index, value)| (index.smelt_to_prop_key(), item(value))).collect(), _ => SmeltJsMap::new() } }
 
 /// A property-key record as an erased object, symbol keys under their reserved
 /// storage spelling.
-fn smelt_prop_key_record_to_unknown<V: Clone>(map: &SmeltJsMap<SmeltPropKey, V>, mut item: impl FnMut(V) -> SmeltUnknown) -> SmeltUnknown { SmeltUnknown::Object(SmeltObject::new(smelt_prop_key_entries(map).into_iter().map(|(key, value)| (key.storage_key(), item(value))).collect())) }
+//~ The object keeps the record's own id, so erasing one record twice gives
+//~ two `===` values, as erasing one object does.
+fn smelt_prop_key_record_to_unknown<V: Clone>(map: &SmeltJsMap<SmeltPropKey, V>, mut item: impl FnMut(V) -> SmeltUnknown) -> SmeltUnknown { SmeltUnknown::Object(SmeltObject::with_id(map.id, smelt_prop_key_entries(map).into_iter().map(|(key, value)| (key.storage_key(), item(value))).collect())) }
 
 // @smelt:item-end

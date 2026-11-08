@@ -139,6 +139,21 @@ impl ModuleBuilder<'_> {
                     format!("literal type annotation is not lowered yet: {ty:?}"),
                 )),
             },
+            // `null | undefined` (and nothing else) keeps which of the two a
+            // value is: `Optional<None>`, present unit for `null`, as the
+            // ternary join `c ? null : undefined` does (see
+            // `null_or_undefined_join`). With any other arm the two collapse
+            // into that arm's `Optional`, as everywhere else.
+            TSType::TSUnionType(union)
+                if union.types.iter().any(|member| matches!(member, TSType::TSNullKeyword(_)))
+                    && union.types.iter().any(|member| matches!(member, TSType::TSUndefinedKeyword(_)))
+                    && union.types.iter().all(|member| {
+                        matches!(member, TSType::TSNullKeyword(_) | TSType::TSUndefinedKeyword(_))
+                    }) =>
+            {
+                let none = self.ctx.krate.types.intern(Type::None);
+                Ok(self.ctx.krate.types.intern(Type::Optional(none)))
+            }
             TSType::TSUnionType(union) => {
                 let mut lowered = Vec::new();
                 let mut nullish = Vec::new();

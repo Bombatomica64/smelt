@@ -272,10 +272,23 @@ fn generic_record_helpers_instantiate_from_their_arguments() -> TestResult {
     let rust = fs::read_dir(root.join("dist/src"))?
         .map(|entry| fs::read_to_string(entry?.path()))
         .collect::<Result<String, _>>()?;
-    // `s` binds `V := string`, a string-keyed record; `r` binds `V := number`,
-    // a number-keyed record (the backing `Record<K, V>` takes for a key that is
-    // not a plain string), with typed values.
-    for typed in ["let s: SmeltRecord<JsString, JsString>", "let r: SmeltJsMap<f64, JsString>"] {
+    // Both results are `Record<V, K>` with a type-parameter key, so both are
+    // property-key records (`SmeltJsMap<SmeltPropKey, _>`): whatever `V` a
+    // call binds, the record stores `ToPropertyKey` of each key. The values
+    // are the inverted KEYS, bound to `K`'s constraint `PropertyKey`, a
+    // concrete union, never erased.
+    //
+    // Old requirement: `let s: SmeltRecord<JsString, JsString>` and
+    // `let r: SmeltJsMap<f64, JsString>`. The second stored the raw number key
+    // (`r[1]` and `r['1']` were two entries), which is the defect property-key
+    // records fix, and `K := string` held the inverted keys only because this
+    // program's keys happen to be names: `invert({ 1: 'a' })` makes TypeScript
+    // bind `K := 1` while the value is the string `'1'` (`Object.keys(obj) as
+    // K[]`), which no `f64` holds. `property_key_cli_tests` runs that case.
+    for typed in [
+        "let s: SmeltJsMap<SmeltPropKey, SmeltUnion",
+        "let r: SmeltJsMap<SmeltPropKey, SmeltUnion",
+    ] {
         common::ensure(rust.contains(typed), format!("generated crate must spell `{typed}`"))?;
     }
     Ok(())

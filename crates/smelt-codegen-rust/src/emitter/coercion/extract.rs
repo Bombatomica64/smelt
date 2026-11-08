@@ -285,7 +285,7 @@ impl FunctionEmitter<'_> {
                 "<SmeltSymbol as SmeltFromUnknown>::smelt_from_unknown({smelt_owned_text})"
             )))),
             Some(Type::PropKey) => Ok(RustExpr::chain(self.carrier_format(format_args!(
-                "<SmeltPropKey as SmeltFromUnknown>::smelt_from_unknown({smelt_owned_text})"
+                "SmeltToPropKey::smelt_to_prop_key(&({smelt_owned_text}))"
             )))),
             Some(Type::BigInt) => Ok(RustExpr::atom(self.carrier_format(format_args!(
                 "match {smelt_owned_text} {{ SmeltUnknown::BigInt(value) => value, SmeltUnknown::Number(value) => smelt_bigint_from_number(value).unwrap_or_default(), SmeltUnknown::String(value) => smelt_bigint_from_string(&value).unwrap_or_default(), SmeltUnknown::Bool(value) => {big}::from(i64::from(value)), SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => {big}::default() }}",

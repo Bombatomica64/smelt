@@ -108,10 +108,21 @@ impl ModuleBuilder<'_> {
         } else {
             unique_symbol_spelling(&description, self.span(call.span.start, call.span.end))
         };
-        Ok(Some(body.push_expr(Expr {
+        let span = self.span(call.span.start, call.span.end);
+        let literal = body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::Symbol(value)),
             ty,
-            span: self.span(call.span.start, call.span.end),
+            span,
+        });
+        // A registry symbol is the same symbol at every evaluation; a unique
+        // one is new at every evaluation (`mk() !== mk()`).
+        if global {
+            return Ok(Some(literal));
+        }
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::SymbolUnique { base: literal },
+            ty,
+            span,
         })))
     }
 

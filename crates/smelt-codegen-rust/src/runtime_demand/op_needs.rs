@@ -439,6 +439,7 @@ impl RuntimeDemand {
             | Rvalue::ObjectToStringTag { .. }
             // The operand's `Symbol` type already demands `Need::Symbol`.
             | Rvalue::SymbolDescription { .. }
+            | Rvalue::SymbolUnique { .. }
             | Rvalue::StringTrim { .. }
             | Rvalue::StringAffix { .. }
             | Rvalue::StringReplace { .. }

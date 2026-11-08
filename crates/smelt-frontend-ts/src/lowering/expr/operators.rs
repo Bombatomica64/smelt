@@ -298,7 +298,14 @@ impl ModuleBuilder<'_> {
             ));
         }
 
+        // The module's object constant only when the name IS it: a parameter
+        // or local of the same name shadows it (`function has(r, k) { return
+        // k in r; }` beside a module `const r = {}`).
         if let Expression::Identifier(receiver_ident) = &receiver_expr
+            && !matches!(
+                self.resolve_value(receiver_ident.name.as_str()),
+                crate::lowering::resolve::ValueBinding::Local(_)
+            )
             && let Some(object_const) = self.consts.object(receiver_ident.name.as_str())
                 .cloned()
         {
@@ -436,6 +443,18 @@ impl ModuleBuilder<'_> {
             ));
         };
         let key_ty = *receiver_key_ty;
+        // A property-key record takes any key; codegen applies `ToPropertyKey`.
+        if matches!(self.ctx.krate.types.get(key_ty), Some(Type::PropKey)) {
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::DictContainsKey {
+                    dict: receiver,
+                    key,
+                    lookup: PropertyLookup::PrototypeChain,
+                },
+                ty: bool_ty,
+                span,
+            }));
+        }
         if Self::expr_ty(body, key) != key_ty
             && self.is_string_compatible_type(Self::expr_ty(body, key))
         {

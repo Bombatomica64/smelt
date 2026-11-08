@@ -348,6 +348,10 @@ impl FunctionEmitter<'_> {
             Rvalue::ObjectToStringTag { operand } => self.object_to_string_tag_expr(operand),
             // `SmeltSymbol::description` answers the `Option<JsString>` an
             // optional string is.
+            Rvalue::SymbolUnique { base } => {
+                let base = self.operand_expr(base)?;
+                Ok(RustExpr::chain(format!("SmeltSymbol::unique({base})")))
+            }
             Rvalue::SymbolDescription { operand } => {
                 let symbol = self.operand_expr(operand)?;
                 Ok(RustExpr::postfix_on(&symbol, format!("{symbol}.description()")))

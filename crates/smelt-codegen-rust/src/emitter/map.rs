@@ -1194,11 +1194,11 @@ impl FunctionEmitter<'_> {
     /// A projection of a property-key record (`SmeltJsMap<SmeltPropKey, _>`).
     ///
     /// `Object.keys`/`values`/`entries` and `for...in` see the string keys only,
-    /// `Object.getOwnPropertySymbols` the symbol keys only and `Reflect.ownKeys`
-    /// both; every one of them in own-key order (`smelt_prop_key_entries`).
-    /// The two symbol-reporting projections answer the erased element type the
-    /// frontend gives them on every record (`string | symbol` is not one Rust
-    /// type), so their symbols cross through `IntoSmeltUnknown`.
+    /// `Object.getOwnPropertySymbols` the symbol keys only (typed `symbol`s) and
+    /// `Reflect.ownKeys` both; every one of them in own-key order
+    /// (`smelt_prop_key_entries`). `Reflect.ownKeys` answers the erased element
+    /// type the frontend gives it on every record (`string | symbol` mixes two
+    /// kinds a consumer tells apart at run time).
     fn prop_key_projection_expr(
         &self,
         op: smelt_hir::DictProjectionOp,
@@ -1215,9 +1215,7 @@ impl FunctionEmitter<'_> {
                 format!("smelt_prop_key_string_entries(&{dict_ref}).into_iter().map(|(_, value)| value).collect::<Vec<_>>()")
             }
             smelt_hir::DictProjectionOp::Entries => format!("smelt_prop_key_string_entries(&{dict_ref})"),
-            smelt_hir::DictProjectionOp::Symbols => {
-                format!("smelt_prop_key_symbols(&{dict_ref}).into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<Vec<_>>()")
-            }
+            smelt_hir::DictProjectionOp::Symbols => format!("smelt_prop_key_symbols(&{dict_ref})"),
             smelt_hir::DictProjectionOp::OwnKeys => {
                 format!("smelt_prop_key_entries(&{dict_ref}).into_iter().map(|(key, _)| key.to_unknown()).collect::<Vec<_>>()")
             }

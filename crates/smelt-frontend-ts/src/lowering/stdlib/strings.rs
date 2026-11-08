@@ -1074,10 +1074,13 @@ impl ModuleBuilder<'_> {
                 | Type::TypeParam { .. },
             ) => true,
             Some(Type::Optional(item)) => self.array_join_item_type_supported(*item),
-            Some(Type::Union(items)) => items
-                .iter()
-                .copied()
-                .all(|item| self.array_join_item_type_supported(item)),
+            // A `symbol` arm of a union (`PropertyKey[]`) joins like the
+            // erased value it is; a list of nothing but symbols always throws
+            // in JavaScript and stays rejected.
+            Some(Type::Union(items)) => items.iter().copied().all(|item| {
+                self.ctx.krate.types.get(item) == Some(&Type::Symbol)
+                    || self.array_join_item_type_supported(item)
+            }),
             _ => false,
         }
     }

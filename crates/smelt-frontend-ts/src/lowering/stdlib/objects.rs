@@ -345,6 +345,22 @@ impl ModuleBuilder<'_> {
             ));
         };
         let value = self.argument(argument, body)?;
+        // A property-key record holds its symbol keys as typed symbols, so
+        // the projection reads them off the record itself, typed.
+        if let Some(Type::Dict(key, _)) = self.ctx.krate.types.get(Self::expr_ty(body, value))
+            && matches!(self.ctx.krate.types.get(*key), Some(Type::PropKey))
+        {
+            let symbol_ty = self.ctx.krate.types.intern(Type::Symbol);
+            let ty = self.ctx.krate.types.intern(Type::List(symbol_ty));
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::DictProjection {
+                    op: DictProjectionOp::Symbols,
+                    dict: value,
+                },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         let key_ty = self.ctx.krate.types.intern(Type::String);
         let value_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Object.getOwnPropertySymbols");
         let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
@@ -1264,6 +1280,21 @@ impl ModuleBuilder<'_> {
                 ));
             }
         };
+        // A property-key record takes the key as it is: codegen applies
+        // `ToPropertyKey` at the probe, so the probe, the insert and the read
+        // of `if (!Object.hasOwn(r, k)) r[k] = []; r[k].push(x)` all name one
+        // operand (which is what lets the guarded insert fuse into one entry).
+        if matches!(self.ctx.krate.types.get(key_ty), Some(Type::PropKey)) {
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::DictContainsKey {
+                    dict,
+                    key,
+                    lookup: PropertyLookup::Own,
+                },
+                ty: self.ctx.krate.types.intern(Type::Bool),
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         if Self::expr_ty(body, key) != key_ty && self.is_string_compatible_type(Self::expr_ty(body, key)) {
             key = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: key },

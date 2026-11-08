@@ -44,7 +44,7 @@ fn smelt_folded_symbol_key_spelling(key: &str) -> Option<String> { if let Some(e
 //~ without an argument has an empty description, so `Symbol()` and
 //~ `Symbol('')` both answer `undefined`.
 /// `symbol.description` of the symbol a spelling names.
-fn smelt_symbol_description(spelling: &str) -> Option<String> { if let Some(registry) = spelling.strip_prefix("Symbol.for(").and_then(|rest| rest.strip_suffix(')')) { return Some(registry.to_owned()); } let unique = spelling.rsplit_once('@').filter(|(_, site)| !site.is_empty() && site.bytes().all(|byte| byte.is_ascii_digit())).and_then(|(head, _)| head.strip_prefix("Symbol(").and_then(|rest| rest.strip_suffix(')'))); match unique { Some(unique) => (!unique.is_empty()).then(|| unique.to_owned()), None => Some(spelling.to_owned()) } }
+fn smelt_symbol_description(spelling: &str) -> Option<String> { if let Some(registry) = spelling.strip_prefix("Symbol.for(").and_then(|rest| rest.strip_suffix(')')) { return Some(registry.to_owned()); } let unique = spelling.rsplit_once('@').filter(|(_, site)| { let site = site.split_once('#').map_or(*site, |(site, _)| site); !site.is_empty() && site.bytes().all(|byte| byte.is_ascii_digit()) }).and_then(|(head, _)| head.strip_prefix("Symbol(").and_then(|rest| rest.strip_suffix(')'))); match unique { Some(unique) => (!unique.is_empty()).then(|| unique.to_owned()), None => Some(spelling.to_owned()) } }
 
 /// `String(symbol)`: `Symbol(<description>)`, the text JavaScript prints.
 fn smelt_symbol_to_string(spelling: &str) -> String { format!("Symbol({})", smelt_symbol_description(spelling).unwrap_or_default()) }

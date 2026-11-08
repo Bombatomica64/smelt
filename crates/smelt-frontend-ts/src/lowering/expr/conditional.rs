@@ -139,6 +139,42 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// `c ? null : undefined`: the one join of two `None` arms that must keep
+    /// which of the two it holds.
+    ///
+    /// TypeScript's `null` and `undefined` share `Type::None`, and a `None`
+    /// value is the unit `()`, so a value that is `null` on one path and
+    /// `undefined` on the other would print, compare and erase as whichever
+    /// spelling its type defaults to. When one arm is the `null` literal and
+    /// the other the `undefined` literal, the result is `Optional<None>`
+    /// instead: absent is `undefined` and present-unit is `null`, so both
+    /// survive a return, a comparison and an erasure. `None` when the arms are
+    /// not that pair.
+    fn null_or_undefined_join(
+        &mut self,
+        body: &Body,
+        then_expr: smelt_hir::ExprId,
+        else_expr: smelt_hir::ExprId,
+    ) -> Option<smelt_hir::TypeId> {
+        let then_literal = Self::nullish_literal_of(body, then_expr)?;
+        let else_literal = Self::nullish_literal_of(body, else_expr)?;
+        if then_literal == else_literal {
+            return None;
+        }
+        let none = self.ctx.krate.types.intern(Type::None);
+        Some(self.ctx.krate.types.intern(Type::Optional(none)))
+    }
+
+    /// `Some(true)` for a `null` literal arm, `Some(false)` for `undefined`.
+    fn nullish_literal_of(body: &Body, expr: smelt_hir::ExprId) -> Option<bool> {
+        match &body.expr_at(expr)?.kind {
+            ExprKind::Literal(smelt_hir::Literal::None) => Some(true),
+            ExprKind::Literal(smelt_hir::Literal::Undefined) => Some(false),
+            ExprKind::TypeAssert { value } => Self::nullish_literal_of(body, *value),
+            _ => None,
+        }
+    }
+
     /// Whether `ty` names a stdlib class backed by a concrete Rust runtime
     /// type (`StdlibClass::has_concrete_runtime_type`).
     fn concrete_stdlib_class_type(&self, ty: smelt_hir::TypeId) -> bool {
@@ -221,6 +257,8 @@ impl ModuleBuilder<'_> {
         };
         let ty = if let Some(joined) = never_join {
             joined
+        } else if let Some(nullish) = self.null_or_undefined_join(body, then_expr, else_expr) {
+            nullish
         } else if then_ty == else_ty {
             then_ty
         } else if self.numeric_type_compatible(then_ty, else_ty) {

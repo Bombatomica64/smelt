@@ -2250,6 +2250,12 @@ impl ModuleBuilder<'_> {
                 "const item expression references body-local state that cannot be inlined",
             ));
         }
+        // A constant is evaluated once, so every inlined read of it is that one
+        // evaluation: a `Symbol(d)` initializer is its first-evaluation symbol,
+        // never a fresh one per read (`x === partial.placeholder`).
+        if let ExprKind::SymbolUnique { base } = expr.kind {
+            return Self::clone_const_body_expr(source_body, base, target_body);
+        }
         let kind = expr.kind.try_map_child_exprs(&mut |child| {
             Self::clone_const_body_expr(source_body, child, target_body)
         })?;

@@ -22,6 +22,11 @@ impl FunctionEmitter<'_> {
         if self.mir.types.get(key).is_some_and(Type::is_text) {
             return Ok(RustExpr::chain(format!("{field_name:?}.to_owned()")).owned_literal());
         }
+        // A dotted member of a property-key record is the string key it names.
+        if self.mir.types.get(key) == Some(&Type::PropKey) {
+            let string_ty = self.type_id(Type::String)?;
+            return self.rendered_at_type(&RustExpr::js_string_literal(field_name), string_ty, key, &self.render_scope());
+        }
         if self.has_dynamic_shape(key)
         {
             return self.erase_rendered(

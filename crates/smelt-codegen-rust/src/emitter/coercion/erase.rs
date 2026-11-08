@@ -71,6 +71,15 @@ impl FunctionEmitter<'_> {
                     "{{ let smelt_record = {smelt_owned_text}; SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"
                 ))))
             }
+            // A property-key record erases through its runtime adapter: an
+            // object with its own id, keys in own-key order, symbols under
+            // their reserved spelling.
+            Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::PropKey) => {
+                let value_wrap = self.dict_erased_value_wrap(operand, *item)?;
+                Ok(RustExpr::chain(self.carrier_format(format_args!(
+                    "smelt_prop_key_record_to_unknown(&{text}, |value| {value_wrap})"
+                ))))
+            }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key).is_none_or(|candidate| !candidate.is_text()) => {
                 let key_wrap = self.property_key_to_string_expr(&RustExpr::path("key"), *key)?;
                 let value_wrap = self.dict_erased_value_wrap(operand, *item)?;
@@ -426,7 +435,8 @@ impl FunctionEmitter<'_> {
             // A symbol erases to the carrier's `Symbol` tag with its spelling,
             // a property key to the string or symbol it names: both through the
             // runtime's own `IntoSmeltUnknown` adapter.
-            Some(Type::Symbol | Type::PropKey) => Ok(RustExpr::postfix_on(&smelt_owned_value, self.carrier_format(format_args!("{smelt_owned_value}.into_smelt_unknown()")))),
+            Some(Type::Symbol) => Ok(RustExpr::postfix_on(&smelt_owned_value, self.carrier_format(format_args!("{smelt_owned_value}.into_smelt_unknown()")))),
+            Some(Type::PropKey) => Ok(RustExpr::postfix_on(&smelt_owned_value, self.carrier_format(format_args!("{smelt_owned_value}.to_unknown()")))),
             Some(Type::Int | Type::FixedInt(_) | Type::Float) => {
                 // Cast operand: a loose top-level operator must be parenthesized
                 // so `as f64` does not reassociate across it.
@@ -484,6 +494,12 @@ impl FunctionEmitter<'_> {
                 let value_wrap = self.erase_rendered(&RustExpr::path("value"), *item)?;
                 Ok(RustExpr::atom(self.carrier_format(format_args!(
                     "{{ let smelt_record = {smelt_owned_value}; SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"
+                ))))
+            }
+            Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::PropKey) => {
+                let value_wrap = self.erase_rendered(&RustExpr::path("value"), *item)?;
+                Ok(RustExpr::chain(self.carrier_format(format_args!(
+                    "smelt_prop_key_record_to_unknown(&({value_text}), |value| {value_wrap})"
                 ))))
             }
             Some(Type::Dict(key, item)) => {

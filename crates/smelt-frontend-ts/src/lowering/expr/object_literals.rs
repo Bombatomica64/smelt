@@ -899,6 +899,15 @@ impl ModuleBuilder<'_> {
             .all(|(key, _)| Self::expr_ty(body, *key) == string_ty)
         {
             string_ty
+        } else if entries.iter().all(|(key, _)| {
+            matches!(
+                self.ctx.krate.types.get(Self::expr_ty(body, *key)),
+                Some(Type::String | Type::Float | Type::Int | Type::FixedInt(_) | Type::Symbol | Type::PropKey)
+            )
+        }) {
+            // Computed keys that are strings, numbers and symbols are all
+            // property keys: the literal is a property-key record.
+            self.ctx.krate.types.intern(Type::PropKey)
         } else {
             self.erase_with(ErasureReason::DynamicOperator, "object literal key")
         };

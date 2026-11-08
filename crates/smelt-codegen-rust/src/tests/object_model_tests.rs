@@ -122,8 +122,11 @@ export function tagged(): unknown {
     );
 
     let body = emitted_function_body(&source, "fn tagged");
+    // The value is a typed `symbol` (was the erased `SmeltUnknown::Symbol`
+    // literal before symbols were a type), erased only where the `any` slot
+    // takes it.
     assert!(
-        body.contains("SmeltUnknown::Symbol(\"Symbol.toStringTag\""),
+        body.contains("SmeltSymbol::from_spelling(\"Symbol.toStringTag\")"),
         "a well-known symbol in value position must be a symbol:\n{body}"
     );
     assert!(

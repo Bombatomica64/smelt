@@ -23,6 +23,20 @@ use crate::lowering::ManifestLowering;
 use crate::scaffold;
 use crate::clean;
 
+/// The manifest path every subcommand works from, with symlinks resolved.
+///
+/// Every source, output and module key is derived from the manifest's
+/// directory, and parts of the pipeline canonicalize the paths they hold
+/// (module resolution, the checker bridge, the entry list) while others keep
+/// the spelling they were given. A manifest reached through a symlink then
+/// named one file two ways, and the build read different facts than the same
+/// build through the real directory. Resolving the one path everything is
+/// derived from makes the two builds identical. A manifest that does not exist
+/// yet (`smelt new`) keeps its spelling, and each subcommand reports it.
+fn canonical_manifest_path(path: PathBuf) -> PathBuf {
+    std::fs::canonicalize(&path).unwrap_or(path)
+}
+
 /// CLI entry point: one dispatch over every subcommand.
 ///
 /// # Errors
@@ -30,7 +44,9 @@ use crate::clean;
 /// Returns the failure of whichever subcommand ran.
 pub fn run() -> CliResult<()> {
     let args = Args::parse();
-    let manifest_path = PathBuf::from(args.manifest_path.unwrap_or_else(|| "Smelt.toml".to_owned()));
+    let manifest_path = canonical_manifest_path(PathBuf::from(
+        args.manifest_path.unwrap_or_else(|| "Smelt.toml".to_owned()),
+    ));
     match args.command {
         Command::DumpSchema => {
             let schema = schemars::schema_for!(Config);

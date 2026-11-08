@@ -538,6 +538,10 @@ impl ModuleBuilder<'_> {
                 let Expression::Identifier(object) = &member.object else {
                     return false;
                 };
+                // A local of the same name shadows the module constant.
+                if self.scope.lookup(object.name.as_str()).is_some() {
+                    return false;
+                }
                 self.consts.object(object.name.as_str())
                     .and_then(|object_const| {
                         object_const
