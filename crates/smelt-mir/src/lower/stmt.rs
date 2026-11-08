@@ -123,9 +123,34 @@ impl LoweringCtx<'_> {
     ) -> Result<(), LowerError> {
         let span = self.block()?.span;
         let break_target = self.function.push_block(span);
-        let enclosing = std::mem::replace(&mut self.pending_loop_label, loops.then_some(label));
+        // The source loop is the LAST statement of the labelled run: whatever
+        // the frontend desugars ahead of it (an iterator binding, a copied
+        // receiver) precedes it, and a desugaring prelude may itself hold a
+        // loop. So the label is announced only right before that statement,
+        // and the first loop body it lowers takes it.
+        let (prelude, labelled) = if loops {
+            let last = stmt_ids
+                .iter()
+                .rposition(|id| self.hir_stmt(*id).is_ok_and(is_loop_stmt))
+                .or_else(|| stmt_ids.len().checked_sub(1))
+                .unwrap_or_default();
+            stmt_ids.split_at(last)
+        } else {
+            (stmt_ids, &[][..])
+        };
+        let enclosing = self.pending_loop_label.take();
         let lowered = self.with_scope(ControlScope::Label(LabelScope { label, break_target }), |this| {
-            this.lower_stmt_run(stmt_ids)?;
+            this.lower_stmt_run(prelude)?;
+            if !labelled.is_empty() {
+                this.pending_loop_label = Some(label);
+                this.lower_stmt_run(labelled)?;
+                // Unconsumed after a live run means the loop never opened a
+                // body, and a `continue label` inside would find no target.
+                // Dead code after a `return` lowers nothing and is fine.
+                if this.pending_loop_label.take().is_some() && !this.is_terminated()? {
+                    return Err(this.error("a labelled loop lowered without a loop body to carry its label", None));
+                }
+            }
             this.terminate_if_open(Terminator::Goto(break_target))
         });
         self.pending_loop_label = enclosing;
@@ -982,4 +1007,16 @@ impl FinallyPlan {
         ctx.switch_to(rethrow_block);
         ctx.lower_throw(Operand::Copy(Place::Local(self.thrown)))
     }
+}
+
+/// Whether `stmt` is an iteration statement, the kind a `continue label` can
+/// target.
+fn is_loop_stmt(stmt: &HirStmt) -> bool {
+    matches!(
+        stmt,
+        HirStmt::While { .. }
+            | HirStmt::WhileUpdate { .. }
+            | HirStmt::WhileUpdateBlock { .. }
+            | HirStmt::For { .. }
+    )
 }

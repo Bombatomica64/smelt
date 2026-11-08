@@ -68,7 +68,7 @@ pub(super) struct LoweringCtx<'hir> {
     pub(super) scopes: Vec<ControlScope>,
     /// The label of the labelled loop whose region is being lowered and whose
     /// loop scope has not been opened yet; the next `lower_loop_body` takes it.
-    pub(super) pending_loop_label: Option<smelt_hir::Symbol>,
+    pub(super) pending_loop_label: Option<Symbol>,
     /// Numeric type used for generated index-based loop counters.
     pub(super) loop_index_ty: TypeId,
     /// Boolean type used for generated loop conditions.

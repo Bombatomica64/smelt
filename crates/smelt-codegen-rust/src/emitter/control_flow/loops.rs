@@ -19,21 +19,39 @@ impl FunctionEmitter<'_> {
         let Some(jump) = self.flow.enclosing_loop_jump(target) else {
             return Ok(false);
         };
-        match jump {
-            LoopJump::Continue { header, latch } => {
-                if let Some(latch) = latch {
-                    for statement in &self.block(latch)?.statements {
-                        self.emit_statement(statement, out)?;
-                    }
-                }
-                out.push_str(&format!("    continue {};\n", loop_label(header)));
-            }
-            LoopJump::Break { header } => {
-                out.push_str(&format!("    break {};\n", loop_label(header)));
+        self.emit_loop_jump(jump, out)?;
+        Ok(true)
+    }
+
+    /// Writes `jump`: the latch statements a `continue` must run first, then
+    /// the jump statement itself.
+    pub(in crate::emitter) fn emit_loop_jump(&self, jump: LoopJump, out: &mut String) -> Result<(), EmitError> {
+        if let Some(latch) = jump.latch() {
+            for statement in &self.block(latch)?.statements {
+                self.emit_statement(statement, out)?;
             }
         }
+        out.push_str(&jump.statement());
         self.flow.record(Flow::Diverges);
-        Ok(true)
+        Ok(())
+    }
+
+    /// Closes a cycle a region walker found: `block` is already on the path
+    /// being emitted.
+    ///
+    /// The cycle is a `continue` only when `block` heads, or ends an iteration
+    /// of, the innermost generated loop, which is where a Rust `continue`
+    /// goes. Any other re-entered block is a loop the walker did not
+    /// recognise; a bare `continue` there restarts the wrong loop (it skipped
+    /// the outer update of a source `continue outer` and never terminated),
+    /// and ending the region drops the cycle. Both are silent miscompiles, so
+    /// it is an error.
+    fn emit_region_cycle(&self, block: smelt_mir::BlockId, out: &mut String) -> Result<(), EmitError> {
+        if self.flow.is_innermost_loop_continue(block) {
+            out.push_str("    continue;\n");
+            return Ok(());
+        }
+        Err(self.unstructured_control_flow(format!("block {} closes a cycle outside the loop being emitted", block.0)))
     }
 
     /// Opens the loop of a `while` header: a plain `while cond` when the header
@@ -759,16 +777,13 @@ impl FunctionEmitter<'_> {
         out: &mut String,
     ) -> Result<(), EmitError> {
         let limit = self.function.blocks.len().saturating_mul(8).max(128);
+        // The bound is structural: a structured region is at most a few
+        // passes over the function's blocks. Past it the walker is cycling
+        // through a shape it cannot structure, and the only honest answer is
+        // an error. It used to surrender with `break`, which silently dropped
+        // the rest of the loop body from the generated program.
         let Some(_depth) = self.flow.enter_until(limit) else {
-            out.push_str("    // Smelt could not structurally emit this nested loop edge yet.\n");
-            // Surrendering with `break` is only legal inside the generated loop
-            // this region belongs to; a forward join region has no enclosing
-            // loop, so it surrenders by simply ending (the caller still emits
-            // the join after it).
-            if matches!(exit, RegionExit::LoopBody { .. }) {
-                out.push_str("    break;\n");
-            }
-            return Ok(());
+            return Err(self.unstructured_control_flow(format!("nested loop regions exceed {limit} levels")));
         };
         self.emit_block_until_goto_inner(block, stop, exit, out, &mut BlockIdSet::default())
     }
@@ -793,14 +808,7 @@ impl FunctionEmitter<'_> {
             return Ok(());
         }
         if !visited.insert(block.id) {
-            // Re-entering a block already on this path is a cycle. Inside a
-            // generated loop that cycle is the loop's own back edge, so it
-            // renders as `continue`; a forward join region has no enclosing
-            // loop, so the only compilable rendering is to end the region.
-            if matches!(exit, RegionExit::LoopBody { .. }) {
-                out.push_str("    continue;\n");
-            }
-            return Ok(());
+            return self.emit_region_cycle(block.id, out);
         }
         if self.emit_nested_loop_until_goto(block, stop, exit, out, visited)? {
             return Ok(());
@@ -982,8 +990,7 @@ impl FunctionEmitter<'_> {
             return Ok(());
         }
         if !visited.insert(block.id) {
-            out.push_str("    continue;\n");
-            return Ok(());
+            return self.emit_region_cycle(block.id, out);
         }
         if self.emit_nested_loop_until_goto(
             block,

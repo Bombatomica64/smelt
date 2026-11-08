@@ -86,12 +86,51 @@ pub(crate) enum LoopJump {
         header: smelt_mir::BlockId,
         /// The latch block whose statements run before the jump.
         latch: Option<smelt_mir::BlockId>,
+        /// Whether the jump names the loop (it is not the innermost one).
+        labelled: bool,
     },
     /// Leave the loop headed by `header`.
     Break {
         /// The loop's header.
         header: smelt_mir::BlockId,
+        /// Whether the jump names the loop (it is not the innermost one).
+        labelled: bool,
     },
+}
+
+impl LoopJump {
+    /// The same jump, naming its loop by label.
+    fn labelled(self) -> Self {
+        match self {
+            Self::Continue { header, latch, .. } => Self::Continue {
+                header,
+                latch,
+                labelled: true,
+            },
+            Self::Break { header, .. } => Self::Break {
+                header,
+                labelled: true,
+            },
+        }
+    }
+
+    /// The rendered jump statement (`continue 'smelt_loop_N;`, `break;`).
+    pub(crate) fn statement(self) -> String {
+        match self {
+            Self::Continue { header, labelled: true, .. } => format!("    continue {};\n", loop_label(header)),
+            Self::Continue { labelled: false, .. } => "    continue;\n".to_owned(),
+            Self::Break { header, labelled: true } => format!("    break {};\n", loop_label(header)),
+            Self::Break { labelled: false, .. } => "    break;\n".to_owned(),
+        }
+    }
+
+    /// The latch whose statements run before a `continue`, if any.
+    pub(crate) fn latch(self) -> Option<smelt_mir::BlockId> {
+        match self {
+            Self::Continue { latch, .. } => latch,
+            Self::Break { .. } => None,
+        }
+    }
 }
 
 /// The Rust label of the generated loop headed by `header`.
@@ -346,29 +385,66 @@ impl ControlFlowState {
         {
             return None;
         }
-        for open in enclosing.iter_mut().rev() {
-            if target == open.continue_target {
-                open.labelled = true;
-                return Some(LoopJump::Continue {
+        let (index, jump) = Self::jump_into(enclosing, target)?;
+        if let Some(open) = enclosing.get_mut(index) {
+            open.labelled = true;
+        }
+        Some(LoopJump::labelled(jump))
+    }
+
+    /// The jump an edge to `target` needs when it ends an iteration of, or
+    /// leaves, ANY open loop, the innermost included (as a plain
+    /// `continue`/`break`); `None` when `target` belongs to no open loop.
+    pub(crate) fn open_loop_jump(&self, target: smelt_mir::BlockId) -> Option<LoopJump> {
+        let mut loops = self.open_loops.borrow_mut();
+        let innermost = loops.len().checked_sub(1)?;
+        let (index, jump) = Self::jump_into(&loops[..], target)?;
+        if index == innermost {
+            return Some(jump);
+        }
+        if let Some(open) = loops.get_mut(index) {
+            open.labelled = true;
+        }
+        Some(LoopJump::labelled(jump))
+    }
+
+    /// The nearest loop of `loops` (innermost last) that `target` ends an
+    /// iteration of or leaves, with its index and the unlabelled jump.
+    fn jump_into(loops: &[OpenLoop], target: smelt_mir::BlockId) -> Option<(usize, LoopJump)> {
+        loops.iter().enumerate().rev().find_map(|(index, open)| {
+            let jump = if target == open.continue_target {
+                LoopJump::Continue {
                     header: open.header,
                     latch: open.has_latch.then_some(open.continue_target),
-                });
-            }
-            if target == open.header {
+                    labelled: false,
+                }
+            } else if target == open.header {
                 // Straight to the header: Rust's `continue` re-runs it
                 // without the latch statements, as the edge does.
-                open.labelled = true;
-                return Some(LoopJump::Continue {
+                LoopJump::Continue {
                     header: open.header,
                     latch: None,
-                });
-            }
-            if Some(target) == open.break_block {
-                open.labelled = true;
-                return Some(LoopJump::Break { header: open.header });
-            }
-        }
-        None
+                    labelled: false,
+                }
+            } else if Some(target) == open.break_block {
+                LoopJump::Break {
+                    header: open.header,
+                    labelled: false,
+                }
+            } else {
+                return None;
+            };
+            Some((index, jump))
+        })
+    }
+
+    /// Whether `block` heads, or ends an iteration of, the innermost open
+    /// loop, so that a cycle closing on it is that loop's own `continue`.
+    pub(crate) fn is_innermost_loop_continue(&self, block: smelt_mir::BlockId) -> bool {
+        self.open_loops
+            .borrow()
+            .last()
+            .is_some_and(|open| block == open.header || block == open.continue_target)
     }
 
     /// Whether a generated loop is open around the code being emitted.

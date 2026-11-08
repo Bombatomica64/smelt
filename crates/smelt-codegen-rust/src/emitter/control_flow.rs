@@ -3,7 +3,7 @@
 
 use crate::rust::RustExpr;
 use super::*;
-use super::flow_state::{Flow, LoopJump, loop_label};
+use super::flow_state::{Flow, LoopJump};
 
 mod assign;
 mod calls;
@@ -150,11 +150,11 @@ impl FunctionEmitter<'_> {
             return Ok(());
         }
         let limit = self.function.blocks.len().saturating_mul(2).max(16);
+        // Past this structural bound emission is re-entering a cycle it did
+        // not structure; it used to write a default `return` in place of the
+        // rest of the body, a silent miscompile, so it is an error.
         let Some(_depth) = self.flow.enter_block(limit) else {
-            out.push_str("    // Smelt could not structurally emit this recursive control-flow region yet.\n");
-            out.push_str(&self.default_return_statement()?);
-            self.flow.record(Flow::Diverges);
-            return Ok(());
+            return Err(self.unstructured_control_flow(format!("block emission exceeds {limit} levels")));
         };
         stacker::maybe_grow(256 * 1024, 4 * 1024 * 1024, || {
             self.emit_block_body(block, out)
@@ -486,13 +486,26 @@ impl FunctionEmitter<'_> {
                 // it, so the edge out of a `try` handler to the code after the
                 // `try` also points backwards by id. It is a back edge only
                 // when the target can come back to this block.
+                //
+                // An edge to an open generated loop's header, latch or exit is
+                // that loop's `continue`/`break` (labelled when it is not the
+                // innermost). Any other back edge is a cycle no loop was
+                // opened for: re-emitting a tail that terminates is fine, but a
+                // cycle that does not used to become a default `return`, which
+                // silently replaced the rest of the function. It is an error.
+                if let Some(jump) = self.flow.open_loop_jump(*target) {
+                    return self.emit_loop_jump(jump, out);
+                }
                 if target.0 <= current.0
                     && self.block_can_reach(*target, current, &mut BlockIdSet::default())
                 {
                     if self.block_eventually_terminates(*target, &mut BlockIdSet::default())? {
                         return self.emit_block(self.block(*target)?, out);
                     }
-                    return self.emit_fallthrough_return(out);
+                    return Err(self.unstructured_control_flow(format!(
+                        "the edge from block {} back to block {} closes a cycle no loop was opened for",
+                        current.0, target.0
+                    )));
                 }
                 self.emit_block(self.block(*target)?, out)
             }
@@ -639,18 +652,13 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Emits a type-correct conservative return for unsupported control-flow regions.
-    fn default_return_statement(&self) -> Result<String, EmitError> {
-        let value = self.default_value(self.function.return_ty)?;
-        if self.function.can_throw {
-            self.binding_uses.record_early_return();
-            Ok(format!(
-                "    return Ok::<_, {ERROR_BOX}>({value});\n", value = value.delimited()
-            ))
-        } else {
-            Ok(format!("    return {value};\n", value = value.delimited()))
-        }
+    /// The error for a function body whose control flow the structured
+    /// emitter cannot render faithfully, naming the function and `detail`.
+    pub(super) fn unstructured_control_flow(&self, detail: String) -> EmitError {
+        let name = self.symbol_name(self.function.name).unwrap_or("<unnamed>");
+        EmitError::new(format!("control flow of `{name}` could not be structured: {detail}"))
     }
+
 }
 
 /// Returns successor blocks for MIR terminators that continue execution.

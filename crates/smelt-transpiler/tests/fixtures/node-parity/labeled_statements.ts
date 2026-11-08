@@ -78,3 +78,89 @@ spin: do {
   break spin;
 } while (true);
 console.log(countdown);
+
+// `break outer` from two loops deep, and `continue outer` from inside a
+// `switch` (whose own `break` only leaves the switch).
+function grid(n: number): string {
+  const out: string[] = [];
+  outer: for (let a = 0; a < n; a++) {
+    for (let b = 0; b < n; b++) {
+      for (let c = 0; c < n; c++) {
+        if (a + b + c === 4) break outer;
+        switch (c) {
+          case 1:
+            continue outer;
+          case 0:
+            out.push(`${a}${b}`);
+            break;
+        }
+      }
+    }
+  }
+  return out.join(" ");
+}
+console.log(grid(3));
+
+// `continue outer` that crosses a `finally`, and a labelled `for..of` over a
+// Map whose iteration lowers through a prelude.
+function scores(m: Map<string, number[]>): string {
+  const log: string[] = [];
+  people: for (const [name, xs] of m) {
+    for (const x of xs) {
+      try {
+        if (x < 0) continue people;
+        log.push(`${name}${x}`);
+      } finally {
+        log.push(".");
+      }
+    }
+    log.push("|");
+  }
+  return log.join("");
+}
+console.log(scores(new Map([["a", [1, -1, 2]], ["b", [3]]])));
+
+// An unlabelled `break` inside a labelled block leaves the enclosing loop,
+// not the block; `break block` leaves only the block.
+function blockInLoop(xs: number[]): string {
+  const out: string[] = [];
+  for (const x of xs) {
+    block: {
+      if (x === 2) break block;
+      if (x === 4) break;
+      out.push(String(x));
+    }
+    out.push(";");
+  }
+  return out.join("");
+}
+console.log(blockInLoop([1, 2, 3, 4, 5]));
+
+// Labels inside a generator body.
+function* evens(rows: number[][]): Generator<number, void, void> {
+  row: for (const r of rows) {
+    for (const v of r) {
+      if (v < 0) continue row;
+      if (v % 2 === 0) yield v;
+    }
+  }
+}
+console.log([...evens([[1, 2, -3, 4], [6, 7, 8]])].join(","));
+
+// A labelled `while` whose body nests a `do`/`while`, left from the inner
+// loop by `continue` of the outer label.
+function nestedWhile(limit: number): number {
+  let i = 0;
+  let hits = 0;
+  outer: while (i < limit) {
+    i++;
+    let j = 0;
+    do {
+      j++;
+      if (j > i) continue outer;
+      hits++;
+    } while (j < 3);
+  }
+  return hits;
+}
+console.log(nestedWhile(5));

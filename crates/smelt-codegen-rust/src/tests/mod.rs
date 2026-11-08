@@ -78,6 +78,7 @@ fn emitted_function_body<'a>(source: &'a str, signature: &str) -> &'a str {
 }
 
 mod carrier_trial_tests;
+mod labelled_loop_tests;
 mod local_binding_tests;
 mod name_rule_tests;
 mod edition_tests;
