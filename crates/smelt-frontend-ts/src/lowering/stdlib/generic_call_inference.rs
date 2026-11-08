@@ -121,8 +121,7 @@ impl ModuleBuilder<'_> {
         // not what the source says, so only without the checker's answer does
         // it stand for a candidate.
         if resolved.is_none() {
-            let span = self.span(call.span.start, call.span.end);
-            self.widen_call_bindings(type_params, params, args, body, &mut substitutions, span)?;
+            self.widen_call_bindings(type_params, params, args, body, &mut substitutions);
         }
         let mut explicit_bindings: Vec<_> =
             self.explicit_call_type_bindings(type_params, call).unwrap_or_default().into_iter().collect();
@@ -214,13 +213,6 @@ impl ModuleBuilder<'_> {
 
     /// Replace bindings with the wider candidates of a call's arguments
     /// ([`Self::widen_call_binding`]).
-    ///
-    /// # Errors
-    ///
-    /// An argument that is an UNRELATED candidate for a binding (neither type
-    /// accepts the other) in a source the checker did not accept: TypeScript
-    /// rejects that call, and keeping the first binding would type the other
-    /// argument as something it is not. See [`crate::SourceTrust`].
     pub(in crate::lowering) fn widen_call_bindings(
         &mut self,
         type_params: &[TypeParamDef],
@@ -228,19 +220,10 @@ impl ModuleBuilder<'_> {
         args: &[smelt_hir::ExprId],
         body: &Body,
         substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
-        span: smelt_hir::Span,
-    ) -> Result<(), SmeltError> {
-        let mut unrelated = false;
+    ) {
         for (param, arg) in params.iter().zip(args) {
-            self.widen_call_binding(type_params, *param, Self::expr_ty(body, *arg), substitutions, &mut unrelated);
+            self.widen_call_binding(type_params, *param, Self::expr_ty(body, *arg), substitutions);
         }
-        if unrelated && self.trust == crate::lowering::SourceTrust::Unchecked {
-            return Err(SmeltError::ill_typed(
-                span,
-                "the arguments of this generic call bind one type parameter to unrelated types",
-            ));
-        }
-        Ok(())
     }
 
     /// Replace a type parameter's binding with a wider candidate at one
@@ -250,17 +233,19 @@ impl ModuleBuilder<'_> {
     /// with an init of `0` is `T = number`).
     ///
     /// A candidate is wider when it is `unknown`, or a union or optional holding
-    /// the binding. In a program the checker accepted every other candidate
-    /// is related to the binding; one that is not (neither accepts the other)
-    /// sets `unrelated`, which [`Self::widen_call_bindings`] refuses for a
-    /// source nothing vouches for.
+    /// the binding. An unrelated candidate (`both(numbers, strings)`, which tsc
+    /// rejects) keeps the first binding here, and that is not a miscompile:
+    /// codegen's call-site analysis classifies the two bindings as a `Conflict`
+    /// and demotes the call to the erased form instead of emitting a signature
+    /// rustc would reject (`generic_free_function_demotes_on_conflicting_bindings`
+    /// and `callback_only_type_param_demotes_on_conflicting_call_site_evidence`
+    /// in `smelt-codegen-rust` pin it). So this path needs no checked program.
     fn widen_call_binding(
         &mut self,
         type_params: &[TypeParamDef],
         expected: smelt_hir::TypeId,
         actual: smelt_hir::TypeId,
         substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
-        unrelated: &mut bool,
     ) {
         let (Some(expected_ty), Some(actual_ty)) = (
             self.ctx.krate.types.get(expected).cloned(),
@@ -279,44 +264,28 @@ impl ModuleBuilder<'_> {
                     Type::Optional(item) => item == bound,
                     _ => false,
                 };
-                let owned = type_params.iter().any(|param| param.name == name);
-                if wider && owned {
+                if wider && type_params.iter().any(|param| param.name == name) {
                     substitutions.insert(name, actual);
-                } else if owned && !wider && !self.candidates_related(actual, bound) {
-                    *unrelated = true;
                 }
             }
             (Type::Function(declared), Type::Function(given)) => {
-                self.widen_call_binding(type_params, declared.return_ty, given.return_ty, substitutions, unrelated);
+                self.widen_call_binding(type_params, declared.return_ty, given.return_ty, substitutions);
             }
             (Type::List(declared), Type::List(given))
             | (Type::Set(declared), Type::Set(given))
             | (Type::Future(declared), Type::Future(given)) => {
-                self.widen_call_binding(type_params, declared, given, substitutions, unrelated);
+                self.widen_call_binding(type_params, declared, given, substitutions);
             }
             (Type::Optional(declared), Type::Optional(given)) => {
-                self.widen_call_binding(type_params, declared, given, substitutions, unrelated);
+                self.widen_call_binding(type_params, declared, given, substitutions);
             }
             (Type::Tuple(declared), Type::Tuple(given)) if declared.len() == given.len() => {
                 for (declared, given) in declared.into_iter().zip(given) {
-                    self.widen_call_binding(type_params, declared, given, substitutions, unrelated);
+                    self.widen_call_binding(type_params, declared, given, substitutions);
                 }
             }
             _ => {}
         }
-    }
-
-    /// Whether two inference candidates of one type parameter are related:
-    /// either accepts the other, or both are numbers (TypeScript's one
-    /// `number` is Smelt's `Int` or `Float` by use, so the split says nothing
-    /// about the source).
-    fn candidates_related(&self, left: smelt_hir::TypeId, right: smelt_hir::TypeId) -> bool {
-        let numeric = |ty| {
-            matches!(self.ctx.krate.types.get(ty), Some(Type::Int | Type::Float | Type::FixedInt(_)))
-        };
-        self.type_assignable_to(left, right)
-            || self.type_assignable_to(right, left)
-            || (numeric(left) && numeric(right))
     }
 
     /// Return whether `ty` is a function that Rust codegen renders as the

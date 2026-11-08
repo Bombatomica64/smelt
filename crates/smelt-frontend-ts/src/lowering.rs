@@ -263,8 +263,8 @@ pub struct FrontendOptions<'manifest> {
 /// Whether a type checker accepted the source being lowered.
 ///
 /// Lowering takes a few shortcuts that are sound only for a program the
-/// checker accepted: an inferred generic binding never meets an unrelated
-/// candidate, for one. A source nothing vouches for is lowered `Unchecked`, and
+/// checker accepted: an object spread typed as a record writes every required
+/// field, for one. A source nothing vouches for is lowered `Unchecked`, and
 /// such a shortcut refuses it with a `smelt::ill-typed-source` error instead of
 /// producing silently wrong output. The transpiler decides the trust of each
 /// file from the checker's report (`smelt build` refuses ill-typed sources

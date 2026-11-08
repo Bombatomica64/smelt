@@ -520,10 +520,7 @@ impl ModuleBuilder<'_> {
                         }
                     }
                 }
-                _ => {
-                    let new_span = self.span(new_expr.span.start, new_expr.span.end);
-                    self.widen_call_bindings(&class.type_params, &constructor_params, &args, body, &mut inferred, new_span)?;
-                }
+                _ => self.widen_call_bindings(&class.type_params, &constructor_params, &args, body, &mut inferred),
             }
             // Rust binds the class parameter from a bare `T` argument, so one
             // that widened to `unknown` takes the argument erased: `new Pair(0, h)`

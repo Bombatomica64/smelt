@@ -2,8 +2,8 @@
 //!
 //! The frontends lower a program on the assumption that it type-checks: a
 //! literal takes its type hint on trust, a missing required field is
-//! "impossible", an inferred generic binding never meets an unrelated
-//! candidate. Ill-typed input breaks those assumptions silently. So every
+//! "impossible", two implementations of one function never meet. Ill-typed
+//! input breaks those assumptions silently. So every
 //! lowering hands its result back wrapped in [`Checked`], together with what
 //! the TypeScript checker and ty said about the sources, and the only way to
 //! the lowered value is a decision about that report:
