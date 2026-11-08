@@ -1,6 +1,7 @@
 //! Member calls: `receiver.method(..)`, computed method calls, class statics and
 //! private callable fields, and the receiver facts those calls are decided on.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::support::source_spelling;
 use crate::SmeltError;
@@ -103,7 +104,7 @@ impl ModuleBuilder<'_> {
                     self.erase(ErasureReason::TestHarness)
                 } else {
                     // not a new erasure: the method's result is already erased
-                    self.unknown_type()
+                    self.unknown_type(NotNewErasure::ErasedUpstream)
                 };
                 args.push(body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::None),
@@ -141,7 +142,7 @@ impl ModuleBuilder<'_> {
                 return Ok(blocked);
             }
             // not a new erasure: the resolved method already returns `unknown`
-            let ty = self.unknown_type();
+            let ty = self.unknown_type(NotNewErasure::ErasedUpstream);
             let value = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: receiver },
                 ty,
@@ -249,7 +250,7 @@ impl ModuleBuilder<'_> {
             span,
         });
         // not a new erasure: the erased call this replaces answered `unknown`
-        let ty = self.unknown_type();
+        let ty = self.unknown_type(NotNewErasure::ErasedUpstream);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ClosureCall { callee, args: Vec::new() },
             ty,
@@ -1286,7 +1287,7 @@ impl ModuleBuilder<'_> {
             } else if self.is_nullishable_type(callee_ty) || self.type_contains_unknown(callee_ty) {
                 let unknown = if self.type_contains_unknown(callee_ty) {
                     // not a new erasure: the callee already carries an erased type
-                    self.unknown_type()
+                    self.unknown_type(NotNewErasure::ErasedUpstream)
                 } else {
                     self.erase(ErasureReason::ByName)
                 };
@@ -1443,7 +1444,7 @@ impl ModuleBuilder<'_> {
             {
                 let unknown = if self.type_contains_unknown(callee_ty) {
                     // not a new erasure: the callee already carries an erased type
-                    self.unknown_type()
+                    self.unknown_type(NotNewErasure::ErasedUpstream)
                 } else {
                     self.erase(ErasureReason::ByName)
                 };

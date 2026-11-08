@@ -1,5 +1,6 @@
 //! `String.prototype` methods and `String.fromCharCode`/`fromCodePoint`.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::SmeltError;
 use crate::lowering::{Literal, ModuleBuilder, Span, StringPadOp};
 use crate::lowering::js_text::js_str_text;
@@ -323,106 +324,106 @@ impl ModuleBuilder<'_> {
                 "string prefix/suffix methods require one needle and an optional position argument",
             ));
         }
-        let mark = self.speculation_mark(body);
-        let mut haystack = self.expression(&member.object, body)?;
-        let method = self.intern_source_name(member.property.name.as_str());
-        // An erased receiver the checker types as something other than a
-        // string (ts-pattern's `P.string`, a namespace member) is not a string.
-        let haystack_ty = Self::expr_ty(body, haystack);
-        if self.receiver_owns_member(haystack_ty, method)
-            || (self.type_contains_unknown(haystack_ty)
-                && self.checker_types_as_non_string(member.object.span().start, member.object.span().end))
-        {
-            self.roll_back_to(mark, body);
-            return Ok(None);
-        }
-        let Some(needle_argument) = call.arguments.first() else {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "string prefix/suffix methods require one needle and an optional position argument",
-            ));
-        };
-        let mut needle = self.argument(needle_argument, body)?;
-        let string_ty = self.ctx.krate.types.intern(Type::String);
-        if self.is_string_compatible_type(haystack_ty) || self.type_contains_unknown(haystack_ty)
-        {
-            haystack = body.push_expr(Expr {
-                kind: ExprKind::TypeAssert { value: haystack },
-                ty: string_ty,
-                span: self.span(member.object.span().start, member.object.span().end),
-            });
-        }
-        // JavaScript `startsWith(target, position)` tests the prefix starting at
-        // `position`; `endsWith(target, endPosition)` tests the suffix of the
-        // string truncated to `endPosition`. Both reduce to a substring of the
-        // haystack followed by the unbounded affix test.
-        if let Some(position_argument) = call.arguments.get(1) {
-            let position = self.argument(position_argument, body)?;
-            let position_ty = Self::expr_ty(body, position);
-            let position = if self.ctx.krate.types.get(position_ty) == Some(&Type::Float) {
-                Some(position)
-            } else if self.is_numeric_like_type(position_ty)
-                || self.optional_numeric_surface(position_ty)
-                || self.erased_or_union_surface(position_ty)
+        self.speculate(body, |this, body| {
+            let mut haystack = this.expression(&member.object, body)?;
+            let method = this.intern_source_name(member.property.name.as_str());
+            // An erased receiver the checker types as something other than a
+            // string (ts-pattern's `P.string`, a namespace member) is not a string.
+            let haystack_ty = Self::expr_ty(body, haystack);
+            if this.receiver_owns_member(haystack_ty, method)
+                || (this.type_contains_unknown(haystack_ty)
+                    && this.checker_types_as_non_string(member.object.span().start, member.object.span().end))
             {
-                let float_ty = self.ctx.krate.types.intern(Type::Float);
-                Some(body.push_expr(Expr {
-                    kind: ExprKind::PrimitiveCast {
-                        op: PrimitiveCastOp::ToJsNumber,
-                        operand: position,
-                    },
-                    ty: float_ty,
-                    span: self.span(position_argument.span().start, position_argument.span().end),
-                }))
-            } else {
+                return Ok(None);
+            }
+            let Some(needle_argument) = call.arguments.first() else {
                 return Err(SmeltError::unsupported(
-                    self.span(call.span.start, call.span.end),
-                    "string prefix/suffix position argument must be numeric",
+                    this.span(call.span.start, call.span.end),
+                    "string prefix/suffix methods require one needle and an optional position argument",
                 ));
             };
-            let (start, end) = match op {
-                StringAffixOp::StartsWith => (position, None),
-                StringAffixOp::EndsWith => (None, position),
-            };
-            haystack = body.push_expr(Expr {
-                // A position clamps to `[0, length]`, as `substring` bounds do.
-                kind: ExprKind::StringSlice {
-                    operand: haystack,
-                    start,
-                    end,
-                    kind: smelt_hir::StringSliceKind::Substring,
+            let mut needle = this.argument(needle_argument, body)?;
+            let string_ty = this.ctx.krate.types.intern(Type::String);
+            if this.is_string_compatible_type(haystack_ty) || this.type_contains_unknown(haystack_ty)
+            {
+                haystack = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: haystack },
+                    ty: string_ty,
+                    span: this.span(member.object.span().start, member.object.span().end),
+                });
+            }
+            // JavaScript `startsWith(target, position)` tests the prefix starting at
+            // `position`; `endsWith(target, endPosition)` tests the suffix of the
+            // string truncated to `endPosition`. Both reduce to a substring of the
+            // haystack followed by the unbounded affix test.
+            if let Some(position_argument) = call.arguments.get(1) {
+                let position = this.argument(position_argument, body)?;
+                let position_ty = Self::expr_ty(body, position);
+                let position = if this.ctx.krate.types.get(position_ty) == Some(&Type::Float) {
+                    Some(position)
+                } else if this.is_numeric_like_type(position_ty)
+                    || this.optional_numeric_surface(position_ty)
+                    || this.erased_or_union_surface(position_ty)
+                {
+                    let float_ty = this.ctx.krate.types.intern(Type::Float);
+                    Some(body.push_expr(Expr {
+                        kind: ExprKind::PrimitiveCast {
+                            op: PrimitiveCastOp::ToJsNumber,
+                            operand: position,
+                        },
+                        ty: float_ty,
+                        span: this.span(position_argument.span().start, position_argument.span().end),
+                    }))
+                } else {
+                    return Err(SmeltError::unsupported(
+                        this.span(call.span.start, call.span.end),
+                        "string prefix/suffix position argument must be numeric",
+                    ));
+                };
+                let (start, end) = match op {
+                    StringAffixOp::StartsWith => (position, None),
+                    StringAffixOp::EndsWith => (None, position),
+                };
+                haystack = body.push_expr(Expr {
+                    // A position clamps to `[0, length]`, as `substring` bounds do.
+                    kind: ExprKind::StringSlice {
+                        operand: haystack,
+                        start,
+                        end,
+                        kind: smelt_hir::StringSliceKind::Substring,
+                    },
+                    ty: string_ty,
+                    span: this.span(member.object.span().start, member.object.span().end),
+                });
+            }
+            let needle_ty = Self::expr_ty(body, needle);
+            if this.is_string_compatible_type(needle_ty) || this.type_contains_unknown(needle_ty)
+            {
+                needle = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: needle },
+                    ty: string_ty,
+                    span: this.span(needle_argument.span().start, needle_argument.span().end),
+                });
+            }
+            if this.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String)
+                || this.ctx.krate.types.get(Self::expr_ty(body, needle)) != Some(&Type::String)
+            {
+                return Err(SmeltError::unsupported(
+                    this.span(call.span.start, call.span.end),
+                    "string prefix/suffix methods require string receiver and argument",
+                ));
+            }
+            let ty = this.ctx.krate.types.intern(Type::Bool);
+            Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::StringAffix {
+                    op,
+                    haystack,
+                    needle,
                 },
-                ty: string_ty,
-                span: self.span(member.object.span().start, member.object.span().end),
-            });
-        }
-        let needle_ty = Self::expr_ty(body, needle);
-        if self.is_string_compatible_type(needle_ty) || self.type_contains_unknown(needle_ty)
-        {
-            needle = body.push_expr(Expr {
-                kind: ExprKind::TypeAssert { value: needle },
-                ty: string_ty,
-                span: self.span(needle_argument.span().start, needle_argument.span().end),
-            });
-        }
-        if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String)
-            || self.ctx.krate.types.get(Self::expr_ty(body, needle)) != Some(&Type::String)
-        {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "string prefix/suffix methods require string receiver and argument",
-            ));
-        }
-        let ty = self.ctx.krate.types.intern(Type::Bool);
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::StringAffix {
-                op,
-                haystack,
-                needle,
-            },
-            ty,
-            span: self.span(call.span.start, call.span.end),
-        })))
+                ty,
+                span: this.span(call.span.start, call.span.end),
+            })))
+        })
     }
 
     /// Lower `string.search(pattern)` on a concrete string receiver.
@@ -980,7 +981,7 @@ impl ModuleBuilder<'_> {
             Some(Type::Unknown | Type::TypeParam { .. }) => {
                 // An already-erased receiver was recorded where it was decided.
                 let item_ty = if self.ctx.krate.types.get(items_ty) == Some(&Type::Unknown) {
-                    self.unknown_type()
+                    self.unknown_type(NotNewErasure::ErasedUpstream)
                 } else {
                     self.erase(ErasureReason::UnfilledGeneric)
                 };

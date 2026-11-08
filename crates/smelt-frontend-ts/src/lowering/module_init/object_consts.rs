@@ -184,9 +184,7 @@ impl ModuleBuilder<'_> {
         }
         self.object_namespaces
             .write().insert(name_text.to_owned(), members.clone());
-        self.ctx
-            .object_namespaces
-            .write().insert(name_text.to_owned(), members);
+        self.publish_export(|ctx| &mut ctx.object_namespaces, name_text.to_owned(), members);
         Ok(true)
     }
 
@@ -252,16 +250,14 @@ impl ModuleBuilder<'_> {
             span,
         }));
         self.items.insert(name_text.to_owned(), item);
-        self.ctx.export_aliases.insert(name_text.to_owned(), item);
+        self.publish_export_alias(name_text.to_owned(), item);
         self.module_globals.insert(name_text.to_owned(), value.ty);
         if let Some(collection) = self.const_collection_from_object_const(&value) {
             self.consts.set_object_value_collection(name_text.to_owned(), collection.clone());
-            self.ctx
-                .object_value_collections
-                .write().insert(name_text.to_owned(), collection);
+            self.publish_export(|ctx| &mut ctx.object_value_collections, name_text.to_owned(), collection);
         }
         self.consts.set_object(name_text.to_owned(), value.clone());
-        self.ctx.object_consts.write().insert(name_text.to_owned(), value);
+        self.publish_export(|ctx| &mut ctx.object_consts, name_text.to_owned(), value);
         Ok(item)
     }
 
@@ -291,13 +287,11 @@ impl ModuleBuilder<'_> {
             span,
         }));
         self.items.insert(name_text.to_owned(), item);
-        self.ctx.export_aliases.insert(name_text.to_owned(), item);
+        self.publish_export_alias(name_text.to_owned(), item);
         self.module_globals.insert(name_text.to_owned(), ty);
         if let Some(collection) = self.const_unknown_value_collection_from_object(object) {
             self.consts.set_object_value_collection(name_text.to_owned(), collection.clone());
-            self.ctx
-                .object_value_collections
-                .write().insert(name_text.to_owned(), collection);
+            self.publish_export(|ctx| &mut ctx.object_value_collections, name_text.to_owned(), collection);
         }
         Ok(item)
     }

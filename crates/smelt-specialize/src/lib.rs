@@ -29,7 +29,7 @@ pub use manifest::{
     FunctionDefinition, FunctionSignature, GraphValue, GraphValueKind, HashInputs, HostLanguage,
     InitializerKind, InitializerRecord, ManifestError, MaterializedDefinition, MetadataEntry,
     ModuleRecord, Parameter, ParameterKind, SandboxPolicyRecord, SourceProvenance, SourceSpan,
-    SpecializationManifest, StaticType, ValueGraph, ValueId, validate_manifest,
+    SpecializationManifest, StaticType, ValueGraph, ValueId, source_code_hash, validate_manifest,
 };
 pub use node::{NodeModule, NodeSpecializationError, NodeSpecializationRequest, NodeSpecializer};
 pub use python::{

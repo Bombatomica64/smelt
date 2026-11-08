@@ -23,60 +23,53 @@
 //! use" keeps every existing capture and is still the general rule, because
 //! hoisting is only observable when a use precedes the declaration.
 //!
+//! The position is transitive. A hoisted declaration that calls a LATER
+//! sibling declaration needs that sibling lowered before it, because the
+//! closure captures it where it is created:
+//!
+//! ```ignore
+//! const r = f(2)
+//! function f(x) { return g(x) * 10 }
+//! function g(x) { return x + 1 }
+//! ```
+//!
+//! `f` moves above `const r`, so `g` must move there too, ahead of `f`.
+//! Targets are therefore computed as a fixpoint over the sibling
+//! declarations, and the declarations hoisted to one position are emitted
+//! dependencies first.
+//!
+//! "Mentions" means a reference that resolves to the sibling declaration, as
+//! decided by [`super::scoped_references`]: a parameter or nested declaration
+//! of the same name is a different binding and does not move anything.
+//!
 //! Relative order is otherwise preserved, including between two declarations
-//! hoisted to the same position.
+//! hoisted to the same position that do not depend on each other. Mutually
+//! recursive declarations keep source order between themselves.
 
 use oxc::ast::ast::Statement;
 use std::collections::HashSet;
 
-/// Collects the identifier names a statement REFERENCES.
-///
-/// A reference, not a binding: `function step(){}`'s own name is a binding
-/// identifier and does not count as a use of itself, which is what keeps a
-/// declaration from being hoisted above itself.
-struct ReferencedNameCollector<'name> {
-    /// The name being looked for.
+use super::scoped_references::statement_uses;
+
+/// One sibling `function` declaration that may move.
+struct Declaration<'name> {
+    /// Its statement index.
+    index: usize,
+    /// Its bound name.
     name: &'name str,
-    /// Whether it was referenced anywhere in the visited statement.
-    found: bool,
+    /// Where it is lowered: its own index, or the index of the earliest
+    /// statement that must see it.
+    target: usize,
 }
 
-impl<'a> oxc::ast_visit::Visit<'a> for ReferencedNameCollector<'_> {
-    /// Sets `found` when an identifier reference matches the searched name.
-    fn visit_identifier_reference(
-        &mut self,
-        identifier: &oxc::ast::ast::IdentifierReference<'a>,
-    ) {
-        if identifier.name.as_str() == self.name {
-            self.found = true;
-        }
-    }
-}
-
-/// Whether `statement` references `name` anywhere inside it.
-fn statement_references(statement: &Statement<'_>, name: &str) -> bool {
-    use oxc::ast_visit::Visit;
-    let mut collector = ReferencedNameCollector { name, found: false };
-    collector.visit_statement(statement);
-    collector.found
-}
-
-/// Return `statements` in the order they must be LOWERED.
+/// The first sibling `function` declaration of each name in `statements`.
 ///
-/// Every element of `statements` appears exactly once. The order differs from
-/// source order only when a nested `function` declaration is referenced by an
-/// earlier sibling, in which case the declaration moves to just before the
-/// first such sibling; see the module docs for why that position and not the
-/// top of the block.
-pub(in crate::lowering) fn hoisted_statements<'a, 'src>(
-    statements: &'a [Statement<'src>],
-) -> Vec<&'a Statement<'src>> {
-    // The names declared by sibling `function` declarations, paired with the
-    // index of the first earlier statement that mentions each one. Computing
-    // this first keeps the scan off every block that has no declaration at all,
-    // which is almost all of them.
-    let mut hoists: Vec<(usize, usize)> = Vec::new();
+/// Two declarations of one name: the LAST one wins in JavaScript, and it is
+/// the one already lowered last, so only the first may be hoisted and the
+/// later declaration keeps its place.
+fn sibling_declarations<'name>(statements: &'name [Statement<'_>]) -> Vec<Declaration<'name>> {
     let mut seen: HashSet<&str> = HashSet::new();
+    let mut declarations = Vec::new();
     for (index, statement) in statements.iter().enumerate() {
         let Statement::FunctionDeclaration(function) = statement else {
             continue;
@@ -84,36 +77,118 @@ pub(in crate::lowering) fn hoisted_statements<'a, 'src>(
         let Some(id) = &function.id else {
             continue;
         };
-        // Two declarations of one name: the LAST one wins in JavaScript, and it
-        // is the one already lowered last, so only the first hoist is recorded
-        // and the later declaration keeps its place.
-        if !seen.insert(id.name.as_str()) {
-            continue;
-        }
-        let name = id.name.as_str();
-        if let Some(target) = statements[..index]
-            .iter()
-            .position(|earlier| statement_references(earlier, name))
-        {
-            hoists.push((index, target));
+        if seen.insert(id.name.as_str()) {
+            declarations.push(Declaration { index, name: id.name.as_str(), target: index });
         }
     }
-    if hoists.is_empty() {
+    declarations
+}
+
+/// Return `statements` in the order they must be LOWERED.
+///
+/// Every element of `statements` appears exactly once. The order differs from
+/// source order only when a nested `function` declaration must be visible to
+/// an earlier statement (directly, or through another hoisted declaration); see
+/// the module docs for the position it moves to and why.
+pub(in crate::lowering) fn hoisted_statements<'a, 'src>(
+    statements: &'a [Statement<'src>],
+) -> Vec<&'a Statement<'src>> {
+    let mut declarations = sibling_declarations(statements);
+    if declarations.is_empty() {
+        return statements.iter().collect();
+    }
+    // `uses[s][d]`: statement `s` refers to declaration `d`'s binding.
+    let uses: Vec<Vec<bool>> = statements
+        .iter()
+        .map(|statement| {
+            declarations
+                .iter()
+                .map(|declaration| statement_uses(statement, declaration.name).referenced)
+                .collect()
+        })
+        .collect();
+    // A declaration must be lowered no later than every statement that refers
+    // to it, where "statement" is wherever that statement is itself lowered.
+    // Targets only ever decrease, so the loop ends.
+    loop {
+        let targets: Vec<usize> = declarations
+            .iter()
+            .enumerate()
+            .map(|(d, declaration)| {
+                uses.iter()
+                    .enumerate()
+                    .filter(|&(s, _)| s != declaration.index && refers(&uses, s, d))
+                    .map(|(s, _)| {
+                        declarations
+                            .iter()
+                            .find(|other| other.index == s)
+                            .map_or(s, |other| other.target)
+                    })
+                    .fold(declaration.target, usize::min)
+            })
+            .collect();
+        let changed = declarations
+            .iter()
+            .zip(&targets)
+            .any(|(declaration, &target)| target < declaration.target);
+        for (declaration, target) in declarations.iter_mut().zip(targets) {
+            declaration.target = target;
+        }
+        if !changed {
+            break;
+        }
+    }
+    if declarations.iter().all(|declaration| declaration.target == declaration.index) {
         return statements.iter().collect();
     }
 
     let mut ordered = Vec::with_capacity(statements.len());
     for (index, statement) in statements.iter().enumerate() {
-        // Declarations hoisted TO this position come first, in source order.
-        for &(declaration, target) in &hoists {
-            if target == index {
-                ordered.push(&statements[declaration]);
+        let group: Vec<usize> = declarations
+            .iter()
+            .enumerate()
+            .filter(|(_, declaration)| declaration.target == index && declaration.index != index)
+            .map(|(d, _)| d)
+            .collect();
+        for d in dependency_order(&group, &declarations, &uses) {
+            if let Some(moved) = declarations.get(d).and_then(|declaration| statements.get(declaration.index)) {
+                ordered.push(moved);
             }
         }
-        if hoists.iter().any(|&(declaration, _)| declaration == index) {
-            continue;
+        let moved = declarations
+            .iter()
+            .any(|declaration| declaration.index == index && declaration.target != index);
+        if !moved {
+            ordered.push(statement);
         }
-        ordered.push(statement);
+    }
+    ordered
+}
+
+/// Whether statement `statement` refers to sibling declaration `declaration`.
+fn refers(uses: &[Vec<bool>], statement: usize, declaration: usize) -> bool {
+    uses.get(statement)
+        .and_then(|row| row.get(declaration))
+        .copied()
+        .unwrap_or(false)
+}
+
+/// Order the declarations hoisted to one position so that one referring to
+/// another comes after it; ties and cycles keep source order.
+fn dependency_order(group: &[usize], declarations: &[Declaration<'_>], uses: &[Vec<bool>]) -> Vec<usize> {
+    let mut remaining = group.to_vec();
+    let mut ordered = Vec::with_capacity(group.len());
+    while !remaining.is_empty() {
+        // The first (in source order) declaration none of the remaining ones
+        // must precede; with a cycle, simply the first.
+        let ready = remaining
+            .iter()
+            .position(|&d| {
+                let index = declarations.get(d).map_or(usize::MAX, |declaration| declaration.index);
+                !remaining.iter().any(|&other| other != d && refers(uses, index, other))
+            })
+            .unwrap_or(0);
+        ordered.push(remaining.remove(ready));
     }
     ordered
 }
@@ -169,6 +244,32 @@ mod tests {
         assert_eq!(
             order("const a = 1; function f(x: number) { return f(x) }"),
             vec!["const a = 1;", "function f(x: number) { return f(x) }"]
+        );
+    }
+
+    #[test]
+    fn a_hoisted_declaration_brings_the_later_declarations_it_calls() {
+        assert_eq!(
+            order("const r = f(2); function f(x: number) { return g(x) } function g(x: number) { return x } return r"),
+            vec![
+                "function g(x: number) { return x }",
+                "function f(x: number) { return g(x) }",
+                "const r = f(2);",
+                "return r"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_parameter_named_like_a_later_declaration_does_not_hoist_it() {
+        assert_eq!(
+            order("const apply = (g: number) => g * 2; const scale = 3; function g() { return scale } return apply(1) + g()"),
+            vec![
+                "const apply = (g: number) => g * 2;",
+                "const scale = 3;",
+                "function g() { return scale }",
+                "return apply(1) + g()"
+            ]
         );
     }
 }

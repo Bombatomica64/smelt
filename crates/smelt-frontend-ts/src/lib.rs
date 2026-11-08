@@ -65,8 +65,8 @@ mod lowering;
 pub mod test_support;
 
 pub use context::{
-    HirCtx, ObjectConst, ObjectConstEntry, ObjectConstEntryValue, ObjectConstValue,
-    OverloadSignature,
+    ExportTable, HirCtx, ModuleKey, ObjectConst, ObjectConstEntry, ObjectConstEntryValue, ObjectConstValue,
+    OverloadSignature, QualifiedExport,
 };
 pub use error::SmeltError;
 pub use ident::camel_to_snake;

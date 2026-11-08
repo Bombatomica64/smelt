@@ -42,25 +42,25 @@ impl ModuleBuilder<'_> {
         if member.property.name != "constructor" || new_expr.arguments.iter().any(Argument::is_spread) {
             return Ok(None);
         }
-        let mark = self.speculation_mark(body);
-        let value = self.expression(&member.object, body)?;
-        let value_ty = Self::expr_ty(body, value);
-        let by_kind = matches!(self.ctx.krate.types.get(value_ty), Some(Type::List(_)));
-        if !by_kind && !self.erased_or_union_surface(value_ty) {
-            self.roll_back_to(mark, body);
-            return Ok(None);
-        }
-        let args = new_expr
-            .arguments
-            .iter()
-            .map(|arg| self.argument(arg, body))
-            .collect::<Result<Vec<_>, _>>()?;
-        let ty = self.erase_with(ErasureReason::ByName, "new on dynamic callee");
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::ConstructLike { value, args },
-            ty,
-            span: self.span(new_expr.span.start, new_expr.span.end),
-        })))
+        self.speculate(body, |this, body| {
+            let value = this.expression(&member.object, body)?;
+            let value_ty = Self::expr_ty(body, value);
+            let by_kind = matches!(this.ctx.krate.types.get(value_ty), Some(Type::List(_)));
+            if !by_kind && !this.erased_or_union_surface(value_ty) {
+                return Ok(None);
+            }
+            let args = new_expr
+                .arguments
+                .iter()
+                .map(|arg| this.argument(arg, body))
+                .collect::<Result<Vec<_>, _>>()?;
+            let ty = this.erase_with(ErasureReason::ByName, "new on dynamic callee");
+            Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::ConstructLike { value, args },
+                ty,
+                span: this.span(new_expr.span.start, new_expr.span.end),
+            })))
+        })
     }
 
     /// Lower a `new ...` expression, including stdlib containers and class construction.

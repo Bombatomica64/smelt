@@ -2,6 +2,7 @@
 //! unknown and nullish membership, `never` values, indexed element types, static
 //! tuple indices and promise inner types.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use crate::lowering::body_arena::BodyArena;
@@ -88,7 +89,7 @@ impl ModuleBuilder<'_> {
             Some(Type::String) => Ok(self.ctx.krate.types.intern(Type::String)),
             Some(Type::Dict(_, value)) => Ok(*value),
             // not a new erasure: the receiver is already erased
-            Some(Type::Unknown) => Ok(self.unknown_type()),
+            Some(Type::Unknown) => Ok(self.unknown_type(NotNewErasure::ErasedUpstream)),
             Some(Type::None) => Ok(self.erase(ErasureReason::DynamicOperator)),
             // Dynamically indexing a JavaScript boolean primitive with a key is a
             // property lookup on the autoboxed `Boolean` wrapper. For an

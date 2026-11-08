@@ -1,6 +1,7 @@
 //! Member access: namespace member calls, static and computed member reads, and the
 //! well-known `Symbol`, `Number`, `Object` and `process` static surfaces.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
@@ -971,7 +972,7 @@ impl ModuleBuilder<'_> {
         // not a new erasure: names the parameter type of a synthesized runtime
         // helper closure (any JS value is accepted); the result's erasure is
         // recorded by the caller.
-        let unknown = self.unknown_type();
+        let unknown = self.unknown_type(NotNewErasure::ErasedUpstream);
         let mut closure_body = Body::new(None, span);
         let mut params = Vec::new();
         let mut param_tys = Vec::new();

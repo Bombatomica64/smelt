@@ -3,6 +3,7 @@
 //! The decision runs in stages: resolve the item, pick its rest slot and overload,
 //! lower the arguments, then settle the return type the call site sees.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::spread_arguments::CallArg;
 use crate::lowering::{ModuleBuilder, RestParam};
 use crate::{OverloadSignature, SmeltError};
@@ -519,7 +520,7 @@ impl ModuleBuilder<'_> {
             )
             // not a new erasure: a non-function falls through to the
             // recorded `ByName` site below
-            .unwrap_or_else(|_| self.unknown_type());
+            .unwrap_or_else(|_| self.unknown_type(NotNewErasure::ErasedUpstream));
         if let Some(Type::Function(function)) =
             self.ctx.krate.types.get(item_ty).cloned()
         {

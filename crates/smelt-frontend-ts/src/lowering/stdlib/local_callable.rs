@@ -1,6 +1,7 @@
 //! Calls of a callable value held in a local, and the receiver types that make a
 //! call dynamic.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::SmeltError;
 use crate::lowering::{ModuleBuilder};
 use oxc::ast::ast::{Argument, Expression};
@@ -149,7 +150,7 @@ impl ModuleBuilder<'_> {
         if Self::call_has_spread_arguments(call) && callee_dispatches_dynamically {
             // not a new erasure: names the tagged item type of the runtime
             // call ABI's packed argument list; the call keeps its typed result
-            let unknown_ty = self.unknown_type();
+            let unknown_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
             let packed = self.packed_spread_call_arguments(unknown_ty, call, body)?;
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::ClosureCallSpread {

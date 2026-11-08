@@ -1,8 +1,10 @@
 //! Identifier, constant-expression, and source-location lowering helpers.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::{ConstCollectionItem, ConstCollectionValue, ModuleBuilder, ambient_globals};
+use crate::lowering::resolve::ValueBinding;
 use crate::{SmeltError, camel_to_snake};
 use oxc::ast::ast::{Expression, Statement};
 use oxc::span::GetSpan;
@@ -118,40 +120,46 @@ impl ModuleBuilder<'_> {
         self.intern_exact_source_name(name)
     }
 
-    /// Create an identifier expression from a local variable.
-    pub(in crate::lowering) fn identifier_expression(
+    /// Lower a bare name nothing in the source binds to the host global it
+    /// names (`Infinity`, `NaN`, `undefined`, `arguments`, `Date`, a typed
+    /// array constructor, `RegExp`), or `None` for any other name.
+    ///
+    /// Only reached for a name [`Self::resolve_value`] answered
+    /// [`ValueBinding::Host`] for, so a source binding of the same spelling
+    /// always wins.
+    fn host_global_identifier(
         &mut self,
         name: &str,
         start: u32,
         end: u32,
         body: &mut Body,
-    ) -> Result<smelt_hir::ExprId, SmeltError> {
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         if name == "Infinity" {
             let ty = self.ctx.krate.types.intern(Type::Float);
-            return Ok(body.push_expr(Expr {
+            return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Float(f64::INFINITY)),
                 ty,
                 span: self.span(start, end),
-            }));
+            })));
         }
         if name == "NaN" {
             let ty = self.ctx.krate.types.intern(Type::Float);
-            return Ok(body.push_expr(Expr {
+            return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Float(f64::NAN)),
                 ty,
                 span: self.span(start, end),
-            }));
+            })));
         }
         if name == "undefined" {
             let ty = self.ctx.krate.types.intern(Type::None);
-            return Ok(body.push_expr(Expr {
+            return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Undefined),
                 ty,
                 span: self.span(start, end),
-            }));
+            })));
         }
         if name == "arguments" {
-            return self.arguments_object_expression(start, end, body);
+            return self.arguments_object_expression(start, end, body).map(Some);
         }
         if name == "Date" {
             let symbol = self.intern_type_name("Date");
@@ -159,14 +167,11 @@ impl ModuleBuilder<'_> {
                 name: symbol,
                 args: Vec::new(),
             });
-            return Ok(body.push_expr(Expr {
+            return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::None),
                 ty,
                 span: self.span(start, end),
-            }));
-        }
-        if self.classes.contains(name) {
-            return self.class_value_expression(name, start, end, body);
+            })));
         }
         // A typed-array constructor used as a bare *value* rather than through
         // `new` — e.g. an `instanceof Uint8Array` / `toBeInstanceOf(Uint8Array)`
@@ -183,21 +188,45 @@ impl ModuleBuilder<'_> {
                 name: symbol,
                 args: Vec::new(),
             });
-            return Ok(body.push_expr(Expr {
+            return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::None),
                 ty,
                 span: self.span(start, end),
-            }));
+            })));
         }
         if matches!(name, "RegExp" | "Temporal") {
             let ty = self.erase_with(ErasureReason::ByName, "RegExp/Temporal value");
-            return Ok(body.push_expr(Expr {
+            return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::DictLit(Vec::new()),
                 ty,
                 span: self.span(start, end),
-            }));
+            })));
         }
-        let Some(local) = self.scope.lookup(name) else {
+        Ok(None)
+    }
+
+    /// Create an identifier expression from a local variable.
+    pub(in crate::lowering) fn identifier_expression(
+        &mut self,
+        name: &str,
+        start: u32,
+        end: u32,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        // One resolver decides what the name is, lexical scope first: a local
+        // `const Item = xs[0]` beside a module `class Item`, or a local named
+        // `Date`, is the local (audit finding A4).
+        let binding = self.resolve_value(name);
+        match binding {
+            ValueBinding::Class => return self.class_value_expression(name, start, end, body),
+            ValueBinding::Host => {
+                if let Some(expr) = self.host_global_identifier(name, start, end, body)? {
+                    return Ok(expr);
+                }
+            }
+            ValueBinding::Local(_) | ValueBinding::Enum(_) | ValueBinding::Module => {}
+        }
+        let ValueBinding::Local(local) = binding else {
             // A module-level `let`/`var` binding lifted to a mutable global (and
             // not shadowed by a local) reads through `GlobalGet`, never the
             // const-inline path. This also resolves imported mutated bindings,
@@ -793,7 +822,7 @@ impl ModuleBuilder<'_> {
         let mut closure_body = Body::new(None, span);
         let constructed = if name == "Set" {
             // not a new erasure: element of the erased constructor result recorded above
-            let item_ty = self.unknown_type();
+            let item_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
             let set_ty = self.ctx.krate.types.intern(Type::Set(item_ty));
             let empty_list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
             let list = closure_body.push_expr(Expr {
@@ -808,8 +837,8 @@ impl ModuleBuilder<'_> {
             })
         } else {
             // not a new erasure: key/value of the erased constructor result recorded above
-            let key_ty = self.unknown_type();
-            let value_ty = self.unknown_type();
+            let key_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
+            let value_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
             let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
             closure_body.push_expr(Expr {
                 kind: ExprKind::DictLit(Vec::new()),
@@ -1341,7 +1370,7 @@ impl ModuleBuilder<'_> {
         }
         let span = self.span(start, end);
         // not a new erasure: read off the erased global object (recorded in global_object_value_expression), then narrowed to the declared type
-        let unknown_ty = self.unknown_type();
+        let unknown_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
         let receiver = self.global_object_value_expression(start, end, body);
         // A static member read off the erased global object, which the emitter
         // renders as the canonical erased property read.
@@ -1400,7 +1429,7 @@ impl ModuleBuilder<'_> {
         outer_body: &mut Body,
     ) -> smelt_hir::ExprId {
         // runtime-helper signature: the builtin closure accepts any tagged argument
-        let value_ty = self.unknown_type();
+        let value_ty = self.unknown_type(NotNewErasure::RuntimeHelperSignature);
         let result_ty = self.ctx.krate.types.intern(return_type);
         self.builtin_unary_closure_expression(value_ty, result_ty, span, outer_body, |value_expr| {
             ExprKind::PrimitiveCast {
@@ -1617,8 +1646,9 @@ impl ModuleBuilder<'_> {
         let ty = Self::expr_ty(body, expr);
         match self.ctx.krate.types.get(ty) {
             Some(Type::Function(function)) => function.return_ty,
-            // not a new erasure: only an already-erased (non-function) value reaches here
-            _ => self.unknown_type(),
+            // An erased value's call result is erased by propagation; any other
+            // non-function value has its shape dropped here, which is recorded.
+            _ => self.erase_unless_unknown(ty, ErasureReason::ByName),
         }
     }
 
@@ -1909,7 +1939,7 @@ impl ModuleBuilder<'_> {
             }
             ConstCollectionValue::UnknownArray => {
                 // not a new erasure: the const collection item was erased when it was registered
-                let unknown_ty = self.unknown_type();
+                let unknown_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
                 let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
                 let array = body.push_expr(Expr {
                     kind: ExprKind::ListLit(Vec::new()),
@@ -1928,7 +1958,7 @@ impl ModuleBuilder<'_> {
             ConstCollectionValue::UnknownObject => {
                 let key_ty = self.ctx.krate.types.intern(Type::String);
                 // not a new erasure: the const collection item was erased when it was registered
-                let value_ty = self.unknown_type();
+                let value_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
                 let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
                 let object = body.push_expr(Expr {
                     kind: ExprKind::DictLit(Vec::new()),

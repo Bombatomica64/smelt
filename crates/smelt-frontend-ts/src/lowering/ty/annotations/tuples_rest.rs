@@ -1,6 +1,7 @@
 //! Tuple and rest-parameter annotations: tuple elements, rest tails, minimum
 //! arity, and the mutable-tuple parameter ABI.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::{TSTupleElement, TSType, TSTypeName};
@@ -45,7 +46,7 @@ impl ModuleBuilder<'_> {
             Some(Type::List(item_ty)) => Ok((ty, item_ty)),
             Some(Type::Unknown) => {
                 // not a new erasure: the rest annotation is already erased
-                let item_ty = self.unknown_type();
+                let item_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
                 Ok((self.ctx.krate.types.intern(Type::List(item_ty)), item_ty))
             }
             Some(Type::TypeParam { .. }) => {
@@ -259,7 +260,7 @@ impl ModuleBuilder<'_> {
                     Some(Type::List(item_ty)) => item_ty,
                     Some(Type::Never) => return Ok(None),
                     // not a new erasure: the rest type is already erased
-                    Some(Type::Unknown) => self.unknown_type(),
+                    Some(Type::Unknown) => self.unknown_type(NotNewErasure::ErasedUpstream),
                     _ => self.erase(ErasureReason::TypeLevel),
                 };
                 list_item_ty = Some(match list_item_ty {

@@ -1,3 +1,13 @@
+/// Who declares a return annotation, which decides whether `ty`'s inference
+/// may refine it (see [`ModuleBuilder::resolve_return_ty`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReturnOwner {
+    /// A module-level or nested function: no other declaration must agree with it.
+    Function,
+    /// A class method: overriding methods share its declared contract.
+    Method,
+}
+
 impl ModuleBuilder<'_> {
     // -----------------------------------------------------------------------
     // Type annotation lowering
@@ -23,7 +33,15 @@ impl ModuleBuilder<'_> {
     ///   * Otherwise `ty` inferred a strictly narrower / genuinely more precise
     ///     type than the annotation (`declared` is *not* assignable to it, e.g.
     ///     an annotation of `object`/`float` while the body only ever returns
-    ///     `int`) → prefer `ty`'s refinement.
+    ///     `int`) → prefer `ty`'s refinement, unless the declared type is a
+    ///     CONTRACT the refinement would break (audit finding A8):
+    ///     * on a method ([`ReturnOwner::Method`]), whose declared return type
+    ///       is what overrides and overridden methods must agree on: a base
+    ///       `-> float` returning `0` refined to `int` diverges from a subclass
+    ///       override that returns `1.5`;
+    ///     * when either side is a mutable container (`list[float]` returning
+    ///       `[1]` refined to `list[int]`): containers are invariant, so the
+    ///       caller's later `append(1.5)` needs the declared element type.
     ///
     /// The `func` node's start offset is the key `smelt-py-types` records return
     /// types under.
@@ -31,6 +49,7 @@ impl ModuleBuilder<'_> {
         &mut self,
         func: &StmtFunctionDef,
         annotation: Option<&Expr>,
+        owner: ReturnOwner,
     ) -> Option<TypeId> {
         let inferred = self
             .resolved_types
@@ -47,6 +66,9 @@ impl ModuleBuilder<'_> {
                     // (equal-or-narrower) description of it. Follow `ty`.
                     Some(inferred_ty)
                         if inferred_ty != declared
+                            && owner == ReturnOwner::Function
+                            && !self.contains_mutable_container(declared)
+                            && !self.contains_mutable_container(inferred_ty)
                             && !self.type_assignable_to(declared, inferred_ty) =>
                     {
                         inferred_ty
@@ -57,6 +79,19 @@ impl ModuleBuilder<'_> {
                     _ => declared,
                 })
             }
+        }
+    }
+
+    /// Whether `ty` is or holds a mutable, hence invariant, container: a
+    /// list, dict or set, at any depth of an optional, union or tuple.
+    fn contains_mutable_container(&self, ty: TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::List(_) | Type::Dict(..) | Type::Set(_)) => true,
+            Some(Type::Optional(inner)) => self.contains_mutable_container(*inner),
+            Some(Type::Union(members) | Type::Tuple(members)) => {
+                members.clone().into_iter().any(|member| self.contains_mutable_container(member))
+            }
+            _ => false,
         }
     }
 

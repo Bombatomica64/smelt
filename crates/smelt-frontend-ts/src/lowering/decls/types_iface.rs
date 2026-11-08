@@ -1,6 +1,7 @@
 //! Type-level declarations: type aliases, interfaces, type namespaces and the
 //! structural members they share.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::support::source_spelling;
 use crate::SmeltError;
 use crate::lowering::state::interface_registry::LoweredInterface;
@@ -556,7 +557,7 @@ impl ModuleBuilder<'_> {
         let item_ty = self.erase(ErasureReason::TypeLevel);
         let rest_list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
         // not a new erasure: same overload-slot decision recorded for the rest item
-        let return_ty = self.unknown_type();
+        let return_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
         Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: vec![rest_list_ty],
             rest: Some(0),

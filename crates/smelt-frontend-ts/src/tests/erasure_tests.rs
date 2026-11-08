@@ -174,3 +174,54 @@ fn as_any_is_explicit_any() -> Result<(), String> {
     assert_recorded(source, ErasureReason::ExplicitAny, 1, 55)
 }
 
+
+/// A join that drops a concrete arm's shape is a recorded decision (audit
+/// finding A12): `c ? n : x` with `n: number` and `x: unknown` erases the
+/// number arm, which used to widen without a record.
+#[test]
+fn a_join_that_erases_a_concrete_arm_is_recorded() -> Result<(), String> {
+    let source = ts!(
+        "function pick(c: boolean, n: number, x: unknown): void {\n  const v = c ? n : x;\n  console.log(v);\n}\npick(true, 1, 2);\n"
+    );
+    let found = records(source)?;
+    ensure!(
+        found
+            .iter()
+            .any(|(reason, line, _, detail)| *reason == ErasureReason::DynamicOperator
+                && *line == 2
+                && detail == "join with an erased operand"),
+        "expected the join to record DynamicOperator on line 2, recorded {found:?}"
+    );
+    Ok(())
+}
+
+/// A join of arms that are all already erased drops nothing and records
+/// nothing new.
+#[test]
+fn a_join_of_erased_arms_records_nothing_new() -> Result<(), String> {
+    let source = ts!(
+        "function pick(c: boolean, x: unknown, y: unknown): void {\n  const v = c ? x : y;\n  console.log(v);\n}\npick(true, 1, 2);\n"
+    );
+    assert_not_recorded(source, ErasureReason::DynamicOperator)
+}
+
+/// A discarded probe leaves no erasure record behind (audit finding A10).
+///
+/// An unannotated module constant is lowered twice: once in a probe that only
+/// asks for its type (`infer_module_global_initializer_type`), then for real.
+/// Only the real lowering's decision may remain: one record per site.
+#[test]
+fn a_discarded_probe_leaves_no_erasure_record() -> Result<(), String> {
+    let source = ts!("const parsed = JSON.parse(\"{}\");\nconsole.log(parsed);\n");
+    let found = records(source)?;
+    let mut sites = found
+        .iter()
+        .map(|(reason, line, col, _)| (*reason, *line, *col))
+        .collect::<Vec<_>>();
+    let all = sites.len();
+    sites.sort_unstable();
+    sites.dedup();
+    ensure!(!found.is_empty(), "the initializer must record its erasure");
+    ensure_eq!(all, sites.len());
+    Ok(())
+}

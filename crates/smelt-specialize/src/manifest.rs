@@ -328,6 +328,34 @@ pub struct CallableProvenance {
     pub binding_mode: BindingMode,
 }
 
+impl CallableProvenance {
+    /// Whether `source`, the current bytes of the file [`Self::span`] names,
+    /// still holds the code the guest hashed into [`Self::code_hash`].
+    ///
+    /// `None` when the hash does not cover the span's bytes, so nothing can be
+    /// checked: a TypeScript guest hashes the callable's EMITTED JavaScript
+    /// (`Function.prototype.toString`), not the TypeScript the span names, and
+    /// an unmapped callable carries no hash. The Python guest hashes exactly
+    /// `source[start..end]`.
+    #[must_use]
+    pub fn span_matches(&self, source: &[u8]) -> Option<bool> {
+        if self.language != HostLanguage::Python || self.code_hash.is_empty() {
+            return None;
+        }
+        let start = usize::try_from(self.span.start).ok()?;
+        let end = usize::try_from(self.span.end).ok()?;
+        Some(source.get(start..end).is_some_and(|bytes| source_code_hash(bytes) == self.code_hash))
+    }
+}
+
+/// The hash a guest records for a callable's source bytes: lowercase hex
+/// SHA-256, as `hashlib.sha256(body).hexdigest()` spells it.
+#[must_use]
+pub fn source_code_hash(bytes: &[u8]) -> String {
+    use sha2::Digest;
+    hex::encode(sha2::Sha256::digest(bytes))
+}
+
 /// Runtime receiver binding convention.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

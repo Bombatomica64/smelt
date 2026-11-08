@@ -2,6 +2,7 @@
 //! value, its free names and captures, and self-recursive function expressions
 //! lifted to a reserved slot.
 
+use crate::lowering::erasure::NotNewErasure;
 use std::collections::HashSet;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
@@ -399,7 +400,7 @@ impl ModuleBuilder<'_> {
         });
         // not a new erasure: a provisional, body-less slot signature that the
         // real lift overwrites; the lift decides (and records) these types.
-        let unknown = self.unknown_type();
+        let unknown = self.unknown_type(NotNewErasure::ErasedUpstream);
         let span = self.span(function.span.start, function.span.end);
         let mut params = Vec::new();
         for (index, param) in function.params.items.iter().enumerate() {

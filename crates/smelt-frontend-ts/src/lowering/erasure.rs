@@ -31,6 +31,26 @@ use smelt_hir::{ErasureReason, ErasureRecord, Span, Type, TypeId};
 
 use crate::lowering::ModuleBuilder;
 
+/// Why a site may name `Type::Unknown` without recording an erasure: the
+/// allowlist of [`ModuleBuilder::unknown_type`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::lowering) enum NotNewErasure {
+    /// The type is only compared or matched against, never given to a value.
+    Comparison,
+    /// The value is already erased, and that erasure was decided and recorded
+    /// upstream: the element of an erased collection, the result of an erased
+    /// callee, a slot of an erased record whose builder records it.
+    ErasedUpstream,
+    /// Names the tagged type in a synthesized runtime-helper signature whose
+    /// values are converted at an explicit boundary.
+    RuntimeHelperSignature,
+    /// A match arm no accepted input reaches (an empty union).
+    Unreachable,
+    /// The "no hint" sentinel handed to a lowering that takes a type hint:
+    /// it steers inference and is never a value's type.
+    NoHint,
+}
+
 impl ModuleBuilder<'_> {
     /// Erase a value to `Type::Unknown` for `reason`, recording the decision at
     /// the current anchor span (the innermost node being lowered).
@@ -66,17 +86,35 @@ impl ModuleBuilder<'_> {
 
     /// The interned `Type::Unknown` id, WITHOUT recording an erasure.
     ///
-    /// Allowed only where no value is newly erased:
-    /// - comparing or matching a type against `unknown`;
-    /// - rebuilding a type whose erasure was already decided (and recorded)
-    ///   upstream, e.g. the element of an already-erased collection;
-    /// - naming the tagged type in a synthesized runtime-helper signature whose
-    ///   values are converted at an explicit boundary.
-    ///
-    /// Anything that turns a value with a static shape into `unknown` must use
-    /// [`Self::erase`] so the decision is reported.
-    pub(in crate::lowering) fn unknown_type(&mut self) -> TypeId {
+    /// Allowed only for the uses [`NotNewErasure`] lists, and every call names
+    /// which one it is: that enum IS the allowlist (audit finding A12). A new
+    /// kind of use needs a new variant, reviewed here, rather than one more
+    /// unannotated call. Anything that turns a value with a static shape into
+    /// `unknown` must use [`Self::erase`] (or [`Self::erase_unless_unknown`] /
+    /// [`Self::erased_join`], which record exactly when the input had a shape)
+    /// so the decision is reported.
+    pub(in crate::lowering) fn unknown_type(&mut self, why: NotNewErasure) -> TypeId {
+        let _: NotNewErasure = why;
         self.ctx.krate.types.intern(Type::Unknown)
+    }
+
+    /// The type of a join (the arms of `?:`, the operands of `||`/`??`) at
+    /// least one of whose `arms` already holds `unknown`: `unknown`.
+    ///
+    /// When every arm is itself exactly `unknown` nothing is dropped and
+    /// nothing is recorded. When an arm still had a static shape (`n: number`
+    /// joined with an erased value), this join erases it, so the decision is
+    /// recorded as [`ErasureReason::DynamicOperator`]: before, it was a silent
+    /// widening no report could see.
+    pub(in crate::lowering) fn erased_join(&mut self, arms: &[TypeId]) -> TypeId {
+        let all_erased = arms
+            .iter()
+            .all(|arm| self.ctx.krate.types.get(*arm) == Some(&Type::Unknown));
+        if all_erased {
+            self.unknown_type(NotNewErasure::ErasedUpstream)
+        } else {
+            self.erase_with(ErasureReason::DynamicOperator, "join with an erased operand")
+        }
     }
 
     /// Run `lower` with the anchor moved to `span`, restoring the enclosing

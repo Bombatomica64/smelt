@@ -1,5 +1,6 @@
 //! Array methods: mutation, sorting, slicing and the modern copying forms.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::{ModuleBuilder, SmeltError};
 use oxc::ast::ast::{Argument, CallExpression, Expression};
@@ -646,7 +647,7 @@ impl ModuleBuilder<'_> {
                     Some(Type::List(flat_item_ty)) => *flat_item_ty,
                     Some(Type::Tuple(items)) => self.flattened_tuple_item_type(items.clone()),
                     // not a new erasure: the element is already erased
-                    Some(Type::Unknown) => self.unknown_type(),
+                    Some(Type::Unknown) => self.unknown_type(NotNewErasure::ErasedUpstream),
                     // `T[]`'s flattened item is the type-level `FlatArray<T, D>`.
                     Some(Type::TypeParam { .. }) => {
                         self.erase_with(ErasureReason::TypeLevel, "FlatArray")
@@ -880,7 +881,7 @@ impl ModuleBuilder<'_> {
                 }
             }
             // not a new erasure: the callback already returns an erased value
-            Some(Type::Unknown) => Some(self.unknown_type()),
+            Some(Type::Unknown) => Some(self.unknown_type(NotNewErasure::ErasedUpstream)),
             // A generic callback result flattens through the type-level
             // `FlatArray<U, 1>`, which Smelt does not evaluate.
             Some(Type::TypeParam { .. }) => {

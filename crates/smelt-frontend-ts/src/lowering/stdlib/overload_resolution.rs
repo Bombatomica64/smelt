@@ -178,11 +178,7 @@ impl ModuleBuilder<'_> {
         span: oxc::span::Span,
         body: &mut Body,
     ) -> Result<Option<OverloadSignature>, SmeltError> {
-        let Some(signatures) = (if let Some(signatures) = self.functions.overloads(name) {
-            Some(signatures.clone())
-        } else {
-            self.ctx.overloads.get(name).cloned()
-        }) else {
+        let Some(signatures) = self.functions.overloads(name).cloned() else {
             return Ok(None);
         };
         if signatures.is_empty() {

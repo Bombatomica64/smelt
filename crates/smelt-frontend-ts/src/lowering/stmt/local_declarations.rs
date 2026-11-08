@@ -1,6 +1,7 @@
 //! Local declarations: `var`/`let`/`const` statements, `catch` bindings, and the
 //! forward declarations a body needs before its statements run.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
 use crate::lowering::js_text::{js_str_text, static_name_text};
@@ -340,7 +341,7 @@ impl ModuleBuilder<'_> {
                     .unwrap_or_else(|| {
                         // not a new erasure: provisional return, replaced by the
                         // inferred one once the body lowers
-                        let unknown = self.unknown_type();
+                        let unknown = self.unknown_type(NotNewErasure::ErasedUpstream);
                         if function.r#async {
                             self.ctx.krate.types.intern(Type::Future(unknown))
                         } else {
@@ -556,7 +557,7 @@ impl ModuleBuilder<'_> {
                 && matches!(declarator.init, Some(Expression::FunctionExpression(_)))
             {
                 // not a new erasure: provisional self-binding while the initializer lowers
-                let ty = annotated_ty.unwrap_or_else(|| self.unknown_type());
+                let ty = annotated_ty.unwrap_or_else(|| self.unknown_type(NotNewErasure::ErasedUpstream));
                 let symbol = self.intern_source_name(binding.name.as_str());
                 let local = body.push_local(LocalDecl {
                     name: Some(symbol),

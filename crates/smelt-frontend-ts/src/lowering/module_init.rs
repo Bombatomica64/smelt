@@ -64,7 +64,6 @@ impl ModuleBuilder<'_> {
                 file: self.file_id,
             },
         );
-        let previous_export_aliases = self.ctx.export_aliases.clone();
 
         let mut before_each = Vec::new();
         let mut after_each = Vec::new();
@@ -429,7 +428,7 @@ impl ModuleBuilder<'_> {
             return Err(errors);
         }
 
-        self.record_module_exports(&module, &previous_export_aliases, signatures);
+        self.record_module_exports(&module, signatures);
 
         self.fn_ctx = outer_fn_ctx;
         // The body needs the async runtime when it awaits, or when it starts

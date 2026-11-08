@@ -21,20 +21,6 @@ impl ModuleBuilder<'_> {
         self.scope.apply_narrowing(name, target);
     }
 
-    /// Push a fresh narrowing scope carrying a single local fact.
-    ///
-    /// Unlike [`apply_narrowing`], which mutates the current scope, this always
-    /// pushes a new scope so callers can pop exactly the fact they added. It is
-    /// used for scoped branch facts (such as switch-case discriminant narrowing)
-    /// whose lifetime must not outlive the branch body.
-    pub(in crate::lowering) fn apply_narrowing_scope(
-        &mut self,
-        name: String,
-        target: smelt_hir::TypeId,
-    ) {
-        self.scope.push_narrowing_fact(name, target);
-    }
-
     /// Return the active narrowed type for a source local, if any.
     pub(in crate::lowering) fn narrowed_type(&self, name: &str) -> Option<smelt_hir::TypeId> {
         self.scope.narrowed_type(name)

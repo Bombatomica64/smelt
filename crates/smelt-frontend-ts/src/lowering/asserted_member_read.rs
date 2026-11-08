@@ -26,6 +26,7 @@
 //! because its type can be inspected by lowering it without duplicating any
 //! side effect; any other operand keeps the ordinary assertion path.
 
+use crate::lowering::erasure::NotNewErasure;
 use oxc::ast::ast::{Expression, StaticMemberExpression, TSType};
 use smelt_hir::{Body, Expr, ExprKind, Type};
 
@@ -62,38 +63,38 @@ impl ModuleBuilder<'_> {
         let Ok(field_ty) = self.class_field_type(target, field) else {
             return Ok(None);
         };
-        let mark = self.speculation_mark(body);
-        let receiver = self.expression(operand, body)?;
-        // not a new erasure: compared against, and the receiver is already erased
-        let unknown_ty = self.unknown_type();
-        if Self::expr_ty(body, receiver) != unknown_ty {
-            // A plain read has no effect, so the probe is dropped and the
-            // ordinary assertion path lowers the operand itself.
-            self.roll_back_to(mark, body);
-            return Ok(None);
-        }
-        let span = self.span(member.span.start, member.span.end);
-        let read = body.push_expr(Expr {
-            kind: ExprKind::Field { receiver, field },
-            ty: unknown_ty,
-            span,
-        });
-        let result_ty = if member.optional {
-            self.optional_chain_result_type(field_ty)
-        } else {
-            field_ty
-        };
-        if result_ty == unknown_ty {
-            return Ok(Some(read));
-        }
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::UnknownCast {
-                value: read,
-                target: result_ty,
-            },
-            ty: result_ty,
-            span,
-        })))
+        self.speculate(body, |this, body| {
+            let receiver = this.expression(operand, body)?;
+            // not a new erasure: compared against, and the receiver is already erased
+            let unknown_ty = this.unknown_type(NotNewErasure::ErasedUpstream);
+            if Self::expr_ty(body, receiver) != unknown_ty {
+                // A plain read has no effect, so the probe is dropped and the
+                // ordinary assertion path lowers the operand itself.
+                return Ok(None);
+            }
+            let span = this.span(member.span.start, member.span.end);
+            let read = body.push_expr(Expr {
+                kind: ExprKind::Field { receiver, field },
+                ty: unknown_ty,
+                span,
+            });
+            let result_ty = if member.optional {
+                this.optional_chain_result_type(field_ty)
+            } else {
+                field_ty
+            };
+            if result_ty == unknown_ty {
+                return Ok(Some(read));
+            }
+            Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value: read,
+                    target: result_ty,
+                },
+                ty: result_ty,
+                span,
+            })))
+        })
     }
 }
 

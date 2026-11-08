@@ -1,6 +1,7 @@
 //! Logical and nullish operators in value position: `&&`, `||`, `??` and the types
 //! their fallbacks join to.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::{
@@ -318,13 +319,7 @@ impl ModuleBuilder<'_> {
         } else {
             None
         };
-        if let Some(narrowing) = rhs_narrowing.clone() {
-            self.scope.push_narrowing_scope(narrowing);
-        }
-        let rhs = self.expression(&logical.right, body);
-        if rhs_narrowing.is_some() {
-            self.scope.pop_narrowing_scope();
-        }
+        let rhs = self.with_narrowing(rhs_narrowing, |this| this.expression(&logical.right, body));
         let Ok(rhs) = rhs else {
             return Ok(None);
         };
@@ -440,7 +435,7 @@ impl ModuleBuilder<'_> {
                         fallback,
                     },
                     // not a new erasure: the operand already contains unknown
-                    ty: self.unknown_type(),
+                    ty: self.unknown_type(NotNewErasure::ErasedUpstream),
                     span: self.span(logical.span.start, logical.span.end),
                 })));
             }
@@ -542,8 +537,9 @@ impl ModuleBuilder<'_> {
             || self.type_contains_unknown(ty)
             || self.type_contains_unknown(fallback_ty)
         {
-            // not a new erasure: an operand already contains unknown
-            self.unknown_type()
+            // An operand already holds `unknown`; a concrete other operand is
+            // erased here, and recorded as such.
+            self.erased_join(&[ty, fallback_ty])
         } else if self.is_structural_object_surface(ty) {
             // Object values are always truthy in JavaScript; keep the selected
             // runtime value when their fallback widens the expression surface.
@@ -690,7 +686,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
         // not a new erasure: the left operand already contains unknown
-        let unknown_ty = self.unknown_type();
+        let unknown_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
         let fallback = self.expression_with_hint(&logical.right, body, Some(unknown_ty))?;
         let fallback_ty = Self::expr_ty(body, fallback);
         if !self.type_contains_unknown(fallback_ty) {
@@ -766,8 +762,9 @@ impl ModuleBuilder<'_> {
             return Some(self.ctx.krate.types.intern(Type::String));
         }
         if self.type_contains_unknown(value_ty) || self.type_contains_unknown(fallback_ty) {
-            // not a new erasure: an operand already contains unknown
-            return Some(self.unknown_type());
+            // An operand already holds `unknown`; a concrete other operand is
+            // erased here, and recorded as such.
+            return Some(self.erased_join(&[value_ty, fallback_ty]));
         }
         match (
             self.ctx.krate.types.get(value_ty),

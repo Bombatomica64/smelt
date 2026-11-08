@@ -2,6 +2,7 @@
 //! private member, `console`, a constructed value, the result of another call, an
 //! asserted callee, or a name bound to a value rather than an item.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::ModuleBuilder;
 use crate::lowering::peel::{Wrappers, peel};
@@ -222,7 +223,7 @@ impl ModuleBuilder<'_> {
                 // value (`expect(makeAdder(2)(3)).toBe(5)` became a test that
                 // `5` is not nullish).
                 // not a new erasure: the inner call already returned `unknown`
-                let unknown_ty = self.unknown_type();
+                let unknown_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
                 let args = call
                     .arguments
                     .iter()

@@ -471,7 +471,7 @@ impl ModuleBuilder<'_> {
         self.items.insert(name_text.to_owned(), item);
         if let Some(rest) = rest {
             self.functions.set_rest(name_text.to_owned(), rest);
-            self.ctx.function_rests.write().insert(name_text.to_owned(), rest);
+            self.publish_export(|ctx| &mut ctx.function_rests, name_text.to_owned(), rest);
         }
         if let Some((parameter_name, Some(target))) = assertion_return
             && let Some(param_index) = function.params.items.iter().position(|param| {

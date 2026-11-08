@@ -20,6 +20,7 @@ mod list_ops;
 mod timer_wrapper;
 mod transforms;
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::ModuleBuilder;
 use smelt_hir::{ErasureReason, Type, TypeId};
 
@@ -49,7 +50,7 @@ impl ModuleBuilder<'_> {
         };
         if already_erased {
             // not a new erasure: the source value is already erased upstream
-            self.unknown_type()
+            self.unknown_type(NotNewErasure::ErasedUpstream)
         } else {
             self.erase_with(reason, detail)
         }

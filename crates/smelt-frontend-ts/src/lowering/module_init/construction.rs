@@ -28,13 +28,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
     ) -> Self {
         let (items, classes, interfaces) = Self::visible_items(ctx);
         let const_literals = Self::visible_const_literals(ctx);
-        let enum_member_literals = ctx.enum_members.clone();
-        let const_objects = ctx.object_consts.clone();
-        let const_object_value_collections = ctx.object_value_collections.clone();
-        let const_collections = ctx.const_collections.clone();
-        let object_namespaces = ctx.object_namespaces.clone();
-        let function_overloads = ctx.overloads.clone();
-        let function_rests = ctx.function_rests.clone();
+        let module_key = crate::context::ModuleKey::of_path(&path);
+        ctx.known_modules.insert(module_key.clone());
         let type_alias_fields = ctx.type_alias_fields.clone();
         let interface_extends = ctx.interface_extends.clone();
         let interface_index_values = ctx.interface_index_values.clone();
@@ -50,6 +45,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             test_tier_module: false,
             file_id,
             path,
+            module_key,
             source,
             ctx,
             scope: LocalScope::default(),
@@ -78,15 +74,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             presence_widened_bindings: HashMap::new(),
             defining_local_functions: Vec::new(),
             unknown_index_access,
-            object_namespaces,
-            consts: ConstRegistry::new(
-                const_literals,
-                enum_member_literals,
-                const_objects,
-                const_collections,
-                const_object_value_collections,
-            ),
-            functions: FunctionRegistry::new(function_overloads, function_rests),
+            object_namespaces: crate::context::Published::default(),
+            consts: ConstRegistry::new(const_literals),
+            functions: FunctionRegistry::default(),
             specialization,
             pending_host_imports: Vec::new(),
             excluded_modules,
@@ -142,6 +132,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             reason = "keyed inserts of distinct aliases"
         )]
         for (alias, item_id) in &ctx.export_aliases {
+            let alias = &alias.name;
             let Some(item) = ctx
                 .krate
                 .items
@@ -180,6 +171,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             reason = "keyed inserts of distinct aliases"
         )]
         for (alias, item_id) in &ctx.export_aliases {
+            let alias = &alias.name;
             let Some(Item::Const(const_item)) = ctx
                 .krate
                 .items

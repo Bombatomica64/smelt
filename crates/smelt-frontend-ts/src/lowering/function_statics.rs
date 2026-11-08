@@ -189,7 +189,7 @@ impl ModuleBuilder<'_> {
         self.items.insert(key.clone(), item);
         // Exported so an importer's `partial.placeholder` read resolves through the
         // same item-visibility path as any other module const.
-        self.ctx.export_aliases.insert(key, item);
+        self.publish_export_alias(key, item);
         Ok(true)
     }
 

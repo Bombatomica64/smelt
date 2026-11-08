@@ -19,6 +19,7 @@ mod fetch_init;
 mod host_types;
 mod type_queries;
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::{Expression, TSType, TSTypeQueryExprName};
@@ -202,7 +203,7 @@ impl ModuleBuilder<'_> {
                     if arities_differ {
                         let item_ty = self.erase(ErasureReason::TypeLevel);
                         let rest_list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
-                        let return_ty = self.unknown_type(); // not a new erasure: same mixed-arity decision recorded for the rest item above
+                        let return_ty = self.unknown_type(NotNewErasure::ErasedUpstream); // not a new erasure: same mixed-arity decision recorded for the rest item above
                         let unified =
                             self.ctx.krate.types.intern(Type::Function(FunctionType {
                                 params: vec![rest_list_ty],
@@ -559,7 +560,7 @@ impl ModuleBuilder<'_> {
             Some(Type::List(item) | Type::Set(item)) => Ok(*item),
             Some(Type::Dict(_, value)) => Ok(*value),
             // not a new erasure: the indexed object is already erased
-            Some(Type::Unknown) => Ok(self.unknown_type()),
+            Some(Type::Unknown) => Ok(self.unknown_type(NotNewErasure::ErasedUpstream)),
             _ => Ok(self.erase(ErasureReason::TypeLevel)),
         }
     }

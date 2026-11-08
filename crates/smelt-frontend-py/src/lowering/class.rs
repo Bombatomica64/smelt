@@ -1737,7 +1737,7 @@ impl ModuleBuilder<'_> {
             // the main pass reports the missing-annotation error; a `None`
             // placeholder here is only a stand-in until then.
             let return_ty = self
-                .resolve_return_ty(func, func.returns.as_deref())
+                .resolve_return_ty(func, func.returns.as_deref(), ReturnOwner::Method)
                 .unwrap_or_else(|| self.intern_type(Type::None));
             let placeholder = Item::Function(Function {
                 name: method_sym,
@@ -1932,7 +1932,7 @@ impl ModuleBuilder<'_> {
         } else {
             // Reconcile any declared annotation with `ty`'s inferred actual
             // return type (issue #93); error only when neither is available.
-            match self.resolve_return_ty(func, func.returns.as_deref()) {
+            match self.resolve_return_ty(func, func.returns.as_deref(), ReturnOwner::Method) {
                 Some(ty) => ty,
                 None => {
                     return Err(SmeltError::type_constraint(

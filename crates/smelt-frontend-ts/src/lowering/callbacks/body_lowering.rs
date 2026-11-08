@@ -2,6 +2,7 @@
 //! narrowing, param-pattern binding and inference, arrow closure bodies,
 //! throw analysis, and capture-name collection over expressions/statements.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::state::local_scope::ScopeGroups;
@@ -814,7 +815,7 @@ impl ModuleBuilder<'_> {
         let scoped_state = ScopeGroups::NARROWINGS.with(ScopeGroups::CALLABLE_PROPS);
         let (lowering_result, actual_return_ty) =
             self.with_nested_body(ctx, scoped_state, |this, _| {
-                this.scope.push_narrowing_scope(captured_narrowings);
+                this.scope.seed_narrowings(captured_narrowings);
                 let mut actual_return_ty = return_ty;
                 // A binding declared inside a function body is not in scope outside it.
                 //
@@ -1091,7 +1092,7 @@ impl ModuleBuilder<'_> {
                 // not a new erasure: `unknown` is the "no return hint" sentinel
                 // of closure-body lowering (it infers block returns); a return
                 // that stays erased is recorded below.
-                .unwrap_or_else(|| self.unknown_type());
+                .unwrap_or_else(|| self.unknown_type(NotNewErasure::NoHint));
             if arrow.r#async
                 && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
             {

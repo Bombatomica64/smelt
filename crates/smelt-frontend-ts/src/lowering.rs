@@ -16,6 +16,8 @@ mod arguments_forwarding;
 mod asserted_member_read;
 mod function_statics;
 mod hoisting;
+mod resolve;
+mod scoped_references;
 mod int32;
 mod js_text;
 mod narrowing;
@@ -758,6 +760,8 @@ struct ModuleBuilder<'ctx> {
     file_id: FileId,
     /// Source path for module metadata.
     path: String,
+    /// This module's key in the crate-wide export tables.
+    module_key: crate::context::ModuleKey,
     /// Whether this module is in the test tier (`is_test_tier_program`). Set
     /// before any body is lowered.
     test_tier_module: bool,

@@ -49,6 +49,31 @@ fn paths_match(frontend: &str, materialized: &str) -> bool {
     }
 }
 
+/// The text a lifted callable is re-parsed from, and whether its spans are
+/// the file's own.
+struct LiftSource {
+    /// `const __smelt_lifted = <callable>;`, left-padded when aligned.
+    text: String,
+    /// The callable starts at its offset in the file, so every span the parser
+    /// reports for it addresses the same bytes of the file.
+    aligned: bool,
+}
+
+/// Wrap `callable` (which starts at byte `offset` of the file) as a const
+/// initializer, padded with spaces so it lands at `offset` again.
+///
+/// Re-parsed text has its own span space, and a span the lowering looks
+/// checker facts up by, or reports a diagnostic at, must be the file's
+/// (audit finding A9). Padding keeps the spaces identical; a callable too
+/// close to the start of the file for the prefix to fit is not aligned.
+fn file_aligned_lift_source(offset: usize, callable: &str) -> LiftSource {
+    const PREFIX: &str = "const __smelt_lifted = ";
+    offset.checked_sub(PREFIX.len()).map_or_else(
+        || LiftSource { text: format!("{PREFIX}{callable};"), aligned: false },
+        |padding| LiftSource { text: format!("{}{PREFIX}{callable};", " ".repeat(padding)), aligned: true },
+    )
+}
+
 /// Whether `source` parses as exactly one `function` expression.
 ///
 /// A source-mapped callable span can run on to the end of the statement that
@@ -94,6 +119,20 @@ impl ModuleBuilder<'_> {
         class_name: smelt_hir::Symbol,
         class_ty: smelt_hir::TypeId,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
+        // The span is read out of THIS file's text, so it must name this file
+        // (audit finding A9). The TypeScript guest's `code_hash` covers the
+        // emitted JavaScript, not these bytes, so the file is what can be
+        // checked here (`CallableProvenance::span_matches`).
+        if !paths_match(&self.path, &provenance.span.file) {
+            return Err(SmeltError::native_specialization_adapter_required(
+                self.materialized_span(&provenance.span),
+                "typescript.callable-source",
+                &format!(
+                    "callable '{}' is declared in '{}', not in the module being lowered",
+                    provenance.qualified_name, provenance.span.file
+                ),
+            ));
+        }
         let start = usize::try_from(provenance.span.start).unwrap_or(usize::MAX);
         let end = usize::try_from(provenance.span.end).unwrap_or(usize::MAX);
         let source = self.source.get(start..end).ok_or_else(|| {
@@ -127,11 +166,11 @@ impl ModuleBuilder<'_> {
             )
         })?;
         let callable_source = &source[function_start..=function_end];
-        let wrapped = format!("const __smelt_lifted = {callable_source};");
+        let wrapped = file_aligned_lift_source(start.saturating_add(function_start), callable_source);
         let allocator = Allocator::default();
         let parsed = Parser::new(
             &allocator,
-            &wrapped,
+            &wrapped.text,
             SourceType::default().with_typescript(true),
         )
         .with_options(ParseOptions::default())
@@ -195,6 +234,12 @@ impl ModuleBuilder<'_> {
                     .rsplit('.')
                     .next()
                     .unwrap_or(&capture.qualified_name);
+                // A capture is a callable of the file its own span names: a
+                // same-named function of another file is not it, however close
+                // its offset (audit finding A9).
+                let capture_file = self.ctx.krate.modules.iter().find_map(|module| {
+                    paths_match(&module.source.path, &capture.span.file).then_some(module.source.file)
+                });
                 let item = self
                     .ctx
                     .krate
@@ -205,6 +250,11 @@ impl ModuleBuilder<'_> {
                         let Item::Function(candidate_function) = item else {
                             return None;
                         };
+                        let candidate_file =
+                            if paths_match(&self.path, &capture.span.file) { Some(self.file_id) } else { capture_file };
+                        if candidate_file != Some(candidate_function.span.file) {
+                            return None;
+                        }
                         let function_name =
                             self.ctx.krate.symbols.get(candidate_function.name)?;
                         let owner_name = match candidate_function.owner {
@@ -235,12 +285,20 @@ impl ModuleBuilder<'_> {
             .iter()
             .map(|(name, item)| (name.clone(), self.items.insert(name.clone(), *item)))
             .collect::<Vec<_>>();
+        // Spans of the re-parsed text are this file's spans when the text was
+        // aligned to its offset; otherwise they address unrelated nodes, so the
+        // checker facts keyed by span are switched off for the lift, as
+        // `lower_respelled_annotation` does.
+        let saved_facts = if wrapped.aligned { None } else { self.ts_facts.take() };
         let lifted = self.function_expression_item_with_receiver(
             hidden_name,
             function,
             Some(hint),
             Some((class_name, class_ty)),
         );
+        if saved_facts.is_some() {
+            self.ts_facts = saved_facts;
+        }
         for (name, item) in previous {
             if let Some(item) = item {
                 self.items.insert(name, item);
@@ -414,13 +472,13 @@ impl ModuleBuilder<'_> {
             static_fields.extend(declared.static_fields.iter().cloned());
             base = declared.base;
         }
-        // Static field names are interned through the source-name path, which
-        // case-folds camelCase to snake_case (`PI` -> `pi`). Compare against the
-        // same folded spelling so qualified reads like `Class.PI` resolve.
-        let member_symbol = crate::camel_to_snake(member.property.name.as_str());
+        // A static field is found by its SOURCE key: the folded Rust rendering
+        // (`PI` -> `pi`) is not unique, so `Class.PI` would read a static `pi`
+        // declared before it (audit finding A13).
+        let member_key = member.property.name.as_str();
         let Some(field) = static_fields
             .iter()
-            .find(|field| self.ctx.krate.symbols.get(field.name) == Some(member_symbol.as_str()))
+            .find(|field| super::support::source_spelling(&self.ctx.krate, field.name) == Some(member_key))
             .cloned()
         else {
             return Ok(None);

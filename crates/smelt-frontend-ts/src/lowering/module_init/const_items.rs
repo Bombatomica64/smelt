@@ -75,9 +75,7 @@ impl ModuleBuilder<'_> {
                         self.const_unknown_value_collection_from_object(object)
                     {
                         self.consts.set_object_value_collection(binding.name.as_str().to_owned(), collection.clone());
-                        self.ctx
-                            .object_value_collections
-                            .write().insert(binding.name.as_str().to_owned(), collection);
+                        self.publish_export(|ctx| &mut ctx.object_value_collections, binding.name.as_str().to_owned(), collection);
                     }
                     self.dynamic_object_const_declaration(binding.name.as_str(), object, type_hint)?
                 };
@@ -203,7 +201,7 @@ impl ModuleBuilder<'_> {
                 span,
             }));
             self.items.insert(name_text.to_owned(), item);
-            self.ctx.export_aliases.insert(name_text.to_owned(), item);
+            self.publish_export_alias(name_text.to_owned(), item);
             self.consts.set_literal(name_text.to_owned(), value);
             items.push(item);
         }
@@ -241,13 +239,11 @@ impl ModuleBuilder<'_> {
             span,
         }));
         self.items.insert(name_text.to_owned(), item);
-        self.ctx.export_aliases.insert(name_text.to_owned(), item);
+        self.publish_export_alias(name_text.to_owned(), item);
         self.module_globals.insert(name_text.to_owned(), ty);
         if let Some(collection) = self.const_collection_from_initializer(init, ty) {
             self.consts.set_collection(name_text.to_owned(), collection.clone());
-            self.ctx
-                .const_collections
-                .write().insert(name_text.to_owned(), collection);
+            self.publish_export(|ctx| &mut ctx.const_collections, name_text.to_owned(), collection);
         }
         Ok(item)
     }

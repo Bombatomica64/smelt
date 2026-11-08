@@ -1,6 +1,7 @@
 //! `forEach` over lists, maps and sets, lowered as a loop over the receiver with the
 //! callback body inlined.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
@@ -299,7 +300,7 @@ impl ModuleBuilder<'_> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => {
                 // An already-erased receiver was recorded where it was decided.
                 let item_ty = if self.ctx.krate.types.get(iter_ty) == Some(&Type::Unknown) {
-                    self.unknown_type()
+                    self.unknown_type(NotNewErasure::ErasedUpstream)
                 } else {
                     self.erase(ErasureReason::ByName)
                 };

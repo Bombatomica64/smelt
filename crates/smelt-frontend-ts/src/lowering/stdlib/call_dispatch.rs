@@ -234,9 +234,8 @@ impl<'builder> ModuleBuilder<'builder> {
             return Ok(None);
         }
         let receiver = self.expression(&member.object, body)?;
-        self.scope.push_narrowing_fact(name.to_owned(), inner);
-        let lowered = self.call_expression(call, body);
-        self.scope.pop_narrowing_scope();
+        let fact = HashMap::from([(name.to_owned(), inner)]);
+        let lowered = self.with_narrowing(Some(fact), |this| this.call_expression(call, body));
         let op = lowered?;
         Ok(Some(self.wrap_optional_receiver_method(receiver, op, call.span, body)))
     }

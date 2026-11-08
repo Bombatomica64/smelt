@@ -1,6 +1,7 @@
 //! Assertion lowering: vitest `expect(..)` matchers, asymmetric matchers, node
 //! `assert` calls and the HIR expressions they compare with.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::{ModuleBuilder, TestMatcher};
 use crate::SmeltError;
@@ -1078,7 +1079,7 @@ impl ModuleBuilder<'_> {
             && self.assertion_type_contains_unknown(actual_ty)
         {
             // not a new erasure: the actual's type already contains `unknown`
-            let unknown_ty = self.unknown_type();
+            let unknown_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
             actual = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: actual },
                 ty: unknown_ty,
@@ -2198,7 +2199,7 @@ impl ModuleBuilder<'_> {
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let string_ty = self.ctx.krate.types.intern(Type::String);
         // not a new erasure: only an already-erased actual reaches this path
-        let unknown_ty = self.unknown_type();
+        let unknown_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
         let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
         let expected_ty = Self::expr_ty(body, expected);
         let value = Self::erase_to_unknown(actual, unknown_ty, hir_span, body);

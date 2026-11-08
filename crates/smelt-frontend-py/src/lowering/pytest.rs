@@ -135,7 +135,7 @@ impl ModuleBuilder<'_> {
         let annotated_return_ty = if self.is_pytest_test_function(func) && func.returns.is_none() {
             self.intern_type(Type::None)
         } else {
-            match self.resolve_return_ty(func, func.returns.as_deref()) {
+            match self.resolve_return_ty(func, func.returns.as_deref(), ReturnOwner::Function) {
                 Some(ty) => ty,
                 None => {
                     return Err(SmeltError::type_constraint(

@@ -416,7 +416,7 @@ impl ModuleBuilder<'_> {
         self.items.insert(name_text.to_owned(), item);
         if let Some(rest) = rest {
             self.functions.set_rest(name_text.to_owned(), rest);
-            self.ctx.function_rests.write().insert(name_text.to_owned(), rest);
+            self.publish_export(|ctx| &mut ctx.function_rests, name_text.to_owned(), rest);
         }
         Ok(item)
     }
@@ -515,7 +515,7 @@ impl ModuleBuilder<'_> {
         let displaced = self.items.insert(name_text.to_owned(), item);
         if let Some(rest) = rest {
             self.functions.set_rest(name_text.to_owned(), rest);
-            self.ctx.function_rests.write().insert(name_text.to_owned(), rest);
+            self.publish_export(|ctx| &mut ctx.function_rests, name_text.to_owned(), rest);
         }
         Some((item, displaced))
     }
@@ -926,7 +926,9 @@ return_ty,
         {
             return Ok(value);
         }
-        if let Expression::Identifier(object) = &member.object {
+        if let Expression::Identifier(object) = &member.object
+            && matches!(self.resolve_value(object.name.as_str()), crate::lowering::resolve::ValueBinding::Host)
+        {
             let property = member.property.name.as_str();
             let value = match object.name.as_str() {
                 "Number" => smelt_stdlib::number_constant(property),

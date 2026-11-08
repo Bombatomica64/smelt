@@ -41,6 +41,7 @@ mod sqlite;
 mod text_codec;
 mod url;
 
+use crate::lowering::erasure::NotNewErasure;
 use smelt_hir::{ErasureReason, Type};
 
 use super::ModuleBuilder;
@@ -61,7 +62,7 @@ impl ModuleBuilder<'_> {
         reason: ErasureReason,
     ) -> smelt_hir::TypeId {
         if self.ctx.krate.types.get(input) == Some(&Type::Unknown) {
-            self.unknown_type()
+            self.unknown_type(NotNewErasure::ErasedUpstream)
         } else {
             self.erase(reason)
         }

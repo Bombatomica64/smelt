@@ -1,5 +1,6 @@
 //! `Object` statics, `SameValueZero` equality and `Array.isArray`-style type queries.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
 use oxc::ast::ast::{Argument, Expression};
@@ -554,7 +555,7 @@ impl ModuleBuilder<'_> {
         let span = self.span(call.span.start, call.span.end);
         // not a new erasure yet: the call may still decline below, so the
         // decision is recorded only once the rule applies (before the result).
-        let unknown_ty = self.unknown_type();
+        let unknown_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
         let (target, descriptors) = match member.property.name.as_str() {
             "defineProperties" => {
                 let [target, descriptors] = call.arguments.as_slice() else {
@@ -710,7 +711,7 @@ impl ModuleBuilder<'_> {
                         let ty = self.ctx.krate.types.intern(Type::Dict(string_ty, value_ty));
                         // not a new erasure: the entries list is only re-viewed as the
                         // tagged runtime-helper operand; the result keeps `value_ty`.
-                        let unknown = self.unknown_type();
+                        let unknown = self.unknown_type(NotNewErasure::RuntimeHelperSignature);
                         let entries = body.push_expr(Expr {
                             kind: ExprKind::TypeAssert { value },
                             ty: unknown,
@@ -859,7 +860,7 @@ impl ModuleBuilder<'_> {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         // not a new erasure yet: `read_pair` may still decline; the
         // descriptor's `any` value is recorded once both reads succeed.
-        let unknown_ty = self.unknown_type();
+        let unknown_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let record_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
         let read_pair = |this: &mut Self, target: &mut Body| -> Result<Option<(smelt_hir::ExprId, smelt_hir::ExprId)>, SmeltError> {

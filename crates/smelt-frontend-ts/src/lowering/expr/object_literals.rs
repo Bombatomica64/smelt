@@ -1,6 +1,7 @@
 //! Object literals: keys, accessors, spreads and the record type a literal takes from
 //! its context.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::{
@@ -426,13 +427,7 @@ impl ModuleBuilder<'_> {
         }
         let cond = self.expression(&logical.left, body)?;
         let rhs_narrowing = self.guard_narrowing(&logical.left, body);
-        if let Some(narrowing) = rhs_narrowing.clone() {
-            self.scope.push_narrowing_scope(narrowing);
-        }
-        let then_expr = self.expression_with_hint(&logical.right, body, record_ty)?;
-        if rhs_narrowing.is_some() {
-            self.scope.pop_narrowing_scope();
-        }
+        let then_expr = self.with_narrowing(rhs_narrowing, |this| this.expression_with_hint(&logical.right, body, record_ty))?;
         let source_ty = Self::expr_ty(body, then_expr);
         self.accept_object_spread_source(source_ty, record_ty, span)?;
         let else_expr = body.push_expr(Expr {
@@ -717,7 +712,7 @@ impl ModuleBuilder<'_> {
         let chunk_ty = if force_unknown_record {
             let key_ty = self.ctx.krate.types.intern(Type::String);
             // not a new erasure: an earlier erased spread source forces the erased record
-            let value_ty = self.unknown_type();
+            let value_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
             self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
         } else {
             self.object_literal_type(&entries, *record_ty, body)

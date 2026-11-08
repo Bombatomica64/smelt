@@ -2,6 +2,7 @@
 //! body returns or yields, and the generator type of an unannotated generator
 //! with its yield accumulator.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::{GeneratorYieldAccumulator, ModuleBuilder};
 use crate::lowering::body_arena::BodyArena;
 use smelt_hir::{Body, ErasureReason, ExprKind, Stmt, Type};
@@ -35,10 +36,10 @@ impl ModuleBuilder<'_> {
         // type" sentinel the yield lowering compares against; an unannotated
         // generator's real carrier is inferred from its body by
         // `inferred_generator_type`, which records its own erasures.
-        let yield_ty = self.unknown_type();
+        let yield_ty = self.unknown_type(NotNewErasure::Comparison);
         GeneratorYieldAccumulator {
             yield_ty,
-            next_ty: self.unknown_type(),
+            next_ty: self.unknown_type(NotNewErasure::Comparison),
             // An unannotated generator may not have a contextual Generator type,
             // but its syntax still determines whether delegation may suspend.
             is_async: function.r#async,
