@@ -575,9 +575,7 @@ impl ModuleBuilder<'_> {
                 return Ok(expr);
             }
         }
-        if member.property.name == "length" && self.supports_stdlib_length(access_receiver_ty)
-            || member.property.name == "size" && self.supports_stdlib_size(access_receiver_ty)
-        {
+        if self.element_count_member(access_receiver_ty, member.property.name.as_str()) {
             let ty = self.ctx.krate.types.intern(Type::Float);
             let operand = if optional_access {
                 body.push_expr(Expr {

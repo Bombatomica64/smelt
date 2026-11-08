@@ -194,3 +194,35 @@ fn python_declared_returns_are_kept() -> TestResult {
     let output = build_and_run(root)?;
     ensure_eq(&output, &MAIN_PY_OUTPUT.to_owned(), "the declared-returns program's output")
 }
+
+/// `size` and `length` count elements only on a receiver whose TYPE is a
+/// collection: a `Map`/`Set` for `size`, an array or string for `length`. On
+/// an object constant, an annotated object or a `Record`, the member is the
+/// source's own property. `DEFAULTS.size` used to lower to the record's entry
+/// count, because records and maps share one HIR shape.
+const COUNT_MEMBERS_TS: &str = r#"const DEFAULTS = { size: 3, length: 9, name: "d" };
+const box: { size: number; length: number } = { size: 5, length: 6 };
+const scores: Record<string, number> = { size: 11, a: 1 };
+const m = new Map<string, number>([["a", 1], ["b", 2]]);
+const s = new Set<number>([1, 2, 3, 4]);
+const { size, length } = DEFAULTS;
+function sizeOf<T extends { size: number }>(value: T): number { return value.size; }
+console.log(DEFAULTS.size, DEFAULTS.length, box.size, box.length, scores.size);
+console.log(m.size, s.size, [1, 2].length, "abc".length);
+console.log(size, length, sizeOf(box));
+"#;
+
+/// What Node prints for [`COUNT_MEMBERS_TS`].
+const COUNT_MEMBERS_OUTPUT: &str = "3 9 5 6 11\n2 4 2 3\n3 9 5\n";
+
+/// `size`/`length` read a user object's own fields and count only real collections.
+#[test]
+fn count_members_are_resolved_by_receiver_type() -> TestResult {
+    let sources = [("main.ts", COUNT_MEMBERS_TS)];
+    ensure_node_agrees(&sources, "main.ts", COUNT_MEMBERS_OUTPUT, "count members")?;
+    let temp = TempProject::new()?;
+    let root = temp.path();
+    write_project(root, "main.ts", &sources)?;
+    let output = build_and_run(root)?;
+    ensure_eq(&output, &COUNT_MEMBERS_OUTPUT.to_owned(), "the count-members program's output")
+}

@@ -168,29 +168,48 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Returns true when TypeScript `.length` can lower directly to Rust `.len()`.
-    pub(in crate::lowering) fn supports_stdlib_length(&self, receiver_ty: smelt_hir::TypeId) -> bool {
-        matches!(
-            self.ctx.krate.types.get(receiver_ty),
-            Some(Type::List(_) | Type::String | Type::Tuple(_) | Type::TypeParam { .. })
-        )
-            || matches!(
-                self.ctx.krate.types.get(receiver_ty),
-                Some(Type::Class { name, .. })
-                    if self
-                        .ctx
-                        .krate
-                        .symbols
-                        .get(*name)
-                        .is_some_and(|name| !self.classes.contains(name) && !self.interfaces.contains(name))
-            )
+    /// Whether `ty` is an object shape the source declares: a record or object
+    /// type, or a class or interface of this crate. Its members are its own
+    /// properties, never a collection's built-in ones.
+    fn is_source_object_shape(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Dict(_, _)) => true,
+            Some(Type::Class { name, .. }) => self
+                .ctx
+                .krate
+                .symbols
+                .get(*name)
+                .is_some_and(|name| self.classes.contains(name) || self.interfaces.contains(name)),
+            _ => false,
+        }
     }
 
-    /// Returns true when TypeScript `.size` can lower directly to Rust `.len()`.
-    pub(in crate::lowering) fn supports_stdlib_size(&self, receiver_ty: smelt_hir::TypeId) -> bool {
-        matches!(
-            self.ctx.krate.types.get(receiver_ty),
-            Some(Type::Dict(_, _) | Type::JsMap(_, _) | Type::Set(_) | Type::TypeParam { .. })
-        )
+    /// Whether reading `member` off a value of `receiver_ty` is that value's
+    /// ELEMENT COUNT, lowered to `ExprKind::Len`.
+    ///
+    /// Decided by the receiver's TYPE, never by the member name alone: `length`
+    /// counts an array, string, tuple or host collection, and `size` counts a
+    /// `Map` (`JsMap`) or `Set`. On anything else the member is an ordinary
+    /// property: an object constant or `Record` whose source declares a `size`
+    /// or `length` field (`DEFAULTS.size`) reads that field, which used to
+    /// lower to the record's entry count because records and maps share the
+    /// `Dict` shape.
+    ///
+    /// A type parameter keeps the count reading (a source that type-checks
+    /// only reads `length`/`size` off it when every instantiation has one: an
+    /// array, a string, a function's arity, a `Map`) unless its constraint is
+    /// a source object shape that declares the member as a property
+    /// (`T extends { size: number }`).
+    pub(in crate::lowering) fn element_count_member(&self, receiver_ty: smelt_hir::TypeId, member: &str) -> bool {
+        if matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::TypeParam { .. })) {
+            let constraint = self.type_param_constraint_or_self(receiver_ty);
+            return matches!(member, "length" | "size") && !self.is_source_object_shape(constraint);
+        }
+        match (member, self.ctx.krate.types.get(receiver_ty)) {
+            ("length", Some(Type::List(_) | Type::String | Type::Tuple(_))) => true,
+            ("length", Some(Type::Class { .. })) => !self.is_source_object_shape(receiver_ty),
+            ("size", Some(Type::JsMap(_, _) | Type::Set(_))) => true,
+            _ => false,
+        }
     }
 }

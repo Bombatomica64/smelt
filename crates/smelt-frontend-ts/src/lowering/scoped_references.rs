@@ -23,14 +23,13 @@
 //! is visible where the statement sits.
 
 use oxc::ast::ast::{
-    ArrowFunctionExpression, AssignmentExpression, AssignmentTarget, BinaryExpression,
+    ArrowFunctionExpression, AssignmentExpression, AssignmentTarget,
     BindingPattern, BlockStatement, CatchClause, Class, Expression,
     ForInStatement, ForOfStatement, ForStatement, ForStatementInit, ForStatementLeft,
     FormalParameters, Function, IdentifierReference, NewExpression, Statement,
     StaticBlock, SwitchStatement, VariableDeclaration, VariableDeclarationKind,
 };
 use oxc::ast_visit::{Visit, walk};
-use oxc::syntax::operator::BinaryOperator;
 use oxc::syntax::scope::ScopeFlags;
 
 /// How one statement uses the outer binding `name`.
@@ -38,8 +37,15 @@ use oxc::syntax::scope::ScopeFlags;
 pub(in crate::lowering) struct BindingUses {
     /// Some identifier reference resolves to the binding.
     pub referenced: bool,
-    /// The binding is used as a constructor: `new name(..)`, `x instanceof
-    /// name`, or `name.prototype.member = ..`.
+    /// The binding is used as a NOMINAL constructor: `new name(..)` or
+    /// `name.prototype.member = ..`.
+    ///
+    /// Not `x instanceof name`: a test makes no instance, so it is no reason
+    /// to synthesize a class, and the instances it tests come from somewhere
+    /// else. A function constructed only as an erased value (`new (C as
+    /// any)()`) keeps the dynamic construction path, which models what a
+    /// synthesized class cannot: an object `return` that overrides the
+    /// allocation, and `C.prototype` as the instances' prototype.
     pub constructed: bool,
 }
 
@@ -191,14 +197,6 @@ impl<'a> Visit<'a> for ScopedUses<'_> {
         walk::walk_new_expression(self, expression);
     }
 
-    /// `value instanceof name` tests against the binding as a constructor.
-    fn visit_binary_expression(&mut self, expression: &BinaryExpression<'a>) {
-        if expression.operator == BinaryOperator::Instanceof && self.is_name(&expression.right) {
-            self.uses.constructed = true;
-        }
-        walk::walk_binary_expression(self, expression);
-    }
-
     /// `name.prototype.member = ..` extends the binding as a constructor.
     fn visit_assignment_expression(&mut self, expression: &AssignmentExpression<'a>) {
         if let AssignmentTarget::StaticMemberExpression(member) = &expression.left
@@ -342,7 +340,8 @@ mod tests {
         assert!(uses("return new Foo().a", "Foo").constructed);
         assert!(uses("while (x) { y = [new Foo()][0] }", "Foo").constructed);
         assert!(uses("Foo.prototype.m = function () {}", "Foo").constructed);
-        assert!(uses("const ok = v instanceof Foo", "Foo").constructed);
+        assert!(!uses("const ok = v instanceof Foo", "Foo").constructed);
+        assert!(!uses("const made = new (Foo as any)()", "Foo").constructed);
         assert!(!uses("const f = (Foo: any) => new Foo()", "Foo").constructed);
         assert!(!uses("Foo()", "Foo").constructed);
     }

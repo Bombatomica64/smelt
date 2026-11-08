@@ -22,7 +22,7 @@ impl ModuleBuilder<'_> {
     ///
     /// A bare `function Foo(){}` that is only ever called normally is left as a
     /// plain function; it only becomes a class when the surrounding scope uses it
-    /// with `new`, `instanceof`, or `Foo.prototype.x = …`.
+    /// with `new` or `Foo.prototype.x = …` (see `scoped_references::BindingUses`).
     pub(in crate::lowering) fn statements_use_function_as_constructor(
         name: &str,
         statements: &[Statement<'_>],
