@@ -280,3 +280,44 @@ fn generic_record_helpers_instantiate_from_their_arguments() -> TestResult {
     }
     Ok(())
 }
+
+/// A generic function that returns its callback's `any` result as its `T`
+/// makes a promise its body never checks, so a call keeps the value the
+/// callback produced instead of converting it to the instantiation (es-toolkit
+/// `cloneDeepWith` with a customizer that returns `null`). The rule follows a
+/// wrapper that forwards its own callback, and a call that passes no callback
+/// keeps its instantiation.
+const UNCHECKED_RETURNS_TS: &str = r"function withDefault<T>(value: T, replace?: (v: T) => any): T {
+  const replaced = replace?.(value);
+  if (replaced !== undefined) {
+    return replaced;
+  }
+  return value;
+}
+function apply<T>(value: T, replace: (v: T) => any): T { return withDefault(value, replace); }
+function keep<T>(value: T): T { return withDefault(value, undefined); }
+const rec = { a: 1, b: 2 };
+const out = apply(rec, (v: any) => {
+  if (v.a === 1) {
+    return null;
+  }
+});
+const same = apply(rec, () => undefined);
+const kept = keep(rec);
+console.log(out, same, kept.a + kept.b);
+";
+
+/// What Node prints for [`UNCHECKED_RETURNS_TS`].
+const UNCHECKED_RETURNS_OUTPUT: &str = "null { a: 1, b: 2 } 3\n";
+
+/// A callback's `any` result returned as `T` reaches the caller unchanged.
+#[test]
+fn a_callback_result_returned_as_t_keeps_its_runtime_value() -> TestResult {
+    let sources = [("main.ts", UNCHECKED_RETURNS_TS)];
+    ensure_node_agrees(&sources, "main.ts", UNCHECKED_RETURNS_OUTPUT, "unchecked returns")?;
+    let temp = TempProject::new()?;
+    let root = temp.path();
+    write_project(root, "main.ts", &sources)?;
+    let output = build_and_run(root)?;
+    ensure_eq(&output, &UNCHECKED_RETURNS_OUTPUT.to_owned(), "the unchecked-returns program's output")
+}

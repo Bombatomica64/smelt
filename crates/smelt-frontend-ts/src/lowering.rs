@@ -17,6 +17,7 @@ mod asserted_member_read;
 mod function_statics;
 mod hoisting;
 mod resolve;
+mod unchecked_returns;
 mod scoped_references;
 mod int32;
 mod js_text;

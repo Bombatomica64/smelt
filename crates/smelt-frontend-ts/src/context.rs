@@ -244,6 +244,10 @@ pub struct HirCtx {
     /// Exported aliases created by re-export declarations, keyed by the
     /// module that publishes them.
     pub export_aliases: HashMap<QualifiedExport, ItemId>,
+    /// Generic functions whose declared type-parameter return is fed by an
+    /// erased value (`lowering::unchecked_returns`): a call keeps the erased
+    /// result instead of converting it to the instantiation.
+    pub unchecked_generic_returns: HashSet<ItemId>,
     /// Every module a builder has been created for, so an importer can tell
     /// which of a specifier's candidate paths names a crate module.
     pub known_modules: HashSet<ModuleKey>,
@@ -455,6 +459,7 @@ impl HirCtx {
             krate: HirCrate::new(),
             export_aliases: HashMap::new(),
             known_modules: HashSet::new(),
+            unchecked_generic_returns: HashSet::new(),
             module_exports: HashMap::new(),
             item_predicates: HashMap::new(),
             module_global_object_aliases: HashMap::new(),

@@ -121,7 +121,11 @@ impl ModuleBuilder<'_> {
         // return still carries the raw `TypeParam`. Instantiate it from
         // the lowered argument types the same way overload selection
         // does, so `shuffle([1, 2]).sort()` sees `number[]`, not `T[]`.
-        let return_ty = if selected_overload.is_none() {
+        let return_ty = if self.ctx.unchecked_generic_returns.contains(&callee.item) {
+            // The callee returns an erased value as its `T`; the instantiation
+            // is a promise its body never checks (`lowering::unchecked_returns`).
+            self.erase_with(ErasureReason::ExplicitAny, "generic return fed by an erased value")
+        } else if selected_overload.is_none() {
             self.instantiated_call_return(&callee.type_params, &callee.params, &args, return_ty, call, body)?
         } else {
             return_ty
