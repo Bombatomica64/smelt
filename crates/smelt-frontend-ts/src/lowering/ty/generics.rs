@@ -606,6 +606,8 @@ impl ModuleBuilder<'_> {
     /// before, so it adds no new erasure — it only stops aliasing an
     /// unrelated caller parameter. Recovering the concrete type needs codegen
     /// to materialize return-only generics (a turbofish at the call site).
+    /// A parameter with a primitive constraint is first instantiated to it
+    /// ([`Self::bind_primitive_constraints`]).
     pub(in crate::lowering) fn complete_callee_type_substitution(
         &mut self,
         type_params: &[TypeParamDef],
@@ -617,9 +619,39 @@ impl ModuleBuilder<'_> {
         {
             return;
         }
+        self.bind_primitive_constraints(type_params, substitutions);
         let unknown = self.erase(ErasureReason::UnfilledGeneric);
         for param in type_params {
             substitutions.entry(param.name).or_insert(unknown);
+        }
+    }
+
+    /// Bind every parameter of `type_params` that is unbound, or bound only to
+    /// `unknown`, to its constraint when the constraint is a primitive.
+    ///
+    /// `K extends keyof T` (which lowers to `string`) can only be instantiated
+    /// with that primitive's values, so the constraint is a sound and concrete
+    /// instantiation where inference found nothing better: `Record<K, V>`
+    /// then has string keys instead of erased ones. Any other constraint
+    /// leaves the parameter as inference left it.
+    pub(in crate::lowering) fn bind_primitive_constraints(
+        &self,
+        type_params: &[TypeParamDef],
+        substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    ) {
+        for param in type_params {
+            let open = substitutions
+                .get(&param.name)
+                .is_none_or(|bound| self.ctx.krate.types.get(*bound) == Some(&Type::Unknown));
+            if let Some(constraint) = param.constraint
+                && open
+                && matches!(
+                    self.ctx.krate.types.get(constraint),
+                    Some(Type::String | Type::Float | Type::Int | Type::Bool)
+                )
+            {
+                substitutions.insert(param.name, constraint);
+            }
         }
     }
 
@@ -757,6 +789,30 @@ impl ModuleBuilder<'_> {
             .unwrap_or_default()
     }
 
+    /// The key a record (`Dict`) has once a substitution fills its key type.
+    ///
+    /// A record's keys are property keys, which JavaScript stores as strings,
+    /// so a key type parameter bound to a number, boolean, `unknown` or a
+    /// union of those (`invert({ a: 1 })` binds `V := number` in
+    /// `Record<V, K>`) becomes `String`, exactly as an annotated
+    /// `Record<number, T>` key lowers (`record_key_type_to_hir`). A symbol key
+    /// is representable too: a record stores it under its encoded string key
+    /// (`smelt_stdlib::symbol_keys`, `smelt_property_key` at the boundary).
+    /// Any other key (a class, a list) is kept.
+    fn record_property_key(&mut self, key: smelt_hir::TypeId) -> smelt_hir::TypeId {
+        let is_primitive =
+            |ty: Option<&Type>| matches!(ty, Some(Type::Float | Type::Int | Type::Bool | Type::String | Type::Unknown));
+        let primitive_key = match self.ctx.krate.types.get(key) {
+            Some(Type::Union(members)) => members.iter().all(|member| is_primitive(self.ctx.krate.types.get(*member))),
+            other => is_primitive(other),
+        };
+        if primitive_key {
+            self.ctx.krate.types.intern(Type::String)
+        } else {
+            key
+        }
+    }
+
     /// Substitute generic type parameters within a previously lowered HIR type.
     pub(in crate::lowering) fn substitute_type_params(
         &mut self,
@@ -778,6 +834,7 @@ impl ModuleBuilder<'_> {
             }
             Type::Dict(key, value) => {
                 let key = self.substitute_type_params(key, substitutions);
+                let key = self.record_property_key(key);
                 let value = self.substitute_type_params(value, substitutions);
                 self.ctx.krate.types.intern(Type::Dict(key, value))
             }

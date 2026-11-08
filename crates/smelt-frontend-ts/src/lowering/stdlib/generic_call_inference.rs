@@ -149,6 +149,15 @@ impl ModuleBuilder<'_> {
         Ok(self.widened_call_type(resolved, substituted))
     }
 
+    /// Whether `ty` mentions any of `params` anywhere.
+    pub(in crate::lowering) fn mentions_type_params(&self, ty: smelt_hir::TypeId, params: &[TypeParamDef]) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            None => false,
+            Some(Type::TypeParam { name }) => params.iter().any(|param| param.name == *name),
+            Some(other) => other.children().any(|child| self.mentions_type_params(child, params)),
+        }
+    }
+
     /// Whether type parameter `name` occurs in `ty` at a position no union encloses.
     fn mentions_outside_a_union(&self, ty: smelt_hir::TypeId, name: smelt_hir::Symbol) -> bool {
         match self.ctx.krate.types.get(ty) {

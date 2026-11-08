@@ -226,3 +226,53 @@ fn count_members_are_resolved_by_receiver_type() -> TestResult {
     let output = build_and_run(root)?;
     ensure_eq(&output, &COUNT_MEMBERS_OUTPUT.to_owned(), "the count-members program's output")
 }
+
+/// Generic record helpers instantiate from their arguments, the way tsc does,
+/// never from another module's signature of the same name.
+///
+/// - An object literal argument keeps its own shape; it is not typed by the
+///   callee's uninstantiated `Record<K, V>`, so `K`/`V` bind from it.
+/// - A substituted record key is a property key (`Record<V, K>` with
+///   `V := number` has string keys, as JavaScript stores them).
+/// - `K extends keyof T`, unbound by the value arguments, is a string, so a
+///   callback's `key` and the result's keys are typed.
+const GENERIC_RECORDS_TS: &str = r#"function invert<K extends PropertyKey, V extends PropertyKey>(obj: Record<K, V>): Record<V, K> {
+  const result = {} as Record<V, K>;
+  const keys = Object.keys(obj) as K[];
+  for (let i = 0; i < keys.length; i++) { const key = keys[i]; const value = obj[key]; result[value] = key; }
+  return result;
+}
+function mapValues<T extends object, K extends keyof T, V>(object: T, getNewValue: (value: T[K], key: K, object: T) => V): Record<K, V> {
+  const result = {} as Record<K, V>;
+  const keys = Object.keys(object) as K[];
+  for (let i = 0; i < keys.length; i++) { const key = keys[i]; result[key] = getNewValue(object[key], key, object); }
+  return result;
+}
+const r = invert({ a: 1, b: 2, c: 3 });
+const s = invert({ x: "p", y: "q" });
+console.log(r, s, Object.keys(r).length, r[2], s["q"]);
+console.log(mapValues({ a: 1, b: 2 }, (_, key) => key + "!"), mapValues({ a: 1, b: 2 }, value => value * 10));
+"#;
+
+/// What Node prints for [`GENERIC_RECORDS_TS`].
+const GENERIC_RECORDS_OUTPUT: &str =
+    "{ '1': 'a', '2': 'b', '3': 'c' } { p: 'x', q: 'y' } 3 b y\n{ a: 'a!', b: 'b!' } { a: 10, b: 20 }\n";
+
+/// Generic record helpers instantiate concretely and behave like Node.
+#[test]
+fn generic_record_helpers_instantiate_from_their_arguments() -> TestResult {
+    let sources = [("main.ts", GENERIC_RECORDS_TS)];
+    ensure_node_agrees(&sources, "main.ts", GENERIC_RECORDS_OUTPUT, "generic records")?;
+    let temp = TempProject::new()?;
+    let root = temp.path();
+    write_project(root, "main.ts", &sources)?;
+    let output = build_and_run(root)?;
+    ensure_eq(&output, &GENERIC_RECORDS_OUTPUT.to_owned(), "the generic-records program's output")?;
+    let rust = fs::read_dir(root.join("dist/src"))?
+        .map(|entry| fs::read_to_string(entry?.path()))
+        .collect::<Result<String, _>>()?;
+    for typed in ["let r: SmeltRecord<JsString, JsString>", "let s: SmeltRecord<JsString, JsString>"] {
+        common::ensure(rust.contains(typed), format!("generated crate must spell `{typed}`"))?;
+    }
+    Ok(())
+}

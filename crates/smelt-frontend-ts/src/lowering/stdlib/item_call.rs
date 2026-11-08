@@ -318,6 +318,17 @@ impl ModuleBuilder<'_> {
             }) {
                 return Some(bound);
             }
+            // An object literal is never typed by a hint that names the
+            // callee's own uninstantiated type parameters (`obj: Record<K, V>`):
+            // they name nothing at the call site, so the literal would become
+            // `Dict<K, V>` and inference would bind `K := K`, leaking the raw
+            // parameters into the call's result. Its own shape decides, and
+            // the parameters are inferred from it.
+            if matches!(arg, Argument::ObjectExpression(_))
+                && implementation_hint.is_some_and(|hint| builder.mentions_type_params(hint, callee_type_params))
+            {
+                return None;
+            }
             if matches!(arg, Argument::RegExpLiteral(_)) {
                 selected_overload
                     .and_then(|signature| signature.params.get(index).copied())
@@ -425,6 +436,9 @@ impl ModuleBuilder<'_> {
                 }
             }
         }
+        // A callback's `key: K` with `K extends keyof T` is a string, whatever
+        // the value arguments left unbound.
+        self.bind_primitive_constraints(callee_type_params, &mut substitutions);
         substitutions
     }
 
