@@ -134,9 +134,15 @@ impl ModuleBuilder<'_> {
         {
             // No declaration answers this method, so the value decides at run
             // time through the erased call ABI.
+            let span = self.span(call.span.start, call.span.end);
+            if let Some(prototype) = self.closed_prototype_missing(access_receiver_ty, property_name) {
+                return Err(SmeltError::unsupported(
+                    span,
+                    format!("`{prototype}.prototype.{property_name}` is not modelled"),
+                ));
+            }
             // not a new erasure: the resolved method already returns `unknown`
             let ty = self.unknown_type();
-            let span = self.span(call.span.start, call.span.end);
             let value = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: receiver },
                 ty,
@@ -182,6 +188,39 @@ impl ModuleBuilder<'_> {
             ty: return_ty,
             span: self.span(call.span.start, call.span.end),
         }))
+    }
+
+    /// The prototype whose missing `method` a call on `receiver_ty` would
+    /// reach, when that receiver's prototype is closed: a primitive, an array
+    /// or a tuple.
+    ///
+    /// Such a receiver answers exactly the members Smelt models. A method no
+    /// static lowering claimed reaches the erased call ABI, where the runtime
+    /// answers only the [`smelt_stdlib::erased_prototype_methods`] tables (a
+    /// number or boolean answers none), so any other name always threw
+    /// `TypeError: value is not a function` at run time where JavaScript runs
+    /// the method. That is a missing model, reported here at transpile time.
+    /// Every other receiver (erased, generic, a union, a record, a class) can
+    /// hold the member at run time and keeps the erased call.
+    fn closed_prototype_missing(
+        &self,
+        receiver_ty: smelt_hir::TypeId,
+        method: &str,
+    ) -> Option<&'static str> {
+        use smelt_stdlib::erased_prototype_methods::{
+            erased_array_prototype_method, erased_string_prototype_method,
+        };
+        let (prototype, answered) = match self.ctx.krate.types.get(receiver_ty)? {
+            Type::String => ("String", erased_string_prototype_method(method).is_some()),
+            Type::List(_) | Type::Tuple(_) => {
+                ("Array", erased_array_prototype_method(method).is_some())
+            }
+            Type::Float | Type::Int | Type::FixedInt(_) => ("Number", false),
+            Type::Bool => ("Boolean", false),
+            Type::BigInt => ("BigInt", false),
+            _ => return None,
+        };
+        (!answered && method != "toString").then_some(prototype)
     }
 
     /// Contextual types for function-valued parameters of a class method.
@@ -1003,6 +1042,24 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
         let callee_ty = Self::expr_ty(body, callee);
+        // A method no model claimed, read off a closed prototype (a string, an
+        // array, a number), would only throw at run time; see
+        // `closed_prototype_missing`.
+        if self.ctx.krate.types.get(callee_ty) == Some(&Type::Unknown)
+            && let Some(Expr { kind: ExprKind::Field { receiver, .. }, .. }) = body.expr_at(callee)
+            && let Some(prototype) = self.closed_prototype_missing(
+                Self::expr_ty(body, *receiver),
+                member.property.name.as_str(),
+            )
+        {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!(
+                    "`{prototype}.prototype.{}` is not modelled",
+                    member.property.name
+                ),
+            ));
+        }
         let has_spread = Self::call_has_spread_arguments(call);
         // A spread call dispatches through the runtime `SmeltUnknown` call ABI
         // whenever *either* the callee field value or the receiving object is
