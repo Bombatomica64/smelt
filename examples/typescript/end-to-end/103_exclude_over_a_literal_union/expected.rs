@@ -706,11 +706,19 @@ impl SmeltHostText for JsStr {
     fn host_text(&self) -> ::std::borrow::Cow<'_, str> {
         ::std::borrow::Cow::Owned(self.to_string_lossy())
     }
+
+    fn has_lone_surrogate(&self) -> bool {
+        !self.is_well_formed()
+    }
 }
 
 impl SmeltHostText for JsString {
     fn host_text(&self) -> ::std::borrow::Cow<'_, str> {
         ::std::borrow::Cow::Owned(self.to_string_lossy())
+    }
+
+    fn has_lone_surrogate(&self) -> bool {
+        !self.is_well_formed()
     }
 }
 
@@ -721,6 +729,12 @@ impl SmeltHostText for JsString {
 pub trait SmeltHostText {
     /// The UTF-8 text, borrowed when it already is UTF-8.
     fn host_text(&self) -> ::std::borrow::Cow<'_, str>;
+
+    /// Whether the text holds a lone surrogate, which has no UTF-8 spelling
+    /// (only a JavaScript string can).
+    fn has_lone_surrogate(&self) -> bool {
+        false
+    }
 
     /// The UTF-8 text as an owned `String`, for a host value that keeps it.
     fn into_host_string(self) -> String where Self: Sized {
@@ -747,6 +761,10 @@ impl SmeltHostText for String {
 impl<T: SmeltHostText + ?Sized> SmeltHostText for &T {
     fn host_text(&self) -> ::std::borrow::Cow<'_, str> {
         (**self).host_text()
+    }
+
+    fn has_lone_surrogate(&self) -> bool {
+        (**self).has_lone_surrogate()
     }
 }
 

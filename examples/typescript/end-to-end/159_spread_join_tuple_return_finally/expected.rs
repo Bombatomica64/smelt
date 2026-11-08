@@ -706,11 +706,19 @@ impl SmeltHostText for JsStr {
     fn host_text(&self) -> ::std::borrow::Cow<'_, str> {
         ::std::borrow::Cow::Owned(self.to_string_lossy())
     }
+
+    fn has_lone_surrogate(&self) -> bool {
+        !self.is_well_formed()
+    }
 }
 
 impl SmeltHostText for JsString {
     fn host_text(&self) -> ::std::borrow::Cow<'_, str> {
         ::std::borrow::Cow::Owned(self.to_string_lossy())
+    }
+
+    fn has_lone_surrogate(&self) -> bool {
+        !self.is_well_formed()
     }
 }
 
@@ -721,6 +729,12 @@ impl SmeltHostText for JsString {
 pub trait SmeltHostText {
     /// The UTF-8 text, borrowed when it already is UTF-8.
     fn host_text(&self) -> ::std::borrow::Cow<'_, str>;
+
+    /// Whether the text holds a lone surrogate, which has no UTF-8 spelling
+    /// (only a JavaScript string can).
+    fn has_lone_surrogate(&self) -> bool {
+        false
+    }
 
     /// The UTF-8 text as an owned `String`, for a host value that keeps it.
     fn into_host_string(self) -> String where Self: Sized {
@@ -747,6 +761,10 @@ impl SmeltHostText for String {
 impl<T: SmeltHostText + ?Sized> SmeltHostText for &T {
     fn host_text(&self) -> ::std::borrow::Cow<'_, str> {
         (**self).host_text()
+    }
+
+    fn has_lone_surrogate(&self) -> bool {
+        (**self).has_lone_surrogate()
     }
 }
 
@@ -3883,7 +3901,127 @@ fn smelt_panic_payload(error: &(dyn ::std::error::Error + 'static)) -> SmeltPani
 fn smelt_panic_error_value(panic: &(dyn ::std::any::Any + Send)) -> SmeltUnknown { if let Some(value) = SMELT_PANIC_VALUE.with(|slot| slot.borrow_mut().take()) { if panic.downcast_ref::<SmeltPanic>().is_some() { return value; } } SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String(smelt_panic_class(panic).into())), ("message".to_owned(), SmeltUnknown::String(smelt_panic_message(panic).into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))) }
 
 /// `JSON.parse`: parse JSON text, throwing a catchable `SyntaxError`.
-fn smelt_json_parse(text: &(impl SmeltHostText + ?Sized)) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>> { let text = text.host_text(); let text: &str = &text; match serde_json::from_str::<SmeltUnknown>(text) { Ok(value) => Ok(value), Err(error) => Err(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("SyntaxError".into())), ("message".to_owned(), SmeltUnknown::String(error.to_string().into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))))) } }
+fn smelt_json_parse(text: &(impl SmeltHostText + ?Sized)) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>> { let text = text.host_text(); let text: &str = &text; let parsed = serde_json::from_str::<SmeltUnknown>(text); let parsed = match parsed { Err(error) => if smelt_json_has_surrogate_escape(text) { SmeltJsonReader::read(text).ok_or(error) } else { Err(error) }, ok => ok }; match parsed { Ok(value) => Ok(value), Err(error) => Err(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("SyntaxError".into())), ("message".to_owned(), SmeltUnknown::String(error.to_string().into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))))) } }
+
+/// Whether JSON text holds a `\uD800`-`\uDFFF` escape: `serde_json` rejects a
+/// lone one, which JavaScript's `JSON.parse` reads as a lone surrogate.
+fn smelt_json_has_surrogate_escape(text: &str) -> bool {
+    text.as_bytes().windows(3).any(|window| window[0] == b'\\' && window[1] == b'u' && matches!(window[2], b'd' | b'D'))
+}
+
+/// A JSON reader that keeps every `\uXXXX` escape as the code unit it names,
+/// lone surrogates included (ECMA-262 `JSON.parse`). `smelt_json_parse` uses it
+/// only for text `serde_json` rejects because of such an escape.
+struct SmeltJsonReader<'a> { text: &'a [u8], at: usize }
+
+impl SmeltJsonReader<'_> {
+    /// The value of the whole of `text`, or `None` when it is not JSON.
+    fn read(text: &str) -> Option<SmeltUnknown> {
+        let mut reader = SmeltJsonReader { text: text.as_bytes(), at: 0 };
+        let value = reader.value()?;
+        reader.skip_space();
+        (reader.at == reader.text.len()).then_some(value)
+    }
+    /// Skips JSON white space.
+    fn skip_space(&mut self) {
+        while matches!(self.text.get(self.at), Some(b' ' | b'\t' | b'\n' | b'\r')) { self.at += 1; }
+    }
+    /// Consumes `word` if the text continues with it.
+    fn eat(&mut self, word: &[u8]) -> bool {
+        if self.text.get(self.at..self.at + word.len()) == Some(word) { self.at += word.len(); true } else { false }
+    }
+    /// One JSON value.
+    fn value(&mut self) -> Option<SmeltUnknown> {
+        self.skip_space();
+        match *self.text.get(self.at)? {
+            b'{' => self.object(),
+            b'[' => self.array(),
+            b'"' => self.string().map(SmeltUnknown::String),
+            b't' => self.eat(b"true").then_some(SmeltUnknown::Bool(true)),
+            b'f' => self.eat(b"false").then_some(SmeltUnknown::Bool(false)),
+            b'n' => self.eat(b"null").then_some(SmeltUnknown::Null),
+            _ => self.number(),
+        }
+    }
+    /// A JSON number, read as an `f64` as JavaScript reads it.
+    fn number(&mut self) -> Option<SmeltUnknown> {
+        let start = self.at;
+        while matches!(self.text.get(self.at), Some(b'0'..=b'9' | b'-' | b'+' | b'.' | b'e' | b'E')) { self.at += 1; }
+        let digits = ::std::str::from_utf8(self.text.get(start..self.at)?).ok()?;
+        serde_json::from_str::<f64>(digits).ok().map(SmeltUnknown::Number)
+    }
+    /// A JSON string, as code units.
+    fn string(&mut self) -> Option<JsString> {
+        self.at += 1;
+        let mut units: Vec<u16> = Vec::new();
+        loop {
+            let byte = *self.text.get(self.at)?;
+            match byte {
+                b'"' => { self.at += 1; return Some(JsString::from_units(&units)); }
+                b'\\' => {
+                    let escape = *self.text.get(self.at + 1)?;
+                    self.at += 2;
+                    match escape {
+                        b'"' => units.push(u16::from(b'"')),
+                        b'\\' => units.push(u16::from(b'\\')),
+                        b'/' => units.push(u16::from(b'/')),
+                        b'b' => units.push(0x08),
+                        b'f' => units.push(0x0C),
+                        b'n' => units.push(u16::from(b'\n')),
+                        b'r' => units.push(u16::from(b'\r')),
+                        b't' => units.push(u16::from(b'\t')),
+                        b'u' => {
+                            let hex = ::std::str::from_utf8(self.text.get(self.at..self.at + 4)?).ok()?;
+                            units.push(u16::from_str_radix(hex, 16).ok()?);
+                            self.at += 4;
+                        }
+                        _ => return None,
+                    }
+                }
+                0x00..=0x1F => return None,
+                _ => {
+                    let rest = ::std::str::from_utf8(self.text.get(self.at..)?).ok()?;
+                    let ch = rest.chars().next()?;
+                    let mut buffer = [0_u16; 2];
+                    units.extend_from_slice(ch.encode_utf16(&mut buffer));
+                    self.at += ch.len_utf8();
+                }
+            }
+        }
+    }
+    /// A JSON array.
+    fn array(&mut self) -> Option<SmeltUnknown> {
+        self.at += 1;
+        let mut items = Vec::new();
+        self.skip_space();
+        if self.eat(b"]") { return Some(SmeltUnknown::Array(items.into())); }
+        loop {
+            items.push(self.value()?);
+            self.skip_space();
+            if self.eat(b"]") { return Some(SmeltUnknown::Array(items.into())); }
+            if !self.eat(b",") { return None; }
+        }
+    }
+    /// A JSON object; a repeated key keeps its first position and its last value.
+    fn object(&mut self) -> Option<SmeltUnknown> {
+        self.at += 1;
+        let object = SmeltObject::new(Vec::<(JsString, SmeltUnknown)>::new());
+        self.skip_space();
+        if self.eat(b"}") { return Some(SmeltUnknown::Object(object)); }
+        loop {
+            self.skip_space();
+            if self.text.get(self.at) != Some(&b'"') { return None; }
+            let key = self.string()?;
+            self.skip_space();
+            if !self.eat(b":") { return None; }
+            let value = self.value()?;
+            object.insert(key, value);
+            self.skip_space();
+            if self.eat(b"}") { return Some(SmeltUnknown::Object(object)); }
+            if !self.eat(b",") { return None; }
+        }
+    }
+}
 
 impl Eq for SmeltUnknown {}
 
@@ -4215,7 +4353,7 @@ impl serde::Serialize for SmeltUnknown {
             Self::Undefined => serializer.serialize_none(),
             Self::Bool(value) => serializer.serialize_bool(*value),
             Self::Number(value) => if !value.is_finite() { serializer.serialize_none() } else if *value == value.trunc() && value.abs() < 1e21 { serializer.serialize_i64(*value as i64) } else { serializer.serialize_f64(*value) },
-            Self::String(value) => serializer.serialize_str(&value.to_string_lossy()),
+            Self::String(value) => value.serialize(serializer),
             Self::Symbol(_) => serializer.serialize_none(),
             Self::Array(values) => serde::Serialize::serialize(&*values.values.borrow(), serializer),
             Self::Object(values) => { use serde::ser::SerializeMap as _; if let Some(elements) = smelt_host_buffer_own_elements(self) { let mut map = serializer.serialize_map(Some(elements.len()))?; for (index, element) in elements.iter().enumerate() { map.serialize_entry(&index.to_string(), element)?; } return map.end(); } let shape = smelt_for_in_object_shape(values); let store = values.store.borrow(); let included = |entry: &&SmeltFieldEntry<JsString, SmeltUnknown>| !matches!(entry.value, Self::Undefined | Self::Function(_) | Self::Symbol(_)) && smelt_is_for_in_shape_key(shape, &entry.key); let mut map = serializer.serialize_map(Some(store.entries().iter().filter(included).count()))?; for entry in store.entries().iter().filter(included) { map.serialize_entry(&entry.key, &entry.value)?; } map.end() },
@@ -4225,6 +4363,81 @@ impl serde::Serialize for SmeltUnknown {
     }
 }
 
+/// `JSON.stringify(value)`: the JSON text, or the `TypeError` message for a
+/// value JSON cannot hold (a bigint).
+fn smelt_json_stringify(value: &SmeltUnknown) -> Result<String, &'static str> {
+    let mut out = String::new();
+    smelt_json_write(value, &mut out)?;
+    Ok(out)
+}
+
+/// Appends `QuoteJSONString(text)`: `"` and `\` escaped, the short escapes
+/// for `\b \f \n \r \t`, other control characters and every lone surrogate as
+/// a lowercase `\uXXXX`, anything else as itself.
+fn smelt_json_quote(text: &JsStr, out: &mut String) {
+    use ::std::fmt::Write as _;
+    out.push('"');
+    for decoded in text.chars_lossless() {
+        match decoded {
+            Ok('"') => out.push_str("\\\""),
+            Ok('\\') => out.push_str("\\\\"),
+            Ok('\u{8}') => out.push_str("\\b"),
+            Ok('\u{c}') => out.push_str("\\f"),
+            Ok('\n') => out.push_str("\\n"),
+            Ok('\r') => out.push_str("\\r"),
+            Ok('\t') => out.push_str("\\t"),
+            Ok(ch) if u32::from(ch) < 0x20 => { let _ = write!(out, "\\u{:04x}", u32::from(ch)); }
+            Ok(ch) => out.push(ch),
+            Err(lone) => { let _ = write!(out, "\\u{lone:04x}"); }
+        }
+    }
+    out.push('"');
+}
+
+/// Appends the JSON text of `value` (see `smelt_json_stringify`).
+fn smelt_json_write(value: &SmeltUnknown, out: &mut String) -> Result<(), &'static str> {
+    match value {
+        SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Function(_) => out.push_str("null"),
+        SmeltUnknown::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
+        SmeltUnknown::Number(_) => out.push_str(&serde_json::to_string(value).map_err(|_unrepresentable| "JSON serialization failed")?),
+        SmeltUnknown::String(text) => smelt_json_quote(text, out),
+        SmeltUnknown::Promise(_) => out.push_str("\"[object Promise]\""),
+        SmeltUnknown::Array(values) => {
+            out.push('[');
+            for (index, element) in values.values.borrow().iter().enumerate() {
+                if index > 0 { out.push(','); }
+                smelt_json_write(element, out)?;
+            }
+            out.push(']');
+        }
+        SmeltUnknown::Object(values) => {
+            out.push('{');
+            if let Some(elements) = smelt_host_buffer_own_elements(value) {
+                for (index, element) in elements.iter().enumerate() {
+                    if index > 0 { out.push(','); }
+                    smelt_json_quote(&JsString::from(index.to_string()), out);
+                    out.push(':');
+                    smelt_json_write(element, out)?;
+                }
+                out.push('}');
+                return Ok(());
+            }
+            let shape = smelt_for_in_object_shape(values);
+            let store = values.store.borrow();
+            let mut first = true;
+            for entry in store.entries() {
+                if matches!(entry.value, SmeltUnknown::Undefined | SmeltUnknown::Function(_) | SmeltUnknown::Symbol(_)) || !smelt_is_for_in_shape_key(shape, &entry.key) { continue; }
+                if !first { out.push(','); }
+                first = false;
+                smelt_json_quote(&entry.key, out);
+                out.push(':');
+                smelt_json_write(&entry.value, out)?;
+            }
+            out.push('}');
+        }
+    }
+    Ok(())
+}
 impl<'de> serde::Deserialize<'de> for SmeltUnknown {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: serde::Deserializer<'de> {
         let value = <serde_json::Value as serde::Deserialize>::deserialize(deserializer)?;

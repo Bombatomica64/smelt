@@ -477,8 +477,8 @@ text: str = json.dumps(values)
 ",
     );
 
-    assert!(ts_source.contains("serde_json::to_string(&"));
-    assert!(py_source.contains("serde_json::to_string(&"));
+    assert!(ts_source.contains("smelt_json_stringify(&"));
+    assert!(py_source.contains("smelt_json_stringify(&"));
     assert!(ts_source.contains(".expect(\"JSON serialization failed\")"));
     assert!(py_source.contains(".expect(\"JSON serialization failed\")"));
 }
@@ -499,7 +499,7 @@ export function key(args: unknown[]): string {
         source.contains("serde::Serialize for SmeltRecord<K, V>"),
         "{source}"
     );
-    assert!(source.contains("serde_json::to_string(&"), "{source}");
+    assert!(source.contains("smelt_json_stringify(&"), "{source}");
 }
 
 #[test]

@@ -521,3 +521,18 @@ fn sibling_reads_before_a_state_change() -> TestResult {
 fn object_assign_write_through() -> TestResult {
     verify_node_parity("object_assign_write_through")
 }
+
+/// A lone surrogate survives in a template literal part and an object key, and
+/// `isWellFormed`/`toWellFormed` read a string's UTF-16 code units.
+#[test]
+fn well_formed_strings_and_lone_keys() -> TestResult {
+    verify_node_parity("well_formed_strings_and_lone_keys")
+}
+
+/// At the host edges a lone surrogate is what JavaScript makes of it:
+/// `JSON.stringify` writes its escape, `JSON.parse` reads it back, the URI
+/// encoders throw a `URIError`, and `TextEncoder` writes U+FFFD.
+#[test]
+fn lone_surrogates_at_host_edges() -> TestResult {
+    verify_node_parity("lone_surrogates_at_host_edges")
+}

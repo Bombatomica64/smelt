@@ -742,8 +742,8 @@ pub mod boundary {
     pub const UNKNOWN_ASSIGN_CALL: &str = "smelt_unknown_assign(";
     /// An erased `Error.cause` field.
     pub const ERROR_CAUSE_FIELD: &str = "cause: SmeltUnknown";
-    /// `JSON.stringify` through the carrier.
-    pub const JSON_TO_STRING: &str = "serde_json::to_string(&";
+    /// `JSON.stringify` through the carrier: the runtime's JSON writer.
+    pub const JSON_TO_STRING: &str = "smelt_json_stringify(&";
     /// A generated conversion testing for a marker.
     pub const MARKER_TEST: &str = "if value.contains_key(\"__smelt_";
     /// A generated conversion testing an error brand.

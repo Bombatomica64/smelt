@@ -333,7 +333,9 @@ impl UriTranscodeOp {
     /// hold one.
     #[must_use]
     pub const fn is_fallible(self) -> bool {
-        matches!(self, Self::Decode | Self::DecodeComponent)
+        //~ Every one can throw a `URIError`: a decoder on malformed
+        //~ percent-encoding, an encoder on a lone surrogate.
+        matches!(self, Self::Decode | Self::DecodeComponent | Self::Encode | Self::EncodeComponent)
     }
 }
 

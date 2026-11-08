@@ -782,9 +782,10 @@ const asValue = encodeURI;
     );
 
     // Both the direct call and the first-class value form route through the
-    // shared percent-encoding runtime helper.
+    // shared percent-encoding runtime helper; the direct call goes through its
+    // throwing adapter, since a lone surrogate is a `URIError`.
     assert!(source.contains("fn smelt_encode_uri("), "{source}");
-    assert!(source.contains("= JsString::from(smelt_encode_uri("), "{source}");
+    assert!(source.contains("smelt_encode_uri_throwing(&"), "{source}");
 }
 
 #[test]

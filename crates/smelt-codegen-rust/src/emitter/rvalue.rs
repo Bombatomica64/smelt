@@ -338,6 +338,8 @@ impl FunctionEmitter<'_> {
                 self.primitive_cast_expr(*op, operand, dest_ty)
             }
             Rvalue::StringCase { op, operand } => self.string_case_expr(*op, operand, dest_ty),
+            Rvalue::StringIsWellFormed { operand } => self.string_well_formed_expr(operand, false, dest_ty),
+            Rvalue::StringToWellFormed { operand } => self.string_well_formed_expr(operand, true, dest_ty),
             Rvalue::StringNormalize { form, operand } => self.string_normalize_expr(*form, operand),
             Rvalue::UriTranscode { op, operand } => self.uri_transcode_expr(*op, operand),
             Rvalue::StringLocaleCompare { left, right } => {

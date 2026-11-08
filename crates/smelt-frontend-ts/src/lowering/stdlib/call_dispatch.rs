@@ -1067,6 +1067,7 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::string_match_all_call,
         Self::url_to_string_call,
         Self::string_case_call,
+        Self::string_well_formed_call,
         Self::string_normalize_call,
         Self::string_trim_call,
         Self::string_locale_compare_call,

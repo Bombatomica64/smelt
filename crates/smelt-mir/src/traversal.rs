@@ -774,8 +774,12 @@ mod tests {
     fn fallibility_is_stated_per_op_not_per_family() {
         use smelt_hir::{UriTranscodeOp, UrlField, UrlOp};
         let uri = |op| Rvalue::UriTranscode { op, operand: copy(A) };
+        // Every URI transcoder can throw a `URIError`: a decoder on malformed
+        // percent-encoding, an encoder on a lone surrogate (which made the
+        // encoders fallible; the URL ops below still differ per op).
         assert!(uri(UriTranscodeOp::Decode).is_fallible());
-        assert!(!uri(UriTranscodeOp::Encode).is_fallible());
+        assert!(uri(UriTranscodeOp::Encode).is_fallible());
+        assert!(uri(UriTranscodeOp::EncodeComponent).is_fallible());
         let url = |op| Rvalue::UrlOp { op, url: copy(A), args: Vec::new() };
         assert!(url(UrlOp::Set(UrlField::Href)).is_fallible());
         assert!(!url(UrlOp::Set(UrlField::Hash)).is_fallible());

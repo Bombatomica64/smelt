@@ -1175,7 +1175,9 @@ impl FunctionEmitter<'_> {
         // fraction (`1`, not `1.0`), a non-finite number is `null`, an
         // `undefined` property is omitted, key order is insertion order, and a
         // byte-backed view serializes as its element indices. Every one of
-        // those rules already lives in `Serialize for SmeltUnknown`, so routing
+        // those rules lives in the runtime's `smelt_json_stringify` (and the
+        // `Serialize for SmeltUnknown` it mirrors), which also quotes a string
+        // over its code units, so a lone surrogate is its `\uXXXX`. Routing
         // the value through it is what makes one rule decide the output for
         // every shape — including a UNION, whose arm is only known at run time
         // and whose per-arm answer is exactly its tag's arm in that impl.
@@ -1187,7 +1189,8 @@ impl FunctionEmitter<'_> {
         let value_ty = self.operand_ty(value)?;
         let value_text = self.erase_rendered(&self.operand_expr(value)?, value_ty)?;
         Ok(RustExpr::chain(self.text_from_string(&format!(
-            "serde_json::to_string(&{value_text}).expect(\"JSON serialization failed\")"
+            "{json}{value_text}).expect(\"JSON serialization failed\")",
+            json = smelt_stdlib::runtime_symbols::boundary::JSON_TO_STRING
         ))))
     }
 

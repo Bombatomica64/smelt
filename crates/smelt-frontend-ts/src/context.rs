@@ -44,12 +44,23 @@ pub struct ObjectConstEntryValue {
 /// A static object-constant entry that can be recreated in later lowered bodies.
 #[derive(Debug, Clone)]
 pub struct ObjectConstEntry {
-    /// Source object key.
+    /// Source object key, as Rust text (a lone surrogate written as U+FFFD).
     pub key: String,
+    /// The key's exact UTF-16 code units when it holds a lone surrogate, which
+    /// [`Self::key`] cannot spell.
+    pub key_units: Option<Vec<u16>>,
     /// Value stored under the key.
     pub value: ObjectConstValue,
     /// HIR type of the value.
     pub value_ty: TypeId,
+}
+
+impl ObjectConstEntry {
+    /// The key as the HIR string literal a lowered body reads it as.
+    #[must_use]
+    pub fn key_literal(&self) -> Literal {
+        self.key_units.clone().map_or_else(|| Literal::String(self.key.clone()), Literal::StringUnits)
+    }
 }
 
 /// Static object-constant metadata preserved across TypeScript modules.

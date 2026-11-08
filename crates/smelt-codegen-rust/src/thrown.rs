@@ -120,6 +120,12 @@ pub(crate) const DECODE_URI_FN: &str = "smelt_decode_uri_throwing";
 /// Name of the generated fallible `decodeURIComponent` adapter.
 pub(crate) const DECODE_URI_COMPONENT_FN: &str = "smelt_decode_uri_component_throwing";
 
+/// Name of the generated fallible `encodeURI` adapter.
+pub(crate) const ENCODE_URI_FN: &str = "smelt_encode_uri_throwing";
+
+/// Name of the generated fallible `encodeURIComponent` adapter.
+pub(crate) const ENCODE_URI_COMPONENT_FN: &str = "smelt_encode_uri_component_throwing";
+
 /// Name of the generated fallible `DataView` READ adapter.
 pub(crate) const DATA_VIEW_GET_FN: &str = "smelt_data_view_get_throwing";
 

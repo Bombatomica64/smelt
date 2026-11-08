@@ -72,6 +72,7 @@ impl ModuleBuilder<'_> {
             let (value, value_ty) = self.object_const_entry_value(value_expr).ok()?;
             entries.push(ObjectConstEntry {
                 key: js_str_text(key_lit.value).into_owned(),
+                key_units: key_lit.value.as_str().is_none().then(|| key_lit.value.encode_utf16().collect()),
                 value,
                 value_ty,
             });
@@ -329,9 +330,14 @@ impl ModuleBuilder<'_> {
                     ));
                 }
             };
+            let key_units = match &object_property.key {
+                PropertyKey::StringLiteral(lit) if lit.value.as_str().is_none() => Some(lit.value.encode_utf16().collect()),
+                _ => None,
+            };
             let (value, value_ty) = self.object_const_entry_value(&object_property.value)?;
             entries.push(ObjectConstEntry {
                 key,
+                key_units,
                 value,
                 value_ty,
             });
@@ -404,6 +410,7 @@ impl ModuleBuilder<'_> {
                         self.retarget_object_const_value(&entry.value, entry.value_ty, entry_ty)
                             .map(|(retyped, value_ty)| ObjectConstEntry {
                                 key: entry.key.clone(),
+                                key_units: entry.key_units.clone(),
                                 value: retyped,
                                 value_ty,
                             })
@@ -671,7 +678,7 @@ impl ModuleBuilder<'_> {
             .iter()
             .map(|entry| {
                 let key = body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::String(entry.key.clone())),
+                    kind: ExprKind::Literal(entry.key_literal()),
                     ty: key_ty,
                     span,
                 });

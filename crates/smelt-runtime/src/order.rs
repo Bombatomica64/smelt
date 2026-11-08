@@ -168,6 +168,7 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("IntoSmeltUnknown"),
     Entry::Item("impl_serde_for_JsString"),
     Entry::Item("impl_serde_Serialize_for_SmeltUnknown"),
+    Entry::Item("smelt_json_stringify"),
     Entry::Item("impl_serde_Deserialize_de_for_SmeltUnknown"),
     Entry::Item("SMELT_REGEX_CACHE"),
     Entry::Item("SMELT_REGRESS_CACHE"),
