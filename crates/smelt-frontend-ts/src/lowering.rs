@@ -758,6 +758,9 @@ struct ModuleBuilder<'ctx> {
     file_id: FileId,
     /// Source path for module metadata.
     path: String,
+    /// Whether this module is in the test tier (`is_test_tier_program`). Set
+    /// before any body is lowered.
+    test_tier_module: bool,
     /// Source text for diagnostics and spelled-out spans.
     source: String,
     /// The member calls being dispatched, innermost last.

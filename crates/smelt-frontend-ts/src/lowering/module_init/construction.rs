@@ -47,6 +47,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             Self::is_declaration_type_test_path(&path),
         );
         Self {
+            test_tier_module: false,
             file_id,
             path,
             source,

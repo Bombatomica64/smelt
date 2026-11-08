@@ -105,6 +105,7 @@ impl ModuleBuilder<'_> {
         _imports: ImportsRead,
     ) -> ModuleTypesDeclared {
         let test_module = self.is_test_tier_program(program);
+        self.test_tier_module = test_module;
         if test_module {
             self.mark_ambient_test_builtins(program);
         }

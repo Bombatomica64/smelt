@@ -5,7 +5,9 @@
 //! runtime's erased prototype tables list, so the generated program compiled
 //! and then always threw `TypeError: value is not a function` where JavaScript
 //! runs the method. Erased, generic and record receivers keep the erased call:
-//! their value can hold the member at run time.
+//! their value can hold the member at run time. In a test-tier file the call
+//! throws a named `TypeError` instead, so one unmodelled method blocks only
+//! the test that reaches it.
 
 use super::*;
 
@@ -46,6 +48,20 @@ export function call(value: any): unknown {
   return value.anchor("x");
 }
 "#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn a_test_file_lowers_and_blocks_only_at_the_call() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+const s: string = "abc";
+export const html = s.anchor("x");
+"#),
+        "tests/page.test.ts",
         &mut ctx,
     )?;
     Ok(())

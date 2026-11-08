@@ -134,3 +134,88 @@ fn clean_never_removes_the_project() -> TestResult {
     ensure(!outer && outer_refusal.contains("holds the project"), outer_refusal)?;
     ensure(root.join("src/main.ts").is_file(), "the project was touched")
 }
+
+/// Manifest of a project whose only source is `file`, tested with vitest globs.
+fn unmodelled_method_manifest(file: &str) -> String {
+    format!(
+        r#"[project]
+name = "unmodelled"
+version = "0.1.0"
+
+[sources]
+roots = ["src"]
+test-globs = ["**/*.test.ts"]
+entries = ["src/{file}"]
+
+[output]
+target = "./dist"
+crate-name = "unmodelled"
+build = false
+
+[runtime]
+clone-strategy = "aggressive"
+"#
+    )
+}
+
+/// Outside a test file, a method the runtime does not model stops the build
+/// and names the method.
+#[test]
+fn an_unmodelled_method_fails_a_non_test_file() -> TestResult {
+    let project = TempProject::new()?;
+    let root = project.path();
+    fs::create_dir_all(root.join("src"))?;
+    fs::write(root.join("src/main.ts"), "const s: string = \"abc\";\nconsole.log(s.anchor(\"x\"));\n")?;
+    fs::write(root.join("Smelt.toml"), unmodelled_method_manifest("main.ts"))?;
+    let (ok, stdout, stderr) = run(root, &["build"])?;
+    ensure(!ok, format!("build must fail\nstdout:\n{stdout}"))?;
+    ensure(
+        stderr.contains("`String.prototype.anchor` is not modelled"),
+        format!("the diagnostic names the method:\n{stderr}"),
+    )
+}
+
+/// In a test file the same method blocks only the test that reaches it: the
+/// crate builds, that test fails naming the model, and its sibling passes.
+#[test]
+fn an_unmodelled_method_blocks_only_its_test() -> TestResult {
+    let project = TempProject::new()?;
+    let root = project.path();
+    fs::create_dir_all(root.join("src"))?;
+    fs::write(
+        root.join("src/page.test.ts"),
+        r#"import { expect, it } from "vitest";
+
+it("reaches the missing method", () => {
+  const s: string = "abc";
+  expect(s.anchor("x")).toBe("anything");
+});
+
+it("does not reach it", () => {
+  expect(1 + 1).toBe(2);
+});
+"#,
+    )?;
+    fs::write(root.join("Smelt.toml"), unmodelled_method_manifest("page.test.ts"))?;
+    let (ok, stdout, stderr) = run(root, &["build"])?;
+    ensure(ok, format!("build must succeed\nstdout:\n{stdout}\nstderr:\n{stderr}"))?;
+    // A dedicated target directory: an inherited one is shared by every crate
+    // that happens to be named alike.
+    let output = Command::new("cargo")
+        .arg("test")
+        .arg("--manifest-path")
+        .arg(root.join("dist/Cargo.toml"))
+        .env("CARGO_TARGET_DIR", root.join("dist/target"))
+        .output()?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    ensure(!output.status.success(), format!("the blocked test must fail:\n{text}"))?;
+    ensure(text.contains("1 passed; 1 failed"), format!("only one test is blocked:\n{text}"))?;
+    ensure(
+        text.contains("`String.prototype.anchor` is not modelled"),
+        format!("the failure names the model:\n{text}"),
+    )
+}
