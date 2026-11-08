@@ -263,12 +263,12 @@ impl FunctionEmitter<'_> {
         (from_ty, from_env): (TypeId, &TypeSubstitution<'_>),
         (to_ty, to_env): (TypeId, &TypeSubstitution<'_>),
     ) -> Result<RustExpr, EmitError> {
-        let (Some(Type::Function(from)), Some(Type::Function(to))) =
+        let (Some(Type::Function(from_function)), Some(Type::Function(to_function))) =
             (self.mir.types.get(from_ty), self.mir.types.get(to_ty))
         else {
             return Ok(value_text.clone());
         };
-        let (from, to) = (from.clone(), to.clone());
+        let (from, to) = (from_function.clone(), to_function.clone());
         let Some(abis) = self.record_slot_param_abis(&to, &from) else {
             return Ok(value_text.clone());
         };
