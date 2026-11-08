@@ -242,7 +242,7 @@ impl ModuleBuilder<'_> {
             .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
             .transpose()?
             .unwrap_or(self.index_type(iter_ty)?);
-        let symbol = self.intern_source_name("__smelt_for_item");
+        let symbol = self.intern_synthesized_name("__smelt_for_item");
         let local = body.push_local(LocalDecl {
             name: Some(symbol),
             ty: item_ty,
@@ -312,7 +312,7 @@ impl ModuleBuilder<'_> {
 
         // Store the generator handle so every resume drives the same state
         // machine rather than re-evaluating the producing call.
-        let generator_symbol = self.intern_source_name("__smelt_generator");
+        let generator_symbol = self.intern_synthesized_name("__smelt_generator");
         let generator_local = body.push_local(LocalDecl {
             name: Some(generator_symbol),
             ty: generator_ty,
@@ -331,7 +331,7 @@ impl ModuleBuilder<'_> {
 
         // Prime the first resume before the loop so the initial condition test
         // sees a real step.
-        let step_symbol = self.intern_source_name("__smelt_generator_step");
+        let step_symbol = self.intern_synthesized_name("__smelt_generator_step");
         let first_resume = self.generator_resume_expr(generator_local, generator_ty, iter_span, body);
         let step_local = body.push_local(LocalDecl {
             name: Some(step_symbol),

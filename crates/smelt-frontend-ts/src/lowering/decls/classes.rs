@@ -26,8 +26,8 @@ impl ModuleBuilder<'_> {
     /// `Type::Class` symbol, field/method metadata). The class span start offset
     /// is unique within a module, so `__smelt_anon_class_<offset>` gives a stable,
     /// collision-free name without threading a mutable counter through lowering.
-    pub(super) fn anonymous_class_name(class: &oxc::ast::ast::Class<'_>) -> String {
-        format!("__smelt_anon_class_{}", class.span.start)
+    pub(super) fn anonymous_class_name(class: &oxc::ast::ast::Class<'_>) -> smelt_hir::SynthesizedName {
+        smelt_hir::SynthesizedName::new(format!("__smelt_anon_class_{}", class.span.start))
     }
 
     /// Give a named class EXPRESSION its own type symbol when its name is a
@@ -169,9 +169,21 @@ impl ModuleBuilder<'_> {
         // `class_text` for the rest of lowering.
         // A class EXPRESSION initializing a binding is named by that binding
         // (see `class_declaration_named`).
+        // An anonymous class's name is minted here, and its symbol says so.
+        let mut minted_name = None;
         let class_source_name = self.forced_class_name.take().unwrap_or_else(|| {
             class.id.as_ref().map_or_else(
-                || binding_name.map_or_else(|| Self::anonymous_class_name(class), str::to_owned),
+                || {
+                    binding_name.map_or_else(
+                        || {
+                            let minted = Self::anonymous_class_name(class);
+                            let text = minted.as_str().to_owned();
+                            minted_name = Some(minted);
+                            text
+                        },
+                        str::to_owned,
+                    )
+                },
                 |id| id.name.to_string(),
             )
         });
@@ -206,7 +218,13 @@ impl ModuleBuilder<'_> {
                         .bind_scoped_type_name(class_source_name.clone(), qualified);
                     (qualified, Some(class_source_name.clone()))
                 }
-                None => (self.intern_type_name(&class_source_name), None),
+                None => (
+                    match &minted_name {
+                        Some(minted) => self.intern_synthesized_type_name(minted),
+                        None => self.intern_type_name(&class_source_name),
+                    },
+                    None,
+                ),
             },
         };
         let class_name_owned = registry_text.unwrap_or_else(|| {
@@ -554,7 +572,7 @@ impl ModuleBuilder<'_> {
             // it does not derive them. That is an orthogonal codegen gap tracked
             // separately, not specific to the index store.
             if let Some(value_ty) = class_index_value_ty {
-                let store_name = this.intern_source_name(CLASS_INDEX_STORE_FIELD);
+                let store_name = this.intern_synthesized_name(CLASS_INDEX_STORE_FIELD);
                 let key_ty = this.ctx.krate.types.intern(Type::String);
                 let store_ty = this.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
                 if !fields.iter().any(|field| field.name == store_name) {
@@ -865,7 +883,7 @@ impl ModuleBuilder<'_> {
                         class_ty,
                     )?;
                     let original_name =
-                        this.intern_source_name(&format!("__smelt_original_{}", materialized_method.name));
+                        this.intern_synthesized_name(&format!("__smelt_original_{}", materialized_method.name));
                     let originals = methods
                         .iter()
                         .copied()
@@ -921,6 +939,16 @@ impl ModuleBuilder<'_> {
                         class_name,
                         class_ty,
                     )?;
+                    // The hidden initializer method's name is minted here.
+                    let minted = this.intern_synthesized_name(&hidden_name);
+                    if let Some(Item::Function(function)) =
+                        usize::try_from(item.0).ok().and_then(|index| this.ctx.krate.items.get_mut(index))
+                    {
+                        function.name = minted;
+                        if let FunctionOwner::ClassMethod { class: owner, .. } = function.owner {
+                            function.owner = FunctionOwner::ClassMethod { class: owner, method: minted };
+                        }
+                    }
                     methods.push(item);
                     instance_initializers.push((
                         item,

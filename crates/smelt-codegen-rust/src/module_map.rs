@@ -11,7 +11,8 @@ use smelt_mir::{HirOrigin, Mir, MirFunction};
 
 use crate::crate_builder::{EmittedRoot, FreeFunctionHome, emit_root};
 use crate::deps::GeneratedDep;
-use crate::{EmitError, GeneratedAllocator, sanitize_ident};
+use crate::names::{NameScope, NameSpace};
+use crate::{EmitError, GeneratedAllocator};
 
 /// Rust sources split by original source module.
 pub(crate) struct MappedSources {
@@ -126,14 +127,26 @@ fn body_module_names(
     modules: &[(String, smelt_hir::ModuleId)],
 ) -> HashMap<BodyId, BodyModuleInfo> {
     let mut names = HashMap::new();
-    for (path, module_id) in modules {
+    // One file stem per source module, unique after sanitizing and compared
+    // case-insensitively: `foo-bar.ts` and `foo_bar.ts`, or `Foo.ts` and
+    // `foo.ts`, would otherwise share one `.rs` file, which silently merged
+    // their functions (and, on a case-insensitive filesystem, overwrote one
+    // file with the other). The crate roots are held so a module named `main`
+    // never writes over `main.rs`. Claimed in path order so a stem does not
+    // depend on the order modules were discovered in.
+    let mut stems = NameScope::new(NameSpace::Modules);
+    stems.hold("main");
+    stems.hold("lib");
+    let mut ordered = modules.iter().collect::<Vec<_>>();
+    ordered.sort_by(|left, right| left.0.cmp(&right.0));
+    for (path, module_id) in ordered {
         let Some(module) = usize::try_from(module_id.0)
             .ok()
             .and_then(|index| krate.modules.get(index))
         else {
             continue;
         };
-        let rust_module = source_module_name(&module.name);
+        let rust_module = stems.claim(crate::names::Spelling::Source(&source_module_spelling(&module.name))).as_str().to_owned();
         let module_info = BodyModuleInfo {
             name: rust_module.clone(),
             source_path: path.clone(),
@@ -154,15 +167,15 @@ fn body_module_names(
     names
 }
 
-/// Returns the source-shaped Rust file stem for one lowered source module.
-fn source_module_name(name: &str) -> String {
-    // Decided on the SOURCE stem: `sanitize_ident` renames an identifier
-    // spelled `main` (the binary's entry point), which would otherwise turn
-    // `main.ts` into `main_.rs` instead of the established `source_main.rs`.
+/// Returns the spelling a source module's file stem is claimed from.
+fn source_module_spelling(name: &str) -> String {
+    // Decided on the SOURCE stem: the escape renames an identifier spelled
+    // `main` (the binary's entry point), which would otherwise turn `main.ts`
+    // into `main_.rs` instead of the established `source_main.rs`.
     if name == "main" || name == "lib" {
         return format!("source_{name}");
     }
-    sanitize_ident(name)
+    name.to_owned()
 }
 
 /// Returns the private Rust module identifier used to include a source file.
@@ -174,7 +187,8 @@ fn source_module_name(name: &str) -> String {
 /// so declaring them through an internal identifier avoids double emission
 /// collisions while keeping `Setter.rs` as the artifact file.
 fn generated_source_module_ident(file_stem: &str) -> String {
-    sanitize_ident(&format!("__smelt_module_{file_stem}"))
+    // The emitter's prefix plus a stem unique in the crate: unique itself.
+    format!("__smelt_module_{file_stem}")
 }
 
 /// Returns whether this generated function must remain the Rust crate root.

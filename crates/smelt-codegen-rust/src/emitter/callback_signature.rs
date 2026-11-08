@@ -355,6 +355,7 @@ impl FunctionEmitter<'_> {
             &self.context.owned_callback_params,
             &self.context.bound_traits,
             &self.context.erased_arguments,
+            self.context.names(),
         )
     }
 

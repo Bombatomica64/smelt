@@ -8,7 +8,7 @@ use smelt_hir::{Type, TypeId};
 use smelt_mir::Mir;
 
 use crate::emitter::{EmitContext, FunctionEmitter};
-use crate::rust::{self, CodeWriter, RustIdent, erased_string};
+use crate::rust::{self, CodeWriter, erased_string};
 use crate::thrown::ERROR_BOX;
 use crate::type_substitution::TypeSubstitution;
 use crate::{EmitError, accessor_prelude};
@@ -77,8 +77,7 @@ pub(crate) fn emit_record_into_smelt_unknown_impl(
                     // The erased key is the SOURCE spelling (`mir.names`), the
                     // Rust field is the sanitized one: `onRead` must read back
                     // as `"onRead"` from an erased view, not as `"on_read"`.
-                    let field_name = RustIdent::new(mir.symbols.get(field.name).unwrap_or("field"))
-                        .into_string();
+                    let field_name = context.names().field(mir, field.name).into_string();
                     let key = mir
                         .names
                         .get(field.name)
@@ -235,8 +234,7 @@ pub(crate) fn emit_record_from_smelt_unknown_impl(
                             // rather than silently emit a call to a
                             // `SmeltFromUnknown` impl that does not exist.
                             let field_name =
-                                RustIdent::new(mir.symbols.get(field.name).unwrap_or("field"))
-                                    .into_string();
+                                context.names().field(mir, field.name).into_string();
                             let key = mir
                                 .names
                                 .get(field.name)

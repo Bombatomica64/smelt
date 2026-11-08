@@ -261,7 +261,7 @@ impl ModuleBuilder<'_> {
         date_timezone_offset_spy: bool,
     ) -> smelt_hir::ExprId {
         let ty = if date_timezone_offset_spy {
-            let name = self.intern_source_name("__SmeltVitestDateTimezoneOffsetSpy");
+            let name = self.intern_synthesized_name("__SmeltVitestDateTimezoneOffsetSpy");
             self.ctx.krate.types.intern(Type::Class {
                 name,
                 args: Vec::new(),

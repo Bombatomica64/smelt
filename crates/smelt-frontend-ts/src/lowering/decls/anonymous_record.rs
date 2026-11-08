@@ -100,8 +100,9 @@ impl ModuleBuilder<'_> {
                 ))
             })
             .collect();
-        let name_text = self.anonymous_record_name(&fields);
-        let name = self.intern_type_name(&name_text);
+        let minted = self.anonymous_record_name(&fields);
+        let name = self.intern_synthesized_type_name(&minted);
+        let name_text = minted.as_str().to_owned();
         if self.find_interface(name).is_none() {
             let span = self.span(0, 0);
             let members = StructuralMembers {
@@ -126,13 +127,13 @@ impl ModuleBuilder<'_> {
     /// shapes deduplicate onto one struct. The `SmeltRecord` prefix cannot
     /// collide with a source type name reaching this path, since the source
     /// declared no name for the shape.
-    fn anonymous_record_name(&self, fields: &[Field]) -> String {
+    fn anonymous_record_name(&self, fields: &[Field]) -> smelt_hir::SynthesizedName {
         let mut hasher = DefaultHasher::new();
         for field in fields {
             self.ctx.krate.symbols.get(field.name).hash(&mut hasher);
             field.ty.hash(&mut hasher);
             field.optional.hash(&mut hasher);
         }
-        format!("SmeltRecord{:016x}", hasher.finish())
+        smelt_hir::SynthesizedName::new(format!("SmeltRecord{:016x}", hasher.finish()))
     }
 }

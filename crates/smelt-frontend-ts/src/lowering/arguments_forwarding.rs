@@ -169,7 +169,7 @@ impl ModuleBuilder<'_> {
         let unknown_ty = self.erase_with(ErasureReason::ByName, "arguments");
         let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
         let float_ty = self.ctx.krate.types.intern(Type::Float);
-        let list_symbol = self.intern_source_name(ARGUMENTS_LIST_NAME);
+        let list_symbol = self.intern_synthesized_name(ARGUMENTS_LIST_NAME);
         let list_local = body.push_local(LocalDecl {
             name: Some(list_symbol),
             ty: list_ty,

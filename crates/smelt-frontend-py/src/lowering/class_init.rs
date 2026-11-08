@@ -327,7 +327,7 @@ return_ty: class_ty,
                 span,
             });
             let base_local = body.push_local(LocalDecl {
-                name: Some(this.intern_name("__smelt_super")),
+                name: Some(this.intern_synthesized_name("__smelt_super")),
                 ty: base_ty,
                 mutable: false,
                 span,

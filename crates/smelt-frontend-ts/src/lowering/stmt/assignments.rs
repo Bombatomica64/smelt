@@ -146,7 +146,7 @@ impl ModuleBuilder<'_> {
             span,
         });
         let temp_local = body.push_local(LocalDecl {
-            name: Some(self.ctx.krate.symbols.intern("__smelt_global_old")),
+            name: Some(self.ctx.krate.symbols.intern_synthesized(&smelt_hir::SynthesizedName::new("__smelt_global_old"))),
             ty,
             mutable: false,
             span,
@@ -382,7 +382,7 @@ impl ModuleBuilder<'_> {
         let value = self.expression(&assign.right, body)?;
         let value_ty = Self::expr_ty(body, value);
         let value_local = body.push_local(LocalDecl {
-            name: Some(self.ctx.krate.symbols.intern("__smelt_callable_prop")),
+            name: Some(self.ctx.krate.symbols.intern_synthesized(&smelt_hir::SynthesizedName::new("__smelt_callable_prop"))),
             ty: value_ty,
             mutable: false,
             span,
@@ -611,7 +611,7 @@ impl ModuleBuilder<'_> {
         let value = self.expression(&assign.right, body)?;
         let value_ty = Self::expr_ty(body, value);
         let value_local = body.push_local(LocalDecl {
-            name: Some(self.ctx.krate.symbols.intern("__smelt_destructure")),
+            name: Some(self.ctx.krate.symbols.intern_synthesized(&smelt_hir::SynthesizedName::new("__smelt_destructure"))),
             ty: value_ty,
             mutable: false,
             span: self.span(assign.right.span().start, assign.right.span().end),
@@ -900,7 +900,7 @@ impl ModuleBuilder<'_> {
         // `target` read; prefix keeps the incremented `value`.
         let snapshot = if update.prefix { value } else { target };
         let temp_local = body.push_local(LocalDecl {
-            name: Some(self.ctx.krate.symbols.intern("__smelt_update_tmp")),
+            name: Some(self.ctx.krate.symbols.intern_synthesized(&smelt_hir::SynthesizedName::new("__smelt_update_tmp"))),
             ty: result_ty,
             mutable: false,
             span,
@@ -1125,7 +1125,7 @@ impl ModuleBuilder<'_> {
                     self.ctx
                         .krate
                         .symbols
-                        .intern(&format!("__smelt_logical_{}", body.locals.len())),
+                        .intern_synthesized(&smelt_hir::SynthesizedName::new(format!("__smelt_logical_{}", body.locals.len()))),
                 ),
                 ty: result_ty,
                 mutable: true,
@@ -1145,7 +1145,7 @@ impl ModuleBuilder<'_> {
                 self.ctx
                     .krate
                     .symbols
-                    .intern(&format!("__smelt_logical_value_{}", body.locals.len())),
+                    .intern_synthesized(&smelt_hir::SynthesizedName::new(format!("__smelt_logical_value_{}", body.locals.len()))),
             ),
             ty: right_ty,
             mutable: false,

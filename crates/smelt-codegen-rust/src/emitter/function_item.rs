@@ -395,47 +395,28 @@ impl FunctionEmitter<'_> {
         Ok(())
     }
 
-    /// Return the emitted Rust name for a free MIR function.
-    ///
-    /// Source modules can contain same-named local helper functions. Because
-    /// the current backend emits one flat Rust module, duplicate source names
-    /// are disambiguated with the MIR function id while unique public names
-    /// keep their readable spelling.
+    /// Return the emitted Rust name of a MIR function, from the crate's name
+    /// plan (see [`crate::names`]): a free function's crate name, or a class
+    /// member's name inside its `impl` (`new` for a constructor).
     pub(super) fn function_rust_name(&self, function: &MirFunction) -> Result<String, EmitError> {
-        self.context
-            .function_names
-            .get(&function.id)
-            .cloned()
-            .map_or_else(|| Ok(sanitize_ident(self.symbol_name(function.name)?)), Ok)
+        let names = self.context.names();
+        let planned = match function.origin {
+            HirOrigin::Body(_) => names.function(function.id),
+            HirOrigin::ClassMethod { method, .. } => names.method(method),
+            HirOrigin::ClassStaticMethod { .. } => names.static_method(function.id),
+            HirOrigin::ClassConstructor { .. } => return Ok("new".to_owned()),
+        };
+        planned
+            .map(|name| name.as_str().to_owned())
+            .ok_or_else(|| EmitError::new("function has no planned Rust name"))
     }
 
-    /// The key the emitted-signature maps use for one generated Rust function.
-    ///
-    /// A method's Rust name is unique only INSIDE its `impl` block: two classes
-    /// may both emit `fn bump`. Keying the emitted parameter/return types by the
-    /// bare name therefore let one class's method answer for another's — and
-    /// since the maps decide the type a call site converts FROM, a call to
-    /// `Second::bump(): string` was converted from `First::bump()`'s `()`,
-    /// which renders a constant and drops the call itself (H63:
-    /// `second.bump('!')` answered `""`).
-    ///
-    /// The key is therefore qualified by the owning class for a method, a static
-    /// method and a constructor, and is the bare Rust name for a free function —
-    /// which is what the emitted `fn` name is unique among. Overload
-    /// implementations that share ONE emitted function still share one key, so
-    /// the priority rule that picks between their signatures is unchanged.
-    /// The emitted-signature key for `function`, resolved against this crate.
-    pub(super) fn emitted_signature_key(
-        &self,
-        function: &MirFunction,
-    ) -> Result<String, EmitError> {
-        let rust_name = self.function_rust_name(function)?;
-        Ok(emitted_signature_key_in(function, &rust_name, |symbol| {
-            self.symbol_name(symbol).ok().map(str::to_owned)
-        }))
+    /// The emitted-signature key for `function` (see [`SignatureKey`]).
+    pub(super) fn emitted_signature_key(&self, function: &MirFunction) -> Result<SignatureKey, EmitError> {
+        Ok(SignatureKey::of(function))
     }
 
-    /// Returns the parameter types of a generated function by its emitted Rust name.
+    /// Returns the parameter types of a generated function by its identity.
     ///
     /// Function values can carry an instantiated generic call type even though
     /// this backend emits one erased Rust function. When a closure call points
@@ -443,19 +424,36 @@ impl FunctionEmitter<'_> {
     /// the ABI that call arguments must satisfy.
     pub(super) fn emitted_function_param_types(
         &self,
-        rust_name: &str,
+        key: &SignatureKey,
     ) -> Result<Option<Vec<TypeId>>, EmitError> {
-        Ok(self.context.function_param_types.get(rust_name).cloned())
+        Ok(self.context.function_param_types.get(key).cloned())
     }
 
-    /// Returns the emitted return type of a generated function by its Rust name.
+    /// Returns the emitted return type of a generated function by its identity.
     ///
     /// Cross-module calls can reference an imported overload signature in the
     /// caller's MIR while resolving to a concrete Rust function emitted from the
     /// source module. This is the return-side counterpart to emitted parameter
     /// lookup, and lets call sites adapt from the actual Rust ABI.
-    pub(super) fn emitted_function_return_type(&self, rust_name: &str) -> Option<TypeId> {
-        self.context.function_return_types.get(rust_name).copied()
+    pub(super) fn emitted_function_return_type(&self, key: &SignatureKey) -> Option<TypeId> {
+        self.context.function_return_types.get(key).copied()
+    }
+
+    /// The Rust name of the declared class or interface `symbol` (see
+    /// [`crate::names`]).
+    pub(super) fn type_rust_name(&self, symbol: Symbol) -> Result<String, EmitError> {
+        Ok(self.context.names().type_name(symbol)?.as_str().to_owned())
+    }
+
+    /// The Rust name of the instance method `method` (see [`crate::names`]).
+    ///
+    /// A method no class of this crate declares is a runtime or host type's
+    /// own method, spelled as that type spells it.
+    pub(super) fn method_rust_name(&self, method: Symbol) -> Result<String, EmitError> {
+        Ok(match self.context.names().method(method) {
+            Some(name) => name.as_str().to_owned(),
+            None => crate::names::host_member(self.symbol_name(method)?).into_string(),
+        })
     }
 
     /// Whether this method's declared return type is its own declaring class and
@@ -488,7 +486,7 @@ impl FunctionEmitter<'_> {
                     // the same body, handed the instance instead of building it.
                     let class = crate::base_init::constructor_class(self.function)
                         .ok_or_else(|| EmitError::new("base initializer copy is not a constructor"))?;
-                    let name = crate::base_init::base_initializer_name(self.mir, class)?;
+                    let name = crate::base_init::base_initializer_name(self.context, class)?;
                     let receiver = crate::base_init::BASE_INIT_RECEIVER;
                     let params = if method_params.is_empty() {
                         format!("{receiver}: Self")
@@ -503,7 +501,7 @@ impl FunctionEmitter<'_> {
             HirOrigin::ClassMethod { method, .. } => {
                 let name = match &self.method_name {
                     Some(name) => name.clone(),
-                    None => sanitize_ident(self.symbol_name(method)?),
+                    None => self.method_rust_name(method)?,
                 };
                 let method_params = self.param_decls_text(1)?;
                 // Reference classes carry interior mutability, so every method
@@ -551,10 +549,10 @@ impl FunctionEmitter<'_> {
                     "    fn {name}({rendered_params}) -> {return_text} {{\n"
                 ));
             }
-            HirOrigin::ClassStaticMethod { method, .. } => {
+            HirOrigin::ClassStaticMethod { .. } => {
                 // A static method takes no receiver: emit every parameter and no
                 // `self`, producing an associated function `Class::name(..)`.
-                let name = static_method_rust_name(self.context, self.function.id, self.symbol_name(method)?);
+                let name = static_method_rust_name(self.context, self.function.id)?;
                 let method_params = self.param_decls_text(0)?;
                 out.push_str(&format!(
                     "    {}fn {name}({method_params}) -> {} {{\n",
@@ -657,7 +655,7 @@ impl FunctionEmitter<'_> {
         };
         let rhs_ty = self.parameter_decl_type(*rhs)?;
         let output_ty = self.return_type(self.function.return_ty)?;
-        let method_name = sanitize_ident(self.symbol_name(method)?);
+        let method_name = self.method_rust_name(method)?;
         out.push_str(&format!(
             "\nimpl{impl_generics} ::std::ops::Add<{rhs_ty}> for {class_name}{type_args} {{\n    type Output = {output_ty};\n    fn add(self, rhs: {rhs_ty}) -> Self::Output {{ self.{method_name}(rhs) }}\n}}\n"
         ));
@@ -710,40 +708,62 @@ impl FunctionEmitter<'_> {
 /// renders a constant and drops the call itself (H63: `second.bump('!')`
 /// answered `""`).
 ///
-/// The key is qualified by the owning class for a method, a static method and a
-/// constructor, and is the bare Rust name for a free function — which is what
-/// the emitted `fn` name is unique among. Overload implementations that share
-/// ONE emitted function still share one key, so the priority rule that picks
-/// between their signatures is unchanged.
-///
-/// A free function rather than a method because the crate-level map is built
-/// before any emitter exists; `FunctionEmitter::emitted_signature_key` is the
-/// in-emitter spelling and they must agree, which is why there is one body.
-pub(super) fn emitted_signature_key_in(
-    function: &MirFunction,
-    rust_name: &str,
-    symbol_name: impl Fn(Symbol) -> Option<String>,
-) -> String {
-    let owner = match function.origin {
-        HirOrigin::ClassConstructor { class, .. }
-        | HirOrigin::ClassMethod { class, .. }
-        | HirOrigin::ClassStaticMethod { class, .. } => class,
-        HirOrigin::Body(_) => return rust_name.to_owned(),
-    };
-    match symbol_name(owner) {
-        Some(class_name) => format!("{class_name}::{rust_name}"),
-        None => rust_name.to_owned(),
+/// The key is the emitted item's identity, never its rendering: the function
+/// id for a free function (whose name the plan made unique), and the owning
+/// class, the member's symbol and its kind for a constructor, method or static
+/// method. Overload implementations that share ONE emitted member still share
+/// one key, so the priority rule that picks between their signatures is
+/// unchanged; a static and an instance method of one name no longer do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum SignatureKey {
+    /// A free function.
+    Free(FuncId),
+    /// An associated item of a class `impl`.
+    Member {
+        /// The class whose `impl` declares it.
+        class: Symbol,
+        /// The member's name symbol.
+        name: Symbol,
+        /// Which kind of associated item.
+        kind: MemberKind,
+    },
+}
+
+/// The kind of a class's associated item, which shares the class's one `impl`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum MemberKind {
+    /// The constructor `new`.
+    Constructor,
+    /// An instance method.
+    Instance,
+    /// A static (associated) method.
+    Static,
+}
+
+impl SignatureKey {
+    /// The key of `function`.
+    pub(crate) const fn of(function: &MirFunction) -> Self {
+        match function.origin {
+            HirOrigin::Body(_) => Self::Free(function.id),
+            HirOrigin::ClassConstructor { class, .. } => {
+                Self::Member { class, name: function.name, kind: MemberKind::Constructor }
+            }
+            HirOrigin::ClassMethod { class, method, .. } => {
+                Self::Member { class, name: method, kind: MemberKind::Instance }
+            }
+            HirOrigin::ClassStaticMethod { class, method, .. } => {
+                Self::Member { class, name: method, kind: MemberKind::Static }
+            }
+        }
     }
 }
 
-/// The Rust name of the static method `function`, whose source name is
-/// `method`: the sanitized name, suffixed with the function id when an
-/// instance method of the same class shares it (one `impl` block holds both).
-pub(crate) fn static_method_rust_name(context: &EmitContext, function: FuncId, method: &str) -> String {
-    let base = sanitize_ident(method);
-    if context.renamed_static_methods.contains(&function) {
-        format!("{base}_{}", function.0)
-    } else {
-        base
-    }
+/// The Rust name of the static method `function`, planned inside its class's
+/// `impl` block (see [`crate::names::RustNames::static_method`]).
+pub(crate) fn static_method_rust_name(context: &EmitContext, function: FuncId) -> Result<String, EmitError> {
+    context
+        .names()
+        .static_method(function)
+        .map(|name| name.as_str().to_owned())
+        .ok_or_else(|| EmitError::new("static method has no planned Rust name"))
 }

@@ -38,7 +38,7 @@ impl FunctionEmitter<'_> {
             }) {
                 continue;
             }
-            let field_name = sanitize_ident(self.symbol_name(source_field.name)?);
+            let field_name = self.context.names().field_text(self.mir, source_field.name);
             let value = self.erase_rendered(
                 &RustExpr::chain(format!("smelt_struct_value.{field_name}.clone()")).ending_in_clone(),
                 source_field.ty,
@@ -189,7 +189,7 @@ impl FunctionEmitter<'_> {
             if let Some(closure) =
                 self.virtual_method_slot_closure(instance_ty, instance_ty, slot, &receiver)?
             {
-                let name = sanitize_ident(self.symbol_name(slot)?);
+                let name = self.context.names().field_text(self.mir, slot);
                 bindings.push(format!("{instance}.0.borrow_mut().{name} = {closure};"));
             }
         }
@@ -273,7 +273,7 @@ impl FunctionEmitter<'_> {
                 })
                 .collect::<Result<Vec<_>, EmitError>>()?
                 .join(", ");
-            let method_name = sanitize_ident(self.symbol_name(method)?);
+            let method_name = self.context.names().field(self.mir, method);
             let call = if args.is_empty() {
                 RustExpr::atom(format!("{{ let smelt_callable = {source_field_base}.{method_name}.clone(); smelt_callable() }}"))
             } else {
@@ -386,7 +386,7 @@ impl FunctionEmitter<'_> {
             })
             .collect::<Result<Vec<_>, EmitError>>()?
             .join(", ");
-        let method_name = sanitize_ident(self.symbol_name(method)?);
+        let method_name = self.method_rust_name(method)?;
         let receiver_mut = if method_mutates_this(source_function) {
             "mut "
         } else {

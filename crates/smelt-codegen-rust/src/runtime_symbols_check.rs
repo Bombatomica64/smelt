@@ -32,7 +32,9 @@ enum Token<'a> {
     Punct(char),
 }
 
-/// Returns the `smelt_*`/`Smelt*` names `sources` use without defining, sorted.
+/// Returns the emitter-prefixed names (`smelt_*`, `__smelt_*`, `Smelt*`;
+/// see [`crate::names::reserved::has_emitter_prefix`]) `sources` use without
+/// defining, sorted.
 ///
 /// All of a crate's sources are read together: a module may call a helper the
 /// crate root defines.
@@ -64,9 +66,12 @@ pub(crate) fn undefined_runtime_symbols<'a>(sources: impl IntoIterator<Item = &'
         .collect()
 }
 
-/// Whether `name` follows the runtime's naming convention.
+/// Whether `name` is one the emitter or runtime mints: the reserved prefixes,
+/// which no source name renders to. The helpers a reservation declines are
+/// `__smelt_*` items, so a check of `smelt_`/`Smelt` alone missed exactly the
+/// reference a released ordinal leaves behind.
 fn is_runtime_symbol(name: &str) -> bool {
-    name.starts_with("smelt_") || name.starts_with("Smelt")
+    crate::names::reserved::has_emitter_prefix(name)
 }
 
 /// Whether an identifier in this position introduces a name.
@@ -250,6 +255,17 @@ mod tests {
     fn a_called_helper_without_a_definition_is_reported() {
         let missing = undefined_runtime_symbols(["fn main() { smelt_missing(1); }"]);
         assert_eq!(missing, ["smelt_missing"], "the undefined call must be named");
+    }
+
+    /// A declined helper reservation leaves a `__smelt_*` call behind: the
+    /// emitter's per-program helpers carry that prefix, and a check of
+    /// `smelt_`/`Smelt` alone let the E0425 through.
+    #[test]
+    fn a_called_double_underscore_helper_without_a_definition_is_reported() {
+        let missing = undefined_runtime_symbols([
+            "fn __smelt_fn_value_1() {} fn main() { __smelt_fn_value_1(); __smelt_record_adapter_7(x); }",
+        ]);
+        assert_eq!(missing, ["__smelt_record_adapter_7"], "the released helper must be named");
     }
 
     /// A type named but never declared is the E0412/E0433 sibling.

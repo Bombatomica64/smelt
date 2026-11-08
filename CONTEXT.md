@@ -42,6 +42,16 @@ useful static shape — prefer concrete Rust types, then scoped generics, then
   the text. A `RustExpr` with `Precedence::Unstated` is treated as loose.
 - **RenderedValue** — a `RustExpr` with the MIR type it evaluates to.
 - **RustType** — a rendered type and what it spells (`shape`, carrier, generics).
+- **RustName** — a Rust identifier claimed from a **NameScope** (one Rust
+  namespace: the crate's types, the crate's values, one `impl`, one body, the
+  module files). Only the allocator constructs one: it escapes the source
+  spelling against the reserved set (keywords, prelude and runtime names, `_`,
+  the emitter prefixes `smelt_`/`Smelt`/`__smelt`/`SMELT_`, the trait methods
+  the emitter calls on user types) and renames it apart from every name already
+  claimed in the scope.
+- **Name plan** (`RustNames`) — every declared type, function and method's
+  RustName, decided once per crate and keyed by identity (`Symbol`, `FuncId`),
+  never by rendering. Lives in `crates/smelt-codegen-rust/src/names.rs`.
 
 ## Coercion
 

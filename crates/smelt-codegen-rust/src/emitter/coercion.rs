@@ -26,7 +26,7 @@ use crate::rust::RustExpr;
 use super::*;
 
 use crate::erased_list_alias;
-use crate::rust::{RustIdent, RustShape};
+use crate::rust::RustShape;
 use smelt_hir::FunctionType;
 
 impl FunctionEmitter<'_> {
@@ -695,7 +695,7 @@ impl FunctionEmitter<'_> {
             } else {
                 self.default_value(field.ty)?
             };
-            field_text.push(format!("{}: {value}", sanitize_ident(raw_name)));
+            field_text.push(format!("{}: {value}", self.context.names().field_text(self.mir, field.name)));
         }
         self.callable_record_literal(field_text, *name, args.len()).map(Some)
     }

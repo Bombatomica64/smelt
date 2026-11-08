@@ -20,7 +20,7 @@ use crate::derive_impls::{
 };
 use crate::emitter::record_coercion::record_field_unknown_expr;
 use crate::emitter::{self, EmitContext, FunctionEmitter};
-use crate::rust::{CodeWriter, RustIdent};
+use crate::rust::CodeWriter;
 use crate::type_substitution::TypeSubstitution;
 use crate::{EmitError, class_proto, classes, reference_origin};
 
@@ -51,7 +51,7 @@ pub(crate) fn emit_reference_class_storage(
         mir,
         context,
         &ReferenceRecordShape {
-            name: class_name_text(mir, class)?,
+            name: class_name_text(context, class)?,
             type_params: class_type_params_text(mir, context, class)?,
             type_args: class_type_args_text(mir, context, class)?,
             impl_generics: class_impl_generics_text(mir, context, class)?,
@@ -142,7 +142,7 @@ pub(crate) fn emit_reference_record_storage(
             .filter(|field| weak_fields.contains(&field.name))
             .map(|field| {
                 (
-                    RustIdent::new(mir.symbols.get(field.name).unwrap_or("field")).into_string(),
+                    context.names().field(mir, field.name).into_string(),
                     emitter::weak_receiver::closure_slot(mir, field.ty).unwrap_or(""),
                 )
             })
@@ -161,7 +161,7 @@ pub(crate) fn emit_reference_record_storage(
             .map(|param| {
                 mir.symbols
                     .get(*param)
-                    .map(|param_name| RustIdent::new(param_name).into_string())
+                    .map(|param_name| crate::names::type_param(param_name).into_string())
                     .ok_or_else(|| EmitError::new("record type parameter has unknown symbol"))
             })
             .collect::<Result<Vec<_>, _>>()?,
@@ -316,11 +316,7 @@ pub(crate) fn emit_reference_record_storage(
             format!("impl{impl_generics} {name}{type_args}"),
             |impl_writer| {
                 for field in *static_fields {
-                    let field_name = mir
-                        .symbols
-                        .get(field.name)
-                        .map(RustIdent::new)
-                        .map_or_else(|| "field".to_owned(), RustIdent::into_string);
+                    let field_name = context.names().field_text(mir, field.name);
                     let field_ty = FunctionEmitter::type_text_for_with_scoped_type_params(
                         mir,
                         context,
@@ -342,6 +338,7 @@ pub(crate) fn emit_reference_record_storage(
         emit_reference_class_into_smelt_unknown_impl(
             writer,
             mir,
+            context,
             name,
             impl_generics,
             type_args,
@@ -405,7 +402,7 @@ fn emit_reference_inner_fields(
     phantom_args: &str,
 ) {
     for field in fields {
-        let field_name = RustIdent::new(mir.symbols.get(field.name).unwrap_or("field")).into_string();
+        let field_name = context.names().field(mir, field.name).into_string();
         let field_ty = FunctionEmitter::type_text_for_with_scoped_type_params(
             mir,
             context,
@@ -429,6 +426,7 @@ fn emit_reference_inner_fields(
 fn emit_reference_class_into_smelt_unknown_impl(
     writer: &mut CodeWriter,
     mir: &Mir,
+    context: &EmitContext,
     name: &str,
     impl_generics: &str,
     type_args: &str,
@@ -471,8 +469,7 @@ fn emit_reference_class_into_smelt_unknown_impl(
                     // The erased key is the SOURCE spelling (`mir.names`), the
                     // Rust field is the sanitized one: `onRead` must read back
                     // as `"onRead"` from an erased view, not as `"on_read"`.
-                    let field_name = RustIdent::new(mir.symbols.get(field.name).unwrap_or("field"))
-                        .into_string();
+                    let field_name = context.names().field(mir, field.name).into_string();
                     let key = mir
                         .names
                         .get(field.name)

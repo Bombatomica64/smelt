@@ -172,7 +172,7 @@ impl ModuleBuilder<'_> {
                 )
             })?;
             if let Some(original) = existing {
-                let hidden = self.intern_name(&format!("__smelt_original_{}", method.name));
+                let hidden = self.intern_synthesized_name(&format!("__smelt_original_{}", method.name));
                 self.rename_function_item(original, hidden)?;
             }
             let source_span = self.span(source.range);
@@ -594,7 +594,7 @@ impl ModuleBuilder<'_> {
             DescriptorCallableRole::Getter(field) => format!("__smelt_get_{field}"),
             DescriptorCallableRole::Setter(field) => format!("__smelt_set_{field}"),
         };
-        let symbol = self.intern_name(&name);
+        let symbol = self.intern_synthesized_name(&name);
         self.rename_function_item(item, symbol)
     }
 
@@ -840,7 +840,7 @@ impl ModuleBuilder<'_> {
         }
         let original_name = original.name.as_str();
         let final_symbol = self.intern_name(original_name);
-        let hidden_symbol = self.intern_name(&format!("__smelt_original_{original_name}"));
+        let hidden_symbol = self.intern_synthesized_name(&format!("__smelt_original_{original_name}"));
         self.rename_function_item(original_item, hidden_symbol)?;
 
         let mut provenance_chain =
@@ -880,7 +880,7 @@ impl ModuleBuilder<'_> {
                 |this| this.function_def(wrapper),
             )?;
             let wrapper_symbol =
-                self.intern_name(&format!("__smelt_wrapper_{original_name}_{index}"));
+                self.intern_synthesized_name(&format!("__smelt_wrapper_{original_name}_{index}"));
             self.rename_function_item(wrapper_item, wrapper_symbol)?;
             items.push(wrapper_item);
             inner_item = wrapper_item;

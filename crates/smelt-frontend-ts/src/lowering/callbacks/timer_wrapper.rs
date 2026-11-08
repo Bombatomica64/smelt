@@ -127,7 +127,7 @@ impl ModuleBuilder<'_> {
         let none_ty = self.ctx.krate.types.intern(Type::None);
         let mut closure_body = Body::new(None, span);
 
-        let callback_symbol = self.ctx.krate.symbols.intern("smelt_timer_callback");
+        let callback_symbol = self.ctx.krate.symbols.intern_synthesized(&smelt_hir::SynthesizedName::new("smelt_timer_callback"));
         let callback_body_local = closure_body.push_local(LocalDecl {
             name: Some(callback_symbol),
             ty: callback_ty,
@@ -148,7 +148,7 @@ impl ModuleBuilder<'_> {
                 .ctx
                 .krate
                 .symbols
-                .intern(&format!("smelt_timer_arg_{index}"));
+                .intern_synthesized(&smelt_hir::SynthesizedName::new(format!("smelt_timer_arg_{index}")));
             let body_local = closure_body.push_local(LocalDecl {
                 name: Some(symbol),
                 ty,
@@ -229,7 +229,9 @@ impl ModuleBuilder<'_> {
         span: Span,
         body: &mut Body,
     ) -> smelt_hir::LocalId {
-        let symbol = self.ctx.krate.symbols.intern(name);
+        // Every caller passes a name this wrapper mints (`smelt_timer_callback`,
+        // `smelt_timer_arg_<i>`).
+        let symbol = self.ctx.krate.symbols.intern_synthesized(&smelt_hir::SynthesizedName::new(name));
         let local = body.push_local(LocalDecl {
             name: Some(symbol),
             ty,

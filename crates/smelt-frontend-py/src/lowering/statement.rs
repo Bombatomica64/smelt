@@ -462,7 +462,7 @@ impl ModuleBuilder<'_> {
             ty: base_ty,
             span,
         });
-        let base_local_name = self.intern_name("__smelt_super");
+        let base_local_name = self.intern_synthesized_name("__smelt_super");
         let base_local = body.push_local(LocalDecl {
             name: Some(base_local_name),
             ty: base_ty,
@@ -922,7 +922,7 @@ impl ModuleBuilder<'_> {
         });
 
         let bool_ty = self.intern_type(Type::Bool);
-        let raised_sym = self.intern_name("__smelt_pytest_raised");
+        let raised_sym = self.intern_synthesized_name("__smelt_pytest_raised");
         let raised_local = body.push_local(LocalDecl {
             name: Some(raised_sym),
             ty: bool_ty,

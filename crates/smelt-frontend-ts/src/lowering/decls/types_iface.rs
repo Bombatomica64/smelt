@@ -470,7 +470,7 @@ impl ModuleBuilder<'_> {
         let Some(signature) = call_signatures.first() else {
             return;
         };
-        let name = self.ctx.krate.symbols.intern("__smelt_call");
+        let name = self.ctx.krate.symbols.intern_synthesized(&smelt_hir::SynthesizedName::new("__smelt_call"));
         if fields.iter().any(|field| field.name == name) {
             return;
         }

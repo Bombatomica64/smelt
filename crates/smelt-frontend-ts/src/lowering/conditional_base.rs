@@ -74,7 +74,7 @@ impl ModuleBuilder<'_> {
         let span = self.span(declarator.span.start, declarator.span.end);
         let cond_value = self.expression(&conditional.test, body)?;
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let symbol = self.intern_source_name(&format!("smelt_{name}_arm"));
+        let symbol = self.intern_synthesized_name(&format!("smelt_{name}_arm"));
         let cond = body.push_local(LocalDecl { name: Some(symbol), ty: bool_ty, mutable: false, span });
         let pat = body.push_pattern(Pattern::Binding(cond));
         body.push_stmt_to_block(block, Stmt::Let { pat, ty: bool_ty, value: Some(cond_value) });

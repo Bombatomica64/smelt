@@ -245,6 +245,13 @@ return_ty: none_ty,
         self.ctx.krate.symbols.intern(name)
     }
 
+    /// Intern a name this lowering mints itself (`__smelt_super`,
+    /// `smelt_global_init$x$0`): a [`smelt_hir::SymbolOrigin::Synthesized`]
+    /// symbol, whose reserved `smelt` spelling the code generator keeps.
+    fn intern_synthesized_name(&mut self, name: &str) -> Symbol {
+        self.ctx.krate.symbols.intern_synthesized(&smelt_hir::SynthesizedName::new(name))
+    }
+
     /// Intern an HIR type and return its canonical ID.
     fn intern_type(&mut self, ty: Type) -> TypeId {
         self.ctx.krate.types.intern(ty)

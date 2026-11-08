@@ -227,7 +227,7 @@ impl ModuleBuilder<'_> {
         // Bind the left operand so the truthiness test and the selected value
         // read one evaluation.
         let selector = body.push_local(LocalDecl {
-            name: Some(self.intern_source_name("smelt_logical")),
+            name: Some(self.intern_synthesized_name("smelt_logical")),
             ty: lhs_ty,
             mutable: false,
             span,
