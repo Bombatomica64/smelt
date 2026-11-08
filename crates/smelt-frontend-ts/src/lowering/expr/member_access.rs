@@ -1291,6 +1291,21 @@ impl ModuleBuilder<'_> {
                 span: self.span(member.span.start, member.span.end),
             }));
         }
+        if member.property.name == "argv"
+            && matches!(&member.object, Expression::Identifier(identifier) if identifier.name == "process")
+            && !self.scope.is_bound("process")
+        {
+            // `process.argv` is `string[]` (`@types/node`): the run's real
+            // arguments, never the profile record's missing field, which read
+            // as `undefined` and made `process.argv.slice(2)` throw.
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            let list_ty = self.ctx.krate.types.intern(Type::List(string_ty));
+            return Some(body.push_expr(Expr {
+                kind: ExprKind::ProcessArgv,
+                ty: list_ty,
+                span: self.span(member.span.start, member.span.end),
+            }));
+        }
         if Self::is_process_env_member(member) {
             // `process.env.X` is `string | undefined` in TypeScript, typed here
             // as `Optional(String)` so `process.env.PORT ?? 3000` keeps both

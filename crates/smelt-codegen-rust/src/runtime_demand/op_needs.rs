@@ -464,6 +464,7 @@ impl RuntimeDemand {
             | Rvalue::SetBinary { .. }
             | Rvalue::SetProjection { .. }
             | Rvalue::ProcessEnvRead { .. }
+            | Rvalue::ProcessArgv
             | Rvalue::ListConcat { .. }
             | Rvalue::ListSearch { .. }
             | Rvalue::ListCallback { .. }

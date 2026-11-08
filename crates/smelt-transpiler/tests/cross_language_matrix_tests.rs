@@ -244,3 +244,65 @@ fn py_imports_ts_errors() -> TestResult {
 fn py_imports_ts_async() -> TestResult {
     verify_case("py_imports_ts_async")
 }
+
+/// Writes a project whose entry is `src/<entry>` among `sources`, claiming
+/// `crate_name`, and returns the manifest path argument.
+fn write_project(
+    root: &Path,
+    entry: &str,
+    sources: &[(String, String)],
+    shared: &SharedDepsCrate,
+) -> TestResult<String> {
+    write_files(&root.join("src"), sources)?;
+    fs::write(
+        root.join("Smelt.toml"),
+        format!(
+            "[project]\nname = \"cross-language-matrix\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"src/{entry}\"]\n\n[output]\ntarget = \"./dist\"\ncrate-name = \"{}\"\nbuild = false\n",
+            shared.name()
+        ),
+    )?;
+    Ok(utf8_path(&root.join("Smelt.toml"))?)
+}
+
+/// A build writes the cross-language stubs (`mathlib.d.ts`, `arith.pyi`)
+/// beside the sources; a second build over the same tree resolves each
+/// import to the SOURCE again, never to the stub, and prints the same.
+#[test]
+fn a_second_build_resolves_sources_not_their_stubs() -> TestResult {
+    for (case, entry) in [("ts_imports_py_functions", "main.ts"), ("py_imports_ts_functions", "main.py")] {
+        let fixture = workspace_root()?
+            .join("crates/smelt-transpiler/tests/fixtures/cross-language")
+            .join(case);
+        let expected = fs::read_to_string(fixture.join("expected.stdout"))?;
+        let project = TempProject::new()?;
+        let root = project.path();
+        let shared = SharedDepsCrate::claim(format!("xlang_rebuild_{case}"))?;
+        let manifest = write_project(root, entry, &read_files(&fixture.join("smelt"))?, &shared)?;
+        smelt(&["--manifest-path", &manifest, "build"])?;
+        smelt(&["--manifest-path", &manifest, "build"])?;
+        let stdout = cargo_run_shared(&root.join("dist/Cargo.toml"), &shared)?;
+        ensure_eq(&stdout, &expected, format!("{case}: stdout after a second build"))?;
+    }
+    Ok(())
+}
+
+/// A project module named like a standard-library module CPython never lets
+/// a script shadow (`math`) does not replace it: `import math` is the
+/// standard library, as under `python3` and ty.
+#[test]
+fn a_project_module_never_shadows_a_builtin_stdlib_module() -> TestResult {
+    let sources = vec![
+        ("math.py".to_owned(), "def sqrt(x: float) -> float:\n    return -1.0\n".to_owned()),
+        ("main.py".to_owned(), "import math\n\nprint(math.sqrt(16.0))\n".to_owned()),
+    ];
+    if python_runs_corpus() {
+        ensure_eq(&python_stdout(&sources)?, &"4.0\n".to_owned(), "python3 imports the builtin math")?;
+    }
+    let project = TempProject::new()?;
+    let root = project.path();
+    let shared = SharedDepsCrate::claim("xlang_unshadowable_math")?;
+    let manifest = write_project(root, "main.py", &sources, &shared)?;
+    smelt(&["--manifest-path", &manifest, "build"])?;
+    let stdout = cargo_run_shared(&root.join("dist/Cargo.toml"), &shared)?;
+    ensure_eq(&stdout, &"4.0\n".to_owned(), "generated Rust imports the builtin math")
+}

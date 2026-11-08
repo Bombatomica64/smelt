@@ -78,6 +78,18 @@ impl FunctionEmitter<'_> {
         self.rendered_at_type(&call, unknown_ty, dest_ty, &self.render_scope())
     }
 
+    /// Emit `process.argv`: the executable path, twice, then the arguments
+    /// after the program name (see `Rvalue::ProcessArgv`), as a `Vec` the
+    /// fresh-list conversion wraps. The executable path is absolute, as
+    /// Node's `argv[0]` and `argv[1]` are, falling back to the name the
+    /// program was started under when the platform cannot say.
+    pub(super) fn process_argv_expr(&self) -> RustExpr {
+        let element = if self.indexes_utf16() { "JsString::from(smelt_arg.as_str())" } else { "smelt_arg" };
+        RustExpr::from(format!(
+            "{{ let mut smelt_args = ::std::env::args(); let smelt_started = smelt_args.next().unwrap_or_default(); let smelt_exe = ::std::env::current_exe().map(|path| path.to_string_lossy().into_owned()).unwrap_or(smelt_started); ::std::iter::once(smelt_exe.clone()).chain(::std::iter::once(smelt_exe)).chain(smelt_args).map(|smelt_arg| {element}).collect::<Vec<_>>() }}"
+        ))
+    }
+
     /// Emit a presence probe of a host constructor's override slot
     /// (`typeof <class> !== 'undefined'` for a reassigned host name).
     pub(super) fn host_global_present_expr(&self, class: Symbol) -> Result<RustExpr, EmitError> {

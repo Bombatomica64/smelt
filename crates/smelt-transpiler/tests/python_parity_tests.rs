@@ -168,3 +168,10 @@ fn int_rebinds_to_float() -> TestResult {
 fn dict_destructuring_and_pop() -> TestResult {
     verify_python_parity("dict_destructuring_and_pop")
 }
+
+/// Module variables written through `global`, defaulted parameters, generic
+/// functions (`TypeVar` and PEP 695) and `str * int` repetition.
+#[test]
+fn module_state_and_defaults() -> TestResult {
+    verify_python_parity("module_state_and_defaults")
+}
