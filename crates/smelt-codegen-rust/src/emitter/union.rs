@@ -1952,7 +1952,7 @@ pub(crate) fn emit_union_definitions(
             "impl{impl_generics} SmeltFromUnknown for {target} {{\n"
         ));
         output.push_str(
-            "    fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }\n",
+            "    const HOLDS_RECORD: bool = true;\n    fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }\n",
         );
         output.push_str("}\n");
         // A union used as a map key needs JavaScript key equality. Both halves

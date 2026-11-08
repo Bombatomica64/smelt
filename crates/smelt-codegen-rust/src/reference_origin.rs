@@ -129,8 +129,15 @@ pub(crate) fn emit_reference_from_smelt_unknown_impl(
             .get(field.name)
             .or_else(|| mir.symbols.get(field.name))
             .unwrap_or("field");
+        let frame = if crate::emitter::record_coercion::type_holds_generated_record(mir, field.ty) {
+            format!("let _smelt_conv_frame = smelt_conv_enter({name:?}, {key:?}); ")
+        } else {
+            String::new()
+        };
+        let absent = crate::emitter::record_coercion::missing_required_field_throw(mir, name, key, field.ty)
+            .map_or_else(String::new, |throw| format!(" else {{ {throw}; }}"));
         assigns.push(format!(
-            "if let Some(smelt_field) = object.get({key:?}) {{ result.0.borrow_mut().{field_name} = SmeltFromUnknown::smelt_from_unknown(smelt_field); }}"
+            "if let Some(smelt_field) = smelt_erased_member(&smelt_object, {key:?}) {{ {frame}result.0.borrow_mut().{field_name} = SmeltFromUnknown::smelt_from_unknown(smelt_field); }}{absent}"
         ));
     }
     writer.line("/// Recover this reference record from an erased value: the live instance");
@@ -138,9 +145,10 @@ pub(crate) fn emit_reference_from_smelt_unknown_impl(
     writer.block(
         format!("impl{impl_generics} SmeltFromUnknown for {name}{type_args}"),
         |impl_writer| {
+            impl_writer.line("const HOLDS_RECORD: bool = true;");
             impl_writer.block("fn smelt_from_unknown(value: SmeltUnknown) -> Self", |fn_writer| {
-                fn_writer.line("let SmeltUnknown::Object(object) = value else { return Self::default() };");
-                fn_writer.line("if let Some(origin) = object.smelt_origin::<Self>() { return origin; }");
+                fn_writer.line(format!("let SmeltUnknown::Object(smelt_object) = value.clone() else {{ smelt_throw_not_a_record({name:?}, &value) }};"));
+                fn_writer.line("if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }");
                 fn_writer.line("let result = Self::default();");
                 for assign in &assigns {
                     fn_writer.line(assign);

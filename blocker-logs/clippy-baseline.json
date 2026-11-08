@@ -85,7 +85,7 @@
       "clippy::missing_fields_in_debug": 11,
       "clippy::needless_pass_by_ref_mut": 4,
       "clippy::needless_pass_by_value": 22,
-      "clippy::option_if_let_else": 33,
+      "clippy::option_if_let_else": 32,
       "clippy::ptr_as_ptr": 4,
       "clippy::redundant_clone": 21,
       "clippy::redundant_closure_for_method_calls": 2,

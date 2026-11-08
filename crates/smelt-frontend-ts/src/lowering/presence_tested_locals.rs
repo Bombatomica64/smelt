@@ -79,6 +79,8 @@ struct Frame {
     keyed: HashSet<String>,
     /// Names whose presence this function tests, with the strongest test.
     tested: HashMap<String, PresenceTest>,
+    /// Binding span start of each simple parameter of this function.
+    params: HashMap<String, u32>,
 }
 
 /// AST visitor collecting [`presence_tested_keyed_bindings`].
@@ -99,6 +101,19 @@ impl PresenceTestedLocalCollector {
             clippy::iter_over_hash_type,
             reason = "`max` per span commutes"
         )]
+        for (name, span) in &frame.params {
+            // A parameter the body tests for presence accepts an absent value
+            // whatever its annotation says: `options?.times` on `options: Options`
+            // is valid for `null as any`, and only `Option` can hold it.
+            if let Some(test) = frame.tested.get(name).copied() {
+                let entry = self.widened.entry(*span).or_insert(test);
+                *entry = (*entry).max(test);
+            }
+        }
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "`max` per span commutes"
+        )]
         for name in &frame.keyed {
             let Some(test) = frame.tested.get(name).copied() else {
                 continue;
@@ -107,6 +122,17 @@ impl PresenceTestedLocalCollector {
                 for span in spans {
                     let entry = self.widened.entry(*span).or_insert(test);
                     *entry = (*entry).max(test);
+                }
+            }
+        }
+    }
+
+    /// Remember the simple parameters of the function just entered.
+    fn record_params(&mut self, params: &oxc::ast::ast::FormalParameters<'_>) {
+        if let Some(frame) = self.frame() {
+            for param in &params.items {
+                if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                    frame.params.insert(binding.name.to_string(), binding.span.start);
                 }
             }
         }
@@ -158,6 +184,7 @@ impl<'a> Visit<'a> for PresenceTestedLocalCollector {
         flags: oxc::syntax::scope::ScopeFlags,
     ) {
         self.frames.push(Frame::default());
+        self.record_params(&function.params);
         oxc::ast_visit::walk::walk_function(self, function, flags);
         self.pop_frame();
     }
@@ -168,6 +195,7 @@ impl<'a> Visit<'a> for PresenceTestedLocalCollector {
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'a>,
     ) {
         self.frames.push(Frame::default());
+        self.record_params(&arrow.params);
         oxc::ast_visit::walk::walk_arrow_function_expression(self, arrow);
         self.pop_frame();
     }
@@ -233,6 +261,22 @@ impl<'a> Visit<'a> for PresenceTestedLocalCollector {
     fn visit_logical_expression(&mut self, logical: &LogicalExpression<'a>) {
         self.record_test(&logical.left, PresenceTest::Truthiness);
         oxc::ast_visit::walk::walk_logical_expression(self, logical);
+    }
+
+    /// Visits `value?.member`, whose receiver the program tests for presence.
+    fn visit_static_member_expression(&mut self, member: &oxc::ast::ast::StaticMemberExpression<'a>) {
+        if member.optional {
+            self.record_test(&member.object, PresenceTest::Truthiness);
+        }
+        oxc::ast_visit::walk::walk_static_member_expression(self, member);
+    }
+
+    /// Visits `value?.[key]`, whose receiver the program tests for presence.
+    fn visit_computed_member_expression(&mut self, member: &oxc::ast::ast::ComputedMemberExpression<'a>) {
+        if member.optional {
+            self.record_test(&member.object, PresenceTest::Truthiness);
+        }
+        oxc::ast_visit::walk::walk_computed_member_expression(self, member);
     }
 
     /// Visits a binary expression to collect presence-tested locals.

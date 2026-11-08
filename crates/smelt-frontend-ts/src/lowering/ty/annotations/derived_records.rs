@@ -17,8 +17,9 @@
 
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::js_text::{has_lone_surrogate, js_str_text};
 use crate::lowering::decls::types_iface::StructuralMembers;
-use oxc::ast::ast::TSType;
+use oxc::ast::ast::{Argument, CallExpression, Expression, TSType};
 use smelt_hir::{Field, FieldDecodeFacts, Item, Symbol, Type, TypeId, TypeParamDef, Visibility};
 use smelt_ts_model::{TsTypeId, TsTypeKind};
 use std::collections::HashMap;
@@ -47,7 +48,7 @@ impl ModuleBuilder<'_> {
         base: TypeId,
         span: smelt_hir::Span,
     ) -> Result<Option<TypeId>, SmeltError> {
-        self.derived_record(base, "Partial", span, |_, _| Some(true))
+        self.derived_record(base, "Partial", span, None, |_, _| Some(true))
     }
 
     /// The record `Required<base>` names: no property may be absent.
@@ -56,7 +57,7 @@ impl ModuleBuilder<'_> {
         base: TypeId,
         span: smelt_hir::Span,
     ) -> Result<Option<TypeId>, SmeltError> {
-        self.derived_record(base, "Required", span, |_, _| Some(false))
+        self.derived_record(base, "Required", span, None, |_, _| Some(false))
     }
 
     /// The record `Pick<base, keys>` names: only the listed properties.
@@ -66,7 +67,7 @@ impl ModuleBuilder<'_> {
         keys: &[String],
         span: smelt_hir::Span,
     ) -> Result<Option<TypeId>, SmeltError> {
-        self.derived_record(base, "Pick", span, |name, field| {
+        self.derived_record(base, "Pick", span, None, |name, field| {
             keys.iter().any(|key| key == name).then_some(field.optional)
         })
     }
@@ -78,7 +79,7 @@ impl ModuleBuilder<'_> {
         keys: &[String],
         span: smelt_hir::Span,
     ) -> Result<Option<TypeId>, SmeltError> {
-        self.derived_record(base, "Omit", span, |name, field| {
+        self.derived_record(base, "Omit", span, None, |name, field| {
             (!keys.iter().any(|key| key == name)).then_some(field.optional)
         })
     }
@@ -134,12 +135,35 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn call_result_shaped_by_checker(
         &mut self,
         result: TypeId,
-        start: u32,
-        end: u32,
+        call: &CallExpression<'_>,
         span: smelt_hir::Span,
     ) -> Result<TypeId, SmeltError> {
-        let id = self.ts_facts.and_then(|facts| facts.type_id_at(&self.path, start, end));
-        self.shaped_by_checker_type(result, id, span)
+        let id = self.ts_facts.and_then(|facts| facts.type_id_at(&self.path, call.span.start, call.span.end));
+        self.shaped_by_checker_type(result, id, &Self::literal_key_arguments(call), span)
+    }
+
+    /// Each array-literal argument of `call` made only of string literals.
+    ///
+    /// The checker's property list follows its union ordering, while the object
+    /// such a call builds has its keys in the order the array names them, so an
+    /// argument naming exactly the result's properties fixes that order.
+    fn literal_key_arguments(call: &CallExpression<'_>) -> Vec<Vec<String>> {
+        call.arguments
+            .iter()
+            .filter_map(|argument| {
+                let Argument::ArrayExpression(array) = argument else {
+                    return None;
+                };
+                array
+                    .elements
+                    .iter()
+                    .map(|element| match element.as_expression() {
+                        Some(Expression::StringLiteral(key)) if !has_lone_surrogate(key.value) => Some(js_str_text(key.value).into_owned()),
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .collect()
     }
 
     /// `alias_ty`, the body of a generic alias instantiated at a reference
@@ -154,7 +178,7 @@ impl ModuleBuilder<'_> {
         span: smelt_hir::Span,
     ) -> Result<TypeId, SmeltError> {
         let id = self.ts_facts.and_then(|facts| facts.type_node_id_at(&self.path, start, end));
-        self.shaped_by_checker_type(alias_ty, id, span)
+        self.shaped_by_checker_type(alias_ty, id, &[], span)
     }
 
     /// `result` reshaped to checker type `id`, when that is an object type
@@ -163,6 +187,7 @@ impl ModuleBuilder<'_> {
         &mut self,
         result: TypeId,
         id: Option<TsTypeId>,
+        key_lists: &[Vec<String>],
         span: smelt_hir::Span,
     ) -> Result<TypeId, SmeltError> {
         let Some(facts) = self.ts_facts else {
@@ -203,18 +228,25 @@ impl ModuleBuilder<'_> {
         if known != count {
             return Ok(result);
         }
-        let derived = self.derived_record(base, "Pick", span, |name, _| properties.get(name).copied())?;
+        let order = key_lists.iter().find(|keys| {
+            keys.len() == count && keys.iter().all(|key| properties.contains_key(key.as_str()))
+        });
+        let derived = self.derived_record(base, "Pick", span, order.map(Vec::as_slice), |name, _| {
+            properties.get(name).copied()
+        })?;
         Ok(derived.unwrap_or(result))
     }
 
     /// The record derived from `base` by `select`, which answers each property's
     /// optionality or `None` to drop it; cached crate-wide per shape so every
-    /// module spelling the same derivation names the same struct.
+    /// module spelling the same derivation names the same struct. `order`, when
+    /// given, lists the kept properties in the order the value holds them.
     fn derived_record(
         &mut self,
         base: TypeId,
         label: &str,
         span: smelt_hir::Span,
+        order: Option<&[String]>,
         select: impl Fn(&str, &Field) -> Option<bool>,
     ) -> Result<Option<TypeId>, SmeltError> {
         let Some(source) = self.record_source(base, span)? else {
@@ -236,6 +268,16 @@ impl ModuleBuilder<'_> {
             base_is_mapped_shape &= optional == field.optional;
             shape.push((field.name, optional));
             selected.push((field.clone(), optional));
+        }
+        if let Some(order) = order {
+            let position = |symbol: Symbol| {
+                let name = self.ctx.krate.symbols.get(symbol).unwrap_or_default();
+                order.iter().position(|key| key == name).unwrap_or(usize::MAX)
+            };
+            let before: Vec<Symbol> = shape.iter().map(|entry| entry.0).collect();
+            shape.sort_by_key(|entry| position(entry.0));
+            selected.sort_by_key(|entry| position(entry.0.name));
+            base_is_mapped_shape &= before.iter().copied().eq(shape.iter().map(|entry| entry.0));
         }
         if base_is_mapped_shape {
             return Ok(Some(base));

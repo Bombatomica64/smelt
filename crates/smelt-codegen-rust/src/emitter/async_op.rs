@@ -698,7 +698,7 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("Promise destination must be a future"));
         };
         let executor_text = self.operand_expr(executor)?;
-        let executor_call = match self.mir.types.get(self.operand_ty(executor)?) {
+        let direct_call = match self.mir.types.get(self.operand_ty(executor)?) {
             Some(Type::Function(function))
                 if function.rest == Some(0) && function.params.len() == 1 =>
             {
@@ -727,6 +727,19 @@ impl FunctionEmitter<'_> {
                 format!("let _ = &smelt_reject; ({executor_text})(smelt_resolve);", executor_text = executor_text.delimited())
             }
             _ => format!("({executor_text})(smelt_resolve, smelt_reject);", executor_text = executor_text.delimited()),
+        };
+        // An `async` executor runs its first segment now; the rest has to stay
+        // scheduled or a `resolve` after its first suspension never happens.
+        let executor_is_async = matches!(
+            self.mir.types.get(self.operand_ty(executor)?),
+            Some(Type::Function(function))
+                if function.is_async || matches!(self.mir.types.get(function.return_ty), Some(Type::Future(_)))
+        );
+        let executor_call = match direct_call.strip_suffix(';') {
+            Some(call) if executor_is_async => format!(
+                "{{ let smelt_executor_run = {{ {call} }}; smelt_spawn_promise_task(Box::pin(async move {{ let _ = smelt_executor_run.await; }})); }}"
+            ),
+            _ => direct_call,
         };
         let output_text = self.signature_type(output_ty)?;
         // `Promise<void>` still accepts an ignored optional value, but

@@ -13,6 +13,8 @@ struct SmeltTimer {
 thread_local! {
     static SMELT_NEXT_TIMER_ID: ::std::cell::Cell<u64> = const { ::std::cell::Cell::new(1) };
     static SMELT_TIMERS: ::std::cell::RefCell<Vec<SmeltTimer>> = const { ::std::cell::RefCell::new(Vec::new()) };
+    /// Whether a detached promise task finished since the event loop last checked for idleness.
+    static SMELT_PROMISE_TASK_SETTLED: ::std::cell::Cell<bool> = const { ::std::cell::Cell::new(false) };
     static SMELT_PROMISE_TASKS: ::std::cell::RefCell<Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>>> = const { ::std::cell::RefCell::new(Vec::new()) };
     // Non-zero while a `Promise.race` driver owns the event loop; see
     // `smelt_promise_race`.
@@ -61,7 +63,7 @@ async fn smelt_drain_promise_tasks() {
         let mut cx = ::std::task::Context::from_waker(&waker);
         let mut pending = Vec::new();
         for mut task in tasks.drain(..) {
-            if task.as_mut().poll(&mut cx).is_pending() { pending.push(task); }
+            if task.as_mut().poll(&mut cx).is_pending() { pending.push(task); } else { SMELT_PROMISE_TASK_SETTLED.with(|settled| settled.set(true)); }
         }
         let had_pending = !pending.is_empty();
         SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().extend(pending));
@@ -223,8 +225,12 @@ async fn smelt_sleep_ms(delay_ms: f64) {
         // stops being the one that finished first. Yield instead and let
         // `smelt_promise_race` take exactly one timer step per round.
         if delay_ms != 0 || fired_any || SMELT_RACE_DEPTH.with(::std::cell::Cell::get) > 0 { break 'idle; }
+        // A queued task only blocks the clock while tasks are finishing. Tasks
+        // that a whole drain left pending are themselves waiting on a timer or
+        // on each other, and nothing but the clock can release them.
         let tasks_pending = SMELT_PROMISE_TASKS.with(|tasks| !tasks.borrow().is_empty());
-        if tasks_pending { break 'idle; }
+        let tasks_settled = SMELT_PROMISE_TASK_SETTLED.with(|settled| settled.replace(false));
+        if tasks_pending && tasks_settled { break 'idle; }
         let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.id < id_barrier).map(|timer| timer.due_ms).min());
         let Some(earliest) = earliest else { break 'idle; };
         smelt_virtual_advance_to(earliest);

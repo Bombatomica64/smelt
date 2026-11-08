@@ -44,7 +44,10 @@ impl ModuleBuilder<'_> {
             let ty = param
                 .type_annotation
                 .as_ref()
-                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .map(|annotation| {
+                    let annotated = self.ts_type_to_hir(&annotation.type_annotation)?;
+                    Ok::<_, SmeltError>(self.presence_widened_param_type(param, annotated))
+                })
                 .transpose()?
                 .or_else(|| {
                     contextual_function

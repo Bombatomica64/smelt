@@ -72,7 +72,12 @@ fn a_heterogeneous_inline_object_type_lowers_to_a_struct_with_typed_fields() -> 
         ),
         &mut ctx,
     )?;
-    let options_ty = param_type(&ctx, "retry", 0)?;
+    // `options?.times` tests the parameter for presence, so it is `Option` of
+    // the struct (see `presence_tested_locals`); the struct is what this checks.
+    let options_ty = match ctx.krate.types.get(param_type(&ctx, "retry", 0)?) {
+        Some(Type::Optional(inner)) => *inner,
+        other => return Err(format!("a presence-tested parameter is Option, got {other:?}")),
+    };
     let fields = interface_fields(&ctx, options_ty)?;
     let float = ctx.krate.types.intern(Type::Float);
     let optional_float = ctx.krate.types.intern(Type::Optional(float));

@@ -124,7 +124,8 @@ impl ModuleBuilder<'_> {
                 for (index, param) in function.params.items.iter().enumerate() {
                     let result = (|| {
                         let ty = if let Some(annotation) = &param.type_annotation {
-                            this.ts_type_to_hir(&annotation.type_annotation)?
+                            let annotated = this.ts_type_to_hir(&annotation.type_annotation)?;
+                            this.presence_widened_param_type(param, annotated)
                         } else if let Some(function_ty) = &hinted_function {
                             function_ty.params.get(index).copied().ok_or_else(|| {
                                 SmeltError::unsupported(

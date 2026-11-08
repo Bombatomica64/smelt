@@ -495,6 +495,23 @@ fn emit_reference_class_into_smelt_unknown_impl(
                     fn_writer.line(format!("({key:?}.to_owned(), {value}),"));
                 }
                 fn_writer.line("]);");
+                // As in the value-record view: an optional field holding `None`
+                // has no key at all, which `Object.keys`, `in` and spread observe.
+                let declared = mir.interfaces.iter().find(|interface| mir.symbols.get(interface.name) == Some(name));
+                for field in fields {
+                    let may_be_absent = declared.is_some_and(|interface| {
+                        interface.decode_facts.iter().any(|facts| facts.name == field.name && facts.may_be_absent)
+                    });
+                    if field.visibility.is_own_property()
+                        && may_be_absent
+                        && matches!(mir.types.get(field.ty), Some(smelt_hir::Type::Optional(_)))
+                    {
+                        let key = mir.names.get(field.name).or_else(|| mir.symbols.get(field.name)).unwrap_or("field");
+                        fn_writer.line(format!(
+                            "__smelt_entries.retain(|(smelt_key, smelt_value)| !(smelt_key == {key:?} && matches!(smelt_value, SmeltUnknown::Undefined)));"
+                        ));
+                    }
+                }
                 if has_proto_entries {
                     fn_writer.line("__smelt_entries.extend(__smelt_proto);");
                 }
