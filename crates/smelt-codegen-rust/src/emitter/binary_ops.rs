@@ -714,7 +714,7 @@ impl FunctionEmitter<'_> {
         // helper, the same rule the `SmeltUnknown` paths apply.
         let js_text = self.mir.types.get(if lhs_is_string { lhs_ty } else { rhs_ty }) == Some(&Type::String);
         let string_to_number =
-            |text: String| super::primitive_cast::string_to_number_call(&text, js_text);
+            |text: String| primitive_cast::string_to_number_call(&text, js_text);
         let float_ty = self.type_id(Type::Float)?;
         let lhs_text = if lhs_is_string {
             string_to_number(self.operand_expr(lhs)?.into_string())
