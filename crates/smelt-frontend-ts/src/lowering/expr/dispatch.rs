@@ -23,7 +23,29 @@ impl ModuleBuilder<'_> {
             this.expression_shape_with_hint(expression, body, type_hint)
         })?;
         // A read of a Bun `int32` slot is a `number` to every consumer.
-        Ok(self.int32_read_as_number(lowered, body))
+        let lowered = self.int32_read_as_number(lowered, body);
+        Ok(self.in_own_language_view(lowered, body))
+    }
+
+    /// A value whose type carries Python text (it comes from a Python module:
+    /// a call result, a field, a constant) as TypeScript sees it: a
+    /// `TypeAssert` to the TypeScript view, which the backend converts. A
+    /// function value is left alone; its calls convert their own arguments
+    /// and results. See `smelt_hir::language_view`.
+    pub(in crate::lowering) fn in_own_language_view(&mut self, value: smelt_hir::ExprId, body: &mut Body) -> smelt_hir::ExprId {
+        let ty = Self::expr_ty(body, value);
+        let language = smelt_hir::language_view::SourceLanguage::TypeScript;
+        if matches!(self.ctx.krate.types.get(ty), Some(Type::Function(_)))
+            || !smelt_hir::language_view::crosses_into(&self.ctx.krate.types, ty, language)
+        {
+            return value;
+        }
+        let span = body
+            .exprs
+            .get(usize::try_from(value.0).unwrap_or(usize::MAX))
+            .map_or_else(|| self.span(0, 0), |expr| expr.span);
+        let viewed = smelt_hir::language_view::view_in(&mut self.ctx.krate.types, ty, language);
+        body.push_expr(Expr { kind: ExprKind::TypeAssert { value }, ty: viewed, span })
     }
 
     /// Lower one expression; see [`Self::expression_with_hint`].
@@ -198,6 +220,7 @@ impl ModuleBuilder<'_> {
                 (lhs, rhs) = self.null_absent_concat_operands(op, lhs, rhs, binary, body);
                 let lhs_ty = Self::expr_ty(body, lhs);
                 let rhs_ty = Self::expr_ty(body, rhs);
+                let op = self.loose_equality_op(op, lhs_ty, rhs_ty);
                 let ty = if op == BinOp::Add
                     && type_hint
                         .is_some_and(|hint| self.ctx.krate.types.get(hint) == Some(&Type::String))

@@ -1839,6 +1839,24 @@ impl SmeltJsStrictEq for bool { fn js_strict_eq(&self, other: &Self) -> bool { s
 impl SmeltJsStrictEq for i64 { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }
 impl SmeltJsStrictEq for f64 { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }
 
+/// `left == right` in JavaScript.
+#[allow(dead_code)]
+fn smelt_js_loose_eq(left: &SmeltUnknown, right: &SmeltUnknown) -> bool {
+    use SmeltUnknown as U;
+    match (left, right) {
+        (U::Null | U::Undefined, U::Null | U::Undefined) => true,
+        (U::Null | U::Undefined, _) | (_, U::Null | U::Undefined) => false,
+        (U::Number(_), U::Number(_)) | (U::String(_), U::String(_)) | (U::Bool(_), U::Bool(_)) | (U::Symbol(_), U::Symbol(_)) | (U::Array(_) | U::Object(_) | U::Function(_) | U::Promise(_), U::Array(_) | U::Object(_) | U::Function(_) | U::Promise(_))  => left.js_strict_eq(right),
+        (U::Bool(value), other) | (other, U::Bool(value)) => smelt_js_loose_eq(&U::Number(if *value { 1.0 } else { 0.0 }), other),
+        (U::Number(_), U::String(_)) | (U::String(_), U::Number(_)) => smelt_unknown_to_number(left) == smelt_unknown_to_number(right),
+        
+        
+        (U::Array(_) | U::Object(_) | U::Function(_) | U::Promise(_), primitive) => smelt_js_loose_eq(&U::String(smelt_erased_to_js_string(left)), primitive),
+        (primitive, U::Array(_) | U::Object(_) | U::Function(_) | U::Promise(_)) => smelt_js_loose_eq(primitive, &U::String(smelt_erased_to_js_string(right))),
+        _ => false,
+    }
+}
+
 #[derive(Debug)]
 pub struct SmeltObject {
     id: usize,
@@ -4391,15 +4409,15 @@ fn main() {
     let absent_name: Option<JsString>;
     let score: Option<f64>;
     let label: Option<JsString>;
-    let _smelt_tmp_10: Option<SmeltList<f64>>;
+    let _smelt_tmp_11: Option<SmeltList<f64>>;
     let _smelt_tmp_6: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![3.0]; smelt_list_items }));
     let _smelt_tmp_7: User = User::new(JsString::from("Ada"), _smelt_tmp_6);
     present = Some(_smelt_tmp_7);
     missing = None::<User>;
     name = present.clone().as_ref().map(|_smelt_value| _smelt_value.name.clone());
     absent_name = missing.as_ref().map(|_smelt_value| _smelt_value.name.clone());
-    _smelt_tmp_10 = present.clone().as_ref().map(|_smelt_value| _smelt_value.scores.clone());
-    score = _smelt_tmp_10.as_ref().and_then(|_smelt_value| ({ let smelt_len = _smelt_value.len() as i64; let smelt_index = 0.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| _smelt_value.borrow().get(index).cloned()));
+    _smelt_tmp_11 = present.clone().as_ref().map(|_smelt_value| _smelt_value.scores.clone());
+    score = _smelt_tmp_11.as_ref().and_then(|_smelt_value| ({ let smelt_len = _smelt_value.len() as i64; let smelt_index = 0.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| _smelt_value.borrow().get(index).cloned()));
     label = present.as_ref().map(|_smelt_value| _smelt_value.label());
     let _ = { println!("{}", match &name { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
     let _ = { println!("{}", match &absent_name { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };

@@ -49,6 +49,18 @@ enum Piece<'a> {
     },
 }
 
+impl Piece<'_> {
+    /// Whether this property always writes the field `name`: an explicit
+    /// property of that name, or a spread whose type declares it required (an
+    /// optional one may be absent).
+    fn writes(&self, name: smelt_hir::Symbol) -> bool {
+        match self {
+            Self::Spread { fields, .. } => fields.iter().any(|field| field.name == name && !field.optional),
+            Self::Explicit { name: written, .. } => *written == name,
+        }
+    }
+}
+
 impl ModuleBuilder<'_> {
     /// Lower `object` (which contains a spread) as a struct of `type_hint`'s
     /// record type, or answer `None` to keep the erased-record path.
@@ -112,8 +124,25 @@ impl ModuleBuilder<'_> {
                 }
             }
         }
-        // Committed: from here on every expression is part of the result.
         let span = self.span(object.span.start, object.span.end);
+        // Every required field needs a writer. tsc rejects a literal that
+        // leaves one out, so an unwritten required field is either ill-typed
+        // source (refused, never defaulted) or a field Smelt's model of the
+        // spread sources missed (the record path reads it at run time).
+        if let Some(missing) = target_fields
+            .iter()
+            .find(|field| !field.optional && !pieces.iter().any(|piece| piece.writes(field.name)))
+        {
+            if self.trust == crate::lowering::SourceTrust::Checked {
+                return Ok(None);
+            }
+            let name = source_spelling(&self.ctx.krate, missing.name).unwrap_or_default().to_owned();
+            return Err(SmeltError::ill_typed(
+                span,
+                format!("object literal does not set the required property `{name}` of its record type"),
+            ));
+        }
+        // Committed: from here on every expression is part of the result.
         let mut current: Vec<Option<smelt_hir::ExprId>> = vec![None; target_fields.len()];
         for piece in pieces {
             match piece {
@@ -197,10 +226,13 @@ impl ModuleBuilder<'_> {
                     ty: field.ty,
                     span,
                 }),
-                // A required field nothing wrote cannot happen in valid
-                // TypeScript (tsc rejects the literal); the field's default
-                // keeps the struct constructible.
-                None => continue,
+                // Every required field has a writer (checked above).
+                None => {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "internal: a required record field lost its writer",
+                    ));
+                }
             };
             let key_text = source_spelling(&self.ctx.krate, field.name)
                 .unwrap_or_default()

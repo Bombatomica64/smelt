@@ -76,7 +76,7 @@ fn a_record_holding_a_function_keeps_the_previous_route() {
 /// `true`/`null`, and never takes the inspect route.
 #[test]
 fn python_print_spells_booleans_and_none_like_python() {
-    let source = source_for_py("flag: bool = True\nprint(flag)\nnothing: None = None\nprint(nothing)\n");
+    let source = source_for_py("def run() -> None:\n    flag: bool = True\n    print(flag)\n    nothing: None = None\n    print(nothing)\n");
     assert!(source.contains("if flag { \"True\" } else { \"False\" }"), "{source}");
     assert!(source.contains("println!(\"{}\", \"None\")"), "{source}");
     assert!(!source.contains("SmeltInspect"), "{source}");

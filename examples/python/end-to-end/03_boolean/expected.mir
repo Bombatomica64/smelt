@@ -1,17 +1,25 @@
-fn main (FuncId(0)) -> None
+fn smelt_global_init$result$2 (FuncId(0)) -> Bool
   locals
-    %0 user flag: Bool
-    %1 user other: Bool
-    %2 user result: Bool
+    %0 temp: Bool
+    %1 temp: Bool
+    %2 temp: Bool
     %3 temp: Bool
-    %4 temp: Bool
-    %5 temp: None
   bb0:
-    %0 = true
-    %1 = false
-    %3 = !move %1
-    %2 = move %0 && move %3
-    %5 = call @console_log(move %2) -> bb1
+    %0 = global_get #0
+    %1 = global_get #1
+    %2 = !move %1
+    %3 = move %0 && move %2
+    return move %3
+
+fn main (FuncId(1)) -> None
+  locals
+    %0 temp: None
+    %1 temp: Bool
+    %2 temp: None
+  bb0:
+    %0 = global_get #2
+    %1 = global_get #2
+    %2 = call @console_log(move %1) -> bb1
   bb1:
     return none
 

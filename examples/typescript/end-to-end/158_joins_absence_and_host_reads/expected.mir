@@ -101,58 +101,59 @@ async fn response_facts (FuncId(3)) -> None
     %1 user missing: Optional<Response>
     %2 user status: Optional<Float>
     %3 temp: Response
-    %4 temp: Optional<Float>
-    %5 temp: Optional<Bool>
-    %6 temp: Optional<String>
-    %7 temp: Optional<Float>
-    %8 temp: None
-    %9 temp: Bool
-    %10 temp: Response
-    %11 temp: Optional<ReadableStream>
-    %12 temp: Optional<Bool>
-    %13 temp: Response
-    %14 temp: Bool
-    %15 temp: None
-    %16 temp: Response
-    %17 temp: Future<String>
-    %18 temp: String
-    %19 temp: Response
-    %20 temp: Optional<ReadableStream>
-    %21 temp: Optional<Bool>
-    %22 temp: Response
-    %23 temp: Bool
-    %24 temp: None
+    %4 temp: Optional<Response>
+    %5 temp: Optional<Float>
+    %6 temp: Optional<Bool>
+    %7 temp: Optional<String>
+    %8 temp: Optional<Float>
+    %9 temp: None
+    %10 temp: Bool
+    %11 temp: Response
+    %12 temp: Optional<ReadableStream>
+    %13 temp: Optional<Bool>
+    %14 temp: Response
+    %15 temp: Bool
+    %16 temp: None
+    %17 temp: Response
+    %18 temp: Future<String>
+    %19 temp: String
+    %20 temp: Response
+    %21 temp: Optional<ReadableStream>
+    %22 temp: Optional<Bool>
+    %23 temp: Response
+    %24 temp: Bool
+    %25 temp: None
   bb0:
     %3 = response_new body="hi" status=201.0 status_text="Made"
     %0 = move %3
     %1 = undefined
     %2 = copy %0?.field14
-    %5 = copy %0?.field15
-    %6 = copy %0?.field16
-    %7 = move %1?.field14
-    %8 = call @console_log(move %2, move %5, move %6, move %7) -> bb1
+    %6 = copy %0?.field15
+    %7 = copy %0?.field16
+    %8 = move %1?.field14
+    %9 = call @console_log(move %2, move %6, move %7, move %8) -> bb1
   bb1:
-    %9 = copy %0 != none
-    switch move %9 ? bb2 : bb3
+    %10 = copy %0 != none
+    switch move %10 ? bb2 : bb3
   bb2:
-    %10 = copy %0
-    %11 = response_body move %10
-    %12 = move %11?.field19
-    %13 = copy %0
-    %14 = response_body_used move %13
-    %15 = call @console_log("locked before", move %12, move %14) -> bb4
+    %11 = copy %0
+    %12 = response_body move %11
+    %13 = move %12?.field19
+    %14 = copy %0
+    %15 = response_body_used move %14
+    %16 = call @console_log("locked before", move %13, move %15) -> bb4
   bb3:
     return none
   bb4:
-    %16 = copy %0
-    %17 = response_text move %16
-    %18 = await move %17
-    %19 = copy %0
-    %20 = response_body move %19
-    %21 = move %20?.field19
-    %22 = move %0
-    %23 = response_body_used move %22
-    %24 = call @console_log("locked after", move %21, move %23) -> bb5
+    %17 = copy %0
+    %18 = response_text move %17
+    %19 = await move %18
+    %20 = copy %0
+    %21 = response_body move %20
+    %22 = move %21?.field19
+    %23 = move %0
+    %24 = response_body_used move %23
+    %25 = call @console_log("locked after", move %22, move %24) -> bb5
   bb5:
     goto bb3
 

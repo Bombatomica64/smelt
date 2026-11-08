@@ -54,7 +54,7 @@ If the target directory already exists and is non-empty, error.
 ### `smelt build`
 
 1. Read manifest.
-2. Run `check` (full check pipeline per language).
+2. Type-check every source: TypeScript with the embedded TypeScript 7 checker, Python with ty, each language as one program built from the module graph Smelt resolved for lowering, so the checker sees what lowering sees: every resolved source (including `[packages]` sources and typed versions, the latter from memory), each bare specifier mapped to the file Smelt chose, packages installed in `node_modules`, Node's globals and `node:` modules (a vendored, pinned `@types/node`), in-memory declarations for a module of the other language (a `.d.ts` generated from an imported Python module, a `.pyi` from an imported TypeScript one), and, in a test file only, the test API Smelt models as globals (`describe`, `it`, `test`, `expect`, `expectTypeOf`, the hooks, and the mock namespace `vi` with its Jest spelling `jest`). An import the checker cannot resolve although Smelt resolved it is reported as `smelt::checker-resolution-drift`, an internal error. An unused `@ts-expect-error` (TS2578) is not counted: the directive asserts an error under the project's own compiler options, which Smelt's fixed checker profile may not raise. This is the **type gate**: a checker error, or a language with sources that no checker could check (a smelt built without `ts7` or `ty`, `SMELT_TS7=0`, a checker that failed), stops the build with `error[type-check]: …` lines and nothing is written. Smelt's lowering relies on a program that type-checks; `--allow-type-errors` (or `[build] type-errors = "allow"`) lowers it anyway, printing the diagnostics as `warning[type-check]`. A source the checker rejected is then lowered *unchecked*: the frontend shortcuts that rely on a checked program (a typed object spread missing a required field, duplicate function implementations) refuse it with `smelt::ill-typed-source` instead of producing wrong Rust.
 3. For each entry source: invoke the corresponding frontend → produces `smelt_hir::Module`s, all merged into one `smelt_hir::Crate`.
 4. Run `smelt_hir::validate(&crate)`.
 5. Lower HIR → MIR via `smelt_mir::lower(crate)`.
@@ -69,9 +69,9 @@ Stop on the first failing phase; report errors and exit 1.
 
 Steps 1–4 from `build`. No MIR, no codegen, no emit. Exit 0 if all phases pass.
 
-TypeScript sources are also type-checked by the embedded TypeScript 7 checker (the `ts7` feature), and its errors and warnings are printed as `warning[ts-check]: <file>:<line>:<col>: TSnnnn: <message>`, or as `type-check` rows with `--message-format json`. They do not change the exit status unless `--deny-type-errors` is given: the checker sees only the dependency closure, so a project without `@types/node`, or with ambient test globals, gets errors its own `tsc` setup does not. `smelt build` lowers with the same checker's facts and reports none of its diagnostics.
+Sources are also type-checked as in `build` step 2, and the checkers' errors and warnings are printed as `warning[type-check]: <file>:<line>:<col>: <message>` (`TSnnnn: …` from TypeScript, `<rule>: …` from ty), or as `type-check` rows with `--message-format json`. Unlike `build`, `check` reports them without failing unless `--deny-type-errors` is given, so a project can list its type errors and its lowering blockers in one pass. The checker's program is the one `build` checks (see step 2): a library whose dev dependencies are not installed gets "cannot find module" errors for their imports, as its own `tsc` would.
 
-When the checker fails to run, lowering proceeds on annotations alone, which changes the output's types, so every command warns on stderr. `SMELT_TS7=0` turns the checker off on purpose, to compare a run with and without its facts.
+When the checker cannot run, lowering proceeds on annotations alone, which changes the output's types, and nothing vouches for the sources: `check` warns that they were not type-checked, and `build` and `check --deny-type-errors` refuse them. `SMELT_TS7=0` turns the TypeScript checker off on purpose, to compare a run with and without its facts; pair it with `--allow-type-errors` to build.
 
 ### `smelt dump-hir <file>`
 
@@ -166,7 +166,8 @@ The list below is the v1.0 roadmap for `smelt-cli`, ordered by dependency. Items
 
 ### Commands
 
-- [x] `smelt check` — reports the embedded TypeScript checker's diagnostics; `--deny-type-errors` fails on them.
+- [x] `smelt check` — reports the embedded TypeScript checker's and ty's diagnostics; `--deny-type-errors` fails on them.
+- [x] `smelt build` — refuses a program the type checkers reject; `--allow-type-errors` / `[build] type-errors = "allow"` opts out.
 - [ ] `smelt build` — wire HIR → MIR → codegen once those crates exist; invoke `cargo build` if `output.build = true`.
 - [x] `smelt dump-hir <file>` — invoke frontend, run validator, call `smelt_hir::pretty::print`.
 - [x] `smelt dump-mir <file>` — same, plus lowering.

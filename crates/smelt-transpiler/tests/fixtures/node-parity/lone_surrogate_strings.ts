@@ -1,7 +1,7 @@
 // A JavaScript string is UTF-16 code units: a lone surrogate is a value of its
 // own, a cut through a surrogate pair leaves one, and strings sort by code unit.
-const half = "\ud83d";
-const emoji = "😀";
+const half: string = "\ud83d";
+const emoji: string = "😀";
 const cut = emoji.slice(0, 1);
 console.log(half.length, cut.length, cut === half, cut === "\ud83d", half === emoji);
 console.log(half, cut, half + "\ude00" === emoji, (half + "\ude00").length);

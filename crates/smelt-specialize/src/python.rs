@@ -14,7 +14,8 @@ use crate::{
 };
 
 /// Embedded, versioned `CPython` specialization guest.
-const PYTHON_GUEST: &str = include_str!("../guest/python.py");
+#[expect(clippy::redundant_pub_crate, reason = "the cache key hashes the guest; plain pub trips unreachable_pub")]
+pub(crate) const PYTHON_GUEST: &str = include_str!("../guest/python.py");
 
 /// Monotonic suffix for process-local scratch directories.
 static SCRATCH_SEQUENCE: AtomicU64 = AtomicU64::new(0);

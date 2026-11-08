@@ -83,7 +83,7 @@ pub(crate) fn list_escape_report(
 ) -> Result<String, Box<dyn std::error::Error>> {
     let mut config = crate::config_parser::parse_path(options.manifest)?;
     config.extend_defines(options.defines.iter().cloned());
-    let (krate, _modules) = lowering::ManifestLowering::for_manifest(&config, options.manifest)?.lower()?;
+    let krate = lowering::ManifestLowering::for_manifest(&config, options.manifest)?.check()?.into_measured().lower()?.krate;
     let mir = pipeline::lower_to_optimized_mir(&krate)?;
     let bodies = smelt_mir::analyze_list_escapes(&mir);
 

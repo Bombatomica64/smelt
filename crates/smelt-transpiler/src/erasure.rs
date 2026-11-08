@@ -43,7 +43,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use smelt_hir::{ErasureReason, ErasureRecord, ErasureSeverity};
 
-use crate::report::push_fmt;
+use crate::lowering::LoweredSources;
+use crate::report::{Schema, SchemaVersion, push_fmt};
 use crate::source_files::{exclusion_base, manifest_relative_path, path_matches_glob};
 
 /// File name of the sidecar written next to the generated crate's `src/`.
@@ -262,32 +263,38 @@ impl ResolvedErasure {
 /// The `smelt-erasure.json` sidecar.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct ErasureSidecar {
-    /// Format version.
-    pub(crate) version: u32,
+    /// Format version; reading another is an error.
+    pub(crate) version: SchemaVersion<Self>,
     /// Record counts per reason name.
     pub(crate) totals: BTreeMap<String, usize>,
     /// Every record, sorted by file, line, column, reason.
     pub(crate) records: Vec<ResolvedErasure>,
 }
 
-/// Source text and display path per file id, read once per run.
-struct SourceIndex {
-    /// File id -> (manifest-relative display path, source text).
-    files: HashMap<smelt_hir::FileId, (PathBuf, Option<String>)>,
+impl Schema for ErasureSidecar {
+    const NAME: &'static str = "erasure sidecar";
+    const VERSION: u32 = 1;
 }
 
-impl SourceIndex {
-    /// Index the crate's modules: their file ids, paths and source text.
-    fn new(krate: &smelt_hir::Crate, manifest_dir: &Path) -> Self {
+/// Source text and display path per file id.
+struct SourceIndex<'run> {
+    /// File id -> (manifest-relative display path, the text it was lowered from).
+    files: HashMap<smelt_hir::FileId, (PathBuf, Option<&'run str>)>,
+}
+
+impl<'run> SourceIndex<'run> {
+    /// Index the crate's modules: their file ids, paths and the text each was
+    /// lowered from. Spans index that text, so it is never re-read from disk:
+    /// a typed version's file exists only in memory, and a file may have
+    /// changed since it was lowered.
+    fn new(krate: &smelt_hir::Crate, sources: &'run LoweredSources, manifest_dir: &Path) -> Self {
         let base = exclusion_base(manifest_dir);
         let files = krate
             .modules
             .iter()
             .map(|module| {
-                let path = Path::new(&module.source.path);
-                let relative = manifest_relative_path(path, &base);
-                let text = std::fs::read_to_string(path).ok();
-                (module.source.file, (relative, text))
+                let relative = manifest_relative_path(Path::new(&module.source.path), &base);
+                (module.source.file, (relative, sources.text(module.source.file)))
             })
             .collect();
         Self { files }
@@ -297,11 +304,12 @@ impl SourceIndex {
 /// Resolve, classify and sort every record of a run.
 pub(crate) fn resolve(
     krate: &smelt_hir::Crate,
+    sources: &LoweredSources,
     backend: &[ErasureRecord],
     manifest_dir: &Path,
     settings: &ErasureSettings,
 ) -> Vec<ResolvedErasure> {
-    let index = SourceIndex::new(krate, manifest_dir);
+    let index = SourceIndex::new(krate, sources, manifest_dir);
     let mut frontend = krate.erasures.clone();
     smelt_hir::normalize_erasures(&mut frontend);
     let mut backend = backend.to_vec();
@@ -314,9 +322,7 @@ pub(crate) fn resolve(
             let (relative, text) = index
                 .files
                 .get(&record.span.file)
-                .map_or((PathBuf::from("<unknown>"), None), |(path, text)| {
-                    (path.clone(), text.as_deref())
-                });
+                .map_or((PathBuf::from("<unknown>"), None), |(path, text)| (path.clone(), *text));
             let (line, column) = text
                 .and_then(|text| smelt_hir::line_col(text, record.span.start))
                 .unwrap_or((1, 1));
@@ -403,7 +409,7 @@ pub(crate) fn sidecar(records: &[ResolvedErasure]) -> ErasureSidecar {
         *count = count.saturating_add(1);
     }
     ErasureSidecar {
-        version: 1,
+        version: SchemaVersion::CURRENT,
         totals,
         records: records.to_vec(),
     }
@@ -608,12 +614,42 @@ fn summary(records: &[ResolvedErasure]) -> String {
 }
 
 #[cfg(test)]
+#[expect(clippy::expect_used, reason = "a test fails fast on what it set up")]
 mod tests {
     use super::*;
 
     /// Parse a manifest `[erasure]` table from TOML text.
     fn config(text: &str) -> ErasureConfig {
         toml::from_str(text).expect("erasure table parses")
+    }
+
+    /// A record's line comes from the text the module was lowered from, never
+    /// from the file on disk: here the file does not exist at all (a typed
+    /// version laid in memory), and the span is on line 3 of the lowered text.
+    #[test]
+    fn spans_resolve_against_the_lowered_text() {
+        let mut krate = smelt_hir::Crate::new();
+        let file = smelt_hir::FileId(0);
+        krate.push_module(smelt_hir::Module::new(
+            "main",
+            smelt_hir::SourceFile {
+                path: "does/not/exist/main.ts".to_owned(),
+                language: smelt_hir::Language::TypeScript,
+                file,
+            },
+        ));
+        let text = "const a = 1;\nconst b = 2;\nconst c: any = 3;\n";
+        let start = u32::try_from(text.find("any").expect("in the text")).expect("small offset");
+        krate.erasures.push(ErasureRecord::new(
+            ErasureReason::ExplicitAny,
+            smelt_hir::Span::new(file, start, start + 3),
+            "",
+        ));
+        let sources = LoweredSources::from_texts([(file, text.to_owned())]);
+        let settings = ErasureSettings::new(None, &[]).expect("settings");
+        let resolved = resolve(&krate, &sources, &[], Path::new("."), &settings);
+        let lines = resolved.iter().map(|record| (record.line, record.column)).collect::<Vec<_>>();
+        assert_eq!(lines, [(3, 10)]);
     }
 
     /// Defaults: every reason allows except `unclassified`, which warns.

@@ -1,4 +1,4 @@
-const code = 2;
+const code: number = 2;
 let label = "";
 switch (code) {
   case 1:

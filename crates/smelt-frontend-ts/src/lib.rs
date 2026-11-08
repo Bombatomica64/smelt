@@ -26,10 +26,6 @@
     reason = "frontend helpers are mostly internal and will get must_use annotations in a focused pass"
 )]
 #![expect(
-    clippy::missing_errors_doc,
-    reason = "public checker docs need a dedicated polish pass"
-)]
-#![expect(
     clippy::exhaustive_structs,
     reason = "frontend diagnostics and contexts are constructed directly by workspace callers"
 )]
@@ -55,14 +51,14 @@
     reason = "lowering helpers keep Result return types for call-site uniformity while diagnostics evolve"
 )]
 
-pub mod checker;
-
 mod context;
 mod error;
 mod ident;
 mod lowering;
 #[doc(hidden)]
 pub mod test_support;
+mod untyped_imports;
+pub use untyped_imports::untyped_callback_parameter_spans;
 
 pub use context::{
     HirCtx, ObjectConst, ObjectConstEntry, ObjectConstEntryValue, ObjectConstValue,
@@ -71,7 +67,7 @@ pub use context::{
 pub use error::SmeltError;
 pub use ident::camel_to_snake;
 pub use lowering::{
-    ConstCollection, ConstLiteral, FrontendOptions, InterfaceHeritageRef, RestParam,
+    ConstCollection, ConstLiteral, FrontendOptions, InterfaceHeritageRef, RestParam, SourceTrust, ambient_test_globals, modeled_module_declarations,
     predeclare_type_declarations_with_path, predeclare_unique_symbol_consts_with_path,
     scan_declared_type_names, scan_written_host_globals,
     to_hir, to_hir_with_options, to_hir_with_path,

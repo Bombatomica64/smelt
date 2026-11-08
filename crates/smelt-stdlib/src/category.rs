@@ -35,8 +35,9 @@ pub enum DiagnosticCategory {
     /// erasure reason is configured `warn` or `deny` (see
     /// `smelt_hir::erasure`). Lowering succeeded; the code names the reason.
     Erasure,
-    /// The TypeScript checker rejected the source, as `tsc --noEmit` would.
-    /// Reported by `smelt check`; it never stops a lowering.
+    /// A type checker (TypeScript's, or ty for Python) rejected the source, or
+    /// could not run over it. Reported by `smelt check`, and by the type gate
+    /// that stops `smelt build` before it lowers ill-typed source.
     TypeCheck,
 }
 

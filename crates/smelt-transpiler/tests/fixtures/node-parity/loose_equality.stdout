@@ -1,0 +1,7 @@
+nullish: true true false false
+number/string: true true true false
+boolean: true true false
+bigint: true true false
+NaN: false true
+objects: true false true
+array to string: true true

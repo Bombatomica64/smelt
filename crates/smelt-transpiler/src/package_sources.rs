@@ -4,8 +4,10 @@
 //! declarations and only then through workspace `package.json` metadata (see
 //! `manifest::DependencyCollector`). A declaration names either a local
 //! directory or a git repository pinned to a revision; a git source is fetched
-//! once into a cache directory keyed by package and revision and reused while
-//! its checkout still matches that revision.
+//! once into a cache directory keyed by package, URL and resolved commit
+//! (`GitCheckoutKey`) and reused while its checkout still holds that commit.
+//! A `rev` that is not a full commit id (a branch, a tag) is resolved against
+//! the remote on every build, so a moved branch is fetched again.
 //!
 //! The cache lives under `$SMELT_PACKAGE_CACHE`, else
 //! `$XDG_CACHE_HOME/smelt/packages`, else `$HOME/.cache/smelt/packages`.
@@ -135,15 +137,101 @@ fn package_cache_dir() -> Result<PathBuf, Box<dyn Error>> {
         .ok_or_else(|| invalid("no package cache: set SMELT_PACKAGE_CACHE or HOME".to_owned()))
 }
 
+/// A full commit id: 40 (SHA-1) or 64 (SHA-256) lowercase hex digits.
+///
+/// Only [`Self::parse`] and [`resolve_revision`] build one, so a cache key that
+/// holds one names exactly one immutable tree.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct CommitSha(String);
+
+impl CommitSha {
+    /// `text` as a commit id, when it is a full one.
+    fn parse(text: &str) -> Option<Self> {
+        let full = matches!(text.len(), 40 | 64);
+        (full && text.bytes().all(|byte| byte.is_ascii_hexdigit()))
+            .then(|| Self(text.to_ascii_lowercase()))
+    }
+}
+
+/// Where one git package source is cached: a key no other source shares.
+///
+/// The URL is part of it (as a hash), so two repositories that publish the
+/// same package name at the same tag never share a checkout; the revision is
+/// the RESOLVED commit, so a branch that moved is a new key and a new fetch.
+#[derive(Debug)]
+struct GitCheckoutKey {
+    /// A file-name-safe spelling of the package name, for a readable cache.
+    name: String,
+    /// The first 16 hex digits of the SHA-256 of the URL.
+    url_hash: String,
+    /// The commit the checkout holds.
+    commit: CommitSha,
+}
+
+impl GitCheckoutKey {
+    /// The key of `name` from `url` at `commit`.
+    fn new(name: &str, url: &str, commit: CommitSha) -> Self {
+        use sha2::Digest as _;
+        let digest = hex::encode(sha2::Sha256::digest(url.as_bytes()));
+        Self { name: cache_slug(name), url_hash: digest.chars().take(16).collect(), commit }
+    }
+
+    /// The checkout's directory name in the cache.
+    fn dir_name(&self) -> String {
+        format!("{}-{}-{}", self.name, self.url_hash, self.commit.0)
+    }
+}
+
+/// The commit `rev` names in the repository at `url`.
+///
+/// A full commit id is its own answer. Anything else (a branch, a tag) can
+/// move, so it is resolved against the remote on every build with
+/// `git ls-remote`; the build then uses the commit it names now, never a
+/// checkout fetched when it named another one. Refs are tried in git's order:
+/// a peeled tag, a tag, a branch, then the exact ref name.
+fn resolve_revision(name: &str, url: &str, rev: &str) -> Result<CommitSha, Box<dyn Error>> {
+    if let Some(commit) = CommitSha::parse(rev) {
+        return Ok(commit);
+    }
+    let listing = git(&["ls-remote", url, rev], None).map_err(|error| {
+        invalid(format!("[packages.{name}]: resolving `{rev}` of {url}: {error}"))
+    })?;
+    commit_from_ls_remote(&listing, rev).ok_or_else(|| {
+        invalid(format!(
+            "[packages.{name}]: `{rev}` is not a full commit id, a branch or a tag of {url}; \
+             pin `rev` to a full commit id"
+        ))
+    })
+}
+
+/// The commit `git ls-remote <url> <rev>` output says `rev` names, if any.
+fn commit_from_ls_remote(listing: &str, rev: &str) -> Option<CommitSha> {
+    let refs = listing
+        .lines()
+        .filter_map(|line| line.split_once('\t'))
+        .collect::<Vec<_>>();
+    [
+        format!("refs/tags/{rev}^{{}}"),
+        format!("refs/tags/{rev}"),
+        format!("refs/heads/{rev}"),
+        rev.to_owned(),
+    ]
+    .iter()
+    .find_map(|wanted| refs.iter().find(|(_, name)| name == wanted))
+    .and_then(|(commit, _)| CommitSha::parse(commit))
+}
+
 /// The checkout of `url` at `rev`, fetched into the cache on first use.
 ///
 /// See the module docs for the rename-only protocol this follows.
 fn fetch_git_package(name: &str, url: &str, rev: &str) -> Result<PathBuf, Box<dyn Error>> {
+    let commit = resolve_revision(name, url, rev)?;
     let cache = package_cache_dir()?;
     std::fs::create_dir_all(&cache)?;
-    let key = format!("{}-{}", cache_slug(name), cache_slug(rev));
+    let wanted = commit.0.clone();
+    let key = GitCheckoutKey::new(name, url, commit).dir_name();
     let checkout = cache.join(&key);
-    let is_current = |path: &Path| path.join(".git").is_dir() && checkout_matches(path, rev);
+    let is_current = |path: &Path| path.join(".git").is_dir() && checkout_matches(path, &wanted);
     if is_current(&checkout) {
         return Ok(checkout);
     }
@@ -162,9 +250,9 @@ fn fetch_git_package(name: &str, url: &str, rev: &str) -> Result<PathBuf, Box<dy
         None,
     )
     .map_err(|error| invalid(format!("[packages.{name}]: cloning {url}: {error}")))?;
-    git(&["checkout", "--quiet", "--detach", rev], Some(&staging)).map_err(|error| {
+    git(&["checkout", "--quiet", "--detach", &wanted], Some(&staging)).map_err(|error| {
         invalid(format!(
-            "[packages.{name}]: checking out `{rev}` of {url}: {error}"
+            "[packages.{name}]: checking out `{rev}` ({wanted}) of {url}: {error}"
         ))
     })?;
     if std::fs::rename(&staging, &checkout).is_ok() {
@@ -237,11 +325,9 @@ fn remove_stale_staging(
     Ok(())
 }
 
-/// Whether the checkout's `HEAD` is the commit `rev` names.
-fn checkout_matches(checkout: &Path, rev: &str) -> bool {
-    let head = git(&["rev-parse", "HEAD"], Some(checkout));
-    let wanted = git(&["rev-parse", &format!("{rev}^{{commit}}")], Some(checkout));
-    matches!((head, wanted), (Ok(head_commit), Ok(wanted_commit)) if head_commit == wanted_commit)
+/// Whether the checkout's `HEAD` is the commit `commit`.
+fn checkout_matches(checkout: &Path, commit: &str) -> bool {
+    git(&["rev-parse", "HEAD"], Some(checkout)).is_ok_and(|head| head.eq_ignore_ascii_case(commit))
 }
 
 /// Run `git` and return its trimmed stdout.
@@ -268,7 +354,41 @@ fn invalid(message: String) -> Box<dyn Error> {
 mod tests {
     //! Cache-protocol helpers.
 
-    use super::{cache_slug, remove_stale_staging};
+    use super::{CommitSha, GitCheckoutKey, cache_slug, commit_from_ls_remote, remove_stale_staging};
+
+    /// A full id parses; an abbreviation or a branch name does not.
+    #[test]
+    fn only_full_commit_ids_are_commits() {
+        assert!(CommitSha::parse(&"a".repeat(40)).is_some());
+        assert!(CommitSha::parse(&"A".repeat(64)).is_some());
+        assert!(CommitSha::parse("abc1234").is_none());
+        assert!(CommitSha::parse("main").is_none());
+    }
+
+    /// The key holds the URL: one name and commit from two repositories are
+    /// two keys, and `@a/b` and `_a_b` from two repositories never share one.
+    #[test]
+    fn the_key_holds_the_url_and_the_commit() {
+        let commit = || CommitSha::parse(&"0".repeat(40)).expect("full id");
+        let first = GitCheckoutKey::new("@a/b", "https://one.example/r.git", commit()).dir_name();
+        let second = GitCheckoutKey::new("_a_b", "https://two.example/r.git", commit()).dir_name();
+        assert_ne!(first, second);
+        assert!(first.ends_with(&"0".repeat(40)), "{first}");
+    }
+
+    /// `ls-remote` output resolves a peeled tag before the tag object, and a
+    /// tag before a branch of the same name; a ref of another name never matches.
+    #[test]
+    fn ls_remote_resolves_in_git_order() {
+        let (tag_object, tag_commit, branch) = ("1".repeat(40), "2".repeat(40), "3".repeat(40));
+        let listing = format!(
+            "{branch}\trefs/heads/v1\n{tag_object}\trefs/tags/v1\n{tag_commit}\trefs/tags/v1^{{}}\n{branch}\trefs/heads/x/v1\n"
+        );
+        assert_eq!(commit_from_ls_remote(&listing, "v1"), CommitSha::parse(&tag_commit));
+        let branch_only = format!("{branch}\trefs/heads/main\n");
+        assert_eq!(commit_from_ls_remote(&branch_only, "main"), CommitSha::parse(&branch));
+        assert_eq!(commit_from_ls_remote(&format!("{branch}\trefs/heads/x/v1\n"), "v1"), None);
+    }
 
     /// Dead owners' staging and retired trees go; live owners', other keys'
     /// and the checkout itself stay.

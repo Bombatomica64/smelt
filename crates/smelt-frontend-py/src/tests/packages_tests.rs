@@ -146,11 +146,9 @@ result: int = httpx.add(2, 3)
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
-    let module_body = body(&ctx, module.body.ok_or("expected module body")?)?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        module_body
-            .exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::Call { .. })),
         "expected package namespace member call",
     )?;
@@ -195,11 +193,9 @@ value: int = box.callback(41)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let module_body = body(&ctx, module.body.ok_or("expected module body")?)?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        module_body
-            .exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. })),
         "expected function-typed field call to lower as a closure call",
     )?;
@@ -217,11 +213,9 @@ value: int = callbacks["next"](41)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let module_body = body(&ctx, module.body.ok_or("expected module body")?)?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        module_body
-            .exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. })),
         "expected function-typed index call to lower as a closure call",
     )?;

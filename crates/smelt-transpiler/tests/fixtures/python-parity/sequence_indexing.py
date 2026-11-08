@@ -13,11 +13,11 @@ for bad in [5, -6]:
     except IndexError as e:
         print("IndexError", e)
 try:
-    print(word[9])
+    print(word[int("9")])
 except IndexError as e:
     print("IndexError", e)
 print(xs[1::2], xs[-1:-4:-1], xs[3:0:-2], xs[::-2], word[::2], word[-1::-2])
-step = 0
+step = int("0")
 try:
     print(xs[::step])
 except ValueError as e:

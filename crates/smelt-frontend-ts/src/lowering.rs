@@ -256,6 +256,28 @@ pub struct FrontendOptions<'manifest> {
     /// operators come from TypeScript itself. `None` keeps the
     /// annotation-only behaviour.
     pub ts_facts: Option<&'manifest smelt_ts_model::TsTypeFacts>,
+    /// Whether the TypeScript checker accepted this source; see [`SourceTrust`].
+    pub trust: SourceTrust,
+}
+
+/// Whether a type checker accepted the source being lowered.
+///
+/// Lowering takes a few shortcuts that are sound only for a program the
+/// checker accepted: an object spread typed as a record writes every required
+/// field, for one. A source nothing vouches for is lowered `Unchecked`, and
+/// such a shortcut refuses it with a `smelt::ill-typed-source` error instead of
+/// producing silently wrong output. The transpiler decides the trust of each
+/// file from the checker's report (`smelt build` refuses ill-typed sources
+/// unless type errors are explicitly allowed); a direct frontend caller with no
+/// checker gets the default, `Unchecked`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[expect(clippy::exhaustive_enums, reason = "a checker either accepted the source or it did not")]
+pub enum SourceTrust {
+    /// The checker accepted the source: lowering may rely on what it rules out.
+    Checked,
+    /// Nothing vouches for the source: checked-program shortcuts refuse it.
+    #[default]
+    Unchecked,
 }
 
 /// Materialized specialization data owned by one source module builder.
@@ -456,6 +478,12 @@ pub fn to_hir_with_options(
             .collect());
     }
 
+    if let Some((name, span)) = hoisting::duplicate_function_implementation(&parsed.program) {
+        return Err(vec![SmeltError::ill_typed(
+            Span::new(file_id, span.start, span.end),
+            format!("duplicate function implementation `{name}` (TypeScript rejects it: TS2393)"),
+        )]);
+    }
     let specialization = specialization::specialization_for_path(path, options.specialization);
     let mut builder = ModuleBuilder::new(
         file_id,
@@ -466,9 +494,63 @@ pub fn to_hir_with_options(
         options.excluded_modules.to_vec(),
     );
     builder.ts_facts = options.ts_facts.filter(|facts| facts.has_file(path));
+    builder.trust = options.trust;
     builder.type_param_owners = type_param_owners::type_param_owners(&parsed.program);
     builder.adopt_source_facts(source_facts::SourceFacts::collect(&parsed.program));
     builder.program(&parsed.program)
+}
+
+/// The vitest API the module `source` at `path` reaches as globals, as the
+/// specifiers of an import from `"vitest"` that binds them.
+///
+/// Empty unless it is a test-tier module, and never a name it imports or
+/// declares itself. Lowering treats exactly these names as the test
+/// framework's (`describe`, `expect`, ...; `vi` and its Jest spelling `jest`
+/// as the mock namespace), so a type checker given them sees the module as
+/// Smelt does. `jest` is vitest's `vi` (`vi as jest`).
+///
+/// A source that does not parse has none.
+#[must_use]
+pub fn ambient_test_globals(source: &str, path: &str) -> Vec<String> {
+    let allocator = Allocator::default();
+    let parsed = Parser::new(&allocator, source, SourceType::default().with_typescript(true))
+        .with_options(ParseOptions::default())
+        .parse();
+    if !parsed.diagnostics.is_empty() || !module_init::test_tier::is_test_tier(path, &parsed.program) {
+        return Vec::new();
+    }
+    let imported = parsed
+        .program
+        .body
+        .iter()
+        .filter_map(|statement| match statement {
+            Statement::ImportDeclaration(import) => import.specifiers.as_ref(),
+            _ => None,
+        })
+        .flatten()
+        .map(|specifier| specifier.local().name.as_str().to_owned())
+        .collect::<HashSet<_>>();
+    let is_imported = |name: &str| imported.contains(name);
+    let mut specifiers = module_init::test_tier::ambient_test_builtin_names(&parsed.program, &is_imported)
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    specifiers.extend(
+        module_init::test_tier::ambient_mock_namespaces(&parsed.program, &is_imported)
+            .into_iter()
+            .map(|name| if name == "vi" { name.to_owned() } else { format!("vi as {name}") }),
+    );
+    specifiers
+}
+
+/// Declarations, for a type checker, of what this frontend models itself.
+///
+/// That is what it does not read from a package or the lib: `"bun"`'s
+/// `int32`, and the typed `JSON.parse<T>`. The text is a declaration script
+/// (no imports or exports), so its `interface` merges into the global one.
+#[must_use]
+pub fn modeled_module_declarations() -> String {
+    format!("{}{}", int32::BUN_DECLARATION, stdlib::json::JSON_PARSE_DECLARATION)
 }
 
 /// Predeclare TypeScript aliases and class method surfaces before manifest body lowering.
@@ -931,6 +1013,8 @@ struct ModuleBuilder<'ctx> {
     /// TypeScript 7 checker facts covering this module, if the checker ran;
     /// see [`FrontendOptions::ts_facts`] and `lowering/checker_types.rs`.
     ts_facts: Option<&'ctx smelt_ts_model::TsTypeFacts>,
+    /// Whether the checker accepted this source; see [`SourceTrust`].
+    trust: SourceTrust,
     /// How deep inside a type annotation lowering currently is.
     ///
     /// Bun's `int32` is an int32 only as the WHOLE type of a slot; nested in

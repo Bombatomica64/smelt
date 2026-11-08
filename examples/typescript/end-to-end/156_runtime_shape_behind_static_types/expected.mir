@@ -168,7 +168,7 @@ closure ClosureId(3) -> None
     %2 = copy %3
     goto bb3
   bb2:
-    %4 = closure_call copy %0(none)
+    %4 = closure_call copy %0(undefined)
     %2 = copy %4
     goto bb3
   bb3:

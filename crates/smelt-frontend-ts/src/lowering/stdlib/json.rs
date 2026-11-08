@@ -8,6 +8,12 @@ use oxc::span::GetSpan;
 use smelt_hir::{Body, ErasureReason, Expr, ExprKind, Type};
 use smelt_stdlib::RuleId;
 
+/// What a type checker needs to know of the typed `JSON.parse<T>(text)` this
+/// module lowers: the call takes the target type as its type argument (the
+/// lib's `JSON.parse` has none) and returns it.
+pub(in crate::lowering) const JSON_PARSE_DECLARATION: &str =
+    "interface JSON {\n  parse<T = any>(text: string, reviver?: (this: any, key: string, value: any) => any): T;\n}\n";
+
 impl ModuleBuilder<'_> {
     /// Lower TypeScript `JSON.stringify(value)` calls for JSON-compatible values.
     pub(in crate::lowering) fn json_stringify_call(

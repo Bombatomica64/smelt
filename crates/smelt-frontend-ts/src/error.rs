@@ -70,6 +70,24 @@ impl SmeltError {
         }
     }
 
+    /// Create a diagnostic for source the TypeScript checker rejects, met
+    /// where lowering would otherwise rely on the checker having rejected it.
+    ///
+    /// Categorized [`DiagnosticCategory::TypeConstraint`]: the fix is in the
+    /// source. See [`crate::SourceTrust`].
+    pub(crate) fn ill_typed(span: Span, message: impl Into<String>) -> Self {
+        Self {
+            code: "smelt::ill-typed-source",
+            category: DiagnosticCategory::TypeConstraint,
+            span,
+            message: message.into(),
+            note: Some(
+                "TypeScript rejects this program; Smelt lowers it only because type errors were allowed."
+                    .to_owned(),
+            ),
+        }
+    }
+
     /// Create a parse error.
     pub(crate) fn parse(span: Span, message: impl Into<String>) -> Self {
         Self {

@@ -26,7 +26,7 @@ pub struct PackageMetadata {
     /// Crate version.
     pub version: String,
     /// Rust edition.
-    pub edition: String,
+    pub edition: RustEdition,
     /// Description, as TOML string text with its quotes.
     pub description: Option<String>,
 }
@@ -34,7 +34,35 @@ pub struct PackageMetadata {
 impl Default for PackageMetadata {
     /// Version 0.1.0, edition 2024, no description.
     fn default() -> Self {
-        Self { version: "0.1.0".to_owned(), edition: "2024".to_owned(), description: None }
+        Self { version: "0.1.0".to_owned(), edition: RustEdition::default(), description: None }
+    }
+}
+
+/// A Rust edition the generated code compiles under.
+///
+/// Only the editions the emitted text and the inlined runtime are valid in are
+/// variants: both use let-chains and edition-2024 keyword rules, so an older
+/// edition would make every generated crate a compile error. Adding a variant
+/// is a promise that the emitter's output and the all-flags-on runtime
+/// compile under it, which `every_accepted_edition_parses_the_runtime` checks.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RustEdition {
+    /// The 2024 edition.
+    #[default]
+    Edition2024,
+}
+
+impl RustEdition {
+    /// Every edition the generated code compiles under.
+    pub const ALL: [Self; 1] = [Self::Edition2024];
+
+    /// The edition as Cargo spells it.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Edition2024 => "2024",
+        }
     }
 }
 

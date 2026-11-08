@@ -56,8 +56,14 @@ impl SmeltTyDb {
     /// Build a database rooted at the temporary directory containing the
     /// source module and initialize ty's program-wide search paths.
     pub(crate) fn new(system: OsSystem, source_root: SystemPathBuf) -> Result<Self> {
+        Self::with_roots(system, vec![source_root])
+    }
+
+    /// Build a database whose first-party modules resolve from `source_roots`,
+    /// in order (the `sys.path` entries of the checked program).
+    pub(crate) fn with_roots(system: OsSystem, source_roots: Vec<SystemPathBuf>) -> Result<Self> {
         let vendored = ty_vendored::file_system().clone();
-        let search_paths = SearchPathSettings::new(vec![source_root])
+        let search_paths = SearchPathSettings::new(source_roots)
             .to_search_paths(&system, &vendored, &FallibleStrategy)
             .context("initialize ty search paths")?;
 
@@ -123,10 +129,16 @@ impl ModuleResolverDb for SmeltTyDb {}
 
 #[salsa::db]
 impl SemanticDb for SmeltTyDb {
-    fn check_file(&self, _file: File) -> Vec<Diagnostic> {
-        // Smelt queries inferred node types and never drives ty diagnostics.
-        // Keeping this adapter empty avoids doing a redundant whole-file check.
-        Vec::new()
+    /// ty's own whole-file check: syntax errors plus every type diagnostic.
+    ///
+    /// Type resolution never calls this; [`crate::check_sources`] does, so a
+    /// build can refuse ill-typed Python before lowering trusts its types.
+    /// A vendored (typeshed) file is not the program's, and is not checked.
+    fn check_file(&self, file: File) -> Vec<Diagnostic> {
+        if !ty_python_core::Db::should_check_file(self, file) {
+            return Vec::new();
+        }
+        ty_python_semantic::check_file_unwrap(self, self.program_file(file))
     }
 
     fn program_file(&self, file: File) -> ProgramFile<'_> {

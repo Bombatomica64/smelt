@@ -81,4 +81,4 @@ The `error[code]` format makes errors grep-able and linkable to documentation.
 
 ## Cross-Language Note
 
-For v1.0, each pipeline runs independently — TS files through the TS pipeline, Python files through the Python pipeline. Cross-language import resolution happens later in HIR lowering (a v1.x milestone). The check pipeline has no cross-language phase yet.
+Each language is checked as one program, and a module imported from the other language is part of it as an in-memory declaration file generated from that module's lowered HIR: TypeScript importing `mathlib.py` sees `mathlib.d.ts`, Python importing `consts.ts` sees `consts.pyi`, at the path the import resolves to. Lowering runs twice to produce them: the providers of cross-language imports first, then the checked run (`ManifestLowering::check`).

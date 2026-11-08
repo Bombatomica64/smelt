@@ -66,15 +66,21 @@ answer: int = subtract(right=2, left=5)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let module_body = body(&ctx, module.body.ok_or("expected module body")?)?;
-    let call_args = module_body.exprs.iter().find_map(|expr| match &expr.kind {
-        ExprKind::Call { args, .. } => Some(args),
-        _ => None,
-    });
-    let call_args = call_args.ok_or("expected function call")?;
+    let code = module_code(&ctx, module)?;
+    // The arguments are ids in the body that holds the call.
+    let (call_body, call_args) = code
+        .bodies
+        .iter()
+        .find_map(|body| {
+            body.exprs.iter().find_map(|expr| match &expr.kind {
+                ExprKind::Call { args, .. } => Some((*body, args)),
+                _ => None,
+            })
+        })
+        .ok_or("expected function call")?;
     let values = call_args
         .iter()
-        .map(|arg| match &module_body.exprs[usize::try_from(arg.0).unwrap_or(usize::MAX)].kind {
+        .map(|arg| match &call_body.exprs[usize::try_from(arg.0).unwrap_or(usize::MAX)].kind {
             ExprKind::Literal(Literal::Int(value)) => Ok(*value),
             _ => Err("expected integer keyword argument".to_owned()),
         })
@@ -112,15 +118,15 @@ module_file: str = __file__
     let mut ctx = HirCtx::new();
     let module_id = lower_path_module(source, "src/package/example.py", &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let module_body = body(&ctx, module.body.ok_or("expected module body")?)?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        module_body.exprs.iter().any(
+        code.exprs().any(
             |expr| matches!(&expr.kind, ExprKind::Literal(Literal::String(value)) if value == "example")
         ),
         "expected __name__ literal",
     )?;
     ensure(
-        module_body.exprs.iter().any(
+        code.exprs().any(
             |expr| matches!(&expr.kind, ExprKind::Literal(Literal::String(value)) if value == "src/package/example.py")
         ),
         "expected __file__ literal",
@@ -167,9 +173,9 @@ value: str | None = obj.id or None
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let module_body = body(&ctx, module.body.ok_or("expected module body")?)?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        module_body.exprs.iter().any(|expr| {
+        code.exprs().any(|expr| {
             matches!(
                 expr.kind,
                 ExprKind::Conditional { .. }

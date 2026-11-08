@@ -44,6 +44,7 @@ smelt-py-types = { path = "../smelt-py-types", version = "0.1.1", optional = tru
 # public API does not expose Ruff implementation types.
 ruff_python_parser = "0.0.20"
 ruff_python_ast    = "0.0.20"
+ruff_python_stdlib = "0.0.20"
 ruff_text_size     = "0.0.20"
 
 [dev-dependencies]

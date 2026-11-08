@@ -7,7 +7,7 @@ expression: emitted
 
 // ... shared generated runtime prelude omitted from selective snapshot ...
 
-fn main() {
+fn run() -> () {
     let values: SmeltList<i64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<i64> = vec![1, 2, 3]; smelt_list_items }));
     let _smelt_tmp_4 = ::std::rc::Rc::new(|closure_arg_0: i64| {
     let _smelt_tmp_1: i64 = closure_arg_0 * 2;
@@ -25,5 +25,9 @@ fn main() {
     let _smelt_tmp_1: bool = closure_arg_0 > 1;
     _smelt_tmp_1
     }); values.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone()) { Some(item.clone()) } else { None }).collect::<Vec<_>>() });
+    return;
+}
+
+fn main() {
     return;
 }

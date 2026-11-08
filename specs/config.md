@@ -83,11 +83,18 @@ clone-strategy = "aggressive"
 
 | Key            | Type   | Default  | Description                              |
 | -------------- | ------ | -------- | ---------------------------------------- |
-| `edition`      | string | `2024`   | Rust edition for the generated crate     |
+| `edition`      | string | `2024`   | Rust edition for the generated crate. Only `"2024"` is accepted: generated code and the inlined runtime use let-chains and the 2024 keyword rules, so an older edition is refused when the manifest is read |
 
 ### `[rust.dependencies]`
 
 Same syntax as a Cargo `[dependencies]` table. These get copied into the generated `Cargo.toml`. smelt may *add* dependencies it knows are needed (e.g. `serde_json` if JSON literals appear), but will never override a user-specified version: an entry here replaces smelt's for that crate, features included, so it has to carry what generated code needs (`tokio` needs `rt`, `macros`, `time`, `net` and `sync`).
+
+### `[build]`
+
+| Key           | Type   | Default  | Description |
+| ------------- | ------ | -------- | ----------- |
+| `define`      | table  | `{}`     | Build-time defines, spelled like Bun's `--define`; consulted only to decide whether a package's typed version applies |
+| `type-errors` | string | `"deny"` | What `smelt build` does when the type checkers (TypeScript's, ty for Python) report an error or cannot run: `"deny"` refuses to lower the program, `"allow"` prints the errors as warnings and lowers it anyway. `--allow-type-errors` allows for one run |
 
 ### `[strict]`
 

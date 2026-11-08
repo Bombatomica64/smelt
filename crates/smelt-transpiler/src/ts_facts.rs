@@ -9,20 +9,23 @@
 //! its own spans up with its own `path`.
 //!
 //! The facts are input to lowering: without them it proceeds on annotations
-//! alone, which changes the types of the output. That is expected when there is
-//! no checker (feature off, or `SMELT_TS7=0`, the switch for comparing a run with
-//! and without facts). A checker that failed is not expected, so [`TsCheck`]
-//! carries the failure and every command reports it. The checker's own
-//! diagnostics are what `smelt check` reports as type errors.
+//! alone, which changes the types of the output. Without a checker (feature
+//! off, or `SMELT_TS7=0`, the switch for comparing a run with and without
+//! facts) or with one that failed, nothing vouches that the sources type-check,
+//! so [`TsCheck::language_check`] reports them unverified and the type gate
+//! (`crate::type_gate`) refuses to build them unless type errors are allowed.
+//! The checker's own diagnostics are the TypeScript type errors of that gate.
 
-use std::io::Write as _;
+use std::collections::HashMap;
+use std::path::Path;
 
 use smelt_stdlib::DiagnosticCategory;
 use smelt_ts_model::{TsDiagnostic, TsDiagnosticCategory, TsTypeFacts};
 
 use crate::lowering::{ManifestDiagnostic, Severity, source_line_column};
+use crate::type_gate::LanguageCheck;
+use crate::check_program::{CrossLanguageStubs, ModuleGraph, checker_location};
 use crate::manifest::ManifestSource;
-use crate::source_files::SourceLang;
 
 /// Environment switch: `SMELT_TS7=0` lowers without checker facts (A/B runs).
 const DISABLE_VAR: &str = "SMELT_TS7";
@@ -30,91 +33,63 @@ const DISABLE_VAR: &str = "SMELT_TS7";
 /// Code of every diagnostic this module reports; the message carries `TSnnnn`.
 const CHECK_CODE: &str = "smelt::ts-check";
 
+/// Code of a checker diagnostic that is Smelt's own resolution drift.
+const DRIFT_CODE: &str = "smelt::checker-resolution-drift";
+
 /// What the checker made of a run's TypeScript sources.
 #[derive(Debug, Default)]
 pub(crate) struct TsCheck {
     /// The facts lowering reads, when the checker ran.
     pub(crate) facts: Option<TsTypeFacts>,
-    /// Why the checker that should have run produced nothing.
-    failure: Option<String>,
+    /// Whether the checker ran, and why not when it did not.
+    status: TsStatus,
+}
+
+/// Whether the TypeScript checker ran over a run's sources.
+#[derive(Debug, Default)]
+enum TsStatus {
+    /// The run has no TypeScript source to check.
+    #[default]
+    NoSources,
+    /// There are sources, but this build or environment has no checker.
+    Disabled(&'static str),
+    /// The checker that should have run produced nothing.
+    Failed(String),
+    /// The checker ran; its report is in the facts.
+    Ran,
 }
 
 impl TsCheck {
-    /// Prints the failure, if any, to stderr: output built past it is typed
-    /// differently, and whoever reads that output has to be told.
-    pub(crate) fn report_failure(&self) {
-        if let Some(failure) = &self.failure {
-            let _ignored = writeln!(std::io::stderr().lock(), "warning[ts-check]: {}", failure_message(failure));
+    /// The checker's verdict over `graph`, for the type gate: its errors and
+    /// warnings when it ran, or why nothing vouches for the sources.
+    pub(crate) fn language_check(&self, graph: &ModuleGraph<'_>) -> LanguageCheck {
+        match &self.status {
+            TsStatus::NoSources => LanguageCheck::Absent,
+            TsStatus::Disabled(reason) => LanguageCheck::Unverified((*reason).to_owned()),
+            TsStatus::Failed(failure) => LanguageCheck::Unverified(failure_message(failure)),
+            TsStatus::Ran => LanguageCheck::Ran(self.diagnostics(graph)),
         }
     }
 
-    /// The checker's errors and warnings over `sources`, and its failure.
-    pub(crate) fn diagnostics(&self, sources: &[&ManifestSource]) -> Vec<ManifestDiagnostic> {
-        let located = sources
+    /// The checker's errors and warnings over `graph`'s sources.
+    fn diagnostics(&self, graph: &ModuleGraph<'_>) -> Vec<ManifestDiagnostic> {
+        let located = graph
+            .sources()
             .iter()
-            .filter_map(|source| {
-                let absolute = std::path::absolute(&source.path).ok()?;
-                Some((absolute.display().to_string(), *source))
-            })
+            .map(|source| (checker_location(source).display().to_string(), *source))
             .collect::<Vec<_>>();
-        let reported = self
-            .facts
+        let untyped = untyped_callback_parameters(graph);
+        self.facts
             .iter()
             .flat_map(|facts| &facts.diagnostics)
-            .filter_map(|diagnostic| checker_diagnostic(diagnostic, &located));
-        reported.chain(self.failure.iter().map(|failure| failure_diagnostic(failure))).collect()
+            .filter_map(|diagnostic| checker_diagnostic(diagnostic, &located, graph, &untyped))
+            .collect()
     }
-}
-
-/// Prints checker diagnostics to stderr, as
-/// `warning[ts-check]: <file>:<line>:<col>: TSnnnn: <message>`. A checker error is
-/// labelled `error` only when `deny_errors` makes it fail the run.
-pub(crate) fn print_diagnostics(diagnostics: &[ManifestDiagnostic], deny_errors: bool) {
-    let mut stderr = std::io::stderr().lock();
-    for diagnostic in diagnostics {
-        let label = if deny_errors && diagnostic.severity == Some(Severity::Error) { "error" } else { "warning" };
-        let position = diagnostic
-            .line
-            .zip(diagnostic.column)
-            .map_or_else(String::new, |(line, column)| format!(":{line}:{column}"));
-        let _ignored = writeln!(
-            stderr,
-            "{label}[ts-check]: {}{position}: {}",
-            diagnostic.file, diagnostic.message
-        );
-    }
-}
-
-/// `--deny-type-errors`: an error naming how many checker errors `diagnostics` holds.
-pub(crate) fn fail_on_type_errors(diagnostics: &[ManifestDiagnostic]) -> Result<(), String> {
-    let errors = diagnostics
-        .iter()
-        .filter(|diagnostic| {
-            diagnostic.category == DiagnosticCategory::TypeCheck && diagnostic.severity == Some(Severity::Error)
-        })
-        .count();
-    if errors == 0 {
-        return Ok(());
-    }
-    Err(format!("the TypeScript checker reported {errors} error(s)"))
 }
 
 /// The sentence a checker failure is reported with.
 fn failure_message(failure: &str) -> String {
     format!("the TypeScript checker failed, so types come from annotations alone: {failure}")
-}
-
-/// A checker failure as a warning with no location.
-fn failure_diagnostic(failure: &str) -> ManifestDiagnostic {
-    ManifestDiagnostic {
-        file: String::new(),
-        category: DiagnosticCategory::TypeCheck,
-        code: CHECK_CODE,
-        message: failure_message(failure),
-        line: None,
-        column: None,
-        severity: Some(Severity::Warning),
-    }
 }
 
 /// One checker diagnostic, located in its source; a suggestion or a message
@@ -125,7 +100,12 @@ fn failure_diagnostic(failure: &str) -> ManifestDiagnostic {
 fn checker_diagnostic(
     diagnostic: &TsDiagnostic,
     located: &[(String, &ManifestSource)],
+    graph: &ModuleGraph<'_>,
+    untyped: &HashMap<&Path, Vec<(u32, u32)>>,
 ) -> Option<ManifestDiagnostic> {
+    if diagnostic.code == UNUSED_EXPECT_ERROR {
+        return None;
+    }
     let severity = if diagnostic.category == TsDiagnosticCategory::Error {
         Severity::Error
     } else if diagnostic.category == TsDiagnosticCategory::Warning {
@@ -138,86 +118,166 @@ fn checker_diagnostic(
         .iter()
         .find(|(path, _)| file.ends_with(path.trim_start_matches('/')))
         .map(|(_, source)| *source);
+    // A diagnostic in a file the program only reads (a generated stub, a
+    // module the manifest excludes, Node's declarations) is not about the
+    // crate's sources; one with no file is about the whole program.
+    if found.is_none() && diagnostic.file.is_some() {
+        return None;
+    }
+    // An implicit `any` on a parameter of a callback an untyped import's call
+    // receives: the dependency's types are missing, the program is not
+    // ill-typed (see `smelt_frontend_ts::untyped_callback_parameter_spans`).
+    if IMPLICIT_ANY_PARAMETER.contains(&diagnostic.code)
+        && let (Some(source), Some(start)) = (found, diagnostic.start)
+        && untyped
+            .get(source.path.as_path())
+            .is_some_and(|spans| spans.iter().any(|(from, to)| (*from..*to).contains(&start)))
+    {
+        return None;
+    }
     let (line, column) = found
         .zip(diagnostic.start)
         .and_then(|(source, start)| source_line_column(&source.source, start))
         .unzip();
+    let drifted = found
+        .zip(unresolved_specifier(diagnostic))
+        .filter(|(source, specifier)| graph.resolved_specifier(&source.path, specifier))
+        .map(|(_, specifier)| specifier);
+    let (code, message) = drifted.map_or_else(
+        || {
+            let text = format!("TS{}: {}", diagnostic.code, diagnostic.message);
+            // An error in a typed version is the typed version's to fix, as
+            // a frontend rejection of it is.
+            let message = found.and_then(|source| source.typed_version.as_deref()).map_or(text.clone(), |origin| {
+                format!(
+                    "{text} (in the typed version of '{name}' in {shown}; fix it, or remove it to compile '{name}' untyped)",
+                    name = origin.name,
+                    shown = origin.shown,
+                )
+            });
+            (CHECK_CODE, message)
+        },
+        |specifier| {
+            (
+                DRIFT_CODE,
+                format!(
+                    "internal error: the TypeScript checker cannot resolve `{specifier}`, which Smelt resolved; \
+                     the checker's program must hold every module Smelt resolves (a Smelt bug, not a type error)"
+                ),
+            )
+        },
+    );
     Some(ManifestDiagnostic {
         file: found.map_or_else(|| file.to_owned(), |source| source.path.display().to_string()),
         category: DiagnosticCategory::TypeCheck,
-        code: CHECK_CODE,
-        message: format!("TS{}: {}", diagnostic.code, diagnostic.message),
+        code,
+        message,
         line,
         column,
         severity: Some(severity),
     })
 }
 
-/// Type-checks the TypeScript sources among `sources`.
-pub(crate) fn analyze_sources(sources: &[&ManifestSource]) -> TsCheck {
-    analyze_files(
-        sources
-            .iter()
-            .filter(|source| matches!(source.lang, SourceLang::TypeScript | SourceLang::TypeScriptDeclaration))
-            .map(|source| (source.path.display().to_string(), source.source.clone()))
-            .collect(),
-    )
+/// TS7006 and TS7031: a parameter, or a destructured element of one,
+/// "implicitly has an 'any' type".
+const IMPLICIT_ANY_PARAMETER: [i32; 2] = [7006, 7031];
+
+/// For each source that imports an untyped package (one Smelt resolved to
+/// nothing, `ManifestSource::unresolved_packages`), the parameter ranges of
+/// the callbacks its calls receive.
+fn untyped_callback_parameters<'graph>(graph: &ModuleGraph<'graph>) -> HashMap<&'graph Path, Vec<(u32, u32)>> {
+    graph
+        .sources()
+        .iter()
+        .filter(|source| !source.unresolved_packages.is_empty())
+        .map(|source| {
+            let modules = source.unresolved_packages.iter().map(String::as_str).collect::<Vec<_>>();
+            (source.path.as_path(), smelt_frontend_ts::untyped_callback_parameter_spans(&source.source, &modules))
+        })
+        .collect()
 }
 
-/// Type-checks `(path, text)` TypeScript files as one program.
+/// TS2578, "Unused '@ts-expect-error' directive": not a type error in the
+/// program, so never one the gate counts.
 ///
-/// Facts are filed under each `path` exactly as given (the string the
-/// frontend lowers the file under), while the file is placed in the program
-/// at its absolute location so relative imports resolve as on disk.
+/// A `@ts-expect-error` asserts an error under the PROJECT's compiler options
+/// (remeda's `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`), and
+/// Smelt checks every program under its own fixed profile, whose types are
+/// the ones lowering reads. Under that profile the expected error may not
+/// occur; the directive is then unused, which says nothing about whether the
+/// program is well typed. An error the directive does suppress is still
+/// suppressed, as the source asks.
+const UNUSED_EXPECT_ERROR: i32 = 2578;
+
+/// The specifier a "cannot find module" diagnostic names (TS2307, TS2792).
+fn unresolved_specifier(diagnostic: &TsDiagnostic) -> Option<&str> {
+    if !matches!(diagnostic.code, 2307_i32 | 2792_i32) {
+        return None;
+    }
+    let (_, rest) = diagnostic.message.split_once('\'')?;
+    rest.split_once('\'').map(|(specifier, _)| specifier)
+}
+
+/// Type-checks the TypeScript sources of `graph` as one program, the one
+/// [`crate::check_program::typescript_program`] generates from it.
+///
+/// Facts are filed under each source's path exactly as lowered.
 #[cfg(feature = "ts7")]
-fn analyze_files(files: Vec<(String, String)>) -> TsCheck {
-    if files.is_empty() || std::env::var(DISABLE_VAR).is_ok_and(|value| value == "0") {
+pub(crate) fn analyze_graph(graph: &ModuleGraph<'_>, stubs: &CrossLanguageStubs) -> TsCheck {
+    if !graph.sources().iter().any(|source| source.lang.is_typescript()) {
         return TsCheck::default();
     }
-    let inputs: Vec<smelt_ts_types::SourceInput> = files
-        .into_iter()
-        .map(|(path, text)| {
-            let located = std::path::absolute(&path).map(|location| location.display().to_string());
-            let input = smelt_ts_types::SourceInput::new(path, text);
-            match located {
-                Ok(location) => input.located_at(location),
-                Err(_) => input,
-            }
-        })
-        .collect();
-    match crate::timing::measure("manifest.ts7_check", || smelt_ts_types::analyze_with(inputs, smelt_ts_types::Spellings::Omitted)) {
-        Ok(facts) => TsCheck { facts: Some(facts), failure: None },
-        Err(error) => TsCheck { facts: None, failure: Some(error.to_string()) },
+    if std::env::var(DISABLE_VAR).is_ok_and(|value| value == "0") {
+        return TsCheck { facts: None, status: TsStatus::Disabled("the TypeScript checker is off (`SMELT_TS7=0`)") };
+    }
+    let program = crate::check_program::typescript_program(graph, stubs);
+    match crate::timing::measure("manifest.ts7_check", || {
+        smelt_ts_types::analyze_program(program, smelt_ts_types::Spellings::Omitted)
+    }) {
+        Ok(facts) => TsCheck { facts: Some(facts), status: TsStatus::Ran },
+        Err(error) => TsCheck { facts: None, status: TsStatus::Failed(error.to_string()) },
     }
 }
 
-/// Without the `ts7` feature there is no checker: lowering uses annotations only.
+/// Without the `ts7` feature there is no checker: lowering uses annotations
+/// only, and nothing vouches for the sources.
 #[cfg(not(feature = "ts7"))]
-fn analyze_files(_files: Vec<(String, String)>) -> TsCheck {
+pub(crate) fn analyze_graph(graph: &ModuleGraph<'_>, _stubs: &CrossLanguageStubs) -> TsCheck {
     let _ = DISABLE_VAR;
-    TsCheck::default()
+    if !graph.sources().iter().any(|source| source.lang.is_typescript()) {
+        return TsCheck::default();
+    }
+    TsCheck {
+        facts: None,
+        status: TsStatus::Disabled("this smelt was built without the TypeScript checker (feature `ts7`)"),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// A checker that failed is a warning with its cause, in every report.
+    /// A checker that failed vouches for nothing, and says why.
     #[test]
-    fn a_checker_failure_is_a_diagnostic() {
-        let check = TsCheck { facts: None, failure: Some("thread panicked".to_owned()) };
-        let diagnostics = check.diagnostics(&[]);
-        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
-        for diagnostic in &diagnostics {
-            assert_eq!(diagnostic.severity, Some(Severity::Warning));
-            assert!(diagnostic.message.contains("thread panicked"), "{diagnostic:?}");
-        }
-        assert_eq!(fail_on_type_errors(&diagnostics), Ok(()));
+    fn a_checker_failure_is_unverified() {
+        let check = TsCheck { facts: None, status: TsStatus::Failed("thread panicked".to_owned()) };
+        let verdict = check.language_check(&ModuleGraph::new(&[]));
+        assert!(
+            matches!(&verdict, LanguageCheck::Unverified(reason) if reason.contains("thread panicked")),
+            "{verdict:?}"
+        );
     }
 
-    /// No checker, by feature or by `SMELT_TS7=0`, is not a failure.
+    /// A run without TypeScript sources has nothing to vouch for.
     #[test]
-    fn no_checker_reports_nothing() {
-        assert!(TsCheck::default().diagnostics(&[]).is_empty());
+    fn no_sources_is_absent() {
+        assert!(matches!(TsCheck::default().language_check(&ModuleGraph::new(&[])), LanguageCheck::Absent));
+    }
+
+    /// A disabled checker is not a pass: nothing vouches for the sources.
+    #[test]
+    fn a_disabled_checker_is_unverified() {
+        let check = TsCheck { facts: None, status: TsStatus::Disabled("off") };
+        assert!(matches!(check.language_check(&ModuleGraph::new(&[])), LanguageCheck::Unverified(_)));
     }
 }

@@ -243,10 +243,10 @@ impl FunctionEmitter<'_> {
                 format!("{lhs_ref} {} {rhs_ref}", smelt_hir::bin_op_text(op)),
                 Type::Bool,
             ),
-            BinOp::Eq | BinOp::StrictEq | BinOp::JsStrictEq => {
+            BinOp::Eq | BinOp::StrictEq | BinOp::JsStrictEq | BinOp::JsLooseEq => {
                 (format!("{lhs_ref} == {rhs_ref}"), Type::Bool)
             }
-            BinOp::NotEq | BinOp::StrictNotEq | BinOp::JsStrictNotEq => {
+            BinOp::NotEq | BinOp::StrictNotEq | BinOp::JsStrictNotEq | BinOp::JsLooseNotEq => {
                 (format!("{lhs_ref} != {rhs_ref}"), Type::Bool)
             }
             BinOp::And | BinOp::Or | BinOp::IMul => return Ok(None),
@@ -290,8 +290,10 @@ impl FunctionEmitter<'_> {
             BinOp::Gte => format!(
                 "matches!({ordering}, Some(::std::cmp::Ordering::{greater} | ::std::cmp::Ordering::Equal))"
             ),
-            BinOp::Eq => format!("matches!({ordering}, Some(::std::cmp::Ordering::Equal))"),
-            BinOp::NotEq => format!("!matches!({ordering}, Some(::std::cmp::Ordering::Equal))"),
+            // Loose `==` between a bigint and a number is this same comparison
+            // by mathematical value (ECMA-262 IsLooselyEqual, step 13).
+            BinOp::Eq | BinOp::JsLooseEq => format!("matches!({ordering}, Some(::std::cmp::Ordering::Equal))"),
+            BinOp::NotEq | BinOp::JsLooseNotEq => format!("!matches!({ordering}, Some(::std::cmp::Ordering::Equal))"),
             // A bigint is never strictly equal to (or the same value as) a number.
             BinOp::JsStrictEq | BinOp::StrictEq => "false".to_owned(),
             BinOp::JsStrictNotEq | BinOp::StrictNotEq => "true".to_owned(),

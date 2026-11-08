@@ -235,8 +235,13 @@ impl ModuleBuilder<'_> {
     /// with an init of `0` is `T = number`).
     ///
     /// A candidate is wider when it is `unknown`, or a union or optional holding
-    /// the binding. tsc already rejected unrelated candidates, so no other pair
-    /// reaches here for a valid program.
+    /// the binding. An unrelated candidate (`both(numbers, strings)`, which tsc
+    /// rejects) keeps the first binding here, and that is not a miscompile:
+    /// codegen's call-site analysis classifies the two bindings as a `Conflict`
+    /// and demotes the call to the erased form instead of emitting a signature
+    /// rustc would reject (`generic_free_function_demotes_on_conflicting_bindings`
+    /// and `callback_only_type_param_demotes_on_conflicting_call_site_evidence`
+    /// in `smelt-codegen-rust` pin it). So this path needs no checked program.
     fn widen_call_binding(
         &mut self,
         type_params: &[TypeParamDef],

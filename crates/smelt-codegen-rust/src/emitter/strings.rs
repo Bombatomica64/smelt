@@ -350,7 +350,17 @@ impl FunctionEmitter<'_> {
                 "string repeat requires a string receiver and numeric count",
             ));
         }
-        Ok({ let receiver = self.operand_expr(operand)?; RustExpr::postfix_on(&receiver, format!("{receiver}.repeat({} as usize)", self.operand_expr(count)?)) })
+        // An integer count is clamped at zero: `i64 as usize` would wrap a
+        // negative count into a huge allocation, where Python's `"ab" * -1` is
+        // `""`. A float count already saturates at zero through `as usize`.
+        let count_expr = self.operand_expr(count)?;
+        let count_text = if matches!(self.mir.types.get(self.operand_ty(count)?), Some(Type::Int)) {
+            format!("({count_expr}).max(0) as usize")
+        } else {
+            format!("{count_expr} as usize")
+        };
+        let receiver = self.operand_expr(operand)?;
+        Ok(RustExpr::postfix_on(&receiver, format!("{receiver}.repeat({count_text})")))
     }
 
     /// Converts a string padding operation to Rust text.

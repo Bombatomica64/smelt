@@ -15,7 +15,10 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::{CliResult, diagnostics, report, report::push_fmt};
+use crate::{
+    CliResult, diagnostics, report,
+    report::{Schema, SchemaVersion, push_fmt},
+};
 
 /// Options for one generated Rust test investigation report.
 pub(crate) struct RustTestReportOptions<'a> {
@@ -38,6 +41,8 @@ pub(crate) struct RustTestReportOptions<'a> {
 /// What one investigation found.
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct TestReport {
+    /// Format version; reading another is an error.
+    pub(crate) version: SchemaVersion<Self>,
     /// Generated Rust crate manifest.
     pub(crate) cargo_manifest: PathBuf,
     /// Focused runs.
@@ -48,6 +53,11 @@ pub(crate) struct TestReport {
     pub(crate) full: Option<FullSuite>,
     /// Grouped compiler diagnostics as Markdown, when requested.
     pub(crate) diagnostics: Option<String>,
+}
+
+impl Schema for TestReport {
+    const NAME: &'static str = "rust test report";
+    const VERSION: u32 = 1;
 }
 
 /// The whole generated suite.
@@ -79,9 +89,10 @@ pub(crate) struct TestRun {
     pub(crate) label: String,
     /// Whether Cargo returned successful test status.
     pub(crate) succeeded: bool,
-    /// Last Cargo test result line, when tests executed.
+    /// The totals over every test binary, as `N passed; M failed across K
+    /// test binaries`, when tests executed.
     pub(crate) summary: Option<String>,
-    /// `N passed; M failed` of that line.
+    /// The pass and fail totals over every test binary.
     pub(crate) counts: Option<TestCounts>,
     /// Fully-qualified tests listed as failed by Cargo.
     pub(crate) failing_tests: Vec<String>,
@@ -125,6 +136,7 @@ pub(crate) fn rust_test_report(options: &RustTestReportOptions<'_>) -> CliResult
         .then(|| diagnostics::rust_diagnostics_markdown(options.cargo_manifest))
         .transpose()?;
     Ok(TestReport {
+        version: SchemaVersion::CURRENT,
         cargo_manifest: options.cargo_manifest.to_path_buf(),
         focus,
         guards,
@@ -146,10 +158,11 @@ fn run_test(options: &RustTestReportOptions<'_>, filter: Option<&str>) -> CliRes
         command.env("RUSTFLAGS", "-Awarnings");
     }
     let output = command.output()?;
-    let mut text = String::from_utf8(output.stdout)?;
-    text.push_str(&String::from_utf8(output.stderr)?);
+    // A test may print bytes that are not UTF-8; the report still counts it.
+    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+    text.push_str(&String::from_utf8_lossy(&output.stderr));
     let succeeded = output.status.success();
-    let summary = final_test_summary(&text);
+    let totals = SuiteTotals::of(&text);
     let excerpt = if succeeded {
         Vec::new()
     } else {
@@ -160,8 +173,8 @@ fn run_test(options: &RustTestReportOptions<'_>, filter: Option<&str>) -> CliRes
     Ok(TestRun {
         label: filter.map_or_else(|| "full suite".to_owned(), ToOwned::to_owned),
         succeeded,
-        counts: summary.as_deref().and_then(parse_test_counts),
-        summary,
+        counts: totals.map(|suite| suite.counts),
+        summary: totals.map(|suite| suite.to_string()),
         failing_tests: failed_tests(&text),
         excerpt,
     })
@@ -283,12 +296,46 @@ fn render_full_suite(text: &mut String, full: &FullSuite) {
     text.push_str("\n</details>\n");
 }
 
-/// Extract Cargo's final summary line from one test execution.
-fn final_test_summary(text: &str) -> Option<String> {
-    text.lines()
-        .rfind(|line| line.contains("test result:"))
-        .map(str::trim)
-        .map(ToOwned::to_owned)
+/// The totals of one `cargo test` run.
+///
+/// Cargo prints one `test result:` line per test binary: the unit tests, each
+/// integration test, then the doctests, so the LAST line is the doctests'
+/// alone (`0 passed` for a generated library). The suite's totals are the sum
+/// over every line, and only [`Self::of`] builds them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SuiteTotals {
+    /// Passed and failed, summed.
+    counts: TestCounts,
+    /// How many `test result:` lines were summed.
+    binaries: usize,
+}
+
+impl SuiteTotals {
+    /// The sum over every `test result:` line of `text`, or `None` when no
+    /// binary ran (or a line cannot be read: a partial sum would be a lie).
+    fn of(text: &str) -> Option<Self> {
+        let mut totals = Self { counts: TestCounts { passed: 0, failed: 0 }, binaries: 0 };
+        for line in text.lines().filter(|line| line.contains("test result:")) {
+            let counts = parse_test_counts(line)?;
+            totals.counts.passed = totals.counts.passed.saturating_add(counts.passed);
+            totals.counts.failed = totals.counts.failed.saturating_add(counts.failed);
+            totals.binaries = totals.binaries.saturating_add(1);
+        }
+        (totals.binaries > 0).then_some(totals)
+    }
+}
+
+impl std::fmt::Display for SuiteTotals {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{} passed; {} failed across {} test binar{}",
+            self.counts.passed,
+            self.counts.failed,
+            self.binaries,
+            if self.binaries == 1 { "y" } else { "ies" }
+        )
+    }
 }
 
 /// Extract `N passed; M failed` from Cargo's summary line.
@@ -324,6 +371,7 @@ fn failed_tests(text: &str) -> Vec<String> {
 }
 
 #[cfg(test)]
+#[expect(clippy::expect_used, reason = "a test fails fast on what it set up")]
 mod tests {
     use super::*;
 
@@ -333,10 +381,23 @@ mod tests {
         let tests = failed_tests(output);
         assert_eq!(tests.len(), 3, "all failed test paths should be retained");
         assert_eq!(
-            final_test_summary(output).as_deref(),
-            Some("test result: FAILED. 1 passed; 3 failed;"),
-            "the terminal Cargo summary should be retained"
+            SuiteTotals::of(output).map(|totals| totals.to_string()).as_deref(),
+            Some("1 passed; 3 failed across 1 test binary"),
+            "the Cargo summary should be retained"
         );
+    }
+
+    /// A library's doctest summary comes last and counts nothing; the totals
+    /// are the sum over every binary, not the last line.
+    #[test]
+    fn totals_sum_every_test_binary() {
+        let output = "test result: FAILED. 1768 passed; 21 failed; 0 ignored;\n\
+                      test result: ok. 4 passed; 0 failed; 0 ignored;\n\
+                      test result: ok. 0 passed; 0 failed; 0 ignored;\n";
+        let totals = SuiteTotals::of(output).expect("three binaries");
+        assert_eq!(totals.counts, TestCounts { passed: 1772, failed: 21 });
+        assert_eq!(totals.binaries, 3);
+        assert_eq!(SuiteTotals::of("compile error\n"), None);
     }
 
     /// A failing-tests fixture of one run, as a report would hold it.
@@ -355,6 +416,7 @@ mod tests {
     #[test]
     fn a_baseline_report_is_read_as_json() {
         let earlier = TestReport {
+            version: SchemaVersion::CURRENT,
             cargo_manifest: PathBuf::from("Cargo.toml"),
             focus: Vec::new(),
             guards: Vec::new(),

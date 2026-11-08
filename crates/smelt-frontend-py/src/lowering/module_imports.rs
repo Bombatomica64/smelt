@@ -58,6 +58,11 @@ impl ModuleBuilder<'_> {
                 && !hir_module.items.contains(&item)
             {
                 self.exports.insert(local.to_owned(), item);
+                // A name imported at module level is part of the module's
+                // namespace, so `from pkg import twice` reaches it.
+                if !local.starts_with('_') {
+                    hir_module.reexports.push((alias_symbol.unwrap_or(name), item));
+                }
             }
         }
     }

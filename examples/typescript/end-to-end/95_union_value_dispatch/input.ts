@@ -16,7 +16,7 @@
 
 // Every arm of this `BodyInit` is concrete, so the conversion is per arm rather
 // than a runtime shape test.
-async function bodyText(init: string | Uint8Array): Promise<string> {
+async function bodyText(init: string | Uint8Array<ArrayBuffer>): Promise<string> {
   return await new Response(init).text();
 }
 
