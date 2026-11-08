@@ -108,11 +108,21 @@ fn untyped_json_parse_is_external_type() -> Result<(), String> {
     assert_recorded(source, ErasureReason::ExternalType, 1, 14)
 }
 
-/// A `symbol` annotation is a type Smelt does not model.
+/// A `symbol` annotation, a `Symbol()` call and a `PropertyKey` are typed:
+/// none of them records an erasure.
+///
+/// Old requirement: `symbol` was a type Smelt did not model, recorded as
+/// `UnmodeledType` at the annotation. `Type::Symbol` now carries it (and
+/// `PropertyKey` is `string | number | symbol`), so the same program must
+/// record nothing.
 #[test]
-fn symbol_keyword_is_unmodeled_type() -> Result<(), String> {
-    let source = ts!("function f(s: symbol): void {\n  console.log(typeof s);\n}\nf(Symbol('x'));\n");
-    assert_recorded(source, ErasureReason::UnmodeledType, 1, 15)
+fn symbol_keyword_is_a_modeled_type() -> Result<(), String> {
+    let source = ts!(
+        "function f(s: symbol, k: PropertyKey): void {\n  console.log(typeof s, typeof k);\n}\nf(Symbol('x'), Symbol.for('y'));\n"
+    );
+    let found = records(source)?;
+    ensure!(found.is_empty(), "a symbol program must record no erasure, recorded {found:?}");
+    Ok(())
 }
 
 /// A conditional type is a type-level construct Smelt does not evaluate.

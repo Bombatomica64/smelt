@@ -860,3 +860,85 @@ mod js_string_family {
         assert_eq!(JsString::join([JsString::from("a"), JsString::from("b")], &JsString::from(", ")), "a, b", "join");
     }
 }
+
+mod symbol_family {
+    use super::*;
+
+    /// `ToPropertyKey`: a number is its canonical string, a symbol stays a symbol.
+    #[test]
+    fn a_number_key_is_its_canonical_string() {
+        assert_eq!(1.0_f64.smelt_to_prop_key(), "1".smelt_to_prop_key(), "r[1] is r['1']");
+        assert_eq!((-0.0_f64).smelt_to_prop_key(), "0".smelt_to_prop_key(), "-0 is the key '0'");
+        assert_eq!(1e21_f64.smelt_to_prop_key(), "1e+21".smelt_to_prop_key(), "exponent form");
+        assert_eq!(text("1").smelt_to_prop_key(), 1.0_f64.smelt_to_prop_key(), "an erased string key");
+        assert_eq!(SmeltUnknown::Null.smelt_to_prop_key(), "null".smelt_to_prop_key(), "null is 'null'");
+        assert_eq!(Option::<f64>::None.smelt_to_prop_key(), "undefined".smelt_to_prop_key(), "undefined is 'undefined'");
+        let symbol = SmeltSymbol::from_spelling("Symbol(k)@7");
+        assert_ne!(symbol.smelt_to_prop_key(), "k".smelt_to_prop_key(), "a symbol is not its description");
+        assert_ne!(symbol.smelt_to_prop_key(), "Symbol(k)".smelt_to_prop_key(), "nor its display text");
+        assert_eq!(
+            SmeltUnknown::Symbol(symbol.spelling().into()).smelt_to_prop_key(),
+            symbol.smelt_to_prop_key(),
+            "an erased symbol is the same key"
+        );
+    }
+
+    /// The reserved storage spelling of a symbol key decodes to that symbol.
+    #[test]
+    fn the_storage_spelling_round_trips() {
+        let symbol = SmeltSymbol::from_spelling("Symbol.for(reg)");
+        let key = symbol.smelt_to_prop_key();
+        assert_eq!(SmeltPropKey::from_storage_key(&key.storage_key()), key, "storage key round trip");
+        assert_eq!(key.storage_key().smelt_to_prop_key(), key, "a string slot holding the spelling");
+        assert_eq!(key.as_symbol(), Some(&symbol));
+    }
+
+    /// Own-key order: integer-like keys ascending, then strings, then symbols.
+    #[test]
+    fn enumeration_follows_own_key_order() {
+        let symbol = SmeltSymbol::from_spelling("Symbol(s)@1");
+        let map: SmeltJsMap<SmeltPropKey, f64> = [
+            ("b".smelt_to_prop_key(), 1.0),
+            (symbol.smelt_to_prop_key(), 2.0),
+            (10.0_f64.smelt_to_prop_key(), 3.0),
+            ("a".smelt_to_prop_key(), 4.0),
+            (2.0_f64.smelt_to_prop_key(), 5.0),
+            ("01".smelt_to_prop_key(), 6.0),
+        ]
+        .into_iter()
+        .collect();
+        let keys: Vec<String> = smelt_prop_key_string_entries(&map).into_iter().map(|(key, _)| key.to_string()).collect();
+        assert_eq!(keys, ["2", "10", "b", "a", "01"], "symbols are not string keys; '01' is not an index");
+        assert_eq!(smelt_prop_key_symbols(&map), vec![symbol], "the symbol key");
+    }
+
+    /// `description`, `String(sym)` and per-evaluation identity.
+    #[test]
+    fn a_symbol_describes_itself_and_each_evaluation_is_new() {
+        assert_eq!(SmeltSymbol::from_spelling("Symbol(d)@3").description(), Some(JsString::from("d")));
+        assert_eq!(SmeltSymbol::from_spelling("Symbol()@3").description(), None, "Symbol() has none");
+        assert_eq!(SmeltSymbol::from_spelling("Symbol.for(r)").description(), Some(JsString::from("r")));
+        assert_eq!(SmeltSymbol::from_spelling("Symbol.iterator").description(), Some(JsString::from("Symbol.iterator")));
+        assert_eq!(SmeltSymbol::from_spelling("Symbol(d)@3").to_js_string(), "Symbol(d)");
+        let site = SmeltSymbol::from_spelling("Symbol(fresh)@99");
+        let first = SmeltSymbol::unique(site.clone());
+        let second = SmeltSymbol::unique(site.clone());
+        assert_eq!(first, site, "the first evaluation is the site's symbol");
+        assert_ne!(first, second, "a later evaluation is a new symbol");
+        assert_eq!(second.description(), Some(JsString::from("fresh")), "with the same description");
+    }
+
+    /// A property-key record erases to an object that keeps its id, and back.
+    #[test]
+    fn a_record_crosses_the_erased_boundary() {
+        let symbol = SmeltSymbol::from_spelling("Symbol(s)@1");
+        let map: SmeltJsMap<SmeltPropKey, f64> =
+            [("a".smelt_to_prop_key(), 1.0), (symbol.smelt_to_prop_key(), 2.0)].into_iter().collect();
+        let erased = map.clone().into_smelt_unknown();
+        let SmeltUnknown::Object(object) = &erased else { panic!("a record erases to an object") };
+        assert_eq!(object.id, map.id, "erasure keeps the record's identity");
+        let back = <SmeltJsMap<SmeltPropKey, f64> as SmeltFromUnknown>::smelt_from_unknown(erased);
+        assert_eq!(back.get(&symbol.smelt_to_prop_key()), Some(2.0), "the symbol key survives");
+        assert_eq!(back.get(&"a".smelt_to_prop_key()), Some(1.0), "the string key survives");
+    }
+}

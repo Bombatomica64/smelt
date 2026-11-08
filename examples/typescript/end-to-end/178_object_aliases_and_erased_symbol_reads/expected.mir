@@ -100,66 +100,67 @@ fn __smelt_get_context (FuncId(6)) -> String throws
     return copy %0.field34
   bb2:
     %2 = {"__smelt_error": "Error", "message": "no context", "stack": undefined, "cause": undefined}
-    %3 = unknown_cast move %2 as t11
+    %3 = unknown_cast move %2 as t13
     throw move %3
 
 fn main (FuncId(7)) -> None
   locals
-    %0 user match: Unknown
+    %0 user match: Symbol
     %1 user req: Request
     %2 user no_routes: List<(String, String)>
-    %3 temp: String
-    %4 temp: Options
-    %5 temp: String
-    %6 temp: Options
-    %7 temp: String
-    %8 temp: None
-    %9 temp: Tagged<String, Float>
-    %10 temp: String
-    %11 temp: None
-    %12 temp: (String, String)
+    %3 temp: Symbol
+    %4 temp: String
+    %5 temp: Options
+    %6 temp: String
+    %7 temp: Options
+    %8 temp: String
+    %9 temp: None
+    %10 temp: Tagged<String, Float>
+    %11 temp: String
+    %12 temp: None
     %13 temp: (String, String)
-    %14 temp: List<(String, String)>
-    %15 temp: Request
-    %16 temp: List<(String, String)>
-    %17 temp: String
+    %14 temp: (String, String)
+    %15 temp: List<(String, String)>
+    %16 temp: Request
+    %17 temp: List<(String, String)>
     %18 temp: String
-    %19 temp: Request
-    %20 temp: String
-    %21 temp: None
+    %19 temp: String
+    %20 temp: Request
+    %21 temp: String
+    %22 temp: None
   bb0:
-    %0 = symbol("Symbol()@663")
-    %3 = call fn0() -> bb1
+    %0 = symbol_unique symbol("Symbol()@663")
+    %4 = call fn0() -> bb1
   bb1:
-    %4 = {"label": "custom"}
-    %5 = call fn0(move %4) -> bb2
+    %5 = {"label": "custom"}
+    %6 = call fn0(move %5) -> bb2
   bb2:
-    %6 = {"limit": 9.0}
-    %7 = call fn0(move %6) -> bb3
+    %7 = {"limit": 9.0}
+    %8 = call fn0(move %7) -> bb3
   bb3:
-    %8 = call @console_log(move %3, move %5, move %7) -> bb4
+    %9 = call @console_log(move %4, move %6, move %8) -> bb4
   bb4:
-    %9 = {"value": "a", "count": 2.0}
-    %10 = call fn1(move %9) -> bb5
+    %10 = {"value": "a", "count": 2.0}
+    %11 = call fn1(move %10) -> bb5
   bb5:
-    %11 = call @console_log(move %10) -> bb6
+    %12 = call @console_log(move %11) -> bb6
   bb6:
-    %12 = ("a", "/x")
-    %13 = ("b", "/y")
-    %14 = [move %12, move %13]
-    %15 = call fn4(move %14, "ctx") -> bb7
+    %13 = ("a", "/x")
+    %14 = ("b", "/y")
+    %15 = [move %13, move %14]
+    %16 = call fn4(move %15, "ctx") -> bb7
   bb7:
-    %1 = move %15
+    %1 = move %16
     %2 = []
-    %17 = call fn2(copy %1) -> bb8
+    %18 = call fn2(copy %1) -> bb8
   bb8:
-    %18 = call fn3(move %1) -> bb9
+    %19 = call fn3(move %1) -> bb9
   bb9:
-    %19 = call fn4(move %2) -> bb10
+    %20 = call fn4(move %2) -> bb10
   bb10:
-    %20 = call fn3(move %19) -> bb11
+    %21 = call fn3(move %20) -> bb11
   bb11:
-    %21 = call @console_log(move %17, move %18, move %20) -> bb12
+    %22 = call @console_log(move %18, move %19, move %21) -> bb12
   bb12:
     return none
 
@@ -171,4 +172,3 @@ closure ClosureId(0) -> String
   bb0:
     %1 = tuple_index copy %0, 1
     return copy %1
-
