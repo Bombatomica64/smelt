@@ -213,3 +213,19 @@ E0609). What remains is type errors:
   instead of the `Object.keys` builtin (crate namespace members are calls to
   their exports); its erased typedness count rises by 2 (the export's
   `TValue extends object` parameter). Tests unchanged (383/4).
+
+## Round 3: merge of origin/main through 463a1af9 (#329, #330)
+
+Clean merge. On the merged tree: runtime tiers 77/77 (`--test-threads=2`),
+goldens unchanged, libs and pins unchanged, clippy at baseline (1787). The
+oracle's changed-row set against main's binary is identical to round 2's.
+
+The ts-pattern test crate still stops at 384 errors; 326 of its 369 E0308 are
+one mechanism. `match<T>(value)` lowers to `match__62(..)`, which returns
+`Match<SmeltUnknown>`; the call site's declared type is `Match<T>`, so the
+record adapter rebuilds the struct field by field (`Match { with: s.with.clone(),
+.., narrow: { adapter } }`). Fields whose type mentions the parameter in a
+callback position (`otherwise: Rc<dyn Fn(Rc<dyn Fn(&i) -> SmeltUnknown>) -> ..>`,
+and recursively `narrow: Rc<dyn Fn() -> Match<..>>`) are copied with `.clone()`
+instead of being wrapped in a function adapter, so `Fn(&SmeltUnknown)` meets
+`Fn(&T)`. See the final report of this round for file:line evidence.
