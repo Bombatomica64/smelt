@@ -520,6 +520,7 @@ fn sibling_reads_before_a_state_change() -> TestResult {
 #[test]
 fn object_assign_write_through() -> TestResult {
     verify_node_parity("object_assign_write_through")
+}
 
 /// A generic record rebuilt from the erased instantiation a generic function
 /// returns converts its callable fields across the type argument, a nested
