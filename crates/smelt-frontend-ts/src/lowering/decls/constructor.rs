@@ -287,6 +287,88 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Collect every `this.<name> = <expr>` write, with the field's source
+    /// name, through the statements [`Self::collect_this_assigned_field_names`]
+    /// walks, so the writes typed are exactly the ones that declared fields.
+    fn collect_this_field_writes<'b, 'c>(
+        statement: &'b Statement<'c>,
+        writes: &mut Vec<(&'b str, &'b Expression<'c>)>,
+    ) {
+        match statement {
+            Statement::ExpressionStatement(statement) => {
+                Self::collect_this_field_writes_from_expression(&statement.expression, writes);
+            }
+            Statement::BlockStatement(block) => {
+                for inner in &block.body {
+                    Self::collect_this_field_writes(inner, writes);
+                }
+            }
+            Statement::IfStatement(statement) => {
+                Self::collect_this_field_writes(&statement.consequent, writes);
+                if let Some(alternate) = &statement.alternate {
+                    Self::collect_this_field_writes(alternate, writes);
+                }
+            }
+            Statement::ForStatement(statement) => {
+                Self::collect_this_field_writes(&statement.body, writes);
+            }
+            _ => {}
+        }
+    }
+
+    /// [`Self::collect_this_field_writes`] over one expression: a chained
+    /// `this.a = this.b = v` writes both fields with `v`'s value.
+    fn collect_this_field_writes_from_expression<'b, 'c>(
+        expression: &'b Expression<'c>,
+        writes: &mut Vec<(&'b str, &'b Expression<'c>)>,
+    ) {
+        if let Expression::AssignmentExpression(assign) = expression {
+            if let AssignmentTarget::StaticMemberExpression(member) = &assign.left
+                && matches!(&member.object, Expression::ThisExpression(_))
+            {
+                writes.push((member.property.name.as_str(), &assign.right));
+            }
+            Self::collect_this_field_writes_from_expression(&assign.right, writes);
+        }
+    }
+
+    /// The type of a constructor-function field: the join
+    /// ([`Self::joined_inferred_type`]) of the types its writes evaluate to.
+    ///
+    /// Each write's value is typed by the ordinary expression lowering, in a
+    /// scratch body that is rolled back ([`Self::infer_module_global_initializer_type`]).
+    /// A field is erased, with the reason it always had, when it has no write
+    /// to type or when ANY write cannot be typed there (one reading a
+    /// constructor parameter or local, which the scratch body does not bind):
+    /// a join missing one write's type would be narrower than what the field
+    /// holds.
+    fn constructor_function_field_type(
+        &mut self,
+        field: smelt_hir::Symbol,
+        writes: &[(&str, &Expression<'_>)],
+        span: Span,
+    ) -> smelt_hir::TypeId {
+        let mut types = Vec::new();
+        let mut untyped = false;
+        for (name, value) in writes {
+            if self.intern_source_name(name) != field {
+                continue;
+            }
+            match self.infer_module_global_initializer_type(value) {
+                Ok(ty) if !self.type_contains_unknown(ty) => types.push(ty),
+                Ok(_) | Err(_) => untyped = true,
+            }
+        }
+        if untyped || types.is_empty() {
+            return self.erase_at(
+                ErasureReason::MissingAnnotation,
+                span,
+                "constructor-function field",
+            );
+        }
+        self.joined_inferred_type(types)
+    }
+
     /// Collect `this.<name>` assignment targets from an expression subtree.
     fn collect_this_assigned_field_names_from_expression(
         &mut self,
@@ -571,12 +653,33 @@ impl ModuleBuilder<'_> {
         if self.classes.contains(class_text.as_str()) {
             return Ok(());
         }
-        let class_name = self.intern_type_name(class_text.as_str());
+        // The registry is scoped, so `contains` above does not see a
+        // same-named constructor function from a sibling block (two `it`
+        // callbacks each declaring `function Foo() { this.a = 1 }`). Its class
+        // item is still in the crate, so this one takes a name of its own,
+        // bound to the source spelling for the rest of its scope.
+        let span = self.span(function.span.start, function.span.end);
+        // The same constructor function lowered again (inherited test setup)
+        // keeps the class it already has.
+        if let Some((item, existing)) = self.class_item_lowered_at(span) {
+            if self.intern_type_name(class_text.as_str()) != existing {
+                self.classes.open_shadow(class_text.as_str());
+                self.classes.bind_scoped_type_name(class_text.clone(), existing);
+            }
+            self.classes.register(class_text, item);
+            return Ok(());
+        }
+        let source_symbol = self.intern_type_name(class_text.as_str());
+        let class_name = self.unclaimed_type_symbol(source_symbol, class_text.as_str());
+        if source_symbol != class_name {
+            self.ctx.krate.names.record(class_name, class_text.as_str());
+            self.classes.open_shadow(class_text.as_str());
+            self.classes.bind_scoped_type_name(class_text.clone(), class_name);
+        }
         let class_ty = self.ctx.krate.types.intern(Type::Class {
             name: class_name,
             args: Vec::new(),
         });
-        let span = self.span(function.span.start, function.span.end);
 
         // Derive own fields from `this.<name> = …` assignments in the body. The
         // shared `collect_this_member_names_*` helpers only traverse value
@@ -588,26 +691,35 @@ impl ModuleBuilder<'_> {
                 self.collect_this_assigned_field_names(statement, &mut field_names);
             }
         }
+        // Each field takes the join of the types its `this.<name> = <expr>`
+        // writes evaluate to, in the constructor body and in the prototype
+        // methods. The writes are found by the same traversal that found the
+        // field names, so every write that made a field is typed.
+        let mut writes = Vec::new();
+        if let Some(body) = &function.body {
+            for statement in &body.statements {
+                Self::collect_this_field_writes(statement, &mut writes);
+            }
+        }
+        for (_, method) in &prototype_methods {
+            if let Some(body) = &method.body {
+                for statement in &body.statements {
+                    Self::collect_this_field_writes(statement, &mut writes);
+                }
+            }
+        }
         let mut fields = Vec::new();
-        let mut seen = HashSet::new();
         let mut field_order = field_names.into_iter().collect::<Vec<_>>();
         field_order.sort_by_key(|symbol| symbol.0);
         for field in field_order {
-            if seen.insert(field) {
-                // A constructor function's `this.<name>` writes declare no type.
-                let field_ty = self.erase_at(
-                    ErasureReason::MissingAnnotation,
-                    span,
-                    "constructor-function field",
-                );
-                fields.push(Field {
-                    name: field,
-                    ty: field_ty,
-                    visibility: Visibility::Public,
-                    optional: false,
-                    span,
-                });
-            }
+            let field_ty = self.constructor_function_field_type(field, &writes, span);
+            fields.push(Field {
+                name: field,
+                ty: field_ty,
+                visibility: Visibility::Public,
+                optional: false,
+                span,
+            });
         }
 
         // Register field metadata before lowering the constructor body so that

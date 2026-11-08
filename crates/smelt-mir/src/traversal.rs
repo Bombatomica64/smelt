@@ -18,8 +18,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    BasicBlock, Callee, GlobalProjection, LocalDecl, LocalId, LocalKind, MirClosure, MirFunction,
-    Operand, Place, Rvalue, Statement, Terminator,
+    BasicBlock, BlockId, Callee, ClosureId, FuncId, GlobalProjection, LocalDecl, LocalId,
+    LocalKind, MirClosure, MirFunction, Operand, Place, Rvalue, Statement, Terminator,
 };
 
 /// One thing a [`Statement`] reads.
@@ -544,6 +544,42 @@ impl Terminator {
         }
     }
 
+    /// Every control-flow edge out of this terminator, each with what it
+    /// defines.
+    ///
+    /// A call's or await's `dest` is written only when it completes normally,
+    /// so it is defined on its `target` edge and NOT on its unwind edge; the
+    /// unwind edge instead defines the handler's exception local. Dataflow that
+    /// meets per edge through this cannot treat `dest` as defined in a catch
+    /// block (audit finding C7). The edges are in [`Self::successors`] order.
+    #[must_use]
+    pub fn edges(&self) -> Vec<Edge> {
+        match self {
+            Self::Goto(target) => vec![Edge { target: *target, defines: None }],
+            Self::Call { dest, target, unwind, .. } | Self::Await { dest, target, unwind, .. } => {
+                unwind
+                    .iter()
+                    .map(|handler| Edge {
+                        target: handler.catch_block,
+                        defines: handler.exception_local,
+                    })
+                    .chain(std::iter::once(Edge { target: *target, defines: Some(*dest) }))
+                    .collect()
+            }
+            Self::Switch { then_block, else_block, .. } => vec![
+                Edge { target: *then_block, defines: None },
+                Edge { target: *else_block, defines: None },
+            ],
+            Self::Match { arms, default, .. } => arms
+                .iter()
+                .map(|arm| arm.target)
+                .chain(*default)
+                .map(|target| Edge { target, defines: None })
+                .collect(),
+            Self::Return(_) | Self::Throw(_) => Vec::new(),
+        }
+    }
+
     /// Visit every local this terminator reads, through any projection.
     pub fn read_locals(&self, mut visit: impl FnMut(LocalId)) {
         self.reads(|operand| operand.read_locals(&mut visit));
@@ -558,16 +594,139 @@ impl Terminator {
     }
 }
 
+/// One control-flow edge out of a [`Terminator`]: where it goes and the local,
+/// if any, that taking it defines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Edge {
+    /// The successor block.
+    pub target: BlockId,
+    /// The local this edge writes: a call's `dest` on its normal edge, a
+    /// handler's exception local on an unwind edge.
+    pub defines: Option<LocalId>,
+}
+
+/// Which table entry a [`Body`] belongs to.
+///
+/// MIR has two kinds of executable body, [`MirFunction`] and [`MirClosure`],
+/// that share one CFG shape. Every whole-program walk that has to see "every
+/// body" goes through [`crate::Mir::bodies`], which yields both kinds tagged with
+/// this owner, so a check written once covers closures as well as functions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BodyOwner {
+    /// The body of `mir.functions[id]`.
+    Function(FuncId),
+    /// The body of `mir.closures[id]`.
+    Closure(ClosureId),
+}
+
 /// One body's locals and blocks, whether a function's or a closure's.
 ///
 /// Definition and read counts mean the same in both, so they live here and
-/// [`MirFunction`] and [`MirClosure`] only hand out the view.
+/// [`MirFunction`] and [`MirClosure`] only hand out the view. A pass that
+/// only has the two slices may build one directly.
 #[derive(Debug, Clone, Copy)]
 pub struct Body<'a> {
     /// Every local of the body.
     pub locals: &'a [LocalDecl],
     /// Every block of the body.
     pub blocks: &'a [BasicBlock],
+}
+
+/// One whole body as the program holds it: which table entry it belongs to,
+/// its signature, locals, blocks and entry.
+///
+/// Can only be made from a real table entry (`#[non_exhaustive]`), by
+/// [`MirFunction::as_mir_body`], [`MirClosure::as_mir_body`] or
+/// [`crate::Mir::bodies`], so its fields always describe one real body.
+#[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
+pub struct MirBody<'a> {
+    /// The table entry this body belongs to.
+    pub owner: BodyOwner,
+    /// Parameter locals, in order.
+    pub params: &'a [LocalId],
+    /// Every local of the body.
+    pub locals: &'a [LocalDecl],
+    /// Every block of the body.
+    pub blocks: &'a [BasicBlock],
+    /// The entry block.
+    pub entry: BlockId,
+    /// The closure's captures, whose target locals are bound on entry; empty
+    /// for a function.
+    pub captures: &'a [crate::MirClosureCapture],
+}
+
+impl<'a> MirBody<'a> {
+    /// The locals-and-blocks view, for counts.
+    #[must_use]
+    pub const fn view(self) -> Body<'a> {
+        Body { locals: self.locals, blocks: self.blocks }
+    }
+
+    /// The declaration of `local`, if the index is in range.
+    #[must_use]
+    pub fn local_decl(self, local: LocalId) -> Option<&'a LocalDecl> {
+        self.view().local_decl(local)
+    }
+
+    /// The locals bound before the entry block runs: the parameters and, in a
+    /// closure, every capture's target local.
+    pub fn defined_on_entry(self) -> impl Iterator<Item = LocalId> + 'a {
+        self.params
+            .iter()
+            .copied()
+            .chain(self.captures.iter().filter_map(|capture| capture.target_local))
+    }
+}
+
+/// A mutable view of one body: its locals and blocks may be rewritten, its
+/// owner, parameters and entry may not.
+///
+/// Yielded by [`crate::Mir::bodies_mut`], the one walk over every function and
+/// closure body that a rewriting pass uses.
+#[derive(Debug)]
+pub struct MirBodyMut<'a> {
+    /// The table entry this body belongs to.
+    pub owner: BodyOwner,
+    /// Parameter locals, in order.
+    pub params: &'a [LocalId],
+    /// Every local of the body.
+    pub locals: &'a mut Vec<LocalDecl>,
+    /// Every block of the body.
+    pub blocks: &'a mut Vec<BasicBlock>,
+    /// The entry block.
+    pub entry: BlockId,
+}
+
+impl crate::Mir {
+    /// Every executable body: each function in table order, then each closure
+    /// in table order.
+    ///
+    /// Use this, not `mir.functions`, for any check or analysis that must hold
+    /// in closure bodies too (validation, escape analysis, capture checks).
+    pub fn bodies(&self) -> impl Iterator<Item = MirBody<'_>> {
+        self.functions
+            .iter()
+            .map(MirFunction::as_mir_body)
+            .chain(self.closures.iter().map(MirClosure::as_mir_body))
+    }
+
+    /// [`Self::bodies`], mutably.
+    pub fn bodies_mut(&mut self) -> impl Iterator<Item = MirBodyMut<'_>> {
+        self.functions
+            .iter_mut()
+            .map(MirFunction::as_mir_body_mut)
+            .chain(self.closures.iter_mut().map(MirClosure::as_mir_body_mut))
+    }
+
+    /// The body `owner` names, if it is in range.
+    #[must_use]
+    pub fn body(&self, owner: BodyOwner) -> Option<MirBody<'_>> {
+        match owner {
+            BodyOwner::Function(id) => self.function(id).map(MirFunction::as_mir_body),
+            BodyOwner::Closure(id) => self.closure(id).map(MirClosure::as_mir_body),
+        }
+    }
 }
 
 impl<'a> Body<'a> {
@@ -676,6 +835,30 @@ impl MirFunction {
         Body { locals: &self.locals, blocks: &self.blocks }
     }
 
+    /// This body with its owner, signature and entry.
+    #[must_use]
+    pub fn as_mir_body(&self) -> MirBody<'_> {
+        MirBody {
+            owner: BodyOwner::Function(self.id),
+            params: &self.params,
+            locals: &self.locals,
+            blocks: &self.blocks,
+            entry: self.entry,
+            captures: &[],
+        }
+    }
+
+    /// [`Self::as_mir_body`], mutably.
+    pub fn as_mir_body_mut(&mut self) -> MirBodyMut<'_> {
+        MirBodyMut {
+            owner: BodyOwner::Function(self.id),
+            params: &self.params,
+            locals: &mut self.locals,
+            blocks: &mut self.blocks,
+            entry: self.entry,
+        }
+    }
+
     /// See [`Body::assignment_counts`].
     #[must_use]
     pub fn assignment_counts(&self) -> HashMap<LocalId, usize> {
@@ -712,6 +895,30 @@ impl MirClosure {
     #[must_use]
     pub fn body(&self) -> Body<'_> {
         Body { locals: &self.locals, blocks: &self.blocks }
+    }
+
+    /// This body with its owner, signature and entry.
+    #[must_use]
+    pub fn as_mir_body(&self) -> MirBody<'_> {
+        MirBody {
+            owner: BodyOwner::Closure(self.id),
+            params: &self.params,
+            locals: &self.locals,
+            blocks: &self.blocks,
+            entry: self.entry,
+            captures: &self.captures,
+        }
+    }
+
+    /// [`Self::as_mir_body`], mutably.
+    pub fn as_mir_body_mut(&mut self) -> MirBodyMut<'_> {
+        MirBodyMut {
+            owner: BodyOwner::Closure(self.id),
+            params: &self.params,
+            locals: &mut self.locals,
+            blocks: &mut self.blocks,
+            entry: self.entry,
+        }
     }
 }
 

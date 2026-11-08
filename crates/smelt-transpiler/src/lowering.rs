@@ -527,18 +527,8 @@ fn manifest_module_identities(sources: &[&ManifestSource], names: &[String]) -> 
 /// that and JavaScript answers `Node` for both classes.
 fn manifest_type_renames(
     sources: &[&ManifestSource],
+    declared: &[Vec<String>],
 ) -> HashMap<String, HashMap<String, String>> {
-    let declared = sources
-        .iter()
-        .map(|source| {
-            let path = source.path.display().to_string();
-            if source.lang.is_typescript() {
-                smelt_frontend_ts::scan_declared_type_names(&source.source, &path)
-            } else {
-                Vec::new()
-            }
-        })
-        .collect::<Vec<_>>();
     let mut totals = HashMap::<&str, usize>::new();
     for name in declared.iter().flatten() {
         let total = totals.entry(name.as_str()).or_insert(0);
@@ -546,7 +536,7 @@ fn manifest_type_renames(
     }
     let mut seen = HashMap::<&str, usize>::new();
     let mut renames = HashMap::<String, HashMap<String, String>>::new();
-    for (source, names) in sources.iter().zip(&declared) {
+    for (source, names) in sources.iter().zip(declared) {
         for name in names {
             let total = totals.get(name.as_str()).copied().unwrap_or(1);
             if total == 1 {
@@ -582,6 +572,23 @@ fn manifest_type_renames(
         }
     }
     renames
+}
+
+/// Each TypeScript source's top-level type names, in source order: the one
+/// scan both [`manifest_type_renames`] and `HirCtx::top_level_type_names`
+/// are derived from.
+fn manifest_declared_type_names(sources: &[&ManifestSource]) -> Vec<Vec<String>> {
+    sources
+        .iter()
+        .map(|source| {
+            let path = source.path.display().to_string();
+            if source.lang.is_typescript() {
+                smelt_frontend_ts::scan_declared_type_names(&source.source, &path)
+            } else {
+                Vec::new()
+            }
+        })
+        .collect()
 }
 
 /// Canonical paths of project sources the dependency closure did not reach.
