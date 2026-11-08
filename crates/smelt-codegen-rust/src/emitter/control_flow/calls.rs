@@ -150,14 +150,25 @@ impl FunctionEmitter<'_> {
             Continuation::InLoop { .. } => None,
         });
         let arm_continuation = joined_continuation.as_ref().unwrap_or(continuation);
+        let joined_tail = join.filter(|_| joined_continuation.is_some());
+        let hoist_dest = joined_tail.is_some_and(|tail| !self.is_local_declared(dest) && self.join_tail_reads_local(tail, dest));
         let rendered = self.rendered_call(callee, args)?;
         if !rendered.propagates() {
             let call_text = rendered.into_call();
+            let name = self.local_name(dest)?;
+            let dest_type_text = if matches!(self.mir.types.get(local.ty), Some(Type::Function(_) | Type::Future(_))) {
+                None
+            } else {
+                Some(self.call_dest_type(callee, local.ty)?)
+            };
+            if hoist_dest {
+                out.push_str(&self.throwing_dest_predeclaration(dest, dest_type_text.as_deref())?);
+                self.mark_local_declared(dest);
+            }
             out.push_str(&format!(
                 "    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| {call_text})) {{\n"
             ));
             out.push_str("        Ok(__smelt_value) => {\n");
-            let name = self.local_name(dest)?;
             let mutability = if self.local_binding_needs_mut(dest) {
                 "mut "
             } else {
@@ -171,24 +182,18 @@ impl FunctionEmitter<'_> {
             // `rendered_at_type` returns the value unchanged. A function-typed
             // destination is left untouched (function handles are not coerced
             // through this path).
-            if matches!(self.mir.types.get(local.ty), Some(Type::Function(_))) {
-                out.push_str(&format!(
-                    "            let {mutability}{name} = __smelt_value;\n"
-                ));
+            let value_text = if matches!(self.mir.types.get(local.ty), Some(Type::Function(_))) {
+                RustExpr::path("__smelt_value")
             } else {
                 let source_ty = self.call_emitted_source_ty(callee, args, local.ty)?;
-                let value_text =
-                    self.rendered_at_type(&RustExpr::path("__smelt_value"), source_ty, local.ty, &self.render_scope())?;
-                if matches!(self.mir.types.get(local.ty), Some(Type::Future(_))) {
-                    out.push_str(&format!(
-                        "            let {mutability}{name} = {value_text};\n"
-                    ));
-                } else {
-                    out.push_str(&format!(
-                        "            let {mutability}{name}: {} = {value_text};\n",
-                        self.call_dest_type(callee, local.ty)?
-                    ));
-                }
+                self.rendered_at_type(&RustExpr::path("__smelt_value"), source_ty, local.ty, &self.render_scope())?
+            };
+            if hoist_dest {
+                out.push_str(&format!("            {name} = {value_text};\n"));
+            } else if let Some(type_text) = &dest_type_text {
+                out.push_str(&format!("            let {mutability}{name}: {type_text} = {value_text};\n"));
+            } else {
+                out.push_str(&format!("            let {mutability}{name} = {value_text};\n"));
             }
             self.mark_local_declared(dest);
             let __smelt_arm_declared = self.declared_scope();
@@ -240,6 +245,9 @@ impl FunctionEmitter<'_> {
             out.push_str("    }\n");
             if let Some(join) = join.filter(|_| joined_continuation.is_some()) {
                 declared_before_arms.close();
+                if hoist_dest {
+                    self.mark_local_declared(dest);
+                }
                 self.emit_throwing_continuation_tail(join, continuation, out)?;
             } else {
                 // No join: the continuation was emitted inside the arms, and the
@@ -257,29 +265,32 @@ impl FunctionEmitter<'_> {
         // scope, so compare them.
         #[cfg(debug_assertions)]
         self.debug_assert_declared_return_is_emitted_return(callee, args, local.ty, source_ty);
+        let name = self.local_name(dest)?;
+        let dest_type_text = if matches!(self.mir.types.get(local.ty), Some(Type::Future(_) | Type::Function(_))) {
+            None
+        } else {
+            Some(self.call_dest_type(callee, local.ty)?)
+        };
+        if hoist_dest {
+            out.push_str(&self.throwing_dest_predeclaration(dest, dest_type_text.as_deref())?);
+            self.mark_local_declared(dest);
+        }
         out.push_str(&format!(
             "    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| {raw_call})) {{\n"
         ));
         out.push_str("        Ok(Ok(__smelt_value)) => {\n");
         let value_text = self.rendered_at_type(&RustExpr::path("__smelt_value"), source_ty, local.ty, &self.render_scope())?;
-        let name = self.local_name(dest)?;
         let mutability = if self.local_binding_needs_mut(dest) {
             "mut "
         } else {
             ""
         };
-        if matches!(
-            self.mir.types.get(local.ty),
-            Some(Type::Future(_) | Type::Function(_))
-        ) {
-            out.push_str(&format!(
-                "            let {mutability}{name} = {value_text};\n"
-            ));
+        if hoist_dest {
+            out.push_str(&format!("            {name} = {value_text};\n"));
+        } else if let Some(type_text) = &dest_type_text {
+            out.push_str(&format!("            let {mutability}{name}: {type_text} = {value_text};\n"));
         } else {
-            out.push_str(&format!(
-                "            let {mutability}{name}: {} = {value_text};\n",
-                self.call_dest_type(callee, local.ty)?
-            ));
+            out.push_str(&format!("            let {mutability}{name} = {value_text};\n"));
         }
         self.mark_local_declared(dest);
         // Each of the three arms re-emits the SAME continuation into its own
@@ -339,6 +350,9 @@ impl FunctionEmitter<'_> {
         out.push_str("    }\n");
         if let Some(join) = join.filter(|_| joined_continuation.is_some()) {
             declared_before_arms.close();
+            if hoist_dest {
+                self.mark_local_declared(dest);
+            }
             self.emit_throwing_continuation_tail(join, continuation, out)?;
         } else {
             // No join: the continuation was emitted inside the arms, and the
@@ -381,10 +395,23 @@ impl FunctionEmitter<'_> {
             Continuation::InLoop { .. } => None,
         });
         let arm_continuation = joined_continuation.as_ref().unwrap_or(continuation);
+        let joined_tail = join.filter(|_| joined_continuation.is_some());
+        let hoist_dest = joined_tail.is_some_and(|tail| !self.is_local_declared(dest) && self.join_tail_reads_local(tail, dest));
         let future_text = self.await_operand_expr(future)?;
+        let name = self.local_name(dest)?;
+        let dest_type_text = if matches!(self.mir.types.get(local.ty), Some(Type::Future(_) | Type::Function(_))) {
+            None
+        } else if self.mir.types.get(local.ty) == Some(&Type::None) {
+            Some("()".to_owned())
+        } else {
+            Some(self.rendered_type(local.ty)?.into_string())
+        };
+        if hoist_dest {
+            out.push_str(&self.throwing_dest_predeclaration(dest, dest_type_text.as_deref())?);
+            self.mark_local_declared(dest);
+        }
         out.push_str(&format!("    match {future_text}.await {{\n"));
         out.push_str("        Ok(__smelt_value) => {\n");
-        let name = self.local_name(dest)?;
         let mutability = if self.local_binding_needs_mut(dest) {
             "mut "
         } else {
@@ -395,24 +422,17 @@ impl FunctionEmitter<'_> {
         // yields `SmeltUnknown`). A `void`/`()` destination discards its result
         // entirely, so no coercion is computed for it.
         let source_ty = self.awaited_output_ty(future)?;
-        if matches!(
-            self.mir.types.get(local.ty),
-            Some(Type::Future(_) | Type::Function(_))
-        ) {
-            let value_text = self.rendered_at_type(&RustExpr::path("__smelt_value"), source_ty, local.ty, &self.render_scope())?;
-            out.push_str(&format!(
-                "            let {mutability}{name} = {value_text};\n"
-            ));
-        } else if self.mir.types.get(local.ty) == Some(&Type::None) {
-            out.push_str(&format!(
-                "            let {mutability}{name}: () = {{ let _ = __smelt_value; }};\n"
-            ));
+        let value_text = if self.mir.types.get(local.ty) == Some(&Type::None) {
+            "{ let _ = __smelt_value; }".to_owned()
         } else {
-            let value_text = self.rendered_at_type(&RustExpr::path("__smelt_value"), source_ty, local.ty, &self.render_scope())?;
-            out.push_str(&format!(
-                "            let {mutability}{name}: {} = {value_text};\n",
-                self.rendered_type(local.ty)?
-            ));
+            self.rendered_at_type(&RustExpr::path("__smelt_value"), source_ty, local.ty, &self.render_scope())?.into_string()
+        };
+        if hoist_dest {
+            out.push_str(&format!("            {name} = {value_text};\n"));
+        } else if let Some(type_text) = &dest_type_text {
+            out.push_str(&format!("            let {mutability}{name}: {type_text} = {value_text};\n"));
+        } else {
+            out.push_str(&format!("            let {mutability}{name} = {value_text};\n"));
         }
         self.mark_local_declared(dest);
         let __smelt_arm_declared = self.declared_scope();
@@ -444,6 +464,9 @@ impl FunctionEmitter<'_> {
         out.push_str("    }\n");
         if let Some(join) = join.filter(|_| joined_continuation.is_some()) {
             declared_before_arms.close();
+            if hoist_dest {
+                self.mark_local_declared(dest);
+            }
             self.emit_throwing_continuation_tail(join, continuation, out)?;
         } else {
             // No join: the continuation was emitted inside the arms, and the

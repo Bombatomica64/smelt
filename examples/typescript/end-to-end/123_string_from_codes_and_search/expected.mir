@@ -67,7 +67,7 @@ fn main (FuncId(0)) -> None
     %21 = len move %20
     %22 = call @console_log(move %21) -> bb8
   bb8:
-    %3 = external_new0("[\&<>'"]", "")
+    %3 = external_new0("[&<>'"]", "")
     %24 = string_search "I <b>", move %3
     %25 = string_search "ab", "b"
     %26 = external_new0("<", "")

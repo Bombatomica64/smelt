@@ -423,3 +423,24 @@ Where the implementation departs from the design above, and why.
   transcoded to UTF-8 per call and indices are mapped back with the old
   `smelt_utf16_*` helpers, so `string_units.rs` survives until step 5.
 
+- **Step 5 (regexp on `regress`).** `regress` 0.10 with the `utf16` feature.
+  The API used: `Regex::with_flags(&str, &str)` for a `u`/`v` pattern,
+  `Regex::from_unicode(units, flags)` for any other pattern (its code units
+  passed as the "code points", so an astral literal is its two halves, as
+  ECMA-262 reads a non-Unicode pattern), and `find_from_utf16` /
+  `find_from_ucs2` over the subject's code units; a `Match` reports code unit
+  ranges, so no index is ever converted. The engine compiles `i`, `m`, `s`,
+  `u`, `v`; `SmeltRegExp` drives `g`, `y` and `d` itself. `split` implements
+  ECMA-262 `@@split` (captures included, an empty match at a piece's start
+  skipped), which the old engine did not.
+  Python `re` keeps `fancy-regex`: its syntax is not ECMAScript's, so
+  `re.sub` lowers to its own helper (`smelt_py_regex_replace`) and the shared
+  regex ops resolve their crate by the body's language (`Need::RegexOps`).
+  The TypeScript frontend no longer translates patterns: a `RegExp` keeps its
+  JavaScript source, and a regex literal at a direct-op site (`.test`,
+  `.replace`, a replacer callback) is lowered to a `RegExp` value. Where a
+  literal must become a pattern *string*, `i`/`m`/`s` fold into an ES2025
+  modifier group `(?ims:...)`, which `regress` parses; `u`/`v` have no
+  in-pattern spelling and those two sites (a regex literal passed where a
+  `string` is expected, a regex literal folded into a `const` string) still
+  drop them, as before. `string_units.rs` and `Need::StringUnits` are gone.

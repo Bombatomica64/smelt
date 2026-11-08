@@ -82,55 +82,6 @@ fn scratch_root() -> PathBuf {
     std::env::temp_dir().join(format!("smelt-object-runtime-{}-{seq}", std::process::id()))
 }
 
-/// Run `cargo test` on the already-emitted crate at `crate_dir` and return whether that passed.
-fn generated_tests_pass(crate_dir: &Path, target_dir: &Path) -> bool {
-    Command::new(env!("CARGO"))
-        .arg("test")
-        .arg("--quiet")
-        .arg("--manifest-path")
-        .arg(crate_dir.join("Cargo.toml"))
-        .env("CARGO_TARGET_DIR", target_dir)
-        .env("RUSTFLAGS", "-Awarnings")
-        .output()
-        .expect("spawn cargo test")
-        .status
-        .success()
-}
-
-/// Emit `source` as a crate and assert its generated tests still FAIL.
-///
-/// A characterization test for a gap that is real, understood, and not yet
-/// closed. Deleting the fixture would hide the gap and asserting the wrong
-/// answer would cement it, so the assertion is inverted instead: the day the gap
-/// closes this test goes red, which is the prompt to flip it to
-/// [`run_object_fixture`].
-fn run_object_fixture_expecting_failure(source: &str, crate_name: &str) {
-    let root = scratch_root();
-    let crate_dir = root.join("crate");
-    let target_dir = root.join("target");
-    std::fs::create_dir_all(&crate_dir).expect("create crate dir");
-    std::fs::create_dir_all(&target_dir).expect("create target dir");
-    let emitted = std::panic::catch_unwind(|| {
-        emit_program(source, crate_name, &crate_dir);
-        generated_tests_pass(&crate_dir, &target_dir)
-    });
-    // Removed on the FAILURE path too -- the root holds a whole nested cargo
-    // target directory, and one leaked per failing case is what fills `/tmp`.
-    // `SMELT_KEEP_RUNTIME_SCRATCH=1` keeps it for a debugging session.
-    if std::env::var_os("SMELT_KEEP_RUNTIME_SCRATCH").is_none() {
-        drop(std::fs::remove_dir_all(&root));
-    }
-    let passed = match emitted {
-        Ok(passed) => passed,
-        Err(payload) => std::panic::resume_unwind(payload),
-    };
-    assert!(
-        !passed,
-        "{crate_name} now holds at runtime: the object-aliasing gap this test \
-         pins is closed, so it should become a `run_object_fixture` case"
-    );
-}
-
 /// Emit `source` as a crate and run its generated Vitest tests.
 fn run_object_fixture(source: &str, crate_name: &str) {
     let root = scratch_root();
@@ -180,14 +131,18 @@ test("reads every field at its own declared type", () => {
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
-fn known_gap_a_local_alias_does_not_yet_share_the_object() {
-    // The base case, and TODAY IT DOES NOT HOLD (inverted assertion, see
-    // `run_object_fixture_expecting_failure`). `const b = a` is a second handle
-    // on one object, so a field write through either must be visible through the
-    // other. A record local whose fields are written is not yet lifted to a
-    // shared cell at its *binding* sites, only at its parameter ones, so the
-    // write lands in a copy. This is the gap struct-shaped objects must close;
-    // see `blocker-logs/struct-shaped-objects.md`.
+fn a_local_alias_shares_the_object() {
+    // The base case: `const b = a` is a second handle on one object, so a field
+    // write through either is visible through the other.
+    //
+    // Requirement change. This test used to assert the generated test FAILED
+    // (`known_gap_a_local_alias_does_not_yet_share_the_object`): a record local
+    // was lifted to a shared cell only at parameter sites, so the write landed
+    // in a copy, and the inverted assertion pinned that bug as a known gap.
+    // Shared records now back such a local at its binding sites too, so the
+    // requirement is the JavaScript one. Evidence: the same program in Node
+    // prints `2 2` for `a.count, b.count`. The guarantee is strengthened, not
+    // relaxed: the inverted form only checked that some assertion failed.
     let source = r#"
 import { test, expect } from "vitest";
 test("a local alias shares the object", () => {
@@ -198,7 +153,7 @@ test("a local alias shares the object", () => {
   expect(b.count).toBe(2);
 });
 "#;
-    run_object_fixture_expecting_failure(source, "object_shape_alias_shares");
+    run_object_fixture(source, "object_shape_alias_shares");
 }
 
 #[test]
@@ -223,10 +178,16 @@ test("a callee mutates the caller's object", () => {
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
-fn known_gap_a_read_back_handle_from_an_array_does_not_yet_share() {
-    // An object read back out of an array element is that object — and TODAY IT
-    // IS NOT (inverted assertion). Same root cause as the alias case above: the
-    // element read produces a copy, so the write never reaches the array.
+fn a_read_back_handle_from_an_array_shares_the_object() {
+    // An object read back out of an array element is that object, so a write
+    // through the read-back handle is seen through the array.
+    //
+    // Requirement change. This test used to assert the generated test FAILED
+    // (`known_gap_a_read_back_handle_from_an_array_does_not_yet_share`): the
+    // element read produced a copy, and the inverted assertion pinned that bug.
+    // The element read now yields the shared object, so the requirement is the
+    // JavaScript one. Evidence: the same program in Node prints `5` for
+    // `rows[0].count`.
     let source = r#"
 import { test, expect } from "vitest";
 test("a read-back handle from an array shares the object", () => {
@@ -236,7 +197,7 @@ test("a read-back handle from an array shares the object", () => {
   expect(rows[0].count).toBe(5);
 });
 "#;
-    run_object_fixture_expecting_failure(source, "object_shape_array_element_shares");
+    run_object_fixture(source, "object_shape_array_element_shares");
 }
 
 #[test]

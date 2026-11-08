@@ -8,8 +8,11 @@ pub enum BackendDependency {
     Reqwest,
     /// `serde_json` for generated JSON parsing and serialization.
     SerdeJson,
-    /// `regex` for generated regular-expression matching.
+    /// `regex` and `fancy-regex` for Python `re` matching.
     Regex,
+    /// `regress` for JavaScript `RegExp`: ECMAScript syntax and semantics,
+    /// matched over UTF-16 code units (`utf16` feature).
+    Regress,
     /// `rand` for generated random values.
     Rand,
     /// `chrono` for generated date and datetime values.
@@ -112,6 +115,7 @@ impl BackendDependency {
                 "serde = { version = \"1\", features = [\"derive\"] }\nserde_json = { version = \"1\", features = [\"preserve_order\"] }\n"
             }
             Self::Regex => "regex = \"1\"\nfancy-regex = \"0.14\"\n",
+            Self::Regress => "regress = { version = \"0.10\", features = [\"utf16\"] }\n",
             Self::Rand => "rand = \"0.9\"\n",
             Self::Chrono => "chrono = \"0.4\"\n",
             Self::ChronoTz => "chrono-tz = \"0.10\"\n",

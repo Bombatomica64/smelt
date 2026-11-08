@@ -229,8 +229,9 @@ impl FunctionEmitter<'_> {
             smelt_hir::IncomingMessageOp::Url => RustExpr::chain(format!("JsString::from({receiver}.url())")),
             smelt_hir::IncomingMessageOp::Headers => {
                 let container = self.signature_type(dest_ty)?;
+                // The host's header pairs are UTF-8; the record holds JavaScript strings.
                 RustExpr::loose(format!(
-                    "<{container} as ::std::iter::FromIterator<(String, String)>>::from_iter({receiver}.headers())"
+                    "<{container} as ::std::iter::FromIterator<(JsString, JsString)>>::from_iter({receiver}.headers().into_iter().map(|(smelt_name, smelt_value)| (JsString::from(smelt_name), JsString::from(smelt_value))))"
                 ))
             }
         })

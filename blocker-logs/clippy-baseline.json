@@ -72,7 +72,7 @@
       "clippy::chunks_exact_to_as_chunks": 1,
       "clippy::collapsible_if": 31,
       "clippy::default_trait_access": 1,
-      "clippy::doc_markdown": 28,
+      "clippy::doc_markdown": 24,
       "clippy::explicit_iter_loop": 7,
       "clippy::float_cmp": 11,
       "clippy::format_collect": 1,

@@ -212,7 +212,7 @@ impl FunctionEmitter<'_> {
                 smelt_hir::StringSearchOp::RFind => Ok(RustExpr::atom(format!(
                     "{{ let smelt_haystack = {haystack_text}; let smelt_needle = {needle_text}; let smelt_from = ({index_text} as i64).max(0) as usize; let smelt_end_index = smelt_from.saturating_add({needle_len}); let smelt_end_byte = {end_byte}; smelt_haystack[..smelt_end_byte].rfind(&smelt_needle).map_or({missing}, |idx| {found_index} as {cast}) }}",
                     needle_len = self.string_len_text("smelt_needle"),
-                    end_byte = self.string_byte_of_text("smelt_haystack", "smelt_end_index", false),
+                    end_byte = self.string_byte_of_text("smelt_haystack", "smelt_end_index"),
                     found_index = self.string_index_of_byte_text("smelt_haystack", "idx"),
                 ))),
                 // `search` takes no position argument; the frontend never
@@ -419,6 +419,13 @@ impl FunctionEmitter<'_> {
         pattern: &Operand,
         haystack: &Operand,
     ) -> Result<RustExpr, EmitError> {
+        // A JavaScript pattern is a `RegExp` on `regress` (`SmeltRegExp`); the
+        // frontend only lowers a stateless `test` here, which is a search.
+        if self.indexes_utf16() {
+            let regexp_text = self.regexp_operand_expr(pattern)?;
+            let haystack_text = self.string_like_operand_expr(haystack, "regex match")?;
+            return Ok(RustExpr::postfix_on(&regexp_text, format!("{regexp_text}.is_match(&{haystack_text})")));
+        }
         let pattern_text = self.host_utf8_text(self.string_like_operand_expr(pattern, "regex match")?);
         let haystack_text = self.host_utf8_text(self.string_like_operand_expr(haystack, "regex match")?);
         let regex_text =
@@ -448,25 +455,33 @@ impl FunctionEmitter<'_> {
         haystack: &Operand,
         replacement: &Operand,
     ) -> Result<RustExpr, EmitError> {
-        self.require_string_operands(&[pattern, haystack, replacement], "regex replace")?;
+        let force_all = matches!(op, smelt_hir::StringReplaceOp::All);
+        // A Python pattern is `re` syntax, matched by `fancy-regex`.
+        if !self.indexes_utf16() {
+            self.require_string_operands(&[pattern, haystack, replacement], "regex replace")?;
+            let pattern_text = self.string_like_operand_expr(pattern, "regex replace")?;
+            let haystack_text = self.string_like_operand_expr(haystack, "regex replace")?;
+            let replacement_text = self.string_like_operand_expr(replacement, "regex replace")?;
+            return Ok(RustExpr::chain(format!(
+                "smelt_py_regex_replace(&{pattern_text}, &{haystack_text}, &{replacement_text}, {force_all})"
+            )));
+        }
         let regex_text = self.regexp_operand_expr(pattern)?;
         let haystack_text = self.string_like_operand_expr(haystack, "regex replace")?;
         let replacement_text = self.string_like_operand_expr(replacement, "regex replace")?;
-        let force_all = matches!(op, smelt_hir::StringReplaceOp::All);
         Ok(RustExpr::postfix_on(&regex_text, format!(
             "{regex_text}.replace_string(&{haystack_text}, &{replacement_text}, {force_all})"
         )))
     }
 
-    /// Converts a regex replacement callback operation to Rust text.
+    /// Converts `String.prototype.replace(re, fn)` to Rust text.
     ///
-    /// `args` names the ECMA-262 replacer arguments the callback declared, in
-    /// order, as resolved by the frontend; each is rendered from the
-    /// `fancy-regex` `Captures` and from the subject string. Like every regex
-    /// site here it compiles with `fancy-regex`, because JavaScript patterns
-    /// use look-around (Hono's `buildWildcardRegExp` replaces with
-    /// `(?=[/{]|$)`), which the `regex` crate rejects; see
-    /// [`Self::regex_is_match_expr`].
+    /// The pattern is a `SmeltRegExp` (ECMAScript syntax on `regress`), and
+    /// `SmeltRegExp::replace_with` hands each match to the replacer as a typed
+    /// `SmeltMatch`. `args` names the ECMA-262 replacer arguments the callback
+    /// declared, in order, as resolved by the frontend; each is read off that
+    /// match (see [`Self::regex_replacer_argument_texts`]). Only TypeScript
+    /// lowers to this op.
     pub(super) fn regex_replace_callback_expr(
         &self,
         op: smelt_hir::StringReplaceOp,
@@ -475,60 +490,38 @@ impl FunctionEmitter<'_> {
         callback: &Operand,
         args: &[smelt_hir::RegexReplaceArg],
     ) -> Result<RustExpr, EmitError> {
-        self.require_string_operands(&[pattern, haystack], "regex replace callback")?;
-        let regex_text = format!(
-            "fancy_regex::Regex::new(&{}).expect(\"regex compile failed\")",
-            self.host_utf8_text(self.operand_expr(pattern)?)
-        );
-        let haystack_text = self.operand_expr(haystack)?;
+        let regex_text = self.regexp_operand_expr(pattern)?;
+        let haystack_text = self.string_like_operand_expr(haystack, "regex replace callback")?;
         let callback_text = self
             .closure_operand_expr(callback)
             .or_else(|_| self.operand_expr(callback))?;
         let arg_texts = self.regex_replacer_argument_texts(args, callback)?;
-        // JavaScript `String.prototype.replace(re, fn)` converts the callback's
-        // return value to a string (ToString) before substituting it. The Rust
-        // `regex` `Replacer` closure must therefore yield a `String`
-        // (`AsRef<str>`); a callback typed to return `unknown`/a union/etc.
-        // yields `SmeltUnknown`, which is not `AsRef<str>`. When the callback
-        // does not already return `String`, erase its result and take ToString of
-        // that, so the closure hands `replace` a real string.
+        // JavaScript converts the callback's answer to a string (ToString)
+        // before substituting it.
         let call_expr = format!("({callback_text})({})", arg_texts.join(", "));
-        let replacement_expr = self.regex_replacement_as_string(call_expr, callback)?;
-        let replacement = format!("|caps: &fancy_regex::Captures<'_>| {replacement_expr}");
-        // The subject string is bound once, before the replace call, because a
-        // `position`/`string` argument reads it from INSIDE the replacer closure
-        // and re-rendering the operand there would evaluate it a second time.
-        let method = match op {
-            smelt_hir::StringReplaceOp::First => "replace",
-            smelt_hir::StringReplaceOp::All => "replace_all",
-        };
-        let replaced = self.text_from_string(&format!("{regex_text}.{method}(&smelt_subject, {replacement}).to_string()"));
-        Ok(RustExpr::atom(format!(
-            "{{ let smelt_subject: String = {haystack_text}.to_string(); {replaced} }}"
+        let replacement_expr = self.regex_replacement_as_js_string(call_expr, callback)?;
+        let force_all = matches!(op, smelt_hir::StringReplaceOp::All);
+        Ok(RustExpr::postfix_on(&regex_text, format!(
+            "{regex_text}.replace_with(&{haystack_text}, {force_all}, |smelt_match: &SmeltMatch| {replacement_expr})"
         )))
     }
 
     /// Renders each declared replacer argument as Rust text at the callback's
-    /// own parameter type.
+    /// own parameter type, read off the current match `smelt_match`.
     ///
     /// Every role has one natural Rust rendering and one natural Smelt type:
     ///
     /// | role | rendering | type |
     /// | --- | --- | --- |
-    /// | `Matched` | capture group 0's text | `string` |
+    /// | `Matched` | group 0's text | `string` |
     /// | `Capture(n)` | group `n`'s text, `None` when it did not participate | `string \| undefined` |
-    /// | `Position` | characters before the match in the subject | `number` |
+    /// | `Position` | the match's code unit offset in the subject | `number` |
     /// | `Source` | the whole subject string | `string` |
     ///
     /// The callback may nonetheless have annotated a parameter differently (its
     /// contextual type is only a *hint*), so each rendering is routed through
     /// `rendered_at_type` to the declared parameter type. A callback whose
-    /// parameter types are not recoverable keeps the natural rendering, which is
-    /// what an erased-callback ABI expects anyway.
-    ///
-    /// `Position` counts CHARACTERS rather than bytes, matching the index
-    /// convention the string helpers in this module already use; JavaScript
-    /// counts UTF-16 code units, so the two agree outside astral planes.
+    /// parameter types are not recoverable keeps the natural rendering.
     fn regex_replacer_argument_texts(
         &self,
         args: &[smelt_hir::RegexReplaceArg],
@@ -545,30 +538,14 @@ impl FunctionEmitter<'_> {
         let mut texts = Vec::with_capacity(args.len());
         for (index, arg) in args.iter().enumerate() {
             let (natural_text, natural_ty) = match arg {
-                smelt_hir::RegexReplaceArg::Matched => (
-                    RustExpr::chain(self.text_from_string("caps.get(0).expect(\"regex match missing\").as_str().to_string()")),
-                    string_ty,
-                ),
-                smelt_hir::RegexReplaceArg::Capture(group) => (
-                    RustExpr::chain(format!("caps.get({group}).map(|smelt_group| {})", self.text_from_string("smelt_group.as_str().to_string()"))),
-                    optional_string_ty,
-                ),
-                smelt_hir::RegexReplaceArg::Position => (
-                    RustExpr::cast(format!(
-                        "{} as f64",
-                        self.string_index_of_byte_text(
-                            "smelt_subject",
-                            "caps.get(0).expect(\"regex match missing\").start()",
-                        )
-                    )),
-                    float_ty,
-                ),
-                smelt_hir::RegexReplaceArg::Source if self.indexes_utf16() => {
-                    (RustExpr::chain("JsString::from(smelt_subject.as_str())"), string_ty)
+                smelt_hir::RegexReplaceArg::Matched => {
+                    (RustExpr::chain("smelt_match.group_owned(0).unwrap_or_default()"), string_ty)
                 }
-                smelt_hir::RegexReplaceArg::Source => {
-                    (RustExpr::chain("smelt_subject.clone()").ending_in_clone(), string_ty)
+                smelt_hir::RegexReplaceArg::Capture(group) => {
+                    (RustExpr::chain(format!("smelt_match.group_owned({group})")), optional_string_ty)
                 }
+                smelt_hir::RegexReplaceArg::Position => (RustExpr::chain("smelt_match.index()"), float_ty),
+                smelt_hir::RegexReplaceArg::Source => (RustExpr::chain("smelt_match.input_owned()"), string_ty),
             };
             let text = match (natural_ty, param_tys.get(index)) {
                 (Some(source), Some(&target)) if source != target => {
@@ -581,13 +558,12 @@ impl FunctionEmitter<'_> {
         Ok(texts)
     }
 
-    /// Coerce a regex replacement callback's return value to a Rust `String`.
+    /// Coerce a replacer callback's answer to the `JsString` it substitutes.
     ///
-    /// JS ToStrings the callback result before substituting. A callback already
-    /// returning `String` needs no wrapping (it is a valid `Replacer`); any
-    /// other return type is erased to `SmeltUnknown` and extracted back as a
-    /// `String`, applying the same ToString rules JS uses.
-    fn regex_replacement_as_string(
+    /// A callback returning a string is used as is; any other answer is erased
+    /// and converted with JavaScript's ToString (`undefined` is the text
+    /// `undefined`, which a string extraction would read as empty).
+    fn regex_replacement_as_js_string(
         &self,
         call_expr: String,
         callback: &Operand,
@@ -597,15 +573,10 @@ impl FunctionEmitter<'_> {
             _ => return Ok(call_expr),
         };
         if matches!(self.mir.types.get(return_ty), Some(Type::String)) {
-            return Ok(format!("{call_expr}.to_string_lossy()"));
-        }
-        if matches!(self.mir.types.get(return_ty), Some(Type::PyStr)) {
             return Ok(call_expr);
         }
-        // The substitution is ToString of the answer: `undefined` is the text
-        // `undefined`, which a string extraction would read as empty.
         let erased = self.erase_rendered(&RustExpr::opaque(call_expr), return_ty)?;
-        Ok(format!("smelt_erased_to_js_string(&{erased}).to_string_lossy()"))
+        Ok(format!("smelt_erased_to_js_string(&{erased})"))
     }
 
     /// Converts a regex split operation to Rust text using the `fancy-regex` crate.
@@ -617,6 +588,12 @@ impl FunctionEmitter<'_> {
         pattern: &Operand,
         haystack: &Operand,
     ) -> Result<RustExpr, EmitError> {
+        // A JavaScript pattern splits with ECMA-262 `@@split` (`SmeltRegExp`).
+        if self.indexes_utf16() {
+            let regexp_text = self.regexp_operand_expr(pattern)?;
+            let haystack_text = self.string_like_operand_expr(haystack, "regex split")?;
+            return Ok(RustExpr::postfix_on(&regexp_text, format!("{regexp_text}.split_string(&{haystack_text})")));
+        }
         self.require_string_operands(&[pattern, haystack], "regex split")?;
         let regex_text = RustExpr::atom(format!(
             "fancy_regex::Regex::new(&{}).expect(\"regex compile failed\")",
@@ -1262,7 +1239,7 @@ impl FunctionEmitter<'_> {
             }
             return Ok(RustExpr::atom(format!(
                 "{{ let smelt_haystack = {haystack_text}; let smelt_from = ({index_text} as i64).max(0) as usize; let smelt_prefix_bytes = {prefix_bytes}; smelt_haystack.get(smelt_prefix_bytes..).map_or(false, |suffix| suffix.contains(&{needle_text})) }}",
-                prefix_bytes = self.string_byte_of_text("smelt_haystack", "smelt_from", true),
+                prefix_bytes = self.string_byte_of_text("smelt_haystack", "smelt_from"),
             )));
         }
         if !matches!(self.mir.types.get(haystack_ty), Some(Type::String | Type::PyStr)) {

@@ -51,7 +51,7 @@ module examples/typescript/end-to-end/123_string_from_codes_and_search/input.ts 
     #42: Float = len #41
     #43: None = @3(console_log)
     #44: None = call #43(#42)
-    #45: String = "[\&<>'"]"
+    #45: String = "[&<>'"]"
     #46: String = ""
     #47: RegExp = new RegExp(#45, #46)
     #48: String = "I <b>"

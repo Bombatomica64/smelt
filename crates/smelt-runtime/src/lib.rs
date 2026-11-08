@@ -137,7 +137,6 @@ mod runtime {
     include!("runtime/regexp_match.rs");
     include!("runtime/sqlite.rs");
     include!("runtime/string_to_number.rs");
-    include!("runtime/string_units.rs");
     include!("runtime/strings.rs");
     include!("runtime/structural_eq.rs");
     include!("runtime/symbol_keys.rs");

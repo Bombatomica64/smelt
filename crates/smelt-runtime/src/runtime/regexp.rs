@@ -1,59 +1,30 @@
 // `SmeltRegExp`.
 
-// Compiled-automaton memo, keyed by the translated Rust pattern text.
-//
-// A JavaScript `RegExp` object is constructed once (typically at module
-// evaluation, from a literal) and reused; the generated equivalent
-// rebuilds a `SmeltRegExp` wrapper wherever the value is referenced,
-// because `SmeltRegExp` carries observable mutable state (`lastIndex`)
-// and a per-object identity that must NOT be shared between distinct
-// source objects. The expensive half — compiling the pattern into a
-// `fancy_regex::Regex` — is pure and depends only on the pattern text,
-// so it is memoized here instead. Each wrapper therefore stays a fresh,
-// independently-mutable value while the automaton for a given pattern is
-// built at most once per thread. `Rc` (not `Arc`) matches the rest of the
-// single-threaded runtime, and the per-thread cell keeps each `#[test]`
-// thread independent. `None` is cached too, so an invalid pattern is not
-// recompiled on every call either.
-//
-// The map is unbounded: it retains one compiled automaton per distinct
-// pattern the thread has ever built. That is exactly one entry per regex
-// literal in the program, which is what the source itself would have kept
-// alive at module scope. A program that builds regexes from *dynamic*
-// strings (`new RegExp(input)`) instead retains one entry per distinct
-// input, which JavaScript would not — an eviction policy belongs here if
-// that shape ever shows up in a corpus, but no arbitrary cap is imposed
-// before there is a case to size it against.
 // @smelt:item SMELT_REGEX_CACHE when dep_regex
 thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 //~ Compiled-program budget for one pattern.
 //~
-//~ JavaScript imposes no size limit on a `RegExp`, but the Rust `regex`
-//~ crate defaults to a 10 MiB compiled program (and a 2 MiB lazy-DFA
-//~ cache) because it is written to accept patterns from untrusted input.
-//~ A pattern reached from generated code came out of the program's own
-//~ source, so that defence buys nothing here while the limit is directly
-//~ observable: a bounded repetition with a large upper bound -- `X{0,N}`,
-//~ the idiomatic JavaScript way to write a repetition that cannot be made
-//~ to backtrack forever -- expands to roughly `N` copies of `X` and blows
-//~ the default budget, which surfaced as a pattern that "does not
-//~ compile" even though it is perfectly well-formed JavaScript. The
-//~ budget is raised rather than removed (`usize::MAX` would turn a
-//~ genuinely pathological pattern into an OOM instead of an error) and it
-//~ is stated once, as a property of the engine and not of any pattern.
+//~ The Rust `regex` crate defaults to a 10 MiB compiled program (and a 2 MiB
+//~ lazy-DFA cache) because it is written to accept patterns from untrusted
+//~ input. A pattern reached from generated code came out of the program's
+//~ own source, so that defence buys nothing here while the limit is
+//~ directly observable: a bounded repetition with a large upper bound
+//~ (`X{0,N}`) expands to roughly `N` copies of `X` and blows the default
+//~ budget. The budget is raised rather than removed (`usize::MAX` would
+//~ turn a genuinely pathological pattern into an OOM instead of an error).
 const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;
 const SMELT_REGEX_DFA_SIZE_LIMIT: usize = 16 * 1024 * 1024;
 
-//~ Emits the JavaScript replacement-pattern expander used by `String.replace`.
-//~
-//~ The second argument of `String.prototype.replace` is not literal text: ECMA-262
-//~ `GetSubstitution` gives `$$`, `$&`, `` $` ``, `$'`, `$n`/`$nn` and `$<name>`
-//~ meanings relative to the current match, and any other `$x` stays literal.
-//~ The runtime used to push the replacement verbatim, so `'\\$&'` — the whole
-//~ point of a pattern like `escapeRegExp`'s — inserted the two characters `$&`
-//~ instead of the matched text.
-/// Expand one JavaScript replacement pattern against a match (ECMA-262 `GetSubstitution`).
+/// Compile a Python `re` pattern once per thread (`None`: it does not compile).
+fn smelt_py_regex(pattern: &str) -> Option<::std::rc::Rc<fancy_regex::Regex>> {
+    if let Some(cached) = SMELT_REGEX_CACHE.with(|cache| cache.borrow().get(pattern).cloned()) { return cached; }
+    let compiled = fancy_regex::RegexBuilder::new(pattern).delegate_size_limit(SMELT_REGEX_SIZE_LIMIT).delegate_dfa_size_limit(SMELT_REGEX_DFA_SIZE_LIMIT).build().ok().map(::std::rc::Rc::new);
+    SMELT_REGEX_CACHE.with(|cache| { cache.borrow_mut().insert(pattern.to_owned(), compiled.clone()); });
+    compiled
+}
+
+/// Expand one replacement pattern against a `fancy_regex` match.
 ///
 /// `$$` is a literal `$`, `$&` the match, `` $` `` and `$'` the text before
 /// and after it, `$n`/`$nn` a numbered group (two digits preferred when that
@@ -99,25 +70,109 @@ fn smelt_regex_substitution(replacement: &str, haystack: &str, captures: &fancy_
     out
 }
 
+/// Python `re.sub` / `str.replace` over a pattern: every (or the first)
+/// match replaced by the expanded replacement. A pattern that does not
+/// compile is a hard error naming it.
+fn smelt_py_regex_replace(pattern: &str, haystack: &str, replacement: &str, replace_all: bool) -> String {
+    let Some(regex) = smelt_py_regex(pattern) else { panic!("re.error: invalid regular expression: {pattern}") };
+    let mut output = String::new();
+    let mut last_end = 0usize;
+    for captures in regex.captures_iter(haystack).filter_map(Result::ok) {
+        let Some(matched) = captures.get(0) else { continue; };
+        output.push_str(haystack.get(last_end..matched.start()).unwrap_or(""));
+        output.push_str(&smelt_regex_substitution(replacement, haystack, &captures));
+        last_end = matched.end();
+        if !replace_all { break; }
+    }
+    output.push_str(haystack.get(last_end..).unwrap_or(""));
+    output
+}
+// @smelt:item-end
+
+// A JavaScript `RegExp`, on the `regress` engine.
+//
+// `regress` implements ECMAScript regular expression syntax and semantics
+// and matches over UTF-16 code units directly, so a `JsString` is searched
+// as it is stored: every index (`lastIndex`, a match's `index`, a group's
+// span) is a code unit index with no conversion, and a lone surrogate in the
+// subject or the pattern is an ordinary unit. With the `u` or `v` flag a
+// surrogate pair is one character (`find_from_utf16`); without them every
+// unit is a character (`find_from_ucs2`), as ECMA-262 specifies.
+//
+// The compiled automaton is memoized per (pattern, flags) in a per-thread
+// map and on the value itself (shared by its clones), so a hot `exec`
+// neither recompiles nor rehashes. The map holds one entry per distinct
+// pattern the thread has built: one per regex literal, which the source
+// itself keeps alive; a program that builds regexes from dynamic strings
+// keeps one per distinct input.
+// @smelt:item SMELT_REGRESS_CACHE when dep_regress
+thread_local! { static SMELT_REGRESS_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<regress::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
+
+/// Expand one JavaScript replacement pattern against a match (ECMA-262 `GetSubstitution`).
+///
+/// `$$` is a literal `$`, `$&` the match, `` $` `` and `$'` the text before
+/// and after it, `$n`/`$nn` a numbered group (two digits preferred when that
+/// group exists), `$<name>` a named group. Anything else, including a `$n`
+/// past the last group, is left exactly as written. Every position is a
+/// code unit of `haystack`.
+fn smelt_js_regex_substitution(replacement: &[u16], haystack: &[u16], found: &regress::Match, out: &mut Vec<u16>) {
+    let dollar = u16::from(b'$');
+    let range_units = |range: Option<::std::ops::Range<usize>>| range.and_then(|range| haystack.get(range)).unwrap_or(&[]);
+    let mut index = 0usize;
+    while let Some(&unit) = replacement.get(index) {
+        if unit != dollar { out.push(unit); index = index.saturating_add(1); continue; }
+        let next = replacement.get(index.saturating_add(1)).and_then(|next| u8::try_from(*next).ok());
+        match next {
+            Some(b'$') => { out.push(dollar); index = index.saturating_add(2); }
+            Some(b'&') => { out.extend_from_slice(range_units(Some(found.range()))); index = index.saturating_add(2); }
+            Some(b'`') => { out.extend_from_slice(haystack.get(..found.start()).unwrap_or(&[])); index = index.saturating_add(2); }
+            Some(b'\'') => { out.extend_from_slice(haystack.get(found.end()..).unwrap_or(&[])); index = index.saturating_add(2); }
+            Some(b'<') => {
+                let open = index.saturating_add(2);
+                if let Some(close) = (open..replacement.len()).find(|position| replacement.get(*position) == Some(&u16::from(b'>'))) {
+                    let name = String::from_utf16_lossy(replacement.get(open..close).unwrap_or(&[]));
+                    out.extend_from_slice(range_units(found.named_group(&name)));
+                    index = close.saturating_add(1);
+                } else {
+                    out.push(dollar);
+                    index = index.saturating_add(1);
+                }
+            }
+            Some(digit) if digit.is_ascii_digit() => {
+                let first = usize::from(digit - b'0');
+                let second = replacement.get(index.saturating_add(2)).and_then(|next| u8::try_from(*next).ok()).filter(u8::is_ascii_digit);
+                let two_digit = second.map(|value| first.saturating_mul(10).saturating_add(usize::from(value - b'0')));
+                let total = found.captures.len().saturating_add(1);
+                let selected = match two_digit { Some(group) if group >= 1 && group < total => Some((group, 3usize)), _ => if first >= 1 && first < total { Some((first, 2usize)) } else { None } };
+                if let Some((group, width)) = selected {
+                    out.extend_from_slice(range_units(found.group(group)));
+                    index = index.saturating_add(width);
+                } else {
+                    out.push(dollar);
+                    index = index.saturating_add(1);
+                }
+            }
+            _ => { out.push(dollar); index = index.saturating_add(1); }
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct SmeltRegExp {
     id: usize,
     //~ `source` and `flags` are immutable for a RegExp's lifetime, and
-    //~ generated code clones values freely (aggressive clone strategy):
-    //~ shared `Rc<str>` keeps a clone at reference-count increments
-    //~ instead of two string copies, and the compiled automaton is
-    //~ memoized on the value so `exec` skips rebuilding and hashing the
-    //~ translated pattern on every call
-    //~ (`blocker-logs/hono-crud-perf-round2.md`).
+    //~ generated code clones values freely: shared `Rc<str>` keeps a clone
+    //~ at reference-count increments instead of two string copies.
     source: ::std::rc::Rc<str>,
     flags: ::std::rc::Rc<str>,
     last_index: ::std::rc::Rc<::std::cell::RefCell<usize>>,
     /// The compiled automaton, shared by every clone (`None` inside: the pattern does not compile).
-    compiled: ::std::rc::Rc<::std::cell::OnceCell<::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>>,
+    compiled: ::std::rc::Rc<::std::cell::OnceCell<::std::option::Option<::std::rc::Rc<regress::Regex>>>>,
 }
 
 impl PartialEq for SmeltRegExp { fn eq(&self, other: &Self) -> bool { self.source == other.source && self.flags == other.flags && *self.last_index.borrow() == *other.last_index.borrow() } }
 
+#[allow(dead_code)]
 impl SmeltRegExp {
     /// Construct a JavaScript-like RegExp value with shared lastIndex state.
     ///
@@ -145,131 +200,170 @@ impl SmeltRegExp {
     pub fn has_flag(&self, flag: char) -> bool {
         self.flags.chars().any(|value| value == flag)
     }
-    /// Compile the Rust regex equivalent for this JavaScript RegExp.
+    /// Whether a surrogate pair is one character (`u` or `v`).
+    fn is_unicode(&self) -> bool {
+        self.has_flag('u') || self.has_flag('v')
+    }
+    /// Whether the search reads and writes `lastIndex` (`g` or `y`).
+    fn is_stateful(&self) -> bool {
+        self.has_flag('g') || self.has_flag('y')
+    }
+    /// The compiled automaton.
     ///
     /// A pattern that does not compile is a hard error naming the original
-    /// JavaScript spelling. Every RegExp operation goes through here for
-    /// that reason: the alternative -- returning the haystack unchanged, as
-    /// `replace`/`split`/`matchAll` used to -- turned an untranslated
-    /// pattern into a silent no-op that looked like a passing program.
-    fn compiled(&self) -> ::std::rc::Rc<fancy_regex::Regex> {
+    /// JavaScript spelling, so an unsupported pattern can never pass as a
+    /// silent no-op.
+    fn compiled(&self) -> ::std::rc::Rc<regress::Regex> {
         match self.try_compiled() { Some(regex) => regex, None => panic!("SyntaxError: invalid regular expression: /{}/{}", self.source, self.flags) }
     }
-    /// Try to compile the Rust regex equivalent for this JavaScript RegExp.
+    /// The compiled automaton, or `None` when the pattern does not compile.
     ///
-    /// The compiled automaton is memoized per translated pattern in
-    /// `SMELT_REGEX_CACHE`, so repeatedly constructing the same RegExp value
-    /// (for example a module-level pattern referenced from a hot function)
-    /// compiles it at most once per thread. Compilation is a pure function of
-    /// the pattern text, so sharing it is unobservable; the mutable
-    /// `lastIndex` state stays per-`SmeltRegExp`. The result is also kept on
-    /// the value itself (shared by its clones), so a hot `exec` neither
-    /// rebuilds the translated pattern nor hashes it again.
-    fn try_compiled(&self) -> Option<::std::rc::Rc<fancy_regex::Regex>> {
+    /// The flags `regress` reads are `i`, `m`, `s`, `u` and `v`; `g`, `y`
+    /// and `d` change how a search is driven and what it records, which
+    /// this type does itself.
+    fn try_compiled(&self) -> Option<::std::rc::Rc<regress::Regex>> {
         if let Some(compiled) = self.compiled.get() { return compiled.clone(); }
-        let mut prefix = String::new();
-        if self.has_flag('i') { prefix.push('i'); }
-        if self.has_flag('m') { prefix.push('m'); }
-        if self.has_flag('s') { prefix.push('s'); }
-        let translated_source = self.source.replace("[^]", "(?s:.)");
-        let pattern = if prefix.is_empty() { translated_source } else { format!("(?{prefix}){translated_source}") };
-        let compiled = if let Some(cached) = SMELT_REGEX_CACHE.with(|cache| cache.borrow().get(&pattern).cloned()) { cached } else { let compiled = fancy_regex::RegexBuilder::new(&pattern).delegate_size_limit(SMELT_REGEX_SIZE_LIMIT).delegate_dfa_size_limit(SMELT_REGEX_DFA_SIZE_LIMIT).build().ok().map(::std::rc::Rc::new); SMELT_REGEX_CACHE.with(|cache| { cache.borrow_mut().insert(pattern, compiled.clone()); }); compiled };
+        let engine_flags: String = self.flags.chars().filter(|flag| matches!(flag, 'i' | 'm' | 's' | 'u' | 'v')).collect();
+        let key = format!("{engine_flags}/{}", self.source);
+        let compiled = if let Some(cached) = SMELT_REGRESS_CACHE.with(|cache| cache.borrow().get(&key).cloned()) { cached } else {
+            //~ Without `u`/`v` a pattern is a sequence of code units, so an
+            //~ astral character in it is its two surrogate halves, matching
+            //~ the halves of the subject one by one; with them it is one
+            //~ code point. `from_unicode` takes the pattern as either.
+            let compiled = if self.is_unicode() {
+                regress::Regex::with_flags(&self.source, engine_flags.as_str())
+            } else {
+                regress::Regex::from_unicode(self.source.encode_utf16().map(u32::from), engine_flags.as_str())
+            }
+            .ok()
+            .map(::std::rc::Rc::new);
+            SMELT_REGRESS_CACHE.with(|cache| { cache.borrow_mut().insert(key, compiled.clone()); });
+            compiled
+        };
         let _ = self.compiled.set(compiled.clone());
         compiled
+    }
+    /// The first match starting at or after code unit `start`.
+    fn find_from(&self, regex: &regress::Regex, units: &[u16], start: usize) -> Option<regress::Match> {
+        if start > units.len() { return None; }
+        if self.is_unicode() { regex.find_from_utf16(units, start).next() } else { regex.find_from_ucs2(units, start).next() }
+    }
+    /// Every match, left to right, as a global search finds them.
+    fn find_all(&self, regex: &regress::Regex, units: &[u16]) -> Vec<regress::Match> {
+        if self.is_unicode() { regex.find_from_utf16(units, 0).collect() } else { regex.find_from_ucs2(units, 0).collect() }
     }
     /// Match a string with JavaScript String.prototype.match semantics.
     ///
     /// A non-global regex answers exactly what `exec` answers (the spec's
-    /// `RegExp.prototype[@@match]` IS `RegExpBuiltinExec` then), so an
-    /// unmatched capture group is `None` (JavaScript `undefined`) and a
-    /// sticky regex reads and advances `lastIndex`. A global regex resets
-    /// `lastIndex` to 0 and answers every whole match, built by
-    /// `SmeltMatch::from_global_matches`; no match at all is `None` (`null`).
+    /// `RegExp.prototype[@@match]` IS `RegExpBuiltinExec` then). A global
+    /// regex resets `lastIndex` to 0 and answers every whole match; no match
+    /// at all is `None` (`null`).
     pub fn match_string(&self, haystack: &JsStr) -> Option<SmeltMatch> {
         if !self.has_flag('g') { return self.exec(haystack); }
         self.match_all_strings(haystack).map(|matches| SmeltMatch::from_global_matches(matches, haystack))
     }
     /// Every whole match of a GLOBAL String.prototype.match, or `None` (`null`).
     ///
-    /// The spec resets `lastIndex` to 0 first and leaves it there. Called
-    /// directly where the regex is statically known to be global, which is
-    /// where the frontend types the result `string[] | null`.
+    /// The spec resets `lastIndex` to 0 first and leaves it there.
     pub fn match_all_strings(&self, haystack: &JsStr) -> Option<Vec<JsString>> {
         *self.last_index.borrow_mut() = 0;
         let regex = self.compiled();
-        let haystack = haystack.to_string_lossy();
-        let matches = regex.find_iter(&haystack).filter_map(Result::ok).map(|value| JsString::from(value.as_str())).collect::<Vec<_>>();
+        let units = haystack.units();
+        let matches = self.find_all(&regex, units).into_iter().map(|found| JsString::from_units(units.get(found.range()).unwrap_or(&[]))).collect::<Vec<_>>();
         if matches.is_empty() { None } else { Some(matches) }
     }
-    /// Split a string with JavaScript RegExp separator semantics.
+    /// `String.prototype.split` with a RegExp separator (ECMA-262 `@@split`).
+    ///
+    /// Each match ends a piece and contributes its capture groups (an absent
+    /// group is `undefined`, which a `string[]` result cannot hold, so it is
+    /// the empty string); an empty match at the start of a piece is skipped,
+    /// so `"ab".split(/(?:)/)` is `["a", "b"]`. An empty subject is `[""]`
+    /// unless the regex matches it, then `[]`.
     pub fn split_string(&self, haystack: &JsStr) -> Vec<JsString> {
         let regex = self.compiled();
-        let haystack = haystack.to_string_lossy();
-        regex.split(&haystack).filter_map(Result::ok).map(JsString::from).collect::<Vec<_>>()
+        let units = haystack.units();
+        let piece = |range: ::std::ops::Range<usize>| JsString::from_units(units.get(range).unwrap_or(&[]));
+        if units.is_empty() { return if self.find_from(&regex, units, 0).is_some() { Vec::new() } else { vec![JsString::new()] }; }
+        let (mut pieces, mut start, mut cursor) = (Vec::new(), 0usize, 0usize);
+        while cursor < units.len() {
+            let Some(found) = self.find_from(&regex, units, cursor) else { break; };
+            let (match_start, match_end) = (found.start(), found.end().min(units.len()));
+            if match_start >= units.len() { break; }
+            if match_end == start { cursor = match_start.saturating_add(1); continue; }
+            pieces.push(piece(start..match_start));
+            pieces.extend(found.captures.iter().map(|group| group.clone().map_or_else(JsString::new, piece)));
+            start = match_end;
+            cursor = start;
+        }
+        pieces.push(piece(start..units.len()));
+        pieces
     }
     /// Replace matches with JavaScript RegExp-aware String.prototype.replace semantics.
     ///
-    /// The replacement string is a PATTERN, not literal text: `$&`, `` $` ``,
-    /// `$'`, `$$`, `$n` and `$<name>` all stand for parts of the match (see
-    /// `smelt_regex_substitution`). It is expanded per match, which is why
-    /// this walks `captures_iter` rather than `find_iter`. The global and
-    /// single-replacement cases are one loop that stops after the first
-    /// match, so the two cannot disagree about the expansion.
+    /// The replacement string is a PATTERN (`$&`, `` $` ``, `$'`, `$$`, `$n`,
+    /// `$<name>`; see `smelt_js_regex_substitution`), expanded per match.
     pub fn replace_string(&self, haystack: &JsStr, replacement: &JsStr, force_all: bool) -> JsString {
-        let (haystack, replacement) = (&*haystack.to_string_lossy(), &*replacement.to_string_lossy());
+        let units = haystack.units();
         let regex = self.compiled();
         let replace_all = force_all || self.has_flag('g');
-        let mut output = String::new();
+        let mut output = Vec::with_capacity(units.len());
         let mut last_end = 0usize;
-        for captures in regex.captures_iter(haystack).filter_map(Result::ok) {
-            let Some(matched) = captures.get(0) else { continue; };
-            output.push_str(haystack.get(last_end..matched.start()).unwrap_or(""));
-            output.push_str(&smelt_regex_substitution(replacement, haystack, &captures));
+        let found = if replace_all { self.find_all(&regex, units) } else { self.find_from(&regex, units, 0).into_iter().collect() };
+        for matched in &found {
+            output.extend_from_slice(units.get(last_end..matched.start()).unwrap_or(&[]));
+            smelt_js_regex_substitution(replacement.units(), units, matched, &mut output);
             last_end = matched.end();
-            if !replace_all { break; }
         }
-        output.push_str(haystack.get(last_end..).unwrap_or(""));
-        JsString::from(output)
+        output.extend_from_slice(units.get(last_end..).unwrap_or(&[]));
+        JsString::from_units(&output)
+    }
+    /// `String.prototype.replace` with a replacer function: each (or the
+    /// first) match is replaced by what `replacer` answers for it.
+    pub fn replace_with(&self, haystack: &JsStr, force_all: bool, mut replacer: impl FnMut(&SmeltMatch) -> JsString) -> JsString {
+        let units = haystack.units();
+        let regex = self.compiled();
+        let replace_all = force_all || self.has_flag('g');
+        let found = if replace_all { self.find_all(&regex, units) } else { self.find_from(&regex, units, 0).into_iter().collect() };
+        let mut output = Vec::with_capacity(units.len());
+        let mut last_end = 0usize;
+        for matched in &found {
+            output.extend_from_slice(units.get(last_end..matched.start()).unwrap_or(&[]));
+            output.extend_from_slice(replacer(&SmeltMatch::from_regress(matched, haystack, false)).units());
+            last_end = matched.end();
+        }
+        output.extend_from_slice(units.get(last_end..).unwrap_or(&[]));
+        JsString::from_units(&output)
     }
     /// Execute this RegExp and return a concrete `SmeltMatch` result.
     ///
-    /// The match result is a typed `SmeltMatch` value (numbered groups,
-    /// named groups, `index`, `input`) instead of an erased `SmeltUnknown`
-    /// property bag; callers erase it explicitly at a dynamic boundary via
-    /// `SmeltMatch::into_smelt_unknown` when required.
+    /// A `g` or `y` regex starts at `lastIndex` and moves it past the match;
+    /// a FAILED stateful search resets it to 0, which is what makes `/a/g`
+    /// over "aa" answer true, true, false and then true again. A `y` match
+    /// must start exactly at `lastIndex`.
     pub fn exec(&self, haystack: &JsStr) -> Option<SmeltMatch> {
-        let haystack = &*haystack.to_string_lossy();
+        let units = haystack.units();
         let regex = self.compiled();
-        //~ `lastIndex` and a match's `index` count UTF-16 code units.
-        let start = if self.has_flag('g') || self.has_flag('y') { smelt_utf16_byte_of(haystack, *self.last_index.borrow()).unwrap_or_else(|byte| byte) } else { 0 };
-        let suffix = haystack.get(start..).unwrap_or("");
-        //~ A FAILED search on a stateful regex resets `lastIndex` to 0,
-        //~ which is what makes `/a/g` over "aa" answer true, true,
-        //~ false and then true AGAIN: the third call exhausts the string
-        //~ and rewinds, so the fourth starts over. Returning `None`
-        //~ without the reset left the regex permanently exhausted, so
-        //~ every later call answered false.
-        let Some(captures) = regex.captures(suffix).ok().flatten() else { if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = 0; } return None; };
-        let Some(matched) = captures.get(0) else { if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = 0; } return None; };
-        if self.has_flag('y') && matched.start() != 0 { *self.last_index.borrow_mut() = 0; return None; }
-        if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = smelt_utf16_index_of_byte(haystack, start + matched.end()); }
-        Some(SmeltMatch::from_captures(&regex, &captures, haystack, start, self.has_flag('d')))
+        let stateful = self.is_stateful();
+        let start = if stateful { *self.last_index.borrow() } else { 0 };
+        let found = self.find_from(&regex, units, start).filter(|found| !self.has_flag('y') || found.start() == start);
+        let Some(found) = found else { if stateful { *self.last_index.borrow_mut() = 0; } return None; };
+        if stateful { *self.last_index.borrow_mut() = found.end(); }
+        Some(SmeltMatch::from_regress(&found, haystack, self.has_flag('d')))
     }
     /// Return concrete `SmeltMatch` results for String.prototype.matchAll.
     pub fn match_all_indices(&self, haystack: &JsStr) -> Vec<SmeltMatch> {
-        let haystack = &*haystack.to_string_lossy();
         let regex = self.compiled();
-        regex.captures_iter(haystack).filter_map(Result::ok).filter_map(|captures| {
-            captures.get(0)?;
-            Some(SmeltMatch::from_captures(&regex, &captures, haystack, 0, self.has_flag('d')))
-        }
-        ).collect::<Vec<_>>()
+        self.find_all(&regex, haystack.units()).iter().map(|found| SmeltMatch::from_regress(found, haystack, self.has_flag('d'))).collect::<Vec<_>>()
     }
     /// `String.prototype.search`: the code unit index of the first match, if any.
     pub fn search_index(&self, haystack: &JsStr) -> Option<usize> {
-        let haystack = haystack.to_string_lossy();
-        let found = self.compiled().find(&haystack).ok().flatten()?;
-        Some(smelt_utf16_index_of_byte(&haystack, found.start()))
+        let regex = self.compiled();
+        self.find_from(&regex, haystack.units(), 0).map(|found| found.start())
+    }
+    /// Whether the pattern matches anywhere, ignoring `lastIndex`: `test` on
+    /// a regex without `g` or `y`, whose `lastIndex` stays 0.
+    pub fn is_match(&self, haystack: &JsStr) -> bool {
+        self.search_index(haystack).is_some()
     }
     /// Test this RegExp against a string with JavaScript lastIndex updates.
     pub fn test(&self, haystack: &JsStr) -> bool {
@@ -328,7 +422,7 @@ impl SmeltFromUnknown for SmeltRegExp {
 
 // @smelt:item-end
 
-// @smelt:item impl_Default_for_SmeltRegExp when dep_regex
+// @smelt:item impl_Default_for_SmeltRegExp when dep_regress
 impl Default for SmeltRegExp {
     /// Construct a RegExp that matches the empty string.
     fn default() -> Self {
