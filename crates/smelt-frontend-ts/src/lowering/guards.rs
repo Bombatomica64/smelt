@@ -3,6 +3,7 @@
 
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::peel::{Wrappers, peel};
+use super::new_expr::HostConstructor;
 use super::{ModuleBuilder, ambient_globals, unknown_kind_from_typeof};
 use crate::SmeltError;
 use crate::lowering::js_text::js_str_text;
@@ -286,9 +287,7 @@ impl ModuleBuilder<'_> {
     /// disagreement the globals plan warns against, so unmodeled host globals are
     /// deliberately excluded.
     pub(super) fn is_known_defined_global_constructor(name: &str) -> bool {
-        matches!(name, "Blob" | "File")
-            || Self::marker_only_builtin_marker(name).is_some()
-            || smelt_stdlib::byte_buffer_role(name).is_some()
+        HostConstructor::of(name).and_then(|kind| kind.overridable(name)).is_some()
     }
 
     /// Answer a `typeof x === '…'` / `!==` comparison from its equality-form
