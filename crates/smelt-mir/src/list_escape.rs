@@ -1123,13 +1123,6 @@ macro_rules! define_list_facts {
         /// [`OperandRole::ResultAlias`] instead of appearing here.
         #[must_use]
         #[expect(
-            clippy::wildcard_enum_match_arm,
-            reason = "the wildcard is the soundness guarantee: an `Rvalue` variant this \
-                      whitelist has not vetted must report `false` (not provably fresh), so \
-                      a variant added later degrades to a conservative `Escaping` verdict \
-                      rather than to a silently wrong `Local` one"
-        )]
-        #[expect(
             unused_variables,
             reason = "each arm binds every field; a fact reads the ones it needs"
         )]
@@ -1141,7 +1134,27 @@ macro_rules! define_list_facts {
                         smelt_hir::op_fresh!($($fact $fact_value)*)
                     }
                 )*
-                _ => false,
+                // Every hand-written variant but `List` is not provably fresh.
+                // Listed, not `_`: a variant added later must be vetted here,
+                // and answering `false` keeps its verdict a conservative
+                // `Escaping` rather than a silently wrong `Local`.
+                Rvalue::Use(..)
+                | Rvalue::DictEntryPush { .. }
+                | Rvalue::GeneratorYield { .. }
+                | Rvalue::Set(..)
+                | Rvalue::Dict(..)
+                | Rvalue::Tuple(..)
+                | Rvalue::Binary { .. }
+                | Rvalue::Unary { .. }
+                | Rvalue::UnionMethod { .. }
+                | Rvalue::BoundMethod { .. }
+                | Rvalue::BoundField { .. }
+                | Rvalue::Struct { .. }
+                | Rvalue::ExternalClassInstance { .. }
+                | Rvalue::Closure { .. }
+                | Rvalue::GlobalGet { .. }
+                | Rvalue::GlobalSet { .. }
+                | Rvalue::Await(..) => false,
             }
         }
 
@@ -1153,13 +1166,6 @@ macro_rules! define_list_facts {
         /// positions differ in role. **Any operand not named here gets
         /// [`OperandRole::Escapes`]**, including every operand of every variant that
         /// falls into the wildcard arm, so the table fails safe.
-        #[expect(
-            clippy::wildcard_enum_match_arm,
-            reason = "the wildcard is the soundness guarantee: an unlisted `Rvalue` variant \
-                      yields no roles, so every operand it reads falls to \
-                      `OperandRole::Escapes`. A variant added later fails safe instead of \
-                      silently producing a wrong `Local` verdict"
-        )]
         #[expect(
             unused_variables,
             unused_mut,
@@ -1218,10 +1224,13 @@ macro_rules! define_list_facts {
                         roles
                     }
                 )*
-                // Every other form publishes its operands. Falling here is what
-                // keeps a new variant from silently producing a wrong `Local`
-                // verdict.
-                _ => Vec::new(),
+                // No modelled role: every operand these read falls to
+                // `OperandRole::Escapes`. Listed, not `_`, so a variant added
+                // later is given its roles deliberately; an empty list is the
+                // fail-safe answer.
+                Rvalue::GeneratorYield { .. } | Rvalue::BoundField { .. } | Rvalue::GlobalGet { .. } => {
+                    Vec::new()
+                }
             }
         }
     };
