@@ -628,6 +628,34 @@ jobs:
   # progress: the generated test target does not build yet, and the exact count
   # of its rustc errors is pinned in blocker-logs/hono-ci-baseline.json. At zero
   # the tests run, and their results get pinned there.
+  # A build-only check: ts-pattern is not pinned to a test count, so nothing else
+  # would notice lowering refusing it. Its generated crate does not compile yet,
+  # so the gate stops at `smelt build`; about 100 s of lowering at 2.5 GB.
+  ts-pattern-build:
+    if: >-
+      ${{ github.event_name == 'push'
+          || contains(github.event.pull_request.labels.*.name, 'run-regressions') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          shared-key: build
+
+      - name: Build smelt
+        run: cargo build --bin smelt
+
+      - name: Check out ts-pattern
+        uses: ./.github/actions/checkout-library
+        with:
+          name: ts-pattern
+
+      - name: Transpile ts-pattern (a refused corpus fails here)
+        run: target/debug/smelt --manifest-path target/compat-repos/ts-pattern/Smelt.toml build
+
   hono:
     # Opt-in on PRs via the `run-regressions` label; always on for main pushes.
     # See the banner above `remeda-regression`.

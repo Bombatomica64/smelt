@@ -8,7 +8,7 @@ use crate::lowering::{ModuleBuilder, RestParam};
 use crate::lowering::spread_arguments::CallArg;
 use oxc::ast::ast::{Argument, Expression};
 use oxc::span::GetSpan;
-use smelt_hir::{Body, ErasureReason, Expr, ExprKind, FunctionType, Item, Literal, Span, Type};
+use smelt_hir::{Body, ErasureReason, Expr, ExprKind, FunctionType, Item, Literal, Span, Stmt, Type};
 
 impl ModuleBuilder<'_> {
     /// Lower a member call `object.property(args)` once the builtin, static and
@@ -135,11 +135,10 @@ impl ModuleBuilder<'_> {
             // No declaration answers this method, so the value decides at run
             // time through the erased call ABI.
             let span = self.span(call.span.start, call.span.end);
-            if let Some(prototype) = self.closed_prototype_missing(access_receiver_ty, property_name) {
-                return Err(SmeltError::unsupported(
-                    span,
-                    format!("`{prototype}.prototype.{property_name}` is not modelled"),
-                ));
+            if let Some(blocked) =
+                self.closed_prototype_call_blocked(access_receiver_ty, property_name, span, body)?
+            {
+                return Ok(blocked);
             }
             // not a new erasure: the resolved method already returns `unknown`
             let ty = self.unknown_type();
@@ -188,6 +187,74 @@ impl ModuleBuilder<'_> {
             ty: return_ty,
             span: self.span(call.span.start, call.span.end),
         }))
+    }
+
+    /// Report a call of a method a closed prototype does not model
+    /// ([`Self::closed_prototype_missing`]); `None` when the method is modelled.
+    ///
+    /// Outside the test tier the program cannot run as written, so it is a
+    /// transpile-time error. In a test-tier file one unmodelled method must not
+    /// take the rest of the suite down, so the call site throws a `TypeError`
+    /// naming the missing model instead: the test that reaches it fails with
+    /// that reason and its siblings run. It is deliberately not the
+    /// answer-everything `UnmodeledImport` value, through which a test would
+    /// pass having asserted nothing.
+    fn closed_prototype_call_blocked(
+        &mut self,
+        receiver_ty: smelt_hir::TypeId,
+        method: &str,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Some(prototype) = self.closed_prototype_missing(receiver_ty, method) else {
+            return Ok(None);
+        };
+        let message = format!("`{prototype}.prototype.{method}` is not modelled");
+        if !self.test_tier_module {
+            return Err(SmeltError::unsupported(span, message));
+        }
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let never_ty = self.ctx.krate.types.intern(Type::Never);
+        let mut closure_body = Body::new(None, span);
+        let text = closure_body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(message)),
+            ty: string_ty,
+            span,
+        });
+        let error = self.error_object_from_message(Some(text), "TypeError", span, &mut closure_body);
+        closure_body.push_stmt(Stmt::Throw(error));
+        let body_id = self.ctx.krate.push_body(closure_body);
+        let function = FunctionType {
+            params: Vec::new(),
+            rest: None,
+            required_params: None,
+            mutable_params: Vec::new(),
+            return_ty: never_ty,
+            is_async: false,
+            may_throw: true,
+        };
+        let closure_ty = self.ctx.krate.types.intern(Type::Function(function));
+        let callee = body.push_expr(Expr {
+            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
+                params: Vec::new(),
+                rest: None,
+                required_params: None,
+                return_ty: never_ty,
+                captures: Vec::new(),
+                body: body_id,
+                function_item: None,
+                span,
+            }),
+            ty: closure_ty,
+            span,
+        });
+        // not a new erasure: the erased call this replaces answered `unknown`
+        let ty = self.unknown_type();
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ClosureCall { callee, args: Vec::new() },
+            ty,
+            span,
+        })))
     }
 
     /// The prototype whose missing `method` a call on `receiver_ty` would
@@ -1047,18 +1114,17 @@ impl ModuleBuilder<'_> {
         // `closed_prototype_missing`.
         if self.ctx.krate.types.get(callee_ty) == Some(&Type::Unknown)
             && let Some(Expr { kind: ExprKind::Field { receiver, .. }, .. }) = body.expr_at(callee)
-            && let Some(prototype) = self.closed_prototype_missing(
-                Self::expr_ty(body, *receiver),
-                member.property.name.as_str(),
-            )
         {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                format!(
-                    "`{prototype}.prototype.{}` is not modelled",
-                    member.property.name
-                ),
-            ));
+            let receiver_ty = Self::expr_ty(body, *receiver);
+            let span = self.span(call.span.start, call.span.end);
+            if let Some(blocked) = self.closed_prototype_call_blocked(
+                receiver_ty,
+                member.property.name.as_str(),
+                span,
+                body,
+            )? {
+                return Ok(Some(blocked));
+            }
         }
         let has_spread = Self::call_has_spread_arguments(call);
         // A spread call dispatches through the runtime `SmeltUnknown` call ABI
