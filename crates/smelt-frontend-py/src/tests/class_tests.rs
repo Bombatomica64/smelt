@@ -67,36 +67,27 @@ values.clear()
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
 
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::SetAdd { .. })),
         "expected set.add lowering",
     )?;
     for expected in [SetRemoveOp::Discard, SetRemoveOp::Remove] {
         ensure(
-            body.exprs
-                .iter()
+            code.exprs()
                 .any(|expr| matches!(expr.kind, ExprKind::SetRemove { op, .. } if op == expected)),
             "expected set remove/discard lowering",
         )?;
     }
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::SetCopy { .. })),
         "expected set.copy lowering",
     )?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::SetClear { .. })),
         "expected set.clear lowering",
     )
@@ -118,12 +109,7 @@ superset: bool = left.issuperset(right)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
 
     for expected in [
         SetBinaryOp::Union,
@@ -132,21 +118,19 @@ superset: bool = left.issuperset(right)
         SetBinaryOp::SymmetricDifference,
     ] {
         ensure(
-            body.exprs
-                .iter()
+            code.exprs()
                 .any(|expr| matches!(expr.kind, ExprKind::SetBinary { op, .. } if op == expected)),
             "expected set algebra lowering",
         )?;
     }
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::SetDisjoint { .. })),
         "expected set.isdisjoint() predicate lowering",
     )?;
     for expected in [SetRelationOp::IsSubset, SetRelationOp::IsSuperset] {
         ensure(
-            body.exprs.iter().any(
+            code.exprs().any(
                 |expr| matches!(expr.kind, ExprKind::SetRelation { op, .. } if op == expected),
             ),
             "expected set relation predicate lowering",
@@ -165,17 +149,10 @@ missing: bool = 4 not in values
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
 
     ensure_eq(
-        &body
-            .exprs
-            .iter()
+        &code.exprs()
             .filter(|expr| matches!(expr.kind, ExprKind::TupleContains { .. }))
             .count(),
         &2,
@@ -196,24 +173,17 @@ empty: tuple[()] = pair[:0]
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
 
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .filter(|expr| matches!(expr.kind, ExprKind::TupleIndex { .. }))
             .count()
             >= 2,
         "expected tuple index lowering",
     )?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .filter(|expr| matches!(expr.kind, ExprKind::TupleSlice { .. }))
             .count()
             >= 2,
@@ -249,17 +219,10 @@ missing: bool = "b" not in values
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
 
     ensure_eq(
-        &body
-            .exprs
-            .iter()
+        &code.exprs()
             .filter(|expr| matches!(expr.kind, ExprKind::DictContainsKey { .. }))
             .count(),
         &2,
@@ -277,14 +240,10 @@ parts: list[str] = word.split(",")
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body_id = module
-        .body
-        .ok_or_else(|| "expected module body".to_owned())?;
-    let body = body(&ctx, body_id)?;
+    let code = module_code(&ctx, module)?;
 
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::StringSplit { .. })),
         "expected string split lowering",
     )?;
@@ -556,11 +515,9 @@ also_ok: int = codes.ALSO_OK
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let module_body = body(&ctx, module.body.ok_or("expected module body")?)?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        module_body
-            .exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Int(200)))),
         "expected IntEnum member lookup to lower to integer literal",
     )?;
@@ -610,11 +567,9 @@ reason: str = codes.get_reason_phrase(200)
             .any(|local| local.name.and_then(|name| symbol(&ctx, name).ok()) == Some("cls")),
         "expected cls local binding",
     )?;
-    let module_body = body(&ctx, module.body.ok_or("expected module body")?)?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        module_body
-            .exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::Call { .. })),
         "expected class-level classmethod call",
     )?;
@@ -1430,12 +1385,20 @@ LIMIT = 10
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let module_body = body(&ctx, module.body.ok_or("expected a module body")?)?;
+    // The binding is a module global holding 10 (see `module_code`), and no
+    // type alias is declared for it.
     ensure(
-        module_body
-            .stmts
+        module.items.iter().any(|item_id| {
+            matches!(
+                item(&ctx, *item_id),
+                Ok(Item::MutableGlobal(global))
+                    if symbol(&ctx, global.name).ok() == Some("LIMIT")
+                        && matches!(global.init, smelt_hir::MutableGlobalInit::Literal(Literal::Int(10)))
+            )
+        }) && !module
+            .items
             .iter()
-            .any(|stmt| matches!(stmt, Stmt::Let { .. })),
+            .any(|item_id| matches!(item(&ctx, *item_id), Ok(Item::TypeAlias(_)))),
         "a value assignment must still lower as a binding, not be skipped as an alias",
     )?;
     Ok(())

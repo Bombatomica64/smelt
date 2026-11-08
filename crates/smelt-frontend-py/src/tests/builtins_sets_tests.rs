@@ -11,12 +11,7 @@ items: list[tuple[str, int]] = mapping.items()
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
 
     for expected in [
         DictProjectionOp::Keys,
@@ -24,7 +19,7 @@ items: list[tuple[str, int]] = mapping.items()
         DictProjectionOp::Entries,
     ] {
         ensure(
-            body.exprs.iter().any(
+            code.exprs().any(
                 |expr| matches!(expr.kind, ExprKind::DictProjection { op, .. } if op == expected),
             ),
             "expected dict projection lowering",
@@ -67,12 +62,7 @@ nan_value: bool = math.isnan(value)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
 
     for expected in [
         NumericUnaryFuncOp::Sqrt,
@@ -88,21 +78,19 @@ nan_value: bool = math.isnan(value)
         NumericUnaryFuncOp::Exp,
     ] {
         ensure(
-            body.exprs.iter().any(
+            code.exprs().any(
                 |expr| matches!(expr.kind, ExprKind::NumericUnaryFunc { op, .. } if op == expected),
             ),
             "expected math unary lowering",
         )?;
     }
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::NumericPow { .. })),
         "expected math.pow lowering",
     )?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::NumericAtan2 { .. })),
         "expected math.atan2 lowering",
     )?;
@@ -112,7 +100,7 @@ nan_value: bool = math.isnan(value)
         NumericRoundOp::Trunc,
     ] {
         ensure(
-            body.exprs.iter().any(
+            code.exprs().any(
                 |expr| matches!(expr.kind, ExprKind::NumericRound { op, .. } if op == expected),
             ),
             "expected math rounding lowering",
@@ -120,7 +108,7 @@ nan_value: bool = math.isnan(value)
     }
     for expected in [NumericPredicateOp::IsFinite, NumericPredicateOp::IsNaN] {
         ensure(
-            body.exprs.iter().any(
+            code.exprs().any(
                 |expr| matches!(expr.kind, ExprKind::NumericPredicate { op, .. } if op == expected),
             ),
             "expected math predicate lowering",
@@ -132,7 +120,7 @@ nan_value: bool = math.isnan(value)
         std::f64::consts::TAU,
     ] {
         ensure(
-            body.exprs.iter().any(|expr| {
+            code.exprs().any(|expr| {
                 matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == expected)
             }),
             "expected math constant lowering",
@@ -153,28 +141,20 @@ picked: str = random.choice(values)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
 
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::NumericRandom)),
         "expected random.random lowering",
     )?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::NumericRandomInt { .. })),
         "expected random.randint lowering",
     )?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::ListRandomChoice { .. })),
         "expected random.choice lowering",
     )?;
@@ -192,16 +172,11 @@ lowest: int = min(first, second)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
 
     for expected in [NumericExtremaOp::Max, NumericExtremaOp::Min] {
         ensure(
-            body.exprs.iter().any(
+            code.exprs().any(
                 |expr| matches!(expr.kind, ExprKind::NumericExtrema { op, .. } if op == expected),
             ),
             "expected Python min/max lowering",
@@ -221,15 +196,8 @@ float_total: float = sum(floats)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
-    let sums = body
-        .exprs
-        .iter()
+    let code = module_code(&ctx, module)?;
+    let sums = code.exprs()
         .filter(|expr| matches!(expr.kind, ExprKind::ListSum { .. }))
         .count();
     ensure_eq(&sums, &2, "list sum count")
@@ -246,12 +214,7 @@ as_bool: bool = bool("")
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
 
     for expected in [
         PrimitiveCastOp::ToString,
@@ -260,7 +223,7 @@ as_bool: bool = bool("")
         PrimitiveCastOp::ToBool,
     ] {
         ensure(
-            body.exprs.iter().any(
+            code.exprs().any(
                 |expr| matches!(expr.kind, ExprKind::PrimitiveCast { op, .. } if op == expected),
             ),
             "expected primitive conversion lowering",
@@ -279,14 +242,9 @@ missing: bool = "xyz" not in word
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body_id = module
-        .body
-        .ok_or_else(|| "expected module body".to_owned())?;
-    let body = body(&ctx, body_id)?;
+    let code = module_code(&ctx, module)?;
 
-    let contains_count = body
-        .exprs
-        .iter()
+    let contains_count = code.exprs()
         .filter(|expr| matches!(expr.kind, ExprKind::StringContains { .. }))
         .count();
     ensure_eq(&contains_count, &2, "string contains count")?;
@@ -303,16 +261,11 @@ any_values: bool = any(values)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
 
     for expected in [BoolFoldOp::All, BoolFoldOp::Any] {
         ensure(
-            body.exprs.iter().any(
+            code.exprs().any(
                 |expr| matches!(expr.kind, ExprKind::ListBoolFold { op, .. } if op == expected),
             ),
             "expected bool fold lowering",
@@ -330,16 +283,10 @@ ordered: list[int] = sorted(values)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
 
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::ListSorted { .. })),
         "expected sorted lowering",
     )?;
@@ -349,22 +296,18 @@ ordered: list[int] = sorted(values)
 #[test]
 fn builtin_sorted_key_and_reverse_lower() -> TestResult {
     let source = py!(r"
-bias: int = 10
-values: list[int] = [2, 1]
-ordered: list[int] = sorted(values, key=lambda value: value + bias, reverse=True)
+def run() -> None:
+    bias: int = 10
+    values: list[int] = [2, 1]
+    ordered: list[int] = sorted(values, key=lambda value: value + bias, reverse=True)
 ");
     let mut ctx = HirCtx::new();
-    let module_id = lower_module(source, &mut ctx)?;
-    let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    lower_module(source, &mut ctx)?;
+    // In a function, `factor`/`bias` are locals the lambda captures (at
+    // module level they are module globals it reads).
 
     ensure(
-        body.exprs.iter().any(|expr| {
+        ctx.krate.bodies.iter().any(|body| body.exprs.iter().any(|expr| {
             matches!(
                 &expr.kind,
                 ExprKind::ListSorted {
@@ -373,7 +316,7 @@ ordered: list[int] = sorted(values, key=lambda value: value + bias, reverse=True
                     ..
                 } if closure_cfg_has_capture(&ctx, body, *key)
             )
-        }),
+        })),
         "expected sorted key+reverse lowering",
     )?;
     Ok(())
@@ -382,22 +325,18 @@ ordered: list[int] = sorted(values, key=lambda value: value + bias, reverse=True
 #[test]
 fn list_sort_key_and_reverse_lower() -> TestResult {
     let source = py!(r"
-bias: int = 10
-values: list[int] = [2, 1]
-ordered: None = values.sort(key=lambda value: value + bias, reverse=True)
+def run() -> None:
+    bias: int = 10
+    values: list[int] = [2, 1]
+    ordered: None = values.sort(key=lambda value: value + bias, reverse=True)
 ");
     let mut ctx = HirCtx::new();
-    let module_id = lower_module(source, &mut ctx)?;
-    let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    lower_module(source, &mut ctx)?;
+    // In a function, `factor`/`bias` are locals the lambda captures (at
+    // module level they are module globals it reads).
 
     ensure(
-        body.exprs.iter().any(|expr| {
+        ctx.krate.bodies.iter().any(|body| body.exprs.iter().any(|expr| {
             matches!(
                 &expr.kind,
                 ExprKind::ListSort {
@@ -407,7 +346,7 @@ ordered: None = values.sort(key=lambda value: value + bias, reverse=True)
                     ..
                 } if closure_cfg_has_capture(&ctx, body, *key)
             )
-        }),
+        })),
         "expected list.sort key+reverse lowering",
     )?;
     Ok(())
@@ -431,23 +370,19 @@ ordered: list[int] = sorted(values, reverse=flag)
 #[test]
 fn builtin_map_filter_lambda_callbacks_lower() -> TestResult {
     let source = py!(r"
-factor: int = 2
-values: list[int] = [1, 2, 3]
-scaled: list[int] = list(map(lambda value: value * factor, values))
-filtered: list[int] = list(filter(lambda value: value > factor, values))
+def run() -> None:
+    factor: int = 2
+    values: list[int] = [1, 2, 3]
+    scaled: list[int] = list(map(lambda value: value * factor, values))
+    filtered: list[int] = list(filter(lambda value: value > factor, values))
 ");
     let mut ctx = HirCtx::new();
-    let module_id = lower_module(source, &mut ctx)?;
-    let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    lower_module(source, &mut ctx)?;
+    // In a function, `factor`/`bias` are locals the lambda captures (at
+    // module level they are module globals it reads).
 
     ensure(
-        body.exprs.iter().any(|expr| {
+        ctx.krate.bodies.iter().any(|body| body.exprs.iter().any(|expr| {
             matches!(
                 &expr.kind,
                 ExprKind::ListCallback {
@@ -456,11 +391,11 @@ filtered: list[int] = list(filter(lambda value: value > factor, values))
                     ..
                 } if closure_cfg_has_capture(&ctx, body, *callback)
             )
-        }),
+        })),
         "expected map lambda callback lowering",
     )?;
     ensure(
-        body.exprs.iter().any(|expr| {
+        ctx.krate.bodies.iter().any(|body| body.exprs.iter().any(|expr| {
             matches!(
                 &expr.kind,
                 ExprKind::ListCallback {
@@ -469,7 +404,7 @@ filtered: list[int] = list(filter(lambda value: value > factor, values))
                     ..
                 } if closure_cfg_has_capture(&ctx, body, *callback)
             )
-        }),
+        })),
         "expected filter lambda callback lowering",
     )?;
     Ok(())
@@ -479,23 +414,19 @@ filtered: list[int] = list(filter(lambda value: value > factor, values))
 fn builtin_map_local_lambda_callback_lowers() -> TestResult {
     let source = py!(r"
 from typing import Callable
-factor: int = 2
-values: list[int] = [1, 2, 3]
-scale: Callable[[int], int] = lambda value: value * factor
-scaled: list[int] = list(map(scale, values))
+def run() -> None:
+    factor: int = 2
+    values: list[int] = [1, 2, 3]
+    scale: Callable[[int], int] = lambda value: value * factor
+    scaled: list[int] = list(map(scale, values))
 ");
     let mut ctx = HirCtx::new();
-    let module_id = lower_module(source, &mut ctx)?;
-    let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    lower_module(source, &mut ctx)?;
+    // In a function, `factor`/`bias` are locals the lambda captures (at
+    // module level they are module globals it reads).
 
     ensure(
-        body.exprs.iter().any(|expr| {
+        ctx.krate.bodies.iter().any(|body| body.exprs.iter().any(|expr| {
             matches!(
                 &expr.kind,
                 ExprKind::ListCallback {
@@ -504,7 +435,7 @@ scaled: list[int] = list(map(scale, values))
                     ..
                 } if local_bound_to_capturing_closure(&ctx, body, *callback)
             )
-        }),
+        })),
         "expected local map lambda callback lowering",
     )?;
     Ok(())
@@ -520,7 +451,7 @@ fn local_bound_to_capturing_closure(ctx: &HirCtx, body: &Body, callback: smelt_h
         return false;
     };
     body.stmts.iter().any(|stmt| {
-        let smelt_hir::Stmt::Let {
+        let Stmt::Let {
             pat,
             value: Some(value),
             ..
@@ -531,7 +462,7 @@ fn local_bound_to_capturing_closure(ctx: &HirCtx, body: &Body, callback: smelt_h
         usize::try_from(pat.0)
             .ok()
             .and_then(|index| body.patterns.get(index))
-            .is_some_and(|pattern| matches!(pattern, smelt_hir::Pattern::Binding(bound) if bound == local))
+            .is_some_and(|pattern| matches!(pattern, Pattern::Binding(bound) if bound == local))
             && closure_cfg_has_capture(ctx, body, *value)
     })
 }
@@ -545,16 +476,10 @@ flipped: list[int] = reversed(values)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
 
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::ListReversed { .. })),
         "expected reversed lowering",
     )?;
@@ -574,15 +499,9 @@ item_pairs: list[tuple[int, int]] = enumerate(items)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .filter(|expr| matches!(expr.kind, ExprKind::ListEnumerate { .. }))
             .count()
             == 3,
@@ -603,15 +522,9 @@ mixed: list[tuple[str, int]] = zip(lookup, items)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .filter(|expr| matches!(expr.kind, ExprKind::ListZip { .. }))
             .count()
             == 2,
@@ -632,23 +545,16 @@ for value in range(3):
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .filter(|expr| matches!(expr.kind, ExprKind::ListRange { .. }))
             .count()
             >= 4,
         "expected range lowering",
     )?;
     ensure(
-        body.stmts
-            .iter()
+        code.stmts()
             .any(|stmt| matches!(stmt, Stmt::For { .. })),
         "expected for range lowering",
     )
@@ -720,14 +626,9 @@ missing: bool = 4 not in values
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body_id = module
-        .body
-        .ok_or_else(|| "expected module body".to_owned())?;
-    let body = body(&ctx, body_id)?;
+    let code = module_code(&ctx, module)?;
 
-    let contains_count = body
-        .exprs
-        .iter()
+    let contains_count = code.exprs()
         .filter(|expr| matches!(expr.kind, ExprKind::ListContains { .. }))
         .count();
     ensure_eq(&contains_count, &2, "list contains count")?;
@@ -744,23 +645,15 @@ missing: bool = 4 not in values
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
 
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::SetLit(_))),
         "expected set literal lowering",
     )?;
     ensure_eq(
-        &body
-            .exprs
-            .iter()
+        &code.exprs()
             .filter(|expr| matches!(expr.kind, ExprKind::SetContains { .. }))
             .count(),
         &2,

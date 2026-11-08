@@ -325,15 +325,10 @@ replaced: str = word.replace("hello", "hi")
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
 
     ensure(
-        body.exprs.iter().any(|expr| {
+        code.exprs().any(|expr| {
             matches!(
                 expr.kind,
                 ExprKind::StringReplace {
@@ -357,16 +352,11 @@ without_suffix: str = word.removesuffix("-suf")
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
 
     for expected in [StringAffixOp::StartsWith, StringAffixOp::EndsWith] {
         ensure(
-            body.exprs.iter().any(
+            code.exprs().any(
                 |expr| matches!(expr.kind, ExprKind::StringRemoveAffix { op, .. } if op == expected),
             ),
             "expected string remove-affix lowering",
@@ -386,12 +376,7 @@ alnum: bool = word.isalnum()
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
 
     for expected in [
         StringPredicateOp::IsDigit,
@@ -399,7 +384,7 @@ alnum: bool = word.isalnum()
         StringPredicateOp::IsAlnum,
     ] {
         ensure(
-            body.exprs.iter().any(
+            code.exprs().any(
                 |expr| matches!(expr.kind, ExprKind::StringPredicate { op, .. } if op == expected),
             ),
             "expected string predicate lowering",
@@ -417,16 +402,10 @@ joined: str = "-".join(parts)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
 
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::StringJoin { .. })),
         "expected string join lowering",
     )?;

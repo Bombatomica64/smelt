@@ -473,6 +473,9 @@ impl ModuleBuilder<'_> {
             if let Some(expr) = self.local_callable_call(call, name_str, body)? {
                 return Ok(Some(expr));
             }
+            if let Some(expr) = self.global_callable_call(call, name_str, body)? {
+                return Ok(Some(expr));
+            }
             if let Some(&item_id) = self.items.get(name_str) {
                 let item = self.item_ref(item_id);
                 match item {
@@ -621,6 +624,53 @@ impl ModuleBuilder<'_> {
                 param_names: None,
                 vararg: callback_meta.as_ref().and_then(|callback| callback.vararg),
                 kwarg: callback_meta.as_ref().and_then(|callback| callback.kwarg),
+                defaults: &defaults,
+                label: "closure",
+                type_params: &[],
+            },
+        )?;
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::ClosureCall { callee, args },
+            ty: function.return_ty,
+            span: self.span(call.range()),
+        })))
+    }
+
+    /// Lower a call of a module global holding a function value
+    /// (`handler = lambda x: x + 1`, then `handler(2)` anywhere in the
+    /// module): read the global, then call the closure it holds.
+    ///
+    /// Such a global's lambda has neither defaults nor `*args`/`**kwargs`
+    /// (see `lambda_with_call_metadata`), so the call binds its arguments to
+    /// the function type's parameters alone.
+    fn global_callable_call(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        name: &str,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if self.scope.locals.contains_key(name) {
+            return Ok(None);
+        }
+        let Some(&item_id) = self.items.get(name) else {
+            return Ok(None);
+        };
+        let Item::MutableGlobal(global) = self.item_ref(item_id) else {
+            return Ok(None);
+        };
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(global.ty).cloned() else {
+            return Ok(None);
+        };
+        let callee = self.identifier_expression(name, call.func.range(), body)?;
+        let defaults = vec![None; function.params.len()];
+        let args = self.callable_call_args(
+            call,
+            body,
+            &CallableCallSignature {
+                params: &function.params,
+                param_names: None,
+                vararg: None,
+                kwarg: None,
                 defaults: &defaults,
                 label: "closure",
                 type_params: &[],

@@ -10,15 +10,9 @@ value: int = mapping.setdefault("b", 2)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::DictSetDefault { .. })),
         "expected dict setdefault lowering",
     )
@@ -34,15 +28,9 @@ result: None = left.update(right)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::DictUpdate { .. })),
         "expected dict update lowering",
     )
@@ -57,15 +45,9 @@ copied: dict[str, int] = mapping.copy()
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::DictCopy { .. })),
         "expected dict copy lowering",
     )

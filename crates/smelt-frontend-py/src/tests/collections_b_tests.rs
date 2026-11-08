@@ -10,15 +10,9 @@ item: int = values.pop()
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::ListPop { .. })),
         "expected list pop lowering",
     )
@@ -35,21 +29,14 @@ dict_result: None = mapping.clear()
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::ListClear { .. })),
         "expected list clear lowering",
     )?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::DictClear { .. })),
         "expected dict clear lowering",
     )
@@ -64,15 +51,9 @@ copied: list[int] = values.copy()
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::ListCopy { .. })),
         "expected list copy lowering",
     )
@@ -105,39 +86,30 @@ coord_set: set[int] = set(coords)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
 
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::ListCopy { .. })),
         "expected list constructor copy lowering",
     )?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::SetCopy { .. })),
         "expected set constructor copy lowering",
     )?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::DictCopy { .. })),
         "expected dict constructor copy lowering",
     )?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::ListPairsToDict { .. })),
         "expected dict(list_of_pairs) conversion lowering",
     )?;
     ensure(
-        body.exprs.iter().any(|expr| {
+        code.exprs().any(|expr| {
             matches!(
                 expr.kind,
                 ExprKind::SetProjection {
@@ -149,7 +121,7 @@ coord_set: set[int] = set(coords)
         "expected list(set_value) to lower through set values projection",
     )?;
     ensure(
-        body.exprs.iter().any(|expr| {
+        code.exprs().any(|expr| {
             matches!(
                 expr.kind,
                 ExprKind::DictProjection {
@@ -161,48 +133,41 @@ coord_set: set[int] = set(coords)
         "expected list(dict_value) to lower through dict keys projection",
     )?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::ListToSet { .. })),
         "expected set(list_value) conversion lowering",
     )?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::ListToTuple { .. })),
         "expected tuple(list_value) conversion lowering",
     )?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::TupleToList { .. })),
         "expected list(tuple_value) conversion lowering",
     )?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::TupleToSet { .. })),
         "expected set(tuple_value) conversion lowering",
     )?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .filter(|expr| matches!(expr.kind, ExprKind::ListLit(ref items) if items.is_empty()))
             .count()
             >= 1,
         "expected empty list constructor lowering",
     )?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .filter(|expr| matches!(expr.kind, ExprKind::SetLit(ref items) if items.is_empty()))
             .count()
             >= 1,
         "expected empty set constructor lowering",
     )?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .filter(
                 |expr| matches!(expr.kind, ExprKind::DictLit(ref entries) if entries.is_empty()),
             )
@@ -221,15 +186,9 @@ count: int = values.count(1)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::ListCount { .. })),
         "expected list count lowering",
     )
@@ -244,15 +203,9 @@ index: int = values.index(2)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::ListIndex { .. })),
         "expected list index lowering",
     )
@@ -267,15 +220,9 @@ result: None = values.remove(2)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::ListRemove { .. })),
         "expected list remove lowering",
     )
@@ -294,15 +241,8 @@ float_keyword_result: None = floats.sort(key=None)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
-    let sorts = body
-        .exprs
-        .iter()
+    let code = module_code(&ctx, module)?;
+    let sorts = code.exprs()
         .filter(|expr| {
             matches!(
                 expr.kind,
@@ -326,15 +266,8 @@ fallback: int = mapping.pop("b", 0)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
-    let pops = body
-        .exprs
-        .iter()
+    let code = module_code(&ctx, module)?;
+    let pops = code.exprs()
         .filter(|expr| matches!(expr.kind, ExprKind::DictPop { .. }))
         .count();
     ensure_eq(&pops, &2, "dict pop count")
@@ -350,15 +283,8 @@ fallback: int = mapping.get("b", 0)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
-    let gets = body
-        .exprs
-        .iter()
+    let code = module_code(&ctx, module)?;
+    let gets = code.exprs()
         .filter(|expr| matches!(expr.kind, ExprKind::DictGet { .. }))
         .count();
     ensure_eq(&gets, &2, "dict get count")

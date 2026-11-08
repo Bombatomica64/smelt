@@ -19,11 +19,15 @@ fn make_adder(base: i64) -> ::std::rc::Rc<dyn Fn(i64) -> i64> {
     return add.clone();
 }
 
-fn main() {
+fn run() -> () {
     let adder: ::std::rc::Rc<dyn Fn(i64) -> i64>;
     let result: i64;
     let _smelt_tmp_2 = make_adder(5).clone();
     adder = _smelt_tmp_2.clone();
     result = (adder)(6);
+    return;
+}
+
+fn main() {
     return;
 }

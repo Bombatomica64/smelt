@@ -35,10 +35,11 @@ any_values: bool = any(values)
 fn emits_python_map_filter_lambda_callbacks() {
     let source = source_for_py(
         r"
-factor: int = 2
-values: list[int] = [1, 2, 3]
-scaled: list[int] = list(map(lambda value: value * factor, values))
-filtered: list[int] = list(filter(lambda value: value > factor, values))
+def run() -> None:
+    factor: int = 2
+    values: list[int] = [1, 2, 3]
+    scaled: list[int] = list(map(lambda value: value * factor, values))
+    filtered: list[int] = list(filter(lambda value: value > factor, values))
 ",
     );
 
@@ -54,9 +55,6 @@ fn emits_python_first_class_closure_values() {
         r"
 from typing import Callable
 
-offset: int = 2
-add_offset: Callable[[int], int] = lambda value: value + offset
-
 def apply(value: int, fn: Callable[[int], int]) -> int:
     return fn(value)
 
@@ -64,10 +62,14 @@ def make_adder(base: int) -> Callable[[int], int]:
     add: Callable[[int], int] = lambda value: value + base
     return add
 
-direct: int = add_offset(3)
-passed: int = apply(4, add_offset)
-adder: Callable[[int], int] = make_adder(5)
-returned: int = adder(6)
+def run() -> None:
+    offset: int = 2
+    add_offset: Callable[[int], int] = lambda value: value + offset
+
+    direct: int = add_offset(3)
+    passed: int = apply(4, add_offset)
+    adder: Callable[[int], int] = make_adder(5)
+    returned: int = adder(6)
 ",
     );
 
@@ -227,8 +229,9 @@ def make_adder(base: int) -> Callable[[int], int]:
         return value + base
     return add
 
-adder: Callable[[int], int] = make_adder(5)
-result: int = adder(6)
+def run() -> None:
+    adder: Callable[[int], int] = make_adder(5)
+    result: int = adder(6)
 ",
     );
 
@@ -513,8 +516,10 @@ const values = JSON.parse<number[]>(text);
     let py_source = source_for_py(
         r#"
 import json
-text: str = "[1,2]"
-values: list[int] = json.loads(text)
+
+def run() -> None:
+    text: str = "[1,2]"
+    values: list[int] = json.loads(text)
 "#,
     );
 
@@ -964,14 +969,15 @@ for (const entry: [string, number] of mapping) {
 fn emits_python_set_and_dict_for_loops() {
     let source = source_for_py(
         r#"
-items: set[int] = {1, 2}
-total: int = 0
-for item in items:
-    total = total + item
-names: dict[str, int] = {"Ada": 1}
-last: str = ""
-for name in names:
-    last = name
+def run() -> None:
+    items: set[int] = {1, 2}
+    total: int = 0
+    for item in items:
+        total = total + item
+    names: dict[str, int] = {"Ada": 1}
+    last: str = ""
+    for name in names:
+        last = name
 "#,
     );
 

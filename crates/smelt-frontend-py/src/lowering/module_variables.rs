@@ -26,6 +26,61 @@ struct ModuleVariable {
     reached: bool,
 }
 
+/// The names a module's top-level code binds, functions and classes aside.
+///
+/// `all` holds every such name; `other` the ones some statement binds
+/// otherwise than as the single name target of an assignment, annotated
+/// assignment or augmented assignment (a `for` or `with` target, an
+/// unpacking, a walrus, a `del`). Only the plain forms write a module global,
+/// so a name in `other` is never made one.
+#[derive(Default)]
+struct ModuleStores<'a> {
+    /// Every name bound at module level.
+    all: HashSet<&'a str>,
+    /// The names bound at module level by a form other than a plain one.
+    other: HashSet<&'a str>,
+}
+
+impl<'a> ruff_python_ast::visitor::Visitor<'a> for ModuleStores<'a> {
+    fn visit_stmt(&mut self, stmt: &'a Stmt) {
+        match stmt {
+            // Their names are items, and their bodies are other scopes.
+            Stmt::FunctionDef(_) | Stmt::ClassDef(_) | Stmt::Import(_) | Stmt::ImportFrom(_) => {}
+            Stmt::Assign(assign) if matches!(assign.targets.as_slice(), [Expr::Name(_)]) => {
+                if let [Expr::Name(target)] = assign.targets.as_slice() {
+                    self.all.insert(target.id.as_str());
+                }
+                self.visit_expr(&assign.value);
+            }
+            Stmt::AnnAssign(ann) if matches!(ann.target.as_ref(), Expr::Name(_)) => {
+                if let Expr::Name(target) = ann.target.as_ref() {
+                    self.all.insert(target.id.as_str());
+                }
+                if let Some(value) = &ann.value {
+                    self.visit_expr(value);
+                }
+            }
+            Stmt::AugAssign(aug) if matches!(aug.target.as_ref(), Expr::Name(_)) => {
+                if let Expr::Name(target) = aug.target.as_ref() {
+                    self.all.insert(target.id.as_str());
+                }
+                self.visit_expr(&aug.value);
+            }
+            _ => ruff_python_ast::visitor::walk_stmt(self, stmt),
+        }
+    }
+
+    fn visit_expr(&mut self, expr: &'a Expr) {
+        if let Expr::Name(name) = expr
+            && !matches!(name.ctx, ruff_python_ast::ExprContext::Load)
+        {
+            self.all.insert(name.id.as_str());
+            self.other.insert(name.id.as_str());
+        }
+        ruff_python_ast::visitor::walk_expr(self, expr);
+    }
+}
+
 impl ModuleBuilder<'_> {
     /// Pass 0 of [`Self::module`]: declare a module global for every
     /// top-level binding whose type is known before lowering; see the file
@@ -40,15 +95,24 @@ impl ModuleBuilder<'_> {
                 _ => None,
             })
             .collect::<HashSet<_>>();
+        let mut stores = ModuleStores::default();
+        for stmt in &module.body {
+            ruff_python_ast::visitor::Visitor::visit_stmt(&mut stores, stmt);
+        }
+        // Candidates in source order: the first plain binding of each name.
+        let mut candidates: Vec<(&str, TypeId, &Expr, Option<Literal>, TextRange)> = Vec::new();
         for stmt in &module.body {
             let Some((name, annotation, value)) = Self::module_binding(stmt) else {
                 continue;
             };
             if defined.contains(name)
+                || stores.other.contains(name)
+                || candidates.iter().any(|(seen, ..)| *seen == name)
                 || self.module_variables.contains_key(name)
                 || (name.starts_with("__") && name.ends_with("__"))
                 || is_module_all_assignment(stmt)
                 || matches!(stmt, Stmt::Assign(assign) if Self::constructed_constant_shape(assign).is_some())
+                || Self::lambda_with_call_metadata(value)
             {
                 continue;
             }
@@ -63,8 +127,32 @@ impl ModuleBuilder<'_> {
                 },
             };
             let literal = Self::scalar_literal(value).filter(|literal| self.literal_has_type(literal, ty));
+            candidates.push((name, ty, value, literal, stmt.range()));
+        }
+        // A global's value lowers in its own initializer, which sees globals,
+        // items and builtins but not the module body's locals. So a
+        // candidate whose value reads a module-level name that stays a local
+        // stays a local itself, until no candidate changes.
+        loop {
+            let globals = candidates.iter().map(|(name, ..)| *name).collect::<HashSet<_>>();
+            let before = candidates.len();
+            candidates.retain(|(_, _, value, literal, _)| {
+                literal.is_some() || {
+                    let mut read = NamesRead::default();
+                    ruff_python_ast::visitor::Visitor::visit_expr(&mut read, value);
+                    !read
+                        .names
+                        .iter()
+                        .any(|name| stores.all.contains(name) && !globals.contains(name))
+                }
+            });
+            if candidates.len() == before {
+                break;
+            }
+        }
+        for (name, ty, _, literal, range) in candidates {
             let init = literal.map_or(smelt_hir::MutableGlobalInit::Pending, smelt_hir::MutableGlobalInit::Literal);
-            let span = self.span(stmt.range());
+            let span = self.span(range);
             let name_sym = self.intern_name(name);
             let item = self.ctx.krate.push_item(Item::MutableGlobal(smelt_hir::MutableGlobalItem {
                 name: name_sym,
@@ -167,6 +255,26 @@ impl ModuleBuilder<'_> {
     fn written_module_variable(&self, name: &str) -> Option<ItemId> {
         let variable = self.module_variables.get(name)?;
         (self.scope.kind == FnKind::Module || self.scope.globals.contains(name)).then_some(variable.item)
+    }
+
+    /// Whether `value` is a lambda whose calls need what only its defining
+    /// body has: default values (lowered there, once) or `*args`/`**kwargs`
+    /// packing. Such a binding stays a module-body local, where its calls
+    /// find that metadata; a plain lambda is an ordinary callable global.
+    fn lambda_with_call_metadata(value: &Expr) -> bool {
+        let Expr::Lambda(lambda) = value else {
+            return false;
+        };
+        lambda.parameters.as_ref().is_some_and(|params| {
+            params.vararg.is_some()
+                || params.kwarg.is_some()
+                || params
+                    .posonlyargs
+                    .iter()
+                    .chain(&params.args)
+                    .chain(&params.kwonlyargs)
+                    .any(|param| param.default.is_some())
+        })
     }
 
     /// Lower `NAME = value` (or `NAME: T = value`) to a module global, or
