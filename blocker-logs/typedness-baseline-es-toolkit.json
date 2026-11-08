@@ -2,19 +2,19 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 13618,
+      "concrete": 13624,
       "generic": 226,
-      "erased": 8376
+      "erased": 8366
     },
     "reads": {
       "concrete": 321,
       "generic": 33,
-      "erased": 1076
+      "erased": 1075
     },
     "calls": {
-      "concrete": 2117,
+      "concrete": 2119,
       "generic": 39,
-      "erased": 1300
+      "erased": 1297
     }
   },
   "programs": {
@@ -7143,19 +7143,19 @@
     },
     "src/compat/predicate/isNative.ts": {
       "values": {
-        "concrete": 12,
+        "concrete": 15,
         "generic": 0,
-        "erased": 23
+        "erased": 17
       },
       "reads": {
         "concrete": 0,
         "generic": 0,
-        "erased": 7
+        "erased": 6
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 1,
         "generic": 0,
-        "erased": 4
+        "erased": 2
       }
     },
     "src/compat/predicate/isNil.ts": {
@@ -7942,9 +7942,9 @@
     },
     "src/compat/string/words.ts": {
       "values": {
-        "concrete": 82,
+        "concrete": 85,
         "generic": 0,
-        "erased": 5
+        "erased": 1
       },
       "reads": {
         "concrete": 0,
@@ -7952,9 +7952,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 1,
+        "concrete": 2,
         "generic": 0,
-        "erased": 1
+        "erased": 0
       }
     },
     "src/compat/toolkit.ts": {

@@ -646,3 +646,11 @@ fn labeled_statements() -> TestResult {
 fn collection_copies() -> TestResult {
     verify_node_parity("collection_copies")
 }
+
+/// `RegExp(pattern, flags)` called without `new` constructs the same regular
+/// expression `new RegExp(pattern, flags)` does, for a literal or a computed
+/// pattern.
+#[test]
+fn regexp_call_form() -> TestResult {
+    verify_node_parity("regexp_call_form")
+}

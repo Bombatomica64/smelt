@@ -257,6 +257,9 @@ impl<'builder> ModuleBuilder<'builder> {
         if let Some(call) = self.super_method_call(call, body)? {
             return Ok(call);
         }
+        if let Some(regexp) = self.regexp_call_construction(call, body)? {
+            return Ok(regexp);
+        }
         let receiver = match &call.callee {
             Expression::StaticMemberExpression(member) => Some(&member.object),
             _ => None,
