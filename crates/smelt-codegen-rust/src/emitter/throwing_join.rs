@@ -84,6 +84,50 @@ impl FunctionEmitter<'_> {
         Some(join)
     }
 
+    /// Whether the shared tail starting at `join` reads `local`.
+    ///
+    /// The tail is emitted after the `match`, outside every arm, so a call
+    /// result the `Ok` arm binds is out of scope there unless it is declared
+    /// before the `match`. A path that reaches the tail without binding it
+    /// (a `catch` that rethrows) diverges, so a declaration without an
+    /// initializer is definitely assigned wherever the tail reads it.
+    pub(super) fn join_tail_reads_local(&self, join: smelt_mir::BlockId, local: LocalId) -> bool {
+        let mut pending = vec![join];
+        let mut visited = BlockIdSet::default();
+        while let Some(block_id) = pending.pop() {
+            if !visited.insert(block_id) {
+                continue;
+            }
+            let Ok(block) = self.block(block_id) else {
+                continue;
+            };
+            let mut reads = false;
+            for statement in &block.statements {
+                statement.read_locals(|read| reads |= read == local);
+            }
+            if let Some(terminator) = &block.terminator {
+                terminator.read_locals(|read| reads |= read == local);
+                pending.extend(control_flow::control_flow_successors(terminator));
+            }
+            if reads {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// The declaration of a throwing terminator's destination ahead of its
+    /// `match`, when the shared tail after the `match` reads it (see
+    /// [`Self::join_tail_reads_local`]). The `Ok` arm then assigns it.
+    pub(super) fn throwing_dest_predeclaration(&self, dest: LocalId, declared_type: Option<&str>) -> Result<String, EmitError> {
+        let name = self.local_name(dest)?;
+        let mutability = if self.local_binding_needs_mut(dest) { "mut " } else { "" };
+        Ok(match declared_type {
+            Some(type_text) => format!("    let {mutability}{name}: {type_text};\n"),
+            None => format!("    let {mutability}{name};\n"),
+        })
+    }
+
     /// Emit the arms' shared tail, starting at `join`, once, in the region the
     /// throwing terminator itself was emitted in.
     pub(super) fn emit_throwing_continuation_tail(

@@ -442,7 +442,7 @@ mod smelt_receiver_cycle_probe {
             let instance = Ctx::new(f64::from(code));
             let cell = ::std::rc::Rc::downgrade(&instance.0);
             let json = instance.0.borrow().json.clone();
-            assert_eq!(json("x".to_owned()), format!("{code}:x"));
+            assert_eq!(json(JsString::from("x")), JsString::from(format!("{code}:x")));
             drop(json);
             drop(instance);
             assert!(cell.upgrade().is_none(), "a Ctx with self-capturing field arrows leaked");
@@ -472,7 +472,7 @@ mod smelt_receiver_cycle_probe {
         let json = instance.0.borrow().json.clone();
         drop(instance);
         assert!(cell.upgrade().is_some(), "the instance died under an escaped field arrow");
-        assert_eq!(json("y".to_owned()), "7:y");
+        assert_eq!(json(JsString::from("y")), "7:y");
     }
 
     #[test]

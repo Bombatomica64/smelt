@@ -223,7 +223,15 @@ impl FunctionEmitter<'_> {
                     "{{ let smelt_iterable = {operand}; for value in smelt_iterable.clone().into_iter() {{ co.yield_({forwarded}).await; {consume_outer_sent}; }} }}"
                 )))
             }
-            Some(Type::String | Type::PyStr) => {
+            // A JavaScript string yields its code points, each as a string.
+            Some(Type::String) => {
+                let forwarded =
+                    self.rendered_at_type(&RustExpr::path("value"), generator_ty, *outer_yield_ty, &self.render_scope())?;
+                Ok(RustExpr::atom(format!(
+                    "{{ let smelt_iterable = {operand}; for value in smelt_iterable.code_point_strings() {{ co.yield_({forwarded}).await; {consume_outer_sent}; }} }}"
+                )))
+            }
+            Some(Type::PyStr) => {
                 let forwarded =
                     self.rendered_at_type(&RustExpr::path("value"), generator_ty, *outer_yield_ty, &self.render_scope())?;
                 Ok(RustExpr::atom(format!(

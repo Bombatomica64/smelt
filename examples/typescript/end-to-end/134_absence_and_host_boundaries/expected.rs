@@ -5334,8 +5334,8 @@ impl IntoSmeltUnknown for SmeltBlob {
 #[allow(dead_code)]
 impl SmeltBlob {
     /// Build a blob from an erased `BlobPart` array.
-    pub fn from_parts_unknown(parts: SmeltUnknown, blob_type: String, file_name: Option<String>, last_modified: Option<f64>) -> Self {
-        Self::with_metadata(smelt_blob_parts_bytes(parts), blob_type, file_name, last_modified)
+    pub fn from_parts_unknown(parts: SmeltUnknown, blob_type: impl SmeltHostText, file_name: Option<impl SmeltHostText>, last_modified: Option<f64>) -> Self {
+        Self::with_metadata(smelt_blob_parts_bytes(parts), blob_type.into_host_string(), file_name.map(SmeltHostText::into_host_string), last_modified)
     }
 }
 
