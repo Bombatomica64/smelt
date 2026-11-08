@@ -1551,7 +1551,7 @@ impl FunctionEmitter<'_> {
         }
         let wrapper = self.closure_expr_for_type(id, dest_ty)?;
         drop(hoisted);
-        let mut accessors = self.context.function_item_typed_accessors.borrow_mut();
+        let mut accessors = self.context.minted.function_item_typed_accessors.borrow_mut();
         let next_ordinal = accessors
             .keys()
             .filter(|(existing, _)| *existing == key)

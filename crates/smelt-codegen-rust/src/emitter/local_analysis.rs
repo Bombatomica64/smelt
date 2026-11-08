@@ -7,7 +7,7 @@ use super::core::terminator_successors;
 impl FunctionEmitter<'_> {
     /// The function's [`LocalWriteIndex`], built on first use.
     pub(super) fn local_write_index(&self) -> &LocalWriteIndex {
-        self.local_write_index.get_or_init(|| self.build_local_write_index())
+        self.caches.local_write_index.get_or_init(|| self.build_local_write_index())
     }
 
     /// Scan every block once and record the write facts the per-local

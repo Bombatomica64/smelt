@@ -164,7 +164,7 @@ impl FunctionEmitter<'_> {
         &self,
         block: smelt_mir::BlockId,
     ) -> Option<smelt_mir::BlockId> {
-        let mut cache = self.post_dominators.borrow_mut();
+        let mut cache = self.caches.post_dominators.borrow_mut();
         let table = cache.get_or_insert_with(|| immediate_post_dominators(self.function, true));
         usize::try_from(block.0)
             .ok()
@@ -178,7 +178,7 @@ impl FunctionEmitter<'_> {
         &self,
         block: smelt_mir::BlockId,
     ) -> Option<smelt_mir::BlockId> {
-        let mut cache = self.post_dominators_past_throws.borrow_mut();
+        let mut cache = self.caches.post_dominators_past_throws.borrow_mut();
         let table = cache.get_or_insert_with(|| immediate_post_dominators(self.function, false));
         usize::try_from(block.0)
             .ok()

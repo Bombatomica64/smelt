@@ -204,7 +204,7 @@ impl FunctionEmitter<'_> {
         visited: &mut BlockIdSet,
     ) -> Result<bool, EmitError> {
         let cache_key = (block.id, continue_target, break_target);
-        if let Some(result) = self.loop_exit_cache.borrow().get(&cache_key).copied() {
+        if let Some(result) = self.caches.loop_exit_cache.borrow().get(&cache_key).copied() {
             return Ok(result);
         }
         if !visited.insert(block.id) {
@@ -304,7 +304,7 @@ impl FunctionEmitter<'_> {
             }
             _ => Ok(false),
         }?;
-        self.loop_exit_cache.borrow_mut().insert(cache_key, result);
+        self.caches.loop_exit_cache.borrow_mut().insert(cache_key, result);
         Ok(result)
     }
 

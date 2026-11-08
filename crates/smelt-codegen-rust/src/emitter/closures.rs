@@ -293,7 +293,7 @@ impl FunctionEmitter<'_> {
                 // function in JavaScript).
                 if let Some(key) = source_closure.function_item_key {
                     self.context
-                        .function_item_erased_fn_accessors
+                        .minted.function_item_erased_fn_accessors
                         .borrow_mut()
                         .entry(key)
                         .or_insert_with(|| erased_function.into_string());

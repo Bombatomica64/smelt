@@ -32,7 +32,7 @@ use super::{EmitContext, FunctionEmitter};
 impl EmitContext {
     /// Take every backend erasure recorded so far.
     pub(crate) fn take_backend_erasures(&self) -> Vec<ErasureRecord> {
-        std::mem::take(&mut *self.backend_erasures.borrow_mut())
+        std::mem::take(&mut *self.minted.backend_erasures.borrow_mut())
     }
 }
 
@@ -42,7 +42,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn note_backend_erasure(&self, reason: ErasureReason, detail: String) {
         let span = self.backend_erasure_span();
         self.context
-            .backend_erasures
+            .minted.backend_erasures
             .borrow_mut()
             .push(ErasureRecord::new(reason, span, detail));
     }
