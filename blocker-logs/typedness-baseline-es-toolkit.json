@@ -2,9 +2,9 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 13620,
+      "concrete": 13618,
       "generic": 226,
-      "erased": 8386
+      "erased": 8376
     },
     "reads": {
       "concrete": 321,
@@ -3335,7 +3335,7 @@
     },
     "src/compat/_internal/normalizeForCase.ts": {
       "values": {
-        "concrete": 5,
+        "concrete": 6,
         "generic": 0,
         "erased": 1
       },
@@ -7143,7 +7143,7 @@
     },
     "src/compat/predicate/isNative.ts": {
       "values": {
-        "concrete": 10,
+        "concrete": 12,
         "generic": 0,
         "erased": 23
       },
@@ -7755,7 +7755,7 @@
     },
     "src/compat/string/template.ts": {
       "values": {
-        "concrete": 155,
+        "concrete": 157,
         "generic": 0,
         "erased": 37
       },
@@ -10849,9 +10849,9 @@
     },
     "src/predicate/isFile.spec.ts": {
       "values": {
-        "concrete": 96,
+        "concrete": 86,
         "generic": 0,
-        "erased": 93
+        "erased": 83
       },
       "reads": {
         "concrete": 2,
@@ -11971,7 +11971,7 @@
     },
     "src/string/escape.ts": {
       "values": {
-        "concrete": 6,
+        "concrete": 7,
         "generic": 0,
         "erased": 0
       },
@@ -12005,7 +12005,7 @@
     },
     "src/string/escapeRegExp.ts": {
       "values": {
-        "concrete": 2,
+        "concrete": 3,
         "generic": 0,
         "erased": 0
       },
@@ -12430,7 +12430,7 @@
     },
     "src/string/unescape.ts": {
       "values": {
-        "concrete": 8,
+        "concrete": 9,
         "generic": 0,
         "erased": 0
       },

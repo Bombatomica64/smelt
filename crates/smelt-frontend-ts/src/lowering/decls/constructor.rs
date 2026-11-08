@@ -346,7 +346,7 @@ impl ModuleBuilder<'_> {
         &mut self,
         field: smelt_hir::Symbol,
         writes: &[(&str, &Expression<'_>)],
-        span: smelt_hir::Span,
+        span: Span,
     ) -> smelt_hir::TypeId {
         let mut types = Vec::new();
         let mut untyped = false;
@@ -669,8 +669,9 @@ impl ModuleBuilder<'_> {
             self.classes.register(class_text, item);
             return Ok(());
         }
-        let class_name = self.unclaimed_type_symbol(class_text.as_str());
-        if self.intern_type_name(class_text.as_str()) != class_name {
+        let source_symbol = self.intern_type_name(class_text.as_str());
+        let class_name = self.unclaimed_type_symbol(source_symbol, class_text.as_str());
+        if source_symbol != class_name {
             self.ctx.krate.names.record(class_name, class_text.as_str());
             self.classes.open_shadow(class_text.as_str());
             self.classes.bind_scoped_type_name(class_text.clone(), class_name);

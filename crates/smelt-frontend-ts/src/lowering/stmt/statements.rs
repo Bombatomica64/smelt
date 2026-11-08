@@ -34,18 +34,22 @@ impl ModuleBuilder<'_> {
         Some(return_ty)
     }
 
-    /// A type-name symbol no class, interface or type alias item of the crate
-    /// carries yet: `base` itself when it is free, else `base` + `R{n}` for the
-    /// first free `n`.
+    /// `base` when no class, interface or type alias item of the crate carries
+    /// it yet, else a compiler-minted `{base_text}R{n}` for the first free `n`.
     ///
     /// MIR resolves a class by its name symbol and refuses two classes (or two
-    /// interfaces) of one name (audit finding C12), so every place that mints a
-    /// type identity for a declaration that may be lowered more than once — a
-    /// class expression in test setup inlined into each test, a constructor
-    /// function declared in two `it` callbacks of one file — takes its symbol
-    /// from here. Each lowering is a distinct runtime class in JavaScript too
-    /// (a class expression evaluates to a new class every time).
-    pub(in crate::lowering) fn unclaimed_type_symbol(&mut self, base: &str) -> smelt_hir::Symbol {
+    /// interfaces) of one name (audit finding C12), so a declaration whose
+    /// name is already held by a DIFFERENT declaration (a constructor function
+    /// declared in two `it` callbacks of one file) takes its symbol from here.
+    /// The caller interns `base` with the origin it has (a source spelling or
+    /// a name the lowering minted); a rename is always a
+    /// [`smelt_hir::SynthesizedName`], and the caller records the source
+    /// spelling reflection should answer.
+    pub(in crate::lowering) fn unclaimed_type_symbol(
+        &mut self,
+        base: smelt_hir::Symbol,
+        base_text: &str,
+    ) -> smelt_hir::Symbol {
         let claimed = |krate: &smelt_hir::Crate, symbol: smelt_hir::Symbol| {
             krate.items.iter().any(|item| match item {
                 smelt_hir::Item::Class(class) => class.name == symbol,
@@ -56,13 +60,14 @@ impl ModuleBuilder<'_> {
                 | smelt_hir::Item::MutableGlobal(_) => false,
             })
         };
-        let plain = self.intern_type_name(base);
-        if !claimed(&self.ctx.krate, plain) {
-            return plain;
+        if !claimed(&self.ctx.krate, base) {
+            return base;
         }
         let mut round: u32 = 1;
         loop {
-            let candidate = self.intern_type_name(&format!("{base}R{round}"));
+            let candidate = self.intern_synthesized_type_name(&smelt_hir::SynthesizedName::new(
+                format!("{base_text}R{round}"),
+            ));
             if !claimed(&self.ctx.krate, candidate) {
                 return candidate;
             }

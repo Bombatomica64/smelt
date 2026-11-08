@@ -83,7 +83,10 @@ impl ModuleBuilder<'_> {
         if let Some((_, existing)) = self.class_item_lowered_at(span) {
             return Some(existing);
         }
-        let symbol = self.unclaimed_type_symbol(&internal_name);
+        let base = self.intern_synthesized_type_name(&smelt_hir::SynthesizedName::new(
+            internal_name.as_str(),
+        ));
+        let symbol = self.unclaimed_type_symbol(base, &internal_name);
         self.ctx.krate.names.record(symbol, class_source_name);
         self.ctx.local_class_expressions.insert(symbol);
         Some(symbol)
