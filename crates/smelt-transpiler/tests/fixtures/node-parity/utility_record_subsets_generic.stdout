@@ -1,0 +1,7 @@
+pick-one a {"a":"a"} {"a":"a"}
+a
+pick-none  {} {}
+omit-one b {"b":1} {"b":1}
+1
+omit-anonymous right {"right":"r"} {"right":"r"}
+a true

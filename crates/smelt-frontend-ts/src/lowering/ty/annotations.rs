@@ -8,6 +8,7 @@
 
 mod unions;
 mod object_types;
+mod derived_records;
 mod structural_fields;
 mod tuples_rest;
 mod callables;
