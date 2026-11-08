@@ -48,7 +48,7 @@ fn main (FuncId(0)) -> None
     %45 temp: __SmeltMatch
     %46 temp: None
   bb0:
-    %0 = external_new0("(?P<letter>[a-z])(\d)?", "g")
+    %0 = external_new0("(?<letter>[a-z])(\d)?", "g")
     %1 = regex_match_all move %0, "a1 b c3"
     %13 = 0
     goto bb1
@@ -67,7 +67,7 @@ fn main (FuncId(0)) -> None
     %13 = copy %13 + 1
     goto bb1
   bb4:
-    %9 = external_new0("(?P<year>\d{4})-(\d{2})", "")
+    %9 = external_new0("(?<year>\d{4})-(\d{2})", "")
     %10 = regex_exec move %9, "2024-07"
     %32 = copy %10 != none
     switch move %32 ? bb13 : bb14

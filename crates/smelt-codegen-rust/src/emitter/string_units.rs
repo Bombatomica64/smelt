@@ -1,16 +1,10 @@
 //! The unit a string index counts, per source language.
 //!
-//! A JavaScript string index counts UTF-16 code units; a Python `str` index
-//! counts code points. Generated strings are UTF-8 `String` in both, so every
-//! emit site that measures a string, reads at an index, slices, or turns a
-//! byte offset into an index asks this module for its text. TypeScript bodies
-//! go through the `smelt_utf16_*` runtime helpers (`runtime/string_units.rs`,
-//! demanded by `RuntimeDemand::scan_string_units`); Python bodies use `chars()`.
-//!
-//! This is the emitter's ONE seam for string indices: no other emitter module
-//! spells a `smelt_utf16_*` helper or a `chars()` index walk, so a change of
-//! string representation (UTF-16 storage) replaces this module and the runtime
-//! file, not the emit sites.
+//! A JavaScript string is a `JsString` (UTF-16 code units) and indexes its
+//! units directly through the `JsString` API; a Python `str` is a UTF-8
+//! `String` indexed by code point (`chars()`). Every emit site that names a
+//! string type, measures a string, reads at an index or slices asks this
+//! module for its text, so the two representations stay in one place.
 
 use smelt_hir::{Language, Type};
 
@@ -105,38 +99,24 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// The byte offset of index `index` (`usize`) in `receiver`, clamped to its
-    /// end. A JavaScript index inside a surrogate pair rounds up past the pair
-    /// with `round_up` (a search starting there cannot match the pair) and
-    /// down to it otherwise (a match ending there cannot include it).
-    pub(super) fn string_byte_of_text(&self, receiver: &str, index: &str, round_up: bool) -> String {
-        if self.indexes_utf16() {
-            let inside_pair = if round_up { "smelt_byte + 4" } else { "smelt_byte" };
-            format!("smelt_utf16_byte_of(&{receiver}, {index}).unwrap_or_else(|smelt_byte| {inside_pair})")
-        } else {
-            format!("{receiver}.char_indices().nth({index}).map_or({receiver}.len(), |(byte, _)| byte)")
-        }
+    /// The byte offset of code point `index` (`usize`) in the Python string
+    /// `receiver`, clamped to its end. (A JavaScript string indexes its code
+    /// units directly and never asks for a byte offset.)
+    pub(super) fn string_byte_of_text(&self, receiver: &str, index: &str) -> String {
+        format!("{receiver}.char_indices().nth({index}).map_or({receiver}.len(), |(byte, _)| byte)")
     }
 
-    /// A `(byte, index)` pair for index `index` (`usize`) of `receiver`: the
-    /// byte offset a search from `index` starts at (past a surrogate pair the
-    /// index falls inside, clamped to the end) and the index of that byte, so
-    /// a match found after it is that index plus the units up to the match.
+    /// A `(byte, index)` pair for code point `index` (`usize`) of the Python
+    /// string `receiver`: the byte offset a search from `index` starts at
+    /// (clamped to the end) and the code point index of that byte.
     pub(super) fn string_seek_text(&self, receiver: &str, index: &str) -> String {
-        if self.indexes_utf16() {
-            format!("match smelt_utf16_byte_of(&{receiver}, {index}) {{ Ok(smelt_byte) if smelt_byte < {receiver}.len() => (smelt_byte, {index}), Ok(smelt_byte) => (smelt_byte, smelt_utf16_len(&{receiver})), Err(smelt_byte) => (smelt_byte + 4, {index} + 1) }}")
-        } else {
-            format!("match {receiver}.char_indices().nth({index}) {{ Some((smelt_byte, _)) => (smelt_byte, {index}), None => ({receiver}.len(), {receiver}.chars().count()) }}")
-        }
+        format!("match {receiver}.char_indices().nth({index}) {{ Some((smelt_byte, _)) => (smelt_byte, {index}), None => ({receiver}.len(), {receiver}.chars().count()) }}")
     }
 
-    /// The index (`usize`) of the char-boundary byte offset `byte` of `receiver`.
+    /// The code point index (`usize`) of the char-boundary byte offset `byte`
+    /// of the Python string `receiver`.
     pub(super) fn string_index_of_byte_text(&self, receiver: &str, byte: &str) -> String {
-        if self.indexes_utf16() {
-            format!("smelt_utf16_index_of_byte(&{receiver}, {byte})")
-        } else {
-            format!("{receiver}[..{byte}].chars().count()")
-        }
+        format!("{receiver}[..{byte}].chars().count()")
     }
 
     /// The `String` of `needed` units cut from repetitions of the `&str` `pad`

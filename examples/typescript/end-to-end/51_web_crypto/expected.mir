@@ -27,38 +27,39 @@ async fn main (FuncId(0)) -> None throws
     %24 temp: Float
     %25 temp: Float
     %26 temp: None
-    %27 temp: Bool
-    %28 temp: None
-    %29 temp: TextEncoder
-    %30 temp: Uint8Array
-    %31 temp: Future<ArrayBuffer>
-    %32 temp: ArrayBuffer
-    %33 temp: Float
-    %34 temp: None
-    %35 temp: Future<ArrayBuffer>
-    %36 temp: ArrayBuffer
-    %37 temp: Float
-    %38 temp: None
-    %39 temp: Future<ArrayBuffer>
-    %40 temp: ArrayBuffer
-    %41 temp: Float
-    %42 temp: None
-    %43 temp: Future<ArrayBuffer>
-    %44 temp: ArrayBuffer
-    %45 temp: Float
-    %46 temp: None
-    %47 temp: Future<ArrayBuffer>
-    %48 temp: ArrayBuffer
-    %49 temp: Float
-    %50 temp: None
-    %51 temp: TextEncoder
-    %52 temp: Uint8Array
-    %53 temp: Future<ArrayBuffer>
-    %54 temp: ArrayBuffer
-    %55 temp: Float
-    %56 temp: None
-    %57 temp: Future<None>
-    %58 temp: None
+    %27 temp: RegExp
+    %28 temp: Bool
+    %29 temp: None
+    %30 temp: TextEncoder
+    %31 temp: Uint8Array
+    %32 temp: Future<ArrayBuffer>
+    %33 temp: ArrayBuffer
+    %34 temp: Float
+    %35 temp: None
+    %36 temp: Future<ArrayBuffer>
+    %37 temp: ArrayBuffer
+    %38 temp: Float
+    %39 temp: None
+    %40 temp: Future<ArrayBuffer>
+    %41 temp: ArrayBuffer
+    %42 temp: Float
+    %43 temp: None
+    %44 temp: Future<ArrayBuffer>
+    %45 temp: ArrayBuffer
+    %46 temp: Float
+    %47 temp: None
+    %48 temp: Future<ArrayBuffer>
+    %49 temp: ArrayBuffer
+    %50 temp: Float
+    %51 temp: None
+    %52 temp: TextEncoder
+    %53 temp: Uint8Array
+    %54 temp: Future<ArrayBuffer>
+    %55 temp: ArrayBuffer
+    %56 temp: Float
+    %57 temp: None
+    %58 temp: Future<None>
+    %59 temp: None
   bb0:
     %0 = crypto_random_uuid
     %5 = len copy %0
@@ -92,44 +93,45 @@ async fn main (FuncId(0)) -> None throws
     %25 = len copy %1[4.0]
     %26 = call @console_log(move %24, move %25) -> bb9
   bb9:
-    %27 = regex_search "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", move %0
-    %28 = call @console_log(move %27) -> bb10
+    %27 = external_new9("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", "")
+    %28 = regex_search move %27, move %0
+    %29 = call @console_log(move %28) -> bb10
   bb10:
-    %29 = text_encoder_new
-    %2 = text_encoder_encode move %29 "abc"
-    %31 = crypto_digest "SHA-1", copy %2
-    %32 = await move %31
-    %33 = byte_array_byte_length move %32
-    %34 = call @console_log(move %33) -> bb11
+    %30 = text_encoder_new
+    %2 = text_encoder_encode move %30 "abc"
+    %32 = crypto_digest "SHA-1", copy %2
+    %33 = await move %32
+    %34 = byte_array_byte_length move %33
+    %35 = call @console_log(move %34) -> bb11
   bb11:
-    %35 = crypto_digest "SHA-256", copy %2
-    %36 = await move %35
-    %37 = byte_array_byte_length move %36
-    %38 = call @console_log(move %37) -> bb12
+    %36 = crypto_digest "SHA-256", copy %2
+    %37 = await move %36
+    %38 = byte_array_byte_length move %37
+    %39 = call @console_log(move %38) -> bb12
   bb12:
-    %39 = crypto_digest "SHA-384", copy %2
-    %40 = await move %39
-    %41 = byte_array_byte_length move %40
-    %42 = call @console_log(move %41) -> bb13
+    %40 = crypto_digest "SHA-384", copy %2
+    %41 = await move %40
+    %42 = byte_array_byte_length move %41
+    %43 = call @console_log(move %42) -> bb13
   bb13:
-    %43 = crypto_digest "SHA-512", copy %2
-    %44 = await move %43
-    %45 = byte_array_byte_length move %44
-    %46 = call @console_log(move %45) -> bb14
+    %44 = crypto_digest "SHA-512", copy %2
+    %45 = await move %44
+    %46 = byte_array_byte_length move %45
+    %47 = call @console_log(move %46) -> bb14
   bb14:
-    %47 = crypto_digest "sha-256", move %2
-    %48 = await move %47
-    %49 = byte_array_byte_length move %48
-    %50 = call @console_log(move %49) -> bb15
+    %48 = crypto_digest "sha-256", move %2
+    %49 = await move %48
+    %50 = byte_array_byte_length move %49
+    %51 = call @console_log(move %50) -> bb15
   bb15:
-    %51 = text_encoder_new
-    %3 = text_encoder_encode move %51 ""
-    %53 = crypto_digest "SHA-256", move %3
-    %54 = await move %53
-    %55 = byte_array_byte_length move %54
-    %56 = call @console_log(move %55) -> bb16
+    %52 = text_encoder_new
+    %3 = text_encoder_encode move %52 ""
+    %54 = crypto_digest "SHA-256", move %3
+    %55 = await move %54
+    %56 = byte_array_byte_length move %55
+    %57 = call @console_log(move %56) -> bb16
   bb16:
-    %57 = async_exit_drain()
-    %58 = await move %57
+    %58 = async_exit_drain()
+    %59 = await move %58
     return none
 

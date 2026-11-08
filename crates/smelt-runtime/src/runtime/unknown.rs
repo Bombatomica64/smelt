@@ -162,7 +162,7 @@ impl SmeltUnknown {
     pub fn test<T: IntoSmeltUnknown>(&self, haystack: T) -> bool {
         let SmeltUnknown::String(haystack) = haystack.into_smelt_unknown() else { return false; };
         match self {
-            Self::String(pattern) => regex::Regex::new(&pattern.to_string_lossy()).is_ok_and(|regex| regex.is_match(&haystack.to_string_lossy())),
+            Self::String(pattern) => SmeltRegExp::new(pattern, "").try_compiled().is_some_and(|regex| regex.find_from_ucs2(haystack.units(), 0).next().is_some()),
             Self::Object(map) => {
                 let Some(Self::String(source)) = map.get("source") else { return false; };
                 let flags = match map.get("flags") { Some(Self::String(flags)) => flags.to_string(), _ => String::new() };

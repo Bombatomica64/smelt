@@ -10,158 +10,166 @@ module examples/typescript/end-to-end/54_regex_test_predicate/input.ts (ModuleId
   exprs
     #0: String = "0a1b"
     #1: String = "^[0-9a-f]{4}$"
-    #2: Bool = regex_search #1, #0
-    #3: None = @0(console_log)
-    #4: None = call #3(#2)
-    #5: String = "zzzz"
-    #6: String = "^[0-9a-f]{4}$"
-    #7: Bool = regex_search #6, #5
-    #8: None = @1(console_log)
-    #9: None = call #8(#7)
-    #10: String = "AB"
-    #11: String = "(?i)ab"
-    #12: Bool = regex_search #11, #10
-    #13: None = @2(console_log)
-    #14: None = call #13(#12)
-    #15: String = "a
+    #2: String = ""
+    #3: RegExp = new RegExp(#1, #2)
+    #4: Bool = regex_search #3, #0
+    #5: None = @0(console_log)
+    #6: None = call #5(#4)
+    #7: String = "zzzz"
+    #8: String = "^[0-9a-f]{4}$"
+    #9: String = ""
+    #10: RegExp = new RegExp(#8, #9)
+    #11: Bool = regex_search #10, #7
+    #12: None = @1(console_log)
+    #13: None = call #12(#11)
+    #14: String = "AB"
+    #15: String = "ab"
+    #16: String = "i"
+    #17: RegExp = new RegExp(#15, #16)
+    #18: Bool = regex_search #17, #14
+    #19: None = @2(console_log)
+    #20: None = call #19(#18)
+    #21: String = "a
 c"
-    #16: String = "(?s)^a.c$"
-    #17: Bool = regex_search #16, #15
-    #18: None = @3(console_log)
-    #19: None = call #18(#17)
-    #20: String = "aaa"
-    #21: String = "^a+$"
-    #22: Bool = regex_search #21, #20
-    #23: None = @4(console_log)
-    #24: None = call #23(#22)
-    #25: String = "abc"
-    #26: String = "b"
-    #27: Bool = regex_search #26, #25
-    #28: None = @5(console_log)
-    #29: None = call #28(#27)
-    #30: String = "AAA"
-    #31: String = "^a+$"
-    #32: String = "i"
-    #33: RegExp = new RegExp(#31, #32)
-    #34: Bool = regex_test #33 #30
-    #35: None = @6(console_log)
-    #36: None = call #35(#34)
-    #37: String = "a"
-    #38: String = "g"
-    #39: RegExp = new RegExp(#37, #38)
-    #40: String = "aa"
-    #41: RegExp = %0
-    #42: Bool = regex_test #41 #40
-    #43: String = "aa"
-    #44: RegExp = %0
-    #45: Bool = regex_test #44 #43
-    #46: String = "aa"
-    #47: RegExp = %0
-    #48: Bool = regex_test #47 #46
-    #49: None = @7(console_log)
-    #50: None = call #49(#42, #45, #48)
+    #22: String = "^a.c$"
+    #23: String = "s"
+    #24: RegExp = new RegExp(#22, #23)
+    #25: Bool = regex_search #24, #21
+    #26: None = @3(console_log)
+    #27: None = call #26(#25)
+    #28: String = "aaa"
+    #29: String = "^a+$"
+    #30: Bool = regex_search #29, #28
+    #31: None = @4(console_log)
+    #32: None = call #31(#30)
+    #33: String = "abc"
+    #34: String = "b"
+    #35: Bool = regex_search #34, #33
+    #36: None = @5(console_log)
+    #37: None = call #36(#35)
+    #38: String = "AAA"
+    #39: String = "^a+$"
+    #40: String = "i"
+    #41: RegExp = new RegExp(#39, #40)
+    #42: Bool = regex_test #41 #38
+    #43: None = @6(console_log)
+    #44: None = call #43(#42)
+    #45: String = "a"
+    #46: String = "g"
+    #47: RegExp = new RegExp(#45, #46)
+    #48: String = "aa"
+    #49: RegExp = %0
+    #50: Bool = regex_test #49 #48
     #51: String = "aa"
     #52: RegExp = %0
     #53: Bool = regex_test #52 #51
-    #54: None = @8(console_log)
-    #55: None = call #54(#53)
-    #56: String = "a"
-    #57: String = "y"
-    #58: RegExp = new RegExp(#56, #57)
+    #54: String = "aa"
+    #55: RegExp = %0
+    #56: Bool = regex_test #55 #54
+    #57: None = @7(console_log)
+    #58: None = call #57(#50, #53, #56)
     #59: String = "aa"
-    #60: RegExp = %1
+    #60: RegExp = %0
     #61: Bool = regex_test #60 #59
-    #62: String = "aa"
-    #63: RegExp = %1
-    #64: Bool = regex_test #63 #62
-    #65: String = "aa"
-    #66: RegExp = %1
-    #67: Bool = regex_test #66 #65
-    #68: None = @9(console_log)
-    #69: None = call #68(#61, #64, #67)
-    #70: String = "a"
-    #71: String = "g"
-    #72: RegExp = new RegExp(#70, #71)
+    #62: None = @8(console_log)
+    #63: None = call #62(#61)
+    #64: String = "a"
+    #65: String = "y"
+    #66: RegExp = new RegExp(#64, #65)
+    #67: String = "aa"
+    #68: RegExp = %1
+    #69: Bool = regex_test #68 #67
+    #70: String = "aa"
+    #71: RegExp = %1
+    #72: Bool = regex_test #71 #70
     #73: String = "aa"
-    #74: RegExp = %2
+    #74: RegExp = %1
     #75: Bool = regex_test #74 #73
-    #76: String = "aa"
-    #77: RegExp = %2
-    #78: Bool = regex_test #77 #76
-    #79: String = "aa"
-    #80: RegExp = %2
-    #81: Bool = regex_test #80 #79
-    #82: None = @10(console_log)
-    #83: None = call #82(#75, #78, #81)
-    #84: Float = 0.0
-    #85: Float = 0.0
-    #86: Float = %4
-    #87: Float = 3.0
-    #88: Bool = Lt #86, #87
-    #89: String = "aa"
-    #90: String = "a"
-    #91: String = "g"
-    #92: RegExp = new RegExp(#90, #91)
-    #93: Bool = regex_test #92 #89
-    #94: Float = %3
-    #95: Float = %3
-    #96: Float = 1.0
-    #97: Float = Add #95, #96
-    #98: Float = %4
-    #99: Float = %4
-    #100: Float = 1.0
-    #101: Float = Add #99, #100
+    #76: None = @9(console_log)
+    #77: None = call #76(#69, #72, #75)
+    #78: String = "a"
+    #79: String = "g"
+    #80: RegExp = new RegExp(#78, #79)
+    #81: String = "aa"
+    #82: RegExp = %2
+    #83: Bool = regex_test #82 #81
+    #84: String = "aa"
+    #85: RegExp = %2
+    #86: Bool = regex_test #85 #84
+    #87: String = "aa"
+    #88: RegExp = %2
+    #89: Bool = regex_test #88 #87
+    #90: None = @10(console_log)
+    #91: None = call #90(#83, #86, #89)
+    #92: Float = 0.0
+    #93: Float = 0.0
+    #94: Float = %4
+    #95: Float = 3.0
+    #96: Bool = Lt #94, #95
+    #97: String = "aa"
+    #98: String = "a"
+    #99: String = "g"
+    #100: RegExp = new RegExp(#98, #99)
+    #101: Bool = regex_test #100 #97
     #102: Float = %3
-    #103: None = @11(console_log)
-    #104: None = call #103(#102)
-    #105: String = "alpha"
-    #106: String = "beta"
-    #107: String = "gamma"
-    #108: String = "delta"
-    #109: List<String> = [#105, #106, #107, #108]
-    #110: List<String> = %5
-    #111: fn(String, Int, List<String>) -> Bool = closure BodyId(0) captures 0 -> Bool
-    #112: List<String> = list_filter #110, #111
-    #113: String = ","
-    #114: String = string_join #112, #113
-    #115: None = @12(console_log)
-    #116: None = call #115(#114)
-    #117: List<String> = %5
-    #118: fn(String, Int, List<String>) -> Bool = closure BodyId(1) captures 0 -> Bool
-    #119: Bool = list_every #117, #118
-    #120: None = @13(console_log)
-    #121: None = call #120(#119)
-    #122: List<String> = %5
-    #123: fn(String, Int, List<String>) -> Bool = closure BodyId(2) captures 0 -> Bool
-    #124: Bool = list_some #122, #123
-    #125: None = @14(console_log)
-    #126: None = call #125(#124)
+    #103: Float = %3
+    #104: Float = 1.0
+    #105: Float = Add #103, #104
+    #106: Float = %4
+    #107: Float = %4
+    #108: Float = 1.0
+    #109: Float = Add #107, #108
+    #110: Float = %3
+    #111: None = @11(console_log)
+    #112: None = call #111(#110)
+    #113: String = "alpha"
+    #114: String = "beta"
+    #115: String = "gamma"
+    #116: String = "delta"
+    #117: List<String> = [#113, #114, #115, #116]
+    #118: List<String> = %5
+    #119: fn(String, Int, List<String>) -> Bool = closure BodyId(0) captures 0 -> Bool
+    #120: List<String> = list_filter #118, #119
+    #121: String = ","
+    #122: String = string_join #120, #121
+    #123: None = @12(console_log)
+    #124: None = call #123(#122)
+    #125: List<String> = %5
+    #126: fn(String, Int, List<String>) -> Bool = closure BodyId(1) captures 0 -> Bool
+    #127: Bool = list_every #125, #126
+    #128: None = @13(console_log)
+    #129: None = call #128(#127)
+    #130: List<String> = %5
+    #131: fn(String, Int, List<String>) -> Bool = closure BodyId(2) captures 0 -> Bool
+    #132: Bool = list_some #130, #131
+    #133: None = @14(console_log)
+    #134: None = call #133(#132)
   stmts
-    s0: #4
-    s1: #9
-    s2: #14
-    s3: #19
-    s4: #24
-    s5: #29
-    s6: #36
-    s7: let %0: RegExp = #39
-    s8: #50
-    s9: #55
-    s10: let %1: RegExp = #58
-    s11: #69
-    s12: let %2: RegExp = #72
-    s13: #83
-    s14: let %3: Float = #84
-    s15: let %4: Float = #85
-    s16: #94 = #97
-    s17: if #93 then BlockId(2)
-    s18: #98 = #101
-    s19: while #88 BlockId(1) update-block BlockId(3)
-    s20: #104
-    s21: let %5: List<String> = #109
-    s22: #116
-    s23: #121
-    s24: #126
+    s0: #6
+    s1: #13
+    s2: #20
+    s3: #27
+    s4: #32
+    s5: #37
+    s6: #44
+    s7: let %0: RegExp = #47
+    s8: #58
+    s9: #63
+    s10: let %1: RegExp = #66
+    s11: #77
+    s12: let %2: RegExp = #80
+    s13: #91
+    s14: let %3: Float = #92
+    s15: let %4: Float = #93
+    s16: #102 = #105
+    s17: if #101 then BlockId(2)
+    s18: #106 = #109
+    s19: while #96 BlockId(1) update-block BlockId(3)
+    s20: #112
+    s21: let %5: List<String> = #117
+    s22: #124
+    s23: #129
+    s24: #134
 
 interned types
   t0 = RegExp

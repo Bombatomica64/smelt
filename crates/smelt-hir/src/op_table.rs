@@ -484,7 +484,7 @@ macro_rules! op_group_transcribed {
                 /// Optional JavaScript `fromIndex` position.
                 from_index: opt,
             }
-                needs(DepRegex if matches!(op, $crate::StringSearchOp::Regex))
+                needs(DepRegress if matches!(op, $crate::StringSearchOp::Regex))
                 => (
                     {
                         let base = format!("string_{op} {haystack}, {needle}");
@@ -550,7 +550,7 @@ macro_rules! op_group_transcribed {
                 /// String value being matched.
                 haystack: one,
             }
-                needs(DepRegex)
+                needs(RegexOps)
                 => (format!("regex_{op} {pattern}, {haystack}"));
             /// Replace regex matches with a replacement string.
             RegexReplace {
@@ -563,7 +563,7 @@ macro_rules! op_group_transcribed {
                 /// Replacement text.
                 replacement: one,
             }
-                needs(DepRegex)
+                needs(RegexOps)
                 => (
                     hir: format!("regex_{op} {pattern}, {haystack}, {replacement}"),
                     mir: format!("regex_{} {pattern}, {haystack}, {replacement}", op.mir_regex_text()),
@@ -584,7 +584,7 @@ macro_rules! op_group_transcribed {
                 /// known, so the emitter only has to render each role.
                 args: [Vec<$crate::RegexReplaceArg>],
             }
-                needs(DepRegex)
+                needs(RegexOps)
                 => (
                     hir: format!("regex_{} {pattern}, {haystack}, {callback} [{}]", op.callback_text(), regex_replace_args_text(args)),
                     mir: format!("regex_{} {pattern}, {haystack}, {callback} [{}]", op.mir_callback_text(), regex_replace_args_text(args)),
@@ -597,7 +597,7 @@ macro_rules! op_group_transcribed {
                 haystack: one,
             }
                 fresh(true)
-                needs(DepRegex)
+                needs(RegexOps)
                 => (format!("regex_split {pattern}, {haystack}"));
             /// Return the first regex match as a JavaScript-like match array.
             RegexFind {
@@ -606,7 +606,7 @@ macro_rules! op_group_transcribed {
                 /// String value to search.
                 haystack: one,
             }
-                needs(DepRegex)
+                needs(DepRegress)
                 => (format!("regex_find {pattern}, {haystack}"));
             /// Execute a JavaScript-like `RegExp` value and return a match object.
             RegexExec {
@@ -615,7 +615,7 @@ macro_rules! op_group_transcribed {
                 /// String value to search.
                 haystack: one,
             }
-                needs(DepRegex)
+                needs(DepRegress)
                 => (format!("regex_exec {regex}, {haystack}"));
             /// `regex.test(haystack)` on a CONCRETE `RegExp` receiver.
             ///
@@ -631,7 +631,7 @@ macro_rules! op_group_transcribed {
                 /// String value to search.
                 haystack: one,
             }
-                needs(DepRegex)
+                needs(DepRegress)
                 => (format!("regex_test {regex} {haystack}"));
             /// Return every match index from JavaScript `String.prototype.matchAll`.
             RegexMatchAll {
@@ -640,7 +640,7 @@ macro_rules! op_group_transcribed {
                 /// String value to search.
                 haystack: one,
             }
-                needs(DepRegex)
+                needs(DepRegress)
                 => (format!("regex_match_all {regex}, {haystack}"));
             /// Read a single character from a string as a string value.
             StringCharAt {
@@ -1674,7 +1674,7 @@ macro_rules! op_group_transcribed {
                 limit: opt,
             }
                 fresh(true)
-                needs(DepRegex)
+                needs(RegexOps)
                 => (format!("string_split {}, {}, {}", haystack, separator, opt(&limit)));
             /// Convert a string into a list of one-character strings.
             StringChars {

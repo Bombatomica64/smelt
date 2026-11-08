@@ -486,32 +486,6 @@ mod number_family {
         assert!(smelt_string_to_number("12px").is_nan(), "trailing text is NaN");
     }
 
-    /// UTF-16 indices over UTF-8 text agree with a decoding walk, across
-    /// the eight-byte words the seek skips.
-    #[test]
-    fn utf16_indices_agree_with_decoding() {
-        let text = "aé😀日b".repeat(7);
-        let units: Vec<u16> = text.encode_utf16().collect();
-        assert_eq!(smelt_utf16_len(&text), units.len(), "length");
-        for unit in 0..=units.len() + 2 {
-            let expected = String::from_utf16_lossy(&units[unit.min(units.len())..]);
-            match smelt_utf16_byte_of(&text, unit) {
-                Ok(byte) => assert_eq!(&text[byte..], expected, "unit {unit}"),
-                Err(byte) => assert!(text[byte..].starts_with('😀') && expected.starts_with('\u{fffd}'), "unit {unit} is inside a pair"),
-            }
-            assert_eq!(smelt_utf16_unit_at(&text, unit), units.get(unit).copied(), "unit {unit}");
-        }
-        assert_eq!(smelt_utf16_slice("a😀b", 1, 3), "😀", "a whole pair");
-        assert_eq!(smelt_utf16_slice("a😀b", 2, 4), "b", "a pair cut at the start belongs to the left");
-        assert_eq!(smelt_utf16_slice("a😀b", 0, 2), "a😀", "a pair cut at the end belongs to the left");
-        assert_eq!(smelt_utf16_char_at("😀", 1).as_deref(), Some(""), "the second unit of a pair");
-        let text = "x😀y";
-        for cut in 0..=4 {
-            assert_eq!(smelt_utf16_slice(text, 0, cut) + &smelt_utf16_slice(text, cut, 4), text, "cut {cut}");
-        }
-        assert_eq!(smelt_utf16_index_of_byte("é😀x", 6), 3, "bytes to units");
-    }
-
     /// `parseInt` reads the longest digit prefix, detects `0x` only for radix
     /// 0 or 16, and keeps the sign of a zero.
     #[test]
@@ -577,6 +551,46 @@ mod regexp_family {
     fn flags_change_matching() {
         assert!(SmeltRegExp::new("ABC".to_owned(), "i".to_owned()).test(&JsString::from("abc")), "`i` folds case");
         assert!(!SmeltRegExp::new("ABC".to_owned(), String::new()).test(&JsString::from("abc")), "without it, case counts");
+    }
+
+    /// Without `u` a pattern and its subject are code units, so `.` matches one
+    /// surrogate half and an astral literal is its two halves; with `u` both
+    /// are code points. Every index is a code unit index.
+    #[test]
+    fn matching_counts_code_units_like_javascript() {
+        let emoji = JsString::from("😀x");
+        let dot = SmeltRegExp::new("^.$", "");
+        assert!(!dot.test(&JsString::from("😀")), "without `u`, `.` is one code unit");
+        assert!(SmeltRegExp::new("^.$", "u").test(&JsString::from("😀")), "with `u`, `.` is a code point");
+        assert_eq!(SmeltRegExp::new("😀", "g").replace_string(&JsString::from("a😀b😀"), &JsString::from("[$&]"), false), "a[😀]b[😀]", "an astral literal matches its halves");
+        let cut = SmeltRegExp::new(".", "").replace_string(&emoji, &JsString::from("#"), false);
+        assert_eq!(cut.units(), &[u16::from(b'#'), 0xDE00, u16::from(b'x')], "replacing one unit leaves the lone low half");
+        assert_eq!(SmeltRegExp::new("x", "").search_index(&emoji), Some(2), "a search answers a code unit index");
+        let lone = JsString::from_units(&[0xD83D, u16::from(b'a')]);
+        assert_eq!(SmeltRegExp::new("a", "").search_index(&lone), Some(1), "a lone half in the subject is an ordinary unit");
+    }
+
+    /// `@@split`: captures join the pieces, an empty match at a piece's start is
+    /// skipped, and an empty subject is `[""]` unless the regexp matches it.
+    #[test]
+    fn split_follows_the_specification() {
+        let pieces = |pattern: &str, text: &str| SmeltRegExp::new(pattern, "").split_string(&JsString::from(text)).iter().map(|piece| piece.to_string_lossy()).collect::<Vec<_>>();
+        assert_eq!(pieces("(\\d)", "a1b2c"), ["a", "1", "b", "2", "c"], "a capture joins the pieces");
+        assert_eq!(pieces("(?:)", "ab"), ["a", "b"], "an empty match splits between units");
+        assert_eq!(pieces("x", ""), [""], "an empty subject is one empty piece");
+        assert!(pieces("(?:)", "").is_empty(), "unless the regexp matches it");
+    }
+
+    /// A sticky regexp matches only at `lastIndex` and moves it past the match;
+    /// a failed stateful search rewinds it to 0.
+    #[test]
+    fn sticky_matches_only_at_last_index() {
+        let sticky = SmeltRegExp::new("b", "y");
+        *sticky.last_index.borrow_mut() = 1;
+        assert!(sticky.test(&JsString::from("abc")), "`b` is at index 1");
+        assert_eq!(*sticky.last_index.borrow(), 2, "lastIndex moves past it");
+        assert!(!sticky.test(&JsString::from("abc")), "`c` is not `b`");
+        assert_eq!(*sticky.last_index.borrow(), 0, "a failed search rewinds");
     }
 }
 

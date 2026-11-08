@@ -80,5 +80,6 @@ interned types
   t18 = Int
   t19 = fn(String, Int, List<String>) -> Bool
   t20 = Optional<None>
-  t21 = Float
-  t22 = fn(Router, String, String) -> None
+  t21 = RegExp
+  t22 = Float
+  t23 = fn(Router, String, String) -> None

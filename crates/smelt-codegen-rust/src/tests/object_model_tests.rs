@@ -243,15 +243,26 @@ export function matches(text: string): boolean {
 ",
     );
 
-    assert!(
-        source.contains("const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;"),
-        "the prelude must state the compiled-program budget:\n{source}"
+    // A JavaScript pattern compiles on `regress`, a backtracking engine with
+    // no compiled-program budget, so the repetition compiles as written.
+    assert!(source.contains("regress::Regex::"), "{source}");
+    // The budget still governs the `regex`-backed engine Python `re` uses.
+    let py_source = source_for_py(
+        r#"
+import re
+text: str = "aab"
+out: str = re.sub("a{0,4096}b", "x", text)
+"#,
     );
     assert!(
-        source.contains(
-            "fancy_regex::RegexBuilder::new(&pattern).delegate_size_limit(SMELT_REGEX_SIZE_LIMIT)"
+        py_source.contains("const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;"),
+        "the prelude must state the compiled-program budget:\n{py_source}"
+    );
+    assert!(
+        py_source.contains(
+            "fancy_regex::RegexBuilder::new(pattern).delegate_size_limit(SMELT_REGEX_SIZE_LIMIT)"
         ),
-        "the compile site must apply the raised budget:\n{source}"
+        "the compile site must apply the raised budget:\n{py_source}"
     );
 }
 

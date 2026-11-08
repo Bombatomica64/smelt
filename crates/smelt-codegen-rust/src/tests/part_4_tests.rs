@@ -790,7 +790,7 @@ full: bool = re.fullmatch(pattern, text)
 "#,
     );
 
-    assert!(ts_source.contains("regex::Regex::new(&"));
+    assert!(ts_source.contains("SmeltRegExp::new("));
     assert!(ts_source.contains(".is_match(&"));
     assert!(py_source.contains(".is_match(&"));
     assert!(py_source.contains(".find(&"));

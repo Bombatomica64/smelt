@@ -65,8 +65,6 @@ pub(crate) enum Need {
     MathRound,
     /// The `parseInt`/`parseFloat` prefix parsers.
     ParseNumber,
-    /// The UTF-16 index helpers every JavaScript string index goes through.
-    StringUnits,
     /// The `JsString` UTF-16 string type and its borrowed `JsStr` view.
     JsString,
     /// Python's `repr`, for a container `print` shows.
@@ -197,8 +195,15 @@ pub(crate) enum Need {
     DepReqwest,
     /// The `serde_json` crate.
     DepSerdeJson,
-    /// The regex crates. Also what the `SmeltRegExp` runtime is gated on.
+    /// The Python `re` crates (`regex`, `fancy-regex`).
     DepRegex,
+    /// The `regress` crate: what the JavaScript `SmeltRegExp` runtime is gated on.
+    DepRegress,
+    /// A regex op both languages lower to. Its dialect is its body's source
+    /// language: [`RuntimeDemand::scan_body_in`] resolves it to [`Need::DepRegex`]
+    /// in a Python body and [`Need::DepRegress`] in a TypeScript one, and it is
+    /// never left set.
+    RegexOps,
     /// The `rand` crate.
     DepRand,
     /// The `chrono` crate.
@@ -238,11 +243,10 @@ const REQUIRES: &[(Need, &[Need])] = &[
             Need::SmeltList,
             Need::Record,
             Need::PanicRoute,
-            Need::DepRegex,
+            Need::DepRegress,
             Need::DepChrono,
             Need::DepChronoTz,
             Need::DepTokio,
-            Need::StringUnits,
             // The erased string payload is a `JsString`.
             Need::JsString,
         ],
@@ -255,7 +259,7 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::PythonDictRead, &[Need::PyException]),
     (Need::PythonListRead, &[Need::PyException]),
     (Need::PrimSet, &[Need::ObjectIds]),
-    (Need::DepRegex, &[Need::ObjectIds, Need::StringUnits, Need::JsString]),
+    (Need::DepRegress, &[Need::ObjectIds, Need::JsString]),
     (Need::Date, &[Need::ObjectIds, Need::HostOrigins]),
     // These are emitted inside the carrier's block, or carry its values.
     (Need::IteratorResult, &[Need::Unknown]),
@@ -338,19 +342,13 @@ impl RuntimeDemand {
             demand.add(Need::JsString);
         }
         for function in &mir.functions {
-            demand.scan_body(mir, &function.locals, &function.blocks, function.return_ty);
-            if function.language == smelt_hir::Language::TypeScript {
-                demand.scan_string_units(mir, &function.locals, &function.blocks);
-            }
+            demand.scan_body_in(function.language, mir, &function.locals, &function.blocks, function.return_ty);
             if function.language == smelt_hir::Language::Python {
                 demand.add(Need::PyDictOrder);
             }
         }
         for closure in &mir.closures {
-            demand.scan_body(mir, &closure.locals, &closure.blocks, closure.return_ty);
-            if closure.language == smelt_hir::Language::TypeScript {
-                demand.scan_string_units(mir, &closure.locals, &closure.blocks);
-            }
+            demand.scan_body_in(closure.language, mir, &closure.locals, &closure.blocks, closure.return_ty);
         }
         demand.close();
         // Which container a dict renders as depends on whether the carrier is
@@ -372,6 +370,28 @@ impl RuntimeDemand {
     /// Records `need` as demanded.
     const fn add(&mut self, need: Need) {
         self.needs |= bit(need);
+    }
+
+    /// Withdraws `need`.
+    const fn remove(&mut self, need: Need) {
+        self.needs &= !bit(need);
+    }
+
+    /// Records what one body of `language` demands, resolving its shared
+    /// regex ops ([`Need::RegexOps`]) to that language's regex dialect.
+    fn scan_body_in(
+        &mut self,
+        language: smelt_hir::Language,
+        mir: &Mir,
+        locals: &[LocalDecl],
+        blocks: &[BasicBlock],
+        return_ty: smelt_hir::TypeId,
+    ) {
+        self.scan_body(mir, locals, blocks, return_ty);
+        if self.has(Need::RegexOps) {
+            self.remove(Need::RegexOps);
+            self.add(if language == smelt_hir::Language::Python { Need::DepRegex } else { Need::DepRegress });
+        }
     }
 
     /// Follows [`REQUIRES`] to a fixed point.
@@ -539,7 +559,7 @@ impl RuntimeDemand {
                 self.add(Need::DataView);
             }
             StdlibClass::NodeHash => self.add(Need::NodeHash),
-            StdlibClass::RegExp => self.add(Need::DepRegex),
+            StdlibClass::RegExp => self.add(Need::DepRegress),
             _ => {}
         }
     }
@@ -597,55 +617,6 @@ impl RuntimeDemand {
                     self.add(Need::BodyHostMethod);
                 }
             });
-        }
-    }
-
-    /// Records whether a TypeScript body produces or consumes a string index.
-    ///
-    /// JavaScript string indices count UTF-16 code units, so such a body needs
-    /// the `smelt_utf16_*` helpers: a string-index op, a `length` of a string,
-    /// or an index read off a string local. Python indexes by code point and
-    /// needs none of them.
-    fn scan_string_units(&mut self, mir: &Mir, locals: &[LocalDecl], blocks: &[BasicBlock]) {
-        if self.has(Need::StringUnits) {
-            return;
-        }
-        let holds_string = |operand: &Operand| match operand {
-            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => {
-                local_is_string(mir, locals, *local)
-            }
-            Operand::Const(smelt_mir::Constant::String(_)) => true,
-            _ => false,
-        };
-        for statement in blocks.iter().flat_map(|block| &block.statements) {
-            let value = statement.value();
-            let indexes = match value {
-                Rvalue::StringSlice { .. }
-                | Rvalue::StringCharAt { .. }
-                | Rvalue::StringCharCodeAt { .. }
-                | Rvalue::StringCodePointAt { .. }
-                | Rvalue::StringSearch { .. }
-                | Rvalue::StringPad { .. }
-                | Rvalue::StringSplit { .. }
-                | Rvalue::StringContains { from_index: Some(_), .. }
-                | Rvalue::RegexReplaceCallback { .. } => true,
-                Rvalue::Len { operand } => holds_string(operand),
-                Rvalue::OptionalIndex { receiver, .. } => holds_string(receiver),
-                _ => false,
-            };
-            let mut reads_string_place = false;
-            value.reads(|operand| {
-                if let Operand::Copy(Place::Index { base, .. } | Place::Field { base, .. })
-                | Operand::Move(Place::Index { base, .. } | Place::Field { base, .. }) = operand
-                    && local_is_string(mir, locals, *base)
-                {
-                    reads_string_place = true;
-                }
-            });
-            if indexes || reads_string_place {
-                self.add(Need::StringUnits);
-                return;
-            }
         }
     }
 
@@ -799,25 +770,6 @@ fn local_holds_a_body(mir: &Mir, locals: &[LocalDecl], base: LocalId) -> bool {
     )
 }
 
-/// Whether `local` may hold a string: a string, an optional string, or a
-/// union with a string member.
-fn local_is_string(mir: &Mir, locals: &[LocalDecl], local: LocalId) -> bool {
-    usize::try_from(local.0)
-        .ok()
-        .and_then(|index| locals.get(index))
-        .is_some_and(|decl| type_may_be_string(mir, decl.ty))
-}
-
-/// Whether a value of type `ty` may be a string (see [`local_is_string`]).
-fn type_may_be_string(mir: &Mir, ty: smelt_hir::TypeId) -> bool {
-    match mir.types.get(ty) {
-        Some(Type::String | Type::PyStr) => true,
-        Some(Type::Optional(inner)) => type_may_be_string(mir, *inner),
-        Some(Type::Union(members)) => members.iter().any(|member| type_may_be_string(mir, *member)),
-        _ => false,
-    }
-}
-
 /// The backend crates a demand links, for the generated manifest.
 #[must_use]
 pub(crate) fn backend_dependencies(demand: &RuntimeDemand) -> Vec<BackendDependency> {
@@ -825,6 +777,7 @@ pub(crate) fn backend_dependencies(demand: &RuntimeDemand) -> Vec<BackendDepende
         (Need::DepReqwest, BackendDependency::Reqwest),
         (Need::DepSerdeJson, BackendDependency::SerdeJson),
         (Need::DepRegex, BackendDependency::Regex),
+        (Need::DepRegress, BackendDependency::Regress),
         (Need::DepRand, BackendDependency::Rand),
         (Need::DepChrono, BackendDependency::Chrono),
         (Need::DepChronoTz, BackendDependency::ChronoTz),

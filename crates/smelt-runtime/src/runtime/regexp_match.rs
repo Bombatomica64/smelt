@@ -29,7 +29,7 @@
 // to cross a genuinely dynamic boundary (an `unknown`-typed sink), it is
 // converted with the explicit [`IntoSmeltUnknown`] adapter — the single place where the
 // concrete match is intentionally erased.
-// @smelt:item SmeltMatch when dep_regex
+// @smelt:item SmeltMatch when dep_regress
 /// A concrete JavaScript RegExp match result (numbered groups, named
 /// groups, `index`, and `input`).
 #[derive(Clone, Debug, Default)]
@@ -59,16 +59,18 @@ impl PartialEq for SmeltMatch { fn eq(&self, other: &Self) -> bool { self.groups
 
 #[allow(dead_code)]
 impl SmeltMatch {
-    /// Build a `SmeltMatch` from a compiled regex and its captures, found in
-    /// `input[offset..]`; `spans` keeps the group indices (the `d` flag).
-    fn from_captures(regex: &fancy_regex::Regex, captures: &fancy_regex::Captures<'_>, input: &str, offset: usize, spans: bool) -> Self {
-        let unit_of = |byte: usize| smelt_units_to_number(smelt_utf16_index_of_byte(input, offset + byte));
-        let match_index = captures.get(0).map_or(0, |whole| smelt_utf16_index_of_byte(input, offset + whole.start()));
-        let spans = spans.then(|| ::std::rc::Rc::new((0..captures.len()).map(|index| captures.get(index).map(|group| (unit_of(group.start()), unit_of(group.end())))).collect::<Vec<_>>()));
-        let groups = (0..captures.len()).map(|index| captures.get(index).map(|value| JsString::from(value.as_str()))).collect::<Vec<_>>();
+    /// Build a `SmeltMatch` from a `regress` match over `input`'s code units;
+    /// `spans` keeps the group indices (the `d` flag). Every offset `regress`
+    /// reports is already a code unit index.
+    fn from_regress(found: &regress::Match, input: &JsStr, spans: bool) -> Self {
+        let units = input.units();
+        let text = |range: ::std::ops::Range<usize>| JsString::from_units(units.get(range).unwrap_or(&[]));
+        let ranges = ::std::iter::once(Some(found.range())).chain(found.captures.iter().cloned()).collect::<Vec<_>>();
+        let spans = spans.then(|| ::std::rc::Rc::new(ranges.iter().map(|range| range.as_ref().map(|range| (smelt_units_to_number(range.start), smelt_units_to_number(range.end)))).collect::<Vec<_>>()));
+        let groups = ranges.into_iter().map(|range| range.map(text)).collect::<Vec<_>>();
         let mut named = ::std::collections::HashMap::new();
-        for name in regex.capture_names().flatten() {
-            let value = captures.name(name).map(|value| JsString::from(value.as_str()));
+        for (name, range) in found.named_groups() {
+            let value = range.map(text);
             named.insert(name.to_owned(), value.clone());
             let mut snake = String::new();
             for (index, ch) in name.chars().enumerate() {
@@ -76,7 +78,7 @@ impl SmeltMatch {
             }
             named.insert(snake, value);
         }
-        Self { id: smelt_next_object_id(), groups: ::std::rc::Rc::new(groups), named: ::std::rc::Rc::new(named), match_index, input: JsString::from(input), spans }
+        Self { id: smelt_next_object_id(), groups: ::std::rc::Rc::new(groups), named: ::std::rc::Rc::new(named), match_index: found.start(), input: input.to_owned(), spans }
     }
     /// Build the array a GLOBAL `String.prototype.match` answers.
     ///
