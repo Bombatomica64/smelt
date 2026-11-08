@@ -97,8 +97,7 @@ fn main (FuncId(0)) -> None
     %34 = string_join move %33, "|"
     %35 = call @console_log(move %34) -> bb11
   bb11:
-    %36 = copy %2
-    %3 = move %2
+    %3 = set_copy move %2
     %37 = len copy %3
     %38 = call @console_log(move %37) -> bb12
   bb12:

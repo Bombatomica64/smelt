@@ -546,7 +546,7 @@ const mapEntries = mapping.entries();
         ),
         "{source}"
     );
-    assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
+    assert!(source.contains(".iter().collect::<Vec<_>>()"));
     assert!(
         source.contains(".iter().map(|smelt_value| (smelt_value.clone(), smelt_value.clone())).collect::<Vec<_>>()")
     );
@@ -575,7 +575,9 @@ superset: bool = left.issuperset(right)
     assert!(source.contains(".is_disjoint(&"));
     assert!(source.contains(".is_subset(&"));
     assert!(source.contains(".is_superset(&"));
-    assert!(source.contains(".cloned().collect()"));
+    // Set algebra collects the owned members it answers into a NEW set.
+    assert!(source.contains(".union(&") && source.contains(").collect()"));
+    assert!(!source.contains(".cloned().collect()"), "{source}");
 }
 
 #[test]

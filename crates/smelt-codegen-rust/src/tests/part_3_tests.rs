@@ -42,7 +42,8 @@ def run() -> None:
 "#,
     );
 
-    assert!(source.contains("let copied_items: SmeltPrimSet<i64> = items.clone();"));
+    // `set(items)` is a NEW set: a clone would be another handle on `items`.
+    assert!(source.contains("let copied_items: SmeltPrimSet<i64> = items.fresh_copy();"), "{source}");
     assert_eq!(source.matches(".clone().clone()").count(), 0);
     assert!(source.contains("vec![]"));
     // A source `set` — Python's included — is the insertion-ordered
@@ -51,7 +52,7 @@ def run() -> None:
     // nothing; JavaScript REQUIRES insertion order.
     assert!(source.contains("SmeltPrimSet::new()"));
     assert!(source.contains("SmeltRecord::from([])"));
-    assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
+    assert!(source.contains(".iter().collect::<Vec<_>>()"));
     assert!(
         source.contains(
             ".keys().collect::<Vec<_>>()"

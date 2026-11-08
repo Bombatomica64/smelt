@@ -839,41 +839,44 @@ pub struct SmeltPrimSetStore<T> {
 
 pub struct SmeltPrimSet<T> {
     id: usize,
-    store: ::std::rc::Rc<SmeltPrimSetStore<T>>,
+    store: ::std::rc::Rc<::std::cell::RefCell<SmeltPrimSetStore<T>>>,
 }
 
 impl<T> SmeltPrimSet<T> {
     fn new() -> Self { Self::with_id(smelt_next_object_id()) }
-    fn with_id(id: usize) -> Self { Self { id, store: ::std::rc::Rc::new(SmeltPrimSetStore { entries: Vec::new(), index: ::std::collections::HashSet::new() }) } }
-    fn len(&self) -> usize { self.store.entries.len() }
-    fn is_empty(&self) -> bool { self.store.entries.is_empty() }
-    fn iter(&self) -> ::std::slice::Iter<'_, T> { self.store.entries.iter() }
+    fn with_id(id: usize) -> Self { Self { id, store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltPrimSetStore { entries: Vec::new(), index: ::std::collections::HashSet::new() })) } }
+    fn len(&self) -> usize { self.store.borrow().entries.len() }
+    fn is_empty(&self) -> bool { self.store.borrow().entries.is_empty() }
 }
 
 impl<T: Clone + ::std::cmp::Eq + ::std::hash::Hash> SmeltPrimSet<T> {
-    fn store_mut(&mut self) -> &mut SmeltPrimSetStore<T> { ::std::rc::Rc::make_mut(&mut self.store) }
-    fn contains(&self, value: &T) -> bool { self.store.index.contains(value) }
-    fn insert(&mut self, value: T) -> bool { if self.store.index.contains(&value) { return false; } let store = self.store_mut(); store.index.insert(value.clone()); store.entries.push(value); true }
-    fn remove(&mut self, value: &T) -> bool { if !self.store.index.contains(value) { return false; } let store = self.store_mut(); store.index.remove(value); store.entries.retain(|entry| entry != value); true }
-    fn clear(&mut self) { let store = self.store_mut(); store.entries.clear(); store.index.clear(); }
+    /// A NEW set with the same members in the same order: its own id and its
+    /// own store, so later writes to either set leave the other unchanged.
+    fn fresh_copy(&self) -> Self { Self { id: smelt_next_object_id(), store: ::std::rc::Rc::new(::std::cell::RefCell::new(self.store.borrow().clone())) } }
+    /// The members, in insertion order, as an owned snapshot.
+    fn iter(&self) -> ::std::vec::IntoIter<T> { self.store.borrow().entries.clone().into_iter() }
+    fn contains(&self, value: &T) -> bool { self.store.borrow().index.contains(value) }
+    fn insert(&mut self, value: T) -> bool { let mut store = self.store.borrow_mut(); if store.index.contains(&value) { return false; } store.index.insert(value.clone()); store.entries.push(value); true }
+    fn remove(&mut self, value: &T) -> bool { let mut store = self.store.borrow_mut(); if !store.index.remove(value) { return false; } store.entries.retain(|entry| entry != value); true }
+    fn clear(&mut self) { let mut store = self.store.borrow_mut(); store.entries.clear(); store.index.clear(); }
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) { for value in iter { self.insert(value); } }
-    fn is_disjoint(&self, other: &Self) -> bool { self.store.entries.iter().all(|value| !other.contains(value)) }
-    fn is_subset(&self, other: &Self) -> bool { self.store.entries.iter().all(|value| other.contains(value)) }
+    fn is_disjoint(&self, other: &Self) -> bool { self.iter().all(|value| !other.contains(&value)) }
+    fn is_subset(&self, other: &Self) -> bool { self.iter().all(|value| other.contains(&value)) }
     fn is_superset(&self, other: &Self) -> bool { other.is_subset(self) }
-    fn union<'smelt_set>(&'smelt_set self, other: &'smelt_set Self) -> ::std::vec::IntoIter<&'smelt_set T> { let mut out: Vec<&T> = self.store.entries.iter().collect(); out.extend(other.store.entries.iter().filter(|value| !self.contains(value))); out.into_iter() }
-    fn intersection<'smelt_set>(&'smelt_set self, other: &'smelt_set Self) -> ::std::vec::IntoIter<&'smelt_set T> { self.store.entries.iter().filter(|value| other.contains(value)).collect::<Vec<_>>().into_iter() }
-    fn difference<'smelt_set>(&'smelt_set self, other: &'smelt_set Self) -> ::std::vec::IntoIter<&'smelt_set T> { self.store.entries.iter().filter(|value| !other.contains(value)).collect::<Vec<_>>().into_iter() }
-    fn symmetric_difference<'smelt_set>(&'smelt_set self, other: &'smelt_set Self) -> ::std::vec::IntoIter<&'smelt_set T> { let mut out: Vec<&T> = self.store.entries.iter().filter(|value| !other.contains(value)).collect(); for value in other.store.entries.iter() { if !self.contains(value) { out.push(value); } } out.into_iter() }
+    fn union(&self, other: &Self) -> ::std::vec::IntoIter<T> { let mut out = self.iter().collect::<Vec<_>>(); out.extend(other.iter().filter(|value| !self.contains(value))); out.into_iter() }
+    fn intersection(&self, other: &Self) -> ::std::vec::IntoIter<T> { self.iter().filter(|value| other.contains(value)).collect::<Vec<_>>().into_iter() }
+    fn difference(&self, other: &Self) -> ::std::vec::IntoIter<T> { self.iter().filter(|value| !other.contains(value)).collect::<Vec<_>>().into_iter() }
+    fn symmetric_difference(&self, other: &Self) -> ::std::vec::IntoIter<T> { let mut out = self.iter().filter(|value| !other.contains(value)).collect::<Vec<_>>(); out.extend(other.iter().filter(|value| !self.contains(value))); out.into_iter() }
 }
 
 impl<T> Clone for SmeltPrimSet<T> { fn clone(&self) -> Self { Self { id: self.id, store: self.store.clone() } } }
-impl<T: ::std::fmt::Debug> ::std::fmt::Debug for SmeltPrimSet<T> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltPrimSet").field("id", &self.id).field("entries", &self.store.entries).finish() } }
+impl<T: ::std::fmt::Debug> ::std::fmt::Debug for SmeltPrimSet<T> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltPrimSet").field("id", &self.id).field("entries", &self.store.borrow().entries).finish() } }
 impl<T> Default for SmeltPrimSet<T> { fn default() -> Self { Self::new() } }
 impl<T: Clone + ::std::cmp::Eq + ::std::hash::Hash, const N: usize> From<[T; N]> for SmeltPrimSet<T> { fn from(values: [T; N]) -> Self { values.into_iter().collect() } }
 impl<T: Clone + ::std::cmp::Eq + ::std::hash::Hash> ::std::iter::FromIterator<T> for SmeltPrimSet<T> { fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self { let mut set = Self::new(); set.extend(iter); set } }
-impl<T: Clone> IntoIterator for SmeltPrimSet<T> { type Item = T; type IntoIter = ::std::vec::IntoIter<T>; fn into_iter(self) -> Self::IntoIter { match ::std::rc::Rc::try_unwrap(self.store) { Ok(store) => store.entries.into_iter(), Err(store) => store.entries.clone().into_iter() } } }
-impl<'smelt_set, T> IntoIterator for &'smelt_set SmeltPrimSet<T> { type Item = &'smelt_set T; type IntoIter = ::std::slice::Iter<'smelt_set, T>; fn into_iter(self) -> Self::IntoIter { self.store.entries.iter() } }
-impl<T: Clone + ::std::cmp::Eq + ::std::hash::Hash> PartialEq for SmeltPrimSet<T> { fn eq(&self, other: &Self) -> bool { self.store.entries.len() == other.store.entries.len() && self.store.entries.iter().all(|value| other.contains(value)) } }
+impl<T: Clone> IntoIterator for SmeltPrimSet<T> { type Item = T; type IntoIter = ::std::vec::IntoIter<T>; fn into_iter(self) -> Self::IntoIter { match ::std::rc::Rc::try_unwrap(self.store) { Ok(store) => store.into_inner().entries.into_iter(), Err(store) => store.borrow().entries.clone().into_iter() } } }
+impl<T: Clone> IntoIterator for &SmeltPrimSet<T> { type Item = T; type IntoIter = ::std::vec::IntoIter<T>; fn into_iter(self) -> Self::IntoIter { self.store.borrow().entries.clone().into_iter() } }
+impl<T: Clone + ::std::cmp::Eq + ::std::hash::Hash> PartialEq for SmeltPrimSet<T> { fn eq(&self, other: &Self) -> bool { self.len() == other.len() && self.iter().all(|value| other.contains(&value)) } }
 
 /// A key an erased object is read by: a JavaScript string as it is, and the
 /// runtime's own `&str` keys (markers, spec property names) encoded on the
@@ -919,7 +922,6 @@ fn main() {
     let _smelt_tmp_31: f64;
     let _smelt_tmp_33: SmeltList<JsString>;
     let _smelt_tmp_34: JsString;
-    let _smelt_tmp_36: SmeltPrimSet<JsString>;
     let _smelt_tmp_37: f64;
     let _smelt_tmp_39: SmeltList<JsString>;
     let _smelt_tmp_40: JsString;
@@ -944,14 +946,14 @@ fn main() {
     let _ = { println!("{}", _smelt_tmp_14); };
     _smelt_tmp_16 = reg_exp_meta_chars.clone().contains(&JsString::from("a"));
     let _ = { println!("{}", _smelt_tmp_16); };
-    _smelt_tmp_18 = Into::<SmeltList<_>>::into(reg_exp_meta_chars.iter().cloned().collect::<Vec<_>>());
+    _smelt_tmp_18 = Into::<SmeltList<_>>::into(reg_exp_meta_chars.iter().collect::<Vec<_>>());
     _smelt_tmp_19 = JsString::join(_smelt_tmp_18.borrow().iter(), &JsString::new());
     let _ = { println!("{}", _smelt_tmp_19); };
     _smelt_tmp_21 = Into::<SmeltList<_>>::into(JsString::from("aabbcc").code_point_strings());
     repeated = _smelt_tmp_21.borrow().iter().cloned().collect::<SmeltPrimSet<_>>();
     _smelt_tmp_23 = repeated.len() as f64;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_23)); };
-    _smelt_tmp_25 = Into::<SmeltList<_>>::into(repeated.iter().cloned().collect::<Vec<_>>());
+    _smelt_tmp_25 = Into::<SmeltList<_>>::into(repeated.iter().collect::<Vec<_>>());
     _smelt_tmp_26 = JsString::join(_smelt_tmp_25.borrow().iter(), &JsString::from("|"));
     let _ = { println!("{}", _smelt_tmp_26); };
     _smelt_tmp_28 = repeated.contains(&JsString::from("d"));
@@ -959,26 +961,25 @@ fn main() {
     from_array = SmeltPrimSet::from([JsString::from("c"), JsString::from("a"), JsString::from("b"), JsString::from("a")]);
     _smelt_tmp_31 = from_array.len() as f64;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_31)); };
-    _smelt_tmp_33 = Into::<SmeltList<_>>::into(from_array.iter().cloned().collect::<Vec<_>>());
+    _smelt_tmp_33 = Into::<SmeltList<_>>::into(from_array.iter().collect::<Vec<_>>());
     _smelt_tmp_34 = JsString::join(_smelt_tmp_33.borrow().iter(), &JsString::from("|"));
     let _ = { println!("{}", _smelt_tmp_34); };
-    _smelt_tmp_36 = from_array.clone();
-    copied = from_array;
+    copied = from_array.fresh_copy();
     _smelt_tmp_37 = copied.len() as f64;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_37)); };
-    _smelt_tmp_39 = Into::<SmeltList<_>>::into(copied.iter().cloned().collect::<Vec<_>>());
+    _smelt_tmp_39 = Into::<SmeltList<_>>::into(copied.iter().collect::<Vec<_>>());
     _smelt_tmp_40 = JsString::join(_smelt_tmp_39.borrow().iter(), &JsString::from("|"));
     let _ = { println!("{}", _smelt_tmp_40); };
     _smelt_tmp_42 = Into::<SmeltList<_>>::into(JsString::from("hello").code_point_strings());
     direct = _smelt_tmp_42.borrow().iter().cloned().collect::<SmeltPrimSet<_>>();
     _smelt_tmp_44 = Into::<SmeltList<_>>::into(JsString::from("hello").code_point_strings());
     via_spread = _smelt_tmp_44.borrow().iter().cloned().collect::<SmeltPrimSet<_>>();
-    _smelt_tmp_46 = Into::<SmeltList<_>>::into(direct.iter().cloned().collect::<Vec<_>>());
+    _smelt_tmp_46 = Into::<SmeltList<_>>::into(direct.iter().collect::<Vec<_>>());
     _smelt_tmp_47 = JsString::join(_smelt_tmp_46.borrow().iter(), &JsString::from("|"));
     let _ = { println!("{}", _smelt_tmp_47); };
-    _smelt_tmp_49 = Into::<SmeltList<_>>::into(direct.iter().cloned().collect::<Vec<_>>());
+    _smelt_tmp_49 = Into::<SmeltList<_>>::into(direct.iter().collect::<Vec<_>>());
     _smelt_tmp_50 = JsString::join(_smelt_tmp_49.borrow().iter(), &JsString::from("|"));
-    _smelt_tmp_51 = Into::<SmeltList<_>>::into(via_spread.iter().cloned().collect::<Vec<_>>());
+    _smelt_tmp_51 = Into::<SmeltList<_>>::into(via_spread.iter().collect::<Vec<_>>());
     _smelt_tmp_52 = JsString::join(_smelt_tmp_51.borrow().iter(), &JsString::from("|"));
     _smelt_tmp_53 = _smelt_tmp_50 == _smelt_tmp_52;
     let _ = { println!("{}", _smelt_tmp_53); };

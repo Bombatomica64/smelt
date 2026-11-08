@@ -75,7 +75,7 @@ module examples/typescript/end-to-end/70_set_from_iterable/input.ts (ModuleId(0)
     #64: None = @10(console_log)
     #65: None = call #64(#63)
     #66: Set<String> = %2
-    #67: Set<String> = assert_type #66
+    #67: Set<String> = set_copy #66
     #68: Set<String> = %3
     #69: Float = len #68
     #70: None = @11(console_log)
