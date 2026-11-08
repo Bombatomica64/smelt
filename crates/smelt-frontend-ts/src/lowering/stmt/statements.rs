@@ -907,6 +907,11 @@ impl ModuleBuilder<'_> {
         };
         matches!(&await_expr.argument, Expression::ImportExpression(_))
     }
+
+    /// Lower a statement in the current scope.
+    pub(in crate::lowering) fn statement(&mut self, statement: &Statement<'_>, body: &mut Body) -> Result<(), SmeltError> {
+        self.statement_in_block(statement, body, body.root)
+    }
 }
 
 /// Every identifier an AST subtree assigns or updates, at any depth.

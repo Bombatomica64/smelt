@@ -230,4 +230,46 @@ impl ModuleBuilder<'_> {
         let value = self.argument(value, body)?;
         Ok(Some(self.push_bigint_call(op, vec![bits, value], span, body)))
     }
+
+    /// Lower a TypeScript bigint literal (`123n`) to a `bigint` value.
+    ///
+    /// The literal keeps its exact digits ([`Literal::BigInt`]) and the
+    /// `bigint` type, at every magnitude: `9_999_999_999_999_999_999_999n` is
+    /// the same kind of value as `1n`. It used to share `Int` (`i64`) with the
+    /// bounded integers and fall back to an `f64` past `i64`, which saturated
+    /// the wide literal and wrapped `i64` arithmetic (remeda's `randomBigInt`).
+    pub(in crate::lowering) fn bigint_literal_expression(
+        &mut self,
+        value: &str,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Result<ExprId, SmeltError> {
+        let digits = Self::canonical_bigint_digits(value).ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(span.start, span.end),
+                format!("bigint literal is not a decimal integer: {value}"),
+            )
+        })?;
+        let ty = self.ctx.krate.types.intern(Type::BigInt);
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::BigInt(digits)),
+            ty,
+            span: self.span(span.start, span.end),
+        }))
+    }
+
+    /// The canonical digits of a bigint literal's base-10 `value`.
+    ///
+    /// The parser hands over the value in base 10 without separators (a `0x`
+    /// literal is already converted); this strips a trailing `n`, any `_`, and
+    /// leading zeros so equal literals share one spelling. `None` when the text
+    /// is not a run of decimal digits.
+    pub(in crate::lowering) fn canonical_bigint_digits(value: &str) -> Option<String> {
+        let digits = value.trim_end_matches('n').replace('_', "");
+        if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        let trimmed = digits.trim_start_matches('0');
+        Some(if trimmed.is_empty() { "0".to_owned() } else { trimmed.to_owned() })
+    }
 }
