@@ -637,11 +637,11 @@ impl FunctionEmitter<'_> {
         source: TypeId,
         target: TypeId,
     ) -> Option<TypeExpansionGuard<'_>> {
-        if self.type_expansion_stack.borrow().contains(&(source, target)) {
+        if self.conversions.type_expansion_stack.borrow().contains(&(source, target)) {
             return None;
         }
         Some(helper_reservation::push_entry(
-            &self.type_expansion_stack,
+            &self.conversions.type_expansion_stack,
             (source, target),
         ))
     }

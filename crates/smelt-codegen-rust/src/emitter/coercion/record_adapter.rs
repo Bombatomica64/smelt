@@ -309,7 +309,7 @@ impl FunctionEmitter<'_> {
         }
         let existing = self
             .context
-            .record_adapter_helpers
+            .minted.record_adapter_helpers
             .borrow()
             .get(&module)
             .map(|(ordinal, _)| *ordinal);
@@ -319,11 +319,11 @@ impl FunctionEmitter<'_> {
             // Reserved before the body renders (the cycle calls it); released
             // unless a body is committed (see `helper_reservation`).
             let reservation =
-                helper_reservation::reserve(&self.context.record_adapter_helpers, module);
+                helper_reservation::reserve(&self.context.minted.record_adapter_helpers, module);
             let body = {
                 // The helper's body is a fresh module-level item: the
                 // expansions in progress at this call site are not its own.
-                let _suspended = helper_reservation::suspend(&self.type_expansion_stack);
+                let _suspended = helper_reservation::suspend(&self.conversions.type_expansion_stack);
                 let module_scope = self.render_scope();
                 self.structural_record_adapter(&RustExpr::path("smelt_value"), source, target, &module_scope)
             };

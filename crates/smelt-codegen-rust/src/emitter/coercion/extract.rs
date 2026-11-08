@@ -101,7 +101,7 @@ impl FunctionEmitter<'_> {
         ) else {
             return Ok(None);
         };
-        let conversion_entry = helper_reservation::push_entry(&self.record_conversion_stack, target);
+        let conversion_entry = helper_reservation::push_entry(&self.conversions.record_conversion_stack, target);
         let adapter_result = self.string_dict_record_adapter(
             &RustExpr::path("smelt_record_map"),
             string_ty,
@@ -208,7 +208,7 @@ impl FunctionEmitter<'_> {
         if module_text != scoped_text {
             return Ok(None);
         }
-        let existing = self.context.record_conversion_helpers.borrow().get(&module_text).map(|(ordinal, _)| *ordinal);
+        let existing = self.context.minted.record_conversion_helpers.borrow().get(&module_text).map(|(ordinal, _)| *ordinal);
         let ordinal = if let Some(ordinal) = existing {
             ordinal
         } else {
@@ -220,7 +220,7 @@ impl FunctionEmitter<'_> {
             // generated recursion is finite. The reservation is released on
             // every path that does not commit a body (see `helper_reservation`).
             let reservation = helper_reservation::reserve(
-                &self.context.record_conversion_helpers,
+                &self.context.minted.record_conversion_helpers,
                 module_text,
             );
             let module_scope = self.render_scope();
@@ -1058,13 +1058,13 @@ impl FunctionEmitter<'_> {
         // `hoisted_record_conversion` reserves before rendering its
         // body. Answering `Default::default()` here dropped the inner
         // value (`p.swap()` read `0 0`).
-        if self.record_conversion_stack.borrow().contains(&target) {
+        if self.conversions.record_conversion_stack.borrow().contains(&target) {
             return match self.hoisted_record_conversion(text, target)? {
                 Some(call) => Ok(RustExpr::from(call)),
                 None => self.generated_record_from_unknown_expr(text, target),
             };
         }
-        if self.record_conversion_stack.borrow().is_empty()
+        if self.conversions.record_conversion_stack.borrow().is_empty()
             && let Some(call) = self.hoisted_record_conversion(text, target)?
         {
             return Ok(RustExpr::chain(call));

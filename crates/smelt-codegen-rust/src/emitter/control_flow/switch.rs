@@ -536,7 +536,7 @@ impl FunctionEmitter<'_> {
         block_id: smelt_mir::BlockId,
         visiting: &mut BlockIdSet,
     ) -> Result<bool, EmitError> {
-        if let Some(result) = self.termination_cache.borrow().get(&block_id).copied() {
+        if let Some(result) = self.caches.termination_cache.borrow().get(&block_id).copied() {
             return Ok(result);
         }
         if !visiting.insert(block_id) {
@@ -578,7 +578,7 @@ impl FunctionEmitter<'_> {
         };
 
         visiting.remove(&block_id);
-        self.termination_cache.borrow_mut().insert(block_id, result);
+        self.caches.termination_cache.borrow_mut().insert(block_id, result);
         Ok(result)
     }
 

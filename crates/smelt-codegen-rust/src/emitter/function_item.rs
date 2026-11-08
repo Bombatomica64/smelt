@@ -211,8 +211,8 @@ impl FunctionEmitter<'_> {
             declared.extend(self.function.params.iter().copied());
         }
         self.deferred_capture_cells.borrow_mut().clear();
-        self.record_conversion_stack.borrow_mut().clear();
-        self.type_expansion_stack.borrow_mut().clear();
+        self.conversions.record_conversion_stack.borrow_mut().clear();
+        self.conversions.type_expansion_stack.borrow_mut().clear();
         self.hoisted_module_item.set(false);
         self.inherited_bound_suspended.set(false);
         self.flow.reset();

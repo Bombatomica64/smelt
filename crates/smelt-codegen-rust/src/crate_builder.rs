@@ -441,7 +441,7 @@ impl<'a> CrateBuilder<'a, BodiesWritten> {
         // reference to the same named function value shares one inner `Rc`, keeping
         // JavaScript reference identity (`===`) stable across references. Sorted by
         // item key via the `BTreeMap` for deterministic golden output.
-        for (key, body) in context.function_item_accessors.borrow().iter() {
+        for (key, body) in context.minted.function_item_accessors.borrow().iter() {
             out.push_str(&format!(
                 "\nfn __smelt_fn_value_{key}() -> SmeltUnknown {{\n    thread_local! {{ static SMELT_FN_VALUE: ::std::cell::OnceCell<SmeltUnknown> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_VALUE.with(|cell| cell.get_or_init(|| {body}).clone())\n}}\n"
             ));
@@ -453,7 +453,7 @@ impl<'a> CrateBuilder<'a, BodiesWritten> {
         // one inner callback `Rc`, keeping JavaScript function-singleton identity.
         // A non-empty collector means a closure was lowered to `SmeltErasedFunction`,
         // so `needs_erased_function` is necessarily true and the struct is emitted.
-        for (key, body) in context.function_item_erased_fn_accessors.borrow().iter() {
+        for (key, body) in context.minted.function_item_erased_fn_accessors.borrow().iter() {
             out.push_str(&format!(
                 "\nfn __smelt_fn_erased_{key}() -> SmeltErasedFunction {{\n    thread_local! {{ static SMELT_FN_ERASED: ::std::cell::OnceCell<SmeltErasedFunction> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_ERASED.with(|cell| cell.get_or_init(|| {body}).clone())\n}}\n"
             ));
@@ -466,7 +466,7 @@ impl<'a> CrateBuilder<'a, BodiesWritten> {
         // the unsizing coercion to `Rc<dyn Fn..>` happens at a `let`; the type is
         // spelled once, as an alias, rather than restated in each of the three
         // positions that name it.
-        for ((key, rendered_type), (ordinal, body)) in context.function_item_typed_accessors.borrow().iter() {
+        for ((key, rendered_type), (ordinal, body)) in context.minted.function_item_typed_accessors.borrow().iter() {
             out.push_str(&format!(
                 "\ntype SmeltFnTyped{key}_{ordinal} = {rendered_type};\nfn __smelt_fn_typed_{key}_{ordinal}() -> SmeltFnTyped{key}_{ordinal} {{\n    thread_local! {{ static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped{key}_{ordinal}> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| {{ let smelt_function: SmeltFnTyped{key}_{ordinal} = {body}; smelt_function }}).clone())\n}}\n"
             ));
@@ -475,13 +475,13 @@ impl<'a> CrateBuilder<'a, BodiesWritten> {
         // Flush the hoisted erased-record-to-class conversions (see
         // `EmitContext::record_conversion_helpers`): each recovered class type's
         // conversion is spelled once here and called from every site.
-        for (rendered_type, (ordinal, body)) in context.record_conversion_helpers.borrow().iter() {
+        for (rendered_type, (ordinal, body)) in context.minted.record_conversion_helpers.borrow().iter() {
             out.push_str(&format!(
                 "\nfn {RECORD_CONVERSION_HELPER_PREFIX}{ordinal}(smelt_value: SmeltUnknown) -> {rendered_type} {{\n    {body}\n}}\n"
             ));
         }
         // The self-reaching record-to-record adapters, likewise spelled once.
-        for ((source_text, target_text), (ordinal, body)) in context.record_adapter_helpers.borrow().iter() {
+        for ((source_text, target_text), (ordinal, body)) in context.minted.record_adapter_helpers.borrow().iter() {
             out.push_str(&format!(
                 "\nfn {RECORD_ADAPTER_HELPER_PREFIX}{ordinal}(smelt_value: {source_text}) -> {target_text} {{\n    {body}\n}}\n"
             ));

@@ -127,7 +127,7 @@ impl FunctionEmitter<'_> {
                 // ordinary fresh-erasure logic below.
                 if let Some((key, accessor_body)) = self.function_item_erased_accessor(operand)? {
                     self.context
-                        .function_item_accessors
+                        .minted.function_item_accessors
                         .borrow_mut()
                         .entry(key)
                         .or_insert(accessor_body);
@@ -742,13 +742,13 @@ impl FunctionEmitter<'_> {
         value_text: &RustExpr,
         target: TypeId,
     ) -> Result<RustExpr, EmitError> {
-        if self.record_conversion_stack.borrow().contains(&target) {
+        if self.conversions.record_conversion_stack.borrow().contains(&target) {
             return Ok(self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null")));
         }
         let Some(Type::Class { name, .. }) = self.mir.types.get(target) else {
             return Ok(self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null")));
         };
-        let conversion_entry = helper_reservation::push_entry(&self.record_conversion_stack, target);
+        let conversion_entry = helper_reservation::push_entry(&self.conversions.record_conversion_stack, target);
         // Field types at the value's own type arguments: `LazyMany<R>` stores
         // `next: SmeltList<R>`, not the declaration's `SmeltList<T>`, and each
         // field erases by what it holds here. Judging the declared `T` against
