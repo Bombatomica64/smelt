@@ -118,10 +118,12 @@ fn return_type_is_erasable(mir: &Mir, ty: TypeId) -> bool {
 ///    constructor or a static.
 /// 2. It is neither `async` nor a generator: both return a suspended handle
 ///    that has no erased rendering.
-/// 3. It declares no rest parameter, and every parameter type can be rebuilt
-///    from the erased carrier ([`type_supports_from_unknown`]). A callback or
-///    compiled-regex parameter has no inbound impl, so no adapter is emitted
-///    rather than one that would not compile.
+/// 3. Every parameter can be rebuilt from the erased call's arguments
+///    ([`param_crosses_erased_call`]): a data parameter through
+///    `SmeltFromUnknown`, a callback whose own parameters and return cross the
+///    carrier by wrapping the erased function, a trailing rest list from the
+///    remaining arguments. A compiled-regex parameter has no inbound impl, so
+///    no adapter is emitted rather than one that would not compile.
 /// 4. Its return type has a faithful erased rendering
 ///    ([`return_type_is_erasable`]).
 /// 5. Its receiver is `&self`. A by-value class whose method takes `&mut self`
@@ -132,12 +134,13 @@ fn return_type_is_erasable(mir: &Mir, ty: TypeId) -> bool {
 pub(crate) fn method_is_proto_eligible(
     mir: &Mir,
     context: &EmitContext,
+    owner: smelt_hir::Symbol,
     function: &MirFunction,
 ) -> bool {
     let HirOrigin::ClassMethod { class, .. } = function.origin else {
         return false;
     };
-    if function.is_async || function.is_generator || function.rest.is_some() {
+    if function.is_async || function.is_generator {
         return false;
     }
     let HirOrigin::ClassMethod { method: name, .. } = function.origin else {
@@ -158,10 +161,49 @@ pub(crate) fn method_is_proto_eligible(
     if method_mutates_this(function) && !context.is_reference_class(class) {
         return false;
     }
-    function.params.iter().skip(1).all(|param| {
-        local_decl(function, *param)
-            .is_some_and(|local| type_supports_from_unknown(mir, context, local.ty))
+    // A callback or rest parameter is spelled by the method's own emitter,
+    // which renders the DECLARING class's type parameters; an inherited copy
+    // in a subclass impl substitutes them, so only an own method takes it.
+    let own_method = class == owner;
+    function.params.iter().enumerate().skip(1).all(|(index, param)| {
+        local_decl(function, *param).is_some_and(|local| {
+            if own_method {
+                param_crosses_erased_call(mir, context, function, index, local.ty)
+            } else {
+                function.rest.is_none() && type_supports_from_unknown(mir, context, local.ty)
+            }
+        })
     })
+}
+
+/// Whether the erased adapter can rebuild parameter `index` of `function`
+/// from the erased call's arguments: a data parameter through
+/// `SmeltFromUnknown`, a callback by wrapping the erased function, and a
+/// trailing rest list from the remaining arguments (`proto_argument`).
+fn param_crosses_erased_call(
+    mir: &Mir,
+    context: &EmitContext,
+    function: &MirFunction,
+    index: usize,
+    ty: TypeId,
+) -> bool {
+    if function.rest == Some(index) {
+        return matches!(mir.types.get(ty), Some(Type::List(item))
+            if type_supports_from_unknown(mir, context, *item)
+                || matches!(mir.types.get(*item), Some(Type::Function(_))));
+    }
+    match mir.types.get(ty) {
+        Some(Type::Function(callback)) => {
+            !callback.is_async
+                && callback
+                    .params
+                    .iter()
+                    .all(|param| type_supports_from_unknown(mir, context, *param))
+                && (matches!(mir.types.get(callback.return_ty), Some(Type::None))
+                    || type_supports_from_unknown(mir, context, callback.return_ty))
+        }
+        _ => type_supports_from_unknown(mir, context, ty),
+    }
 }
 
 /// The prelude expression yielding the canonical identity of one class method.
@@ -205,10 +247,11 @@ pub(crate) fn method_identity_expr(
 /// real typed method, and erases the typed result back out.
 fn method_adapter(
     mir: &Mir,
+    context: &EmitContext,
     function: &MirFunction,
     rust_method: &str,
 ) -> Result<RustExpr, EmitError> {
-    erased_callable_adapter(mir, function, &MethodReceiver::Instance, rust_method)
+    erased_callable_adapter(mir, context, function, &MethodReceiver::Instance, rust_method)
 }
 
 /// What an erased adapter calls its method on.
@@ -224,6 +267,7 @@ enum MethodReceiver {
 /// `SmeltFromUnknown`, the typed call, the result erased back out.
 fn erased_callable_adapter(
     mir: &Mir,
+    context: &EmitContext,
     function: &MirFunction,
     receiver: &MethodReceiver,
     rust_method: &str,
@@ -233,9 +277,29 @@ fn erased_callable_adapter(
         MethodReceiver::Static(_) => 0,
     };
     let mut args = Vec::new();
-    for (index, param) in function.params.iter().skip(skipped).enumerate() {
+    // Callback and rest parameters are spelled by the method's own signature,
+    // which only its emitter knows (`FunctionEmitter::erased_proto_argument`).
+    let mut method_emitter = None;
+    for (index, (position, param)) in function.params.iter().enumerate().skip(skipped).enumerate() {
         let local = local_decl(function, *param)
             .ok_or_else(|| EmitError::new("class method parameter has no local declaration"))?;
+        let is_rest = function.rest == Some(position);
+        if is_rest || matches!(mir.types.get(local.ty), Some(Type::Function(_))) {
+            let erased = if is_rest {
+                // The remaining arguments, as the array JavaScript binds.
+                format!(
+                    "SmeltUnknown::Array(SmeltArray::new(smelt_args.iter().skip({index}).cloned().collect::<Vec<_>>()))"
+                )
+            } else {
+                format!("smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)")
+            };
+            let emitter = match &method_emitter {
+                Some(emitter) => emitter,
+                None => method_emitter.insert(crate::emitter::FunctionEmitter::new(mir, context, function)?),
+            };
+            args.push(RustExpr::atom(emitter.erased_proto_argument(*param, &erased)?));
+            continue;
+        }
         // The parameter's TYPE decides how it is recovered. This used to reach
         // for the blanket `SmeltFromUnknown` regardless — the declaration was
         // fetched and discarded — which does not compile for a parameter type
@@ -378,7 +442,7 @@ pub(crate) fn class_proto_entries_method(
         let Some(function) = function_by_id(mir, method) else {
             continue;
         };
-        if !method_is_proto_eligible(mir, context, function) {
+        if !method_is_proto_eligible(mir, context, class.name, function) {
             continue;
         }
         let HirOrigin::ClassMethod { method: name, .. } = function.origin else {
@@ -395,7 +459,7 @@ pub(crate) fn class_proto_entries_method(
                 .get(name)
                 .ok_or_else(|| EmitError::new("class method references an unknown symbol"))?,
         );
-        let adapter = method_adapter(mir, function, &rust_method)?;
+        let adapter = method_adapter(mir, context, function, &rust_method)?;
         let key = format!("{METHOD_KEY_PREFIX}{source_name}");
         pushes.push(format!(
             "        smelt_proto_entries.push(({key:?}.to_owned(), {adapter}));\n"
@@ -440,7 +504,7 @@ pub(crate) fn class_has_proto_entries(
     effective_class_methods(mir, class)
         .into_iter()
         .filter_map(|method| function_by_id(mir, method))
-        .any(|function| method_is_proto_eligible(mir, context, function))
+        .any(|function| method_is_proto_eligible(mir, context, class.name, function))
         || constructor_adapter(mir, context, class).is_ok_and(|adapter| adapter.is_some())
 }
 
@@ -483,11 +547,11 @@ pub(crate) fn class_static_entries(
             || !function.type_params.is_empty()
             || function.is_async
             || function.is_generator
-            || function.rest.is_some()
             || !return_type_is_erasable(mir, function.return_ty)
-            || !function.params.iter().all(|param| {
-                local_decl(function, *param)
-                    .is_some_and(|local| type_supports_from_unknown(mir, context, local.ty))
+            || !function.params.iter().enumerate().all(|(index, param)| {
+                local_decl(function, *param).is_some_and(|local| {
+                    param_crosses_erased_call(mir, context, function, index, local.ty)
+                })
             })
         {
             continue;
@@ -505,6 +569,7 @@ pub(crate) fn class_static_entries(
         );
         let adapter = erased_callable_adapter(
             mir,
+            context,
             function,
             &MethodReceiver::Static(rust_class.clone()),
             &rust_method,

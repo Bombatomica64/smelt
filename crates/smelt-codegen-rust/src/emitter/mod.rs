@@ -101,6 +101,7 @@ impl Drop for HoistedModuleItemScope<'_, '_> {
 /// in a couple of instructions and removes that cost without changing behavior.
 pub(crate) type BlockIdSet = rustc_hash::FxHashSet<smelt_mir::BlockId>;
 
+mod proto_argument;
 mod aggregate_literal;
 mod backend_erasure;
 pub(crate) mod bound_dispatch;

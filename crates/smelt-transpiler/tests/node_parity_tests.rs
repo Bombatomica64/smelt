@@ -553,3 +553,10 @@ fn well_formed_strings_and_lone_keys() -> TestResult {
 fn lone_surrogates_at_host_edges() -> TestResult {
     verify_node_parity("lone_surrogates_at_host_edges")
 }
+
+/// A class instance erased with `as any` and read back as an interface keeps
+/// its methods that take a callback or a rest parameter.
+#[test]
+fn erased_instance_callback_methods() -> TestResult {
+    verify_node_parity("erased_instance_callback_methods")
+}
