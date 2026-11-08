@@ -93,7 +93,7 @@ impl FunctionEmitter<'_> {
                 "descriptor getter did not lower as a class method",
             ));
         };
-        let method_name = sanitize_ident(self.symbol_name(method_symbol)?);
+        let method_name = self.method_rust_name(method_symbol)?;
         let base_text = self.local_value(base)?;
         // A getter that can throw is emitted returning
         // `Result<_, Box<dyn Error>>`, so the READ has to propagate like any
@@ -198,7 +198,7 @@ impl FunctionEmitter<'_> {
             .write_ty
             .ok_or_else(|| EmitError::new("read-only descriptor cannot be assigned"))?;
         let rendered = self.rvalue_expr_for_dest(value, write_ty)?;
-        let method_name = sanitize_ident(self.symbol_name(method_symbol)?);
+        let method_name = self.method_rust_name(method_symbol)?;
         let base_text = self.local_mut_value(base)?;
         if setter_class == owner.name {
             return Ok(Some(format!("{base_text}.{method_name}({rendered});")));
@@ -287,14 +287,14 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         let descriptor_class = crate::classes::find_class(self.mir, class_symbol)
             .ok_or_else(|| EmitError::new("descriptor class is not materialized"))?;
-        let class_name = crate::classes::class_name_text(self.mir, descriptor_class)?;
+        let class_name = crate::classes::class_name_text(self.context, descriptor_class)?;
         let fields = descriptor
             .value_fields
             .iter()
             .map(|field| {
                 Ok(format!(
                     "{}: {}",
-                    sanitize_ident(self.symbol_name(field.name)?),
+                    self.context.names().field_text(self.mir, field.name),
                     descriptor_literal_expr(&field.value)
                 ))
             })
@@ -426,13 +426,13 @@ impl FunctionEmitter<'_> {
                 {
                     return Ok(PlaceTarget::Direct(RustExpr::from(format!(
                         "{base_read_text}.0.borrow_mut().{}",
-                        sanitize_ident(self.symbol_name(*field)?)
+                        self.context.names().field_text(self.mir, *field)
                     ))));
                 }
                 if self.structural_record_fields(base_ty).is_some() {
                     let text = format!(
                         "{base_write_text}.{}",
-                        sanitize_ident(self.symbol_name(*field)?)
+                        self.context.names().field_text(self.mir, *field)
                     );
                     return self.place_target_through(*base, text);
                 }
@@ -1218,7 +1218,7 @@ impl FunctionEmitter<'_> {
                 })
         {
             let base_text = self.local_value(base)?;
-            let field_name = sanitize_ident(self.symbol_name(field)?);
+            let field_name = self.context.names().field_text(self.mir, field);
             let read = format!("_smelt_value.0.borrow().{field_name}.clone()");
             return if matches!(self.mir.types.get(field_ty), Some(Type::Optional(_))) {
                 Ok(RustExpr::postfix_on(&base_text, format!("{base_text}.as_ref().and_then(|_smelt_value| {read})")))
@@ -1234,7 +1234,7 @@ impl FunctionEmitter<'_> {
                 .map(|candidate| candidate.ty)
         {
             let base_text = self.local_value(base)?;
-            let field_name = sanitize_ident(self.symbol_name(field)?);
+            let field_name = self.context.names().field_text(self.mir, field);
             let read = if crate::accessor_prelude::is_accessor_field_of_type(self.mir, *inner, field) {
                 crate::accessor_prelude::read_expr(&RustExpr::path(format!("_smelt_value.{field_name}")))
             } else {
@@ -1318,9 +1318,9 @@ impl FunctionEmitter<'_> {
             if self.is_reference_class_type(base_ty)
                 && self.class_has_named_field(base_ty, field)
             {
-                return Ok({ let receiver = self.local_value(base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.0.borrow().{}.clone()", sanitize_ident(self.symbol_name(field)?))) }.ending_in_clone());
+                return Ok({ let receiver = self.local_value(base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.0.borrow().{}.clone()", self.context.names().field_text(self.mir, field))) }.ending_in_clone());
             }
-            return Ok({ let receiver = self.local_value(base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.{}.clone()", sanitize_ident(self.symbol_name(field)?))) }.ending_in_clone());
+            return Ok({ let receiver = self.local_value(base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.{}.clone()", self.context.names().field_text(self.mir, field))) }.ending_in_clone());
         }
         if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
             && let Some(method_text) = self.class_method_reference_expr(
@@ -1384,9 +1384,9 @@ impl FunctionEmitter<'_> {
         if self.is_reference_class_type(base_ty)
             && self.class_has_named_field(base_ty, field)
         {
-            return Ok({ let receiver = self.local_value(base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.0.borrow().{}.clone()", sanitize_ident(self.symbol_name(field)?))) }.ending_in_clone());
+            return Ok({ let receiver = self.local_value(base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.0.borrow().{}.clone()", self.context.names().field_text(self.mir, field))) }.ending_in_clone());
         }
-        let field_text = { let receiver = self.local_value(base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.{}", sanitize_ident(self.symbol_name(field)?))) };
+        let field_text = { let receiver = self.local_value(base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.{}", self.context.names().field_text(self.mir, field))) };
         // An accessor field runs its getter on every read; see
         // `crate::accessor_prelude`.
         if crate::accessor_prelude::is_accessor_field_of_type(self.mir, base_ty, field) {

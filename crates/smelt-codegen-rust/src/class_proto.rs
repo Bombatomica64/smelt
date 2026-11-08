@@ -58,7 +58,6 @@ use crate::emitter::{EmitContext, method_mutates_this};
 use crate::{
     EmitError, classes::effective_class_methods,
     emitter::record_coercion::{record_field_unknown_expr, type_supports_from_unknown},
-    sanitize_ident,
 };
 
 /// Name of the generated inherent method that lists a class's prototype members.
@@ -454,11 +453,12 @@ pub(crate) fn class_proto_entries_method(
             .or_else(|| mir.symbols.get(name))
             .ok_or_else(|| EmitError::new("class method references an unknown symbol"))?
             .to_owned();
-        let rust_method = sanitize_ident(
-            mir.symbols
-                .get(name)
-                .ok_or_else(|| EmitError::new("class method references an unknown symbol"))?,
-        );
+        let rust_method = context
+            .names()
+            .method(name)
+            .ok_or_else(|| EmitError::new("class method has no planned Rust name"))?
+            .as_str()
+            .to_owned();
         let adapter = method_adapter(mir, context, function, &rust_method)?;
         let key = format!("{METHOD_KEY_PREFIX}{source_name}");
         pushes.push(format!(
@@ -533,11 +533,7 @@ pub(crate) fn class_static_entries(
     if !found.type_params.is_empty() {
         return Ok(Vec::new());
     }
-    let rust_class = sanitize_ident(
-        mir.symbols
-            .get(class)
-            .ok_or_else(|| EmitError::new("class value references an unknown class symbol"))?,
-    );
+    let rust_class = context.names().type_name(class)?.as_str().to_owned();
     let mut entries = Vec::new();
     for function in &mir.functions {
         let HirOrigin::ClassStaticMethod { class: owner, method, .. } = function.origin else {
@@ -562,11 +558,7 @@ pub(crate) fn class_static_entries(
             .or_else(|| mir.symbols.get(method))
             .ok_or_else(|| EmitError::new("static method references an unknown symbol"))?
             .to_owned();
-        let rust_method = sanitize_ident(
-            mir.symbols
-                .get(method)
-                .ok_or_else(|| EmitError::new("static method references an unknown symbol"))?,
-        );
+        let rust_method = crate::emitter::static_method_rust_name(context, function.id)?;
         let adapter = erased_callable_adapter(
             mir,
             context,

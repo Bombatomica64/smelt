@@ -16,7 +16,7 @@ use smelt_stdlib::runtime_symbols::markers::*;
 use crate::thrown::ERROR_BOX;
 use crate::type_substitution::{Resolved, TypeSubstitution};
 use render_scope::RenderScope;
-use crate::{EmitError, compact_index, id_index, sanitize_ident};
+use crate::{EmitError, compact_index, id_index};
 use literals::operand_mutation_root;
 use smelt_hir::{FileId, PropertyLookup, Span, Symbol, Type, TypeId};
 use smelt_mir::{
@@ -142,6 +142,7 @@ mod fallible_op;
 mod url;
 mod fixed_int;
 mod function_item;
+pub(crate) use function_item::static_method_rust_name;
 mod generator;
 mod generic_trial;
 mod abort_signal;
@@ -281,15 +282,12 @@ pub(crate) struct EmitContext {
     pub(crate) bound_traits: crate::bound_traits::BoundTraitPlan,
     /// Runtime state every emitted native test resets before its body.
     test_runtime_resets: TestRuntimeResets,
-    /// Rust function names keyed by MIR function ID.
-    pub(crate) function_names: HashMap<FuncId, String>,
-    /// Static methods sharing their name with an instance method of their
-    /// class; see [`function_item::static_method_rust_name`].
-    pub(crate) renamed_static_methods: HashSet<FuncId>,
-    /// Emitted parameter types keyed by Rust function name.
-    function_param_types: HashMap<String, Vec<TypeId>>,
-    /// Emitted return types keyed by Rust function name.
-    function_return_types: HashMap<String, TypeId>,
+    /// Every declared item's Rust name (see [`crate::names`]).
+    names: crate::names::RustNames,
+    /// Emitted parameter types keyed by the emitted item's identity.
+    function_param_types: HashMap<function_item::SignatureKey, Vec<TypeId>>,
+    /// Emitted return types keyed by the emitted item's identity.
+    function_return_types: HashMap<function_item::SignatureKey, TypeId>,
     /// Function parameters that must use an owned callback handle.
     owned_callback_params: HashSet<(FuncId, LocalId)>,
     /// MIR ids of free functions that emit real Rust generics.
@@ -380,66 +378,15 @@ impl EmitContext {
             })
             .transpose()?
             .ok_or_else(|| EmitError::new("MIR is missing the None type"))?;
-        // Counted by RENDERED name: two source names can render alike (a
-        // module `is-matching.ts`, whose body function is named after it, and
-        // its own `isMatching` both render `is_matching`), and the crate glob
-        // re-exports every module, so a free function's Rust name must be
-        // unique crate-wide.
-        let mut duplicate_counts = HashMap::<String, usize>::new();
-        for function in &mir.functions {
-            if !matches!(
-                function.origin,
-                HirOrigin::ClassConstructor { .. } | HirOrigin::ClassMethod { .. }
-            ) {
-                let source_name = mir
-                    .symbols
-                    .get(function.name)
-                    .ok_or_else(|| EmitError::new("function has unknown symbol"))?;
-                let count = duplicate_counts.entry(sanitize_ident(source_name)).or_insert(0usize);
-                *count = count.saturating_add(1);
-            }
-        }
-
-        // A static method named like an instance method of its class would be
-        // a second associated item of that name in the class's one `impl`
-        // block (E0592), so it renders as `<name>_<function id>`.
-        let mut instance_method_names = HashSet::<(Symbol, Symbol)>::new();
-        for function in &mir.functions {
-            if let HirOrigin::ClassMethod { class, method, .. } = function.origin {
-                instance_method_names.insert((class, method));
-            }
-        }
-        let renamed_static_methods = mir
-            .functions
-            .iter()
-            .filter(|function| {
-                matches!(function.origin, HirOrigin::ClassStaticMethod { class, method, .. }
-                    if instance_method_names.contains(&(class, method)))
-            })
-            .map(|function| function.id)
-            .collect::<HashSet<_>>();
-        let mut function_names = HashMap::new();
+        let reference_classes = crate::classify::reference_classes(mir);
+        // Every declared item's Rust name, decided once by identity; see
+        // `crate::names`. Declarations and references both read it.
+        let mut names = crate::names::RustNames::plan(mir, none_ty, &reference_classes)?;
+        let bound_traits = crate::bound_traits::BoundTraitPlan::compute(mir, &mut names)?;
         let mut function_param_types = HashMap::new();
         let mut function_return_types = HashMap::new();
-        let mut function_param_type_priorities = HashMap::<String, u8>::new();
+        let mut function_param_type_priorities = HashMap::<function_item::SignatureKey, u8>::new();
         for function in &mir.functions {
-            let source_name = mir
-                .symbols
-                .get(function.name)
-                .ok_or_else(|| EmitError::new("function has unknown symbol"))?;
-            let base = sanitize_ident(source_name);
-            let rust_name =
-                if !function.is_test && source_name == "main" && function.return_ty == none_ty {
-                    // The binary's entry point keeps its Rust name; a SOURCE
-                    // item named `main` renames (see `rust::sanitize_ident`).
-                    "main".to_owned()
-                } else if duplicate_counts.get(&base).copied().unwrap_or(0) > 1
-                    || source_name.starts_with("__smelt_module_")
-                {
-                    format!("{}_{}", base, function.id.0)
-                } else {
-                    base
-                };
             let params = function
                 .params
                 .iter()
@@ -454,37 +401,31 @@ impl EmitContext {
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             let priority = emitted_signature_priority(function);
-            // Keyed by the emitted-signature key, not the bare Rust name: a
+            // Keyed by the emitted item's identity, not its Rust name: a
             // method's name is unique only inside its own `impl` block (see
-            // `FunctionEmitter::emitted_signature_key_in`).
-            let signature_key = function_item::emitted_signature_key_in(
-                function,
-                &rust_name,
-                |symbol| mir.symbols.get(symbol).map(str::to_owned),
-            );
+            // `function_item::SignatureKey`).
+            let signature_key = function_item::SignatureKey::of(function);
             if function_param_type_priorities
                 .get(&signature_key)
                 .copied()
                 .is_none_or(|existing| priority > existing)
             {
-                function_param_types.insert(signature_key.clone(), params);
-                function_return_types.insert(signature_key.clone(), function.return_ty);
+                function_param_types.insert(signature_key, params);
+                function_return_types.insert(signature_key, function.return_ty);
                 function_param_type_priorities.insert(signature_key, priority);
             }
-            function_names.insert(function.id, rust_name);
         }
         let owned_callback_params = compute_owned_callback_params(mir)?;
         let demand = RuntimeDemand::of(mir);
 
         Ok(Self {
             none_ty,
-            bound_traits: crate::bound_traits::BoundTraitPlan::compute(mir),
+            bound_traits,
             test_runtime_resets: TestRuntimeResets {
                 date_now: demand.has(Need::DateNow),
                 timers: demand.has(Need::Timers),
             },
-            function_names,
-            renamed_static_methods,
+            names,
             function_param_types,
             function_return_types,
             owned_callback_params,
@@ -493,8 +434,8 @@ impl EmitContext {
             erased_arguments: ::std::cell::RefCell::default(),
             generic_functions: RefCell::new(HashSet::new()),
             generic_reads: RefCell::new(HashSet::new()),
-            weak_receivers: weak_receiver::WeakReceiverPlan::of(mir, &crate::classify::reference_classes(mir)),
-            reference_classes: crate::classify::reference_classes(mir),
+            weak_receivers: weak_receiver::WeakReceiverPlan::of(mir, &reference_classes),
+            reference_classes,
             type_param_elision: crate::generic_elision::compute(mir),
             erased_view_write_through: view_write_through::program_writes_erased_fields(mir),
             program_reads_this: demand.has(Need::ThisRead),
@@ -504,6 +445,11 @@ impl EmitContext {
             carrier_boundaries: std::cell::Cell::new(0),
             minted: render_state::MintedItems::default(),
         })
+    }
+
+    /// Every declared item's Rust name.
+    pub(crate) const fn names(&self) -> &crate::names::RustNames {
+        &self.names
     }
 
     /// What this program demands of the runtime.

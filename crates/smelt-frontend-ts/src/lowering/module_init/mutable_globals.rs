@@ -529,7 +529,7 @@ impl ModuleBuilder<'_> {
         // unreproducible outside the directory it was generated in. The item
         // index is unique crate-wide and deterministic for a given program,
         // which is all the disambiguation this needs.
-        let init_name = self.intern_source_name(&format!("smelt_global_init__{name}__{}", item.0));
+        let init_name = self.intern_synthesized_name(&format!("smelt_global_init__{name}__{}", item.0));
         let init_item = self
             .ctx
             .krate

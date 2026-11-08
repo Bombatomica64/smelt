@@ -27,7 +27,7 @@ use crate::reference_storage::{
     ReferenceRecordShape, emit_reference_class_storage, emit_reference_record_storage,
 };
 use crate::runtime_demand::Need;
-use crate::rust::{CodeWriter, RustIdent};
+use crate::rust::CodeWriter;
 use crate::type_substitution::TypeSubstitution;
 use crate::{EmitError, accessor_prelude};
 
@@ -37,12 +37,16 @@ use crate::{EmitError, accessor_prelude};
 /// the marker counts everything above it as runtime, and a user's type is not.
 pub(crate) fn emit_program_types(mir: &Mir, context: &EmitContext) -> Result<String, EmitError> {
     let mut writer = CodeWriter::new();
-    let mut emitted_class_names = HashSet::new();
-    for interface in &mir.interfaces {
-        emit_interface_type(&mut writer, mir, context, interface, &mut emitted_class_names)?;
-    }
-    for class in &mir.classes {
-        emit_class_type(&mut writer, mir, context, class, &mut emitted_class_names)?;
+    // One declaration per identity, in the crate's one claim order (see
+    // `names::type_claim_order`); two symbols that render alike are two
+    // structs, renamed apart by the name plan, never one shared struct.
+    for decl in crate::names::type_claim_order(mir) {
+        match decl {
+            crate::names::TypeDecl::Interface(interface) => {
+                emit_interface_type(&mut writer, mir, context, interface)?;
+            }
+            crate::names::TypeDecl::Class(class) => emit_class_type(&mut writer, mir, context, class)?,
+        }
     }
 
     let union_definitions = emitter::emit_union_definitions(mir, context)?;
@@ -67,26 +71,17 @@ pub(crate) fn emit_program_types(mir: &Mir, context: &EmitContext) -> Result<Str
 
 /// Emit one interface's storage: a reference record when its fields are written
 /// after construction, otherwise a by-value struct with its derives and erasure
-/// impls. A name already declared in this crate is skipped.
+/// impls.
 fn emit_interface_type(
     writer: &mut CodeWriter,
     mir: &Mir,
     context: &EmitContext,
     interface: &smelt_mir::MirInterface,
-    emitted_class_names: &mut HashSet<String>,
 ) -> Result<(), EmitError> {
     let demand = context.demand();
     let needs_serde_json = demand.has(Need::DepSerdeJson);
     let needs_unknown = demand.has(Need::Unknown);
-    let name = RustIdent::new(
-        mir.symbols
-            .get(interface.name)
-            .ok_or_else(|| EmitError::new("interface has unknown symbol"))?,
-    )
-    .into_string();
-    if !emitted_class_names.insert(name.clone()) {
-        return Ok(());
-    }
+    let name = context.names().type_name(interface.name)?.as_str().to_owned();
     let type_params = interface_type_params_text(mir, context, interface)?;
     let impl_generics = interface_impl_generics_text(mir, context, interface)?;
     let fields = effective_interface_fields(mir, interface);
@@ -166,7 +161,7 @@ fn emit_interface_type(
             .map(|param| {
                 mir.symbols
                     .get(param.name)
-                    .map(|param_name| RustIdent::new(param_name).into_string())
+                    .map(|param_name| crate::names::type_param(param_name).into_string())
                     .ok_or_else(|| {
                         EmitError::new("interface type parameter has unknown symbol")
                     })
@@ -181,13 +176,7 @@ fn emit_interface_type(
         .collect::<HashSet<_>>();
     writer.block(format!("struct {name}{type_params}"), |block_writer| {
         for field in &fields {
-            let field_name = RustIdent::new(
-                mir.symbols
-                    .get(field.name)
-                    .ok_or_else(|| EmitError::new("field has unknown symbol"))
-                    .unwrap_or("field"),
-            )
-            .into_string();
+            let field_name = context.names().field(mir, field.name).into_string();
             let field_ty = FunctionEmitter::type_text_for_with_scoped_type_params(
                 mir,
                 context,
@@ -253,21 +242,17 @@ fn emit_interface_type(
 
 /// Emit one class's storage: the reference handle for a reference class,
 /// otherwise a value struct with its derives or hand-written bounded impls, its
-/// static accessors and erasure impls. A name already declared is skipped.
+/// static accessors and erasure impls.
 fn emit_class_type(
     writer: &mut CodeWriter,
     mir: &Mir,
     context: &EmitContext,
     class: &smelt_mir::MirClass,
-    emitted_class_names: &mut HashSet<String>,
 ) -> Result<(), EmitError> {
     let demand = context.demand();
     let needs_serde_json = demand.has(Need::DepSerdeJson);
     let needs_unknown = demand.has(Need::Unknown);
-    let name = class_name_text(mir, class)?;
-    if !emitted_class_names.insert(name.clone()) {
-        return Ok(());
-    }
+    let name = class_name_text(context, class)?;
     if context.is_reference_class(class.name) {
         emit_reference_class_storage(writer, mir, context, class, needs_unknown)?;
         return Ok(());
@@ -291,7 +276,7 @@ fn emit_class_type(
             .map(|param| {
                 mir.symbols
                     .get(param.name)
-                    .map(|param_name| RustIdent::new(param_name).into_string())
+                    .map(|param_name| crate::names::type_param(param_name).into_string())
                     .ok_or_else(|| EmitError::new("class type parameter has unknown symbol"))
             })
             .collect::<Result<Vec<_>, _>>()?,
@@ -354,11 +339,7 @@ fn emit_class_type(
         )?;
         field_lines.push(format!(
             "{}: {field_type},",
-            RustIdent::new(
-                mir.symbols
-                    .get(field.name)
-                    .ok_or_else(|| EmitError::new("field has unknown symbol"))?
-            ),
+            context.names().field(mir, field.name),
         ));
         field_types.push(field_type);
     }
@@ -423,13 +404,8 @@ fn emit_class_type(
     if is_generic && !has_function_field {
         let field_names = fields
             .iter()
-            .map(|field| {
-                mir.symbols
-                    .get(field.name)
-                    .map(|field_name| RustIdent::new(field_name).into_string())
-                    .ok_or_else(|| EmitError::new("field has unknown symbol"))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(|field| context.names().field_text(mir, field.name))
+            .collect::<Vec<_>>();
         emit_clone_impl_for_value_class(
             writer,
             &name,
@@ -455,11 +431,7 @@ fn emit_class_type(
             format!("impl{impl_generics} {name}{type_params}"),
             |impl_writer| {
                 for field in &class.static_fields {
-                    let field_name = mir
-                        .symbols
-                        .get(field.name)
-                        .map(RustIdent::new)
-                        .map_or_else(|| "field".to_owned(), RustIdent::into_string);
+                    let field_name = context.names().field_text(mir, field.name);
                     let field_ty = FunctionEmitter::type_text_for_with_scoped_type_params(
                         mir,
                         context,

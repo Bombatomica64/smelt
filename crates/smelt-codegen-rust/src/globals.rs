@@ -11,7 +11,7 @@ use smelt_mir::{Mir, MirGlobalInit};
 use crate::emitter::{self, EmitContext, FunctionEmitter};
 use crate::rust::CodeWriter;
 use crate::thrown::ERROR_BOX;
-use crate::{EmitError, compact_index, sanitize_ident};
+use crate::{EmitError, compact_index};
 
 /// Emit the `thread_local!` block declaring every mutable global's cell.
 ///
@@ -49,19 +49,11 @@ pub(crate) fn emit_mutable_globals(mir: &Mir, context: &EmitContext) -> Result<S
                         )
                     })?;
                 let function_name = context
-                    .function_names
-                    .get(&function.id)
-                    .cloned()
-                    .map_or_else(
-                        || {
-                            Ok::<String, EmitError>(sanitize_ident(
-                                mir.symbols.get(function.name).ok_or_else(|| {
-                                    EmitError::new("mutable global initializer has no name")
-                                })?,
-                            ))
-                        },
-                        Ok,
-                    )?;
+                    .names()
+                    .function(function.id)
+                    .ok_or_else(|| EmitError::new("mutable global initializer has no planned name"))?
+                    .as_str()
+                    .to_owned();
                 // An initializer that can throw (`const db = new
                 // DatabaseSync(path)`, a call to a throwing function) returns a
                 // `Result`, and a `thread_local!` initializer has nowhere to
@@ -153,6 +145,6 @@ pub(crate) fn global_static_name(mir: &Mir, index: u32) -> String {
         .ok()
         .and_then(|idx| mir.globals.get(idx))
         .and_then(|global| mir.symbols.get(global.name))
-        .map_or_else(|| "global".to_owned(), sanitize_ident);
+        .map_or_else(|| "global".to_owned(), crate::names::fragment);
     format!("SMELT_GLOBAL_{}_{index}", base.to_uppercase())
 }

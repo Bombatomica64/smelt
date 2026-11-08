@@ -12,7 +12,7 @@ impl ModuleBuilder<'_> {
         let match_expr = self.pytest_raises_match_argument(call, body)?;
 
         let bool_ty = self.intern_type(Type::Bool);
-        let raised_sym = self.intern_name("__smelt_pytest_raised");
+        let raised_sym = self.intern_synthesized_name("__smelt_pytest_raised");
         let raised_local = body.push_local(LocalDecl {
             name: Some(raised_sym),
             ty: bool_ty,
@@ -162,7 +162,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> smelt_hir::LocalId {
         let ty = self.intern_type(Type::PyStr);
-        let symbol = self.intern_name("__smelt_pytest_exception");
+        let symbol = self.intern_synthesized_name("__smelt_pytest_exception");
         body.push_local(LocalDecl {
             name: Some(symbol),
             ty,
@@ -621,7 +621,8 @@ impl ModuleBuilder<'_> {
 
     /// The declaration of a local the frontend synthesizes, named `name`.
     fn synthetic_local(&mut self, name: &str, ty: TypeId, mutable: bool, span: Span) -> LocalDecl {
-        LocalDecl { name: Some(self.intern_name(name)), ty, mutable, span }
+        // Every caller passes a name this lowering mints (`__smelt_iterator`).
+        LocalDecl { name: Some(self.intern_synthesized_name(name)), ty, mutable, span }
     }
 
     // Iterator protocol helpers continue in `match.rs`.

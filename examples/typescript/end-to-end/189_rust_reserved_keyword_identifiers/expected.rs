@@ -4468,9 +4468,9 @@ fn main() {
 }
 
 impl Machine {
-    fn new(gen_: f64) -> Self {
+    fn new(gen__1: f64) -> Self {
     let mut this: Self = Machine { gen_: 0.0, type_: JsString::new() };
-    this.gen_ = gen_;
+    this.gen_ = gen__1;
     this.type_ = JsString::from("unit");
     return this;
     }

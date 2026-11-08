@@ -229,7 +229,7 @@ impl FunctionEmitter<'_> {
                 let placeholders = vec!["SmeltUnknown"; self.class_type_param_count(*name)].join(", ");
                 Ok(RustExpr::atom(format!(
                     "{}::<{placeholders}>::default()",
-                    sanitize_ident(self.symbol_name(*name)?)
+                    self.type_rust_name(*name)?
                 ))
                 .delegating_default())
             }

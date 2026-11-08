@@ -240,7 +240,7 @@ impl FunctionEmitter<'_> {
         if self.storage_field_is_function(receiver_ty, field) {
             return Ok(RustExpr::postfix_on(&receiver_text, format!(
                 "{receiver_text}.{}.clone()",
-                sanitize_ident(self.symbol_name(field)?)
+                self.context.names().field_text(self.mir, field)
             )).ending_in_clone());
         }
         let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty) else {
@@ -266,12 +266,12 @@ impl FunctionEmitter<'_> {
         {
             return Ok(RustExpr::postfix_on(&receiver_text, format!(
                 "{receiver_text}.0.borrow().{}.clone()",
-                sanitize_ident(self.symbol_name(field)?)
+                self.context.names().field_text(self.mir, field)
             )).ending_in_clone());
         }
         Ok(RustExpr::postfix_on(&receiver_text, format!(
             "{receiver_text}.{}.clone()",
-            sanitize_ident(self.symbol_name(field)?)
+            self.context.names().field_text(self.mir, field)
         )).ending_in_clone())
     }
 
@@ -298,7 +298,7 @@ impl FunctionEmitter<'_> {
         }) else {
             return self.abstract_class_method_reference_expr(class, method);
         };
-        let method_name = sanitize_ident(self.symbol_name(method)?);
+        let method_name = self.method_rust_name(method)?;
         let unknown_ty = self.type_id(Type::Unknown)?;
         let args = function
             .params
@@ -380,7 +380,7 @@ impl FunctionEmitter<'_> {
         let Some(class_item) = crate::classes::find_class(self.mir, class) else {
             return Ok(RustExpr::atom("(*self).clone()").ending_in_clone());
         };
-        let mut class_name = crate::classes::class_name_text(self.mir, class_item)?;
+        let mut class_name = crate::classes::class_name_text(self.context, class_item)?;
         // Only the parameters the emitted struct declares are spelled: an
         // elided position has no slot to fill (see `crate::generic_elision`).
         let carried_params = self.context.type_param_elision().retain_carried(
@@ -399,7 +399,7 @@ impl FunctionEmitter<'_> {
         let mut fields = crate::classes::effective_class_fields(self.mir, class_item)
             .into_iter()
             .map(|field| {
-                let name = sanitize_ident(self.symbol_name(field.name)?);
+                let name = self.context.names().field_text(self.mir, field.name);
                 Ok(format!("{name}: self.{name}.clone()"))
             })
             .collect::<Result<Vec<_>, EmitError>>()?;

@@ -25,7 +25,6 @@ use smelt_mir::{Mir, Operand};
 
 use super::{EmitContext, EmitError, FunctionEmitter};
 use crate::bound_traits::{BoundMemberKind, BoundTrait, MemberImpl};
-use crate::rust::RustIdent;
 use crate::type_substitution::TypeSubstitution;
 
 /// The error type every generated `Result` carries.
@@ -97,16 +96,11 @@ fn trait_text(mir: &Mir, context: &EmitContext, planned: &BoundTrait) -> Result<
     }
     out.push_str("}\n");
     for implementor in &planned.implementors {
-        let type_name = RustIdent::new(
-            mir.symbols
-                .get(implementor.name)
-                .ok_or_else(|| EmitError::new("bound implementor has unknown symbol"))?,
-        )
-        .into_string();
+        let type_name = context.names().type_name(implementor.name)?;
         let reference = context.is_reference_class(implementor.name);
         out.push_str(&format!("impl {} for {type_name} {{\n", planned.trait_name));
         for (member, how) in planned.members.iter().zip(&implementor.members) {
-            let body = member_body(context, member, how, reference)?;
+            let body = member_body(member, how, reference)?;
             out.push_str(&format!(
                 "    {} {{ {body} }}\n",
                 member_signature(mir, context, member)?
@@ -123,7 +117,6 @@ fn trait_text(mir: &Mir, context: &EmitContext, planned: &BoundTrait) -> Result<
 /// by-value struct (`self.x`). A stored function is cloned out of the cell
 /// before it is called, so the call may borrow the instance again.
 fn member_body(
-    context: &EmitContext,
     member: &crate::bound_traits::BoundMember,
     how: &MemberImpl,
     reference: bool,
@@ -153,20 +146,18 @@ fn member_body(
         }
     };
     Ok(match how {
-        MemberImpl::Field => field_access(&member.rust_name),
+        MemberImpl::Field => field_access(&member.field_name),
         MemberImpl::FunctionField { throws } => wrap(
             format!(
                 "let smelt_callable = {}; (smelt_callable)({args})",
-                field_access(&member.rust_name)
+                field_access(&member.field_name)
             ),
             *throws,
         ),
-        MemberImpl::Method { function, throws } => {
-            let rust_name = context
-                .function_names
-                .get(function)
-                .cloned()
-                .unwrap_or_else(|| member.rust_name.clone());
+        MemberImpl::Method { throws, .. } => {
+            // The implementor's method of this symbol: instance methods are
+            // named once crate-wide, so it is the trait member's planned name.
+            let rust_name = &member.rust_name;
             let receiver_and_args = if args.is_empty() {
                 "self".to_owned()
             } else {

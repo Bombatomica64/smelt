@@ -245,7 +245,7 @@ impl ModuleBuilder<'_> {
                 });
             }
             let source_local = body.push_local(LocalDecl {
-                name: Some(self.intern_source_name("smelt_assign_source")),
+                name: Some(self.intern_synthesized_name("smelt_assign_source")),
                 ty: unknown_ty,
                 mutable: false,
                 span,

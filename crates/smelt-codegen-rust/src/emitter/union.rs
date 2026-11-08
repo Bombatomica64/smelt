@@ -7,7 +7,6 @@
 use crate::rust::RustType;
 use crate::rust::RustExpr;
 use super::*;
-use crate::rust::RustIdent;
 
 /// Return the stable generated Rust name for an interned union type.
 pub(crate) fn union_name(ty: TypeId) -> String {
@@ -125,7 +124,7 @@ impl FunctionEmitter<'_> {
 
     /// Render one union type parameter as a Rust identifier.
     fn union_type_param_name(&self, param: Symbol) -> Result<String, EmitError> {
-        Ok(RustIdent::new(self.symbol_name(param)?).into_string())
+        Ok(crate::names::type_param(self.symbol_name(param)?).into_string())
     }
 
     /// Emit a statically typed method call shared by every concrete union arm.
@@ -148,7 +147,7 @@ impl FunctionEmitter<'_> {
             ));
         };
         let receiver_text = self.operand_expr(receiver)?;
-        let method_name = sanitize_ident(self.symbol_name(method)?);
+        let method_name = self.method_rust_name(method)?;
         let args_text = args
             .iter()
             .map(|arg| self.operand_expr(arg))
@@ -1200,7 +1199,7 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         let union_enum_name = union_name(base_ty);
-        let field_name = sanitize_ident(self.symbol_name(field)?);
+        let field_name = self.context.names().field_text(self.mir, field);
         let mut arms = Vec::with_capacity(field_types.len());
         for (index, (field_ty, member)) in field_types.into_iter().zip(members).enumerate() {
             let rendered_value = self.rvalue_expr_for_dest(value, field_ty)?;
@@ -1244,7 +1243,7 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         let union_enum_name = union_name(base_ty);
-        let field_name = sanitize_ident(self.symbol_name(field)?);
+        let field_name = self.context.names().field_text(self.mir, field);
         let arms = members
             .iter()
             .enumerate()
@@ -1592,7 +1591,7 @@ impl FunctionEmitter<'_> {
         };
         let read_is_optional = matches!(self.mir.types.get(read_ty), Some(Type::Optional(_)));
         let union_enum_name = union_name(union_ty);
-        let field_name = sanitize_ident(self.symbol_name(field)?);
+        let field_name = self.context.names().field_text(self.mir, field);
         let arms = reads
             .iter()
             .enumerate()

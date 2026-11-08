@@ -122,8 +122,7 @@ pub(crate) fn emit_reference_from_smelt_unknown_impl(
         }
         // Read the SOURCE spelling out of the erased object; write the
         // sanitized Rust field, as the value-record recovery does.
-        let field_name = crate::rust::RustIdent::new(mir.symbols.get(field.name).unwrap_or("field"))
-            .into_string();
+        let field_name = context.names().field(mir, field.name).into_string();
         let key = mir
             .names
             .get(field.name)

@@ -413,7 +413,7 @@ impl FunctionEmitter<'_> {
                 ))))
             }
             Some(Type::TypeParam { name }) if scope.spells(*name) => {
-                let param_name = RustIdent::new(self.symbol_name(*name)?).into_string();
+                let param_name = crate::names::type_param(self.symbol_name(*name)?).into_string();
                 Ok(RustExpr::loose(self.carrier_format(format_args!(
                     "<{param_name} as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())"
                 ))))

@@ -65,7 +65,7 @@ impl ModuleBuilder<'_> {
                     // reads, so intern it verbatim; folded string/numeric keys
                     // follow the ordinary source-name interning path.
                     return Ok(if is_symbol {
-                        self.intern_exact_source_name(&name)
+                        self.intern_symbol_key(&name)
                     } else {
                         self.intern_source_name(&name)
                     });

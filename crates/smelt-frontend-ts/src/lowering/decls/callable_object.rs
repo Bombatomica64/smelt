@@ -171,7 +171,7 @@ impl ModuleBuilder<'_> {
             &args,
             self.span(reference.span.start, reference.span.end),
         )?;
-        let call_slot = self.ctx.krate.symbols.intern("__smelt_call");
+        let call_slot = self.ctx.krate.symbols.intern_synthesized(&smelt_hir::SynthesizedName::new("__smelt_call"));
         let inherited = interface
             .fields
             .iter()
@@ -319,8 +319,9 @@ impl ModuleBuilder<'_> {
         if self.structural_members_mention_type_param(&members) {
             return None;
         }
-        let name_text = self.anonymous_callable_object_name(&members);
-        let name = self.intern_type_name(&name_text);
+        let minted = self.anonymous_callable_object_name(&members);
+        let name = self.intern_synthesized_type_name(&minted);
+        let name_text = minted.as_str().to_owned();
         if self.find_interface(name).is_none() {
             let span = self.span(0, 0);
             let item =
@@ -340,7 +341,7 @@ impl ModuleBuilder<'_> {
     /// one build and identical shapes deduplicate onto one struct. The
     /// `SmeltCallableObject` prefix cannot collide with a source type name,
     /// which TypeScript would have had to declare to reach this path.
-    fn anonymous_callable_object_name(&self, members: &StructuralMembers) -> String {
+    fn anonymous_callable_object_name(&self, members: &StructuralMembers) -> smelt_hir::SynthesizedName {
         let mut hasher = DefaultHasher::new();
         for field in &members.fields {
             self.ctx.krate.symbols.get(field.name).hash(&mut hasher);
@@ -357,7 +358,7 @@ impl ModuleBuilder<'_> {
         for signature in &members.call_signatures {
             Self::hash_function_signature(signature, &mut hasher);
         }
-        format!("SmeltCallableObject{:016x}", hasher.finish())
+        smelt_hir::SynthesizedName::new(format!("SmeltCallableObject{:016x}", hasher.finish()))
     }
 
     /// Fold one call signature into the structural name hash.

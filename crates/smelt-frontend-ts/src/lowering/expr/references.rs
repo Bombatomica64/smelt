@@ -20,12 +20,38 @@ impl ModuleBuilder<'_> {
     /// names JavaScript keeps apart (a declaration `Foo` and a property `foo`),
     /// and `OriginalNameTable::record` being last-writer-wins would then let one
     /// of them decide the key string the other is read with.
+    ///
+    /// A member key in the compiler's symbol-key encoding
+    /// ([`smelt_stdlib::symbol_keys`]: the key `[Symbol.iterator]`,
+    /// `[Symbol.for('d')]` or a unique `Symbol()` stores under) reaches here as
+    /// text, but the program never spelled it: the encoding minted it from a
+    /// symbol value. It is interned as synthesized, exactly as the lowering that
+    /// looks the key up interns it.
     pub(in crate::lowering) fn intern_source_name(&mut self, name: &str) -> smelt_hir::Symbol {
+        if smelt_stdlib::symbol_keys::is_symbol_storage_key(name) {
+            return self.intern_symbol_key(name);
+        }
         let symbol = self
             .ctx
             .krate
             .symbols
             .intern_rendered(name, &camel_to_snake(name));
+        self.ctx.krate.names.record(symbol, name);
+        symbol
+    }
+
+    /// Intern a name this lowering mints itself (`__smelt_spread`,
+    /// `smelt_global_init__x__0`), rendered the way a source name is.
+    ///
+    /// The symbol is [`smelt_hir::SymbolOrigin::Synthesized`]: the code
+    /// generator keeps its reserved `smelt` spelling, which it moves a SOURCE
+    /// name of the same text out of, so the two never meet.
+    pub(in crate::lowering) fn intern_synthesized_name(&mut self, name: &str) -> smelt_hir::Symbol {
+        let symbol = self
+            .ctx
+            .krate
+            .symbols
+            .intern_synthesized_rendered(&smelt_hir::SynthesizedName::new(name), &camel_to_snake(name));
         self.ctx.krate.names.record(symbol, name);
         symbol
     }
@@ -61,6 +87,26 @@ impl ModuleBuilder<'_> {
     ) -> smelt_hir::Symbol {
         let symbol = self.ctx.krate.symbols.intern(name);
         self.ctx.krate.names.record(symbol, name);
+        symbol
+    }
+
+    /// Intern the member key a symbol-keyed member stores under
+    /// (`[Symbol.iterator]` -> `__smelt_symbol_iterator`), verbatim: the
+    /// compiler's symbol-key encoding minted it from a symbol value, so it is a
+    /// [`smelt_hir::SymbolOrigin::Synthesized`] symbol.
+    pub(in crate::lowering) fn intern_symbol_key(&mut self, key: &str) -> smelt_hir::Symbol {
+        self.intern_synthesized_type_name(&smelt_hir::SynthesizedName::new(key))
+    }
+
+    /// Intern a type name this lowering mints itself (an anonymous class or
+    /// shape): a [`smelt_hir::SymbolOrigin::Synthesized`] symbol rendered
+    /// verbatim, like every type name.
+    pub(in crate::lowering) fn intern_synthesized_type_name(
+        &mut self,
+        name: &smelt_hir::SynthesizedName,
+    ) -> smelt_hir::Symbol {
+        let symbol = self.ctx.krate.symbols.intern_synthesized(name);
+        self.ctx.krate.names.record(symbol, name.as_str());
         symbol
     }
 

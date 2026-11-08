@@ -1620,7 +1620,7 @@ impl ModuleBuilder<'_> {
         else {
             return Ok(None);
         };
-        let field = self.intern_source_name(&name);
+        let field = self.intern_symbol_key(&name);
         let access_receiver_ty = self.optional_receiver_inner_type(receiver_ty);
         let Ok(field_ty) = self.class_field_type(access_receiver_ty, field) else {
             return Ok(None);

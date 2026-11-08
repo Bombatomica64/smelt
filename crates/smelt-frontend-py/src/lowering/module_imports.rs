@@ -202,7 +202,7 @@ impl ModuleBuilder<'_> {
         // Named after the binding and the global's item index, as the
         // TypeScript frontend names its initializers: unique crate-wide and
         // deterministic, and `$` keeps it out of the source namespace.
-        let init_name = self.intern_name(&format!("smelt_global_init${name}${}", item.0));
+        let init_name = self.intern_synthesized_name(&format!("smelt_global_init${name}${}", item.0));
         let init_item = self.ctx.krate.push_item(Item::Function(Function {
             name: init_name,
             span,

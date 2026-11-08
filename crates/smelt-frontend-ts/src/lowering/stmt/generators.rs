@@ -221,9 +221,9 @@ impl ModuleBuilder<'_> {
                 // library or concrete class.
                 let mut candidates = Vec::new();
                 if outer_is_async {
-                    candidates.push(self.intern_source_name("__smelt_symbol_async_iterator"));
+                    candidates.push(self.intern_symbol_key("__smelt_symbol_async_iterator"));
                 }
-                candidates.push(self.intern_source_name("__smelt_symbol_iterator"));
+                candidates.push(self.intern_symbol_key("__smelt_symbol_iterator"));
                 let mut resolved = None;
                 for iterator in candidates {
                     let Ok(iterator_ty) = self.class_field_type(value_ty, iterator) else {

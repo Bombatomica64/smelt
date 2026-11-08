@@ -346,13 +346,13 @@ impl FunctionEmitter<'_> {
             // a source property `isPending` interns as `is_pending` and records
             // `isPending` as its source spelling, so matching source spelling
             // against interned field name would miss every camel-cased member.
-            prop_values.insert(sanitize_ident(self.symbol_name(*key)?), value);
+            prop_values.insert(self.context.names().field_text(self.mir, *key), value);
         }
 
         let mut field_text = Vec::new();
         for field in &fields {
             let raw_name = self.symbol_name(field.name)?;
-            let field_name = sanitize_ident(raw_name);
+            let field_name = self.context.names().field_text(self.mir, field.name);
             let value = if raw_name == SMELT_CALL {
                 self.value_at_type(callable, field.ty)?
             } else if let Some(entry_value) = prop_values.get(&field_name) {
@@ -377,7 +377,7 @@ impl FunctionEmitter<'_> {
         type_arg_count: usize,
     ) -> Result<RustExpr, EmitError> {
         self.push_phantom_field(&mut fields, class, type_arg_count);
-        let type_name = sanitize_ident(self.symbol_name(class)?);
+        let type_name = self.type_rust_name(class)?;
         Ok(RustExpr::loose(format!("{type_name} {{ {} }}", fields.join(", "))))
     }
 }

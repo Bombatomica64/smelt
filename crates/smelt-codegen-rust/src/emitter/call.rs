@@ -506,7 +506,7 @@ impl FunctionEmitter<'_> {
         Ok(RenderedCall::propagating_if(
             RustExpr::atom(format!(
                 "Self::{}({})",
-                crate::base_init::base_initializer_name(self.mir, class)?,
+                crate::base_init::base_initializer_name(self.context, class)?,
                 rendered_args.join(", "),
             )),
             self.call_is_throwing(function),
@@ -617,7 +617,7 @@ impl FunctionEmitter<'_> {
             .get(id_index(func.0, "function index does not fit usize")?)
             .ok_or_else(|| EmitError::new("call references an unknown function"))?;
         if let HirOrigin::ClassConstructor { class, .. } = function.origin {
-            let class_name = sanitize_ident(self.symbol_name(class)?);
+            let class_name = self.type_rust_name(class)?;
             let class_type_params = self.callee_class_type_params(function);
             let mut rendered_args = args
                 .iter()
@@ -666,17 +666,17 @@ impl FunctionEmitter<'_> {
             // the receiver's own method and slot hold.
             let super_copy = match self.mir.types.get(self.operand_ty(receiver)?) {
                 Some(Type::Class { name, .. }) if crate::classes::is_super_call(self.mir, *name, func) => {
-                    crate::classes::super_copy_name(self.mir, function)
+                    crate::classes::super_copy_name(self.context, function)
                 }
                 _ => None,
             };
             let method_name = match &super_copy {
                 Some(name) => name.clone(),
-                None => sanitize_ident(self.symbol_name(method)?),
+                None => self.method_rust_name(method)?,
             };
             if super_copy.is_none()
                 && let Some(field_call) =
-                    self.call_virtual_function_field_expr(receiver, &method_name, rest)?
+                    self.call_virtual_function_field_expr(receiver, method, rest)?
             {
                 return Ok(field_call.into());
             }
@@ -793,14 +793,13 @@ impl FunctionEmitter<'_> {
             };
             return Ok(RenderedCall::propagating_if(call, self.call_is_throwing(function)));
         }
-        if let HirOrigin::ClassStaticMethod { class, method, .. } = function.origin {
+        if let HirOrigin::ClassStaticMethod { class, .. } = function.origin {
             // `Class.staticMethod(args)` lowers to the receiver-free
             // associated function `Class::staticMethod(args)`. Arguments
             // are coerced to the emitted parameter types like any other
             // static call, and missing trailing parameters default.
-            let class_name = sanitize_ident(self.symbol_name(class)?);
-            let method_name =
-                function_item::static_method_rust_name(self.context, function.id, self.symbol_name(method)?);
+            let class_name = self.type_rust_name(class)?;
+            let method_name = static_method_rust_name(self.context, function.id)?;
             let mut rendered_args = args
                 .iter()
                 .enumerate()

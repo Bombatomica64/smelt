@@ -295,7 +295,7 @@ impl FunctionEmitter<'_> {
         fields: &[(Symbol, Operand)],
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
-        let class_name = sanitize_ident(self.symbol_name(class)?);
+        let class_name = self.type_rust_name(class)?;
         let mir_class = crate::classes::find_class(self.mir, class)
             .ok_or_else(|| EmitError::new("struct rvalue references an unknown class"))?;
         let effective_fields = self
@@ -308,7 +308,7 @@ impl FunctionEmitter<'_> {
             .collect::<HashSet<_>>();
         let mut parts = Vec::new();
         for field in effective_fields {
-            let name = sanitize_ident(self.symbol_name(field.name)?);
+            let name = self.context.names().field_text(self.mir, field.name);
             if let Some((_, field_value)) = fields
                 .iter()
                 .find(|(field_name, _)| *field_name == field.name)
@@ -442,7 +442,7 @@ impl FunctionEmitter<'_> {
 
         // Keyed by the literal's EXACT key text, because that is a JavaScript
         // property name: case-sensitive, and never case-folded. Keying by
-        // `sanitize_ident` instead silently dropped every camelCase field --
+        // the escaped field name instead silently dropped every camelCase field --
         // `{ plain: 1, camelCase: "a" }` against `interface Shape { plain?:
         // number; camelCase?: string }` emitted `Shape { plain: Some(1.0),
         // camel_case: None }`, so the program printed `undefined` where Node
@@ -461,7 +461,7 @@ impl FunctionEmitter<'_> {
             // Two spellings of one field: the source name matches the literal
             // key, the rendered name is the Rust struct field.
             let source_name = self.symbol_source_name(field.name)?;
-            let field_name = sanitize_ident(self.symbol_name(field.name)?);
+            let field_name = self.context.names().field_text(self.mir, field.name);
             let accessor = crate::accessor_prelude::is_accessor_field(self.mir, *name, field.name);
             let value = if let Some(entry_value) = literal_entries.get(source_name) {
                 // The literal's getter becomes the field's accessor; a plain
@@ -485,7 +485,7 @@ impl FunctionEmitter<'_> {
         }
         self.push_phantom_field(&mut field_text, *name, args.len());
 
-        let type_name = sanitize_ident(self.symbol_name(*name)?);
+        let type_name = self.type_rust_name(*name)?;
         // A reference-class record is a handle newtype over its `Inner`
         // struct (it is mutated through somewhere), so the literal builds the
         // inner record inside a fresh shared cell, exactly as the structural

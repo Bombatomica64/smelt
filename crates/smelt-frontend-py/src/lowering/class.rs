@@ -1804,7 +1804,7 @@ impl ModuleBuilder<'_> {
             // symbol a collision-free namespace. Rust sanitization renders it
             // as the readable `__smelt_super_<method>` inherent method.
             let alias_name = format!("__smelt$super${method_name}");
-            let alias_sym = self.intern_name(&alias_name);
+            let alias_sym = self.intern_synthesized_name(&alias_name);
             alias.name = alias_sym;
             alias.owner = FunctionOwner::ClassMethod {
                 class: class_sym,

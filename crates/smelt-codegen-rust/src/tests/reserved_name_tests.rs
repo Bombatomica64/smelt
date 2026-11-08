@@ -5,14 +5,14 @@
 //! `IntoIterator`) and declare runtime items at the crate root (`JsString`). A
 //! source type of one of those names (`type Fn`, `class Iterator`) declared at
 //! the crate root would shadow it for the whole crate, so
-//! [`crate::rust::sanitize_identifier`] renames it. The required set is derived
+//! the name allocator ([`crate::names`]) renames it. The required set is derived
 //! here from what is actually emitted: the fully enabled runtime and every
 //! committed example crate.
 
 use std::collections::BTreeSet;
 
 use crate::runtime_prelude::rendered_text;
-use crate::rust::sanitize_identifier;
+use crate::names::{NameScope, NameSpace, Spelling};
 
 /// Every item of the Rust 2024 prelude (`std::prelude::rust_2024`), the names a
 /// crate may spell without a `use`.
@@ -88,6 +88,53 @@ fn every_name_the_generated_crate_spells_is_reserved() {
         .map(|name| (*name).to_owned())
         .collect();
     required.extend(runtime_root_names(&runtime));
-    let unreserved: Vec<&String> = required.iter().filter(|name| sanitize_identifier(name) == **name).collect();
+    let unreserved: Vec<&String> = required
+        .iter()
+        .filter(|name| NameScope::new(NameSpace::Types).claim(Spelling::Source(name)).as_str() == name.as_str())
+        .collect();
     assert!(unreserved.is_empty(), "names a source item could shadow: {unreserved:?}");
+}
+
+/// The trait of every `impl <Trait> for` a committed example crate writes after
+/// its prelude, with its generic arguments and path stripped: the last token
+/// before ` for `, which an impl's own generic list never reaches.
+fn implemented_traits(texts: &[String]) -> BTreeSet<String> {
+    let mut traits = BTreeSet::new();
+    for text in texts {
+        let Some(program) = text.split(crate::PRELUDE_END_MARKER).nth(1) else {
+            continue;
+        };
+        for line in program.lines().filter(|line| line.starts_with("impl")) {
+            let Some((head, _)) = line.split_once(" for ") else { continue };
+            let Some(token) = head.rsplit(' ').next() else { continue };
+            let name = token.split('<').next().unwrap_or(token);
+            if !name.is_empty() && !name.starts_with("impl") {
+                traits.insert(name.to_owned());
+            }
+        }
+    }
+    traits
+}
+
+/// Every trait the emitter implements for a generated type is in
+/// [`crate::derive_impls::EMITTED_TRAITS`], so a source method can never take
+/// the name of a method the emitter calls through it (a user `clone()` that
+/// shadowed `Clone::clone` made every internal handle copy a fresh object).
+/// The generated `<Bound>Like` traits are exempt: their members ARE the
+/// source methods, by their planned names.
+#[test]
+fn every_trait_the_emitter_implements_reserves_its_methods() {
+    let texts = emitted_texts();
+    let known: BTreeSet<&str> = crate::derive_impls::EMITTED_TRAITS.iter().map(|(name, _)| *name).collect();
+    let unknown: Vec<String> = implemented_traits(texts.get(1..).unwrap_or_default())
+        .into_iter()
+        .filter(|name| !known.contains(name.as_str()) && !name.ends_with("Like"))
+        .collect();
+    assert!(unknown.is_empty(), "traits implemented for user types without reserved methods: {unknown:?}");
+    for (_, methods) in crate::derive_impls::EMITTED_TRAITS {
+        for method in *methods {
+            let claimed = NameScope::new(NameSpace::Members).claim(Spelling::Source(method));
+            assert_ne!(claimed.as_str(), *method, "a source method may still take `{method}`");
+        }
+    }
 }

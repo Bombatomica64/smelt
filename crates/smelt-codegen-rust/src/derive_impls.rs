@@ -15,9 +15,51 @@ use crate::classes::{
     NominalStorage, effective_class_fields, effective_interface_fields, type_holds_function,
 };
 use crate::emitter::{EmitContext, FunctionEmitter};
-use crate::rust::{CodeWriter, RustIdent, RustType};
+use crate::rust::{CodeWriter, RustType};
 use crate::type_substitution::TypeSubstitution;
 use crate::{EmitError, accessor_prelude};
+
+/// Every trait the emitter derives or implements for a generated user type,
+/// with the methods the emitter CALLS through it by method-call syntax or a
+/// `Type::method` path.
+///
+/// An inherent method named like one of those wins Rust's method resolution
+/// over the trait (and `Type::from` resolves to an inherent `from` first), so
+/// a source method of that name would silently replace the emitter's call:
+/// `names::reserved` renames such a method (`clone` -> `clone_`). A trait the
+/// emitter only reaches through an operator (`+` for `Add`), a derive macro's
+/// fully qualified calls (serde) or the language itself (`Drop`) lists no
+/// method: a source `add` or `drop` method shadows nothing there and keeps its
+/// name. The derives and impls are written in this module, `program_types`,
+/// `reference_storage`, `weak_receiver` and `record_coercion`;
+/// `tests/reserved_name_tests.rs` checks every `impl Trait for` of a committed
+/// example crate against this table.
+pub(crate) const EMITTED_TRAITS: &[(&str, &[&str])] = &[
+    ("Clone", &["clone", "clone_from"]),
+    ("Default", &["default"]),
+    ("::std::fmt::Debug", &["fmt"]),
+    ("Debug", &["fmt"]),
+    ("PartialEq", &["eq", "ne"]),
+    ("IntoSmeltUnknown", &["into_smelt_unknown"]),
+    ("SmeltFromUnknown", &["smelt_from_unknown"]),
+    ("SmeltJsKeyEq", &["same_js_key", "js_key_hash"]),
+    ("SmeltReferenceHandle", &["smelt_handle_cell", "smelt_from_handle_cell"]),
+    ("SmeltInspect", &["smelt_inspect", "smelt_inspect_is_number", "smelt_console_text"]),
+    ("Drop", &[]),
+    ("serde::Serialize", &[]),
+    ("serde::Deserialize", &[]),
+    ("::std::ops::Add", &[]),
+    // Blanket conversions the emitter spells on any value: `value.into()`,
+    // `Type::from(value)`, `value.to_owned()`.
+    ("Into", &["into"]),
+    ("From", &["from"]),
+    ("ToOwned", &["to_owned"]),
+];
+
+/// Whether `name` is a method of a trait in [`EMITTED_TRAITS`].
+pub(crate) fn is_emitted_trait_method(name: &str) -> bool {
+    EMITTED_TRAITS.iter().any(|(_, methods)| methods.contains(&name))
+}
 
 /// Emits a manual `Default` impl for generated storage structs with callbacks.
 ///
@@ -53,7 +95,7 @@ pub(crate) fn emit_default_impl_for_storage_type(
     let mut field_defaults = Vec::with_capacity(fields.len());
     for field in fields {
         let field_name =
-            RustIdent::new(mir.symbols.get(field.name).unwrap_or("field")).into_string();
+            context.names().field(mir, field.name).into_string();
         let default_value = FunctionEmitter::default_value_for_with_scoped_type_params(
             mir,
             context,

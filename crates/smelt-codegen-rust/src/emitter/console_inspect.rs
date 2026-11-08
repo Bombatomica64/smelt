@@ -35,7 +35,6 @@
 
 use super::*;
 use crate::console_inspect_prelude::{self, InspectField};
-use crate::rust::RustIdent;
 use super::union::union_name;
 
 /// A generated record struct, as the inspect impl needs to see it.
@@ -204,52 +203,42 @@ impl FunctionEmitter<'_> {
     }
 }
 
-/// Every generated record struct, keyed by its MIR symbol, in the order the
-/// crate emitter claims Rust names: interfaces first, then classes, a name
-/// already taken skipping the later declaration (as `emit_source` does).
+/// Every generated record struct, keyed by its MIR symbol, read off the
+/// crate's one type claim order ([`crate::names::type_claim_order`]) and named
+/// by its plan, so the inspector names exactly the struct `emit_source` wrote.
 fn inspect_records(mir: &Mir, context: &EmitContext) -> HashMap<Symbol, InspectRecord> {
     let mut records = HashMap::new();
-    let mut claimed = HashSet::new();
-    for interface in &mir.interfaces {
-        let Some(source) = mir.symbols.get(interface.name) else {
+    for decl in crate::names::type_claim_order(mir) {
+        let symbol = decl.name();
+        let Some(source) = mir.symbols.get(symbol) else {
             continue;
         };
-        let rust_name = RustIdent::new(source).into_string();
-        if !claimed.insert(rust_name.clone()) || host_class_name(source) {
+        if host_class_name(source) {
             continue;
         }
-        records.insert(
-            interface.name,
-            InspectRecord {
+        let Ok(planned) = context.names().type_name(symbol) else {
+            continue;
+        };
+        let rust_name = planned.as_str().to_owned();
+        let record = match decl {
+            crate::names::TypeDecl::Interface(interface) => InspectRecord {
                 rust_name,
                 constructor: String::new(),
                 fields: crate::classes::effective_interface_fields(mir, interface),
-                reference: context.is_reference_class(interface.name),
+                reference: context.is_reference_class(symbol),
                 is_shape: true,
                 eligible: interface.type_params.is_empty(),
             },
-        );
-    }
-    for class in &mir.classes {
-        let Some(source) = mir.symbols.get(class.name) else {
-            continue;
-        };
-        let rust_name = RustIdent::new(source).into_string();
-        if !claimed.insert(rust_name.clone()) || host_class_name(source) {
-            continue;
-        }
-        let constructor = mir.names.get(class.name).unwrap_or(source).to_owned();
-        records.insert(
-            class.name,
-            InspectRecord {
+            crate::names::TypeDecl::Class(class) => InspectRecord {
                 rust_name,
-                constructor,
+                constructor: mir.names.get(symbol).unwrap_or(source).to_owned(),
                 fields: crate::classes::effective_class_fields(mir, class),
-                reference: context.is_reference_class(class.name),
+                reference: context.is_reference_class(symbol),
                 is_shape: false,
                 eligible: class.type_params.is_empty() && base_chain_is_local(mir, class),
             },
-        );
+        };
+        records.insert(symbol, record);
     }
     records
 }
@@ -324,8 +313,7 @@ pub(crate) fn emit_console_inspect_support(
                     .or_else(|| mir.symbols.get(field.name))
                     .unwrap_or("field")
                     .to_owned(),
-                rust_name: RustIdent::new(mir.symbols.get(field.name).unwrap_or("field"))
-                    .into_string(),
+                rust_name: context.names().field(mir, field.name).into_string(),
                 skip_when_absent: record.is_shape
                     && matches!(mir.types.get(field.ty), Some(Type::Optional(_))),
             })

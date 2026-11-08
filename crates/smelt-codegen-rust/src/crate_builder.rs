@@ -4,7 +4,7 @@
     reason = "crate-visible items are shared with the crate root and the emitter shards"
 )]
 
-use std::{collections::HashSet, marker::PhantomData};
+use std::marker::PhantomData;
 
 use smelt_hir::{Type, TypeId};
 use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction};
@@ -273,12 +273,13 @@ impl<'a> CrateBuilder<'a, FreeFunctionsWritten> {
     fn emit_class_impls(mut self) -> Result<CrateBuilder<'a, ClassImplsWritten>, EmitError> {
         let needs_unknown = self.needs_unknown;
         let (mir, context, out) = (self.mir, self.context, &mut self.out);
-        let mut emitted_impl_names = HashSet::new();
-        for class in &mir.classes {
-            let name = class_name_text(mir, class)?;
-            if !emitted_impl_names.insert(name.clone()) {
+        // The claim order is also the declaration order: one `impl` per class
+        // identity (see `names::type_claim_order`).
+        for decl in crate::names::type_claim_order(mir) {
+            let crate::names::TypeDecl::Class(class) = decl else {
                 continue;
-            }
+            };
+            let name = class_name_text(context, class)?;
             let impl_generics = class_impl_generics_text(mir, context, class)?;
             let type_args = class_type_args_text(mir, context, class)?;
             out.push_str(&format!("\nimpl{impl_generics} {name}{type_args} {{\n"));
@@ -342,7 +343,7 @@ impl<'a> CrateBuilder<'a, FreeFunctionsWritten> {
                 }
                 copied.push(method);
                 if let Some(function) = mir.functions.get(id_index(method.0, "method index does not fit usize")?)
-                    && let Some(copy_name) = classes::super_copy_name(mir, function)
+                    && let Some(copy_name) = classes::super_copy_name(context, function)
                 {
                     let substituted = classes::substituted_inherited_member(mir, function, class.name);
                     let copied_body = substituted.as_ref().unwrap_or(function);

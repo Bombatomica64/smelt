@@ -15,8 +15,50 @@ use serde::{Deserialize, Serialize};
 
 use crate::ids::{Symbol, id_index};
 
-/// A symbol's identity pair: `(source key, rendering)`.
-type SymbolIdentity = (String, String);
+/// A symbol's identity: `(origin, source key, rendering)`.
+type SymbolIdentity = (SymbolOrigin, String, String);
+
+/// Who wrote a symbol's name: the program, or the compiler.
+///
+/// The generated crate reserves the prefixes `smelt_`, `Smelt`, `__smelt` and
+/// `SMELT_` for itself (runtime helpers, emitter temporaries, the names the
+/// lowerings mint). A name the PROGRAM spells may use them too (`class
+/// SmeltList`, `function smelt_typeof`), and the code generator must move such a
+/// name out of the reserved namespace; a name the COMPILER mints
+/// (`smelt_global_init__x__0`, `__smelt_spread`) must keep its spelling. The
+/// spelling cannot tell the two apart, so the origin is part of the symbol:
+/// a synthesized name is interned only through [`SynthesizedName`], and a
+/// source name and a synthesized name of the same text are two symbols.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SymbolOrigin {
+    /// Spelled by the source program (an identifier, a property key).
+    #[default]
+    Source,
+    /// Minted by a lowering for its own bookkeeping.
+    Synthesized,
+}
+
+/// A name the compiler mints, as opposed to one the program spells.
+///
+/// The only way to intern a [`SymbolOrigin::Synthesized`] symbol. Construct
+/// one only in lowering code, for a name the lowering itself invents; never
+/// wrap a source identifier in it, which would let program text claim the
+/// generated crate's reserved namespace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SynthesizedName(String);
+
+impl SynthesizedName {
+    /// A compiler-minted name spelled `name`.
+    pub fn new(name: impl Into<String>) -> Self {
+        Self(name.into())
+    }
+
+    /// The name's text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
 
 /// Interns strings into compact `Symbol` identifiers.
 ///
@@ -48,6 +90,10 @@ pub struct SymbolInterner {
     /// so the index answers exactly the slot the scan found (the first match).
     #[serde(skip)]
     index: std::collections::HashMap<SymbolIdentity, Symbol>,
+    /// Each symbol's origin in insertion order; a missing entry (an interner
+    /// serialized before origins existed) is [`SymbolOrigin::Source`].
+    #[serde(default)]
+    origins: Vec<SymbolOrigin>,
 }
 
 impl SymbolInterner {
@@ -82,10 +128,33 @@ impl SymbolInterner {
     /// silently owns the key string both are read with
     /// (`OriginalNameTable::record` is last-writer-wins).
     pub fn intern_rendered(&mut self, key: &str, rendered: &str) -> Symbol {
+        self.intern_with_origin(SymbolOrigin::Source, key, rendered)
+    }
+
+    /// Returns the `Symbol` of the compiler-minted `name`, rendered verbatim.
+    pub fn intern_synthesized(&mut self, name: &SynthesizedName) -> Symbol {
+        self.intern_with_origin(SymbolOrigin::Synthesized, name.as_str(), name.as_str())
+    }
+
+    /// Returns the `Symbol` of the compiler-minted `name` rendered as
+    /// `rendered` (a lowering that case-folds the names it mints the way it
+    /// folds source names).
+    pub fn intern_synthesized_rendered(&mut self, name: &SynthesizedName, rendered: &str) -> Symbol {
+        self.intern_with_origin(SymbolOrigin::Synthesized, name.as_str(), rendered)
+    }
+
+    /// Who wrote `symbol`'s name.
+    #[must_use]
+    pub fn origin(&self, symbol: Symbol) -> SymbolOrigin {
+        self.origins.get(symbol.0 as usize).copied().unwrap_or_default()
+    }
+
+    /// Interns `key`/`rendered` with `origin`, which is part of the identity.
+    fn intern_with_origin(&mut self, origin: SymbolOrigin, key: &str, rendered: &str) -> Symbol {
         if self.index.len() != self.symbols.len() {
             self.rebuild_index();
         }
-        if let Some(symbol) = self.index.get(&(key.to_owned(), rendered.to_owned())) {
+        if let Some(symbol) = self.index.get(&(origin, key.to_owned(), rendered.to_owned())) {
             debug_assert!(
                 self.slot_matches(symbol.0 as usize, key, rendered),
                 "the symbol index must agree with the slot it names"
@@ -93,7 +162,9 @@ impl SymbolInterner {
             return *symbol;
         }
         let id = Symbol(id_index(self.symbols.len()));
-        self.index.insert((key.to_owned(), rendered.to_owned()), id);
+        self.index.insert((origin, key.to_owned(), rendered.to_owned()), id);
+        self.origins.resize(self.symbols.len(), SymbolOrigin::Source);
+        self.origins.push(origin);
         self.symbols.push(rendered.to_owned());
         self.sources.resize(self.symbols.len() - 1, String::new());
         self.sources
@@ -110,8 +181,9 @@ impl SymbolInterner {
         for (idx, rendered) in self.symbols.iter().enumerate() {
             let stored = self.sources.get(idx).map_or("", String::as_str);
             let key = if stored.is_empty() { rendered.as_str() } else { stored };
+            let origin = self.origins.get(idx).copied().unwrap_or_default();
             index
-                .entry((key.to_owned(), rendered.clone()))
+                .entry((origin, key.to_owned(), rendered.clone()))
                 .or_insert_with(|| Symbol(id_index(idx)));
         }
         self.index = index;
@@ -175,6 +247,21 @@ mod tests {
         assert_eq!(interner.get(lower), Some("foo"));
         assert_eq!(interner.source(upper), Some("Foo"));
         assert_eq!(interner.source(lower), Some("foo"));
+    }
+
+    /// A compiler-minted name and a source name of the same text are two
+    /// symbols, and each remembers who wrote it.
+    #[test]
+    fn a_synthesized_name_is_never_the_source_name_of_the_same_text() {
+        use super::{SymbolOrigin, SynthesizedName};
+        let mut interner = SymbolInterner::default();
+        let source = interner.intern("smelt_x");
+        let minted = interner.intern_synthesized(&SynthesizedName::new("smelt_x"));
+        assert_ne!(source, minted);
+        assert_eq!(interner.origin(source), SymbolOrigin::Source);
+        assert_eq!(interner.origin(minted), SymbolOrigin::Synthesized);
+        assert_eq!(interner.intern_synthesized(&SynthesizedName::new("smelt_x")), minted);
+        assert_eq!(interner.get(minted), Some("smelt_x"));
     }
 
     /// Re-interning the same source spelling is idempotent.

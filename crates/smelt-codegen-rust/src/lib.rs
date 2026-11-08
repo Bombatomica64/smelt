@@ -94,6 +94,7 @@ pub(crate) mod generic_lifting;
 pub(crate) mod globals;
 pub(crate) mod lazy_view;
 mod module_map;
+pub(crate) mod names;
 mod options;
 mod program_types;
 pub(crate) mod reference_origin;
@@ -124,7 +125,6 @@ pub use erased_list_alias::{ERASED_GENERIC_ARRAY_ALIAS_FN, ERASED_GENERIC_LIST_A
 pub use error::EmitError;
 pub(crate) use error::{compact_index, id_index};
 pub use options::{CrateKind, EmitOptions, GeneratedAllocator, PackageMetadata, ReleaseProfile};
-pub(crate) use rust::sanitize_ident;
 
 /// Measure how much of optimized MIR reaches Rust typed.
 ///

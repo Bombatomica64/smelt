@@ -132,8 +132,7 @@ impl FunctionEmitter<'_> {
             }
             let key = self.symbol_source_name(field.name)?;
             let field_name =
-                crate::rust::RustIdent::new(self.mir.symbols.get(field.name).unwrap_or("field"))
-                    .into_string();
+                self.context.names().field(self.mir, field.name).into_string();
             let Ok(erased) =
                 self.erase_rendered(&RustExpr::chain(format!("self.0.borrow().{field_name}.clone()")).ending_in_clone(), field.ty)
             else {
@@ -186,8 +185,7 @@ impl FunctionEmitter<'_> {
             let key = self.symbol_source_name(field.name)?;
             // The same spelling the inner record's declaration uses.
             let field_name =
-                crate::rust::RustIdent::new(self.mir.symbols.get(field.name).unwrap_or("field"))
-                    .into_string();
+                self.context.names().field(self.mir, field.name).into_string();
             arms.push_str(&format!(
                 "            {key:?} => {{ let smelt_field_value = {converted}; {pin}self.0.borrow_mut().{field_name} = smelt_field_value; }}\n",
                 // Overwriting a weak-receiver closure someone else still holds

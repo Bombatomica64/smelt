@@ -159,7 +159,7 @@ impl ModuleBuilder<'_> {
                 // the forwarded argument is a genuine dynamic boundary here.
                 let unknown_ty = this.erase(ErasureReason::UnmodeledType);
                 let arg_ty = this.ctx.krate.types.intern(Type::Optional(unknown_ty));
-                let arg_symbol = this.ctx.krate.symbols.intern("_smelt_super_arg");
+                let arg_symbol = this.ctx.krate.symbols.intern_synthesized(&smelt_hir::SynthesizedName::new("_smelt_super_arg"));
                 let arg_local = body.push_local(LocalDecl {
                     name: Some(arg_symbol),
                     ty: arg_ty,

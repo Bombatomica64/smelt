@@ -788,7 +788,7 @@ impl FunctionEmitter<'_> {
             .filter(|field| field.visibility.is_own_property())
             .map(|field| {
                 let source_name = self.symbol_source_name(field.name)?;
-                let field_name = sanitize_ident(self.symbol_name(field.name)?);
+                let field_name = self.context.names().field_text(self.mir, field.name);
                 // An accessor erases the value its getter answers now.
                 let accessor = crate::accessor_prelude::is_accessor_field(self.mir, *name, field.name);
                 let optional_read = if accessor {
