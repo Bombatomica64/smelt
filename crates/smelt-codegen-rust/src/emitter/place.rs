@@ -976,6 +976,7 @@ fn descriptor_literal_expr(literal: &smelt_hir::Literal) -> RustExpr {
             }
         }
         smelt_hir::Literal::String(text) => RustExpr::chain(format!("{text:?}.to_owned()")).owned_literal(),
+        smelt_hir::Literal::StringUnits(units) => RustExpr::js_string_units_literal(units),
         smelt_hir::Literal::Symbol(_)
         | smelt_hir::Literal::Undefined
         | smelt_hir::Literal::None => RustExpr::atom("Default::default()"),

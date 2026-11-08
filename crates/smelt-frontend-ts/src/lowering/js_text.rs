@@ -7,10 +7,12 @@
 //!
 //! This module is the single place where the frontend crosses from `JSStr` to Rust text. Every
 //! value that is valid UTF-8 (all ordinary source) is borrowed unchanged, so lowering behaves
-//! exactly as it did when oxc handed out `&str`. A value containing a lone surrogate is converted
-//! lossily, replacing each lone surrogate with U+FFFD — the same result as
-//! `String::from_utf16_lossy` applied to the value's UTF-16 encoding. Never use `display()` for
-//! values, keys or comparisons: its escaping is for diagnostics and is not injective.
+//! exactly as it did when oxc handed out `&str`. A string *literal* value goes through
+//! [`js_str_literal`], which keeps a lone surrogate as UTF-16 code units. Every other value
+//! containing a lone surrogate (a property name, a template quasi) is converted lossily,
+//! replacing each lone surrogate with U+FFFD — the same result as `String::from_utf16_lossy`
+//! applied to the value's UTF-16 encoding. Never use `display()` for values, keys or
+//! comparisons: its escaping is for diagnostics and is not injective.
 
 use std::borrow::Cow;
 
@@ -34,6 +36,18 @@ pub(in crate::lowering) fn js_str_text(value: JSStr<'_>) -> Cow<'_, str> {
             )
         },
         Cow::Borrowed,
+    )
+}
+
+/// Returns a JavaScript string value as a HIR literal.
+///
+/// A value that is valid UTF-8 is [`Literal::String`]; one holding a lone
+/// surrogate (`"\uD83D"`) keeps its exact UTF-16 code units as
+/// [`Literal::StringUnits`], which the generated `JsString` can hold.
+pub(in crate::lowering) fn js_str_literal(value: JSStr<'_>) -> smelt_hir::Literal {
+    value.as_str().map_or_else(
+        || smelt_hir::Literal::StringUnits(value.encode_utf16().collect()),
+        |text| smelt_hir::Literal::String(text.to_owned()),
     )
 }
 
@@ -65,14 +79,14 @@ pub(in crate::lowering) fn template_element_text<'a>(
 
 #[cfg(test)]
 mod tests {
-    //! The UTF-8 and lone-surrogate paths of [`js_str_text`].
+    //! The UTF-8 and lone-surrogate paths of [`js_str_text`] and [`js_str_literal`].
 
     use std::borrow::Cow;
 
     use oxc::allocator::Allocator;
     use oxc::str::{JSStr, JSStrBuilder};
 
-    use super::js_str_text;
+    use super::{js_str_literal, js_str_text};
 
     #[test]
     fn utf8_values_are_borrowed_unchanged() {
@@ -92,5 +106,16 @@ mod tests {
         let expected = String::from_utf16_lossy(&value.encode_utf16().collect::<Vec<_>>());
         assert_eq!(js_str_text(value), expected, "lossy text must match from_utf16_lossy");
         assert_eq!(expected, "a\u{FFFD}b\u{FFFD}", "each lone surrogate is one U+FFFD");
+    }
+
+    #[test]
+    fn a_literal_keeps_its_lone_surrogates_as_code_units() {
+        let allocator = Allocator::new();
+        let mut builder = JSStrBuilder::new_in(&&allocator);
+        builder.push('a');
+        builder.push_code_unit(0xD83D);
+        let value = builder.into_js_str();
+        assert_eq!(js_str_literal(value), smelt_hir::Literal::StringUnits(vec![0x61, 0xD83D]), "the exact units");
+        assert_eq!(js_str_literal(JSStr::from("é🦀")), smelt_hir::Literal::String("é🦀".to_owned()), "valid text stays text");
     }
 }

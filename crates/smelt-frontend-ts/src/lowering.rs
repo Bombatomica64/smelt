@@ -137,7 +137,9 @@ impl ConstLiteral {
             Literal::BigInt(digits) => Some(digits.clone()),
             Literal::Float(value) => Some(ModuleBuilder::numeric_property_key_name(*value)),
             Literal::Symbol(value) => Self::symbol_literal_member_name(value),
-            Literal::Bool(_) | Literal::Undefined | Literal::None => None,
+            // A key holding a lone surrogate has no Rust field spelling; it stays
+            // on the runtime-keyed path.
+            Literal::Bool(_) | Literal::Undefined | Literal::None | Literal::StringUnits(_) => None,
         }
     }
 

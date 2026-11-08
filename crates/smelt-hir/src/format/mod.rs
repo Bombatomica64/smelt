@@ -14,6 +14,7 @@ use call::expr_text;
 use control_flow::stmt_text;
 use list::{collection_text, expr_list_text};
 use literals::{literal_text, pattern_text};
+pub use literals::string_units_text;
 use map::dict_lit_text;
 use std::fmt::Write as _;
 use types::{expr_ref, item_ref, item_text, local_ref, type_ref, type_text};

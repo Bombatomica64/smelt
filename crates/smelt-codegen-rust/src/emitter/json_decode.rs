@@ -83,6 +83,9 @@ fn literal_condition(value_text: &RustExpr, literal: &smelt_hir::Literal) -> Opt
         smelt_hir::Literal::String(text) => Some(format!(
             "matches!({value_text}, SmeltUnknown::String(text) if text.eq_str({text:?}))"
         )),
+        smelt_hir::Literal::StringUnits(units) => Some(format!(
+            "matches!({value_text}, SmeltUnknown::String(text) if text.units() == {units:?})"
+        )),
         smelt_hir::Literal::Float(number) => Some(format!(
             "matches!({value_text}, SmeltUnknown::Number(number) if *number == {number:?}_f64)"
         )),
@@ -104,6 +107,7 @@ fn literal_condition(value_text: &RustExpr, literal: &smelt_hir::Literal) -> Opt
 fn literal_type_text(literal: &smelt_hir::Literal) -> String {
     match literal {
         smelt_hir::Literal::String(text) => format!("{text:?}"),
+        smelt_hir::Literal::StringUnits(units) => format!("\"{}\"", smelt_hir::string_units_text(units)),
         smelt_hir::Literal::BigInt(digits) => format!("{digits}n"),
         smelt_hir::Literal::Float(number) => {
             if number.fract() == 0.0 && number.abs() < 1e21 {

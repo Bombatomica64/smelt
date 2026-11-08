@@ -1,6 +1,6 @@
 //! Control-flow statement lowering (C-style `for`, `for-of`, `for-in`, switch case labels).
 
-use crate::lowering::js_text::js_str_text;
+use crate::lowering::js_text::js_str_literal;
 use oxc::span::GetSpan;
 
 use crate::lowering::{
@@ -695,7 +695,7 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn literal_case_label(&mut self, expression: &Expression<'_>) -> Result<Literal, SmeltError> {
         match expression {
             Expression::StringLiteral(lit) => {
-                Ok(Literal::String(js_str_text(lit.value).into_owned()))
+                Ok(js_str_literal(lit.value))
             }
             Expression::NumericLiteral(lit) => Ok(Literal::Float(lit.value)),
             Expression::BooleanLiteral(lit) => Ok(Literal::Bool(lit.value)),

@@ -698,6 +698,9 @@ pub enum Constant {
     BigInt(String),
     /// String constant.
     String(String),
+    /// A JavaScript string constant holding a lone surrogate, as its UTF-16
+    /// code units (see `smelt_hir::Literal::StringUnits`).
+    StringUnits(Vec<u16>),
     /// JavaScript symbol constant.
     Symbol(String),
     /// JavaScript `undefined` constant.

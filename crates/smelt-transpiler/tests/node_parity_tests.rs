@@ -500,6 +500,13 @@ fn record_aliasing() -> TestResult {
     verify_node_parity("record_aliasing")
 }
 
+/// A lone surrogate is a string value of its own (`"\ud83d"`, a cut through a
+/// surrogate pair), and strings sort by UTF-16 code unit.
+#[test]
+fn lone_surrogate_strings() -> TestResult {
+    verify_node_parity("lone_surrogate_strings")
+}
+
 /// A read of an object's state happens where it is evaluated, ahead of a later
 /// argument that changes it: `re.test(s)` moving `lastIndex`, and a method
 /// writing its own field.

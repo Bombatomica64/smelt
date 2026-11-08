@@ -213,6 +213,14 @@ impl RustExpr {
         Self { fact: ExprFact::JsLiteral, ..Self::chain(text) }
     }
 
+    /// A JavaScript string held as UTF-16 code units (one with a lone
+    /// surrogate, which Rust text cannot spell): `JsString::from_units(&[..])`.
+    #[must_use]
+    pub fn js_string_units_literal(units: &[u16]) -> Self {
+        let listed = units.iter().map(|unit| format!("0x{unit:04X}")).collect::<Vec<_>>().join(", ");
+        Self::chain(format!("JsString::from_units(&[{listed}])"))
+    }
+
     /// This expression, recorded as spelling `"literal".to_owned()`.
     #[must_use]
     pub fn owned_literal(mut self) -> Self {

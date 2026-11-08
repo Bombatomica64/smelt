@@ -3,7 +3,7 @@
 
 use crate::SmeltError;
 use crate::lowering::body_arena::BodyArena;
-use crate::lowering::js_text::js_str_text;
+use crate::lowering::js_text::js_str_literal;
 use crate::lowering::peel::{Wrappers, peel};
 use oxc::ast::ast::Expression;
 use oxc::syntax::operator::{BinaryOperator, LogicalOperator, UnaryOperator};
@@ -48,7 +48,7 @@ impl ModuleBuilder<'_> {
             Expression::StringLiteral(lit) => {
                 let ty = self.ctx.krate.types.intern(Type::String);
                 Ok(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::String(js_str_text(lit.value).into_owned())),
+                    kind: ExprKind::Literal(js_str_literal(lit.value)),
                     ty,
                     span: self.span(lit.span.start, lit.span.end),
                 }))

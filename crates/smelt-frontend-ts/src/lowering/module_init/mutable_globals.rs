@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 use crate::SmeltError;
-use crate::lowering::js_text::js_str_text;
+use crate::lowering::js_text::js_str_literal;
 use oxc::ast::ast::{BindingPattern, Declaration, Expression, Program, Statement};
 use smelt_hir::{
     Body, Expr, ExprKind, Function, FunctionOwner, Item, Literal, Module, Type, Visibility,
@@ -615,7 +615,7 @@ impl ModuleBuilder<'_> {
                 ty: self.ctx.krate.types.intern(Type::Float),
             }),
             Expression::StringLiteral(literal) => Some(ConstLiteral {
-                literal: Literal::String(js_str_text(literal.value).into_owned()),
+                literal: js_str_literal(literal.value),
                 ty: self.ctx.krate.types.intern(Type::String),
             }),
             Expression::BooleanLiteral(literal) => Some(ConstLiteral {
