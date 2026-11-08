@@ -50,8 +50,6 @@
 //!   read of a value of that type observes. Unlike `mutates`, the operand is not
 //!   written in place, so it stays immutable to the MIR's own analyses.
 //! * `fresh(condition)`: the result is a newly allocated list no one else holds.
-//! * `needs(Need, Need if condition, ..)`: the runtime families the op demands;
-//!   see `Need` in `smelt-codegen-rust`.
 //!
 //! A field may also state its role for list escape analysis, `name: kind @ROLE`,
 //! with `ROLE` a constant of `operand_roles` or a parenthesised expression over
@@ -212,7 +210,6 @@ macro_rules! op_group_transcribed {
             /// functions never produce this expression: they capture the enclosing
             /// function's `this` local lexically, exactly as the source does.
             ThisRead
-                needs(ThisRead)
                 => ("this".to_owned());
             /// Bind a receiver to a callable, yielding `Function.prototype.bind`'s value.
             ///
@@ -227,7 +224,6 @@ macro_rules! op_group_transcribed {
                 /// The receiver value the callee's `this` resolves to.
                 receiver: one,
             }
-                needs(ThisChannel)
                 => (format!("bind_this {callee}, {receiver}"));
             /// JavaScript `new callee(args)` where `callee` is a function VALUE — the
             /// `[[Construct]]` operation, not a call.
@@ -246,7 +242,6 @@ macro_rules! op_group_transcribed {
                 /// The spelled constructor arguments.
                 args: many,
             }
-                needs(Construct)
                 => (format!("construct {callee}({})", args.join(", ")));
             /// JavaScript `new value.constructor(args)` on an erased `value`: a new
             /// object of the kind `value` is, an array for an array, whose
@@ -257,7 +252,6 @@ macro_rules! op_group_transcribed {
                 /// The spelled constructor arguments.
                 args: many,
             }
-                needs(Construct)
                 => (format!("construct_like {value}({})", args.join(", ")));
             /// Call a closure value with a runtime argument vector from spread syntax.
             ClosureCallSpread {
@@ -312,7 +306,6 @@ macro_rules! op_group_transcribed {
                 /// Numeric operand to round.
                 operand: one,
             }
-                needs(MathRound if matches!(op, $crate::NumericRoundOp::Round))
                 => (format!("numeric_{op} {operand}"));
             /// Compute the minimum or maximum of floating-point operands.
             NumericExtrema {
@@ -373,7 +366,6 @@ macro_rules! op_group_transcribed {
                 => (format!("numeric_atan2 {y}, {x}"));
             /// Generate a pseudo-random floating-point value in the half-open range `[0, 1)`.
             NumericRandom
-                needs(DepRand)
                 => ("numeric_random".to_owned());
             /// Generate a pseudo-random integer in an inclusive range.
             NumericRandomInt {
@@ -382,7 +374,6 @@ macro_rules! op_group_transcribed {
                 /// Inclusive upper bound.
                 end: one,
             }
-                needs(DepRand)
                 => (format!("numeric_random_int {start}, {end}"));
             /// Convert a numeric value to a string with a numeric radix.
             NumericToStringRadix {
@@ -408,7 +399,6 @@ macro_rules! op_group_transcribed {
                 /// Numeric radix operand.
                 radix: one,
             }
-                needs(ParseNumber)
                 => (format!("parse_int_radix {operand}, {radix}"));
             /// Convert a primitive value to another primitive type.
             PrimitiveCast {
@@ -417,7 +407,6 @@ macro_rules! op_group_transcribed {
                 /// Primitive operand to convert.
                 operand: one,
             }
-                needs(ParseNumber if matches!(op, $crate::PrimitiveCastOp::ParseFloat))
                 => (format!("primitive_cast_{op} {operand}"));
             /// Change the case of a string value.
             StringCase {
@@ -448,7 +437,6 @@ macro_rules! op_group_transcribed {
                 /// String operand to normalize.
                 operand: one,
             }
-                needs(DepUnicodeNormalization)
                 => (format!("string_normalize_{form} {operand}"));
             /// JavaScript `Object.prototype.toString.call(operand)`: the classic
             /// `"[object Tag]"` type probe. Resolves the tag from the erased value's
@@ -465,7 +453,6 @@ macro_rules! op_group_transcribed {
                 /// Erased value operand to deep-clone.
                 operand: one @READ,
             }
-                needs(StructuredClone)
                 => (format!("structured_clone {operand}"));
             /// Trim whitespace from a string value.
             StringTrim {
@@ -485,7 +472,6 @@ macro_rules! op_group_transcribed {
                 /// String compared against the receiver.
                 right: one,
             }
-                needs(LocaleCompare)
                 => (
                     hir: format!("string_locale_compare {left} {right}"),
                     mir: format!("string_locale_compare {left}, {right}"),
@@ -511,7 +497,6 @@ macro_rules! op_group_transcribed {
                 /// Optional JavaScript `fromIndex` position.
                 from_index: opt,
             }
-                needs(DepRegress if matches!(op, $crate::StringSearchOp::Regex))
                 => (
                     {
                         let base = format!("string_{op} {haystack}, {needle}");
@@ -577,7 +562,6 @@ macro_rules! op_group_transcribed {
                 /// String value being matched.
                 haystack: one,
             }
-                needs(RegexOps)
                 => (format!("regex_{op} {pattern}, {haystack}"));
             /// Replace regex matches with a replacement string.
             RegexReplace {
@@ -590,7 +574,6 @@ macro_rules! op_group_transcribed {
                 /// Replacement text.
                 replacement: one,
             }
-                needs(RegexOps)
                 => (
                     hir: format!("regex_{op} {pattern}, {haystack}, {replacement}"),
                     mir: format!("regex_{} {pattern}, {haystack}, {replacement}", op.mir_regex_text()),
@@ -611,7 +594,6 @@ macro_rules! op_group_transcribed {
                 /// known, so the emitter only has to render each role.
                 args: [Vec<$crate::RegexReplaceArg>],
             }
-                needs(RegexOps)
                 => (
                     hir: format!("regex_{} {pattern}, {haystack}, {callback} [{}]", op.callback_text(), regex_replace_args_text(args)),
                     mir: format!("regex_{} {pattern}, {haystack}, {callback} [{}]", op.mir_callback_text(), regex_replace_args_text(args)),
@@ -624,7 +606,6 @@ macro_rules! op_group_transcribed {
                 haystack: one,
             }
                 fresh(true)
-                needs(RegexOps)
                 => (format!("regex_split {pattern}, {haystack}"));
             /// Return the first regex match as a JavaScript-like match array.
             RegexFind {
@@ -633,7 +614,6 @@ macro_rules! op_group_transcribed {
                 /// String value to search.
                 haystack: one,
             }
-                needs(DepRegress)
                 updates_state(pattern)
                 => (format!("regex_find {pattern}, {haystack}"));
             /// Execute a JavaScript-like `RegExp` value and return a match object.
@@ -643,7 +623,6 @@ macro_rules! op_group_transcribed {
                 /// String value to search.
                 haystack: one,
             }
-                needs(DepRegress)
                 updates_state(regex)
                 => (format!("regex_exec {regex}, {haystack}"));
             /// `regex.test(haystack)` on a CONCRETE `RegExp` receiver.
@@ -660,7 +639,6 @@ macro_rules! op_group_transcribed {
                 /// String value to search.
                 haystack: one,
             }
-                needs(DepRegress)
                 updates_state(regex)
                 => (format!("regex_test {regex} {haystack}"));
             /// Return every match index from JavaScript `String.prototype.matchAll`.
@@ -670,7 +648,6 @@ macro_rules! op_group_transcribed {
                 /// String value to search.
                 haystack: one,
             }
-                needs(DepRegress)
                 => (format!("regex_match_all {regex}, {haystack}"));
             /// Read a single character from a string as a string value.
             StringCharAt {
@@ -823,7 +800,6 @@ macro_rules! op_group_transcribed {
                 /// Optional initializer expression.
                 init: opt,
             }
-                needs(Headers)
                 => (
                     init.map_or_else(
                         || "headers_new".to_owned(),
@@ -839,10 +815,6 @@ macro_rules! op_group_transcribed {
                 /// Optional initializer expression.
                 init: opt,
             }
-                needs(
-                    UrlSearchParams,
-                    DepUrl,
-                )
                 => (
                     init.map_or_else(
                         || "url_search_params_new".to_owned(),
@@ -854,7 +826,6 @@ macro_rules! op_group_transcribed {
             /// No initializer: the spec gives the constructor no arguments and fixes
             /// the encoding at UTF-8.
             TextEncoderNew
-                needs(TextEncoder)
                 => ("text_encoder_new".to_owned());
             /// `new TextDecoder(label?)`.
             ///
@@ -865,7 +836,6 @@ macro_rules! op_group_transcribed {
                 /// The optional encoding-label expression.
                 label: opt,
             }
-                needs(TextDecoder)
                 => (
                     label.map_or_else(
                         || "text_decoder_new".to_owned(),
@@ -881,7 +851,6 @@ macro_rules! op_group_transcribed {
                 /// Operation arguments (the string to encode, or none).
                 args: many,
             }
-                needs(TextEncoder)
                 => (format!("text_encoder_{op} {}{}", encoder, tail(" ", ", ", &args)));
             /// Apply a `TextDecoder` member to a concrete receiver.
             TextDecoderOp {
@@ -892,7 +861,6 @@ macro_rules! op_group_transcribed {
                 /// Operation arguments (the byte view to decode, or none).
                 args: many,
             }
-                needs(TextDecoder)
                 => (format!("text_decoder_{op} {}{}", decoder, tail(" ", ", ", &args)));
             /// The ambient global object (`globalThis`, `global`), as ONE shared value.
             ///
@@ -905,7 +873,6 @@ macro_rules! op_group_transcribed {
             /// `SmeltObject` carrying the `__smelt_global_object` marker), and a typed
             /// read of a member goes through a checked cast at the read site.
             GlobalObject
-                needs(GlobalObject)
                 => ("global_object".to_owned());
             /// Construct a value of the concrete typed-array family.
             ///
@@ -923,7 +890,6 @@ macro_rules! op_group_transcribed {
                 /// The constructor arguments, as written.
                 args: many,
             }
-                needs(ByteArray)
                 => (format!("typed_array_new {class_name}{}", tail(" ", " ", &args)));
             /// Read a member of, or call a method on, the concrete typed-array family.
             ByteArrayOp {
@@ -934,7 +900,6 @@ macro_rules! op_group_transcribed {
                 /// Operation arguments (a range, a value, a source view, or none).
                 args: many,
             }
-                needs(ByteArray)
                 => (format!("byte_array_{} {bytes}{}", op.name(), tail(" ", " ", &args)));
             /// Apply a `URLSearchParams` operation to a concrete receiver.
             UrlSearchParamsOp {
@@ -945,10 +910,6 @@ macro_rules! op_group_transcribed {
                 /// Operation arguments (name, or name and value).
                 args: many,
             }
-                needs(
-                    UrlSearchParams,
-                    DepUrl,
-                )
                 => (format!("url_search_params_{op} {}{}", params, tail(", ", ", ", &args)));
             /// An `AbortSignal` static call (`AbortSignal.abort(reason?)`,
             /// `AbortSignal.timeout(ms)`).
@@ -960,7 +921,6 @@ macro_rules! op_group_transcribed {
                 /// Operation arguments, in source order.
                 args: many,
             }
-                needs(Timers if matches!(op, $crate::AbortSignalOp::Timeout))
                 => (format!("abort_signal_{op}{}", tail(" ", ", ", &args)));
             /// Apply a `WebCrypto` operation.
             ///
@@ -972,12 +932,6 @@ macro_rules! op_group_transcribed {
                 /// Operation arguments, in source order.
                 args: many,
             }
-                needs(
-                    CryptoRandomValues if matches!(op, $crate::CryptoOp::GetRandomValues),
-                    CryptoDigest if matches!(op, $crate::CryptoOp::Digest),
-                    CryptoKey if matches!(op, $crate::CryptoOp::ImportKey | $crate::CryptoOp::Sign | $crate::CryptoOp::Verify),
-                    DepUuid if matches!(op, $crate::CryptoOp::RandomUuid),
-                )
                 => (format!("crypto_{op}{}", tail(" ", ", ", &args)));
             /// `new FormData()`.
             ///
@@ -985,7 +939,6 @@ macro_rules! op_group_transcribed {
             /// only, which is DOM and outside the profile, so a form is always built
             /// empty and filled with `append`.
             FormDataNew
-                needs(FormData)
                 => ("form_data_new".to_owned());
             /// Apply a `FormData` operation to a concrete receiver.
             FormDataOp {
@@ -996,7 +949,6 @@ macro_rules! op_group_transcribed {
                 /// Operation arguments (name; name and value; or a callback).
                 args: many,
             }
-                needs(FormData)
                 => (format!("form_data_{op} {}{}", form, tail(", ", ", ", &args)));
             /// `new Response(body?, init?)`.
             ///
@@ -1016,7 +968,6 @@ macro_rules! op_group_transcribed {
                 /// `init.headers`, when the init literal set it.
                 headers: opt,
             }
-                needs(Response)
                 => (
                     {
                         let mut parts = Vec::new();
@@ -1046,7 +997,6 @@ macro_rules! op_group_transcribed {
             /// by a listener is reported and has no meaning until listeners can be
             /// async here.
             EventEmitterNew
-                needs(EventEmitter)
                 => ("event_emitter_new".to_owned());
             /// `process.env.NAME`: the variable from the process environment, or
             /// `undefined` when it is not set. Typed `Optional<String>`.
@@ -1069,7 +1019,6 @@ macro_rules! op_group_transcribed {
                 /// The event name, followed by the operation's own arguments.
                 args: many,
             }
-                needs(EventEmitter)
                 => (format!("emitter_{op} {}{}", emitter, tail(" ", " ", &args)));
             /// `createServer(handler)` from `node:http`.
             ///
@@ -1080,14 +1029,12 @@ macro_rules! op_group_transcribed {
                 /// The request handler, called once per accepted request.
                 handler: one,
             }
-                needs(HttpServer)
                 => (format!("http_create_server {handler}"));
             /// `new DatabaseSync(path)` (`smelt_hir::ExprKind::SqliteOpen`).
             SqliteOpen {
                 /// The database file, or `":memory:"`.
                 path: one,
             }
-                needs(Sqlite)
                 => (format!("sqlite_open {path}"));
             /// A `node:sqlite` operation (`smelt_hir::ExprKind::SqliteOp`).
             SqliteOp {
@@ -1099,7 +1046,6 @@ macro_rules! op_group_transcribed {
                 /// for `all`/`get`/`run`.
                 args: many,
             }
-                needs(Sqlite)
                 => (
                     {
                         let mut text = format!("sqlite_{op:?} {receiver}").to_lowercase();
@@ -1121,7 +1067,6 @@ macro_rules! op_group_transcribed {
                 /// The fetch handler, called once per accepted request.
                 fetch: one,
             }
-                needs(FetchServer)
                 => (format!("http_create_fetch_server {fetch}"));
             /// A `node:http` `Server` member operation.
             HttpServerOp {
@@ -1133,7 +1078,6 @@ macro_rules! op_group_transcribed {
                 /// and an optional listening callback; the others take none.
                 args: many,
             }
-                needs(HttpServer)
                 => (format!("http_server_{op} {}{}", server, tail(" ", " ", &args)));
             /// A `node:http` `IncomingMessage` property read.
             IncomingMessageOp {
@@ -1142,7 +1086,6 @@ macro_rules! op_group_transcribed {
                 /// The request receiver.
                 message: one,
             }
-                needs(HttpServer)
                 => (format!("incoming_message_{op} {message}"));
             /// A `node:http` `ServerResponse` member operation.
             ServerResponseOp {
@@ -1153,7 +1096,6 @@ macro_rules! op_group_transcribed {
                 /// The operation's arguments, in source order.
                 args: many,
             }
-                needs(HttpServer)
                 => (format!("server_response_{op} {}{}", response, tail(" ", " ", &args)));
             /// `new Request(input, init?)`.
             ///
@@ -1185,10 +1127,6 @@ macro_rules! op_group_transcribed {
                 /// `signal` because it registers a follow rather than storing a value.
                 init_members: {$crate::RequestInitMember},
             }
-                needs(
-                    Request,
-                    DepUrl,
-                )
                 => (
                     {
                         let mut parts = vec![format!("input={input}")];
@@ -1219,11 +1157,6 @@ macro_rules! op_group_transcribed {
                 /// Operation arguments; every modeled member is nullary today.
                 args: many,
             }
-                needs(
-                    Request,
-                    FormData if matches!(op, $crate::RequestOp::FormData),
-                    JsonParse if matches!(op, $crate::RequestOp::Json),
-                )
                 => (format!("request_{op} {}{}", request, tail(" ", " ", &args)));
             /// A `Response` member operation on a concrete `Response` receiver.
             ResponseOp {
@@ -1234,11 +1167,6 @@ macro_rules! op_group_transcribed {
                 /// Operation arguments; every modeled member is nullary today.
                 args: many,
             }
-                needs(
-                    Response,
-                    FormData if matches!(op, $crate::ResponseOp::FormData),
-                    JsonParse if matches!(op, $crate::ResponseOp::Json),
-                )
                 => (format!("response_{op} {}{}", response, tail(" ", " ", &args)));
             /// Apply a WHATWG `Headers` operation to a concrete `Headers` receiver.
             HeadersOp {
@@ -1249,7 +1177,6 @@ macro_rules! op_group_transcribed {
                 /// Operation arguments (name, or name and value).
                 args: many,
             }
-                needs(Headers)
                 => (format!("headers_{op} {}{}", headers, tail(", ", ", ", &args)));
             /// Concatenate two lists into a new list.
             ListConcat {
@@ -1272,7 +1199,6 @@ macro_rules! op_group_transcribed {
                 /// The erased argument value.
                 value: one,
             }
-                needs(ConcatSpread)
                 => (format!("concat_spread {value}"));
             /// Find an item index in a list, returning -1 when absent.
             ListSearch {
@@ -1533,7 +1459,6 @@ macro_rules! op_group_transcribed {
                 /// List value to choose from.
                 list: one @RECV,
             }
-                needs(DepRand)
                 => (format!("list_random_choice {list}"));
             /// Return the first index of an equal list item.
             ListIndex {
@@ -1630,7 +1555,6 @@ macro_rules! op_group_transcribed {
                 mutates(Some(dict))
                 fallible(default.is_none())
                 call("@dict_pop".to_owned())
-                needs(PythonDictRead if default.is_none())
                 => (format!("dict_pop {}, {}, {}", dict, key, opt(&default)));
             /// Python `dict.popitem()`: remove and return the last-inserted
             /// `(key, value)` pair, raising `KeyError` on an empty dict.
@@ -1641,7 +1565,6 @@ macro_rules! op_group_transcribed {
                 mutates(Some(dict))
                 fallible(true)
                 call("@dict_popitem".to_owned())
-                needs(PythonDictRead)
                 => (format!("dict_popitem {dict}"));
             /// Extend a dictionary with entries from another dictionary and return `None`.
             DictUpdate {
@@ -1704,7 +1627,6 @@ macro_rules! op_group_transcribed {
                 limit: opt,
             }
                 fresh(true)
-                needs(RegexOps)
                 => (format!("string_split {}, {}, {}", haystack, separator, opt(&limit)));
             /// Convert a string into a list of one-character strings.
             StringChars {
@@ -1726,10 +1648,6 @@ macro_rules! op_group_transcribed {
                 /// Value to serialize.
                 value: one @READ,
             }
-                needs(
-                    Unknown,
-                    DepSerdeJson,
-                )
                 => (format!("json_stringify {value}"));
             /// The `space` argument of `JSON.stringify(value, replacer, space)`:
             /// re-indent compact JSON `text` the way JavaScript lays out an indented
@@ -1741,56 +1659,36 @@ macro_rules! op_group_transcribed {
                 /// The source `space` argument.
                 space: one @READ,
             }
-                needs(
-                    JsonIndent,
-                    DepChrono,
-                )
                 => (format!("json_indent {text}, {space}"));
             /// Perform a blocking HTTP GET request and return response text.
             HttpGetText {
                 /// URL to request.
                 url: one,
             }
-                needs(DepReqwest)
                 => (format!("http_get_text {url}"));
             /// Read the current timestamp in milliseconds.
             DateNow
-                needs(
-                    DateNow,
-                    DepChrono,
-                )
                 => ("date_now".to_owned());
             /// Configure the timestamp returned by JavaScript `Date.now()`.
             DateSetNow {
                 /// Timestamp or Date-compatible value to use as the mocked clock.
                 timestamp: one,
             }
-                needs(
-                    DateNow,
-                    DepChrono,
-                )
                 => (format!("date_set_now {timestamp}"));
             /// Restore the real JavaScript `Date.now()` clock.
             DateResetNow
-                needs(
-                    DateNow,
-                    DepChrono,
-                )
                 => ("date_reset_now".to_owned());
             /// Read the configured JavaScript `Date.prototype.getTimezoneOffset` value.
             DateTimezoneOffset
-                needs(DateTimezoneOffset)
                 => ("date_timezone_offset".to_owned());
             /// Configure the return value observed by `Date.prototype.getTimezoneOffset`.
             DateSetTimezoneOffset {
                 /// Offset from UTC in minutes.
                 offset: one,
             }
-                needs(DateTimezoneOffset)
                 => (format!("date_set_timezone_offset {offset}"));
             /// Restore the default `Date.prototype.getTimezoneOffset` implementation.
             DateResetTimezoneOffset
-                needs(DateTimezoneOffset)
                 => ("date_reset_timezone_offset".to_owned());
             /// Construct a stateful Vitest `vi.fn([impl])` mock: a callable erased
             /// object that records calls and serves configured one-shot/default
@@ -1799,7 +1697,6 @@ macro_rules! op_group_transcribed {
                 /// Optional wrapped implementation used as the default outcome.
                 implementation: opt,
             }
-                needs(VitestMock)
                 => (
                     implementation.map_or_else(
                         || "vitest_mock_fn".to_owned(),
@@ -1815,7 +1712,6 @@ macro_rules! op_group_transcribed {
                 /// Expected call count.
                 count: one,
             }
-                needs(VitestMock)
                 => (format!("vitest_mock_called_times {mock} {count}"));
             /// Whether a Vitest mock recorded a call whose arguments deep-equal
             /// `args` (`expect(mock).toHaveBeenCalledWith(...)`); true means the
@@ -1830,7 +1726,6 @@ macro_rules! op_group_transcribed {
                 /// Compare only the most recent recorded call (`toHaveBeenLastCalledWith`).
                 last: [bool],
             }
-                needs(VitestMock)
                 => (
                     format!(
                         "vitest_mock_called_with{} {} [{}]",
@@ -1841,7 +1736,6 @@ macro_rules! op_group_transcribed {
                 );
             /// `vi.restoreAllMocks()`: undo every installed spy, newest first.
             VitestRestoreAllMocks
-                needs(VitestMock)
                 => ("vitest_restore_all_mocks".to_owned());
             /// `vi.spyOn(target, name)`: replace `target[name]` with a recording mock
             /// that forwards to the member's current value, and evaluate to that mock.
@@ -1856,7 +1750,6 @@ macro_rules! op_group_transcribed {
                 /// The member name.
                 name: one,
             }
-                needs(VitestMock)
                 => (format!("vitest_spy_on {target} {name}"));
             /// Whether two values are deep-equal under the vitest matcher rules
             /// (`expect(a).toEqual(b)` where either side may hold an ASYMMETRIC
@@ -1873,7 +1766,6 @@ macro_rules! op_group_transcribed {
                 /// The expected value, possibly an asymmetric matcher or containing one.
                 expected: one,
             }
-                needs(VitestMock)
                 => (format!("vitest_asymmetric_equal {actual} {expected}"));
             /// Whether a Vitest mock's most recent recorded result deep-equals
             /// `expected` after flattening a resolved promise
@@ -1885,24 +1777,18 @@ macro_rules! op_group_transcribed {
                 /// Expected resolved value.
                 expected: one,
             }
-                needs(VitestMock)
                 => (format!("vitest_mock_last_resolved_with {mock} {expected}"));
             /// Create a date-fns-compatible date context function for an IANA time zone.
             DateTimezoneContext {
                 /// IANA time zone name.
                 timezone: one,
             }
-                needs(
-                    DepChronoTz,
-                    DepChrono,
-                )
                 => (format!("date_timezone_context {timezone}"));
             /// Convert a timestamp in milliseconds to an ISO-8601 string.
             DateToIsoString {
                 /// Timestamp in milliseconds.
                 timestamp_ms: one,
             }
-                needs(DepChrono)
                 => (
                     hir: format!("date_to_iso {timestamp_ms}"),
                     mir: format!("date_to_iso_string {timestamp_ms}"),
@@ -1912,7 +1798,6 @@ macro_rules! op_group_transcribed {
                 /// Timestamp in milliseconds.
                 timestamp_ms: one,
             }
-                needs(DepChrono)
                 => (format!("date_to_string {timestamp_ms}"));
             /// Convert a Date timestamp to `Date.prototype.toUTCString()` output, the
             /// HTTP-date form (`Sun, 24 Dec 2000 10:30:59 GMT`).
@@ -1920,21 +1805,18 @@ macro_rules! op_group_transcribed {
                 /// Timestamp in milliseconds.
                 timestamp_ms: one,
             }
-                needs(DepChrono)
                 => (format!("date_to_utc_string {timestamp_ms}"));
             /// Construct a timestamp in milliseconds from local Date constructor parts.
             DateFromParts {
                 /// Date constructor parts: year, month, date, hours, minutes, seconds, milliseconds.
                 parts: many,
             }
-                needs(DepChrono)
                 => (format!("date_from_parts [{}]", parts.join(", ")));
             /// Construct a timestamp in milliseconds from one JavaScript Date constructor value.
             DateFromValue {
                 /// Date constructor argument.
                 value: one,
             }
-                needs(DepChrono)
                 => (format!("date_from_value {value}"));
             /// Read a local-time date component from a timestamp.
             DateGetPart {
@@ -1943,7 +1825,6 @@ macro_rules! op_group_transcribed {
                 /// Timestamp in milliseconds.
                 timestamp_ms: one,
             }
-                needs(DepChrono)
                 => (format!("date_get_{part:?} {timestamp_ms}"));
             /// Return a timestamp with a local-time date component replaced.
             DateSetPart {
@@ -1954,7 +1835,6 @@ macro_rules! op_group_transcribed {
                 /// Replacement values accepted by the corresponding JS setter.
                 values: many,
             }
-                needs(DepChrono)
                 => (format!("date_set_{part:?} {timestamp_ms}, [{}]", values.join(", ")));
             /// Extract a parsed URL field.
             UrlField {
@@ -1963,7 +1843,6 @@ macro_rules! op_group_transcribed {
                 /// URL string to parse.
                 url: one,
             }
-                needs(DepUrl)
                 => (
                     hir: format!("url_{field:?} {url}"),
                     mir: format!("url_{} {url}", field.text()),
@@ -2003,7 +1882,6 @@ macro_rules! op_group_transcribed {
                 /// `File` options `lastModified` milliseconds, when spelled.
                 last_modified: opt,
             }
-                needs(Blob)
                 => (
                     format!(
                         "blob_from_parts {parts}, {blob_type}, {}, {}",
@@ -2020,7 +1898,6 @@ macro_rules! op_group_transcribed {
                 /// Operation arguments (`slice`'s range and content type, or none).
                 args: many,
             }
-                needs(Blob)
                 => (format!("blob_{op} {}{}", blob, tail(" ", ", ", &args)));
             /// Construct a modeled host object of a *registry* identity from its
             /// constructor arguments (`new ArrayBuffer(8)`, `new DataView(buf, 1, 2)`).
@@ -2072,7 +1949,6 @@ macro_rules! op_group_transcribed {
             /// read and every call answers it. Any other value that holds no
             /// function throws `TypeError` when called.
             UnmodeledImport
-                needs(Unknown)
                 => ("unmodeled_import".to_owned());
             /// The JavaScript `arguments` object of the enclosing non-arrow function,
             /// built from that function's own parameters.
@@ -2115,7 +1991,6 @@ macro_rules! op_group_transcribed {
                 /// Modeled host constructor whose override slot is read.
                 class: (sym "class"),
             }
-                needs(HostOverride)
                 => (format!("host_global_read {class}"));
             /// Write `value` into a modeled host constructor's global override slot
             /// (`globalThis.<class> = value`). Evaluates to the stored value so the
@@ -2131,7 +2006,6 @@ macro_rules! op_group_transcribed {
                 /// The value being stored.
                 value: one,
             }
-                needs(HostOverride)
                 => (format!("host_global_write {class} = {value}"));
             /// Whether a modeled host constructor's global override slot is currently
             /// *present* (`typeof <class> !== 'undefined'` folding for a reassigned host
@@ -2141,7 +2015,6 @@ macro_rules! op_group_transcribed {
                 /// Modeled host constructor whose override slot presence is tested.
                 class: (sym "class"),
             }
-                needs(HostOverride)
                 => (format!("host_global_present {class}"));
             /// Select a first-class function value from a static string-keyed table.
             FunctionTableLookup {
@@ -2179,7 +2052,6 @@ macro_rules! op_group_transcribed {
                 /// constructor signature is known where the value is read.
                 constructor: opt,
             }
-                needs(ClassValue)
                 => (format!("class_value class{} {constructor:?}", class.0));
             /// JavaScript `value instanceof target` where `target` is a function VALUE
             /// rather than a nominal class name (`OrdinaryHasInstance`).
@@ -2196,7 +2068,6 @@ macro_rules! op_group_transcribed {
                 /// The constructor function value whose `prototype` is looked for.
                 target: one,
             }
-                needs(InstanceOfValue)
                 => (format!("instanceof {value}, {target}"));
             /// Test the runtime tag of a TypeScript `unknown` value.
             UnknownIs {
@@ -2205,14 +2076,12 @@ macro_rules! op_group_transcribed {
                 /// Runtime tag to check.
                 kind: [$crate::UnknownKind],
             }
-                needs(Unknown)
                 => (format!("unknown_is {kind:?} {value}"));
             /// Return the JavaScript `typeof` string for a runtime-erased value.
             TypeofValue {
                 /// Value being classified.
                 value: one @READ,
             }
-                needs(Typeof)
                 => (format!("typeof {value}"));
             /// Compute the opaque `Object.getPrototypeOf` sentinel for an erased value.
             ///
@@ -2280,7 +2149,6 @@ macro_rules! op_group_transcribed {
                 /// Erased object mapping property key to property descriptor.
                 descriptors: one,
             }
-                needs(DefineProperties)
                 => (format!("define_properties {target} {descriptors}"));
             /// Extract a typed value from a TypeScript `unknown` value.
             UnknownCast {
@@ -2289,7 +2157,6 @@ macro_rules! op_group_transcribed {
                 /// Type expected after extraction.
                 target: (ty),
             }
-                needs(Unknown)
                 => (format!("unknown_cast {value} as {target}"));
             /// Convert a list into a set by collecting unique items.
             ListToSet {
@@ -2348,12 +2215,6 @@ macro_rules! op_group_transcribed {
                 /// Operation inputs.
                 args: many @CALLED,
             }
-                needs(
-                    DepTokio,
-                    Response if matches!(op, $crate::AsyncOp::HttpFetch),
-                    DepReqwest if matches!(op, $crate::AsyncOp::HttpFetch | $crate::AsyncOp::HttpGetText),
-                    Timers if op.arms_a_timer(),
-                )
                 => (format!("{op}({})", args.join(", ")));
             /// One of the four ECMA-262 URI transcoding globals applied to `operand`:
             /// `encodeURI`, `encodeURIComponent`, `decodeURI`, `decodeURIComponent`.
@@ -2373,7 +2234,6 @@ macro_rules! op_group_transcribed {
                     $crate::UriTranscodeOp::Encode => "@encode_uri".to_owned(),
                     $crate::UriTranscodeOp::EncodeComponent => "@encode_uri_component".to_owned(),
                 })
-                needs(UriEncode, UriDecode)
                 => (format!("{op} {operand}"));
             /// A call into a modeled Node host module (`path.join(..)`,
             /// `createHash('sha256')`, `hash.update(..)`), resolved from the IMPORT the
@@ -2387,10 +2247,6 @@ macro_rules! op_group_transcribed {
             }
                 fallible(op.is_fallible())
                 call(format!("@{}", op.name()))
-                needs(
-                    NodePath if matches!(op, $crate::HostModuleOp::Path(_)),
-                    NodeHash if matches!(op, $crate::HostModuleOp::Hash(_)),
-                )
                 => (format!("{} {}", op.name(), args.join(" ")));
             /// Read or write a component of a concrete `URL`, or take its
             /// `searchParams`.
@@ -2404,10 +2260,6 @@ macro_rules! op_group_transcribed {
             }
                 fallible(matches!(op, $crate::UrlOp::Set($crate::UrlField::Href)))
                 call("@url_set_href".to_owned())
-                needs(
-                    Url if !matches!(op, $crate::UrlOp::Set($crate::UrlField::Href)),
-                    UrlThrowing if matches!(op, $crate::UrlOp::Set($crate::UrlField::Href)),
-                )
                 => (format!("url_{op:?} {url}{}", tail(", ", ", ", &args)));
             /// Python's `/`, `//` or `%` over two `int`s or two `float`s.
             ///
@@ -2425,7 +2277,6 @@ macro_rules! op_group_transcribed {
             }
                 fallible(*divisor_checked)
                 call("@python_division".to_owned())
-                needs(PythonDivision)
                 => (format!("python_division {lhs} {} {rhs} checked={divisor_checked:?}", op.source_text()));
             /// Python's `d[k]` read, which raises `KeyError` on a missing key.
             PythonDictRead {
@@ -2436,7 +2287,6 @@ macro_rules! op_group_transcribed {
             }
                 fallible(true)
                 call("@python_dict_read".to_owned())
-                needs(PythonDictRead)
                 => (format!("python_dict_read {dict}, {key}"));
             /// Python's `xs[i]` on a list: a negative index counts from the end,
             /// and an index out of range raises `IndexError`.
@@ -2448,7 +2298,6 @@ macro_rules! op_group_transcribed {
             }
                 fallible(true)
                 call("@python_list_read".to_owned())
-                needs(PythonListRead)
                 => (format!("python_list_read {list}, {index}"));
             /// A Python exception instance: an instance of the class whose own
             /// name and bases up to `BaseException` are `classes`, built from
@@ -2459,7 +2308,6 @@ macro_rules! op_group_transcribed {
                 /// The constructor arguments.
                 args: many,
             }
-                needs(PyException)
                 => (format!("py_exception_new {classes:?} [{}]", args.join(", ")));
             /// Python's `str(value)` of a value whose Python text the runtime
             /// writes: a container, an exception, `None`.
@@ -2467,14 +2315,12 @@ macro_rules! op_group_transcribed {
                 /// The value.
                 value: one,
             }
-                needs(PyRepr)
                 => (format!("py_str {value}"));
             /// Python's `repr(value)`.
             PyRepr {
                 /// The value.
                 value: one,
             }
-                needs(PyRepr)
                 => (format!("py_repr {value}"));
             /// `e.args`: the constructor arguments of an exception, as the
             /// runtime's `SmeltPyExceptionArgs`.
@@ -2482,7 +2328,6 @@ macro_rules! op_group_transcribed {
                 /// The exception.
                 exception: one,
             }
-                needs(PyException)
                 => (format!("py_exception_args {exception}"));
             /// Whether an `except` clause naming `classes` catches `exception`.
             PyExceptionCaughtBy {
@@ -2494,7 +2339,6 @@ macro_rules! op_group_transcribed {
                 /// without a class: true when it names only builtin classes.
                 catches_unclassified: [bool],
             }
-                needs(PyException)
                 => (format!("py_exception_caught_by {exception}, {classes:?}, {catches_unclassified}"));
             /// Python's `xs[i]` read of a `list` or `str`: a negative index
             /// counts from the end, and one past either end raises
@@ -2507,7 +2351,6 @@ macro_rules! op_group_transcribed {
             }
                 fallible(true)
                 call("@python_sequence_read".to_owned())
-                needs(PyException)
                 => (format!("python_sequence_read {sequence}, {index}"));
             /// Python's `xs[start:end:step]` on a `list` or `str` with an explicit
             /// step: the positions `slice.indices` picks, in step order. A zero
@@ -2524,7 +2367,6 @@ macro_rules! op_group_transcribed {
             }
                 fallible(true)
                 call("@python_step_slice".to_owned())
-                needs(PyException)
                 => (format!("python_step_slice {sequence}, {}, {}, {step}", opt(&start), opt(&end)));
             /// `btoa` / `atob`: the base64 transcoders of the web platform.
             ///
@@ -2539,7 +2381,6 @@ macro_rules! op_group_transcribed {
             }
                 fallible(true)
                 call(format!("@{}", op.name()))
-                needs(Base64)
                 => (format!("{} {operand}", op.name()));
             /// `new RegExp(pattern, flags)` over a pattern that is NOT a source literal.
             ///
@@ -2557,7 +2398,6 @@ macro_rules! op_group_transcribed {
             }
                 fallible(true)
                 call("@regexp_compile".to_owned())
-                needs(RegExpCompile)
                 => (format!("regexp_compile {pattern} {flags}"));
             /// A `DataView` element accessor: `getInt16(offset, littleEndian?)` or
             /// `setFloat64(offset, value, littleEndian?)`, which throws a catchable
@@ -2584,7 +2424,6 @@ macro_rules! op_group_transcribed {
                     if *write { "set" } else { "get" },
                     element.element_name()
                 ))
-                needs(DataViewAccess)
                 => (format!(
                     "data_view_{}{} {view} {}",
                     if *write { "set" } else { "get" },
@@ -2603,9 +2442,6 @@ macro_rules! op_group_transcribed {
             }
                 fallible(true)
                 call(format!("@{}", op.name()))
-                needs(
-                    DepSerdeJson if matches!(op, $crate::BigIntOp::JsonStringify),
-                )
                 => (format!("{} {}", op.name(), args.join(" ")));
             /// `new URL(input, base?)`: a parsed WHATWG URL value, which throws a
             /// catchable `TypeError` when the input (resolved against the base) is not
@@ -2621,7 +2457,6 @@ macro_rules! op_group_transcribed {
             }
                 fallible(true)
                 call("@url_new".to_owned())
-                needs(UrlThrowing)
                 => (base.map_or_else(
                     || format!("url_new {input}"),
                     |base| format!("url_new {input}, {base}"),
@@ -2645,7 +2480,6 @@ macro_rules! op_group_transcribed {
             }
                 fallible(true)
                 call(if target.is_some() { "@json_decode" } else { "@json_parse" }.to_owned())
-                needs(JsonParse, ErasedAnswer)
                 => (format!(
                     "{} {text}",
                     if target.is_some() { "json_decode" } else { "json_parse" }
