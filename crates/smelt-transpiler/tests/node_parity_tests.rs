@@ -464,3 +464,11 @@ fn code_after_nested_try_with_loop() -> TestResult {
 fn record_aliasing() -> TestResult {
     verify_node_parity("record_aliasing")
 }
+
+/// A read of an object's state happens where it is evaluated, ahead of a later
+/// argument that changes it: `re.test(s)` moving `lastIndex`, and a method
+/// writing its own field.
+#[test]
+fn sibling_reads_before_a_state_change() -> TestResult {
+    verify_node_parity("sibling_reads_before_a_state_change")
+}
