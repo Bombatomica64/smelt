@@ -26,7 +26,7 @@
 //! types and never rewrites one, so no existing id changes meaning.
 
 use crate::Mir;
-use smelt_hir::{FunctionType, Symbol, Type, TypeId};
+use smelt_hir::{Symbol, Type, TypeId};
 use std::collections::{HashMap, HashSet};
 
 /// One record instantiation: the record's name and its type arguments.
@@ -174,45 +174,13 @@ pub(in crate::lower) fn substitute_and_intern(
     let Some(kind) = mir.types.get(ty).cloned() else {
         return ty;
     };
-    let substituted = match kind {
-        Type::TypeParam { name } => return substitutions.get(&name).copied().unwrap_or(ty),
-        Type::Optional(inner) => Type::Optional(substitute_and_intern(mir, inner, substitutions)),
-        Type::List(item) => Type::List(substitute_and_intern(mir, item, substitutions)),
-        Type::Set(item) => Type::Set(substitute_and_intern(mir, item, substitutions)),
-        Type::Future(item) => Type::Future(substitute_and_intern(mir, item, substitutions)),
-        Type::Dict(key, value) => Type::Dict(
-            substitute_and_intern(mir, key, substitutions),
-            substitute_and_intern(mir, value, substitutions),
-        ),
-        Type::Tuple(items) => Type::Tuple(
-            items
-                .into_iter()
-                .map(|item| substitute_and_intern(mir, item, substitutions))
-                .collect(),
-        ),
-        Type::Union(items) => Type::Union(
-            items
-                .into_iter()
-                .map(|item| substitute_and_intern(mir, item, substitutions))
-                .collect(),
-        ),
-        Type::Class { name, args } => Type::Class {
-            name,
-            args: args
-                .into_iter()
-                .map(|arg| substitute_and_intern(mir, arg, substitutions))
-                .collect(),
-        },
-        Type::Function(function) => Type::Function(FunctionType {
-            params: function
-                .params
-                .iter()
-                .map(|param| substitute_and_intern(mir, *param, substitutions))
-                .collect(),
-            return_ty: substitute_and_intern(mir, function.return_ty, substitutions),
-            ..function
-        }),
-        other => other,
+    if let Type::TypeParam { name } = kind {
+        return substitutions.get(&name).copied().unwrap_or(ty);
+    }
+    let Some(substituted) =
+        kind.try_map_children(|child| Some(substitute_and_intern(mir, child, substitutions)))
+    else {
+        return ty;
     };
     mir.types.intern(substituted)
 }
