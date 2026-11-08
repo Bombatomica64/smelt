@@ -187,7 +187,9 @@ impl FunctionEmitter<'_> {
                 "set copy destination must match the receiver set type",
             ));
         }
-        Ok(self.operand_expr(set)?.cloned_value())
+        // A set handle's `.clone()` is the SAME set (shared store, same id);
+        // a copy is a new set with its own id and members.
+        Ok(self.operand_borrow_expr(set)?.postfix(".fresh_copy()"))
     }
 
     /// Converts a set algebra operation to Rust text.
@@ -218,7 +220,9 @@ impl FunctionEmitter<'_> {
             smelt_hir::SetBinaryOp::Difference => "difference",
             smelt_hir::SetBinaryOp::SymmetricDifference => "symmetric_difference",
         };
-        Ok({ let receiver = self.operand_expr(left)?; receiver.postfix(format!(".{}(&{}).cloned().collect()", method,
+        // The algebra helpers answer owned members (a set is a shared store
+        // read by snapshot), and collecting them mints the NEW set JS returns.
+        Ok({ let receiver = self.operand_expr(left)?; receiver.postfix(format!(".{}(&{}).collect()", method,
             self.operand_expr(right)?.tight())) })
     }
 
@@ -247,11 +251,12 @@ impl FunctionEmitter<'_> {
                 ));
             }
         }
-        // Read by borrow: both projections are `.iter()` receivers.
+        // Read by borrow: both projections are `.iter()` receivers, which
+        // answer an owned snapshot of the members.
         let set_text = self.operand_borrow_expr(set)?;
         match op {
             smelt_hir::SetProjectionOp::Values => {
-                Ok(RustExpr::atom_on(&set_text, format!("{set_text}.iter().cloned().collect::<Vec<_>>()", set_text = set_text.tight())))
+                Ok(RustExpr::atom_on(&set_text, format!("{set_text}.iter().collect::<Vec<_>>()", set_text = set_text.tight())))
             }
             smelt_hir::SetProjectionOp::Entries => Ok(RustExpr::atom_on(&set_text, format!(
                 "{set_text}.iter().map(|smelt_value| (smelt_value.clone(), smelt_value.clone())).collect::<Vec<_>>()", set_text = set_text.tight()

@@ -370,7 +370,8 @@ impl<T: SmeltInspect> SmeltInspect for SmeltList<T> {
 
 impl<T: SmeltInspect> SmeltInspect for SmeltPrimSet<T> {
     fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
-        let entries = self.iter().map(|value| (value as &dyn SmeltInspect, None)).collect::<Vec<_>>();
+        let store = self.store.borrow();
+        let entries = store.entries.iter().map(|value| (value as &dyn SmeltInspect, None)).collect::<Vec<_>>();
         smelt_inspect_collection(ctx, depth, "Set", &entries)
     }
 }
@@ -405,7 +406,8 @@ impl<K: SmeltInspect + SmeltJsKeyEq + Clone, V: SmeltInspect + Clone> SmeltInspe
 
 impl<T: SmeltInspect + Clone + IntoSmeltUnknown> SmeltInspect for SmeltJsSet<T> {
     fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
-        let entries = self.iter().map(|value| (value as &dyn SmeltInspect, None)).collect::<Vec<_>>();
+        let members = self.iter().collect::<Vec<_>>();
+        let entries = members.iter().map(|value| (value as &dyn SmeltInspect, None)).collect::<Vec<_>>();
         smelt_inspect_collection(ctx, depth, "Set", &entries)
     }
 }

@@ -936,8 +936,8 @@ impl ModuleBuilder<'_> {
                 let raw_ty = Self::expr_ty(body, list);
                 let list_ty = self.type_param_constraint_or_self(raw_ty);
                 // `new Set(iterable)` accepts arrays directly. Optional arrays are
-                // asserted to their inner list, an existing Set is spread into a
-                // fresh one, and erased/union surfaces (e.g. a generic helper return
+                // asserted to their inner list, an existing Set is copied, and
+                // erased/union surfaces (e.g. a generic helper return
                 // typed `unknown`) are asserted to `List<Unknown>` so the
                 // list-to-set conversion can proceed instead of being rejected.
                 let item_ty = match self.ctx.krate.types.get(list_ty).cloned() {
@@ -960,20 +960,26 @@ impl ModuleBuilder<'_> {
                     }
                     // `new Set(otherSet)` builds a NEW set holding the other's
                     // members in its insertion order: a distinct identity that
-                    // later `add`/`delete` on either set leave the other
-                    // unchanged. It is lowered as `new Set([...otherSet])`,
-                    // through the same spread helper as the string case. It used
-                    // to be a type assertion on `otherSet` itself, so the "copy"
-                    // WAS the source: `b.add(3)` grew `a`, and `a === b` held.
-                    Some(Type::Set(item_ty)) => {
-                        let members_ty = self.ctx.krate.types.intern(Type::List(item_ty));
-                        list = self.list_expr_from_spread_value(
-                            list,
-                            members_ty,
-                            argument.span(),
-                            body,
-                        )?;
-                        item_ty
+                    // later `add`/`delete` on either set leave unchanged. It
+                    // used to be a type assertion on `otherSet` itself, so the
+                    // "copy" WAS the source: `b.add(3)` grew `a`, and `a === b`.
+                    Some(Type::Set(_)) => {
+                        // A type parameter bounded by a Set is viewed at its
+                        // bound first: the copy reads a set.
+                        let set = if raw_ty == list_ty {
+                            list
+                        } else {
+                            body.push_expr(Expr {
+                                kind: ExprKind::TypeAssert { value: list },
+                                ty: list_ty,
+                                span: self.span(argument.span().start, argument.span().end),
+                            })
+                        };
+                        return Ok(Some(body.push_expr(Expr {
+                            kind: ExprKind::SetCopy { set },
+                            ty: list_ty,
+                            span: self.span(new_expr.span.start, new_expr.span.end),
+                        })));
                     }
                     // A string is an iterable of its characters, so
                     // `new Set('abc')` is the three-element set JavaScript
