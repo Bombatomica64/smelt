@@ -2,7 +2,7 @@
 
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
-use crate::lowering::js_text::js_str_text;
+use crate::lowering::js_text::{has_lone_surrogate, js_str_text};
 use oxc::ast::ast::{Argument, Expression};
 use smelt_hir::{Body, ErasureReason, Expr, ExprKind, Literal, Span, Type};
 
@@ -86,6 +86,14 @@ impl ModuleBuilder<'_> {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "Symbol(...) description must be a string",
+            ));
+        }
+        if let Some(Argument::StringLiteral(literal)) = description_arg
+            && has_lone_surrogate(literal.value)
+        {
+            return Err(SmeltError::unsupported(
+                self.span(literal.span.start, literal.span.end),
+                "a Symbol description holding a lone surrogate is not supported",
             ));
         }
         let description = description_arg

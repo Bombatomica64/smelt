@@ -27,7 +27,7 @@
 //! labels type-checks. Mixed or unresolved enums register no alias and keep
 //! their opaque type.
 
-use crate::lowering::js_text::js_str_text;
+use crate::lowering::js_text::{has_lone_surrogate, js_str_text};
 use oxc::ast::ast::{ComputedMemberExpression, Expression, TSEnumDeclaration, TSEnumMemberName};
 use std::borrow::Cow;
 
@@ -261,6 +261,7 @@ impl ModuleBuilder<'_> {
     fn enum_member_name<'a>(name: &'a TSEnumMemberName<'a>) -> Option<Cow<'a, str>> {
         match name {
             TSEnumMemberName::Identifier(ident) => Some(Cow::Borrowed(ident.name.as_str())),
+            TSEnumMemberName::String(string) if has_lone_surrogate(string.value) => None,
             TSEnumMemberName::String(string) => Some(js_str_text(string.value)),
             TSEnumMemberName::ComputedString(_) | TSEnumMemberName::ComputedTemplateString(_) => {
                 None

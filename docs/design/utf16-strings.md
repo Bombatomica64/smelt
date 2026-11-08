@@ -447,9 +447,8 @@ Where the implementation departs from the design above, and why.
 - **Step 6 (lone surrogates).** A string literal value holding a lone
   surrogate lowers to `Literal::StringUnits` / `Constant::StringUnits` (its
   exact UTF-16 code units) and is emitted as `JsString::from_units(&[..])`;
-  every other literal stays `Literal::String`. Template quasis and static
-  property names still cross into Rust text lossily (U+FFFD), as before: a
-  lone half there is rare, and a property name is a Rust field spelling.
+  every other literal stays `Literal::String`. For template parts and names,
+  see the step 7 notes and "Names holding a lone surrogate".
   The erased-object key part of this step moved to step 4 (see above).
   `String.prototype.isWellFormed`/`toWellFormed` exist on `JsStr` but are not
   yet modelled as frontend string methods.
@@ -458,8 +457,8 @@ Where the implementation departs from the design above, and why.
     surrogate's code units too (`template_element_literal`, the dict-literal
     key path). A folded module object constant records such a key's units
     (`ObjectConstEntry::key_units`), so `key in table` and the recreated object
-    read the exact key. A *typed* struct field named by such a key is a Rust
-    identifier and keeps the lossy spelling.
+    read the exact key. A member that would be a Rust field is a
+    diagnostic (see "Names holding a lone surrogate").
   - `String.prototype.isWellFormed`/`toWellFormed` are modelled
     (`StringIsWellFormed`, `StringToWellFormed`).
   - `JSON.stringify` writes through the runtime's own JSON writer
@@ -515,3 +514,13 @@ UTF-8 `String` representation; "after" is the step 7 tree.
   order): node-parity fixture `lone_surrogate_strings`.
 
 Step 8 (performance) was not needed: every target is met.
+
+## Names holding a lone surrogate
+
+A name that is a runtime key keeps its exact code units: object-literal keys
+(computed included), destructuring keys, and folded constants. A name that
+becomes a Rust field or method (an interface, type-literal or class member)
+cannot, and replacing the half would merge two different keys, so it is the
+transpile-time diagnostic `LONE_SURROGATE_NAME`; so is a `Symbol` description.
+An enum member with such a name is left unresolved, and reading it is an
+unsupported blocker.

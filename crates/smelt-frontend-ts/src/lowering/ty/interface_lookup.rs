@@ -5,7 +5,7 @@
 //! up expression, local, and item types.
 
 use crate::lowering::body_arena::BodyArena;
-use crate::lowering::js_text::js_str_text;
+use crate::lowering::js_text::{LONE_SURROGATE_NAME, has_lone_surrogate, js_str_literal, js_str_text};
 use crate::lowering::{ModuleBuilder, field_type_satisfies};
 use crate::SmeltError;
 use oxc::ast::ast::{Expression, PropertyKey, TSTypeName};
@@ -38,6 +38,9 @@ impl ModuleBuilder<'_> {
             // the same source spelling broke.
             PropertyKey::PrivateIdentifier(ident) => {
                 Ok(self.intern_private_name(ident.name.as_str()))
+            }
+            PropertyKey::StringLiteral(lit) if has_lone_surrogate(lit.value) => {
+                Err(SmeltError::unsupported(self.span(lit.span.start, lit.span.end), LONE_SURROGATE_NAME))
             }
             PropertyKey::StringLiteral(lit) => Ok(self.intern_source_name(&js_str_text(lit.value))),
             PropertyKey::NumericLiteral(lit) => {
@@ -318,9 +321,7 @@ impl ModuleBuilder<'_> {
             PropertyKey::StringLiteral(literal) => {
                 let ty = self.ctx.krate.types.intern(Type::String);
                 Ok(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::String(
-                        js_str_text(literal.value).into_owned(),
-                    )),
+                    kind: ExprKind::Literal(js_str_literal(literal.value)),
                     ty,
                     span: self.span(literal.span.start, literal.span.end),
                 }))

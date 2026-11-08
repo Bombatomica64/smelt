@@ -51,6 +51,16 @@ pub(in crate::lowering) fn js_str_literal(value: JSStr<'_>) -> smelt_hir::Litera
     )
 }
 
+/// Whether a JavaScript string value holds a lone surrogate, which Rust text
+/// (a field name, an interned member name) cannot spell exactly.
+pub(in crate::lowering) fn has_lone_surrogate(value: JSStr<'_>) -> bool {
+    value.as_str().is_none()
+}
+
+/// The diagnostic for a name a lone surrogate would have to be replaced in.
+pub(in crate::lowering) const LONE_SURROGATE_NAME: &str =
+    "a member name holding a lone surrogate cannot be a Rust field; use a string-keyed record (`Record<string, T>`)";
+
 /// Returns the Rust text of an optional JavaScript string value (see [`js_str_text`]).
 pub(in crate::lowering) fn opt_js_str_text(value: Option<JSStr<'_>>) -> Option<Cow<'_, str>> {
     value.map(js_str_text)

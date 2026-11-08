@@ -560,3 +560,17 @@ fn lone_surrogates_at_host_edges() -> TestResult {
 fn erased_instance_callback_methods() -> TestResult {
     verify_node_parity("erased_instance_callback_methods")
 }
+
+/// A computed string-literal key is the string's value: escapes decoded and a
+/// lone surrogate kept, not the source text between the quotes.
+#[test]
+fn computed_string_literal_keys() -> TestResult {
+    verify_node_parity("computed_string_literal_keys")
+}
+
+/// A static string key holding a lone surrogate stays exact wherever it is a
+/// runtime key, and two different halves stay two different keys.
+#[test]
+fn lone_surrogate_static_keys() -> TestResult {
+    verify_node_parity("lone_surrogate_static_keys")
+}

@@ -2,7 +2,7 @@
 
 use crate::lowering::support::source_spelling;
 use crate::lowering::{ModuleBuilder, SmeltError};
-use crate::lowering::js_text::js_str_text;
+use crate::lowering::js_text::{LONE_SURROGATE_NAME, has_lone_surrogate, js_str_text};
 use oxc::ast::ast::{Argument, CallExpression, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;
 use smelt_hir::{
@@ -528,6 +528,9 @@ impl ModuleBuilder<'_> {
                 }
                 let key_text = match &object_property.key {
                     PropertyKey::StaticIdentifier(ident) => ident.name.as_str().to_owned(),
+                    PropertyKey::StringLiteral(lit) if has_lone_surrogate(lit.value) => {
+                        return Err(SmeltError::unsupported(self.span(lit.span.start, lit.span.end), LONE_SURROGATE_NAME));
+                    }
                     PropertyKey::StringLiteral(lit) => js_str_text(lit.value).into_owned(),
                     _ => {
                         return Err(SmeltError::unsupported(

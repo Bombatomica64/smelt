@@ -4,7 +4,7 @@
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
-use crate::lowering::js_text::js_str_text;
+use crate::lowering::js_text::{has_lone_surrogate, js_str_literal};
 use oxc::ast::ast::{BindingPattern, PropertyKey};
 use oxc::span::GetSpan;
 use smelt_hir::{
@@ -73,7 +73,11 @@ impl ModuleBuilder<'_> {
                 };
                 let mut omitted_keys = Vec::new();
                 for property in &object.properties {
-                    let (ty, extracted, omitted_key) = if property.computed {
+                    // A key holding a lone surrogate has no field spelling, so it
+                    // reads by its exact runtime key, as a computed key does.
+                    let keyed_at_runtime = property.computed
+                        || matches!(&property.key, PropertyKey::StringLiteral(literal) if has_lone_surrogate(literal.value));
+                    let (ty, extracted, omitted_key) = if keyed_at_runtime {
                         let index = self.property_key_index_expression(&property.key, body)?;
                         let ty = self.dynamic_field_type(Self::expr_ty(body, receiver));
                         (
@@ -442,11 +446,14 @@ impl ModuleBuilder<'_> {
                 identifier.span.start,
                 identifier.span.end,
             ),
-            PropertyKey::StringLiteral(literal) => (
-                js_str_text(literal.value).into_owned(),
-                literal.span.start,
-                literal.span.end,
-            ),
+            PropertyKey::StringLiteral(literal) => {
+                let ty = self.ctx.krate.types.intern(Type::String);
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(js_str_literal(literal.value)),
+                    ty,
+                    span: self.span(literal.span.start, literal.span.end),
+                }));
+            }
             _ => {
                 return Err(SmeltError::unsupported(
                     self.span(key.span().start, key.span().end),
