@@ -176,7 +176,7 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Lower `Object.assign(instance, ...sources)` onto a program class instance.
+    /// Lower `Object.assign(instance, ...sources)` onto a class instance or interface record.
     ///
     /// JavaScript copies each source's own enumerable properties ONTO the
     /// target object, so the instance itself changes. The record path below
@@ -198,10 +198,13 @@ impl ModuleBuilder<'_> {
     /// known at run time (a rest-destructured options bag); the target never
     /// is.
     ///
-    /// Only a `this`/identifier target is taken: it is re-read for each write
-    /// (a by-value instance must be written in place, not through a copy), and
-    /// re-reading those has no side effect. Any other target, a target that is
-    /// not a program class, or a spread source keeps the record path.
+    /// The target is a program class OR an interface record, both `Type::Class`
+    /// with declared own fields. It is re-read for each write (a by-value
+    /// record must be written in place, not through a copy), so only a target
+    /// re-reading has no side effect for is taken: `this`, an identifier, or a
+    /// static member chain over one (`this.data`); see
+    /// [`Self::object_assign_rereadable_target`]. Any other target, or a spread
+    /// source, keeps the record path, which merges into a copy.
     fn object_assign_class_target(
         &mut self,
         target_arg: &Argument<'_>,
@@ -212,10 +215,8 @@ impl ModuleBuilder<'_> {
         let Some(target_expression) = target_arg.as_expression() else {
             return Ok(None);
         };
-        if !matches!(
-            target_expression,
-            Expression::ThisExpression(_) | Expression::Identifier(_)
-        ) || source_args.iter().any(|arg| arg.as_expression().is_none())
+        if !Self::object_assign_rereadable_target(target_expression)
+            || source_args.iter().any(|arg| arg.as_expression().is_none())
         {
             return Ok(None);
         }
@@ -334,6 +335,24 @@ impl ModuleBuilder<'_> {
         Ok(Some(self.expression(target_expression, body)?))
     }
 
+    /// Whether `target` can be read again for each field write without a side
+    /// effect: `this`, an identifier, or a static member chain over one of
+    /// those (`this.data`, `h.data.inner`). A by-value record is written in
+    /// place only through such a place; any other target (a call, a computed
+    /// key) keeps the record path.
+    fn object_assign_rereadable_target(target: &Expression<'_>) -> bool {
+        match target {
+            Expression::ThisExpression(_) | Expression::Identifier(_) => true,
+            Expression::StaticMemberExpression(member) => {
+                !member.optional && Self::object_assign_rereadable_target(&member.object)
+            }
+            Expression::ParenthesizedExpression(inner) => {
+                Self::object_assign_rereadable_target(&inner.expression)
+            }
+            _ => false,
+        }
+    }
+
     /// The declared own fields `Object.assign` can write on an instance of
     /// type `target_ty` (a `class`), base classes included, each with its type
     /// as seen through `target_ty`'s type arguments.
@@ -361,6 +380,10 @@ impl ModuleBuilder<'_> {
                 .map(str::to_owned);
             let (fields, base) = if let Some(item) = self.class_by_symbol(symbol) {
                 (item.fields.clone(), item.base)
+            } else if let Some(interface) = self.find_interface(symbol) {
+                // An interface record's field list already holds the fields
+                // it inherits (`Data extends Named, Counted`).
+                (interface.fields.clone(), None)
             } else {
                 let fields = source_name
                     .as_deref()

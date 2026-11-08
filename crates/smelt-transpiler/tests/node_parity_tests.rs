@@ -514,3 +514,10 @@ fn lone_surrogate_strings() -> TestResult {
 fn sibling_reads_before_a_state_change() -> TestResult {
     verify_node_parity("sibling_reads_before_a_state_change")
 }
+
+/// `Object.assign` writes onto its target and returns it, for an interface
+/// record, a member of an object and a parameter, across interface heritage.
+#[test]
+fn object_assign_write_through() -> TestResult {
+    verify_node_parity("object_assign_write_through")
+}
