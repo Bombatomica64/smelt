@@ -385,7 +385,7 @@ impl FunctionEmitter<'_> {
             Type::Int => RustExpr::chain(format!("({reference}).to_string()")),
             Type::Float => RustExpr::chain(format!(
                 "{}({reference})",
-                crate::number_format_prelude::PY_FLOAT_REPR_FN
+                smelt_stdlib::runtime_symbols::number_text::PY_FLOAT_REPR_FN
             )),
             Type::Bool => RustExpr::atom(format!(
                 "(if *{reference} {{ \"True\" }} else {{ \"False\" }}).to_owned()"
@@ -542,7 +542,7 @@ impl FunctionEmitter<'_> {
                 format!(
                     "{fn_name}({})",
                     self.operand_expr(operand)?,
-                    fn_name = crate::number_format_prelude::PY_FLOAT_REPR_FN,
+                    fn_name = smelt_stdlib::runtime_symbols::number_text::PY_FLOAT_REPR_FN,
                 ),
             ))
         } else if matches!(self.mir.types.get(ty), Some(Type::Int | Type::Float)) {
@@ -561,7 +561,7 @@ impl FunctionEmitter<'_> {
                 format!(
                     "{fn_name}({}{width})",
                     self.operand_expr(operand)?,
-                    fn_name = crate::number_format_prelude::CONSOLE_NUMBER_FN,
+                    fn_name = smelt_stdlib::runtime_symbols::number_text::CONSOLE_NUMBER_FN,
                 ),
             ))
         } else if matches!(self.mir.types.get(ty), Some(Type::Bool | Type::String | Type::PyStr | Type::Unknown)) {

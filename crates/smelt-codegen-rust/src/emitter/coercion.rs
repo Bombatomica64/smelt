@@ -1145,7 +1145,7 @@ impl FunctionEmitter<'_> {
             && self.mir.types.get(source).is_some_and(Type::is_text)
         {
             let js_text = self.mir.types.get(source) == Some(&Type::String);
-            return Ok(RustExpr::from(crate::string_to_number_prelude::string_to_number_call(value_text, js_text)));
+            return Ok(RustExpr::from(primitive_cast::string_to_number_call(value_text, js_text)));
         }
         if self.mir.types.get(target).is_some_and(Type::is_text)
             && matches!(

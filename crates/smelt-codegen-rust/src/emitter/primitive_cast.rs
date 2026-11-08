@@ -357,16 +357,16 @@ impl FunctionEmitter<'_> {
             {
                 Ok(RustExpr::chain(format!(
                     "{fn_name}({operand_expr})",
-                    fn_name = crate::number_format_prelude::PY_FLOAT_REPR_FN,
+                    fn_name = smelt_stdlib::runtime_symbols::number_text::PY_FLOAT_REPR_FN,
                 )))
             }
             (smelt_hir::PrimitiveCastOp::ToString, Type::String | Type::PyStr, Type::Int) => Ok(RustExpr::chain(format!(
                 "{fn_name}({operand_expr} as f64)",
-                fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,
             ))),
             (smelt_hir::PrimitiveCastOp::ToString, Type::String | Type::PyStr, Type::Float) => Ok(RustExpr::chain(format!(
                 "{fn_name}({operand_expr})",
-                fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,
             ))),
             // `String(x)` on an absent optional is the language's absent WORD,
             // not the empty string. `unwrap_or_default()` answered `""`, so
@@ -386,15 +386,15 @@ impl FunctionEmitter<'_> {
                     Some(Type::Int) if python => "value.to_string()".to_owned(),
                     Some(Type::Float) if python => format!(
                         "{fn_name}(value)",
-                        fn_name = crate::number_format_prelude::PY_FLOAT_REPR_FN,
+                        fn_name = smelt_stdlib::runtime_symbols::number_text::PY_FLOAT_REPR_FN,
                     ),
                     Some(Type::Int) => format!(
                         "{fn_name}(value as f64)",
-                        fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                        fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,
                     ),
                     Some(Type::Float) => format!(
                         "{fn_name}(value)",
-                        fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                        fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,
                     ),
                     _ => "value.to_string()".to_owned(),
                 };
@@ -420,7 +420,7 @@ impl FunctionEmitter<'_> {
     /// shared `smelt_string_to_number` runtime helper (ECMA-262
     /// `StringToNumber`), the one string-to-number rule every emit site uses.
     fn js_number_from_string_expr(&self, operand_expr: &RustExpr) -> RustExpr {
-        RustExpr::from(crate::string_to_number_prelude::string_to_number_call(operand_expr, self.indexes_utf16()))
+        RustExpr::from(string_to_number_call(operand_expr, self.indexes_utf16()))
     }
 
     /// Emit JavaScript numeric conversion for an erased runtime value.
@@ -429,5 +429,19 @@ impl FunctionEmitter<'_> {
         RustExpr::atom(self.carrier_format(format_args!(
             "match {operand_expr} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => {string_conversion}, SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null => 0.0, SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
         )))
+    }
+}
+
+/// The call text that converts the string expression `text` with the
+/// JavaScript rule, for an emit site that builds its code with `format!`.
+///
+/// `js_text` says whether `text` is a JavaScript string (`JsString`) or a Rust
+/// `String`/`&str`.
+pub(super) fn string_to_number_call(text: &str, js_text: bool) -> String {
+    use smelt_stdlib::runtime_symbols::number_text::{JS_STRING_TO_NUMBER_FN, STRING_TO_NUMBER_FN};
+    if js_text {
+        format!("{JS_STRING_TO_NUMBER_FN}(&({text}))")
+    } else {
+        format!("{STRING_TO_NUMBER_FN}(&({text}))")
     }
 }

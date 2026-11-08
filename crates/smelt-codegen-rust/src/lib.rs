@@ -92,10 +92,8 @@ pub(crate) mod generic_bindings;
 pub(crate) mod generic_elision;
 pub(crate) mod generic_lifting;
 pub(crate) mod globals;
-mod host_module_prelude;
 pub(crate) mod lazy_view;
 mod module_map;
-mod number_format_prelude;
 mod options;
 mod program_types;
 pub(crate) mod reference_origin;
@@ -107,11 +105,9 @@ pub(crate) mod runtime_prelude;
 mod runtime_symbols_check;
 pub mod rust;
 pub(crate) mod stdlib;
-mod string_to_number_prelude;
 pub(crate) mod thrown;
 pub(crate) mod type_substitution;
 mod typed_array_prelude;
-mod url_prelude;
 
 pub use contract::{
     OPTIONAL_UNKNOWN_OR_UNDEFINED_FN, PRELUDE_END_MARKER, RECORD_ADAPTER_HELPER_PREFIX,

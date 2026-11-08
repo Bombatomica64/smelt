@@ -315,11 +315,11 @@ impl FunctionEmitter<'_> {
             // an erased key, so the two spellings agree.
             Some(Type::Int) => Ok(RustExpr::chain(format!(
                 "{fn_name}({value_text} as f64)",
-                fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,
             ))),
             Some(Type::Float) => Ok(RustExpr::chain(format!(
                 "{fn_name}({value_text})",
-                fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,
             ))),
             Some(Type::Optional(inner)) => {
                 let inner_text = self.property_key_rust_string(&RustExpr::path("value"), *inner)?;

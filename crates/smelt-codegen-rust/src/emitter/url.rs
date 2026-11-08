@@ -1,6 +1,6 @@
 //! Emission of WHATWG `URL` operations on the concrete `SmeltUrl` runtime type.
 //!
-//! The runtime type and its throwing adapters live in `url_prelude`. This
+//! The runtime type and its throwing adapters live in `runtime/url.rs`. This
 //! module renders the MIR that uses them:
 //!
 //! * [`Rvalue::UrlOp`](smelt_mir::Rvalue::UrlOp): a component read
@@ -14,7 +14,7 @@ use smelt_hir::{Type, TypeId, UrlField, UrlOp};
 use smelt_mir::Operand;
 
 use super::{EmitError, FunctionEmitter};
-use crate::url_prelude::{URL_NEW_FN, URL_SET_HREF_FN};
+use smelt_stdlib::runtime_symbols::url::{URL_NEW_FN, URL_SET_HREF_FN};
 
 impl FunctionEmitter<'_> {
     /// The `SmeltUrl` method that reads a component.
