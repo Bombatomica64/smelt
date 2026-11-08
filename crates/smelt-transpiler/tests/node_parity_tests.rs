@@ -252,6 +252,13 @@ fn prelude_named_items() -> TestResult {
     verify_node_parity("prelude_named_items")
 }
 
+/// Names that render alike stay distinct: same-named static and instance
+/// members, a module body function and the module's own export, a `_` key.
+#[test]
+fn rendered_name_collisions() -> TestResult {
+    verify_node_parity_with("rendered_name_collisions", &["is-even.ts"])
+}
+
 /// Enum members auto-increment, string members fold, numeric members map back
 /// to their names, and an enum may be declared inside a function.
 #[test]

@@ -562,7 +562,9 @@ pub fn sanitize_identifier(name: &str) -> String {
         }
     }
 
-    if out.is_empty() || is_rust_keyword(&out) || is_rust_prelude_name(&out) {
+    // A lone `_` is the wildcard pattern, never an identifier (`{ _: v }` is
+    // an ordinary JavaScript property name).
+    if out.is_empty() || out == "_" || is_rust_keyword(&out) || is_rust_prelude_name(&out) {
         out.push('_');
     }
     out
