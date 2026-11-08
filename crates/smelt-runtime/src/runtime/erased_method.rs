@@ -98,10 +98,11 @@ fn smelt_erased_at_index(value: Option<&SmeltUnknown>, len: usize) -> Option<usi
 }
 
 /// JavaScript `ToString` of an erased value; an array joins its elements with `,`.
-fn smelt_erased_to_js_string(value: &SmeltUnknown) -> String {
+fn smelt_erased_to_js_string(value: &SmeltUnknown) -> JsString {
     match value {
-        SmeltUnknown::Array(values) => values.iter().map(|item| match item { SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), other => smelt_erased_to_js_string(&other) }).collect::<Vec<_>>().join(","),
-        other => smelt_builtin_receiver_text(other),
+        SmeltUnknown::String(text) => text.clone(),
+        SmeltUnknown::Array(values) => JsString::join(values.iter().map(|item| match item { SmeltUnknown::Null | SmeltUnknown::Undefined => JsString::new(), other => smelt_erased_to_js_string(&other) }), &JsString::from(",")),
+        other => JsString::from(smelt_builtin_receiver_text(other)),
     }
 }
 
@@ -119,7 +120,7 @@ fn smelt_erased_callback(value: Option<&SmeltUnknown>) -> SmeltDynCallable {
     let value = value.map_or(SmeltUnknown::Undefined, SmeltUnknown::clone);
     match smelt_erased_callable(&value) {
         Some(function) => function,
-        None => smelt_throw_not_callable(&match &value { SmeltUnknown::Object(_) => "#<Object>".to_owned(), other => smelt_erased_to_js_string(other) }),
+        None => smelt_throw_not_callable(&match &value { SmeltUnknown::Object(_) => "#<Object>".to_owned(), other => smelt_erased_to_js_string(other).to_string_lossy() }),
     }
 }
 
@@ -153,16 +154,16 @@ fn smelt_array_prototype_member(receiver: &SmeltArray, field: &str) -> Option<Sm
 /// Read `String.prototype[field]` off an erased string, bound to that string.
 ///
 /// `None` when `field` is not a modeled string method (see the array twin).
-fn smelt_string_prototype_member(receiver: &::std::rc::Rc<str>, field: &str) -> Option<SmeltUnknown> {
+fn smelt_string_prototype_member(receiver: &JsString, field: &str) -> Option<SmeltUnknown> {
     let name: &'static str = SMELT_ERASED_STRING_METHODS.into_iter().find(|name| *name == field)?;
     let receiver = receiver.clone();
     Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_string_prototype_apply(&receiver, name, args)))))
 }
 
 /// Read a property off an erased string: `length`, a character index, or a `String.prototype` method.
-fn smelt_get_string_field(text: &::std::rc::Rc<str>, field: &str) -> SmeltUnknown {
-    if field == "length" { return SmeltUnknown::Number(smelt_units_to_number(smelt_utf16_len(text))); }
-    if let Ok(index) = field.parse::<usize>() { return smelt_utf16_char_at(text, index).map_or(SmeltUnknown::Undefined, |ch| SmeltUnknown::String(ch.into())); }
+fn smelt_get_string_field(text: &JsString, field: &str) -> SmeltUnknown {
+    if field == "length" { return SmeltUnknown::Number(smelt_units_to_number(text.len())); }
+    if let Ok(index) = field.parse::<usize>() { return text.char_at(index).map_or(SmeltUnknown::Undefined, SmeltUnknown::String); }
     smelt_string_prototype_member(text, field).unwrap_or(SmeltUnknown::Undefined)
 }
 
@@ -216,8 +217,8 @@ fn smelt_array_prototype_apply(receiver: &SmeltArray, name: &str, args: Vec<Smel
             if last < 0.0 { SmeltUnknown::Number(-1.0) } else { SmeltUnknown::Number((0..=last as usize).rev().find(|index| item(*index).js_strict_eq(&needle)).map_or(-1.0, |index| index as f64)) }
         }
         "join" | "toString" => {
-            let separator = match args.first() { Some(value) if name == "join" && !matches!(value, SmeltUnknown::Undefined) => smelt_erased_to_js_string(value), _ => ",".to_owned() };
-            SmeltUnknown::String((0..len).map(|index| match item(index) { SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), other => smelt_erased_to_js_string(&other) }).collect::<Vec<_>>().join(&separator).into())
+            let separator = match args.first() { Some(value) if name == "join" && !matches!(value, SmeltUnknown::Undefined) => smelt_erased_to_js_string(value), _ => JsString::from(",") };
+            SmeltUnknown::String(JsString::join((0..len).map(|index| match item(index) { SmeltUnknown::Null | SmeltUnknown::Undefined => JsString::new(), other => smelt_erased_to_js_string(&other) }), &separator))
         }
         "slice" => { let start = smelt_erased_relative_position(args.first(), len, 0); let end = smelt_erased_relative_position(args.get(1), len, len); SmeltUnknown::Array((start..end.max(start)).map(item).collect::<Vec<_>>().into()) }
         "concat" => { let mut result = receiver.clone().into_vec(); for argument in args { match argument { SmeltUnknown::Array(items) => result.extend(items.into_vec()), other => result.push(other) } } SmeltUnknown::Array(result.into()) }
@@ -283,19 +284,12 @@ fn smelt_erased_array_iterator(receiver: SmeltArray, kind: u8) -> SmeltUnknown {
     SmeltUnknown::Object(SmeltObject::new(vec![("next".to_owned(), SmeltUnknown::Function(next)), ("__smelt_symbol_iterator".to_owned(), SmeltUnknown::Function(iterator))]))
 }
 
-/// The first index at or after `from` where `needle` occurs in `haystack`.
-fn smelt_erased_units_find(haystack: &[u16], needle: &[u16], from: usize) -> Option<usize> {
-    if needle.len() > haystack.len() { return None; }
-    (from..=haystack.len() - needle.len()).find(|start| haystack[*start..*start + needle.len()] == *needle)
-}
-
 /// Pad `text` to `target` code units with repetitions of `fill` (`padStart`/`padEnd`).
-fn smelt_erased_padding(len: usize, target: f64, fill: &str) -> String {
-    let fill_len = smelt_utf16_len(fill);
+fn smelt_erased_padding(len: usize, target: f64, fill: &JsStr) -> JsString {
     let target_units = smelt_units_from_number(target);
-    if fill_len == 0 || target_units <= len { return String::new(); }
+    if fill.is_empty() || target_units <= len { return JsString::new(); }
     let needed = target_units - len;
-    smelt_utf16_slice(&fill.repeat(needed.div_ceil(fill_len)), 0, needed)
+    fill.repeat(needed.div_ceil(fill.len())).slice(0, needed)
 }
 
 /// The code unit index an erased `charAt`-style argument names in a string of
@@ -308,41 +302,38 @@ fn smelt_erased_unit_index(value: &SmeltUnknown, len: usize) -> Option<usize> {
 
 /// Apply `String.prototype[name]` to an erased string receiver.
 ///
-/// Positions count UTF-16 code units, as JavaScript's do (`runtime/string_units.rs`).
-fn smelt_string_prototype_apply(text: &str, name: &str, args: Vec<SmeltUnknown>) -> SmeltUnknown {
+/// Positions count UTF-16 code units, as JavaScript's do.
+fn smelt_string_prototype_apply(text: &JsStr, name: &str, args: Vec<SmeltUnknown>) -> SmeltUnknown {
     let arg = |index: usize| args.get(index).map_or(SmeltUnknown::Undefined, SmeltUnknown::clone);
     let arg_text = |index: usize| smelt_erased_to_js_string(&arg(index));
-    let units: Vec<u16> = text.encode_utf16().collect();
-    let len = units.len();
-    let string = |value: String| SmeltUnknown::String(value.into());
-    let range = |start: usize, end: usize| smelt_utf16_slice(text, start, end);
+    let len = text.len();
+    let string = SmeltUnknown::String;
     match name {
-        "at" => smelt_erased_at_index(args.first(), len).map_or(SmeltUnknown::Undefined, |index| string(range(index, index + 1))),
-        "charAt" => string(smelt_erased_unit_index(&arg(0), len).map_or_else(String::new, |index| range(index, index + 1))),
+        "at" => smelt_erased_at_index(args.first(), len).map_or(SmeltUnknown::Undefined, |index| string(text.slice(index, index + 1))),
+        "charAt" => string(smelt_erased_unit_index(&arg(0), len).map_or_else(JsString::new, |index| text.slice(index, index + 1))),
         "charCodeAt" | "codePointAt" => smelt_erased_unit_index(&arg(0), len).map_or_else(
             || if name == "charCodeAt" { SmeltUnknown::Number(f64::NAN) } else { SmeltUnknown::Undefined },
-            |index| { let code = if name == "charCodeAt" { u32::from(units[index]) } else { smelt_utf16_code_point_at(text, index).unwrap_or(0) }; SmeltUnknown::Number(f64::from(code)) },
+            |index| { let code = if name == "charCodeAt" { text.unit_at(index).map_or(0, u32::from) } else { text.code_point_at(index).unwrap_or(0) }; SmeltUnknown::Number(f64::from(code)) },
         ),
         "concat" => { let mut result = text.to_owned(); for argument in &args { result.push_str(&smelt_erased_to_js_string(argument)); } string(result) }
-        "includes" | "indexOf" => { let needle: Vec<u16> = arg_text(0).encode_utf16().collect(); let from = smelt_erased_clamped_position(args.get(1), len, 0); let found = smelt_erased_units_find(&units, &needle, from); if name == "includes" { SmeltUnknown::Bool(found.is_some()) } else { SmeltUnknown::Number(found.map_or(-1.0, smelt_units_to_number)) } }
+        "includes" | "indexOf" => { let needle = arg_text(0); let from = smelt_erased_clamped_position(args.get(1), len, 0); let found = text.index_of(&needle, from); if name == "includes" { SmeltUnknown::Bool(found.is_some()) } else { SmeltUnknown::Number(found.map_or(-1.0, smelt_units_to_number)) } }
         "lastIndexOf" => {
-            let needle: Vec<u16> = arg_text(0).encode_utf16().collect();
+            let needle = arg_text(0);
             let from = match args.get(1) { None | Some(SmeltUnknown::Undefined) => len, Some(value) => { let number = smelt_unknown_to_number(value); if number.is_nan() { len } else { smelt_units_from_number(number).min(len) } } };
-            if needle.len() > len { return SmeltUnknown::Number(-1.0); }
-            SmeltUnknown::Number((0..=from.min(len - needle.len())).rev().find(|start| units[*start..*start + needle.len()] == *needle).map_or(-1.0, smelt_units_to_number))
+            SmeltUnknown::Number(text.last_index_of(&needle, from).map_or(-1.0, smelt_units_to_number))
         }
-        "startsWith" => { let needle: Vec<u16> = arg_text(0).encode_utf16().collect(); let start = smelt_erased_clamped_position(args.get(1), len, 0); SmeltUnknown::Bool(units[start..].starts_with(&needle)) }
-        "endsWith" => { let needle: Vec<u16> = arg_text(0).encode_utf16().collect(); let end = smelt_erased_clamped_position(args.get(1), len, len); SmeltUnknown::Bool(units[..end].ends_with(&needle)) }
+        "startsWith" => { let needle = arg_text(0); let start = smelt_erased_clamped_position(args.get(1), len, 0); SmeltUnknown::Bool(text.sub(start, len).starts_with(&needle)) }
+        "endsWith" => { let needle = arg_text(0); let end = smelt_erased_clamped_position(args.get(1), len, len); SmeltUnknown::Bool(text.sub(0, end).ends_with(&needle)) }
         "padStart" | "padEnd" => {
-            let fill = match args.get(1) { None | Some(SmeltUnknown::Undefined) => " ".to_owned(), Some(value) => smelt_erased_to_js_string(value) };
+            let fill = match args.get(1) { None | Some(SmeltUnknown::Undefined) => JsString::from(" "), Some(value) => smelt_erased_to_js_string(value) };
             let padding = smelt_erased_padding(len, smelt_erased_integer(&arg(0)), &fill);
-            string(if name == "padStart" { format!("{padding}{text}") } else { format!("{text}{padding}") })
+            string(if name == "padStart" { padding + text } else { text.to_owned() + &padding })
         }
         "repeat" => { let count = smelt_erased_integer(&arg(0)); if count < 0.0 || count.is_infinite() { smelt_throw_builtin_error("RangeError", format!("Invalid count value: {}", smelt_erased_to_js_string(&arg(0)))) } string(text.repeat(count as usize)) }
-        "slice" => { let start = smelt_erased_relative_position(args.first(), len, 0); let end = smelt_erased_relative_position(args.get(1), len, len); string(range(start, end)) }
-        "substring" => { let start = smelt_erased_clamped_position(args.first(), len, 0); let end = smelt_erased_clamped_position(args.get(1), len, len); string(range(start.min(end), start.max(end))) }
-        "toLowerCase" => string(text.to_lowercase()),
-        "toUpperCase" => string(text.to_uppercase()),
+        "slice" => { let start = smelt_erased_relative_position(args.first(), len, 0); let end = smelt_erased_relative_position(args.get(1), len, len); string(text.slice(start, end)) }
+        "substring" => { let start = smelt_erased_clamped_position(args.first(), len, 0); let end = smelt_erased_clamped_position(args.get(1), len, len); string(text.slice(start.min(end), start.max(end))) }
+        "toLowerCase" => string(text.to_lower_case()),
+        "toUpperCase" => string(text.to_upper_case()),
         "trim" => string(text.trim().to_owned()),
         "trimStart" => string(text.trim_start().to_owned()),
         "trimEnd" => string(text.trim_end().to_owned()),

@@ -128,7 +128,7 @@ impl FunctionEmitter<'_> {
                 )),
                 *item_ty,
             )),
-            Some(Type::String) => Ok((
+            Some(Type::PyStr) => Ok((
                 RenderedCall::propagating(format!(
                     "{{ let smelt_index: i64 = {index_text}; let smelt_text = &{sequence_text}; let smelt_len = smelt_text.chars().count() as i64; {position}.and_then(|smelt_at| smelt_text.chars().nth(smelt_at)).map(String::from).ok_or_else(|| smelt_py_index_error(\"string index out of range\")) }}"
                 )),
@@ -162,7 +162,7 @@ impl FunctionEmitter<'_> {
             Some(Type::List(_)) => format!(
                 "{{ let smelt_list = &{sequence_text}; let smelt_items = smelt_list.borrow(); smelt_py_slice_positions(smelt_items.len(), {start_text}, {end_text}, {step_text} as i64).map(|smelt_at| SmeltList::from(smelt_at.into_iter().filter_map(|index| smelt_items.get(index).cloned()).collect::<Vec<_>>())) }}"
             ),
-            Some(Type::String) => format!(
+            Some(Type::PyStr) => format!(
                 "{{ let smelt_chars = {sequence_text}.chars().collect::<Vec<char>>(); smelt_py_slice_positions(smelt_chars.len(), {start_text}, {end_text}, {step_text} as i64).map(|smelt_at| smelt_at.into_iter().filter_map(|index| smelt_chars.get(index)).collect::<String>()) }}"
             ),
             _ => return Err(EmitError::new("a Python step slice needs a list or a string")),
@@ -230,7 +230,7 @@ impl FunctionEmitter<'_> {
                 };
                 let value_text = self.string_like_operand_expr(value, "base64 input")?;
                 (
-                    RenderedCall::propagating(RustExpr::postfix_on(&adapter, format!("{adapter}({value_text}.as_str())"))),
+                    RenderedCall::propagating(RustExpr::postfix_on(&adapter, format!("{adapter}(&{value_text})"))),
                     self.type_id(Type::String)?,
                 )
             }
@@ -297,7 +297,7 @@ impl FunctionEmitter<'_> {
                 };
                 let value_text = self.string_like_operand_expr(value, "URI decoder input")?;
                 (
-                    RenderedCall::propagating(RustExpr::postfix_on(&adapter, format!("{adapter}({value_text}.as_str())"))),
+                    RenderedCall::propagating(RustExpr::postfix_on(&adapter, format!("{adapter}(&{value_text})"))),
                     self.type_id(Type::String)?,
                 )
             }
@@ -307,7 +307,20 @@ impl FunctionEmitter<'_> {
                 )));
             }
         };
-        Ok(FallibleOpCall { text, source_ty })
+        // A throwing op that answers text (`JSON.stringify`, `atob`, a
+        // decode, a digest) builds it as a UTF-8 `String`; a JavaScript string
+        // result is that text as a `JsString`. `From`'s identity impl keeps an
+        // op that already answers `JsString` unchanged.
+        let answered = if self.mir.types.get(source_ty) == Some(&Type::String) && !matches!(op, Rvalue::JsonParse { .. }) {
+            if text.propagates() {
+                text.map_call(|call| format!("{call}.map(JsString::from)"))
+            } else {
+                text.map_call(|call| format!("JsString::from({call})"))
+            }
+        } else {
+            text
+        };
+        Ok(FallibleOpCall { text: answered, source_ty })
     }
 
     /// Renders `JSON.parse`. A source-declared, decodable target is a typed
@@ -323,7 +336,7 @@ impl FunctionEmitter<'_> {
         let text = args
             .first()
             .ok_or_else(|| EmitError::new("JSON parse takes one string argument"))?;
-        if !matches!(self.mir.types.get(self.operand_ty(text)?), Some(Type::String)) {
+        if !matches!(self.mir.types.get(self.operand_ty(text)?), Some(Type::String | Type::PyStr)) {
             return Err(EmitError::new("JSON parse input must be a string"));
         }
         if let Some(decoded) = self.json_decode_target(target) {

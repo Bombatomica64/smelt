@@ -57,7 +57,7 @@ impl FunctionEmitter<'_> {
         let entry_key_ty = *key_ty;
         let entry_ty = *value_ty;
         let base_text = self.local_mut_value(*base)?;
-        let key_text = if self.mir.types.get(entry_key_ty) == Some(&Type::String) {
+        let key_text = if self.mir.types.get(entry_key_ty).is_some_and(Type::is_text) {
             let source_key = self.operand_ty(index.as_ref())?;
             let index_text = self.operand_expr(index.as_ref())?;
             self.property_key_to_string_expr(&index_text, source_key)?
@@ -211,7 +211,7 @@ impl FunctionEmitter<'_> {
         {
             let list_text = self.local_value(*local)?;
             let base_text = self.local_mut_value(base)?;
-            let key_text = if self.mir.types.get(*key_ty) == Some(&Type::String) {
+            let key_text = if self.mir.types.get(*key_ty).is_some_and(Type::is_text) {
                 let source_key = self.operand_ty(index.as_ref())?;
                 let index_text = self.operand_expr(index.as_ref())?;
                 self.property_key_to_string_expr(&index_text, source_key)?
@@ -786,7 +786,7 @@ impl FunctionEmitter<'_> {
             return Ok(RustExpr::atom(format!("{{ {sort_call}; {result_text} }}")));
         }
         match self.mir.types.get(*item_ty) {
-            Some(Type::Bool | Type::Int | Type::String) => {
+            Some(Type::Bool | Type::Int | Type::String | Type::PyStr) => {
                 Ok(RustExpr::atom(format!("{{ {list_mut}.sort(); {result_text} }}")))
             }
             Some(Type::Float) => Ok(RustExpr::atom(format!(
@@ -803,7 +803,7 @@ impl FunctionEmitter<'_> {
     fn element_sorts_natively(&self, element_ty: TypeId) -> bool {
         matches!(
             self.mir.types.get(element_ty),
-            Some(Type::Bool | Type::Int | Type::Float | Type::String)
+            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr)
         )
     }
 
@@ -835,7 +835,10 @@ impl FunctionEmitter<'_> {
         list_text: &RustExpr,
     ) -> Result<Option<RustExpr>, EmitError> {
         match self.mir.types.get(element_ty) {
-            Some(Type::Bool | Type::Int | Type::Float | Type::String) => Ok(Some(RustExpr::postfix_on(&list_text, format!(
+            // JavaScript's default order compares strings by code unit, which
+            // is `JsString`'s own order.
+            Some(Type::String) => Ok(Some(RustExpr::postfix_on(&list_text, format!("{list_text}.sort_by(|left, right| left.cmp(right))")))),
+            Some(Type::Bool | Type::Int | Type::Float | Type::PyStr) => Ok(Some(RustExpr::postfix_on(&list_text, format!(
                 "{list_text}.sort_by(|left, right| left.to_string().cmp(&right.to_string()))"
             )))),
             Some(Type::TypeParam { name }) if self.current_function_has_type_param(*name) => {
@@ -845,10 +848,12 @@ impl FunctionEmitter<'_> {
                 let left_key = self.js_string_coercion_match_expr(
                     &self.erase_concrete_union_expr(&RustExpr::chain("left.clone()").ending_in_clone(), element_ty),
                     self.absent_spelling(),
+                    self.indexes_utf16(),
                 );
                 let right_key = self.js_string_coercion_match_expr(
                     &self.erase_concrete_union_expr(&RustExpr::chain("right.clone()").ending_in_clone(), element_ty),
                     self.absent_spelling(),
+                    self.indexes_utf16(),
                 );
                 Ok(Some(RustExpr::postfix_on(&list_text, format!(
                     "{list_text}.sort_by(|left, right| ({left_key}).cmp(&({right_key})))"

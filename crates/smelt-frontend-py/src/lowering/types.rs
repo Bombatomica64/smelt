@@ -515,7 +515,7 @@ impl ModuleBuilder<'_> {
         match name {
             "int" => Ok(self.intern_type(Type::Int)),
             "float" => Ok(self.intern_type(Type::Float)),
-            "str" => Ok(self.intern_type(Type::String)),
+            "str" => Ok(self.intern_type(Type::PyStr)),
             "bool" => Ok(self.intern_type(Type::Bool)),
             "None" | "NoneType" => Ok(self.intern_type(Type::None)),
             "object" => {

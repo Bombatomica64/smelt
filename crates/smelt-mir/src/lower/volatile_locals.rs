@@ -172,7 +172,7 @@ fn read_may_run_accessor(body: &Body, types: &TypeInterner, kind: &ExprKind) -> 
     };
     match types.get(receiver_expr.ty) {
         Some(Type::Dict(key, value)) => {
-            matches!(types.get(*key), Some(Type::String)) && matches!(types.get(*value), Some(Type::Unknown))
+            matches!(types.get(*key), Some(Type::String | Type::PyStr)) && matches!(types.get(*value), Some(Type::Unknown))
         }
         _ => false,
     }

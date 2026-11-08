@@ -104,7 +104,7 @@ fn smelt_path_normalize_string(path: &str, allow_above_root: bool) -> String {
 
 /// `path.posix.normalize(path)`.
 #[allow(dead_code)]
-fn smelt_path_normalize(path: &str) -> String {
+fn smelt_path_normalize(path: &(impl SmeltHostText + ?Sized)) -> String { let path = path.host_text(); let path: &str = &path;
     if path.is_empty() {
         return ".".to_owned();
     }
@@ -125,14 +125,15 @@ fn smelt_path_normalize(path: &str) -> String {
 
 /// `path.posix.isAbsolute(path)`.
 #[allow(dead_code)]
-fn smelt_path_is_absolute(path: &str) -> bool {
+fn smelt_path_is_absolute(path: &(impl SmeltHostText + ?Sized)) -> bool { let path = path.host_text(); let path: &str = &path;
     path.starts_with('/')
 }
 
 /// `path.posix.join(...segments)`: the non-empty segments joined by `/`, then
 /// normalized; no segment at all is `.`.
 #[allow(dead_code)]
-fn smelt_path_join(segments: &[String]) -> String {
+fn smelt_path_join<S: SmeltHostText>(segments: &[S]) -> String {
+    let segments = segments.iter().map(|segment| segment.host_text().into_owned()).collect::<Vec<String>>();
     let joined = segments.iter().filter(|segment| !segment.is_empty()).map(String::as_str).collect::<Vec<_>>().join("/");
     if joined.is_empty() {
         return ".".to_owned();
@@ -143,7 +144,8 @@ fn smelt_path_join(segments: &[String]) -> String {
 /// `path.posix.resolve(...segments)`: right to left until a segment is
 /// absolute, then the process working directory.
 #[allow(dead_code)]
-fn smelt_path_resolve(segments: &[String]) -> String {
+fn smelt_path_resolve<S: SmeltHostText>(segments: &[S]) -> String {
+    let segments = segments.iter().map(|segment| segment.host_text().into_owned()).collect::<Vec<String>>();
     let mut resolved = String::new();
     let mut resolved_absolute = false;
     let cwd = ::std::env::current_dir().map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_else(|_| "/".to_owned());
@@ -166,7 +168,7 @@ fn smelt_path_resolve(segments: &[String]) -> String {
 
 /// `path.posix.relative(from, to)`.
 #[allow(dead_code)]
-fn smelt_path_relative(from: &str, to: &str) -> String {
+fn smelt_path_relative(from: &(impl SmeltHostText + ?Sized), to: &(impl SmeltHostText + ?Sized)) -> String { let from = from.host_text(); let from: &str = &from; let to = to.host_text(); let to: &str = &to;
     if from == to {
         return String::new();
     }
@@ -222,7 +224,7 @@ fn smelt_path_relative(from: &str, to: &str) -> String {
 
 /// `path.posix.dirname(path)`.
 #[allow(dead_code)]
-fn smelt_path_dirname(path: &str) -> String {
+fn smelt_path_dirname(path: &(impl SmeltHostText + ?Sized)) -> String { let path = path.host_text(); let path: &str = &path;
     if path.is_empty() {
         return ".".to_owned();
     }
@@ -253,7 +255,7 @@ fn smelt_path_dirname(path: &str) -> String {
 
 /// `path.posix.basename(path, suffix?)`.
 #[allow(dead_code)]
-fn smelt_path_basename(path: &str, suffix: Option<&str>) -> String {
+fn smelt_path_basename(path: &(impl SmeltHostText + ?Sized), suffix: Option<&str>) -> String { let path = path.host_text(); let path: &str = &path;
     let bytes = path.as_bytes();
     let mut start = 0usize;
     let mut end: isize = -1;
@@ -316,7 +318,7 @@ fn smelt_path_basename(path: &str, suffix: Option<&str>) -> String {
 
 /// `path.posix.extname(path)`.
 #[allow(dead_code)]
-fn smelt_path_extname(path: &str) -> String {
+fn smelt_path_extname(path: &(impl SmeltHostText + ?Sized)) -> String { let path = path.host_text(); let path: &str = &path;
     let bytes = path.as_bytes();
     let mut start_dot: isize = -1;
     let mut start_part: isize = 0;
@@ -416,7 +418,7 @@ fn smelt_hash_algorithm(name: &str) -> Option<SmeltHashAlgorithm> {
 
 /// `createHash(algorithm)`: a fresh hash, or Node's `Digest method not supported`.
 #[allow(dead_code)]
-fn smelt_hash_create(algorithm: &str) -> Result<SmeltHash, Box<dyn ::std::error::Error>> {
+fn smelt_hash_create(algorithm: &(impl SmeltHostText + ?Sized)) -> Result<SmeltHash, Box<dyn ::std::error::Error>> { let algorithm = algorithm.host_text(); let algorithm: &str = &algorithm;
     let Some(algorithm) = smelt_hash_algorithm(algorithm) else { return Err(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("Error".into())), ("message".to_owned(), SmeltUnknown::String("Digest method not supported".into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))))) };
     Ok(SmeltHash { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltHashState::Open { algorithm, data: Vec::new() })) })
 }
@@ -470,7 +472,7 @@ fn smelt_hash_text_bytes(text: &str, encoding: &str) -> Option<Vec<u8>> {
 
 /// `hash.update(text, inputEncoding)`.
 #[allow(dead_code)]
-fn smelt_hash_update_text(hash: &SmeltHash, text: &str, encoding: &str) -> Result<SmeltHash, Box<dyn ::std::error::Error>> {
+fn smelt_hash_update_text(hash: &SmeltHash, text: &(impl SmeltHostText + ?Sized), encoding: &(impl SmeltHostText + ?Sized)) -> Result<SmeltHash, Box<dyn ::std::error::Error>> { let text = text.host_text(); let text: &str = &text; let encoding = encoding.host_text(); let encoding: &str = &encoding;
     let Some(bytes) = smelt_hash_text_bytes(text, encoding) else { return Err(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("TypeError".into())), ("message".to_owned(), SmeltUnknown::String("The argument 'encoding' is invalid for data of odd length. Received 'hex'".into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))))) };
     smelt_hash_update_bytes(hash, &bytes)
 }
@@ -524,7 +526,7 @@ fn smelt_hash_bytes_text(bytes: &[u8], encoding: &str) -> Option<String> {
 
 /// `hash.digest(encoding)`: finalize and answer the encoded digest.
 #[allow(dead_code)]
-fn smelt_hash_digest_text(hash: &SmeltHash, encoding: &str) -> Result<String, Box<dyn ::std::error::Error>> {
+fn smelt_hash_digest_text(hash: &SmeltHash, encoding: &(impl SmeltHostText + ?Sized)) -> Result<String, Box<dyn ::std::error::Error>> { let encoding = encoding.host_text(); let encoding: &str = &encoding;
     let bytes = smelt_hash_digest_bytes(hash)?;
     match smelt_hash_bytes_text(&bytes, encoding) { Some(text) => Ok(text), None => Err(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("TypeError".into())), ("message".to_owned(), SmeltUnknown::String("The digest encoding answers a Buffer, not a string".into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))))) }
 }

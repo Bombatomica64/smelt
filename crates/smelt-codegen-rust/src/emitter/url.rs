@@ -68,7 +68,8 @@ impl FunctionEmitter<'_> {
                     .ok_or_else(|| EmitError::new("a `URL` setter takes one value"))?;
                 let value_text = self.value_at_type(value, string_ty)?;
                 let text = RustExpr::atom(format!(
-                    "{{ let smelt_url_value: String = {value_text}; {receiver}.set_{}(&smelt_url_value); smelt_url_value }}",
+                    "{{ let smelt_url_value: {} = {value_text}; {receiver}.set_{}(&smelt_url_value); smelt_url_value }}",
+                    self.text_type_name(),
                     Self::url_getter(field)
                 ));
                 self.rendered_at_type(&text, string_ty, dest_ty, &scope)
@@ -97,12 +98,12 @@ impl FunctionEmitter<'_> {
         let input_text = self.string_like_operand_expr(input, "URL input")?;
         let base_text = match args.get(1) {
             Some(base) => format!(
-                "Some({}.as_str())",
+                "Some({}.to_string().as_str())",
                 self.string_like_operand_expr(base, "URL base")?
             ),
             None => "None".to_owned(),
         };
-        Ok(RenderedCall::propagating(RustExpr::postfix_on(&URL_NEW_FN, format!("{URL_NEW_FN}({input_text}.as_str(), {base_text})"))))
+        Ok(RenderedCall::propagating(RustExpr::postfix_on(&URL_NEW_FN, format!("{URL_NEW_FN}(&{input_text}, {base_text})"))))
     }
 
     /// Render the fallible `url.href = text` call.

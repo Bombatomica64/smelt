@@ -495,7 +495,7 @@ impl SmeltClosureShare for SmeltUnknown {
     fn smelt_closure_shared(&self) -> bool {
         match self {
             SmeltUnknown::Function(function) => ::std::rc::Rc::strong_count(function) > 1,
-            SmeltUnknown::Object(object) => ::std::rc::Rc::strong_count(&object.store) > 1 || object.store.borrow().get("__smelt_call").is_some_and(|call| matches!(call, SmeltUnknown::Function(function) if ::std::rc::Rc::strong_count(function) > 1)),
+            SmeltUnknown::Object(object) => ::std::rc::Rc::strong_count(&object.store) > 1 || "__smelt_call".with_js_key(|key| object.store.borrow().get(key).is_some_and(|call| matches!(call, SmeltUnknown::Function(function) if ::std::rc::Rc::strong_count(function) > 1))),
             _ => false,
         }
     }

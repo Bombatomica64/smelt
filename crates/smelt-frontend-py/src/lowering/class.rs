@@ -1085,7 +1085,7 @@ impl ModuleBuilder<'_> {
                 Number::Float(_) => Some(self.intern_type(Type::Float)),
                 Number::Complex { .. } => None,
             },
-            Expr::StringLiteral(_) => Some(self.intern_type(Type::String)),
+            Expr::StringLiteral(_) => Some(self.intern_type(Type::PyStr)),
             Expr::BooleanLiteral(_) => Some(self.intern_type(Type::Bool)),
             Expr::NoneLiteral(_) => Some(self.intern_type(Type::None)),
             // `self.<name> = Klass(..)` — a constructor call for a class this
@@ -1362,7 +1362,7 @@ impl ModuleBuilder<'_> {
             },
             Expr::StringLiteral(value) => (
                 Literal::String(value.value.to_str().to_owned()),
-                self.intern_type(Type::String),
+                self.intern_type(Type::PyStr),
             ),
             Expr::BooleanLiteral(value) => {
                 (Literal::Bool(value.value), self.intern_type(Type::Bool))

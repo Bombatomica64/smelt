@@ -67,6 +67,12 @@ impl RenderedCall {
     pub(super) fn into_call(self) -> RustExpr {
         self.call
     }
+
+    /// This call with its text rewritten by `rewrite`, keeping whether it
+    /// propagates (the text is a `Result` exactly when it does).
+    pub(super) fn map_call(self, rewrite: impl FnOnce(&RustExpr) -> String) -> Self {
+        Self { call: RustExpr::chain(rewrite(&self.call)), propagates: self.propagates }
+    }
 }
 
 impl From<String> for RenderedCall {

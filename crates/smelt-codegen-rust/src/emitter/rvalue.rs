@@ -17,7 +17,10 @@ impl FunctionEmitter<'_> {
         value: &Rvalue,
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
-        let text = self.rvalue_expr_for_dest_inner(value, dest_ty)?;
+        let mut text = self.rvalue_expr_for_dest_inner(value, dest_ty)?;
+        if rvalue_answers_host_text(value) {
+            text = self.host_text_at_type(text, dest_ty);
+        }
         // List-producing operations (concat/slice/flat/map/copy/…) emit a bare
         // `Vec`, but `Type::List` now lowers to the identity-bearing `SmeltList`.
         // Coerce through `Into` at this single choke point: it is a no-op when the
@@ -611,8 +614,8 @@ impl FunctionEmitter<'_> {
             Rvalue::VitestAsymmetricEqual { actual, expected } => self.vitest_asymmetric_equal_expr(actual, expected),
             Rvalue::VitestMockLastResolvedWith { mock, expected } => self.vitest_mock_last_resolved_with_expr(mock, expected),
             Rvalue::DateTimezoneContext { timezone } => Ok(RustExpr::atom(self.carrier_format(format_args!(
-                "{{ let smelt_timezone_name = {}; let smelt_timezone: chrono_tz::Tz = smelt_timezone_name.parse().expect(\"invalid IANA time zone\"); ::std::rc::Rc::new(move |value: SmeltUnknown| -> SmeltUnknown {{ let timestamp_ms = match value {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => chrono::DateTime::parse_from_rfc3339(&value).map(|date| date.timestamp_millis() as f64).unwrap_or_else(|_| value.parse::<f64>().unwrap_or(f64::NAN)), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}; let local_timestamp_ms = if timestamp_ms.is_finite() {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map_or(f64::NAN, |date| date.with_timezone(&smelt_timezone).naive_local().and_utc().timestamp_millis() as f64) }} else {{ f64::NAN }}; SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"{SMELT_DATE}\".to_owned(), SmeltUnknown::Number(local_timestamp_ms)), (\"{SMELT_TIMEZONE}\".to_owned(), SmeltUnknown::String(smelt_timezone_name.clone().into()))]))) }}) }}",
-                self.operand_expr(timezone)?,
+                "{{ let smelt_timezone_name = {}; let smelt_timezone: chrono_tz::Tz = smelt_timezone_name.parse().expect(\"invalid IANA time zone\"); ::std::rc::Rc::new(move |value: SmeltUnknown| -> SmeltUnknown {{ let timestamp_ms = match value {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => {{ let value = value.to_string_lossy(); chrono::DateTime::parse_from_rfc3339(&value).map(|date| date.timestamp_millis() as f64).unwrap_or_else(|_| value.parse::<f64>().unwrap_or(f64::NAN)) }}, SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}; let local_timestamp_ms = if timestamp_ms.is_finite() {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map_or(f64::NAN, |date| date.with_timezone(&smelt_timezone).naive_local().and_utc().timestamp_millis() as f64) }} else {{ f64::NAN }}; SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"{SMELT_DATE}\".to_owned(), SmeltUnknown::Number(local_timestamp_ms)), (\"{SMELT_TIMEZONE}\".to_owned(), SmeltUnknown::String(smelt_timezone_name.clone().into()))]))) }}) }}",
+                self.host_utf8_text(self.operand_expr(timezone)?),
                 self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
             )))),
             Rvalue::DateToIsoString { timestamp_ms } => self.date_to_iso_string_expr(timestamp_ms),
@@ -668,6 +671,58 @@ impl FunctionEmitter<'_> {
             Rvalue::HostGlobalPresent { class } => self.host_global_present_expr(*class),
             Rvalue::Await(operand) => self.await_rvalue_expr(operand, dest_ty),
             Rvalue::AsyncOp { op, args } => self.async_rvalue_expr(*op, args, dest_ty),
+        }
+    }
+}
+
+/// Whether `value` is a host API call (URLs, headers, bodies, form data,
+/// blobs, crypto, text codecs, the environment, files) or a formatting
+/// operation (number radix and fixed-point text, dates, `toString` tags)
+/// whose string results are UTF-8 `String`s built by Rust formatting.
+fn rvalue_answers_host_text(value: &Rvalue) -> bool {
+    matches!(
+        value,
+        Rvalue::CryptoOp { .. }
+            | Rvalue::HostModuleCall { .. }
+            | Rvalue::FormDataOp { .. }
+            | Rvalue::UrlSearchParamsOp { .. }
+            | Rvalue::UrlOp { .. }
+            | Rvalue::TextDecoderOp { .. }
+            | Rvalue::TextEncoderOp { .. }
+            | Rvalue::ProcessEnvRead { .. }
+            | Rvalue::ServerResponseOp { .. }
+            | Rvalue::RequestOp { .. }
+            | Rvalue::ResponseOp { .. }
+            | Rvalue::HeadersOp { .. }
+            | Rvalue::HttpGetText { .. }
+            | Rvalue::UrlField { .. }
+            | Rvalue::FileReadText { .. }
+            | Rvalue::BlobOp { .. }
+            | Rvalue::NumericToStringRadix { .. }
+            | Rvalue::NumericToFixed { .. }
+            | Rvalue::ObjectToStringTag { .. }
+            | Rvalue::DateToIsoString { .. }
+            | Rvalue::DateToString { .. }
+            | Rvalue::DateToUtcString { .. }
+    )
+}
+
+impl FunctionEmitter<'_> {
+    /// A host call's `text` at the JavaScript string destination `dest_ty`.
+    ///
+    /// Host internals answer UTF-8 `String`; a JavaScript string is a
+    /// `JsString`, so the result is transcoded at this edge (`JsString::from`,
+    /// mapped through an `Option`). A result that is already a `JsString`
+    /// passes through `From`'s identity impl unchanged, so the adapter is
+    /// sound whichever a host emitter produced. Other destinations are left
+    /// alone.
+    fn host_text_at_type(&self, text: RustExpr, dest_ty: TypeId) -> RustExpr {
+        match self.mir.types.get(dest_ty) {
+            Some(Type::String) => RustExpr::chain(format!("JsString::from({text})")),
+            Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String) => {
+                RustExpr::atom(format!("({text}).map(JsString::from)"))
+            }
+            _ => text,
         }
     }
 }

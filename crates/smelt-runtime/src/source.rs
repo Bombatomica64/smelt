@@ -204,6 +204,10 @@ const MODULES: &[RuntimeModule] = &[
         source: include_str!("runtime/js_set.rs"),
     },
     RuntimeModule {
+        name: "js_string",
+        source: include_str!("runtime/js_string.rs"),
+    },
+    RuntimeModule {
         name: "json_indent",
         source: include_str!("runtime/json_indent.rs"),
     },

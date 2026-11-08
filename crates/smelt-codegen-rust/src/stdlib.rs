@@ -112,7 +112,7 @@ pub(crate) fn host_override_slot_suffix(name: &str) -> String {
 /// a `HashSet`; everything else uses `SmeltJsSet`.
 pub(crate) fn module_hash_set_key_safe(mir: &Mir, ty: smelt_hir::TypeId) -> bool {
     match mir.types.get(ty) {
-        Some(Type::Bool | Type::Int | Type::String) => true,
+        Some(Type::Bool | Type::Int | Type::String | Type::PyStr) => true,
         Some(Type::Optional(inner) | Type::Future(inner)) => {
             module_hash_set_key_safe(mir, *inner)
         }

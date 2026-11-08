@@ -21,8 +21,11 @@ impl FunctionEmitter<'_> {
         _operand_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         match op {
+            // A JavaScript string holds the code units as given, lone halves
+            // included; a Rust `String` cannot, so it replaces them.
             smelt_hir::PrimitiveCastOp::FromCharCodes => Ok(RustExpr::atom(format!(
-                "{{ let smelt_units: Vec<u16> = {list_text}.borrow().iter().map(|smelt_code| {{ let smelt_code = *smelt_code; if smelt_code.is_finite() {{ smelt_code.trunc().rem_euclid(65536.0) as u16 }} else {{ 0 }} }}).collect(); String::from_utf16_lossy(&smelt_units) }}"
+                "{{ let smelt_units: Vec<u16> = {list_text}.borrow().iter().map(|smelt_code| {{ let smelt_code = *smelt_code; if smelt_code.is_finite() {{ smelt_code.trunc().rem_euclid(65536.0) as u16 }} else {{ 0 }} }}).collect(); {} }}",
+                if self.indexes_utf16() { "JsString::from(smelt_units)" } else { "String::from_utf16_lossy(&smelt_units)" }
             ))),
             smelt_hir::PrimitiveCastOp::FromCodePoints => Ok(RustExpr::atom_on(&list_text, format!(
                 "{list_text}.borrow().iter().map(|smelt_code| {{ let smelt_code = *smelt_code; if smelt_code.fract() == 0.0 && (0.0..=1_114_111.0).contains(&smelt_code) {{ char::from_u32(smelt_code as u32).unwrap_or(char::REPLACEMENT_CHARACTER) }} else {{ char::REPLACEMENT_CHARACTER }} }}).collect::<String>()"
@@ -31,7 +34,52 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Converts a primitive cast to Rust text.
+    ///
+    /// The arms of [`Self::primitive_cast_rust_expr`] build a Rust `String`
+    /// for most string results; a JavaScript string destination takes that
+    /// text through `JsString::from`. The arms that already answer this
+    /// body's string type (a string operand, and everything
+    /// `string_like_operand_expr` renders) are left as they are.
     pub(super) fn primitive_cast_expr(
+        &self,
+        op: smelt_hir::PrimitiveCastOp,
+        operand: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        let to_js_text = self.mir.types.get(dest_ty) == Some(&Type::String);
+        let operand_ty = self.operand_ty(operand)?;
+        if to_js_text
+            && op == smelt_hir::PrimitiveCastOp::ToString
+            && let Some(Type::Optional(inner)) = self.mir.types.get(operand_ty)
+            && self.mir.types.get(*inner) == Some(&Type::String)
+        {
+            let operand_expr = self.operand_expr(operand)?;
+            return Ok(RustExpr::postfix_on(&operand_expr, format!(
+                "{operand_expr}.unwrap_or_else(|| {})",
+                RustExpr::js_string_literal(self.absent_spelling().text())
+            )));
+        }
+        let text = self.primitive_cast_rust_expr(op, operand, dest_ty)?;
+        let answers_rust_string = match op {
+            smelt_hir::PrimitiveCastOp::FromCharCodes => !self.indexes_utf16(),
+            smelt_hir::PrimitiveCastOp::FromCodePoints => true,
+            smelt_hir::PrimitiveCastOp::ToString => match self.mir.types.get(operand_ty) {
+                Some(Type::Bool | Type::Int | Type::Float | Type::FixedInt(_) | Type::BigInt | Type::PyStr) => true,
+                Some(Type::Optional(inner)) => matches!(self.mir.types.get(*inner), Some(Type::Bool | Type::Int | Type::Float | Type::PyStr)),
+                _ => self.date_handle_expr(&RustExpr::path("smelt_date"), operand_ty).is_some(),
+            },
+            _ => false,
+        };
+        if to_js_text && answers_rust_string {
+            return Ok(RustExpr::chain(format!("JsString::from({text})")));
+        }
+        Ok(text)
+    }
+
+    /// [`Self::primitive_cast_expr`] before a JavaScript string destination
+    /// is given its type.
+    fn primitive_cast_rust_expr(
         &self,
         op: smelt_hir::PrimitiveCastOp,
         operand: &Operand,
@@ -63,7 +111,7 @@ impl FunctionEmitter<'_> {
         if matches!(
             op,
             smelt_hir::PrimitiveCastOp::FromCharCodes | smelt_hir::PrimitiveCastOp::FromCodePoints
-        ) && matches!(dest_type, Type::String)
+        ) && matches!(dest_type, Type::String | Type::PyStr)
             && self.is_typed_array_view_class_type(operand_ty)?
         {
             let elements = RustExpr::atom(format!("SmeltList::from({operand_expr}.to_elements())"));
@@ -82,7 +130,7 @@ impl FunctionEmitter<'_> {
                     return Ok(RustExpr::opaque(format!("{handle}.get_time() as i64")));
                 }
                 (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool) => return Ok(RustExpr::path("true")),
-                (smelt_hir::PrimitiveCastOp::ToString, Type::String) => {
+                (smelt_hir::PrimitiveCastOp::ToString, Type::String | Type::PyStr) => {
                     return self.date_to_string_expr(operand);
                 }
                 _ => {}
@@ -116,7 +164,7 @@ impl FunctionEmitter<'_> {
                     smelt_hir::PrimitiveCastOp::ToFloat | smelt_hir::PrimitiveCastOp::ToJsNumber,
                     Type::Float,
                 ) => return Ok(RustExpr::chain(format!("smelt_bigint_to_number({value})"))),
-                (smelt_hir::PrimitiveCastOp::ToString, Type::String) => {
+                (smelt_hir::PrimitiveCastOp::ToString, Type::String | Type::PyStr) => {
                     return Ok(RustExpr::atom(format!("({value}).to_string()")));
                 }
                 _ => {}
@@ -127,7 +175,7 @@ impl FunctionEmitter<'_> {
             | (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::Int)
             | (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Float)
             | (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Float)
-            | (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::String) => {
+            | (smelt_hir::PrimitiveCastOp::ToString, Type::String | Type::PyStr, Type::String | Type::PyStr) => {
                 Ok(operand_expr)
             }
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Int) => {
@@ -136,7 +184,7 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Float) => Ok(RustExpr::atom(format!(
                 "{{ let smelt_number = {operand_expr}; smelt_number != 0.0 && !smelt_number.is_nan() }}"
             ))),
-            (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::String) => {
+            (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::String | Type::PyStr) => {
                 Ok(RustExpr::loose(format!("!{operand_expr}.is_empty()")))
             }
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Union(_))
@@ -183,7 +231,7 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::Float) => {
                 Ok(RustExpr::loose(format!("({operand_expr} as f64).trunc() as i64")))
             }
-            (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::String) => Ok(RustExpr::atom_on(&operand_expr, format!(
+            (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::String | Type::PyStr) => Ok(RustExpr::atom_on(&operand_expr, format!(
                 "{operand_expr}.parse::<i64>().expect(\"int() parse failed\")"
             ))),
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Bool) => {
@@ -192,15 +240,15 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Int) => {
                 Ok(RustExpr::atom(format!("({operand_expr} as f64)")))
             }
-            (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::String) => Ok(RustExpr::atom_on(&operand_expr, format!(
+            (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::String | Type::PyStr) => Ok(RustExpr::atom_on(&operand_expr, format!(
                 "{operand_expr}.parse::<f64>().expect(\"float() parse failed\")"
             ))),
             (
                 smelt_hir::PrimitiveCastOp::FromCharCodes | smelt_hir::PrimitiveCastOp::FromCodePoints,
-                Type::String,
+                Type::String | Type::PyStr,
                 Type::List(_),
             ) => self.primitive_cast_list_expr(op, &operand_expr, operand_ty),
-            (smelt_hir::PrimitiveCastOp::ParseFloat, Type::Float, Type::String) => Ok(RustExpr::chain(format!(
+            (smelt_hir::PrimitiveCastOp::ParseFloat, Type::Float, Type::String | Type::PyStr) => Ok(RustExpr::chain(format!(
                 "smelt_parse_float(&{operand_expr})"
             ))),
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Optional(inner))
@@ -222,7 +270,7 @@ impl FunctionEmitter<'_> {
                 ) || self.is_erased_class_type(*inner) =>
             {
                 Ok(RustExpr::postfix_on(&operand_expr, self.carrier_format(format_args!(
-                    "{operand_expr}.map_or(f64::NAN, |value| match value {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }})", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
+                    "{operand_expr}.map_or(f64::NAN, |value| match value {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }})", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
                 ))))
             }
             (
@@ -230,13 +278,13 @@ impl FunctionEmitter<'_> {
                 Type::Float,
                 Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Never,
             ) => Ok(RustExpr::atom(self.carrier_format(format_args!(
-                "match {operand_expr} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
+                "match {operand_expr} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
             )))),
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Class { .. })
                 if self.is_erased_class_type(operand_ty) =>
             {
                 Ok(RustExpr::atom(self.carrier_format(format_args!(
-                    "match {operand_expr} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
+                    "match {operand_expr} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
                 ))))
             }
             (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Bool) => {
@@ -245,7 +293,7 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Int) => {
                 Ok(RustExpr::atom(format!("({operand_expr} as f64)")))
             }
-            (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::String) => {
+            (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::String | Type::PyStr) => {
                 Ok(self.js_number_from_string_expr(&operand_expr))
             }
             (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Optional(inner))
@@ -261,7 +309,7 @@ impl FunctionEmitter<'_> {
                 )))
             }
             (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Optional(inner))
-                if matches!(self.mir.types.get(*inner), Some(Type::String)) =>
+                if matches!(self.mir.types.get(*inner), Some(Type::String | Type::PyStr)) =>
             {
                 let conversion = self.js_number_from_string_expr(&RustExpr::path("value"));
                 Ok(RustExpr::postfix_on(&operand_expr, format!(
@@ -289,7 +337,7 @@ impl FunctionEmitter<'_> {
             {
                 Ok(self.js_number_from_unknown_expr(&operand_expr))
             }
-            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Bool) => Ok(RustExpr::loose(format!(
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String | Type::PyStr, Type::Bool) => Ok(RustExpr::loose(format!(
                 "if {operand_expr} {{ \"True\".to_owned() }} else {{ \"False\".to_owned() }}"
             ))),
             // `String(x)` and `x.toString()` on a NUMBER follow JavaScript's
@@ -299,12 +347,12 @@ impl FunctionEmitter<'_> {
             // the one helper rather than depending on which Smelt inferred.
             // Python's `str(int)` is the exact decimal digits and `str(float)`
             // is `repr(float)` (`12.0`); a body's language decides.
-            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Int)
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String | Type::PyStr, Type::Int)
                 if self.absent_spelling() == AbsentSpelling::None =>
             {
                 Ok(RustExpr::postfix_on(&operand_expr, format!("{operand_expr}.to_string()")))
             }
-            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Float)
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String | Type::PyStr, Type::Float)
                 if self.absent_spelling() == AbsentSpelling::None =>
             {
                 Ok(RustExpr::chain(format!(
@@ -312,11 +360,11 @@ impl FunctionEmitter<'_> {
                     fn_name = crate::number_format_prelude::PY_FLOAT_REPR_FN,
                 )))
             }
-            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Int) => Ok(RustExpr::chain(format!(
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String | Type::PyStr, Type::Int) => Ok(RustExpr::chain(format!(
                 "{fn_name}({operand_expr} as f64)",
                 fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
             ))),
-            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Float) => Ok(RustExpr::chain(format!(
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String | Type::PyStr, Type::Float) => Ok(RustExpr::chain(format!(
                 "{fn_name}({operand_expr})",
                 fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
             ))),
@@ -324,10 +372,10 @@ impl FunctionEmitter<'_> {
             // not the empty string. `unwrap_or_default()` answered `""`, so
             // `String(undefined)` printed nothing where Node prints
             // `undefined`.
-            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Optional(inner))
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String | Type::PyStr, Type::Optional(inner))
                 if matches!(
                     self.mir.types.get(*inner),
-                    Some(Type::Bool | Type::Int | Type::Float | Type::String)
+                    Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr)
                 ) =>
             {
                 // The PRESENT arm stringifies the inner value the way that type
@@ -355,13 +403,14 @@ impl FunctionEmitter<'_> {
                     self.absent_spelling().text(),
                 )))
             }
-            (smelt_hir::PrimitiveCastOp::ToString, Type::String, _) => {
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String | Type::PyStr, _) => {
                 self.string_like_operand_expr(operand, "String")
             }
             (_, Type::Bool, _) => Ok(RustExpr::path("false")),
             (_, Type::Int, _) => Ok(RustExpr::path("0_i64")),
             (_, Type::Float, _) => Ok(RustExpr::path("0.0")),
-            (_, Type::String, _) => Ok(RustExpr::atom("String::new()")),
+            (_, Type::String, _) => Ok(RustExpr::atom("JsString::new()")),
+            (_, Type::PyStr, _) => Ok(RustExpr::atom("String::new()")),
             (_, Type::Unknown | Type::Union(_) | Type::Never, _) => self.erase(operand),
             _ => self.default_value(dest_ty),
         }
@@ -371,7 +420,7 @@ impl FunctionEmitter<'_> {
     /// shared `smelt_string_to_number` runtime helper (ECMA-262
     /// `StringToNumber`), the one string-to-number rule every emit site uses.
     fn js_number_from_string_expr(&self, operand_expr: &RustExpr) -> RustExpr {
-        RustExpr::from(crate::string_to_number_prelude::string_to_number_call(operand_expr))
+        RustExpr::from(crate::string_to_number_prelude::string_to_number_call(operand_expr, self.indexes_utf16()))
     }
 
     /// Emit JavaScript numeric conversion for an erased runtime value.

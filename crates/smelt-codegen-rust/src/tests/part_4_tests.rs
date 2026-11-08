@@ -554,7 +554,8 @@ const values = JSON.parse(text);
         "{ts_source}"
     );
     assert!(
-        !ts_source.contains("serde_json::from_str::<SmeltRecord<String, SmeltUnknown>>(&"),
+        !ts_source.contains("serde_json::from_str::<SmeltRecord<String, SmeltUnknown>>(&")
+            && !ts_source.contains("serde_json::from_str::<SmeltRecord<JsString, SmeltUnknown>>(&"),
         "{ts_source}"
     );
     assert!(ts_source.contains("impl<'de> serde::Deserialize<'de> for SmeltUnknown"));
@@ -590,7 +591,7 @@ const bag = JSON.parse(text) as Record<string, unknown>;
         "{ts_source}"
     );
     assert!(
-        ts_source.contains(": SmeltRecord<String, SmeltUnknown> = smelt_json_decode_"),
+        ts_source.contains(": SmeltRecord<JsString, SmeltUnknown> = smelt_json_decode_"),
         "{ts_source}"
     );
     assert!(ts_source.contains("smelt_json_parse(text)?"), "{ts_source}");
@@ -599,7 +600,8 @@ const bag = JSON.parse(text) as Record<string, unknown>;
         "{ts_source}"
     );
     assert!(
-        !ts_source.contains("serde_json::from_str::<SmeltRecord<String, SmeltUnknown>>(&"),
+        !ts_source.contains("serde_json::from_str::<SmeltRecord<String, SmeltUnknown>>(&")
+            && !ts_source.contains("serde_json::from_str::<SmeltRecord<JsString, SmeltUnknown>>(&"),
         "{ts_source}"
     );
     assert!(ts_source.contains("impl<'de> serde::Deserialize<'de> for SmeltUnknown"));
@@ -648,7 +650,7 @@ const order: Order = JSON.parse("{}");
         "{ts_source}"
     );
     assert!(
-        ts_source.contains("path: &mut String) -> Result<SmeltRecord<String, f64>, SmeltDecodeIssue>"),
+        ts_source.contains("path: &mut String) -> Result<SmeltRecord<JsString, f64>, SmeltDecodeIssue>"),
         "{ts_source}"
     );
     // A number is a JSON number: no string coercion.
@@ -660,12 +662,12 @@ const order: Order = JSON.parse("{}");
     );
     // Literal properties are checked by value, including through an alias.
     assert!(
-        ts_source.contains("matches!(&field, SmeltUnknown::String(text) if &**text == \"order\")"),
+        ts_source.contains("matches!(&field, SmeltUnknown::String(text) if text.eq_str(\"order\"))"),
         "{ts_source}"
     );
     assert!(
         ts_source.contains(
-            "matches!(&field, SmeltUnknown::String(text) if &**text == \"fast\") || matches!(&field, SmeltUnknown::String(text) if &**text == \"slow\")"
+            "matches!(&field, SmeltUnknown::String(text) if text.eq_str(\"fast\")) || matches!(&field, SmeltUnknown::String(text) if text.eq_str(\"slow\"))"
         ),
         "{ts_source}"
     );
@@ -805,7 +807,7 @@ const has = word.includes("mel");
 "#,
     );
 
-    assert!(source.contains(".contains(&\"mel\".to_owned());"));
+    assert!(source.contains(".contains(&JsString::from(\"mel\"));"));
 }
 
 #[test]
@@ -827,11 +829,11 @@ export function containsFrom(haystack: string, needle: string, from: number): bo
         "{source}"
     );
     assert!(
-        source.contains("let smelt_prefix_bytes = smelt_utf16_byte_of(&smelt_haystack, smelt_from).unwrap_or_else(|smelt_byte| smelt_byte + 4);"),
+        source.contains("smelt_haystack.index_of(&"),
         "{source}"
     );
     assert!(
-        source.contains(".map_or(false, |suffix| suffix.contains(&"),
+        source.contains(", smelt_from).is_some()"),
         "{source}"
     );
 }
@@ -868,7 +870,7 @@ const fromSource = new Set(source);
     // membership, and a `Set<string>` uses `SmeltPrimSet`, which hashes the
     // values directly and so does not drag in the erased-value carrier.
     assert!(source.contains("let values: SmeltJsSet<f64>"), "{source}");
-    assert!(source.contains("let empty: SmeltPrimSet<String>"), "{source}");
+    assert!(source.contains("let empty: SmeltPrimSet<JsString>"), "{source}");
     assert!(source.contains(".contains(&2.0)"));
     assert!(source.contains("SmeltPrimSet::new();"));
     assert!(source.contains(".iter().cloned().collect::<SmeltJsSet<_>>()"));
@@ -1087,7 +1089,7 @@ export function strings(n: number): string[] {
         "a number[] allocation must hold f64 holes: {source}"
     );
     assert!(
-        source.contains("(0..array_from_length).map(|_| String::new())"),
+        source.contains("(0..array_from_length).map(|_| JsString::new())"),
         "a string[] allocation must hold String holes: {source}"
     );
     assert!(
@@ -1115,7 +1117,7 @@ export function several(): number[] {
     );
 
     assert!(
-        source.contains(r#"vec!["a".to_owned()]"#),
+        source.contains(r#"vec![JsString::from("a")]"#),
         "a single non-numeric argument is one element: {source}"
     );
     assert!(

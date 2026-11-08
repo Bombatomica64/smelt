@@ -49,7 +49,7 @@ export function remember(tag: string): string {
     );
     assert!(
         source.contains(
-            "static SMELT_GLOBAL_LAST_TAG_0: ::std::cell::RefCell<String> = ::std::cell::RefCell::new(\"\".to_owned());"
+            "static SMELT_GLOBAL_LAST_TAG_0: ::std::cell::RefCell<JsString> = ::std::cell::RefCell::new(JsString::new());"
         ),
         "expected RefCell<String> thread_local, got:\n{source}"
     );

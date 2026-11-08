@@ -24,20 +24,6 @@ fn smelt_utf16_len(text: &str) -> usize {
     if text.is_ascii() { text.len() } else { smelt_utf16_units_in(text.as_bytes()) }
 }
 
-/// A count or index of code units as a JavaScript number: exact, since a
-/// string's length is far below 2^53.
-#[allow(dead_code)]
-const fn smelt_units_to_number(units: usize) -> f64 {
-    units as f64
-}
-
-/// A JavaScript number as a count or index of code units: truncated toward
-/// zero, NaN and negatives `0`, anything past `usize::MAX` saturating.
-#[allow(dead_code)]
-const fn smelt_units_from_number(number: f64) -> usize {
-    number as usize
-}
-
 /// The UTF-16 index of the byte offset `byte` of `text`, which is a char boundary.
 #[allow(dead_code)]
 fn smelt_utf16_index_of_byte(text: &str, byte: usize) -> usize {

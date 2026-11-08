@@ -13,8 +13,9 @@
 /// `; / ? : @ & = + $ ,`, and `#` — and percent-encodes every other character's
 /// UTF-8 bytes as uppercase `%XX` triplets. Rust `&str` is always valid UTF-8,
 /// so ECMA-262's lone-surrogate `URIError` case cannot occur here.
-fn smelt_encode_uri(value: &str) -> String {
+fn smelt_encode_uri(value: &(impl SmeltHostText + ?Sized)) -> String {
     use ::std::fmt::Write as _;
+    let value = value.host_text(); let value: &str = &value;
     let mut encoded = String::with_capacity(value.len());
     for ch in value.chars() {
         let unescaped = ch.is_ascii_alphanumeric()
@@ -43,8 +44,9 @@ fn smelt_encode_uri(value: &str) -> String {
 /// inside one path segment or query value without being reparsed as structure.
 /// Everything else becomes uppercase `%XX` UTF-8 triplets. Rust `&str` is
 /// always valid UTF-8, so ECMA-262's lone-surrogate `URIError` cannot occur.
-fn smelt_encode_uri_component(value: &str) -> String {
+fn smelt_encode_uri_component(value: &(impl SmeltHostText + ?Sized)) -> String {
     use ::std::fmt::Write as _;
+    let value = value.host_text(); let value: &str = &value;
     let mut encoded = String::with_capacity(value.len());
     for ch in value.chars() {
         let unescaped = ch.is_ascii_alphanumeric()
@@ -147,7 +149,7 @@ fn smelt_decode_uri_octets(value: &str, preserve: &str) -> ::std::option::Option
 /// decoding one would change the URI's structure — a `%2F` inside a path
 /// segment is a literal slash in a name, not a separator. Returns `None` where
 /// ECMA-262 throws a `URIError`.
-fn smelt_decode_uri(value: &str) -> ::std::option::Option<String> {
+fn smelt_decode_uri(value: &(impl SmeltHostText + ?Sized)) -> ::std::option::Option<String> { let value = value.host_text(); let value: &str = &value;
     smelt_decode_uri_octets(value, ";/?:@&=+$,#")
 }
 
@@ -159,7 +161,7 @@ fn smelt_decode_uri(value: &str) -> ::std::option::Option<String> {
 /// Preserves nothing: a component is already a single value, so every escape
 /// is decoded, separators included. Returns `None` where ECMA-262 throws a
 /// `URIError`.
-fn smelt_decode_uri_component(value: &str) -> ::std::option::Option<String> {
+fn smelt_decode_uri_component(value: &(impl SmeltHostText + ?Sized)) -> ::std::option::Option<String> { let value = value.host_text(); let value: &str = &value;
     smelt_decode_uri_octets(value, "")
 }
 

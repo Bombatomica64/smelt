@@ -93,13 +93,13 @@ impl FunctionEmitter<'_> {
                 };
                 if !matches!(
                     self.mir.types.get(self.operand_ty(url)?),
-                    Some(Type::String)
+                    Some(Type::String | Type::PyStr)
                 ) {
                     return Err(EmitError::new("async HTTP GET URL must be a string"));
                 }
                 Ok(RustExpr::atom(format!(
-                    "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(reqwest::get({}).await.expect(\"HTTP GET failed\").text().await.expect(\"HTTP response body read failed\")) }}))",
-                    self.operand_expr(url)?
+                    "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>({}) }}))",
+                    self.text_from_string(&format!("reqwest::get({}.to_string()).await.expect(\"HTTP GET failed\").text().await.expect(\"HTTP response body read failed\")", self.operand_expr(url)?))
                 )))
             }
         }
@@ -904,7 +904,7 @@ impl FunctionEmitter<'_> {
         }
         if !matches!(
             self.mir.types.get(self.operand_ty(url)?),
-            Some(Type::String)
+            Some(Type::String | Type::PyStr)
         ) {
             return Err(EmitError::new("async fetch URL must be a string"));
         }
@@ -916,7 +916,7 @@ impl FunctionEmitter<'_> {
         // `text/plain;charset=UTF-8`, and a fetched response's content
         // type belongs to the server, not to how Smelt read it.
         Ok(RustExpr::atom(format!(
-            "SmeltFuture::from_future(Box::pin(async move {{                      let smelt_http = reqwest::get({}).await.expect(\"HTTP request failed\");                      let smelt_status = f64::from(smelt_http.status().as_u16());                      let smelt_reason = smelt_http.status().canonical_reason().unwrap_or_default().to_owned();                      let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect();                      let smelt_bytes = smelt_http.bytes().await.expect(\"HTTP response body read failed\").to_vec();                      Ok::<_, {ERROR_BOX}>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }}))",
+            "SmeltFuture::from_future(Box::pin(async move {{                      let smelt_http = reqwest::get({}.to_string()).await.expect(\"HTTP request failed\");                      let smelt_status = f64::from(smelt_http.status().as_u16());                      let smelt_reason = smelt_http.status().canonical_reason().unwrap_or_default().to_owned();                      let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect();                      let smelt_bytes = smelt_http.bytes().await.expect(\"HTTP response body read failed\").to_vec();                      Ok::<_, {ERROR_BOX}>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }}))",
             self.operand_expr(url)?
         )))
     }

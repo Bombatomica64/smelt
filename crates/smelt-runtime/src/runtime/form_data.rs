@@ -68,7 +68,7 @@ impl SmeltFormDataValue {
 /// explicit `filename` argument replaces whatever name the value has.
 /// That falls out of modeling a file as a blob whose name is present.
 #[allow(dead_code)]
-fn smelt_form_data_file_value(blob: SmeltBlob, filename: Option<String>) -> SmeltFormDataValue {
+fn smelt_form_data_file_value(blob: SmeltBlob, filename: Option<impl SmeltHostText>) -> SmeltFormDataValue { let filename = filename.map(SmeltHostText::into_host_string);
     let existing = if blob.is_file() { Some(blob.file_name()) } else { None };
     let name = filename.or(existing).unwrap_or_else(|| "blob".to_owned());
     SmeltFormDataValue::File(SmeltBlob::with_metadata(blob.to_bytes(), blob.blob_type(), Some(name), Some(blob.last_modified())))
@@ -103,18 +103,18 @@ impl SmeltFormData {
     /// Build a form from name/value pairs, in order.
     pub fn from_pairs(pairs: Vec<(String, SmeltFormDataValue)>) -> Self { let form = Self::new(); form.entries.borrow_mut().extend(pairs); form }
     /// `get(name)`: the FIRST value for a name, or `null`.
-    pub fn get(&self, name: &str) -> Option<SmeltFormDataValue> { self.entries.borrow().iter().find(|(entry_name, _)| entry_name == name).map(|(_, value)| value.clone()) }
+    pub fn get(&self, name: &(impl SmeltHostText + ?Sized)) -> Option<SmeltFormDataValue> { let name = name.host_text(); let name: &str = &name; self.entries.borrow().iter().find(|(entry_name, _)| entry_name == name).map(|(_, value)| value.clone()) }
     /// `getAll(name)`: every value for a name, in order.
-    pub fn get_all(&self, name: &str) -> Vec<SmeltFormDataValue> { self.entries.borrow().iter().filter(|(entry_name, _)| entry_name == name).map(|(_, value)| value.clone()).collect() }
+    pub fn get_all(&self, name: &(impl SmeltHostText + ?Sized)) -> Vec<SmeltFormDataValue> { let name = name.host_text(); let name: &str = &name; self.entries.borrow().iter().filter(|(entry_name, _)| entry_name == name).map(|(_, value)| value.clone()).collect() }
     /// `has(name)`.
-    pub fn has(&self, name: &str) -> bool { self.entries.borrow().iter().any(|(entry_name, _)| entry_name == name) }
+    pub fn has(&self, name: &(impl SmeltHostText + ?Sized)) -> bool { let name = name.host_text(); let name: &str = &name; self.entries.borrow().iter().any(|(entry_name, _)| entry_name == name) }
     /// `append(name, value)`.
-    pub fn append(&self, name: &str, value: SmeltFormDataValue) { self.entries.borrow_mut().push((name.to_owned(), value)); }
+    pub fn append(&self, name: &(impl SmeltHostText + ?Sized), value: SmeltFormDataValue) { let name = name.host_text(); let name: &str = &name; self.entries.borrow_mut().push((name.to_owned(), value)); }
     /// `set(name, value)`: replace the first entry, drop the rest.
     ///
     /// Position-preserving, like the params list: the surviving entry
     /// stays where the first one was rather than moving to the end.
-    pub fn set(&self, name: &str, value: SmeltFormDataValue) {
+    pub fn set(&self, name: &(impl SmeltHostText + ?Sized), value: SmeltFormDataValue) { let name = name.host_text(); let name: &str = &name;
         let mut entries = self.entries.borrow_mut();
         let position = entries.iter().position(|(entry_name, _)| entry_name == name);
         let Some(index) = position else { entries.push((name.to_owned(), value)); return; };
@@ -123,7 +123,7 @@ impl SmeltFormData {
         entries.retain(|(entry_name, _)| { if entry_name != name { return true; } let first = !kept; kept = true; first });
     }
     /// `delete(name)`: remove every entry with the name.
-    pub fn delete(&self, name: &str) { self.entries.borrow_mut().retain(|(entry_name, _)| entry_name != name); }
+    pub fn delete(&self, name: &(impl SmeltHostText + ?Sized)) { let name = name.host_text(); let name: &str = &name; self.entries.borrow_mut().retain(|(entry_name, _)| entry_name != name); }
     /// `entries()`: the pairs in insertion order.
     pub fn entries_in_order(&self) -> Vec<(String, SmeltFormDataValue)> { self.entries.borrow().clone() }
     /// `keys()`: one name per ENTRY, in insertion order.
@@ -368,7 +368,7 @@ impl SmeltFromUnknown for SmeltFormData {
             let pair = pair.into_vec();
             let (Some(SmeltUnknown::String(name)), Some(entry_value)) = (pair.first().cloned(), pair.get(1).cloned()) else { continue };
             let value = match entry_value { SmeltUnknown::String(text) => SmeltFormDataValue::Text(text.to_string()), other => SmeltFormDataValue::File(SmeltFromUnknown::smelt_from_unknown(other)) };
-            form.append(&name, value);
+            form.append(&name.to_string_lossy(), value);
         }
         form
     }

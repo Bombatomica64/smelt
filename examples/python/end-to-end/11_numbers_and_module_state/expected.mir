@@ -54,17 +54,17 @@ fn run (FuncId(4)) -> None
     %10 temp: Float
     %11 temp: None
     %12 temp: None
-    %13 temp: String
-    %14 temp: String
+    %13 temp: PyStr
+    %14 temp: PyStr
     %15 temp: None
-    %16 temp: String
-    %17 temp: String
-    %18 temp: String
-    %19 temp: String
-    %20 temp: String
-    %21 temp: String
-    %22 temp: String
-    %23 temp: String
+    %16 temp: PyStr
+    %17 temp: PyStr
+    %18 temp: PyStr
+    %19 temp: PyStr
+    %20 temp: PyStr
+    %21 temp: PyStr
+    %22 temp: PyStr
+    %23 temp: PyStr
     %24 temp: None
     %25 temp: Float
     %26 temp: Float

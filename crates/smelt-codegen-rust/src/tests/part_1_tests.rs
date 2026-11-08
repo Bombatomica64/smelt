@@ -87,7 +87,7 @@ fn exact_console_write_renders_lists_like_the_console() {
 fn emits_owned_string_literals() {
     let source = source_for("const message = \"hello smelt\";\nconsole.log(message);\n");
 
-    assert!(source.contains("let message: String = \"hello smelt\".to_owned();"));
+    assert!(source.contains("let message: JsString = JsString::from(\"hello smelt\");"));
 }
 
 #[test]
@@ -102,7 +102,7 @@ const letters = word.length;
     );
 
     assert!(source.contains(".len() as f64;"));
-    assert!(source.contains("smelt_utf16_len(&word) as f64;"), "{source}");
+    assert!(source.contains("word.len() as f64;"), "{source}");
 }
 
 #[test]
@@ -166,7 +166,7 @@ function collect(): string[] {
         "{source}"
     );
     assert!(
-        source.contains("(*smelt_capture_current.borrow_mut()) = \"y\".to_owned();"),
+        source.contains("(*smelt_capture_current.borrow_mut()) = JsString::from(\"y\");"),
         "{source}"
     );
     assert!(
@@ -626,7 +626,7 @@ function label(prefix: string, value: string | undefined): string {
     // (which this test used to pin) appended the empty string.
     assert!(
         source.contains(
-            "prefix.clone() + &value.clone().unwrap_or_else(|| \"undefined\".to_owned())"
+            "prefix.clone() + &value.clone().unwrap_or_else(|| JsString::from(\"undefined\"))"
         ),
         "{source}"
     );
@@ -688,7 +688,7 @@ const doubled = rows.map(({ value }) => value * 2);
     );
 
     assert!(
-        source.contains(".get(&\"value\".to_owned()).expect(\"missing field\")"),
+        source.contains(".get(&JsString::from(\"value\")).expect(\"missing field\")"),
         "{source}"
     );
 }
@@ -874,7 +874,7 @@ const text = whole.toString();
 
     assert!(source.contains("value / 1000.0;"));
     assert!(source.contains("_smelt_tmp_3.trunc();"));
-    assert!(source.contains("smelt_number_to_string(whole);"));
+    assert!(source.contains("JsString::from(smelt_number_to_string(whole));"), "{source}");
     assert!(!source.contains("= 0_i64;"));
     assert!(!source.contains("= 0.0;"));
 }
@@ -1017,11 +1017,11 @@ for (let ch: string of word) {
     // shapes are asserted together because they are the two halves of the same
     // rule and must not drift into each other.
     assert!(source.contains("let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }"));
-    assert!(source.contains("smelt_utf16_char_at(&word, { let smelt_normalized = 0.0 as i64;"), "{source}");
+    assert!(source.contains("word.char_at({ let smelt_normalized = 0.0 as i64;"), "{source}");
     // The `for...of` index counter is proven a `usize` (integer range
     // analysis), so the string length is read as one, with no `f64` cast.
-    assert!(source.contains("smelt_utf16_len(&word);"), "{source}");
-    assert!(!source.contains("smelt_utf16_len(&word) as f64"), "{source}");
+    assert!(source.contains("word.len();"), "{source}");
+    assert!(!source.contains("word.len() as f64"), "{source}");
     assert!(source.contains("let smelt_index = _smelt_tmp_"));
 }
 
@@ -1036,7 +1036,7 @@ export function format(units: string[]): string[] {
     );
 
     assert!(source.contains("regex::Regex::new"));
-    assert!(source.contains("to_uppercase()"));
+    assert!(source.contains("to_upper_case()"));
 }
 
 #[test]
@@ -1065,8 +1065,8 @@ const upper = word.toUpperCase();
 "#,
     );
 
-    assert!(source.contains(".to_lowercase();"));
-    assert!(source.contains(".to_uppercase();"));
+    assert!(source.contains(".to_lower_case();"));
+    assert!(source.contains(".to_upper_case();"));
 }
 
 #[test]
@@ -1136,10 +1136,10 @@ const bounded = word.lastIndexOf("t", 2);
 "#,
     );
 
-    assert!(source.contains(".find(&"));
-    assert!(source.contains(".rfind(&"));
-    assert!(source.contains(".map_or(-1.0, |idx| smelt_utf16_index_of_byte(&smelt_haystack, idx) as f64)"), "{source}");
-    assert!(source.contains("let smelt_end_index = smelt_from.saturating_add(smelt_utf16_len(&smelt_needle));"), "{source}");
+    assert!(source.contains(".index_of(&JsString::from(\"m\"), 0)"), "{source}");
+    assert!(source.contains(".last_index_of(&JsString::from(\"t\"), usize::MAX)"), "{source}");
+    assert!(source.contains(".map_or(-1.0, |smelt_index| smelt_index as f64)"), "{source}");
+    assert!(source.contains(".last_index_of(&JsString::from(\"t\"), (2.0 as i64).max(0) as usize)"), "{source}");
 }
 
 #[test]
@@ -1178,8 +1178,7 @@ const replaced = word.replace("hello", "hi");
 "#,
     );
 
-    assert!(source.contains(".replacen(&"));
-    assert!(source.contains(", 1);"));
+    assert!(source.contains(".replace_first(&"), "{source}");
 }
 
 #[test]
@@ -1194,8 +1193,8 @@ const replaced = word.replaceAll(".", "-");
 "#,
     );
 
-    assert!(source.contains(".replace(&"));
-    assert!(!source.contains(".replacen(&"));
+    assert!(source.contains(".replace_all(&"), "{source}");
+    assert!(!source.contains(".replace_first(&"));
 }
 
 #[test]
@@ -1220,9 +1219,9 @@ const paddedEnd = word.padEnd(3);
 "#,
     );
 
-    assert!(source.contains("smelt_utf16_slice(&pad.repeat(needed.div_ceil(smelt_utf16_len(pad))), 0, needed)"), "{source}");
-    assert!(source.contains("format!(\"{}{}\", padding, value)"));
-    assert!(source.contains("format!(\"{}{}\", value, padding)"));
+    assert!(source.contains("pad.repeat(needed.div_ceil(pad.len())).slice(0, needed)"), "{source}");
+    assert!(source.contains("padding + value"));
+    assert!(source.contains("value.to_owned() + &padding"));
 }
 
 #[test]
@@ -1237,10 +1236,10 @@ const code = word.charCodeAt(2);
 
     // Both read UTF-16 code units, a negative index reading nothing.
     assert!(
-        source.contains("{ let smelt_index = 1.0 as f64; if smelt_index < 0.0 { None } else { smelt_utf16_char_at(&word, smelt_index as usize) } }.unwrap_or_default();"),
+        source.contains("{ let smelt_index = 1.0 as f64; if smelt_index < 0.0 { None } else { word.char_at(smelt_index as usize) } }.unwrap_or_default();"),
         "{source}"
     );
-    assert!(source.contains("smelt_utf16_unit_at(smelt_text, smelt_index).map_or(f64::NAN, f64::from)"), "{source}");
+    assert!(source.contains("smelt_text.unit_at(smelt_index).map_or(f64::NAN, f64::from)"), "{source}");
     assert!(source.contains("(&word, 2.0 as f64);"), "{source}");
 }
 
@@ -1308,9 +1307,9 @@ const asBool = Boolean("");
     // "inf" are NaN), not an inline `parse::<f64>()` with an empty-string
     // special case; the helper's values are pinned by
     // `js_value_semantics_runtime`.
-    assert!(source.contains("smelt_string_to_number(&(digits))"), "{source}");
-    assert!(source.contains("smelt_string_to_number(&(\"\".to_owned()))"), "{source}");
-    assert!(source.contains("fn smelt_string_to_number(text: &str) -> f64"), "{source}");
+    assert!(source.contains("smelt_js_string_to_number(&(digits))"), "{source}");
+    assert!(source.contains("smelt_js_string_to_number(&(JsString::new()))"), "{source}");
+    assert!(source.contains("fn smelt_js_string_to_number(text: &JsStr) -> f64"), "{source}");
     assert!(!source.contains("float() parse failed"));
     assert!(source.contains(".is_empty()"));
 }
@@ -1337,12 +1336,12 @@ export function lexicalRelational(a: string, b: string): boolean {
 
     // The string side of a string-vs-number comparison is ToNumber-coerced.
     assert!(
-        source.contains("smelt_string_to_number(&(key.clone()))) >= (0.0)"),
+        source.contains("smelt_tmp_2: bool = (smelt_js_string_to_number(&(key.clone()))) >= (0.0)"),
         "string >= number must ToNumber-coerce the string side: {source}"
     );
     // A raw, non-coerced `String >= 0.0` must never be emitted.
     assert!(
-        !source.contains("\"\".to_owned() >= 0.0"),
+        !source.contains("\"\".to_owned() >= 0.0") && !source.contains("JsString::new() >= 0.0"),
         "raw String relational must not be emitted"
     );
     // String-vs-string comparison stays lexical (no ToNumber coercion applied).
@@ -1582,7 +1581,7 @@ export function firstLower(words: string[]): string {
     // through the erased extraction match; the absent arm's word changed with
     // the nullish-stringify fix (`String(undefined)` is `"undefined"`).
     assert!(
-        source.contains("first.map_or_else(|| \"undefined\".to_owned()"),
+        source.contains("first.unwrap_or_else(|| JsString::from(\"undefined\"))"),
         "concrete Option<String> source was not unwrapped for string coercion: {source}"
     );
     assert!(
@@ -1678,7 +1677,7 @@ export function measure(str: string, chars?: string | string[]): number {
     );
     assert!(
         source.contains("into_smelt_unknown()")
-            && source.contains("SmeltUnknown::String(value) => smelt_utf16_len(&value)"),
+            && source.contains("SmeltUnknown::String(value) => value.len()"),
         "optional union `.length` did not inspect the erased value: {source}"
     );
 }

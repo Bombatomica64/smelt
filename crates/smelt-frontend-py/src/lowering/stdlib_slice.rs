@@ -123,7 +123,7 @@ impl ModuleBuilder<'_> {
             .transpose()?;
 
         if let Some(step_expr) = slice.step.as_deref() {
-            if !matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::List(_) | Type::String)) {
+            if !matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::List(_) | Type::PyStr)) {
                 return Err(SmeltError::unsupported(
                     self.span(slice.range),
                     "a slice step needs a list or string receiver",
@@ -146,8 +146,8 @@ impl ModuleBuilder<'_> {
                 ty: receiver_ty,
                 span: self.span(sub.range),
             }))),
-            Some(Type::String) => {
-                let ty = self.intern_type(Type::String);
+            Some(Type::PyStr) => {
+                let ty = self.intern_type(Type::PyStr);
                 Ok(Some(body.push_expr(HirExpr {
                     kind: ExprKind::StringSlice {
                         operand: receiver,

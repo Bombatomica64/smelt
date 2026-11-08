@@ -56,7 +56,7 @@ fn smelt_function_classes(value: &SmeltUnknown) -> Option<Vec<&'static str>> { l
 /// probe rather than answering `false` for the native records still around.
 fn smelt_host_override_instance_of(slot: &::std::cell::RefCell<SmeltHostOverride>, value: &SmeltUnknown, markers: &[&str]) -> bool {
     let marker_probe = || matches!(value, SmeltUnknown::Object(map) if markers.iter().any(|marker| map.contains_key(*marker)));
-    match &*slot.borrow() { SmeltHostOverride::Absent => false, SmeltHostOverride::Native => marker_probe(), SmeltHostOverride::Ctor(ctor) => match smelt_function_classes(ctor) { Some(classes) => matches!(value, SmeltUnknown::Object(map) if matches!(map.get("__smelt_class"), Some(SmeltUnknown::String(class)) if classes.iter().any(|entry| *entry == &*class))), None => marker_probe() } }
+    match &*slot.borrow() { SmeltHostOverride::Absent => false, SmeltHostOverride::Native => marker_probe(), SmeltHostOverride::Ctor(ctor) => match smelt_function_classes(ctor) { Some(classes) => matches!(value, SmeltUnknown::Object(map) if matches!(map.get("__smelt_class"), Some(SmeltUnknown::String(class)) if classes.iter().any(|entry| class.eq_str(entry)))), None => marker_probe() } }
 }
 
 /// Whether a host override slot is present (`false` only when `Absent`).

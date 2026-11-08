@@ -680,7 +680,7 @@ impl ModuleBuilder<'_> {
                     )
                 })
                 .and_then(|annotation| self.annotation_to_hir(annotation))?;
-            let string_ty = self.intern_type(Type::String);
+            let string_ty = self.intern_type(Type::PyStr);
             let dict_ty = self.intern_type(Type::Dict(string_ty, value_ty));
             let index = params.len();
             params.push(dict_ty);
@@ -1021,7 +1021,7 @@ impl ModuleBuilder<'_> {
                 "pytest.raises context variables must be simple names",
             ));
         };
-        let ty = self.intern_type(Type::String);
+        let ty = self.intern_type(Type::PyStr);
         let symbol = self.intern_name(name.id.as_str());
         let local = body.push_local(LocalDecl {
             name: Some(symbol),

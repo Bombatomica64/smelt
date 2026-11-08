@@ -1051,7 +1051,7 @@ clone-strategy = "aggressive"
 
     let generated = fs::read_to_string(project_path.join("dist/src/main.rs"))?;
     ensure(
-        generated.contains("handler: ::std::rc::Rc<dyn Fn(Context_1) -> String>"),
+        generated.contains("handler: ::std::rc::Rc<dyn Fn(Context_1) -> JsString>"),
         "the alias-typed field must name the renamed class with no type arguments",
     )?;
     ensure(

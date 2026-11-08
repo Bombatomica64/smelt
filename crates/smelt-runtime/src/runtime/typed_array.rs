@@ -572,7 +572,7 @@ impl SmeltFromUnknown for SmeltTypedArray {
         let SmeltUnknown::Object(map) = value else { return Self::new() };
         let Some(SmeltUnknown::Array(items)) = map.get("bytes") else { return Self::new() };
         let bytes = items.into_vec().into_iter().map(|item| match item { SmeltUnknown::Number(value) => value as i64 as u8, _ => 0 }).collect::<Vec<u8>>();
-        let kind = map.iter().find_map(|(key, _)| SmeltTypedArrayKind::from_marker(&key)).unwrap_or(SmeltTypedArrayKind::Uint8);
+        let kind = map.iter().find_map(|(key, _)| SmeltTypedArrayKind::from_marker(&key.to_string_lossy())).unwrap_or(SmeltTypedArrayKind::Uint8);
         let width = kind.byte_width();
         let length = bytes.len() / width;
         //~ The record's own marker says whether the storage it came from

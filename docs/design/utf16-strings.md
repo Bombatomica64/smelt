@@ -1,6 +1,7 @@
 # UTF-16 JavaScript strings in generated Rust
 
-Status: design, not implemented. Base: `origin/rw2-wrong-answers` at `f089c1eb`. That is
+Status: implemented on branch `t3/1d353361` (steps 0-7); see "Implementation notes"
+at the end for where the implementation departs from this design. Base: `origin/rw2-wrong-answers` at `f089c1eb`. That is
 the first branch carrying the string-index seam (`c5d98dce`). Every `file:line` below refers
 to that tree.
 
@@ -386,3 +387,39 @@ the result in the PR.
 - Each of the 293 codegen `Type::String` sites one by one: the step-0 audit is unsized beyond
   that count.
 - Nothing was compiled or run except `node` behaviour checks.
+
+## Implementation notes
+
+Where the implementation departs from the design above, and why.
+
+- **`JsStr` is a newtype, not `type JsStr = [u16]`.** `JsStr` is a
+  `repr(transparent)` unsized struct over `[u16]`, as `Path` is over `OsStr`.
+  An alias would let `[u16]`'s inherent `len`/`contains`/`split`/`repeat`
+  shadow the JavaScript methods an extension trait adds (`s.contains(&t)`
+  would resolve to `<[u16]>::contains(&u16)`), and `Display` cannot be
+  implemented for a foreign slice type.
+- **Search arguments are `impl SmeltJsPattern`.** `index_of`, `starts_with`,
+  `split`, `replace_*` take a JavaScript string or a Rust `&str` (encoded on
+  the stack when short), so the emitter and the runtime can pass a literal
+  without building a `JsString`.
+- **Step 3 is merged into step 4.** The runtime crate compiles the text of
+  every item with all gates on, so its items cannot be written against an
+  alias that only generated crates see. Step 2 (emitter spellings under
+  `type JsString = String`) shipped on its own; the runtime moved at the flip.
+- **Erased-object keys moved at the flip (part of step 6).** A
+  `Record<string, unknown>` (`SmeltRecord<JsString, SmeltUnknown>`) shares its
+  field store with the erased `SmeltObject` it is viewed as; the two cannot
+  have different key types. `SmeltObject` keys are therefore `JsString` from
+  step 4 on. Its lookups still accept the runtime's own `&str` keys through
+  `SmeltObjectKey`, which encodes a short ASCII key on the stack.
+- **Host edges.** Host internals keep UTF-8 `String`. Arguments cross through
+  the `SmeltHostText` trait (implemented for `str`, `String`, `JsStr`,
+  `JsString`), so a host function takes either; results cross in the emitter
+  (`host_text_at_type` for host rvalues, the fallible-op adapter, the host data
+  property reads). `SmeltHostText` is emitted in every crate (its JavaScript
+  impls live in the `JsString` item), because host items such as the JSON
+  parser and `parseInt` are shared with Python.
+- **Regexp at the flip uses a lossy interim** (step 4): the haystack is
+  transcoded to UTF-8 per call and indices are mapped back with the old
+  `smelt_utf16_*` helpers, so `string_units.rs` survives until step 5.
+

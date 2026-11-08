@@ -48,7 +48,7 @@ export function isJson(value: string): boolean {
         "the `catch` arm must survive lowering:\n{body}"
     );
     assert!(
-        source.contains("fn smelt_json_parse(text: &str) -> Result<SmeltUnknown,"),
+        source.contains("fn smelt_json_parse(text: &(impl SmeltHostText + ?Sized)) -> Result<SmeltUnknown,"),
         "the prelude must carry the fallible adapter:\n{source}"
     );
     // The thrown payload is the same record `new SyntaxError(m)` builds, so a
@@ -73,7 +73,7 @@ export function parseIt(value: string): unknown {
     );
 
     assert!(
-        source.contains("fn parse_it(value: String) -> Result<"),
+        source.contains("fn parse_it(value: JsString) -> Result<"),
         "an uncaught fallible builtin must make its function throw:\n{source}"
     );
 }

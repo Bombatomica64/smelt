@@ -2,7 +2,7 @@ impl ModuleBuilder<'_> {
     /// Return whether a type can be represented by Python JSON serialization helpers.
     fn is_json_serializable_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
-            Some(Type::Bool | Type::Int | Type::Float | Type::String) => true,
+            Some(Type::Bool | Type::Int | Type::Float | Type::PyStr) => true,
             Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
                 self.is_json_serializable_type(*item)
             }
@@ -10,7 +10,7 @@ impl ModuleBuilder<'_> {
                 .iter()
                 .all(|item| self.is_json_serializable_type(*item)),
             Some(Type::Dict(key, value)) => {
-                matches!(self.ctx.krate.types.get(*key), Some(Type::String))
+                matches!(self.ctx.krate.types.get(*key), Some(Type::PyStr))
                     && self.is_json_serializable_type(*value)
             }
             _ => false,
@@ -30,7 +30,7 @@ impl ModuleBuilder<'_> {
             "bool" => (PrimitiveCastOp::ToBool, Type::Bool),
             "int" => (PrimitiveCastOp::ToInt, Type::Int),
             "float" => (PrimitiveCastOp::ToFloat, Type::Float),
-            "str" => (PrimitiveCastOp::ToString, Type::String),
+            "str" => (PrimitiveCastOp::ToString, Type::PyStr),
             _ => return Ok(None),
         };
         if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
@@ -43,14 +43,14 @@ impl ModuleBuilder<'_> {
         if op == PrimitiveCastOp::ToString
             && !matches!(
                 self.ctx.krate.types.get(Self::expr_ty(body, operand)),
-                Some(Type::Bool | Type::Int | Type::Float | Type::String)
+                Some(Type::Bool | Type::Int | Type::Float | Type::PyStr)
             )
         {
             return self.python_text_expr(operand, false, self.span(call.range()), body).map(Some);
         }
         if !matches!(
             self.ctx.krate.types.get(Self::expr_ty(body, operand)),
-            Some(Type::Bool | Type::Int | Type::Float | Type::String)
+            Some(Type::Bool | Type::Int | Type::Float | Type::PyStr)
         ) {
             return Err(SmeltError::unsupported(
                 self.span(call.arguments.args[0].range()),
@@ -186,7 +186,7 @@ impl ModuleBuilder<'_> {
         if key.is_none()
             && !matches!(
                 self.ctx.krate.types.get(element_ty),
-                Some(Type::Bool | Type::Int | Type::Float | Type::String)
+                Some(Type::Bool | Type::Int | Type::Float | Type::PyStr)
             )
         {
             return Err(SmeltError::unsupported(
@@ -229,7 +229,7 @@ impl ModuleBuilder<'_> {
                         self.python_callback_argument(&keyword.value, &[element_ty], body)?;
                     if !matches!(
                         self.ctx.krate.types.get(callback.return_ty),
-                        Some(Type::Bool | Type::Int | Type::Float | Type::String)
+                        Some(Type::Bool | Type::Int | Type::Float | Type::PyStr)
                     ) {
                         return Err(SmeltError::unsupported(
                             self.span(keyword.range),
@@ -643,7 +643,7 @@ impl ModuleBuilder<'_> {
         if key.is_none()
             && !matches!(
                 self.ctx.krate.types.get(element_ty),
-                Some(Type::Bool | Type::Int | Type::Float | Type::String)
+                Some(Type::Bool | Type::Int | Type::Float | Type::PyStr)
             )
         {
             return Err(SmeltError::unsupported(

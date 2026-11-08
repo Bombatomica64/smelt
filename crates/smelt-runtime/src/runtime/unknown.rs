@@ -17,11 +17,11 @@ pub enum SmeltUnknown {
     BigInt(::num_bigint::BigInt),
 // @smelt:end
 // @smelt:if unknown
-    //~ JavaScript strings are immutable, so the erased tag shares one
-    //~ heap buffer across clones instead of copying it: `Rc<str>` turns
+    //~ A `JsString` shares its buffer across clones, so
     //~ `SmeltUnknown::clone` -- and therefore every `SmeltObject::get`
-    //~ property read -- into a refcount bump rather than malloc+memcpy.
-    String(::std::rc::Rc<str>),
+    //~ property read -- is a refcount bump rather than malloc+memcpy, and
+    //~ erasing or extracting a typed string moves the handle.
+    String(JsString),
     Symbol(::std::rc::Rc<str>),
     Array(SmeltArray),
     Object(SmeltObject),
@@ -113,7 +113,7 @@ impl SmeltUnknown {
     /// Returns the JavaScript-style length for unknown string, array, and object values.
     pub fn len(&self) -> usize {
         match self {
-            Self::String(value) => smelt_utf16_len(value),
+            Self::String(value) => value.len(),
             Self::Array(value) => value.len(),
             Self::Object(value) => value.len(),
             /*@if bigint*/Self::BigInt(_) => 0, /*@end*/Self::Null | Self::Undefined | Self::Bool(_) | Self::Number(_) | Self::Symbol(_) | Self::Function(_) | Self::Promise(_) => 0,
@@ -129,7 +129,7 @@ impl SmeltUnknown {
     pub fn to_iso_string(&self) -> String {
         if let Self::Object(value) = self {
             if let (Some(Self::Number(timestamp_ms)), Some(Self::String(timezone_name))) = (value.get("__smelt_date"), value.get("__smelt_timezone")) {
-                if let (Some(mut local), Ok(timezone)) = (chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map(|date| date.naive_utc()), timezone_name.parse::<chrono_tz::Tz>()) {
+                if let (Some(mut local), Ok(timezone)) = (chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map(|date| date.naive_utc()), timezone_name.to_string_lossy().parse::<chrono_tz::Tz>()) {
                     loop {
                         match chrono::TimeZone::from_local_datetime(&timezone, &local) {
                             chrono::LocalResult::Single(date) => return date.to_rfc3339_opts(chrono::SecondsFormat::Millis, false),
@@ -143,7 +143,7 @@ impl SmeltUnknown {
         let timestamp_ms = match self {
             Self::Number(value) => *value,
             Self::Object(value) => match value.get("__smelt_date") { Some(Self::Number(value)) => value, _ => f64::NAN },
-            Self::String(value) => smelt_string_to_number(value),
+            Self::String(value) => smelt_js_string_to_number(value),
             Self::Bool(value) => if *value { 1.0 } else { 0.0 },
             /*@if bigint*/Self::BigInt(value) => smelt_bigint_to_number(value), /*@end*/Self::Null | Self::Undefined | Self::Symbol(_) | Self::Array(_) | Self::Function(_) | Self::Promise(_) => f64::NAN,
         };
@@ -162,7 +162,7 @@ impl SmeltUnknown {
     pub fn test<T: IntoSmeltUnknown>(&self, haystack: T) -> bool {
         let SmeltUnknown::String(haystack) = haystack.into_smelt_unknown() else { return false; };
         match self {
-            Self::String(pattern) => regex::Regex::new(pattern).is_ok_and(|regex| regex.is_match(&haystack)),
+            Self::String(pattern) => regex::Regex::new(&pattern.to_string_lossy()).is_ok_and(|regex| regex.is_match(&haystack.to_string_lossy())),
             Self::Object(map) => {
                 let Some(Self::String(source)) = map.get("source") else { return false; };
                 let flags = match map.get("flags") { Some(Self::String(flags)) => flags.to_string(), _ => String::new() };
@@ -187,7 +187,7 @@ impl ::std::fmt::Display for SmeltUnknown {
             Self::Undefined => formatter.write_str("undefined"),
             Self::Bool(value) => write!(formatter, "{value}"),
             Self::Number(value) => formatter.write_str(&smelt_number_to_string(*value)),
-            Self::String(value) => formatter.write_str(value),
+            Self::String(value) => write!(formatter, "{value}"),
             Self::Symbol(value) => formatter.write_str(value),
 // @smelt:end
 // @smelt:if bigint
@@ -258,7 +258,7 @@ impl PartialOrd<f64> for SmeltUnknown {
             Self::BigInt(value) => smelt_bigint_compare_number(value, *other),
 // @smelt:end
 // @smelt:if unknown
-            Self::String(value) => smelt_string_to_number(value).partial_cmp(other),
+            Self::String(value) => smelt_js_string_to_number(value).partial_cmp(other),
             Self::Bool(value) => (if *value { 1.0 } else { 0.0 }).partial_cmp(other),
             Self::Null | Self::Undefined | Self::Symbol(_) | Self::Array(_) | Self::Object(_) | Self::Function(_) | Self::Promise(_) => None,
         }
@@ -357,7 +357,7 @@ fn smelt_unknown_to_number(value: &SmeltUnknown) -> f64 {
 // @smelt:end
 // @smelt:if unknown
         SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN },
-        SmeltUnknown::String(value) => smelt_string_to_number(value),
+        SmeltUnknown::String(value) => smelt_js_string_to_number(value),
         SmeltUnknown::Bool(value) => if *value { 1.0 } else { 0.0 },
         SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN,
     }

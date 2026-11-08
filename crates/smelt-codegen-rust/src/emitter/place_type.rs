@@ -141,7 +141,7 @@ impl FunctionEmitter<'_> {
         // interpolation ran the `SmeltUnknown` ToString match over an
         // `i64` and did not compile. `string_field_read` decides the
         // text and the type together; ask it for the type.
-        if matches!(self.mir.types.get(base_ty), Some(Type::String)) {
+        if matches!(self.mir.types.get(base_ty), Some(Type::String | Type::PyStr)) {
             return Ok(self.string_field_read(&RustExpr::loose(""), field)?.1);
         }
         // A GENERATED union receiver whose every arm declares the field
@@ -358,7 +358,7 @@ impl FunctionEmitter<'_> {
                 })
             }
             Some(Type::Dict(_, value) | Type::JsMap(_, value)) => Ok(*value),
-            Some(Type::String) => self.type_id(Type::String),
+            Some(Type::String | Type::PyStr) => Ok(base_ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => Ok(base_ty),
             Some(Type::Tuple(items)) => {
                 let tuple_index = self.tuple_index(index, items.len())?;

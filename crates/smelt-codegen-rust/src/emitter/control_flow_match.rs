@@ -212,11 +212,11 @@ impl FunctionEmitter<'_> {
     /// Converts a match scrutinee operand to its Rust text representation.
     pub(super) fn match_scrutinee_expr(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
         let operand_ty = self.operand_ty(operand)?;
-        // Compare the resolved type directly rather than interning `Type::String`
+        // Compare the resolved type directly rather than interning `Type::String | Type::PyStr`
         // and comparing ids: a program that never uses a string (e.g. a switch
-        // over a purely numeric enum) may not have `Type::String` in the type
+        // over a purely numeric enum) may not have `Type::String | Type::PyStr` in the type
         // table at all, and requiring it there would spuriously error.
-        if self.mir.types.get(operand_ty) == Some(&Type::String) {
+        if self.mir.types.get(operand_ty).is_some_and(Type::is_text) {
             match operand {
                 // A local narrowed to `&'static str` (see
                 // `emitter::typeof_str_locals`) is already the `&str` the string
@@ -226,6 +226,11 @@ impl FunctionEmitter<'_> {
                 {
                     self.place_expr(&Place::Local(*local))
                 }
+                // A JavaScript string is matched by its text against the
+                // `&str` case labels.
+                Operand::Copy(place) | Operand::Move(place) if self.mir.types.get(operand_ty) == Some(&Type::String) => {
+                    Ok({ let receiver = self.place_expr(place)?; RustExpr::postfix_on(&receiver, format!("{receiver}.to_string_lossy().as_str()")) })
+                }
                 Operand::Copy(place) | Operand::Move(place) => {
                     Ok({ let receiver = self.place_expr(place)?; RustExpr::postfix_on(&receiver, format!("{receiver}.as_str()")) })
                 }
@@ -234,9 +239,13 @@ impl FunctionEmitter<'_> {
             }
         } else if matches!(
             self.mir.types.get(operand_ty),
-            Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String)
+            Some(Type::Optional(inner)) if self.mir.types.get(*inner).is_some_and(Type::is_text)
         ) {
-            Ok({ let receiver = self.operand_expr(operand)?; RustExpr::postfix_on(&receiver, format!("{receiver}.as_deref()")) })
+            let receiver = self.operand_expr(operand)?;
+            if matches!(self.mir.types.get(operand_ty), Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String)) {
+                return Ok(RustExpr::postfix_on(&receiver, format!("{receiver}.map(|smelt_text| smelt_text.to_string_lossy()).as_deref()")));
+            }
+            Ok(RustExpr::postfix_on(&receiver, format!("{receiver}.as_deref()")))
         } else {
             self.operand_expr(operand)
         }
@@ -246,7 +255,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn match_label_expr(&self, constant: &Constant) -> RustExpr {
         match constant {
             Constant::String(value) => RustExpr::chain(format!("{value:?}")),
-            _ => constant_expr(constant),
+            _ => constant_expr(constant, self.indexes_utf16()),
         }
     }
 
@@ -254,7 +263,7 @@ impl FunctionEmitter<'_> {
     fn match_label_text_for_scrutinee(&self, constant: &Constant, scrutinee_ty: TypeId) -> String {
         if matches!(
             self.mir.types.get(scrutinee_ty),
-            Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String)
+            Some(Type::Optional(inner)) if self.mir.types.get(*inner).is_some_and(Type::is_text)
         ) && let Constant::String(value) = constant
         {
             return format!("Some({value:?})");

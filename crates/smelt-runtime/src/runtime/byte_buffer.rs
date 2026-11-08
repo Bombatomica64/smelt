@@ -108,7 +108,7 @@ fn smelt_host_buffer_kind_width(kind: &str) -> usize { match kind { "int8" => 1,
 /// Integer views wrap modulo their width (ECMAScript `ToInt8`/`ToUint16`/...),
 /// which is why an `Int8Array` holding `-1` and a `Uint8Array` holding `255`
 /// have byte-identical buffers. `Uint8ClampedArray` saturates instead.
-fn smelt_host_buffer_encode_element(kind: &str, value: &SmeltUnknown) -> Vec<SmeltUnknown> { let number = match value { SmeltUnknown::Number(value) => *value, SmeltUnknown::Bool(value) => if *value { 1.0 } else { 0.0 }, SmeltUnknown::String(text) => smelt_string_to_number(text), SmeltUnknown::Null => 0.0, _ => f64::NAN }; let raw: Vec<u8> = match kind { "int8" => vec![smelt_host_buffer_to_integer(number) as i8 as u8], "uint8" => vec![smelt_host_buffer_to_integer(number) as u8], "uint8clamped" => vec![if number.is_nan() { 0u8 } else { number.round_ties_even().clamp(0.0, 255.0) as u8 }], "int16" => (smelt_host_buffer_to_integer(number) as i16).to_le_bytes().to_vec(), "uint16" => (smelt_host_buffer_to_integer(number) as u16).to_le_bytes().to_vec(), "int32" => (smelt_host_buffer_to_integer(number) as i32).to_le_bytes().to_vec(), "uint32" => (smelt_host_buffer_to_integer(number) as u32).to_le_bytes().to_vec(), "float32" => (number as f32).to_le_bytes().to_vec(), "float64" => number.to_le_bytes().to_vec(), "bigint64" => smelt_host_buffer_to_integer(number).to_le_bytes().to_vec(), "biguint64" => (smelt_host_buffer_to_integer(number) as u64).to_le_bytes().to_vec(), _ => vec![smelt_host_buffer_to_integer(number) as u8] }; raw.into_iter().map(|byte| SmeltUnknown::Number(f64::from(byte))).collect() }
+fn smelt_host_buffer_encode_element(kind: &str, value: &SmeltUnknown) -> Vec<SmeltUnknown> { let number = match value { SmeltUnknown::Number(value) => *value, SmeltUnknown::Bool(value) => if *value { 1.0 } else { 0.0 }, SmeltUnknown::String(text) => smelt_js_string_to_number(&text), SmeltUnknown::Null => 0.0, _ => f64::NAN }; let raw: Vec<u8> = match kind { "int8" => vec![smelt_host_buffer_to_integer(number) as i8 as u8], "uint8" => vec![smelt_host_buffer_to_integer(number) as u8], "uint8clamped" => vec![if number.is_nan() { 0u8 } else { number.round_ties_even().clamp(0.0, 255.0) as u8 }], "int16" => (smelt_host_buffer_to_integer(number) as i16).to_le_bytes().to_vec(), "uint16" => (smelt_host_buffer_to_integer(number) as u16).to_le_bytes().to_vec(), "int32" => (smelt_host_buffer_to_integer(number) as i32).to_le_bytes().to_vec(), "uint32" => (smelt_host_buffer_to_integer(number) as u32).to_le_bytes().to_vec(), "float32" => (number as f32).to_le_bytes().to_vec(), "float64" => number.to_le_bytes().to_vec(), "bigint64" => smelt_host_buffer_to_integer(number).to_le_bytes().to_vec(), "biguint64" => (smelt_host_buffer_to_integer(number) as u64).to_le_bytes().to_vec(), _ => vec![smelt_host_buffer_to_integer(number) as u8] }; raw.into_iter().map(|byte| SmeltUnknown::Number(f64::from(byte))).collect() }
 //~ Emit the record constructor and the element/byte extraction helpers.
 /// Build a byte-backed host record of `marker` identity over `bytes`.
 ///
@@ -166,18 +166,18 @@ fn smelt_host_buffer_own_elements(value: &SmeltUnknown) -> Option<Vec<SmeltUnkno
 /// `buffer` are prototype accessors and never enumerate — so
 /// `Object.keys(new Uint8Array(1))` is `['0']` and a deep-equality walk over
 /// two views compares elements rather than internal storage keys.
-fn smelt_host_buffer_index_keys(value: &SmeltUnknown) -> Option<Vec<String>> { let count = smelt_host_buffer_own_elements(value)?.len(); Some((0..count).map(|index| index.to_string()).collect()) }
+fn smelt_host_buffer_index_keys(value: &SmeltUnknown) -> Option<Vec<JsString>> { let count = smelt_host_buffer_own_elements(value)?.len(); Some((0..count).map(|index| JsString::from(index.to_string())).collect()) }
 /// The same own-key set, for a byte-backed record reached through the
 /// structural `SmeltRecord` ABI rather than as a tagged `SmeltUnknown`.
 ///
 /// An erased object crossing into a `Record<string, unknown>` parameter is
 /// re-materialized as a `SmeltRecord`, so `Object.keys` on that side needs the
 /// same index-key answer — remeda's `isShallowEqual` reads exactly that path.
-fn smelt_host_buffer_record_index_keys(record: &SmeltRecord<String, SmeltUnknown>) -> Option<Vec<String>> { smelt_host_buffer_index_keys(&SmeltUnknown::Object(SmeltObject::from_unknown_record(record.clone()))) }
+fn smelt_host_buffer_record_index_keys(record: &SmeltRecord<JsString, SmeltUnknown>) -> Option<Vec<JsString>> { smelt_host_buffer_index_keys(&SmeltUnknown::Object(SmeltObject::from_unknown_record(record.clone()))) }
 /// The decoded elements of a byte-backed record reached through the
 /// structural `SmeltRecord` ABI. Backs `Object.values`/`Object.entries` over a
 /// view, which pair with the index keys above.
-fn smelt_host_buffer_record_elements(record: &SmeltRecord<String, SmeltUnknown>) -> Option<Vec<SmeltUnknown>> { smelt_host_buffer_own_elements(&SmeltUnknown::Object(SmeltObject::from_unknown_record(record.clone()))) }
+fn smelt_host_buffer_record_elements(record: &SmeltRecord<JsString, SmeltUnknown>) -> Option<Vec<SmeltUnknown>> { smelt_host_buffer_own_elements(&SmeltUnknown::Object(SmeltObject::from_unknown_record(record.clone()))) }
 //~ Emit slice and indexed element read/write.
 /// Slice a byte-backed host record into a fresh record of the same host kind.
 ///

@@ -70,7 +70,7 @@ impl FunctionEmitter<'_> {
                         let string_ty = self.type_id(Type::String)?;
                         let changes_ty = self.type_id(Type::Dict(string_ty, float_ty))?;
                         let text = RustExpr::atom(self.carrier_format(format_args!(
-                            "{{ let (smelt_changes, smelt_last_insert_rowid) = {receiver_text}.run(&[{parameters}])?; SmeltRecord::from([(\"changes\".to_owned(), smelt_changes), (\"lastInsertRowid\".to_owned(), smelt_last_insert_rowid)]) }}"
+                            "{{ let (smelt_changes, smelt_last_insert_rowid) = {receiver_text}.run(&[{parameters}])?; SmeltRecord::from([(JsString::from(\"changes\"), smelt_changes), (JsString::from(\"lastInsertRowid\"), smelt_last_insert_rowid)]) }}"
                         )));
                         self.rendered_at_type(&text, changes_ty, dest_ty, &scope)
                     }
@@ -101,19 +101,19 @@ impl FunctionEmitter<'_> {
     /// Whether a value of `ty` has a `SmeltSqliteBind` impl at its own type.
     fn binds_at_own_type(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
-            Some(Type::Float | Type::Int | Type::String | Type::Bool | Type::Unknown) => true,
+            Some(Type::Float | Type::Int | Type::String | Type::PyStr | Type::Bool | Type::Unknown) => true,
             Some(Type::Optional(inner)) => {
                 matches!(
                     self.mir.types.get(*inner),
-                    Some(Type::Float | Type::Int | Type::String | Type::Bool)
+                    Some(Type::Float | Type::Int | Type::String | Type::PyStr | Type::Bool)
                 )
             }
             Some(Type::Dict(key, value)) => {
-                matches!(self.mir.types.get(*key), Some(Type::String))
+                matches!(self.mir.types.get(*key), Some(Type::String | Type::PyStr))
                     && self.dict_uses_smelt_record(*key)
                     && matches!(
                         self.mir.types.get(*value),
-                        Some(Type::Float | Type::Int | Type::String | Type::Bool | Type::Unknown)
+                        Some(Type::Float | Type::Int | Type::String | Type::PyStr | Type::Bool | Type::Unknown)
                     )
             }
             _ => false,

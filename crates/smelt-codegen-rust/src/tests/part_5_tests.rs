@@ -215,7 +215,7 @@ describe("outer", () => {
         })
         .count();
     assert_eq!(person_structs, 2, "{source}");
-    assert!(source.contains("::new(\"jake\".to_owned())"), "{source}");
+    assert!(source.contains("::new(JsString::from(\"jake\"))"), "{source}");
     assert!(source.contains(".self_ ="), "{source}");
     assert!(source.contains(".friends ="), "{source}");
 }
@@ -593,14 +593,14 @@ const value = mapping.get("a");
     // string-keyed, so erasure can stamp the `__smelt_map` marker. `SmeltJsMap`
     // stores owned entries, so `get` returns `Option<V>` directly with no
     // `.cloned()`.
-    assert!(source.contains("SmeltJsMap<String, f64>"));
+    assert!(source.contains("SmeltJsMap<JsString, f64>"));
     assert!(source.contains("SmeltJsMap::from([]);"));
     assert!(source.contains(
-        "SmeltJsMap::from([(\"a\".to_owned(), 1.0), (\"b\".to_owned(), 2.0)])"
+        "SmeltJsMap::from([(JsString::from(\"a\"), 1.0), (JsString::from(\"b\"), 2.0)])"
     ));
-    assert!(source.contains(".contains_key(&\"a\".to_owned());"));
-    assert!(source.contains(".get(&\"a\".to_owned());"));
-    assert!(!source.contains(".get(&\"a\".to_owned()).cloned();"));
+    assert!(source.contains(".contains_key(&JsString::from(\"a\"));"));
+    assert!(source.contains(".get(&JsString::from(\"a\"));"));
+    assert!(!source.contains(".get(&JsString::from(\"a\")).cloned();"));
 }
 
 #[test]
@@ -614,8 +614,8 @@ mapping.clear();
 "#,
     );
 
-    assert!(source.contains(".insert(\"a\".to_owned(), 1.0);"));
-    assert!(source.contains(".remove(&\"a\".to_owned()).is_some();"));
+    assert!(source.contains(".insert(JsString::from(\"a\"), 1.0);"));
+    assert!(source.contains(".remove(&JsString::from(\"a\")).is_some();"));
     assert!(source.contains(".clear(); ()"));
     assert!(source.contains(".clone()"));
 }
@@ -749,11 +749,11 @@ const limited = word.split(",", 2);
 "#,
     );
 
-    assert!(source.contains("if smelt_separator.is_empty()"));
     assert!(
         source.contains(
-            "smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>()"
-        )
+            "smelt_haystack.split(&smelt_separator, usize::MAX)"
+        ),
+        "{source}"
     );
     assert!(source.contains("else if smelt_limit.is_sign_positive()"));
 }
@@ -790,7 +790,7 @@ const patterns = { separator: /[T ]/i };
     );
 
     assert!(
-        source.contains("SmeltRegExp::new(\"[T ]\".to_owned(), \"i\".to_owned())"),
+        source.contains("SmeltRegExp::new(JsString::from(\"[T ]\"), JsString::from(\"i\"))"),
         "{source}"
     );
     assert!(source.contains(".split_string(&"), "{source}");
@@ -808,11 +808,11 @@ const numberJoined = numbers.join("-");
 "#,
     );
 
-    assert!(source.contains(".join(&\"-\".to_owned());"));
-    assert!(source.contains(".join(&\",\".to_owned());"));
+    assert!(source.contains("JsString::join(") && source.contains(", &JsString::from(\"-\"))"), "{source}");
+    assert!(source.contains(", &JsString::from(\",\"))"), "{source}");
     // A numeric item stringifies the way `String(item)` does, which is
     // JavaScript's rule and not Rust's `Display`.
-    assert!(source.contains(".iter().map(|item| { smelt_number_to_string(*item) })"));
+    assert!(source.contains(".iter().map(|item| JsString::from({ smelt_number_to_string(*item) }))"), "{source}");
 }
 
 #[test]
@@ -913,7 +913,7 @@ function sliceOptional(start?: number, end?: number): string {
     assert!(source.contains("let smelt_index = 1.0 as i64"));
     assert!(source.contains("clamp(0, smelt_len) as usize"));
     assert!(source.contains(".cloned().collect::<Vec<_>>()"));
-    assert!(source.contains("{ let smelt_len_units = smelt_utf16_len(&word); { let smelt_start = 0usize; smelt_utf16_slice(&word, smelt_start, smelt_start.saturating_add(smelt_len_units.saturating_sub(0usize))) } }"), "{source}");
+    assert!(source.contains("{ let smelt_len_units = word.len(); { let smelt_start = 0usize; word.slice(smelt_start, smelt_start.saturating_add(smelt_len_units.saturating_sub(0usize))) } }"), "{source}");
     assert!(source.matches("if smelt_index < 0").count() >= 2);
     assert!(source.contains(".unwrap_or(0.0)"));
     assert!(source.contains(".unwrap_or(smelt_len_units as f64)"), "{source}");
@@ -1055,13 +1055,13 @@ const asRecord: unknown = obj;
 
     // Direction 1: the Map is backed by the marker-stamping `SmeltJsMap`.
     assert!(
-        source.contains("let m: SmeltJsMap<String, f64> ="),
+        source.contains("let m: SmeltJsMap<JsString, f64> ="),
         "{source}"
     );
     // Direction 2: the object literal stays an unmarked `SmeltRecord`, never a
     // `SmeltJsMap`.
     assert!(
-        source.contains("let obj: SmeltRecord<String, f64> ="),
+        source.contains("let obj: SmeltRecord<JsString, f64> ="),
         "{source}"
     );
     assert!(

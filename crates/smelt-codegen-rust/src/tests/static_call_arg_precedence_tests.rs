@@ -193,11 +193,11 @@ console.log(total);
     // pads `None`, the one that writes it passes `Some(..)`. Both must be
     // present, so neither the padding nor the ordinary argument regressed.
     assert!(
-        source.contains(", None::<String>);"),
+        source.contains(", None::<JsString>);"),
         "the omitted optional parameter was not padded:\n{source}"
     );
     assert!(
-        source.contains("Some(\"twice\".to_owned()));"),
+        source.contains("Some(JsString::from(\"twice\")));"),
         "the supplied optional argument no longer reaches the call:\n{source}"
     );
 }

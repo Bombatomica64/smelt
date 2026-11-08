@@ -13,7 +13,7 @@
 // @smelt:item smelt_json_indent when json_indent
 /// `JSON.stringify(value, replacer, space)`'s layout over compact JSON text.
 #[allow(dead_code)]
-fn smelt_json_indent(text: &str, indent: &str) -> String {
+fn smelt_json_indent(text: &(impl SmeltHostText + ?Sized), indent: &(impl SmeltHostText + ?Sized)) -> String { let text = text.host_text(); let text: &str = &text; let indent = indent.host_text(); let indent: &str = &indent;
     if indent.is_empty() { return text.to_owned(); }
     let chars: Vec<char> = text.chars().collect();
     let mut out = String::with_capacity(text.len() * 2);

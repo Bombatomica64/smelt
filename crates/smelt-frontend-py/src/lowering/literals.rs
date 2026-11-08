@@ -54,7 +54,7 @@ impl ModuleBuilder<'_> {
             }
 
             Expr::StringLiteral(s) => {
-                let ty = self.intern_type(Type::String);
+                let ty = self.intern_type(Type::PyStr);
                 Ok(body.push_expr(HirExpr {
                     kind: ExprKind::Literal(Literal::String(s.value.to_str().to_owned())),
                     ty,
@@ -175,7 +175,7 @@ impl ModuleBuilder<'_> {
                 let kind = match self.ctx.krate.types.get(receiver_ty) {
                     Some(Type::Dict(..)) => ExprKind::PythonDictRead { dict: receiver, key: index },
                     Some(Type::List(_)) if index_is_int => ExprKind::PythonListRead { list: receiver, index },
-                    Some(Type::String) if index_is_int => {
+                    Some(Type::PyStr) if index_is_int => {
                         ExprKind::PythonSequenceRead { sequence: receiver, index }
                     }
                     _ => ExprKind::Index { receiver, index },
@@ -377,7 +377,7 @@ impl ModuleBuilder<'_> {
         }
 
         let span = self.span(fstring.range);
-        let str_ty = self.intern_type(Type::String);
+        let str_ty = self.intern_type(Type::PyStr);
         let mut segments: Vec<Segment> = Vec::new();
 
         for part in fstring.value.iter() {
@@ -420,7 +420,7 @@ impl ModuleBuilder<'_> {
                                     self.python_text_expr(interpolated, true, self.span(interp.range), body)?
                                 } else if !matches!(
                                     self.ctx.krate.types.get(expr_ty),
-                                    Some(Type::Bool | Type::Int | Type::Float | Type::String)
+                                    Some(Type::Bool | Type::Int | Type::Float | Type::PyStr)
                                 ) && self.has_python_text(expr_ty)
                                 {
                                     self.python_text_expr(interpolated, false, self.span(interp.range), body)?
@@ -868,7 +868,7 @@ impl ModuleBuilder<'_> {
         }
         if !matches!(
             self.ctx.krate.types.get(operand_ty),
-            Some(Type::Int | Type::Float | Type::String)
+            Some(Type::Int | Type::Float | Type::PyStr)
         ) {
             return Err(SmeltError::unsupported(
                 span,
@@ -957,7 +957,7 @@ impl ModuleBuilder<'_> {
         let haystack_ty = Self::expr_ty(body, haystack);
         let bool_ty = self.intern_type(Type::Bool);
         let contains_kind = match self.ctx.krate.types.get(haystack_ty) {
-            Some(Type::String) if self.ctx.krate.types.get(needle_ty) == Some(&Type::String) => {
+            Some(Type::PyStr) if self.ctx.krate.types.get(needle_ty) == Some(&Type::PyStr) => {
                 // Python's `in` has no start position; `from_index` is a
                 // JavaScript `includes(needle, position)` affordance.
                 ExprKind::StringContains {

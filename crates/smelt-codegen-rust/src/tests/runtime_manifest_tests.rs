@@ -98,7 +98,7 @@ fn runtime_manifest_symbol_names_match() {
     let source = smelt_runtime::source::item_source(encode_uri)
         .expect("encodeURI helper is named after its runtime_symbols constant");
     assert!(
-        source.contains(&format!("fn {encode_uri}(value: &str) -> String {{")),
+        source.contains(&format!("fn {encode_uri}(value: &(impl SmeltHostText + ?Sized)) -> String {{")),
         "the emitted encodeURI helper must define `{encode_uri}`"
     );
 }

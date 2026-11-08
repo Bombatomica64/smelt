@@ -117,6 +117,7 @@ mod runtime {
     include!("runtime/identity.rs");
     include!("runtime/js_map.rs");
     include!("runtime/js_set.rs");
+    include!("runtime/js_string.rs");
     include!("runtime/json_indent.rs");
     include!("runtime/json_serde.rs");
     include!("runtime/key_eq.rs");

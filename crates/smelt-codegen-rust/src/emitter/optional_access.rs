@@ -163,13 +163,16 @@ impl FunctionEmitter<'_> {
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
         if args.is_empty()
-            && self.mir.types.get(inner_ty) == Some(&Type::String)
+            && self.mir.types.get(inner_ty).is_some_and(Type::is_text)
             && matches!(
                 self.symbol_name(method)?,
                 "toUpperCase" | "to_upper_case" | "toLowerCase" | "to_lower_case"
             )
         {
+            let js = self.mir.types.get(inner_ty) == Some(&Type::String);
             let rust_method_name = match self.symbol_name(method)? {
+                "toUpperCase" | "to_upper_case" if js => "to_upper_case",
+                "toLowerCase" | "to_lower_case" if js => "to_lower_case",
                 "toUpperCase" | "to_upper_case" => "to_uppercase",
                 "toLowerCase" | "to_lower_case" => "to_lowercase",
                 _ => {
@@ -526,7 +529,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Dict(key_ty, value_ty)) => {
                 self.dict_index_optional_read_expr(receiver_text, *key_ty, *value_ty, index)
             }
-            Some(Type::String) => {
+            Some(Type::String | Type::PyStr) => {
                 let index_text = self.optional_normalized_index_expr(
                     &self.string_len_expr(receiver_text),
                     index,
@@ -562,7 +565,7 @@ impl FunctionEmitter<'_> {
                         let scrutinee = self
                             .erase_concrete_union_expr(&index_text.cloned_value(), index_ty);
                         RustExpr::atom(self.carrier_format(format_args!(
-                            "match {scrutinee} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => smelt_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
+                            "match {scrutinee} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
                         )))
                     }
                     _ => RustExpr::atom("f64::NAN"),
@@ -578,7 +581,7 @@ impl FunctionEmitter<'_> {
                 // `Option<(String, f64)>` slot (4 of the router slice's
                 // errors) — the arms produced the erased value and nobody
                 // converted it.
-                let result_is_string = self.mir.types.get(result_ty) == Some(&Type::String);
+                let result_is_string = self.mir.types.get(result_ty).is_some_and(Type::is_text);
                 let result_is_erased = matches!(self.mir.types.get(result_ty), Some(Type::Unknown));
                 // The element this arm reads is a `SmeltUnknown` BY
                 // CONSTRUCTION: it comes out of the runtime-narrowing `match`
@@ -607,7 +610,11 @@ impl FunctionEmitter<'_> {
                     ))
                 };
                 let array_some = if result_is_string {
-                    self.carrier_expr(&RustExpr::chain("values.get(index).cloned().map(|value| match value { SmeltUnknown::String(value) => value.to_string(), other => other.to_string() })"))
+                    self.carrier_expr(&RustExpr::chain(format!(
+                        "values.get(index).cloned().map(|value| match value {{ SmeltUnknown::String(value) => {}, other => {} }})",
+                        self.text_from_unknown_string("value"),
+                        self.text_from_string("other.to_string()"),
+                    )))
                 } else if result_is_erased {
                     RustExpr::chain("values.get(index).cloned()")
                 } else {
@@ -626,7 +633,9 @@ impl FunctionEmitter<'_> {
                 let object_field = format!("smelt_get_object_field(&values, &{key_text})");
                 let object_some = if result_is_string {
                     self.carrier_format(format_args!(
-                        "match {object_field} {{ SmeltUnknown::Undefined => None, SmeltUnknown::String(value) => Some(value.to_string()), other => Some(other.to_string()) }}"
+                        "match {object_field} {{ SmeltUnknown::Undefined => None, SmeltUnknown::String(value) => Some({}), other => Some({}) }}",
+                        self.text_from_unknown_string("value"),
+                        self.text_from_string("other.to_string()"),
                     ))
                 } else if result_is_erased {
                     self.carrier_format(format_args!("match {object_field} {{ SmeltUnknown::Undefined => None, value => Some(value) }}"))
@@ -649,7 +658,7 @@ impl FunctionEmitter<'_> {
                     self.erase_concrete_union_expr(&receiver_text.cloned_value(), receiver_ty);
                 // A string key is a property name on every arm: `arr["1"]` reads an
                 // element, `arr["length"]` a property, `arr["x"]` nothing.
-                if self.mir.types.get(self.operand_ty(index)?) == Some(&Type::String) {
+                if self.mir.types.get(self.operand_ty(index)?).is_some_and(Type::is_text) {
                     return Ok(RustExpr::atom(self.carrier_format(format_args!(
                         "match {scrutinee} {{ smelt_indexed @ (SmeltUnknown::String(_) | SmeltUnknown::Array(_)) => match smelt_get_unknown_field(&smelt_indexed, &{key_text}).clone() {{ SmeltUnknown::Undefined => None, _smelt_element => Some({element_text}) }}, SmeltUnknown::Object(values) => {object_some}, {primitive_none}, }}"
                     ))));
