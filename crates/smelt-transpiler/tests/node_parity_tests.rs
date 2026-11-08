@@ -636,3 +636,13 @@ fn splice_precedence() -> TestResult {
 fn labeled_statements() -> TestResult {
     verify_node_parity("labeled_statements")
 }
+
+/// `new Set(set)`, `new Map(map)`, `new Map(pairs)` and
+/// `new Map(Object.entries(o))` build NEW collections in iteration order: a
+/// later write to either side leaves the other unchanged, a repeated key keeps
+/// its first position and its last value, and an erased iterable of pairs is
+/// read entry by entry.
+#[test]
+fn collection_copies() -> TestResult {
+    verify_node_parity("collection_copies")
+}

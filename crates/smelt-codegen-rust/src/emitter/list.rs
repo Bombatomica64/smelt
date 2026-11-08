@@ -231,8 +231,8 @@ impl FunctionEmitter<'_> {
         )))
     }
 
-    /// Converts a list of key/value pair tuples to a Rust `HashMap`.
-    /// Converts a list of key/value pair tuples to a Rust `HashMap`.
+    /// Converts a list of key/value pair tuples to the destination map (a
+    /// Python `dict` or a source `Map`), later pairs overwriting earlier keys.
     pub(super) fn list_pairs_to_dict_expr(
         &self,
         list: &Operand,
@@ -252,9 +252,13 @@ impl FunctionEmitter<'_> {
                 "dict() pair source tuples must have length two",
             ));
         };
+        // A Python `dict(pairs)` collects into a `Dict`, a source
+        // `new Map(entries)` into a `JsMap`; either way the destination's
+        // components are the pairs' own.
         if !matches!(
             self.mir.types.get(dest_ty),
-            Some(Type::Dict(dest_key, dest_value)) if dest_key == key_ty && dest_value == value_ty
+            Some(Type::Dict(dest_key, dest_value) | Type::JsMap(dest_key, dest_value))
+                if dest_key == key_ty && dest_value == value_ty
         ) {
             return Err(EmitError::new(
                 "dict() destination must match pair key and value types",
