@@ -853,7 +853,7 @@ impl FunctionEmitter<'_> {
                     "match {body_text} {{ SmeltUnknown::String(smelt_value) => SmeltBody::from_text(&smelt_value.to_string()), \
                      SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltBody::empty(), \
                      {byte_arm}{blob_arm}{search_params_arm}{form_data_arm}\
-                     smelt_value => panic!(\"body arm is not modeled yet: {{value:?}}\") }}", body_text = body_text.delimited()
+                     smelt_value => panic!(\"body arm is not modeled yet: {{smelt_value:?}}\") }}", body_text = body_text.delimited()
                 ))))
             }
             _ => Err(EmitError::new(format!(

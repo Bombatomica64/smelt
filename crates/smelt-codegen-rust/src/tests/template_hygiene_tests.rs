@@ -206,6 +206,33 @@ fn template_binders_around_spliced_code_are_reserved() {
     assert!(offenders.is_empty(), "template temporaries a program local can shadow:\n{}", offenders.join("\n"));
 }
 
+/// A template that binds a reserved name never still interpolates the name it
+/// had before the `smelt_` prefix: `{{value:?}}` in a template whose binder
+/// became `smelt_value` named nothing in the generated program (E0425, Hono's
+/// fetch body-arm panic message).
+#[test]
+fn renamed_binders_leave_no_stale_inline_argument() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut templates = Vec::new();
+    format_templates(&root, &mut templates);
+    let mut offenders = Vec::new();
+    for (file, line, body) in &templates {
+        let mut blanked = body.clone();
+        for (start, end) in placeholders(body).iter().rev() {
+            blanked.replace_range(*start..=*end, &"#".repeat(end - start + 1));
+        }
+        for (name, _) in binders(&blanked) {
+            let Some(bare) = name.strip_prefix("smelt_") else { continue };
+            if body.contains(&format!("{{{{{bare}}}}}")) || body.contains(&format!("{{{{{bare}:")) {
+                offenders.push(format!("{file}:{line}: `{{{{{bare}}}}}` after binding `{name}`"));
+            }
+        }
+    }
+    offenders.sort();
+    offenders.dedup();
+    assert!(offenders.is_empty(), "stale inline arguments:\n{}", offenders.join("\n"));
+}
+
 /// The scanner sees each binder shape, and passes reserved names.
 #[test]
 fn the_binder_scan_sees_each_shape() {

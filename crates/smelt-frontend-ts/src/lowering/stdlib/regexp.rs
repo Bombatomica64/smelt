@@ -850,7 +850,7 @@ impl ModuleBuilder<'_> {
         self.regexp_construction_expression(&call.arguments, call.span, body).map(Some)
     }
 
-    /// The shared lowering of both RegExp construction spellings, from the
+    /// The shared lowering of both `RegExp` construction spellings, from the
     /// construction's arguments and span.
     fn regexp_construction_expression(
         &mut self,
