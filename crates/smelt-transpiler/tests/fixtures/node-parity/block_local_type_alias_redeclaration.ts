@@ -22,7 +22,12 @@ const mapAfterInterface = (): number => {
   const shape = new Map([["k", 7]]) as Shape;
   return shape.get("k") ?? 0;
 };
-console.log(objectShape(), mapAfterInterface());
+const unionAfterInterface = (): number => {
+  type Shape = { kind: 1; data: number } | { kind: 2 };
+  const shape = { kind: 1, data: 6 } as Shape;
+  return shape.kind === 1 ? shape.data : 0;
+};
+console.log(objectShape(), mapAfterInterface(), unionAfterInterface());
 type Entry = { input: string | Map<string, number>; label: string };
 const entries: Entry[] = [
   { input: "plain", label: "string" },

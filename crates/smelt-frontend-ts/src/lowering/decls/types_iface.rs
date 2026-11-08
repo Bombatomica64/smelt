@@ -37,6 +37,14 @@ impl ModuleBuilder<'_> {
         local_name: &str,
         qualified_name: &str,
     ) -> smelt_hir::Symbol {
+        // A block- or suite-local declaration bound to a scoped symbol by
+        // `shadow_outer_type` is declared under that symbol; the binding ends
+        // with its scope.
+        if local_name == qualified_name
+            && let Some(symbol) = self.classes.scoped_type_name(local_name)
+        {
+            return symbol;
+        }
         if local_name == qualified_name
             && let Some(symbol) = self.module_qualified_type_name(local_name)
         {

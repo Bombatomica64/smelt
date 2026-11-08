@@ -2871,6 +2871,11 @@ impl ModuleBuilder<'_> {
     /// The rename map answers `None` for every unambiguous name, so nothing
     /// about a crate without a collision changes.
     pub(in crate::lowering) fn resolve_type_reference_symbol(&mut self, name_text: &str) -> smelt_hir::Symbol {
+        // A lexically scoped declaration (a block-local class, alias or
+        // interface reusing a name) is the one in sight.
+        if let Some(symbol) = self.classes.scoped_type_name(name_text) {
+            return symbol;
+        }
         if let Some(symbol) = self.module_qualified_type_name(name_text) {
             return symbol;
         }
