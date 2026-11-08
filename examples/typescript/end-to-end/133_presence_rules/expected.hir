@@ -36,106 +36,104 @@ module examples/typescript/end-to-end/133_presence_rules/input.ts (ModuleId(0))
     #22: Request = %1
     #23: Wrapper = new Wrapper(#22)
     #24: fn() -> String = #23.header
-    #25: Request = %1
-    #26: Wrapper = new Wrapper(#25)
-    #27: String = #26.header()
-    #28: None = @9(console_log)
-    #29: None = call #28(#21, #27)
-    #30: Request = %1
-    #31: Wrapper = new Wrapper(#30)
-    #32: String = "raw"
-    #33: Bool = dict_contains_key #31, #32, chain
-    #34: Request = %1
-    #35: Wrapper = new Wrapper(#34)
-    #36: String = "header"
-    #37: Bool = dict_contains_key #35, #36, chain
-    #38: Request = %1
-    #39: Wrapper = new Wrapper(#38)
-    #40: String = "nope"
-    #41: Bool = dict_contains_key #39, #40, chain
-    #42: None = @10(console_log)
-    #43: None = call #42(#33, #37, #41)
-    #44: String = "a/b/c"
-    #45: fn(String) -> List<String> = @0(segments)
-    #46: List<String> = call #45(#44)
-    #47: String = ","
-    #48: String = string_join #46, #47
-    #49: None = @11(console_log)
-    #50: None = call #49(#48)
-    #51: String = "id"
-    #52: String = "1"
-    #53: Dict<String, String> = {#51: #52}
-    #54: String = "action"
-    #55: String = "create"
-    #56: Dict<String, String> = {#54: #55}
-    #57: String = "action"
-    #58: fn(Dict<String, String>, Optional<Dict<String, String>>, String) -> String = @1(pick)
-    #59: String = call #58(#53, #56, #57)
-    #60: String = "id"
-    #61: String = "1"
-    #62: Dict<String, String> = {#60: #61}
-    #63: None = undefined
-    #64: String = "id"
-    #65: fn(Dict<String, String>, Optional<Dict<String, String>>, String) -> String = @1(pick)
-    #66: String = call #65(#62, #63, #64)
-    #67: None = @12(console_log)
-    #68: None = call #67(#59, #66)
-    #69: Dict<String, String> = {}
-    #70: String = "x"
-    #71: fn(Dict<String, String>, String) -> String = @2(pick_or)
-    #72: String = call #71(#69, #70)
-    #73: String = "x"
-    #74: String = "y"
-    #75: Dict<String, String> = {#73: #74}
-    #76: String = "x"
-    #77: fn(Dict<String, String>, String) -> String = @2(pick_or)
-    #78: String = call #77(#75, #76)
-    #79: None = @13(console_log)
-    #80: None = call #79(#72, #78)
-    #81: fn() -> String = @3(buckets)
-    #82: String = call #81()
-    #83: None = @14(console_log)
-    #84: None = call #83(#82)
-    #85: String = "^[0-9]+$"
-    #86: String = ""
-    #87: RegExp = new RegExp(#85, #86)
-    #88: String = "123"
-    #89: fn(Bool | RegExp, String) -> Bool = @4(matches)
-    #90: Bool = call #89(#87, #88)
-    #91: String = "^[0-9]+$"
-    #92: String = ""
-    #93: RegExp = new RegExp(#91, #92)
-    #94: String = "abc"
-    #95: fn(Bool | RegExp, String) -> Bool = @4(matches)
-    #96: Bool = call #95(#93, #94)
-    #97: Bool = true
-    #98: String = "x"
-    #99: fn(Bool | RegExp, String) -> Bool = @4(matches)
-    #100: Bool = call #99(#97, #98)
-    #101: None = @15(console_log)
-    #102: None = call #101(#90, #96, #100)
-    #103: String = "^a(?=/next)"
-    #104: String = ""
-    #105: RegExp = new RegExp(#103, #104)
-    #106: String = #105.source
-    #107: String = "x/y"
-    #108: String = ""
-    #109: RegExp = new RegExp(#107, #108)
-    #110: String = primitive_cast_string #109
-    #111: None = @16(console_log)
-    #112: None = call #111(#106, #110)
+    #25: String = #23.header()
+    #26: None = @9(console_log)
+    #27: None = call #26(#21, #25)
+    #28: Request = %1
+    #29: Wrapper = new Wrapper(#28)
+    #30: String = "raw"
+    #31: Bool = dict_contains_key #29, #30, chain
+    #32: Request = %1
+    #33: Wrapper = new Wrapper(#32)
+    #34: String = "header"
+    #35: Bool = dict_contains_key #33, #34, chain
+    #36: Request = %1
+    #37: Wrapper = new Wrapper(#36)
+    #38: String = "nope"
+    #39: Bool = dict_contains_key #37, #38, chain
+    #40: None = @10(console_log)
+    #41: None = call #40(#31, #35, #39)
+    #42: String = "a/b/c"
+    #43: fn(String) -> List<String> = @0(segments)
+    #44: List<String> = call #43(#42)
+    #45: String = ","
+    #46: String = string_join #44, #45
+    #47: None = @11(console_log)
+    #48: None = call #47(#46)
+    #49: String = "id"
+    #50: String = "1"
+    #51: Dict<String, String> = {#49: #50}
+    #52: String = "action"
+    #53: String = "create"
+    #54: Dict<String, String> = {#52: #53}
+    #55: String = "action"
+    #56: fn(Dict<String, String>, Optional<Dict<String, String>>, String) -> String = @1(pick)
+    #57: String = call #56(#51, #54, #55)
+    #58: String = "id"
+    #59: String = "1"
+    #60: Dict<String, String> = {#58: #59}
+    #61: None = undefined
+    #62: String = "id"
+    #63: fn(Dict<String, String>, Optional<Dict<String, String>>, String) -> String = @1(pick)
+    #64: String = call #63(#60, #61, #62)
+    #65: None = @12(console_log)
+    #66: None = call #65(#57, #64)
+    #67: Dict<String, String> = {}
+    #68: String = "x"
+    #69: fn(Dict<String, String>, String) -> String = @2(pick_or)
+    #70: String = call #69(#67, #68)
+    #71: String = "x"
+    #72: String = "y"
+    #73: Dict<String, String> = {#71: #72}
+    #74: String = "x"
+    #75: fn(Dict<String, String>, String) -> String = @2(pick_or)
+    #76: String = call #75(#73, #74)
+    #77: None = @13(console_log)
+    #78: None = call #77(#70, #76)
+    #79: fn() -> String = @3(buckets)
+    #80: String = call #79()
+    #81: None = @14(console_log)
+    #82: None = call #81(#80)
+    #83: String = "^[0-9]+$"
+    #84: String = ""
+    #85: RegExp = new RegExp(#83, #84)
+    #86: String = "123"
+    #87: fn(Bool | RegExp, String) -> Bool = @4(matches)
+    #88: Bool = call #87(#85, #86)
+    #89: String = "^[0-9]+$"
+    #90: String = ""
+    #91: RegExp = new RegExp(#89, #90)
+    #92: String = "abc"
+    #93: fn(Bool | RegExp, String) -> Bool = @4(matches)
+    #94: Bool = call #93(#91, #92)
+    #95: Bool = true
+    #96: String = "x"
+    #97: fn(Bool | RegExp, String) -> Bool = @4(matches)
+    #98: Bool = call #97(#95, #96)
+    #99: None = @15(console_log)
+    #100: None = call #99(#88, #94, #98)
+    #101: String = "^a(?=/next)"
+    #102: String = ""
+    #103: RegExp = new RegExp(#101, #102)
+    #104: String = #103.source
+    #105: String = "x/y"
+    #106: String = ""
+    #107: RegExp = new RegExp(#105, #106)
+    #108: String = primitive_cast_string #107
+    #109: None = @16(console_log)
+    #110: None = call #109(#104, #108)
   stmts
     s0: let %0: fn(Request | Wrapper) -> Bool = #0
     s1: let %1: Request = #7
     s2: #16
-    s3: #29
-    s4: #43
-    s5: #50
-    s6: #68
-    s7: #80
-    s8: #84
-    s9: #102
-    s10: #112
+    s3: #27
+    s4: #41
+    s5: #48
+    s6: #66
+    s7: #78
+    s8: #82
+    s9: #100
+    s10: #110
 
 interned types
   t0 = String

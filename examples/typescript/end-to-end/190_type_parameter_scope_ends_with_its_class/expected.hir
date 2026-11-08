@@ -8,20 +8,18 @@ module examples/typescript/end-to-end/190_type_parameter_scope_ends_with_its_cla
     #0: String = "x"
     #1: Holder<String> = new Holder(#0)
     #2: fn() -> String = #1.read
-    #3: String = "x"
-    #4: Holder<String> = new Holder(#3)
-    #5: fn() -> String = bind_this #2, #1
-    #6: String = closure_call #5()
-    #7: None = @8(console_log)
-    #8: None = call #7(#6)
-    #9: Float = 21.0
-    #10: fn(Float) -> Float = @4(twice)
-    #11: Float = call #10(#9)
-    #12: None = @9(console_log)
-    #13: None = call #12(#11)
+    #3: fn() -> String = bind_this #2, #1
+    #4: String = closure_call #3()
+    #5: None = @8(console_log)
+    #6: None = call #5(#4)
+    #7: Float = 21.0
+    #8: fn(Float) -> Float = @4(twice)
+    #9: Float = call #8(#7)
+    #10: None = @9(console_log)
+    #11: None = call #10(#9)
   stmts
-    s0: #8
-    s1: #13
+    s0: #6
+    s1: #11
 
 interned types
   t0 = T
