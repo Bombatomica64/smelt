@@ -13,6 +13,14 @@
 //! sharing exists: a join stop belongs to the emitter that registered it, and
 //! the depth counters are held through RAII [`DepthGuard`]s that cannot be left
 //! incremented by an early `?`.
+//!
+//! It also keeps the stack of generated Rust loops whose bodies are being
+//! emitted ([`ControlFlowState::open_loop`]). A region walker only knows its
+//! own loop's continue and break targets; an edge that leaves several loops at
+//! once (a source `continue outer` / `break outer`) has to name the loop it
+//! targets, so such an edge becomes a labelled `continue 'smelt_loop_N` /
+//! `break 'smelt_loop_N`, and the label is written onto the loop only when
+//! some edge used it.
 
 use std::cell::{Cell, RefCell};
 
@@ -50,6 +58,88 @@ struct LoopJoinStop {
     loop_context: smelt_mir::BlockId,
 }
 
+/// A generated Rust loop whose body is being emitted.
+#[derive(Clone, Copy, Debug)]
+struct OpenLoop {
+    /// The MIR block heading the loop; it names the loop's label.
+    header: smelt_mir::BlockId,
+    /// The block an iteration ends at: the header, or the latch whose
+    /// statements close each iteration before the header runs again.
+    continue_target: smelt_mir::BlockId,
+    /// Whether `continue_target` is a latch (its statements are emitted at the
+    /// end of the body, so a labelled `continue` must run them first).
+    has_latch: bool,
+    /// The block the loop exits to, when it has a single structural exit.
+    break_block: Option<smelt_mir::BlockId>,
+    /// Whether some edge jumped to this loop by label.
+    labelled: bool,
+}
+
+/// An edge that leaves more than one generated loop: see
+/// [`ControlFlowState::enclosing_loop_jump`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LoopJump {
+    /// Start the next iteration of the loop headed by `header`, after running
+    /// the statements of `latch` when the loop has one.
+    Continue {
+        /// The loop's header.
+        header: smelt_mir::BlockId,
+        /// The latch block whose statements run before the jump.
+        latch: Option<smelt_mir::BlockId>,
+    },
+    /// Leave the loop headed by `header`.
+    Break {
+        /// The loop's header.
+        header: smelt_mir::BlockId,
+    },
+}
+
+/// The Rust label of the generated loop headed by `header`.
+pub(crate) fn loop_label(header: smelt_mir::BlockId) -> String {
+    format!("'smelt_loop_{}", header.0)
+}
+
+/// One open loop pushed by [`ControlFlowState::open_loop`]. Closing it with
+/// [`OpenLoopScope::close`] pops it and labels the loop when an edge used the
+/// label; dropping it unclosed (an early `?`) only pops it.
+pub(crate) struct OpenLoopScope<'a> {
+    /// The state whose loop stack this scope pushed onto.
+    state: &'a ControlFlowState,
+    /// The byte offset in the output buffer where the loop's opening line
+    /// (`    loop {` / `    while cond {`) starts.
+    opened_at: usize,
+    /// Whether [`OpenLoopScope::close`] already popped the loop.
+    closed: bool,
+}
+
+impl OpenLoopScope<'_> {
+    /// Pop the loop and, when some edge jumped to it by label, write the label
+    /// in front of its opening keyword in `out` (the buffer it was opened in).
+    pub(crate) fn close(mut self, out: &mut String) {
+        self.closed = true;
+        let Some(open) = self.state.open_loops.borrow_mut().pop() else {
+            return;
+        };
+        if !open.labelled {
+            return;
+        }
+        let indent = out[self.opened_at..]
+            .bytes()
+            .take_while(|byte| *byte == b' ')
+            .count();
+        out.insert_str(self.opened_at + indent, &format!("{}: ", loop_label(open.header)));
+    }
+}
+
+impl Drop for OpenLoopScope<'_> {
+    /// Pop the loop if [`OpenLoopScope::close`] was not reached.
+    fn drop(&mut self) {
+        if !self.closed {
+            self.state.open_loops.borrow_mut().pop();
+        }
+    }
+}
+
 /// Control-flow emission state owned by one emitter; see the module docs.
 #[derive(Debug, Default)]
 pub(crate) struct ControlFlowState {
@@ -74,6 +164,8 @@ pub(crate) struct ControlFlowState {
     /// (from inside a nested generated loop, or a forward join region), where
     /// ending the arm would be wrong; the join-based attempt is then discarded.
     loop_join_violation: Cell<bool>,
+    /// Generated Rust loops whose bodies are being emitted, innermost last.
+    open_loops: RefCell<Vec<OpenLoop>>,
 }
 
 /// Holds one level of a recursion-depth counter and releases it on drop.
@@ -207,6 +299,83 @@ impl ControlFlowState {
         self.loop_join_stops.borrow().iter().map(|stop| stop.join).collect()
     }
 
+    /// Push a generated loop whose opening line starts at byte `opened_at` of
+    /// the output buffer, for as long as the returned scope lives.
+    ///
+    /// `continue_target` is where an iteration ends (the header, or `latch`
+    /// when the loop closes each iteration with a latch block's statements);
+    /// `break_block` is the loop's exit, when it has one.
+    pub(crate) fn open_loop(
+        &self,
+        header: smelt_mir::BlockId,
+        latch: Option<smelt_mir::BlockId>,
+        break_block: Option<smelt_mir::BlockId>,
+        opened_at: usize,
+    ) -> OpenLoopScope<'_> {
+        self.open_loops.borrow_mut().push(OpenLoop {
+            header,
+            continue_target: latch.unwrap_or(header),
+            has_latch: latch.is_some(),
+            break_block,
+            labelled: false,
+        });
+        OpenLoopScope {
+            state: self,
+            opened_at,
+            closed: false,
+        }
+    }
+
+    /// The labelled jump an edge to `target` needs when `target` ends an
+    /// iteration of, or exits, an open loop OTHER than the innermost one.
+    ///
+    /// Edges to the innermost loop's own targets are the region walker's
+    /// plain `continue`/`break` and are left to it; so is a block that is also
+    /// one of the innermost loop's targets. Otherwise the innermost-out search
+    /// finds the nearest enclosing loop the edge ends or leaves, marks it as
+    /// labelled, and answers the jump. A walker that ignored this re-entered
+    /// the enclosing loop's header as straight-line code and closed the cycle
+    /// with a bare `continue` of the INNER loop: a source `continue outer`
+    /// then skipped the outer update and never terminated.
+    pub(crate) fn enclosing_loop_jump(&self, target: smelt_mir::BlockId) -> Option<LoopJump> {
+        let mut loops = self.open_loops.borrow_mut();
+        let (innermost, enclosing) = loops.split_last_mut()?;
+        if target == innermost.continue_target
+            || target == innermost.header
+            || Some(target) == innermost.break_block
+        {
+            return None;
+        }
+        for open in enclosing.iter_mut().rev() {
+            if target == open.continue_target {
+                open.labelled = true;
+                return Some(LoopJump::Continue {
+                    header: open.header,
+                    latch: open.has_latch.then_some(open.continue_target),
+                });
+            }
+            if target == open.header {
+                // Straight to the header: Rust's `continue` re-runs it
+                // without the latch statements, as the edge does.
+                open.labelled = true;
+                return Some(LoopJump::Continue {
+                    header: open.header,
+                    latch: None,
+                });
+            }
+            if Some(target) == open.break_block {
+                open.labelled = true;
+                return Some(LoopJump::Break { header: open.header });
+            }
+        }
+        None
+    }
+
+    /// Whether a generated loop is open around the code being emitted.
+    pub(crate) fn in_open_loop(&self) -> bool {
+        !self.open_loops.borrow().is_empty()
+    }
+
     /// Forget all state, for a fresh render of the same body.
     pub(crate) fn reset(&self) {
         self.block_depth.set(0);
@@ -214,5 +383,6 @@ impl ControlFlowState {
         self.last_flow.set(Flow::FallsThrough);
         self.loop_join_stops.borrow_mut().clear();
         self.loop_join_violation.set(false);
+        self.open_loops.borrow_mut().clear();
     }
 }

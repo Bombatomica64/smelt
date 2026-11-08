@@ -3,7 +3,7 @@
 
 use crate::rust::RustExpr;
 use super::*;
-use super::flow_state::Flow;
+use super::flow_state::{Flow, LoopJump, loop_label};
 
 mod assign;
 mod calls;
@@ -146,6 +146,9 @@ impl FunctionEmitter<'_> {
     /// performed more than 64 calls in a row lost its last statements). The
     /// stack grows on demand so a long body cannot overflow it instead.
     pub(super) fn emit_block(&self, block: &BasicBlock, out: &mut String) -> Result<(), EmitError> {
+        if self.emit_enclosing_loop_jump(block.id, out)? {
+            return Ok(());
+        }
         let limit = self.function.blocks.len().saturating_mul(2).max(16);
         let Some(_depth) = self.flow.enter_block(limit) else {
             out.push_str("    // Smelt could not structurally emit this recursive control-flow region yet.\n");
@@ -190,6 +193,7 @@ impl FunctionEmitter<'_> {
         let latch = latch_block.map(|latch| self.block(latch)).transpose()?;
         let else_ = self.block(else_block)?;
         let loop_declared = self.declared_scope();
+        let open_loop = self.flow.open_loop(block.id, latch_block, Some(else_block), out.len());
         self.open_while_loop(block, cond, cond_statement_idx, out)?;
         self.emit_block_until_goto(
             then,
@@ -205,6 +209,7 @@ impl FunctionEmitter<'_> {
             }
         }
         out.push_str("    }\n");
+        open_loop.close(out);
         loop_declared.close();
         self.emit_block(else_, out)
     }
@@ -217,6 +222,7 @@ impl FunctionEmitter<'_> {
             let repeated = self.block(repeat_block)?;
             let exit = self.block(exit_block)?;
             let loop_declared = self.declared_scope();
+            let open_loop = self.flow.open_loop(block.id, None, Some(exit_block), out.len());
             out.push_str("    loop {\n");
             for statement in &block.statements {
                 self.emit_statement_for_block(block, statement, out)?;
@@ -235,6 +241,7 @@ impl FunctionEmitter<'_> {
                 out,
             )?;
             out.push_str("    }\n");
+            open_loop.close(out);
             loop_declared.close();
             return self.emit_block(exit, out);
         }
