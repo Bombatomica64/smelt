@@ -1,6 +1,6 @@
 //! Rust emission for the modeled Node host-module calls.
 //!
-//! Every call lands on a helper `crate::host_module_prelude` emits, with the
+//! Every call lands on a helper `runtime/host_module.rs` defines, with the
 //! operands rendered at the helper's own Rust types: a path function takes
 //! `&str`/`&[String]` and answers a `String` or `bool`; a hasher member takes
 //! the `SmeltHash` handle and the bytes or text it is fed. The only erased
@@ -12,7 +12,7 @@
 use crate::rust::RustExpr;
 use super::*;
 use crate::emitter::call::RenderedCall;
-use crate::host_module_prelude as prelude;
+use smelt_stdlib::runtime_symbols::host_module as prelude;
 use smelt_hir::{HashOp, HostModuleOp, PathOp};
 
 impl FunctionEmitter<'_> {

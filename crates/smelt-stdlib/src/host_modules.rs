@@ -198,7 +198,7 @@ const CRYPTO_KEY_REASON: &str =
 /// still declared.
 ///
 /// `createHash` is modeled (a stateful, chainable `Hash` over the `RustCrypto`
-/// hashers; see `host_module_prelude` in the Rust backend). `randomBytes`
+/// hashers; see `runtime/host_module.rs`). `randomBytes`
 /// answers a `Buffer` and has a callback form, so it is a surface of its own
 /// rather than an alias of `getRandomValues`.
 const CRYPTO_NODE_REASON: &str =

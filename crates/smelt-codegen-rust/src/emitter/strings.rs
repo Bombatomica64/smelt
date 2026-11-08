@@ -887,7 +887,7 @@ impl FunctionEmitter<'_> {
         let Some(members) = self.concrete_union_members(union_ty) else {
             return Ok(None);
         };
-        let number_to_string = crate::number_format_prelude::NUMBER_TO_STRING_FN;
+        let number_to_string = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN;
         let union_enum_name = union::union_name(union_ty);
         let mut arms = Vec::with_capacity(members.len());
         for (index, member) in members.iter().enumerate() {
@@ -971,12 +971,12 @@ impl FunctionEmitter<'_> {
             // `f64` in any case.
             Some(Type::Int | Type::FixedInt(_)) => Ok(RustExpr::chain(format!(
                 "{fn_name}({text} as f64)",
-                fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,
                 text = self.operand_expr(operand)?,
             ))),
             Some(Type::Float) => Ok(RustExpr::chain(format!(
                 "{fn_name}({text})",
-                fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,
                 text = self.operand_expr(operand)?,
             ))),
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
@@ -1517,11 +1517,11 @@ impl FunctionEmitter<'_> {
             // does, so the numeric arms take the same helper.
             Some(Type::Int) => format!(
                 "{fn_name}(*item as f64)",
-                fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,
             ),
             Some(Type::Float) => format!(
                 "{fn_name}(*item)",
-                fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,
             ),
             // A union element (`(number | string)[]`) stringifies each value at
             // its runtime arm: erase it to the tagged value and take the same
@@ -1541,11 +1541,11 @@ impl FunctionEmitter<'_> {
                 }
                 Some(Type::Int) => format!(
                     "item.as_ref().map_or_else(String::new, |value| {fn_name}(*value as f64))",
-                    fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                    fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,
                 ),
                 Some(Type::Float) => format!(
                     "item.as_ref().map_or_else(String::new, |value| {fn_name}(*value))",
-                    fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                    fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,
                 ),
                 Some(Type::String | Type::PyStr) => {
                     let to_string = if self.indexes_utf16() { "|value| value.to_string_lossy()" } else { "Clone::clone" };

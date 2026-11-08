@@ -129,3 +129,4 @@ mod generic_call_site_tests;
 mod discriminated_union_tests;
 mod accessor_field_tests;
 mod erased_rest_callback_tests;
+mod number_format_tests;

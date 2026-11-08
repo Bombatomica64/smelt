@@ -757,3 +757,78 @@ pub mod boundary {
     /// A live member read off an erased view.
     pub const LIVE_MEMBER_CALL: &str = "smelt_live_member(";
 }
+
+/// The `node:path` and `node:crypto` hash helpers (`runtime/host_module.rs`).
+pub mod host_module {
+    /// Name of the generated `path.join` helper, `fn(&[String]) -> String`.
+    pub const PATH_JOIN_FN: &str = "smelt_path_join";
+    /// Name of the generated `path.resolve` helper, `fn(&[String]) -> String`.
+    pub const PATH_RESOLVE_FN: &str = "smelt_path_resolve";
+    /// Name of the generated `path.normalize` helper, `fn(&str) -> String`.
+    pub const PATH_NORMALIZE_FN: &str = "smelt_path_normalize";
+    /// Name of the generated `path.dirname` helper, `fn(&str) -> String`.
+    pub const PATH_DIRNAME_FN: &str = "smelt_path_dirname";
+    /// Name of the generated `path.basename` helper, `fn(&str, Option<&str>) -> String`.
+    pub const PATH_BASENAME_FN: &str = "smelt_path_basename";
+    /// Name of the generated `path.extname` helper, `fn(&str) -> String`.
+    pub const PATH_EXTNAME_FN: &str = "smelt_path_extname";
+    /// Name of the generated `path.relative` helper, `fn(&str, &str) -> String`.
+    pub const PATH_RELATIVE_FN: &str = "smelt_path_relative";
+    /// Name of the generated `path.isAbsolute` helper, `fn(&str) -> bool`.
+    pub const PATH_IS_ABSOLUTE_FN: &str = "smelt_path_is_absolute";
+    /// Name of the generated `createHash` helper.
+    pub const HASH_CREATE_FN: &str = "smelt_hash_create";
+    /// Name of the generated `hash.update(bytes)` helper.
+    pub const HASH_UPDATE_BYTES_FN: &str = "smelt_hash_update_bytes";
+    /// Name of the generated `hash.update(text, encoding)` helper.
+    pub const HASH_UPDATE_TEXT_FN: &str = "smelt_hash_update_text";
+    /// Name of the generated `hash.digest(encoding)` helper.
+    pub const HASH_DIGEST_TEXT_FN: &str = "smelt_hash_digest_text";
+    /// Name of the generated `hash.digest()` helper.
+    pub const HASH_DIGEST_BYTES_FN: &str = "smelt_hash_digest_bytes";
+}
+
+/// The throwing `URL` adapters (`runtime/url.rs`).
+pub mod url {
+    /// Name of the generated adapter behind `new URL(input, base?)`.
+    pub const URL_NEW_FN: &str = "smelt_url_new_throwing";
+    /// Name of the generated adapter behind `url.href = text`.
+    pub const URL_SET_HREF_FN: &str = "smelt_url_set_href_throwing";
+}
+
+/// Number-to-text and text-to-number rules (`runtime/number_format.rs`, `runtime/string_to_number.rs`).
+pub mod number_text {
+    /// The emitted helper's name, so emit sites and the prelude agree on it.
+    pub const NUMBER_TO_STRING_FN: &str = "smelt_number_to_string";
+    /// The console's number formatter, which differs from the spec's in one value.
+    ///
+    /// `String(-0)` is `"0"` — the spec's rule folds the sign of zero — but
+    /// `console.log(-0)` prints `-0`, because Node's `util.inspect` shows negative
+    /// zero rather than coercing it. Both are Node's behaviour, so both are here,
+    /// and the console path is the only caller that wants the second.
+    ///
+    /// It reaches a console argument whose STATIC type is a number. An operand
+    /// typed `Unknown` keeps `Display for SmeltUnknown` (the spec's rule), because
+    /// such an operand does not always emit a `SmeltUnknown` expression — a
+    /// typed-array element read is an `f64` — so a formatter taking the carrier by
+    /// reference cannot be applied on the static type alone. The gap is one value:
+    /// an ERASED negative zero prints `0` where Node prints `-0`. Closing it wants
+    /// a `SmeltConsoleFormat` trait with one impl per reachable Rust type, so the
+    /// impl is chosen by the expression's real type instead of by the emitter's
+    /// guess at it.
+    pub const CONSOLE_NUMBER_FN: &str = "smelt_console_number";
+    /// Python's `repr(float)` (which `str(float)` and `print` use).
+    ///
+    /// The shortest round-trip digits, like JavaScript, but spelled Python's way:
+    /// a whole float keeps its `.0` (`12.0`, where JavaScript prints `12`),
+    /// exponential notation applies below `1e-4` and from `1e16` with a signed,
+    /// two-digit exponent (`1e+16`, `1.5e-07`), and the special values are `inf`,
+    /// `-inf` and `nan`. Rust's `Debug` for `f64` already picks the same digits
+    /// and the same thresholds, so only the exponent and the special values are
+    /// respelled.
+    pub const PY_FLOAT_REPR_FN: &str = "smelt_py_float_repr";
+    /// The emitted helper's name, so emit sites and the prelude agree on it.
+    pub const STRING_TO_NUMBER_FN: &str = "smelt_string_to_number";
+    /// The emitted helper over a JavaScript string (`&JsStr`).
+    pub const JS_STRING_TO_NUMBER_FN: &str = "smelt_js_string_to_number";
+}
