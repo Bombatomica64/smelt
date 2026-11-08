@@ -311,11 +311,11 @@ pub struct HirCtx {
     /// (inside its own body, or earlier in an import cycle) types its
     /// arguments from these.
     pub class_constructor_params: HashMap<smelt_hir::Symbol, Vec<TypeId>>,
-    /// The interface synthesized for `Partial<X>` of a concrete interface
-    /// record `X`, keyed by `X`'s type (see
-    /// `ModuleBuilder::partial_record_type`). Crate-wide so every module
-    /// spelling `Partial<X>` names the same struct.
-    pub partial_records: HashMap<TypeId, TypeId>,
+    /// The interface synthesized for a mapped utility over record `X` (see
+    /// `ty/annotations/derived_records.rs`), keyed by `X`'s type and the
+    /// derived property list. Crate-wide so every module spelling the same
+    /// derivation names the same struct.
+    pub derived_records: HashMap<(TypeId, Vec<(smelt_hir::Symbol, bool)>), TypeId>,
     /// Type parameters a callable item DECLARES in source but whose HIR item
     /// does not carry (its `Function::type_params` is empty).
     ///
@@ -469,7 +469,7 @@ impl HirCtx {
             type_alias_fields: Published::default(),
             class_type_params: HashMap::new(),
             class_constructor_params: HashMap::new(),
-            partial_records: HashMap::new(),
+            derived_records: HashMap::new(),
             erased_item_type_params: HashMap::new(),
             interface_extends: Published::default(),
             interface_index_values: Published::default(),

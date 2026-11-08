@@ -79,6 +79,19 @@ impl ModuleBuilder<'_> {
         // and resolves through the declaration path in the fallback arm; an
         // empty spelling matches no builtin arm.
         let builtin_spelling = if binding == TypeBinding::Lib { name_text.as_str() } else { "" };
+        // `Omit` with a fixed key set over a known record. Anything else keeps
+        // the opaque reference below, whose `T` a call site still instantiates.
+        // `builtin_spelling` is only `Omit` when the resolver answered
+        // `TypeBinding::Lib`, so a source `Omit` never reaches here.
+        if let ("Omit", [base, keys]) = (builtin_spelling, args.as_slice())
+            && let Some(removed) = self.literal_record_keys(keys)
+        {
+            let lowered = self.ts_type_to_hir(base)?;
+            let span = self.span(reference.span.start, reference.span.end);
+            if let Some(omitted) = self.omitted_record_type(lowered, &removed, span)? {
+                return Ok(omitted);
+            }
+        }
         match (builtin_spelling, args.as_slice()) {
             ("RegExp", []) => Ok(self.regexp_type()),
             // `BodyInit` is a UNION, not an opaque class. Leaving it opaque made
@@ -205,14 +218,30 @@ impl ModuleBuilder<'_> {
                 let span = self.span(reference.span.start, reference.span.end);
                 Ok(self.partial_record_type(base, span)?.unwrap_or(base))
             }
-            ("Readonly" | "Required", [item]) => self.ts_type_to_hir(item),
+            // `Readonly` changes no property's presence or storage.
+            ("Readonly", [item]) => self.ts_type_to_hir(item),
+            ("Required", [item]) => {
+                let base = self.ts_type_to_hir(item)?;
+                let span = self.span(reference.span.start, reference.span.end);
+                Ok(self.required_record_type(base, span)?.unwrap_or(base))
+            }
             ("Extract", [_base, extracted]) => self.ts_type_to_hir(extracted),
             ("Exclude", [base, excluded]) => {
                 let base_ty = self.ts_type_to_hir(base)?;
                 let excluded_ty = self.ts_type_to_hir(excluded)?;
                 Ok(self.union_without_members(base_ty, excluded_ty))
             }
-            ("Pick", [base, _keys]) => self.ts_type_to_hir(base),
+            // A `K` still free here keeps the base; the call that fixes it
+            // reshapes the result (`call_result_shaped_by_checker`).
+            ("Pick", [base, keys]) => {
+                let lowered = self.ts_type_to_hir(base)?;
+                let span = self.span(reference.span.start, reference.span.end);
+                let picked = match self.literal_record_keys(keys) {
+                    Some(selected) => self.picked_record_type(lowered, &selected, span)?,
+                    None => None,
+                };
+                Ok(picked.unwrap_or(lowered))
+            }
             ("Set" | "ReadonlySet", [item]) => {
                 let lowered_item = self.ts_type_to_hir(item)?;
                 Ok(self.ctx.krate.types.intern(Type::Set(lowered_item)))
@@ -388,6 +417,16 @@ impl ModuleBuilder<'_> {
                         Some(Type::Union(_))
                     );
                     let substituted_alias_ty = self.substitute_type_params(alias.ty, &substitutions);
+                    let reference_span = self.span(reference.span.start, reference.span.end);
+                    let shaped = self.alias_reference_shaped_by_checker(
+                        substituted_alias_ty,
+                        reference.span.start,
+                        reference.span.end,
+                        reference_span,
+                    )?;
+                    if shaped != substituted_alias_ty {
+                        return Ok(shaped);
+                    }
                     let alias_has_fields = self.types.alias_fields(symbol)
                         .is_some_and(|fields| !fields.is_empty());
                     if alias_has_fields

@@ -285,10 +285,11 @@ impl ModuleBuilder<'_> {
         &mut self,
         name: smelt_hir::Symbol,
         name_text: String,
+        type_params: Vec<smelt_hir::TypeParamDef>,
         members: StructuralMembers,
         span: smelt_hir::Span,
     ) -> smelt_hir::ItemId {
-        let item = self.push_lowered_interface(name, name_text.clone(), Vec::new(), Vec::new(), members, span);
+        let item = self.push_lowered_interface(name, name_text.clone(), type_params, Vec::new(), members, span);
         self.items.insert(name_text, item);
         item
     }
