@@ -10,6 +10,14 @@ Smelt lowers source through four stages, each behind a small interface:
 
 `frontend (TS/Python) → HIR → MIR → codegen-rust (Rust text)`
 
+- **Type gate** — the checkers (TypeScript 7, ty) run over every source before
+  anything lowers, and a lowering's result is held in `Checked<T>` until its
+  caller decides what their errors mean (`TypeErrorPolicy`): `smelt build`
+  denies by default, `--allow-type-errors` / `[build] type-errors = "allow"`
+  opts out (`crates/smelt-transpiler/src/type_gate.rs`).
+- **Source trust** — whether the checker accepted a file (`SourceTrust::Checked`)
+  or not (`Unchecked`); frontend shortcuts that rely on a checked program refuse
+  an unchecked source with `smelt::ill-typed-source` instead of miscompiling it.
 - **Specialization** — build-time partial evaluation of definition-time
   metaprogramming by a sandboxed host runtime before frontend lowering.
 - **Specialization artifact** — cache-addressed, versioned manifest carrying

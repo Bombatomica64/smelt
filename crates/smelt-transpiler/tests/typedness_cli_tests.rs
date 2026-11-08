@@ -157,7 +157,7 @@ fn unknown_gate_rejects_a_scan_that_lost_its_corpus() -> TestResult {
     let project = TempProject::new()?;
     let dir = project.path();
     fs::create_dir_all(dir.join("src"))?;
-    let snapshot = "{\"files_scanned\":5,\"total\":0,\"category_totals\":{},\"shapes\":[]}";
+    let snapshot = "{\"version\":1,\"files_scanned\":5,\"total\":0,\"category_totals\":{},\"shapes\":[]}";
     fs::write(dir.join("base.json"), snapshot)?;
     let gate = ["smelt-unknown-report", "src", "--baseline", "base.json", "--fail-on-regression"];
 

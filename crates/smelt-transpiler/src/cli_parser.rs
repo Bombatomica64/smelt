@@ -44,6 +44,13 @@ pub enum Command {
         /// (`all` for every reason). Repeatable; overrides `[erasure]`.
         #[arg(long = "erasure", value_name = "REASON=LEVEL")]
         erasure: Vec<String>,
+
+        /// Lower the program even when the type checkers (TypeScript's, ty for
+        /// Python) report errors, or cannot run. By default `build` refuses:
+        /// Smelt's lowering relies on a program that type-checks. Same as
+        /// `[check] type-errors = "allow"`; errors print as warnings.
+        #[arg(long)]
+        allow_type_errors: bool,
     },
     /// Type-check and validate without generating Rust
     ///
@@ -64,10 +71,11 @@ pub enum Command {
         #[arg(long = "erasure", value_name = "REASON=LEVEL")]
         erasure: Vec<String>,
 
-        /// Fail when the TypeScript checker reports an error. Off by default:
-        /// the checker sees only the dependency closure, so a project without
-        /// `@types/node` or with ambient test globals gets errors its real
-        /// `tsc` setup does not.
+        /// Fail when a type checker (TypeScript's, or ty for Python) reports an
+        /// error or cannot run, as `build` does by default. Off by default for
+        /// `check`, which reports: the checker sees only the dependency
+        /// closure, so a project without `@types/node` or with ambient test
+        /// globals gets errors its real `tsc` setup does not.
         #[arg(long)]
         deny_type_errors: bool,
     },
@@ -137,6 +145,11 @@ pub enum Command {
         #[arg(long = "build-manifest", value_name = "PATH")]
         build_manifest: Option<String>,
 
+        /// Let the `--build-manifest` build lower a program the type checkers
+        /// reject; see `build --allow-type-errors`.
+        #[arg(long, requires = "build_manifest")]
+        allow_type_errors: bool,
+
         /// Test filter to investigate; repeat for independent focused runs.
         #[arg(long, value_name = "FILTER")]
         focus: Vec<String>,
@@ -186,6 +199,11 @@ pub enum Command {
         /// `--define KEY=VALUE`.
         #[command(flatten)]
         define: DefineArgs,
+
+        /// Let the probe's whole-crate build lower a program the type checkers
+        /// reject; see `build --allow-type-errors`.
+        #[arg(long)]
+        allow_type_errors: bool,
 
         /// Format and destination of the report.
         #[command(flatten)]

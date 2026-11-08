@@ -61,6 +61,57 @@ fn statement_references(statement: &Statement<'_>, name: &str) -> bool {
     collector.found
 }
 
+/// Finds two function IMPLEMENTATIONS of one name in one statement list.
+///
+/// TypeScript rejects them (TS2393, "Duplicate function implementation"), and
+/// ES module code is strict, where a block's duplicate is a syntax error. Smelt
+/// lowers each declaration where it is hoisted to, so a duplicate would make
+/// a call that precedes the second implementation run the first, where
+/// JavaScript runs the last. Overload signatures and `declare function`s have
+/// no body and are not implementations.
+struct DuplicateFunctions {
+    /// The first duplicate found: its name and the span of the later declaration.
+    found: Option<(String, oxc::span::Span)>,
+}
+
+impl<'a> oxc::ast_visit::Visit<'a> for DuplicateFunctions {
+    /// Checks one statement list, then every list nested in it.
+    fn visit_statements(&mut self, statements: &oxc::allocator::Vec<'a, Statement<'a>>) {
+        if self.found.is_none() {
+            let mut seen: HashSet<&str> = HashSet::new();
+            for statement in statements {
+                let function = match statement {
+                    Statement::FunctionDeclaration(function) => Some(&**function),
+                    Statement::ExportDeclaration(export) => match &export.declaration {
+                        oxc::ast::ast::Declaration::FunctionDeclaration(function) => Some(&**function),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                let Some((id, function)) = function.and_then(|function| Some((function.id.as_ref()?, function))) else {
+                    continue;
+                };
+                if function.body.is_some() && !seen.insert(id.name.as_str()) {
+                    self.found = Some((id.name.as_str().to_owned(), function.span));
+                    break;
+                }
+            }
+        }
+        oxc::ast_visit::walk::walk_statements(self, statements);
+    }
+}
+
+/// The first function name implemented twice in one scope of `program`, with
+/// the span of its second implementation; see [`DuplicateFunctions`].
+pub(in crate::lowering) fn duplicate_function_implementation(
+    program: &oxc::ast::ast::Program<'_>,
+) -> Option<(String, oxc::span::Span)> {
+    use oxc::ast_visit::Visit;
+    let mut visitor = DuplicateFunctions { found: None };
+    visitor.visit_program(program);
+    visitor.found
+}
+
 /// Return `statements` in the order they must be LOWERED.
 ///
 /// Every element of `statements` appears exactly once. The order differs from
@@ -84,9 +135,11 @@ pub(in crate::lowering) fn hoisted_statements<'a, 'src>(
         let Some(id) = &function.id else {
             continue;
         };
-        // Two declarations of one name: the LAST one wins in JavaScript, and it
-        // is the one already lowered last, so only the first hoist is recorded
-        // and the later declaration keeps its place.
+        // Overload signatures share the implementation's name; only the first
+        // declaration is hoisted. Two IMPLEMENTATIONS of one name never get
+        // here: `duplicate_function_implementation` refuses the module first,
+        // because hoisting the first would make an earlier call run it where
+        // JavaScript runs the last.
         if !seen.insert(id.name.as_str()) {
             continue;
         }
@@ -162,6 +215,25 @@ mod tests {
                 "return f(a);"
             ]
         );
+    }
+
+    /// The name a program implements twice in one scope, if any.
+    fn duplicate(source: &str) -> Option<String> {
+        let allocator = Allocator::default();
+        let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
+        super::duplicate_function_implementation(&parsed.program).map(|(name, _)| name)
+    }
+
+    /// Two implementations of one name are found at the top level, in an
+    /// export and in a nested body; overload signatures and separate scopes
+    /// are not duplicates.
+    #[test]
+    fn duplicate_implementations_are_found_and_overloads_are_not() {
+        assert_eq!(duplicate("function f() {} f(); function f() {}"), Some("f".to_owned()));
+        assert_eq!(duplicate("export function f() {} function f() {}"), Some("f".to_owned()));
+        assert_eq!(duplicate("function g() { function h() {} function h() {} }"), Some("h".to_owned()));
+        assert_eq!(duplicate("function f(a: string): void; function f(a: number): void; function f(a: any) {}"), None);
+        assert_eq!(duplicate("function f() {} function g() { function f() {} }"), None);
     }
 
     #[test]

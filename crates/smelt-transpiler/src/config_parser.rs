@@ -39,6 +39,7 @@ pub fn parse_path(path: &Path) -> ConfigResult<Config> {
 }
 
 #[cfg(test)]
+#[expect(clippy::expect_used, reason = "a test fails fast on what it set up")]
 mod tests {
     use super::*;
 
@@ -95,10 +96,21 @@ mod tests {
             ("[strict]\npython = false", "error[smelt::manifest]: strict.python=false is not supported in v1.0"),
             ("[runtime]\nclone-strategy = \"never\"", "error[smelt::manifest]: runtime.clone-strategy=\"never\" is not supported in v1.0"),
             ("[runtime]\nclone-strategy = \"always\"", "error[smelt::manifest]: runtime.clone-strategy=\"always\" is not supported in v1.0"),
-            ("[rust]\nedition = \"2099\"", "error[smelt::manifest]: rust.edition=\"2099\" is not a Rust edition"),
         ] {
             let error = parse_with(extra).expect_err(extra).to_string();
             assert!(error.contains(expected), "{extra}: {error}");
+        }
+    }
+
+    /// Only an edition generated code compiles under is accepted: 2024. An
+    /// older one is refused when the manifest is read (it used to be accepted
+    /// and produced crates rustc rejects), and so is a made-up one.
+    #[test]
+    fn only_a_compiling_rust_edition_is_accepted() {
+        parse_with("[rust]\nedition = \"2024\"").expect("2024 parses");
+        for extra in ["[rust]\nedition = \"2021\"", "[rust]\nedition = \"2015\"", "[rust]\nedition = \"2099\""] {
+            let error = parse_with(extra).expect_err(extra).to_string();
+            assert!(error.contains("unknown variant") && error.contains("2024"), "{extra}: {error}");
         }
     }
 

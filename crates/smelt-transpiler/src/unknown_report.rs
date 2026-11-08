@@ -69,7 +69,7 @@ use scan::{ScanResult, scan_files};
 
 use crate::{
     CliResult,
-    report::{self, GatedOutcome, ReportFormat},
+    report::{self, GatedOutcome, ReportFormat, Schema, SchemaVersion},
     source_files::discover_rust_files,
 };
 
@@ -163,6 +163,8 @@ struct ShapeGroup {
 /// and as the checked-in baseline.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct UnknownReport {
+    /// Format version; reading another is an error.
+    version: SchemaVersion<Self>,
     /// Number of generated `.rs` files scanned.
     files_scanned: usize,
     /// Total `SmeltUnknown` occurrences across every category.
@@ -176,6 +178,11 @@ pub(crate) struct UnknownReport {
     /// sidecar existed (and corpora without one) keep parsing unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     erasure: Option<crate::erasure::ErasureBreakdown>,
+}
+
+impl Schema for UnknownReport {
+    const NAME: &'static str = "SmeltUnknown report";
+    const VERSION: u32 = 1;
 }
 
 impl UnknownReport {

@@ -20,6 +20,7 @@ use crate::{
 #[cfg(feature = "ts7")]
 use crate::ts7_parity_report;
 use crate::lowering::ManifestLowering;
+use crate::type_gate::TypeErrorPolicy;
 use crate::scaffold;
 use crate::clean;
 
@@ -44,6 +45,7 @@ pub fn run() -> CliResult<()> {
         Command::RustTestReport {
             cargo_manifest,
             build_manifest,
+            allow_type_errors,
             focus,
             guard,
             full,
@@ -56,7 +58,8 @@ pub fn run() -> CliResult<()> {
             if let Some(source_manifest) = build_manifest {
                 let path = PathBuf::from(source_manifest);
                 let config = load_config(&path)?;
-                pipeline::build_rust_crate(&config, &path)?;
+                let type_errors = TypeErrorPolicy::resolve(config.type_errors(), allow_type_errors);
+                pipeline::build_rust_crate(&config, &path, type_errors)?;
             }
             let report = test_report::rust_test_report(&test_report::RustTestReportOptions {
                 cargo_manifest: &PathBuf::from(cargo_manifest),
@@ -130,30 +133,36 @@ pub fn run() -> CliResult<()> {
             let mut config = load_config(&manifest_path)?;
             config.extend_defines(define.values);
             let settings = erasure::ErasureSettings::new(config.erasure(), &erasure)?;
+            let type_errors = if deny_type_errors { TypeErrorPolicy::Deny } else { TypeErrorPolicy::Allow };
             match message_format {
                 MessageFormat::Human => {
-                    pipeline::check_manifest(&config, &manifest_path, &settings, deny_type_errors)?;
+                    pipeline::check_manifest(&config, &manifest_path, &settings, type_errors)?;
                 }
                 MessageFormat::Json => {
-                    let diagnostics = ManifestLowering::for_manifest(&config, &manifest_path)?
-                        .diagnostics(Some(&settings))?;
+                    // The report goes to stdout whole, type errors included, and
+                    // the gate's verdict decides the exit status after it.
+                    let checked = ManifestLowering::for_manifest(&config, &manifest_path)?.check();
+                    let verdict = checked.verdict(type_errors);
+                    let diagnostics = checked.into_measured().diagnostics(Some(&settings))?;
                     let mut stdout = io::stdout().lock();
                     writeln!(stdout, "{}", serde_json::to_string_pretty(&diagnostics)?)?;
-                    if deny_type_errors {
-                        crate::ts_facts::fail_on_type_errors(&diagnostics)?;
-                    }
+                    verdict?;
                 }
             }
         }
-        Command::Build { hir, define, erasure } => {
+        Command::Build { hir, define, erasure, allow_type_errors } => {
             let mut config = load_config(&manifest_path)?;
             config.extend_defines(define.values);
+            let type_errors = TypeErrorPolicy::resolve(config.type_errors(), allow_type_errors);
             if let Some(mode) = hir.mode() {
-                let (krate, modules) = ManifestLowering::for_manifest(&config, &manifest_path)?.lower()?;
-                pipeline::print_hir(&krate, &modules, mode);
+                let lowered = ManifestLowering::for_manifest(&config, &manifest_path)?
+                    .check()
+                    .into_inner(type_errors)?
+                    .lower()?;
+                pipeline::print_hir(&lowered.krate, &lowered.modules, mode);
             } else {
                 let settings = erasure::ErasureSettings::new(config.erasure(), &erasure)?;
-                pipeline::build_rust_crate_with_erasure(&config, &manifest_path, &settings)?;
+                pipeline::build_rust_crate_with_erasure(&config, &manifest_path, &settings, type_errors)?;
             }
         }
         Command::New { name, python } => {
@@ -162,14 +171,16 @@ pub fn run() -> CliResult<()> {
             let root = scaffold::new_project(Path::new("."), &name, language)?;
             writeln!(io::stdout().lock(), "Created `{}`. Run `smelt build` there.", root.display())?;
         }
+        // The dumps show what lowering makes of a file, type errors or not;
+        // they emit no program.
         Command::DumpHir { file, debug } => {
-            let (krate, modules) = ManifestLowering::for_file(&file)?.lower()?;
+            let lowered = ManifestLowering::for_file(&file)?.check().into_measured().lower()?;
             let mode = if debug { HirMode::Debug } else { HirMode::Compact };
-            pipeline::print_hir(&krate, &modules, mode);
+            pipeline::print_hir(&lowered.krate, &lowered.modules, mode);
         }
         Command::DumpMir { file } => {
-            let (krate, _) = ManifestLowering::for_file(&file)?.lower()?;
-            pipeline::print_mir(&krate)?;
+            let lowered = ManifestLowering::for_file(&file)?.check().into_measured().lower()?;
+            pipeline::print_mir(&lowered.krate)?;
         }
         Command::DumpAst { file } => match SourceLang::from_path(&file)? {
             SourceLang::Python | SourceLang::PythonDeclaration => pipeline::dump_python_ast(&file)?,
@@ -179,7 +190,7 @@ pub fn run() -> CliResult<()> {
                     .into());
             }
         },
-        Command::Probe { run_tests, define, report: ReportArgs { format, output } } => {
+        Command::Probe { run_tests, define, allow_type_errors, report: ReportArgs { format, output } } => {
             let mut config = load_config(&manifest_path)?;
             config.extend_defines(define.values);
             let report = probe::probe_report(&probe::ProbeOptions {
@@ -187,6 +198,7 @@ pub fn run() -> CliResult<()> {
                 manifest_path: &manifest_path,
                 run_tests,
                 format,
+                type_errors: TypeErrorPolicy::resolve(config.type_errors(), allow_type_errors),
             })?;
             write_report(output.as_deref(), &report)?;
         }

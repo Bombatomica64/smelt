@@ -12,6 +12,9 @@ use common::{
 
 #[test]
 fn build_runs_python_entry_importing_typescript_function() -> TestResult {
+    // The checkers cannot vouch for this program (Smelt resolves an import
+    // or a global the closure-only checker setup does not see), so it is
+    // built with type errors allowed; see `type_gate_cli_tests.rs`.
     let project = TempProject::new()?;
     let project_path = project.path();
     fs::create_dir_all(project_path.join("src"))?;
@@ -43,7 +46,7 @@ clone-strategy = "aggressive"
     )?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
-    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+    smelt(&["--manifest-path", &manifest_arg, "build", "--allow-type-errors"])?;
 
     // Requirement change (2026-11-04): `result` is a Python `float` printed
     // by the Python entry, so CPython prints `5.0`, not JavaScript's `5`.
@@ -55,6 +58,9 @@ clone-strategy = "aggressive"
 
 #[test]
 fn build_keeps_one_main_when_python_entry_imports_typescript_main_module() -> TestResult {
+    // The checkers cannot vouch for this program (Smelt resolves an import
+    // or a global the closure-only checker setup does not see), so it is
+    // built with type errors allowed; see `type_gate_cli_tests.rs`.
     let project = TempProject::new()?;
     let project_path = project.path();
     fs::create_dir_all(project_path.join("src/lib"))?;
@@ -86,7 +92,7 @@ clone-strategy = "aggressive"
     )?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
-    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+    smelt(&["--manifest-path", &manifest_arg, "build", "--allow-type-errors"])?;
 
     let generated = fs::read_to_string(project_path.join("dist/src/main.rs"))?;
     ensure_eq(
@@ -257,6 +263,9 @@ print(result)
 
 #[test]
 fn build_runs_typescript_entry_importing_python_function() -> TestResult {
+    // The checkers cannot vouch for this program (Smelt resolves an import
+    // or a global the closure-only checker setup does not see), so it is
+    // built with type errors allowed; see `type_gate_cli_tests.rs`.
     let project = TempProject::new()?;
     let project_path = project.path();
     fs::create_dir_all(project_path.join("src"))?;
@@ -288,7 +297,7 @@ clone-strategy = "aggressive"
     )?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
-    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+    smelt(&["--manifest-path", &manifest_arg, "build", "--allow-type-errors"])?;
 
     let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
     ensure_eq(&actual_stdout, &"13\n".to_owned(), "unexpected stdout")?;
@@ -1510,6 +1519,9 @@ const RUNTIME_FIXTURES: &[&str] = &[
 
 #[test]
 fn build_runs_runtime_fixtures() -> TestResult {
+    // The checkers cannot vouch for this program (Smelt resolves an import
+    // or a global the closure-only checker setup does not see), so it is
+    // built with type errors allowed; see `type_gate_cli_tests.rs`.
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runtime");
     for name in RUNTIME_FIXTURES {
         let source = fs::read_to_string(root.join(name).join("input.ts"))?;
@@ -1541,7 +1553,7 @@ clone-strategy = "aggressive"
         )?;
         fs::write(project_path.join("src/main.ts"), &source)?;
         let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
-        smelt_shared(&["--manifest-path", &manifest_arg, "build"], &shared)?;
+        smelt_shared(&["--manifest-path", &manifest_arg, "build", "--allow-type-errors"], &shared)?;
         let actual_stdout = cargo_run_shared(&project_path.join("dist/Cargo.toml"), &shared)?;
         ensure_eq(&actual_stdout, &expected, format!("unexpected stdout for {name}"))?;
         // `expected.stdout` is documented as Node's output; check that it is.

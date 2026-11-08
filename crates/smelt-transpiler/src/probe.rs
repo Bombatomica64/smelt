@@ -33,6 +33,8 @@ pub(crate) struct ProbeOptions<'a> {
     pub(crate) run_tests: bool,
     /// Report serialization format.
     pub(crate) format: ReportFormat,
+    /// What the whole-crate build does with type-checker errors.
+    pub(crate) type_errors: crate::type_gate::TypeErrorPolicy,
 }
 
 /// One blocker class: a category plus a normalized message shape, with counts.
@@ -191,7 +193,7 @@ fn run_probe(options: &ProbeOptions<'_>) -> CliResult<ProbeResult> {
     // Whole-crate build decides the transpile verdict. A panic counts as a
     // failed transpile attributed to a frontend panic.
     let build = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        pipeline::build_rust_crate(options.config, options.manifest_path)
+        pipeline::build_rust_crate(options.config, options.manifest_path, options.type_errors)
     }));
     let mut verdict = Verdict::of_build(build);
 
@@ -304,7 +306,10 @@ fn scan_files(
     let mut seen_by_file: BTreeMap<String, std::collections::BTreeSet<BlockerKey>> =
         BTreeMap::new();
 
-    let mut diagnostics = lowering::ManifestLowering::for_manifest(config, manifest_path)?.diagnostics(None)?;
+    // The blocker scan reports lowering blockers, not type errors: the
+    // whole-crate build above already applied the type gate.
+    let mut diagnostics =
+        lowering::ManifestLowering::for_manifest(config, manifest_path)?.check().into_measured().diagnostics(None)?;
     diagnostics.sort_by(|left, right| left.file.cmp(&right.file));
     for diagnostic in diagnostics {
             let path = diagnostic.file.clone();

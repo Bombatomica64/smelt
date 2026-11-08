@@ -111,8 +111,8 @@ impl Config {
 
     /// Get the Rust edition of the generated crate.
     #[must_use]
-    pub fn rust_edition(&self) -> &str {
-        self.rust.edition.as_deref().unwrap_or(DEFAULT_RUST_EDITION)
+    pub fn rust_edition(&self) -> RustEdition {
+        self.rust.edition.unwrap_or_default()
     }
 
     /// Get `[rust.dependencies]` as `(name, TOML value text)`, in name order.
@@ -136,10 +136,6 @@ impl Config {
         }
         if let Some(strategy) = self.runtime.clone_strategy.as_deref().filter(|value| *value != "aggressive") {
             return Some(format!("runtime.clone-strategy={strategy:?} is not supported in v1.0"));
-        }
-        let edition = self.rust_edition();
-        if !RUST_EDITIONS.contains(&edition) {
-            return Some(format!("rust.edition={edition:?} is not a Rust edition"));
         }
         None
     }
@@ -249,6 +245,12 @@ impl Config {
     #[must_use]
     pub fn should_build_output(&self) -> bool {
         self.output.build.unwrap_or(false)
+    }
+
+    /// `[build] type-errors`: what a build does with type-checker errors.
+    #[must_use]
+    pub const fn type_errors(&self) -> crate::type_gate::TypeErrorPolicy {
+        self.build.type_errors
     }
 }
 
@@ -406,20 +408,45 @@ pub struct Build {
     /// into the program text.
     #[serde(default)]
     define: BTreeMap<String, String>,
+    /// What `smelt build` does when the type checkers (TypeScript's, ty for
+    /// Python) report an error or cannot run: `"deny"` (the default) refuses to
+    /// lower the program, `"allow"` prints the errors as warnings and lowers it
+    /// anyway. `--allow-type-errors` allows for one run.
+    #[serde(default, rename = "type-errors")]
+    type_errors: crate::type_gate::TypeErrorPolicy,
 }
 
-/// The edition of a generated crate whose manifest names none.
-const DEFAULT_RUST_EDITION: &str = "2024";
+/// The `[rust] edition` of the generated crate.
+///
+/// Only the editions generated code compiles under are variants (see
+/// `smelt_codegen_rust::RustEdition`): the emitted text and the inlined runtime
+/// use let-chains and the 2024 keyword rules, so a manifest asking for 2021 is
+/// refused when it is read rather than producing a crate that cannot compile.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, JsonSchema)]
+pub enum RustEdition {
+    /// The 2024 edition.
+    #[default]
+    #[serde(rename = "2024")]
+    Edition2024,
+}
 
-/// Every edition Cargo accepts.
-const RUST_EDITIONS: [&str; 4] = ["2015", "2018", "2021", "2024"];
+impl RustEdition {
+    /// The codegen edition this one is.
+    #[must_use]
+    pub const fn codegen(self) -> smelt_codegen_rust::RustEdition {
+        match self {
+            Self::Edition2024 => smelt_codegen_rust::RustEdition::Edition2024,
+        }
+    }
+}
 
 /// Generated-Rust configuration from the [rust] section.
 #[derive(Default, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Rust {
-    /// Rust edition of the generated crate; 2024 when absent.
-    edition: Option<String>,
+    /// Rust edition of the generated crate; 2024 when absent, and the only
+    /// edition generated code compiles under.
+    edition: Option<RustEdition>,
     /// Added to the generated crate's `[dependencies]` verbatim. Same syntax as
     /// Cargo's table, and an entry here replaces what Smelt would add for that crate.
     #[serde(default)]

@@ -91,6 +91,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             pending_host_imports: Vec::new(),
             excluded_modules,
             ts_facts: None,
+            trust: crate::lowering::SourceTrust::Unchecked,
             int32_type_depth: 0,
             tuple_rest_arrows: HashMap::new(),
             type_param_owners: HashMap::new(),

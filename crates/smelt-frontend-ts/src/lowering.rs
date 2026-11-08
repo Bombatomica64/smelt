@@ -256,6 +256,28 @@ pub struct FrontendOptions<'manifest> {
     /// operators come from TypeScript itself. `None` keeps the
     /// annotation-only behaviour.
     pub ts_facts: Option<&'manifest smelt_ts_model::TsTypeFacts>,
+    /// Whether the TypeScript checker accepted this source; see [`SourceTrust`].
+    pub trust: SourceTrust,
+}
+
+/// Whether a type checker accepted the source being lowered.
+///
+/// Lowering takes a few shortcuts that are sound only for a program the
+/// checker accepted: an inferred generic binding never meets an unrelated
+/// candidate, for one. A source nothing vouches for is lowered `Unchecked`, and
+/// such a shortcut refuses it with a `smelt::ill-typed-source` error instead of
+/// producing silently wrong output. The transpiler decides the trust of each
+/// file from the checker's report (`smelt build` refuses ill-typed sources
+/// unless type errors are explicitly allowed); a direct frontend caller with no
+/// checker gets the default, `Unchecked`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[expect(clippy::exhaustive_enums, reason = "a checker either accepted the source or it did not")]
+pub enum SourceTrust {
+    /// The checker accepted the source: lowering may rely on what it rules out.
+    Checked,
+    /// Nothing vouches for the source: checked-program shortcuts refuse it.
+    #[default]
+    Unchecked,
 }
 
 /// Materialized specialization data owned by one source module builder.
@@ -456,6 +478,12 @@ pub fn to_hir_with_options(
             .collect());
     }
 
+    if let Some((name, span)) = hoisting::duplicate_function_implementation(&parsed.program) {
+        return Err(vec![SmeltError::ill_typed(
+            Span::new(file_id, span.start, span.end),
+            format!("duplicate function implementation `{name}` (TypeScript rejects it: TS2393)"),
+        )]);
+    }
     let specialization = specialization::specialization_for_path(path, options.specialization);
     let mut builder = ModuleBuilder::new(
         file_id,
@@ -466,6 +494,7 @@ pub fn to_hir_with_options(
         options.excluded_modules.to_vec(),
     );
     builder.ts_facts = options.ts_facts.filter(|facts| facts.has_file(path));
+    builder.trust = options.trust;
     builder.type_param_owners = type_param_owners::type_param_owners(&parsed.program);
     builder.adopt_source_facts(source_facts::SourceFacts::collect(&parsed.program));
     builder.program(&parsed.program)
@@ -931,6 +960,8 @@ struct ModuleBuilder<'ctx> {
     /// TypeScript 7 checker facts covering this module, if the checker ran;
     /// see [`FrontendOptions::ts_facts`] and `lowering/checker_types.rs`.
     ts_facts: Option<&'ctx smelt_ts_model::TsTypeFacts>,
+    /// Whether the checker accepted this source; see [`SourceTrust`].
+    trust: SourceTrust,
     /// How deep inside a type annotation lowering currently is.
     ///
     /// Bun's `int32` is an int32 only as the WHOLE type of a slot; nested in

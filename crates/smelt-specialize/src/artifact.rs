@@ -101,6 +101,38 @@ impl SpecializationArtifactStore {
         write_if_changed(&path, &bytes)
     }
 
+    /// Whether `path` is an artifact file this store wrote: it lies at
+    /// `<root>/<language>/<key>.json` and holds an artifact whose cache key is
+    /// `<key>` (the layout and content [`Self::store`] writes).
+    ///
+    /// `smelt clean` asks this to tell the build's own artifacts from files
+    /// someone put in the output directory.
+    #[must_use]
+    pub fn wrote(&self, path: &Path) -> bool {
+        let Ok(relative) = path.strip_prefix(&self.root) else {
+            return false;
+        };
+        let mut components = relative.components();
+        let (Some(language), Some(file), None) = (components.next(), components.next(), components.next()) else {
+            return false;
+        };
+        let known_language = [HostLanguage::Python, HostLanguage::TypeScript]
+            .into_iter()
+            .any(|known| language.as_os_str() == language_directory(known));
+        let Some(stem) = Path::new(file.as_os_str())
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|name| name.strip_suffix(".json"))
+        else {
+            return false;
+        };
+        known_language
+            && fs::read(path)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<SpecializationArtifact>(&bytes).ok())
+                .is_some_and(|artifact| artifact.cache_key.as_str() == stem)
+    }
+
     /// Copies a cached artifact into a package artifact directory.
     ///
     /// The package layout is identical to the cache layout, so consumers can
@@ -288,15 +320,14 @@ mod tests {
     }
 
     fn key() -> Result<SpecializationCacheKey, serde_json::Error> {
-        SpecializationCacheKey::compute(&crate::CacheKeyInput {
-            smelt_version: "test".to_owned(),
-            schema_version: MANIFEST_SCHEMA_VERSION,
-            language: HostLanguage::Python,
-            host_runtime_version: "test-runtime".to_owned(),
-            hashes: hashes(),
-            sandbox_policy: policy(),
-            native_adapter_versions: Vec::new(),
-        })
+        let project = crate::ProjectRoot::new(Path::new("/project")).map_err(serde::de::Error::custom)?;
+        SpecializationCacheKey::compute(&crate::CacheKeyInput::new(
+            HostLanguage::Python,
+            "test-runtime".to_owned(),
+            hashes(),
+            &policy(),
+            &project,
+        ))
     }
 
     fn manifest() -> SpecializationManifest {

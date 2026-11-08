@@ -174,6 +174,87 @@ pub(crate) fn scan_imports(source: &str) -> Result<Vec<ManifestImport>, String> 
     Ok(visitor.imports)
 }
 
+/// ty's verdict over the Python sources among `sources`, checked as one
+/// program whose project directory is `project_dir`.
+///
+/// Errors and warnings are located in the text the build lowers; a check that
+/// could not run (ty failed to open the program) vouches for nothing.
+#[cfg(feature = "ty")]
+pub(crate) fn check_sources(
+    sources: &[&crate::manifest::ManifestSource],
+    project_dir: &std::path::Path,
+) -> crate::type_gate::LanguageCheck {
+    use crate::lowering::{Severity, source_line_column};
+    use crate::type_gate::LanguageCheck;
+    use smelt_frontend_py::{CheckSeverity, CheckSource};
+
+    let python = python_sources(sources);
+    if python.is_empty() {
+        return LanguageCheck::Absent;
+    }
+    let inputs = python
+        .iter()
+        .map(|source| CheckSource { path: &source.path, text: &source.source })
+        .collect::<Vec<_>>();
+    let reported = match smelt_frontend_py::check_sources(&inputs, project_dir) {
+        Ok(reported) => reported,
+        Err(error) => return LanguageCheck::Unverified(format!("ty could not check the Python sources: {error:#}")),
+    };
+    let diagnostics = reported
+        .into_iter()
+        .map(|diagnostic| {
+            let located = python.iter().find(|source| source.path == diagnostic.path);
+            let (line, column) = located
+                .zip(diagnostic.offset)
+                .and_then(|(source, offset)| source_line_column(&source.source, offset))
+                .unzip();
+            ManifestDiagnostic {
+                file: diagnostic.path.display().to_string(),
+                category: smelt_stdlib::DiagnosticCategory::TypeCheck,
+                code: "smelt::py-check",
+                message: format!("{}: {}", diagnostic.rule, diagnostic.message),
+                line,
+                column,
+                severity: Some(match diagnostic.severity {
+                    CheckSeverity::Error => Severity::Error,
+                    CheckSeverity::Warning => Severity::Warning,
+                }),
+            }
+        })
+        .collect();
+    LanguageCheck::Ran(diagnostics)
+}
+
+/// Without ty there is no Python checker: Python sources are unverified.
+#[cfg(not(feature = "ty"))]
+pub(crate) fn check_sources(
+    sources: &[&crate::manifest::ManifestSource],
+    _project_dir: &std::path::Path,
+) -> crate::type_gate::LanguageCheck {
+    if python_sources(sources).is_empty() {
+        return crate::type_gate::LanguageCheck::Absent;
+    }
+    crate::type_gate::LanguageCheck::Unverified(
+        "this smelt was built without the Python checker (feature `ty`)".to_owned(),
+    )
+}
+
+/// The Python sources (modules and stubs) among `sources`.
+fn python_sources<'source>(
+    sources: &[&'source crate::manifest::ManifestSource],
+) -> Vec<&'source crate::manifest::ManifestSource> {
+    sources
+        .iter()
+        .copied()
+        .filter(|source| {
+            matches!(
+                source.lang,
+                crate::source_files::SourceLang::Python | crate::source_files::SourceLang::PythonDeclaration
+            )
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------------------
 // Feature disabled: TypeScript-only build stubs.
 // ---------------------------------------------------------------------------

@@ -1,9 +1,102 @@
 //! Declaration stub emission for TypeScript and Python LSPs.
+//!
+//! Every lowered source module gets a `.d.ts` and a `.pyi` beside it, so an
+//! editor resolving the module from either language sees its lowered surface.
+//! Those files sit in the user's source tree, so writing one is guarded by
+//! ownership: a stub is written only over nothing or over a file that starts
+//! with Smelt's own stub header ([`ClaimedStub`]), never over a hand-written
+//! declaration; it is rewritten only when its bytes change, so an editor or a
+//! build tool watching mtimes sees no churn; and two sources whose stubs would
+//! land on one path (`a.ts` and `a.mts` both declare `a.d.ts`) are refused
+//! before anything is written.
 
 use smelt_hir::{Crate, Function, Item, ModuleId, Type};
-use std::{fs, path::Path};
+use std::collections::BTreeMap;
+use std::io::Write as _;
+use std::{fs, io, path::{Path, PathBuf}};
 
 use crate::report::push_fmt;
+
+/// The two stub languages.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StubKind {
+    /// A TypeScript declaration file (`.d.ts`).
+    TypeScript,
+    /// A Python stub (`.pyi`).
+    Python,
+}
+
+impl StubKind {
+    /// Both kinds, in the order they are written.
+    const ALL: [Self; 2] = [Self::TypeScript, Self::Python];
+
+    /// The extension replacing the source's.
+    const fn extension(self) -> &'static str {
+        match self {
+            Self::TypeScript => "d.ts",
+            Self::Python => "pyi",
+        }
+    }
+
+    /// The first line of every stub of this kind; it marks the file as Smelt's.
+    const fn header(self) -> &'static str {
+        match self {
+            Self::TypeScript => smelt_hir::TS_STUB_HEADER,
+            Self::Python => smelt_hir::PY_STUB_HEADER,
+        }
+    }
+
+    /// The stub of `module`, starting with [`Self::header`].
+    fn render(self, krate: &Crate, module: ModuleId) -> String {
+        match self {
+            Self::TypeScript => typescript_declaration(krate, module),
+            Self::Python => python_declaration(krate, module),
+        }
+    }
+}
+
+/// A stub destination Smelt may write: nothing is there, or the file there
+/// carries Smelt's stub header of the same kind.
+///
+/// Only [`Self::claim`] builds one, and it reads the file to decide, so a
+/// hand-written declaration can never be overwritten.
+#[derive(Debug)]
+struct ClaimedStub {
+    /// Where the stub goes.
+    path: PathBuf,
+    /// What kind of stub may go there.
+    kind: StubKind,
+    /// The bytes there now, if any.
+    existing: Option<String>,
+}
+
+impl ClaimedStub {
+    /// Claims `path` for a `kind` stub, or answers `None` when the file there
+    /// is not Smelt's.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the file exists but cannot be read.
+    fn claim(path: PathBuf, kind: StubKind) -> io::Result<Option<Self>> {
+        match fs::read(&path) {
+            Ok(bytes) => Ok(String::from_utf8(bytes)
+                .ok()
+                .filter(|text| text.starts_with(kind.header()))
+                .map(|existing| Self { path, kind, existing: Some(existing) })),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Some(Self { path, kind, existing: None })),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Writes `module`'s stub here, unless the bytes are already there.
+    fn write(self, krate: &Crate, module: ModuleId) -> io::Result<()> {
+        let text = self.kind.render(krate, module);
+        if self.existing.as_deref() == Some(text.as_str()) {
+            return Ok(());
+        }
+        fs::write(&self.path, text)
+    }
+}
 
 /// Emit `.d.ts` and `.pyi` files next to each lowered source module.
 ///
@@ -11,29 +104,62 @@ use crate::report::push_fmt;
 /// component) gets no stub: Smelt never writes into installed packages. Such a
 /// module is a file a package's typed version lays over the installed package,
 /// in memory only (see `crate::sound`), and its stub would overwrite the
-/// package's own `index.d.ts` or add files to it.
+/// package's own `index.d.ts` or add files to it. A declaration file gets none
+/// either: it is already one.
+///
+/// A destination holding a file Smelt did not write is left alone, with a
+/// warning; see the module docs.
 ///
 /// # Errors
 ///
-/// Returns an error if any declaration file cannot be written.
+/// Returns an error, before writing anything, when two modules' stubs would
+/// land on one path; or when a declaration file cannot be read or written.
 pub fn emit_type_declarations(
     krate: &Crate,
     modules: &[(String, ModuleId)],
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let planned = plan_stubs(modules)?;
+    for (destination, (kind, module, _source)) in planned {
+        match ClaimedStub::claim(destination.clone(), kind)? {
+            Some(claimed) => claimed.write(krate, module)?,
+            None => {
+                let _ignored = writeln!(
+                    io::stderr().lock(),
+                    "warning[stubs]: left `{}` alone: it was not written by smelt",
+                    destination.display()
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Every stub to write, by destination: its kind, module and source path.
+///
+/// # Errors
+///
+/// Two sources whose stubs share a destination.
+fn plan_stubs(
+    modules: &[(String, ModuleId)],
+) -> Result<BTreeMap<PathBuf, (StubKind, ModuleId, &str)>, String> {
+    let mut planned = BTreeMap::new();
     for (path, module_id) in modules {
         if is_declaration_path(path) || is_installed_package_path(path) {
             continue;
         }
-        let source_path = Path::new(path);
-        let mut typescript_path = source_path.to_path_buf();
-        typescript_path.set_extension("d.ts");
-        fs::write(typescript_path, typescript_declaration(krate, *module_id))?;
-
-        let mut python_path = source_path.to_path_buf();
-        python_path.set_extension("pyi");
-        fs::write(python_path, python_declaration(krate, *module_id))?;
+        for kind in StubKind::ALL {
+            let mut destination = Path::new(path).to_path_buf();
+            destination.set_extension(kind.extension());
+            if let Some((_, _, other)) = planned.insert(destination.clone(), (kind, *module_id, path.as_str())) {
+                return Err(format!(
+                    "the declaration stubs of `{other}` and `{path}` would both be written to `{}`; \
+                     rename one of the sources",
+                    destination.display()
+                ));
+            }
+        }
     }
-    Ok(())
+    Ok(planned)
 }
 
 /// Return whether a path lies inside an installed package (`node_modules`).
@@ -481,5 +607,88 @@ fn py_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
             py_type(krate, *yield_ty),
             py_type(krate, *return_ty)
         ),
+    }
+}
+
+#[cfg(test)]
+#[expect(clippy::expect_used, reason = "a test fails fast on fixture setup")]
+mod tests {
+    //! Stub ownership, collisions and write-only-when-changed.
+
+    use super::*;
+
+    /// A crate with one empty module lowered from `path`.
+    fn one_module(path: &str) -> (Crate, Vec<(String, ModuleId)>) {
+        let mut krate = Crate::new();
+        let module = krate.push_module(smelt_hir::Module::new(
+            "main",
+            smelt_hir::SourceFile {
+                path: path.to_owned(),
+                language: smelt_hir::Language::TypeScript,
+                file: smelt_hir::FileId(0),
+            },
+        ));
+        (krate, vec![(path.to_owned(), module)])
+    }
+
+    /// A hand-written stub beside a source is never overwritten; a missing one
+    /// is written with Smelt's header.
+    #[test]
+    fn a_hand_written_stub_is_left_alone() {
+        let dir = tempfile::tempdir().expect("temporary directory");
+        let source = dir.path().join("lib.ts");
+        fs::write(dir.path().join("lib.pyi"), "def mine() -> int: ...\n").expect("write fixture");
+        let (krate, modules) = one_module(&source.display().to_string());
+        emit_type_declarations(&krate, &modules).expect("emit");
+        assert_eq!(
+            fs::read_to_string(dir.path().join("lib.pyi")).expect("read"),
+            "def mine() -> int: ...\n",
+            "a hand-written .pyi must survive"
+        );
+        let declaration = fs::read_to_string(dir.path().join("lib.d.ts")).expect("read");
+        assert!(declaration.starts_with(smelt_hir::TS_STUB_HEADER), "{declaration}");
+    }
+
+    /// A stub whose bytes did not change keeps its mtime; a stale one of
+    /// Smelt's is replaced.
+    #[test]
+    fn an_unchanged_stub_is_not_rewritten() {
+        let dir = tempfile::tempdir().expect("temporary directory");
+        let source = dir.path().join("lib.ts");
+        let (krate, modules) = one_module(&source.display().to_string());
+        let stub = dir.path().join("lib.d.ts");
+        fs::write(&stub, format!("{}\nstale\n", smelt_hir::TS_STUB_HEADER)).expect("write fixture");
+        emit_type_declarations(&krate, &modules).expect("emit");
+        let fresh = fs::read_to_string(&stub).expect("read");
+        assert!(!fresh.contains("stale"), "Smelt's own stale stub is replaced: {fresh}");
+        let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
+        fs::File::options().write(true).open(&stub).expect("open").set_modified(old).expect("set mtime");
+        emit_type_declarations(&krate, &modules).expect("emit again");
+        assert_eq!(fs::metadata(&stub).expect("stat").modified().expect("mtime"), old);
+    }
+
+    /// Two sources whose stubs share a path are refused before anything is written.
+    #[test]
+    fn colliding_stems_are_refused() {
+        let dir = tempfile::tempdir().expect("temporary directory");
+        let mut krate = Crate::new();
+        let modules = ["a.ts", "a.mts"]
+            .into_iter()
+            .map(|name| {
+                let path = dir.path().join(name).display().to_string();
+                let module = krate.push_module(smelt_hir::Module::new(
+                    "m",
+                    smelt_hir::SourceFile {
+                        path: path.clone(),
+                        language: smelt_hir::Language::TypeScript,
+                        file: smelt_hir::FileId(0),
+                    },
+                ));
+                (path, module)
+            })
+            .collect::<Vec<_>>();
+        let error = emit_type_declarations(&krate, &modules).expect_err("a collision is refused").to_string();
+        assert!(error.contains("a.d.ts"), "{error}");
+        assert!(!dir.path().join("a.d.ts").exists(), "nothing is written");
     }
 }

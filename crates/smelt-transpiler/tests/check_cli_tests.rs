@@ -49,7 +49,7 @@ fn check_reports_a_type_error_and_passes_by_default() -> TestResult {
     project(temp.path(), REJECTED)?;
     let (ok, _, stderr) = run(temp.path(), None, &["check"])?;
     ensure(ok, stderr.clone())?;
-    ensure(stderr.contains("warning[ts-check]"), stderr.clone())?;
+    ensure(stderr.contains("warning[type-check]"), stderr.clone())?;
     ensure(stderr.contains("src/main.ts:2:"), stderr.clone())?;
     ensure(stderr.contains("TS2322"), stderr)
 }
@@ -61,7 +61,7 @@ fn deny_type_errors_fails_the_check() -> TestResult {
     project(temp.path(), REJECTED)?;
     let (ok, _, stderr) = run(temp.path(), None, &["check", "--deny-type-errors"])?;
     ensure(!ok, "a checker error passed --deny-type-errors")?;
-    ensure(stderr.contains("error[ts-check]"), stderr.clone())?;
+    ensure(stderr.contains("error[type-check]"), stderr.clone())?;
     ensure(stderr.contains("1 error(s)"), stderr)?;
 
     let (passed, stdout, _) =
@@ -80,25 +80,25 @@ fn a_valid_program_is_clean() -> TestResult {
     project(temp.path(), VALID)?;
     let (ok, _, stderr) = run(temp.path(), None, &["check", "--deny-type-errors"])?;
     ensure(ok, stderr.clone())?;
-    ensure(!stderr.contains("ts-check"), stderr)
+    ensure(!stderr.contains("type-check"), stderr)
 }
 
-/// `SMELT_TS7=0` runs without the checker, so it has nothing to report.
+/// `SMELT_TS7=0` runs without the checker, so nothing vouches for the program:
+/// `check` warns that it was not type-checked, and the strict form fails.
+///
+/// The old requirement was "nothing to report, and `--deny-type-errors`
+/// passes": no checker counted as a clean check. Since lowering relies on a
+/// program that type-checks (the type gate), a run no checker vouched for is
+/// refused like one with errors, and `--allow-type-errors` is the way to lower
+/// it anyway.
 #[test]
-fn smelt_ts7_zero_turns_the_checker_off() -> TestResult {
+fn smelt_ts7_zero_leaves_the_program_unverified() -> TestResult {
     let temp = TempProject::new()?;
     project(temp.path(), REJECTED)?;
-    let (ok, _, stderr) = run(temp.path(), Some("0"), &["check", "--deny-type-errors"])?;
+    let (ok, _, stderr) = run(temp.path(), Some("0"), &["check"])?;
     ensure(ok, stderr.clone())?;
-    ensure(!stderr.contains("ts-check"), stderr)
-}
-
-/// `build` does not report or stop on a checker error.
-#[test]
-fn build_is_not_judged_by_the_checker() -> TestResult {
-    let temp = TempProject::new()?;
-    project(temp.path(), REJECTED)?;
-    let (ok, _, stderr) = run(temp.path(), None, &["build"])?;
-    ensure(ok, stderr.clone())?;
-    ensure(!stderr.contains("ts-check"), stderr)
+    ensure(stderr.contains("not type-checked") && !stderr.contains("TS2322"), stderr)?;
+    let (denied_ok, _, denied_stderr) = run(temp.path(), Some("0"), &["check", "--deny-type-errors"])?;
+    ensure(!denied_ok, "an unchecked program passed --deny-type-errors")?;
+    ensure(denied_stderr.contains("SMELT_TS7=0"), denied_stderr)
 }

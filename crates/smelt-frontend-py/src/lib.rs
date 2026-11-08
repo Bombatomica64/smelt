@@ -77,6 +77,9 @@
     reason = "range conversion indexes validated source offsets from Ruff spans"
 )]
 pub use ruff_python_ast as ast;
+/// Whole-program checking with ty, for the build's type gate.
+#[cfg(feature = "ty")]
+pub use smelt_py_types::{CheckDiagnostic, CheckSeverity, CheckSource, check_sources};
 
 use std::path::Path;
 

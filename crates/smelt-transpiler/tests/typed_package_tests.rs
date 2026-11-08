@@ -168,7 +168,10 @@ struct Run {
 fn build(root: &Path, extra: &[&str]) -> TestResult<Run> {
     let manifest = utf8_path(&root.join("Smelt.toml"))?;
     let output = Command::new(env!("CARGO_BIN_EXE_smelt"))
-        .args(["--manifest-path", &manifest, "build"])
+        // The checker resolves `geom` as plain npm resolution does and cannot
+        // see a typed version laid over it, so these builds allow type
+        // errors; what they test is which source the build lowers.
+        .args(["--manifest-path", &manifest, "build", "--allow-type-errors"])
         .args(extra)
         .output()?;
     Ok(Run {

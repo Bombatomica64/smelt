@@ -58,6 +58,7 @@ pub mod stubs;
 mod test_report;
 mod timing;
 mod ts_facts;
+pub mod type_gate;
 #[cfg(feature = "ts7")]
 mod ts7_parity;
 #[cfg(feature = "ts7")]

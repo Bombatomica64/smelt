@@ -58,7 +58,7 @@ use smelt_codegen_rust::{KindCounts, TypednessCounts};
 use crate::{
     CliResult, config_parser, lowering,
     pipeline,
-    report::{self, GatedOutcome, ReportFormat, push_fmt},
+    report::{self, GatedOutcome, ReportFormat, Schema, SchemaVersion, push_fmt},
     source_files::{exclusion_base, manifest_relative_path},
 };
 
@@ -68,26 +68,111 @@ pub(crate) const SIDECAR_FILE_NAME: &str = "smelt-typedness.json";
 /// One program's record: its counts, or `None` when it failed to lower.
 pub(crate) type ProgramRecord = Option<TypednessCounts>;
 
+/// A program's name in a report: a `/`-separated path with no `.` component,
+/// and `..` folded where it can be, so `./x.ts`, `x.ts` and `a/../x.ts` are one
+/// program, however the command line or a baseline spelled it.
+///
+/// Only [`Self::new`] builds one, and deserializing goes through it, so a
+/// baseline written with another spelling still matches.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(transparent)]
+pub(crate) struct ProgramKey(String);
+
+impl ProgramKey {
+    /// The key of the program at `path`.
+    pub(crate) fn new(path: &str) -> Self {
+        let absolute = path.starts_with('/');
+        let mut parts: Vec<&str> = Vec::new();
+        for part in path.split(['/', '\\']) {
+            match part {
+                "" | "." => {}
+                ".." if parts.last().is_some_and(|last| *last != "..") => {
+                    parts.pop();
+                }
+                other => parts.push(other),
+            }
+        }
+        let joined = parts.join("/");
+        Self(if absolute { format!("/{joined}") } else { joined })
+    }
+
+    /// The key as text.
+    #[cfg(test)]
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::borrow::Borrow<str> for ProgramKey {
+    fn borrow(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for ProgramKey {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+/// Programs by key; two spellings of one program are an error, never an
+/// overwrite.
+pub(crate) type Programs = BTreeMap<ProgramKey, ProgramRecord>;
+
+/// Add `added` to `programs`.
+///
+/// # Errors
+///
+/// When a program of `added` is already in `programs` (the same program given
+/// twice, perhaps spelled two ways): one record would silently replace the other.
+fn merge_programs(programs: &mut Programs, added: Programs) -> Result<(), String> {
+    for (program, record) in added {
+        if programs.contains_key(&program) {
+            return Err(format!("program `{program}` is measured twice; each program may be given once"));
+        }
+        programs.insert(program, record);
+    }
+    Ok(())
+}
+
+/// Deserialize a report's programs, normalizing every key ([`ProgramKey::new`])
+/// and refusing two spellings of one program.
+fn unique_programs<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Programs, D::Error> {
+    let spelled = BTreeMap::<String, ProgramRecord>::deserialize(deserializer)?;
+    let mut programs = Programs::new();
+    for (spelling, record) in spelled {
+        merge_programs(&mut programs, BTreeMap::from([(ProgramKey::new(&spelling), record)]))
+            .map_err(serde::de::Error::custom)?;
+    }
+    Ok(programs)
+}
+
 /// A typedness report: the corpus total and every program's record.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct TypednessReport {
-    /// Format version.
-    pub(crate) version: u32,
+    /// Format version; reading another is an error.
+    pub(crate) version: SchemaVersion<Self>,
     /// Sum over every measured program.
     pub(crate) total: TypednessCounts,
     /// Per-program records, by name; `null` marks a refused program.
-    pub(crate) programs: BTreeMap<String, ProgramRecord>,
+    #[serde(deserialize_with = "unique_programs")]
+    pub(crate) programs: Programs,
+}
+
+impl Schema for TypednessReport {
+    const NAME: &'static str = "typedness report";
+    const VERSION: u32 = 1;
 }
 
 impl TypednessReport {
     /// Build a report from program records, computing the total.
-    pub(crate) fn from_programs(programs: BTreeMap<String, ProgramRecord>) -> Self {
+    pub(crate) fn from_programs(programs: Programs) -> Self {
         let mut total = TypednessCounts::default();
         for counts in programs.values().flatten() {
             total.merge(*counts);
         }
         Self {
-            version: 1,
+            version: SchemaVersion::CURRENT,
             total,
             programs,
         }
@@ -121,9 +206,9 @@ pub(crate) struct Worsening {
 
 /// Run a report: measure, compare, optionally update the baseline, render.
 pub(crate) fn typedness_report(options: &TypednessReportOptions<'_>) -> CliResult<GatedOutcome> {
-    let mut programs = BTreeMap::new();
+    let mut programs = Programs::new();
     for path in options.paths {
-        programs.extend(measure_input(path, options.defines)?);
+        merge_programs(&mut programs, measure_input(path, options.defines)?)?;
     }
     let measured = TypednessReport::from_programs(programs);
     let baseline = match &options.baseline {
@@ -151,7 +236,7 @@ pub(crate) fn typedness_report(options: &TypednessReportOptions<'_>) -> CliResul
 }
 
 /// Measure one input path into program records.
-fn measure_input(path: &Path, defines: &[(String, String)]) -> CliResult<BTreeMap<String, ProgramRecord>> {
+fn measure_input(path: &Path, defines: &[(String, String)]) -> CliResult<Programs> {
     if path.is_dir() {
         let sidecar = std::iter::once(path.join(SIDECAR_FILE_NAME))
             .chain(path.parent().map(|parent| parent.join(SIDECAR_FILE_NAME)))
@@ -173,22 +258,22 @@ fn measure_input(path: &Path, defines: &[(String, String)]) -> CliResult<BTreeMa
     }
     // A single source program: the whole lowered crate is its record.
     let record = lowering::ManifestLowering::for_file(&name)
-        .and_then(lowering::ManifestLowering::lower)
+        .and_then(|lowering| lowering.check().into_measured().lower())
         .ok()
-        .and_then(|(krate, _)| pipeline::lower_to_optimized_mir(&krate).ok())
+        .and_then(|lowered| pipeline::lower_to_optimized_mir(&lowered.krate).ok())
         .and_then(|mir| smelt_codegen_rust::measure_typedness(&mir).ok())
         .map(|measurement| measurement.total());
-    Ok(BTreeMap::from([(name, record)]))
+    Ok(BTreeMap::from([(ProgramKey::new(&name), record)]))
 }
 
 /// Lower a manifest in-process and measure every source file.
 fn measure_manifest(
     manifest_path: &Path,
     defines: &[(String, String)],
-) -> CliResult<BTreeMap<String, ProgramRecord>> {
+) -> CliResult<Programs> {
     let mut config = config_parser::parse_path(manifest_path)?;
     config.extend_defines(defines.iter().cloned());
-    let (krate, _) = lowering::ManifestLowering::for_manifest(&config, manifest_path)?.lower()?;
+    let krate = lowering::ManifestLowering::for_manifest(&config, manifest_path)?.check().into_measured().lower()?.krate;
     let mir = pipeline::lower_to_optimized_mir(&krate)?;
     let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
     Ok(programs_of(&smelt_codegen_rust::measure_typedness(&mir)?, manifest_dir))
@@ -198,9 +283,9 @@ fn measure_manifest(
 pub(crate) fn programs_of(
     measurement: &smelt_codegen_rust::TypednessMeasurement,
     manifest_dir: &Path,
-) -> BTreeMap<String, ProgramRecord> {
+) -> Programs {
     let base = exclusion_base(manifest_dir);
-    let mut programs: BTreeMap<String, ProgramRecord> = BTreeMap::new();
+    let mut programs = Programs::new();
     for (file, counts) in &measurement.files {
         let relative = manifest_relative_path(Path::new(file), &base);
         let key = relative
@@ -208,7 +293,7 @@ pub(crate) fn programs_of(
             .map(|component| component.as_os_str().to_string_lossy())
             .collect::<Vec<_>>()
             .join("/");
-        let entry = programs.entry(key).or_insert(Some(TypednessCounts::default()));
+        let entry = programs.entry(ProgramKey::new(&key)).or_insert(Some(TypednessCounts::default()));
         if let Some(entry) = entry {
             entry.merge(*counts);
         }
@@ -270,18 +355,19 @@ pub(crate) fn worsening(now: &TypednessCounts, then: &TypednessCounts) -> Vec<St
         .collect()
 }
 
-/// Baseline programs absent from `report` and not named in `retired`.
+/// Baseline programs absent from `report` and not named in `retired` (in any
+/// spelling of their path).
 fn vanished<'baseline>(
     report: &TypednessReport,
     baseline: &'baseline TypednessReport,
     retired: &[String],
-) -> impl Iterator<Item = (&'baseline String, &'baseline ProgramRecord)> {
+) -> impl Iterator<Item = (&'baseline ProgramKey, &'baseline ProgramRecord)> {
     let measured = report.programs.keys().collect::<BTreeSet<_>>();
-    let retired = retired.iter().collect::<BTreeSet<_>>();
+    let retired = retired.iter().map(|program| ProgramKey::new(program)).collect::<BTreeSet<_>>();
     baseline
         .programs
         .iter()
-        .filter(move |(program, _)| !measured.contains(program) && !retired.contains(program))
+        .filter(move |(program, _)| !measured.contains(program) && !retired.contains(*program))
 }
 
 /// Compare a report with its baseline: every judged program, every baseline
@@ -294,7 +380,7 @@ pub(crate) fn compare(
     let mut worsened = Vec::new();
     for (program, _) in vanished(report, baseline, retired) {
         worsened.push(Worsening {
-            program: program.clone(),
+            program: program.to_string(),
             detail: "in the baseline but no longer measured (retire it with --retire-program if \
                      it is gone on purpose)"
                 .to_owned(),
@@ -308,13 +394,13 @@ pub(crate) fn compare(
             (Some(now), Some(then)) => {
                 for detail in worsening(now, then) {
                     worsened.push(Worsening {
-                        program: program.clone(),
+                        program: program.to_string(),
                         detail,
                     });
                 }
             }
             (None, Some(_)) => worsened.push(Worsening {
-                program: program.clone(),
+                program: program.to_string(),
                 detail: "was measured, now refused (fails to lower)".to_owned(),
             }),
             (_, None) => {}
@@ -338,7 +424,7 @@ pub(crate) fn updated_baseline(
     baseline: Option<&TypednessReport>,
     retired: &[String],
 ) -> TypednessReport {
-    let mut programs: BTreeMap<String, ProgramRecord> = report
+    let mut programs: Programs = report
         .programs
         .iter()
         .map(|(program, record)| {
@@ -444,6 +530,7 @@ fn render_markdown(
 }
 
 #[cfg(test)]
+#[expect(clippy::expect_used, reason = "a test fails fast on what it set up")]
 mod tests {
     use super::*;
 
@@ -485,11 +572,11 @@ mod tests {
         assert_eq!(worsening(&counts(1, 0, 1), &counts(5, 0, 2)), Vec::<String>::new());
         // The update takes such a record.
         let baseline = TypednessReport::from_programs(BTreeMap::from([(
-            "p.ts".to_owned(),
+            ProgramKey::new("p.ts"),
             Some(counts(5, 0, 2)),
         )]));
         let report = TypednessReport::from_programs(BTreeMap::from([(
-            "p.ts".to_owned(),
+            ProgramKey::new("p.ts"),
             Some(counts(1, 0, 2)),
         )]));
         assert_eq!(compare(&report, &baseline, &[]), Vec::new());
@@ -501,11 +588,11 @@ mod tests {
     #[test]
     fn a_vanished_program_is_judged_and_never_erased_silently() {
         let baseline = TypednessReport::from_programs(BTreeMap::from([
-            ("kept.ts".to_owned(), Some(counts(5, 0, 1))),
-            ("gone.ts".to_owned(), Some(counts(5, 0, 1))),
+            (ProgramKey::new("kept.ts"), Some(counts(5, 0, 1))),
+            (ProgramKey::new("gone.ts"), Some(counts(5, 0, 1))),
         ]));
         let report = TypednessReport::from_programs(BTreeMap::from([(
-            "kept.ts".to_owned(),
+            ProgramKey::new("kept.ts"),
             Some(counts(5, 0, 1)),
         )]));
 
@@ -534,13 +621,13 @@ mod tests {
     #[test]
     fn compare_judges_each_program_and_the_total() {
         let baseline = TypednessReport::from_programs(BTreeMap::from([
-            ("a.ts".to_owned(), Some(counts(5, 0, 1))),
-            ("b.ts".to_owned(), Some(counts(5, 0, 1))),
+            (ProgramKey::new("a.ts"), Some(counts(5, 0, 1))),
+            (ProgramKey::new("b.ts"), Some(counts(5, 0, 1))),
         ]));
         let report = TypednessReport::from_programs(BTreeMap::from([
-            ("a.ts".to_owned(), Some(counts(5, 0, 2))),
-            ("b.ts".to_owned(), None),
-            ("new.ts".to_owned(), Some(counts(0, 0, 9))),
+            (ProgramKey::new("a.ts"), Some(counts(5, 0, 2))),
+            (ProgramKey::new("b.ts"), None),
+            (ProgramKey::new("new.ts"), Some(counts(0, 0, 9))),
         ]));
         let worsened = compare(&report, &baseline, &[]);
         let programs = worsened.iter().map(|w| w.program.as_str()).collect::<Vec<_>>();
@@ -554,19 +641,43 @@ mod tests {
     #[test]
     fn update_never_snapshots_a_regression() {
         let baseline = TypednessReport::from_programs(BTreeMap::from([
-            ("worse.ts".to_owned(), Some(counts(5, 0, 1))),
-            ("better.ts".to_owned(), Some(counts(5, 0, 1))),
-            ("gone.ts".to_owned(), Some(counts(1, 0, 0))),
+            (ProgramKey::new("worse.ts"), Some(counts(5, 0, 1))),
+            (ProgramKey::new("better.ts"), Some(counts(5, 0, 1))),
+            (ProgramKey::new("gone.ts"), Some(counts(1, 0, 0))),
         ]));
         let report = TypednessReport::from_programs(BTreeMap::from([
-            ("worse.ts".to_owned(), Some(counts(5, 0, 3))),
-            ("better.ts".to_owned(), Some(counts(6, 0, 0))),
-            ("new.ts".to_owned(), Some(counts(2, 0, 0))),
+            (ProgramKey::new("worse.ts"), Some(counts(5, 0, 3))),
+            (ProgramKey::new("better.ts"), Some(counts(6, 0, 0))),
+            (ProgramKey::new("new.ts"), Some(counts(2, 0, 0))),
         ]));
         let updated = updated_baseline(&report, Some(&baseline), &[]);
         assert_eq!(updated.programs["worse.ts"], Some(counts(5, 0, 1)));
         assert_eq!(updated.programs["better.ts"], Some(counts(6, 0, 0)));
         assert_eq!(updated.programs["new.ts"], Some(counts(2, 0, 0)));
         assert_eq!(updated.programs["gone.ts"], Some(counts(1, 0, 0)));
+    }
+
+    /// Every spelling of one path is one program.
+    #[test]
+    fn program_keys_do_not_depend_on_spelling() {
+        for spelling in ["x/input.ts", "./x/input.ts", "x//input.ts", "x/./input.ts", "y/../x/input.ts", "x\\input.ts"] {
+            assert_eq!(ProgramKey::new(spelling).as_str(), "x/input.ts", "{spelling}");
+        }
+        assert_eq!(ProgramKey::new("../a.ts").as_str(), "../a.ts");
+        assert_eq!(ProgramKey::new("/abs/./a.ts").as_str(), "/abs/a.ts");
+    }
+
+    /// Two spellings of one program, given twice or written into one baseline,
+    /// are an error instead of one record silently replacing the other.
+    #[test]
+    fn a_program_measured_twice_is_an_error() {
+        let mut programs = Programs::new();
+        merge_programs(&mut programs, BTreeMap::from([(ProgramKey::new("x.ts"), None)])).expect("first");
+        let error = merge_programs(&mut programs, BTreeMap::from([(ProgramKey::new("./x.ts"), None)]))
+            .expect_err("a duplicate is refused");
+        assert!(error.contains("x.ts"), "{error}");
+        let text = r#"{"version":1,"total":{"values":{"concrete":0,"generic":0,"erased":0},"reads":{"concrete":0,"generic":0,"erased":0},"calls":{"concrete":0,"generic":0,"erased":0}},"programs":{"./x.ts":null,"x.ts":null}}"#;
+        let parsed = serde_json::from_str::<TypednessReport>(text).expect_err("duplicate spellings").to_string();
+        assert!(parsed.contains("measured twice"), "{parsed}");
     }
 }

@@ -505,7 +505,7 @@ jobs:
           name: remeda
 
       - name: Transpile Remeda to Rust
-        run: target/debug/smelt --manifest-path target/compat-repos/remeda/Smelt.toml build
+        run: target/debug/smelt --manifest-path target/compat-repos/remeda/Smelt.toml build --allow-type-errors
 
       - name: Compile and run generated Remeda tests (regression gate)
         # All 1789 tests pass. The four `randomBigInt` tests that used to fail
@@ -605,7 +605,7 @@ jobs:
           test "$(grep -Fc "import { describe, test } from 'vitest'" "$test_file")" -eq 1
 
       - name: Transpile Radash to Rust
-        run: target/debug/smelt --manifest-path target/compat-repos/radash/Smelt.toml build
+        run: target/debug/smelt --manifest-path target/compat-repos/radash/Smelt.toml build --allow-type-errors
 
       - name: Compile and run generated Radash tests (regression gate)
         run: |
@@ -654,7 +654,7 @@ jobs:
           name: ts-pattern
 
       - name: Transpile ts-pattern (a refused corpus fails here)
-        run: target/debug/smelt --manifest-path target/compat-repos/ts-pattern/Smelt.toml build
+        run: target/debug/smelt --manifest-path target/compat-repos/ts-pattern/Smelt.toml build --allow-type-errors
 
   hono:
     # Opt-in on PRs via the `run-regressions` label; always on for main pushes.
@@ -683,7 +683,7 @@ jobs:
       - name: Report Hono source-lowering blockers (advisory)
         run: |
           target/debug/smelt --manifest-path target/compat-repos/hono/Smelt.toml \
-            probe --format md | tee hono-probe.md
+            probe --allow-type-errors --format md | tee hono-probe.md
           echo "--- per-file blockers ---"
           target/debug/smelt --manifest-path target/compat-repos/hono/Smelt.toml \
             check --message-format json | tee hono-blockers.json
@@ -698,7 +698,7 @@ jobs:
         # HARD: the non-test Hono crate is at 0 cargo check errors and links
         # (blocker-logs/hono-current.md), same bar as radash/remeda.
         run: |
-          target/debug/smelt --manifest-path target/compat-repos/hono/Smelt.toml build
+          target/debug/smelt --manifest-path target/compat-repos/hono/Smelt.toml build --allow-type-errors
           cargo check --manifest-path target/compat-repos/hono/dist-smelt/Cargo.toml
 
       - name: Generated Hono test build (pinned error count)
@@ -771,7 +771,7 @@ jobs:
       - name: Probe es-toolkit (JSON report)
         run: |
           target/debug/smelt --manifest-path target/compat-repos/es-toolkit/Smelt.toml \
-            probe --format json --output probe.json
+            probe --allow-type-errors --format json --output probe.json
           cat probe.json
 
       - name: Probe blocker gate (blockers <= baseline)

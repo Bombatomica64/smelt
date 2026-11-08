@@ -201,10 +201,14 @@
       "type": "object",
       "properties": {
         "edition": {
-          "description": "Rust edition of the generated crate; 2024 when absent.",
-          "type": [
-            "string",
-            "null"
+          "description": "Rust edition of the generated crate; 2024 when absent, and the only\nedition generated code compiles under.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RustEdition"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "dependencies": {
@@ -223,6 +227,16 @@
         }
       },
       "additionalProperties": false
+    },
+    "RustEdition": {
+      "description": "The `[rust] edition` of the generated crate.\n\nOnly the editions generated code compiles under are variants (see\n`smelt_codegen_rust::RustEdition`): the emitted text and the inlined runtime\nuse let-chains and the 2024 keyword rules, so a manifest asking for 2021 is\nrefused when it is read rather than producing a crate that cannot compile.",
+      "oneOf": [
+        {
+          "description": "The 2024 edition.",
+          "type": "string",
+          "const": "2024"
+        }
+      ]
     },
     "Allocator": {
       "description": "Global allocator a generated program installs.\n\nGenerated code allocates far more than hand-written Rust does — every\nJavaScript array, object and string is a separate heap value with reference\nsemantics — so the allocator is a larger share of the profile than any single\nemitter decision. See `smelt_codegen_rust::GeneratedAllocator`.",
@@ -270,9 +284,28 @@
             "type": "string"
           },
           "default": {}
+        },
+        "type-errors": {
+          "description": "What `smelt build` does when the type checkers (TypeScript's, ty for\nPython) report an error or cannot run: `\"deny\"` (the default) refuses to\nlower the program, `\"allow\"` prints the errors as warnings and lowers it\nanyway. `--allow-type-errors` allows for one run.",
+          "$ref": "#/$defs/TypeErrorPolicy"
         }
       },
       "additionalProperties": false
+    },
+    "TypeErrorPolicy": {
+      "description": "What a command does with checker errors.",
+      "oneOf": [
+        {
+          "description": "A checker error, or a language no checker could vouch for, fails the\ncommand before anything is written.",
+          "type": "string",
+          "const": "deny"
+        },
+        {
+          "description": "Checker errors are printed as warnings and lowering goes on, with the\nfrontends' checked-program shortcuts turned into errors.",
+          "type": "string",
+          "const": "allow"
+        }
+      ]
     },
     "Strict": {
       "description": "Strict mode configuration from the [strict] section. v1.0 is always strict, so\neach flag is `true` or absent.",

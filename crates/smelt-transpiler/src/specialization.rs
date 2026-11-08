@@ -12,7 +12,7 @@ use std::{
 
 use sha2::{Digest as _, Sha256};
 use smelt_specialize::{
-    CacheKeyInput, HashInputs, HostLanguage, MANIFEST_SCHEMA_VERSION, ModuleInput, NodeModule,
+    CacheKeyInput, HashInputs, HostLanguage, ModuleInput, NodeModule, ProjectRoot,
     NodeSpecializationRequest, NodeSpecializer, PythonModule, PythonSpecializationRequest,
     PythonSpecializer, SandboxBackend, SandboxPolicyRecord, SpecializationArtifactStore,
     OciSandboxBackend, SpecializationCacheKey, SpecializationManifest, platform_backend,
@@ -196,16 +196,15 @@ fn prepare_python(
     let python = find_executable("python3")?;
     let runtime_version = command_version(&python, &["--version"])?;
     let policy = sandbox_policy(host, &python, false);
-    let hashes = invalidation_hashes(project_root, graph, &policy)?;
-    let key = SpecializationCacheKey::compute(&CacheKeyInput {
-        smelt_version: env!("CARGO_PKG_VERSION").to_owned(),
-        schema_version: MANIFEST_SCHEMA_VERSION,
-        language: HostLanguage::Python,
-        host_runtime_version: runtime_version,
-        hashes: hashes.clone(),
-        sandbox_policy: policy.clone(),
-        native_adapter_versions: Vec::new(),
-    })?;
+    let project = ProjectRoot::new(project_root)?;
+    let hashes = invalidation_hashes(&project, graph, &policy)?;
+    let key = SpecializationCacheKey::compute(&CacheKeyInput::new(
+        HostLanguage::Python,
+        runtime_version,
+        hashes.clone(),
+        &policy,
+        &project,
+    ))?;
     if let Some(manifest) = load_cached(cache, package, HostLanguage::Python, &key)? {
         return Ok(Batch::Cached(manifest));
     }
@@ -260,16 +259,15 @@ fn prepare_typescript(
         .push(artifact_root.display().to_string());
     policy.read_only_roots.sort();
     policy.read_only_roots.dedup();
-    let hashes = invalidation_hashes(project_root, graph, &policy)?;
-    let key = SpecializationCacheKey::compute(&CacheKeyInput {
-        smelt_version: env!("CARGO_PKG_VERSION").to_owned(),
-        schema_version: MANIFEST_SCHEMA_VERSION,
-        language: HostLanguage::TypeScript,
+    let project = ProjectRoot::new(project_root)?;
+    let hashes = invalidation_hashes(&project, graph, &policy)?;
+    let key = SpecializationCacheKey::compute(&CacheKeyInput::new(
+        HostLanguage::TypeScript,
         host_runtime_version,
-        hashes: hashes.clone(),
-        sandbox_policy: policy.clone(),
-        native_adapter_versions: Vec::new(),
-    })?;
+        hashes.clone(),
+        &policy,
+        &project,
+    ))?;
     if let Some(manifest) = load_cached(cache, package, HostLanguage::TypeScript, &key)? {
         return Ok(Batch::Cached(manifest));
     }
@@ -378,31 +376,31 @@ fn compile_typescript_graph(
 }
 
 /// Computes all cache invalidation hashes from stable source and policy bytes.
+///
+/// Every path is hashed relative to `project` ([`ProjectRoot`]), so the
+/// digests do not depend on where the checkout lives. The dependency digest
+/// covers the project's dependency declarations and the packages installed
+/// under its `node_modules`, which a guest may load although the source graph
+/// never names them.
 fn invalidation_hashes(
-    project_root: &Path,
+    project: &ProjectRoot,
     graph: &[&ManifestSource],
     policy: &SandboxPolicyRecord,
 ) -> Result<HashInputs, Box<dyn std::error::Error>> {
-    let source = hash_sources(graph);
-    let dependency_files = [
-        "package.json",
-        "pyproject.toml",
-        "setup.py",
-        "setup.cfg",
-        "requirements.txt",
-    ]
-    .map(|name| project_root.join(name));
-    let dependencies = hash_existing_files(&dependency_files)?;
-    let lockfiles = [
-        "package-lock.json",
-        "pnpm-lock.yaml",
-        "yarn.lock",
-        "uv.lock",
-        "poetry.lock",
-        "Pipfile.lock",
-    ]
-    .map(|name| project_root.join(name));
-    let lockfile = hash_existing_files(&lockfiles)?;
+    let root = project.path();
+    let source = hash_sources(project, graph);
+    let declared = project.hash_files(
+        ["package.json", "pyproject.toml", "setup.py", "setup.cfg", "requirements.txt"]
+            .into_iter()
+            .map(|name| root.join(name)),
+    )?;
+    let installed = project.installed_packages_hash()?;
+    let dependencies = hash_bytes(format!("{declared}\0{installed}").as_bytes());
+    let lockfile = project.hash_files(
+        ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "uv.lock", "poetry.lock", "Pipfile.lock"]
+            .into_iter()
+            .map(|name| root.join(name)),
+    )?;
     let environment = hash_bytes(&serde_json::to_vec(&policy.environment)?);
     let policy_hash = hash_bytes(&serde_json::to_vec(policy)?);
     Ok(HashInputs {
@@ -415,43 +413,15 @@ fn invalidation_hashes(
     })
 }
 
-/// Hashes existing files in sorted path order.
-fn hash_existing_files(paths: &[PathBuf]) -> Result<String, io::Error> {
-    hash_files(paths.iter().filter(|path| path.is_file()).cloned())
-}
-
-/// Hashes path names and bytes in a deterministic order.
-fn hash_files(paths: impl Iterator<Item = PathBuf>) -> Result<String, io::Error> {
-    let mut sorted_paths = paths.collect::<Vec<_>>();
-    sorted_paths.sort();
-    let mut digest = Sha256::new();
-    for path in sorted_paths {
-        digest.update(path.to_string_lossy().as_bytes());
-        digest.update([0]);
-        digest.update(fs::read(path)?);
-        digest.update([0xff]);
-    }
-    Ok(hex::encode(digest.finalize()))
-}
-
-/// Hashes the graph's source texts with their paths, in path order.
+/// Hashes the graph's source texts with their project-relative paths.
 ///
 /// Hashes the text the build lowers rather than re-reading each path: a file
 /// laid by a package's typed version (see [`crate::sound`]) exists only in
 /// memory, or replaces an installed file at the same path, so the bytes on
 /// disk are not what is compiled. For every other source the text is the
 /// file's content, so the digest is the one re-reading the file gave.
-fn hash_sources(graph: &[&ManifestSource]) -> String {
-    let mut sorted = graph.to_vec();
-    sorted.sort_by(|left, right| left.path.cmp(&right.path));
-    let mut digest = Sha256::new();
-    for source in sorted {
-        digest.update(source.path.to_string_lossy().as_bytes());
-        digest.update([0]);
-        digest.update(source.source.as_bytes());
-        digest.update([0xff]);
-    }
-    hex::encode(digest.finalize())
+fn hash_sources(project: &ProjectRoot, graph: &[&ManifestSource]) -> String {
+    project.hash_texts(graph.iter().map(|source| (source.path.as_path(), source.source.as_bytes())))
 }
 
 /// Hashes one in-memory byte sequence.
@@ -633,9 +603,10 @@ mod tests {
         let project = tempfile::tempdir()?;
         let source = project.path().join("source.py");
         fs::write(&source, "value = 1\n")?;
-        let first = hash_files(std::iter::once(source.clone()))?;
+        let root = ProjectRoot::new(project.path())?;
+        let first = root.hash_files(std::iter::once(source.clone()))?;
         fs::write(&source, "value = 2\n")?;
-        let second = hash_files(std::iter::once(source))?;
+        let second = root.hash_files(std::iter::once(source))?;
         if first == second {
             return Err("source changes did not invalidate the hash".into());
         }

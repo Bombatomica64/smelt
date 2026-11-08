@@ -30,13 +30,58 @@ use crate::source_files::{
 use crate::specialization::PreparedSpecialization;
 use crate::timing;
 use crate::ts_facts::TsCheck;
+use crate::type_gate::{CheckReport, Checked};
 
 mod driver;
 
 use driver::{ManifestSeed, ModuleInputs, PredeclaredLowering, RecoverableLowering, SeededLowering};
 
-/// Represents a lowered crate with its modules.
-pub(crate) type LoweredCrate = (smelt_hir::Crate, Vec<(String, ModuleId)>);
+/// A lowered crate: its HIR, its modules, and the text each was lowered from.
+pub(crate) struct LoweredCrate {
+    /// The HIR crate.
+    pub(crate) krate: smelt_hir::Crate,
+    /// Each lowered module, by its source's display path.
+    pub(crate) modules: Vec<(String, ModuleId)>,
+    /// The text every source was lowered from.
+    pub(crate) sources: LoweredSources,
+}
+
+/// The text every module of a lowered crate was lowered from, by file id.
+///
+/// Spans index this text, and nothing else: a file a package's typed version
+/// lays over an installed package exists only in memory (see `crate::sound`),
+/// and any file may change on disk after it was read. So a span is resolved
+/// to a line against this, never by reading the path again; only the lowering
+/// that read the sources can build one.
+#[derive(Debug, Default)]
+pub(crate) struct LoweredSources {
+    /// Source text by frontend file id.
+    texts: HashMap<FileId, String>,
+}
+
+impl LoweredSources {
+    /// The texts of `sources`, under the file ids they were lowered with.
+    fn of(sources: &[&ManifestSource], file_ids: &[FileId]) -> Self {
+        Self {
+            texts: file_ids
+                .iter()
+                .zip(sources)
+                .map(|(file_id, source)| (*file_id, source.source.clone()))
+                .collect(),
+        }
+    }
+
+    /// Texts by file id, for a test that lowers nothing.
+    #[cfg(test)]
+    pub(crate) fn from_texts(texts: impl IntoIterator<Item = (FileId, String)>) -> Self {
+        Self { texts: texts.into_iter().collect() }
+    }
+
+    /// The text the file `file` was lowered from.
+    pub(crate) fn text(&self, file: FileId) -> Option<&str> {
+        self.texts.get(&file).map(String::as_str)
+    }
+}
 
 /// One lowering run, resolved and ready; see the module docs.
 pub(crate) struct ManifestLowering {
@@ -137,37 +182,60 @@ impl ManifestLowering {
         })
     }
 
-    /// Runs what every lowering does first, in the order it must happen: the
-    /// checker over all sources, then the seed scan, then the predeclaration
-    /// pass, so no module body lowers before the crate-wide facts exist.
-    fn prepare(&self) -> Result<Prepared<'_>, Box<dyn std::error::Error>> {
+    /// Type-checks every source of the run: the TypeScript checker over the
+    /// TypeScript sources, ty over the Python ones.
+    ///
+    /// Nothing lowers before this: the lowering waits behind the
+    /// [`Checked`] report, so its caller decides what checker errors mean
+    /// before anything trusts the sources (see `crate::type_gate`).
+    pub(crate) fn check(self) -> Checked<ReadyLowering> {
         let ordered = self.sources.iter().collect::<Vec<_>>();
         let ts_check = crate::ts_facts::analyze_sources(&ordered);
-        ts_check.report_failure();
-        let seed = ManifestSeed::scan(&ordered, &self.module_names, self.outside_crate.clone());
-        let lowering = SeededLowering::new(seed).predeclare(&ordered, &self.file_ids)?;
-        Ok(Prepared { ordered, ts_check, lowering })
+        let Ok(python) = timing::measure("manifest.ty_check", || {
+            Ok::<_, std::convert::Infallible>(crate::python::check_sources(&ordered, &self.project_dir))
+        });
+        let report = CheckReport::new(ts_check.language_check(&ordered), python);
+        Checked::new(ReadyLowering { run: self, ts_check, report: report.clone() }, report)
+    }
+}
+
+/// A run whose sources were checked, ready to lower; see [`ManifestLowering::check`].
+pub(crate) struct ReadyLowering {
+    /// The resolved run.
+    run: ManifestLowering,
+    /// What the TypeScript checker made of the sources (its facts feed lowering).
+    ts_check: TsCheck,
+    /// The checkers' verdict, which decides how far each source is trusted.
+    report: CheckReport,
+}
+
+impl ReadyLowering {
+    /// Runs what every lowering does first, in the order it must happen: the
+    /// seed scan, then the predeclaration pass, so no module body lowers before
+    /// the crate-wide facts exist.
+    fn prepare(&self) -> Result<Prepared<'_>, Box<dyn std::error::Error>> {
+        let ordered = self.run.sources.iter().collect::<Vec<_>>();
+        let seed = ManifestSeed::scan(&ordered, &self.run.module_names, self.run.outside_crate.clone());
+        let lowering = SeededLowering::new(seed).predeclare(&ordered, &self.run.file_ids)?;
+        Ok(Prepared { ordered, lowering })
     }
 
     /// The whole-crate inputs of this run's module lowerings.
-    fn module_inputs<'run>(&'run self, ts_check: &'run TsCheck) -> ModuleInputs<'run> {
-        ModuleInputs { specialization: &self.specialization, ts_facts: ts_check.facts.as_ref() }
+    fn module_inputs(&self) -> ModuleInputs<'_> {
+        ModuleInputs {
+            specialization: &self.run.specialization,
+            ts_facts: self.ts_check.facts.as_ref(),
+            check: &self.report,
+        }
     }
 
     /// Lowers every source into one crate; the first file that fails stops it.
     pub(crate) fn lower(self) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
-        self.lower_checked().map(|(lowered, _)| lowered)
-    }
-
-    /// [`Self::lower`], also answering what the TypeScript checker reported.
-    pub(crate) fn lower_checked(
-        self,
-    ) -> Result<(LoweredCrate, Vec<ManifestDiagnostic>), Box<dyn std::error::Error>> {
         timing::measure("manifest.frontend_lower", || {
-            let Prepared { ordered, ts_check, mut lowering } = self.prepare()?;
-            let inputs = self.module_inputs(&ts_check);
+            let Prepared { ordered, mut lowering } = self.prepare()?;
+            let inputs = self.module_inputs();
             let mut modules = Vec::new();
-            for ((source, file_id), name) in ordered.iter().zip(&self.file_ids).zip(&self.module_names) {
+            for ((source, file_id), name) in ordered.iter().zip(&self.run.file_ids).zip(&self.run.module_names) {
                 let module = lowering
                     .lower_source(source, *file_id, inputs)
                     .map_err(|diagnostics| manifest_source_error(source, &diagnostics))?;
@@ -178,11 +246,12 @@ impl ManifestLowering {
                 }
                 modules.push((source.path.display().to_string(), module));
             }
-            let modules = match self.focus {
+            let modules = match self.run.focus {
                 Some(index) => modules.into_iter().skip(index).take(1).collect(),
                 None => modules,
             };
-            Ok(((lowering.into_crate(), modules), ts_check.diagnostics(&ordered)))
+            let sources = LoweredSources::of(&ordered, &self.run.file_ids);
+            Ok(LoweredCrate { krate: lowering.into_crate(), modules, sources })
         })
     }
 
@@ -195,18 +264,18 @@ impl ManifestLowering {
     ///
     /// With `erasure` settings (`smelt check`), every frontend erasure they mark
     /// `warn`/`deny` is appended as an `erasure` diagnostic carrying its severity,
-    /// and the TypeScript checker's report as `type-check` diagnostics; `None`
+    /// and the type checkers' report as `type-check` diagnostics; `None`
     /// (the probe) reports lowering blockers only.
     pub(crate) fn diagnostics(
         self,
         erasure: Option<&crate::erasure::ErasureSettings>,
     ) -> Result<Vec<ManifestDiagnostic>, Box<dyn std::error::Error>> {
         let _quiet = QuietPanics::install();
-        let Prepared { ordered, ts_check, lowering: predeclared } = self.prepare()?;
-        let inputs = self.module_inputs(&ts_check);
+        let Prepared { ordered, lowering: predeclared } = self.prepare()?;
+        let inputs = self.module_inputs();
         let mut lowering = RecoverableLowering::new(predeclared);
         let mut diagnostics = Vec::new();
-        for (source, file_id) in ordered.iter().zip(&self.file_ids) {
+        for (source, file_id) in ordered.iter().zip(&self.run.file_ids) {
             match lowering.lower_source(source, *file_id, inputs) {
                 Some(Ok(_module)) => {}
                 Some(Err(file_diagnostics)) => diagnostics.extend(file_diagnostics),
@@ -228,21 +297,20 @@ impl ManifestLowering {
         }
         // A poisoned crate has no erasure records worth reading.
         if let (Some(settings), Some(krate)) = (erasure, lowering.krate()) {
-            diagnostics.extend(erasure_diagnostics(krate, &self.project_dir, settings));
+            let sources = LoweredSources::of(&ordered, &self.run.file_ids);
+            diagnostics.extend(erasure_diagnostics(krate, &sources, &self.run.project_dir, settings));
         }
         if erasure.is_some() {
-            diagnostics.extend(ts_check.diagnostics(&ordered));
+            diagnostics.extend(self.report.diagnostics());
         }
         Ok(diagnostics)
     }
 }
 
-/// A run ready to lower its first module; see [`ManifestLowering::prepare`].
+/// A run ready to lower its first module; see [`ReadyLowering::prepare`].
 struct Prepared<'run> {
     /// Every source of the run, in dependency order.
     ordered: Vec<&'run ManifestSource>,
-    /// What the checker made of the sources.
-    ts_check: TsCheck,
     /// The predeclared lowering context.
     lowering: PredeclaredLowering,
 }
@@ -584,10 +652,11 @@ fn manifest_source_error(source: &ManifestSource, diagnostics: &[ManifestDiagnos
 /// The frontend erasures `settings` marks `warn`/`deny`, as diagnostics.
 fn erasure_diagnostics(
     krate: &smelt_hir::Crate,
+    sources: &LoweredSources,
     manifest_dir: &Path,
     settings: &crate::erasure::ErasureSettings,
 ) -> Vec<ManifestDiagnostic> {
-    crate::erasure::resolve(krate, &[], manifest_dir, settings)
+    crate::erasure::resolve(krate, sources, &[], manifest_dir, settings)
         .into_iter()
         .filter_map(|record| {
             let severity = match record.severity.as_str() {

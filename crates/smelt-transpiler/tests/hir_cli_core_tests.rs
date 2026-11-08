@@ -613,6 +613,9 @@ clone-strategy = "aggressive"
 
 #[test]
 fn build_orders_manifest_entries_by_import_dependencies() -> TestResult {
+    // The checkers cannot vouch for this program (Smelt resolves an import
+    // or a global the closure-only checker setup does not see), so it is
+    // built with type errors allowed; see `type_gate_cli_tests.rs`.
     let project = TempProject::new()?;
     let project_path = project.path();
     fs::create_dir_all(project_path.join("src"))?;
@@ -644,7 +647,7 @@ clone-strategy = "aggressive"
     )?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
-    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+    smelt(&["--manifest-path", &manifest_arg, "build", "--allow-type-errors"])?;
 
     // Requirement change (2026-11-04): this expected `5`, JavaScript's
     // number text. The `print` is in the Python entry and `result` is a
@@ -771,6 +774,9 @@ fn read_generated_sources(dir: &std::path::Path) -> TestResult<Vec<GeneratedSour
 
 #[test]
 fn exclude_globs_resolve_against_the_manifest_directory_not_the_process_directory() -> TestResult {
+    // The checkers cannot vouch for this program (Smelt resolves an import
+    // or a global the closure-only checker setup does not see), so it is
+    // built with type errors allowed; see `type_gate_cli_tests.rs`.
     // `[sources] exclude` globs are written relative to the MANIFEST, so which
     // directory they are matched against cannot depend on where `smelt` was
     // invoked from. It did: the manifest directory came from
@@ -790,7 +796,7 @@ fn exclude_globs_resolve_against_the_manifest_directory_not_the_process_director
 
     for manifest_arg in ["Smelt.toml", "./Smelt.toml"] {
         drop(fs::remove_dir_all(project_path.join("dist")));
-        smelt_in(project_path, &["--manifest-path", manifest_arg, "build"])?;
+        smelt_in(project_path, &["--manifest-path", manifest_arg, "build", "--allow-type-errors"])?;
         ensure(
             !project_path.join("dist/src/notes.rs").exists(),
             "an excluded module was lowered for a cwd-relative manifest path",
@@ -800,7 +806,7 @@ fn exclude_globs_resolve_against_the_manifest_directory_not_the_process_director
     // The absolute spelling, from an unrelated working directory, has to agree.
     drop(fs::remove_dir_all(project_path.join("dist")));
     let absolute = utf8_path(&project_path.join("Smelt.toml"))?;
-    smelt(&["--manifest-path", &absolute, "build"])?;
+    smelt(&["--manifest-path", &absolute, "build", "--allow-type-errors"])?;
     ensure(
         !project_path.join("dist/src/notes.rs").exists(),
         "an excluded module was lowered for an absolute manifest path",
@@ -815,6 +821,9 @@ fn exclude_globs_resolve_against_the_manifest_directory_not_the_process_director
 
 #[test]
 fn building_twice_produces_identical_output() -> TestResult {
+    // The checkers cannot vouch for this program (Smelt resolves an import
+    // or a global the closure-only checker setup does not see), so it is
+    // built with type errors allowed; see `type_gate_cli_tests.rs`.
     // `smelt build` writes a `.d.ts` and a `.pyi` beside every module it lowers,
     // so the second build runs over a source tree that contains the first
     // build's output. Those stubs must never become inputs: a generated
@@ -826,7 +835,7 @@ fn building_twice_produces_identical_output() -> TestResult {
     write_exclude_project(project_path)?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
-    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+    smelt(&["--manifest-path", &manifest_arg, "build", "--allow-type-errors"])?;
     let first = read_generated_sources(&project_path.join("dist/src"))?;
     ensure(!first.is_empty(), "the first build emitted nothing")?;
     ensure(
@@ -834,7 +843,7 @@ fn building_twice_produces_identical_output() -> TestResult {
         "the first build did not write its stubs into the source tree",
     )?;
 
-    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+    smelt(&["--manifest-path", &manifest_arg, "build", "--allow-type-errors"])?;
     let second = read_generated_sources(&project_path.join("dist/src"))?;
     ensure_eq(
         &format!("{second:?}"),
@@ -862,6 +871,11 @@ fn dump_hir_reports_a_dependency_that_fails_to_lower() -> TestResult {
 /// `[project]`, `[rust] edition` and `[rust.dependencies]` reach the generated crate,
 /// and it builds and runs under them. A declared crate replaces what Smelt would
 /// add for that name, so `Cargo.toml` never holds a key twice.
+///
+/// The edition was `2021` here; generated code needs 2024 (let-chains in the
+/// runtime), so 2024 is now the only edition a manifest may name and an older
+/// one is refused when the manifest is read
+/// (`config_parser::tests::only_a_compiling_rust_edition_is_accepted`).
 #[test]
 fn generated_crate_takes_the_manifest_package_edition_and_dependencies() -> TestResult {
     let project = TempProject::new()?;
@@ -883,7 +897,7 @@ target = "./dist"
 build = false
 
 [rust]
-edition = "2021"
+edition = "2024"
 
 [rust.dependencies]
 itoa = "1"
@@ -894,7 +908,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
     let manifest = fs::read_to_string(root.join("dist/Cargo.toml"))?;
     for line in [
         "version = \"1.2.3\"",
-        "edition = \"2021\"",
+        "edition = \"2024\"",
         "itoa = \"1\"",
         "serde_json = { features = [\"preserve_order\"], version = \"1\" }",
     ] {
