@@ -5,7 +5,7 @@ use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use crate::lowering::js_text::{has_lone_surrogate, js_str_text};
 use oxc::ast::ast::{TSSignature, TSType, TSTypeName};
-use smelt_hir::{ErasureReason, Field, FunctionType, Type};
+use smelt_hir::{ErasureReason, FunctionType, Type};
 
 impl ModuleBuilder<'_> {
     /// Return whether a source type is a callable value with object fields.
@@ -305,109 +305,6 @@ impl ModuleBuilder<'_> {
             value_ty
         };
         Ok(self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty)))
-    }
-
-    /// The record `Partial<base>` names: a synthesized interface with each of
-    /// `base`'s fields made optional, cached crate-wide per `base`.
-    ///
-    /// `None` keeps the caller's fallback (the base type itself) for a base that
-    /// is not a plain data interface: a class, an interface with methods, call
-    /// or construct signatures, heritage or an index signature, or one whose
-    /// fields mention a type parameter (a synthesized item declares none).
-    /// A base whose fields are all optional already is its own `Partial`.
-    pub(in crate::lowering) fn partial_record_type(
-        &mut self,
-        base: smelt_hir::TypeId,
-        span: smelt_hir::Span,
-    ) -> Result<Option<smelt_hir::TypeId>, SmeltError> {
-        if let Some(cached) = self.ctx.partial_records.get(&base) {
-            return Ok(Some(*cached));
-        }
-        let Some(Type::Class { name, args }) = self.ctx.krate.types.get(base).cloned() else {
-            return Ok(None);
-        };
-        let Some(interface) = self.find_interface(name).cloned() else {
-            return Ok(None);
-        };
-        let plain_data = interface.methods.is_empty()
-            && interface.extends.is_empty()
-            && self.ctx.interface_call_signatures.get(&name).is_none_or(Vec::is_empty)
-            && self.interfaces.index_value(name).is_none()
-            && !interface.fields.iter().any(|field| {
-                self.ctx
-                    .krate
-                    .symbols
-                    .get(field.name)
-                    .is_some_and(|text| text.starts_with("__smelt"))
-            });
-        if !plain_data {
-            return Ok(None);
-        }
-        let substitutions = self.type_argument_substitution(&interface.type_params, &args, span)?;
-        let fields = self.substituted_fields(&interface.fields, &substitutions);
-        if fields.iter().any(|field| self.type_mentions_type_param(field.ty)) {
-            return Ok(None);
-        }
-        if fields.iter().all(|field| field.optional) {
-            return Ok(Some(base));
-        }
-        let fields = fields
-            .into_iter()
-            .map(|field| {
-                let ty = if matches!(self.ctx.krate.types.get(field.ty), Some(Type::Optional(_))) {
-                    field.ty
-                } else {
-                    self.ctx.krate.types.intern(Type::Optional(field.ty))
-                };
-                Field {
-                    ty,
-                    optional: true,
-                    ..field
-                }
-            })
-            .collect::<Vec<_>>();
-        let base_text = self.ctx.krate.symbols.get(name).unwrap_or("Record").to_owned();
-        let mut name_text = format!("Partial{base_text}");
-        let mut ordinal = 1_usize;
-        while self.declared_type_name_exists(&name_text) {
-            name_text = format!("Partial{base_text}_{ordinal}");
-            ordinal = ordinal.saturating_add(1);
-        }
-        let symbol = self.intern_type_name(&name_text);
-        // Every field of a `Partial` may be absent; any other fact the base
-        // records about a field (it admits `null`, its literal set) still
-        // holds. The erased view and the strict JSON decoder read these.
-        let decode_facts = fields
-            .iter()
-            .map(|field| {
-                let base_facts = interface
-                    .decode_facts
-                    .iter()
-                    .find(|facts| facts.name == field.name)
-                    .cloned();
-                smelt_hir::FieldDecodeFacts {
-                    may_be_absent: true,
-                    ..base_facts.unwrap_or(smelt_hir::FieldDecodeFacts {
-                        name: field.name,
-                        may_be_absent: true,
-                        admits_null: false,
-                        literals: Vec::new(),
-                    })
-                }
-            })
-            .collect();
-        let members = crate::lowering::decls::types_iface::StructuralMembers {
-            fields,
-            decode_facts,
-            ..Default::default()
-        };
-        self.push_synthesized_interface(symbol, name_text, members, span);
-        let partial = self.ctx.krate.types.intern(Type::Class {
-            name: symbol,
-            args: Vec::new(),
-        });
-        self.ctx.partial_records.insert(base, partial);
-        Ok(Some(partial))
     }
 
     /// Lower an object-shaped intersection `A & B` structurally.

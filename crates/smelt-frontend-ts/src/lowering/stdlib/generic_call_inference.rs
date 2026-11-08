@@ -146,7 +146,9 @@ impl ModuleBuilder<'_> {
         if self.renders_as_erased_function(substituted) {
             return Ok(return_ty);
         }
-        Ok(self.widened_call_type(resolved, substituted))
+        let result = self.widened_call_type(resolved, substituted);
+        let span = self.span(call.span.start, call.span.end);
+        self.call_result_shaped_by_checker(result, call.span.start, call.span.end, span)
     }
 
     /// Whether type parameter `name` occurs in `ty` at a position no union encloses.

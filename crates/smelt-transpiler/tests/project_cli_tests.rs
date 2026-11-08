@@ -219,3 +219,41 @@ it("does not reach it", () => {
         format!("the failure names the model:\n{text}"),
     )
 }
+
+/// The generated struct of a mapped utility holds only the properties the
+/// utility leaves, for a literal key set and for one a generic call fixes.
+#[test]
+fn utility_records_emit_only_their_fields() -> TestResult {
+    let project = TempProject::new()?;
+    let root = project.path();
+    fs::create_dir_all(root.join("src"))?;
+    fs::write(
+        root.join("src/main.ts"),
+        r#"interface Base { keep: string; gone: number }
+function pick<T, K extends keyof T>(obj: T, keys: K[]): Pick<T, K> {
+  const out = {} as Pick<T, K>;
+  for (const key of keys) { out[key] = obj[key]; }
+  return out;
+}
+const literal: Omit<Base, "gone"> = { keep: "a" };
+const called = pick({ keep: "b", gone: 1 } as Base, ["gone"]);
+console.log(literal.keep, called.gone);
+"#,
+    )?;
+    fs::write(root.join("Smelt.toml"), unmodelled_method_manifest("main.ts"))?;
+    let (ok, stdout, stderr) = run(root, &["build"])?;
+    ensure(ok, format!("build failed\nstdout:\n{stdout}\nstderr:\n{stderr}"))?;
+    let mut emitted = String::new();
+    for entry in fs::read_dir(root.join("dist/src"))? {
+        emitted.push_str(&fs::read_to_string(entry?.path())?);
+    }
+    let body = |name: &str| -> Option<String> {
+        let start = emitted.find(&format!("struct {name} {{"))?;
+        let rest = emitted.get(start..)?;
+        rest.get(..rest.find('}')?).map(str::to_owned)
+    };
+    let omitted = body("OmitBase").ok_or_else(|| format!("no OmitBase struct:\n{emitted}"))?;
+    ensure(omitted.contains("keep: JsString") && !omitted.contains("gone"), format!("OmitBase: {omitted}"))?;
+    let picked = body("PickBase").ok_or_else(|| format!("no PickBase struct:\n{emitted}"))?;
+    ensure(picked.contains("gone: f64") && !picked.contains("keep"), format!("PickBase: {picked}"))
+}

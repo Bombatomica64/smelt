@@ -581,3 +581,17 @@ fn lone_surrogate_static_keys() -> TestResult {
 fn loose_equality() -> TestResult {
     verify_node_parity("loose_equality")
 }
+
+/// `Pick`, `Omit`, `Partial` and `Required` whose keys the annotation fixes
+/// enumerate exactly the properties the utility leaves.
+#[test]
+fn utility_record_subsets_literal() -> TestResult {
+    verify_node_parity("utility_record_subsets_literal")
+}
+
+/// A generic `K extends keyof T` is fixed per call, and each call's result
+/// enumerates exactly the keys it asked for.
+#[test]
+fn utility_record_subsets_generic() -> TestResult {
+    verify_node_parity("utility_record_subsets_generic")
+}
