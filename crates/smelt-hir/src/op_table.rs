@@ -45,6 +45,10 @@
 //!   assignment.
 //! * `call(text)`: how `dump-mir` names the op in its call-terminator form.
 //! * `mutates(receiver)`: the `Option<&Operand>` the op writes through in place.
+//! * `updates_state(receiver)`: the operand whose runtime-modelled state the op
+//!   changes behind a shared handle (a `RegExp`'s `lastIndex`), which a field
+//!   read of a value of that type observes. Unlike `mutates`, the operand is not
+//!   written in place, so it stays immutable to the MIR's own analyses.
 //! * `fresh(condition)`: the result is a newly allocated list no one else holds.
 //! * `needs(Need, Need if condition, ..)`: the runtime families the op demands;
 //!   see `Need` in `smelt-codegen-rust`.
@@ -116,6 +120,15 @@ macro_rules! op_mutates {
     () => { None };
     (mutates ($receiver:expr) $($rest:tt)*) => { $receiver };
     ($other:ident $value:tt $($rest:tt)*) => { $crate::op_mutates!($($rest)*) };
+}
+
+/// Expands to an entry's `updates_state` receiver as an `Option<ExprId>` (or
+/// `Option<Operand>`); by default an op changes no receiver's state.
+#[macro_export]
+macro_rules! op_updates_state {
+    () => { None };
+    (updates_state ($receiver:expr) $($rest:tt)*) => { Some(*$receiver) };
+    ($other:ident $value:tt $($rest:tt)*) => { $crate::op_updates_state!($($rest)*) };
 }
 
 /// Expands to an entry's `fresh` condition; by default a result is not provably
@@ -607,6 +620,7 @@ macro_rules! op_group_transcribed {
                 haystack: one,
             }
                 needs(DepRegress)
+                updates_state(pattern)
                 => (format!("regex_find {pattern}, {haystack}"));
             /// Execute a JavaScript-like `RegExp` value and return a match object.
             RegexExec {
@@ -616,6 +630,7 @@ macro_rules! op_group_transcribed {
                 haystack: one,
             }
                 needs(DepRegress)
+                updates_state(regex)
                 => (format!("regex_exec {regex}, {haystack}"));
             /// `regex.test(haystack)` on a CONCRETE `RegExp` receiver.
             ///
@@ -632,6 +647,7 @@ macro_rules! op_group_transcribed {
                 haystack: one,
             }
                 needs(DepRegress)
+                updates_state(regex)
                 => (format!("regex_test {regex} {haystack}"));
             /// Return every match index from JavaScript `String.prototype.matchAll`.
             RegexMatchAll {
