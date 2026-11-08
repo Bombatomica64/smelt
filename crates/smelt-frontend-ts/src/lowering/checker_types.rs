@@ -329,6 +329,9 @@ impl Respeller<'_, '_> {
             }
             TsTypeKind::Tuple { elements, readonly } => self.tuple(elements, *readonly, depth),
             TsTypeKind::Named { symbol, type_arguments } => {
+                if is_node_timer_handle(symbol) {
+                    return Some("number".to_owned());
+                }
                 if self.builder.type_name_visible(symbol) {
                     self.named(&symbol.name, type_arguments, depth)
                 } else {
@@ -482,6 +485,28 @@ fn is_identifier(name: &str) -> bool {
     chars.next().is_some_and(|first| first.is_alphabetic() || first == '_' || first == '$')
         && chars.all(|rest| rest.is_alphanumeric() || rest == '_' || rest == '$')
         && !name.starts_with("__")
+}
+
+/// Node's timer handle interfaces, by their qualified names in `@types/node`
+/// (declared inside `declare global { namespace NodeJS { .. } }`).
+const NODE_TIMER_HANDLES: [&str; 3] = ["global.NodeJS.Timeout", "global.NodeJS.Timer", "global.NodeJS.Immediate"];
+
+/// Whether `symbol` is one of Node's timer handles (`NodeJS.Timeout`, the
+/// type `setTimeout` returns under `@types/node`), declared in the vendored
+/// `@types/node`.
+///
+/// Smelt's runtime hands out a timer handle as a JavaScript number (the id
+/// `clearTimeout` takes back), which is also what the DOM lib's `setTimeout`
+/// returns. So the handle's type is `number`: `let t: ReturnType<typeof
+/// setTimeout> | null` is an `Option<f64>`, not an erased value. The
+/// handle's methods (`ref`, `unref`, `refresh`) are not modeled, and a call
+/// to one is refused by lowering.
+fn is_node_timer_handle(symbol: &TsSymbolRef) -> bool {
+    NODE_TIMER_HANDLES.contains(&symbol.qualified_name.as_str())
+        && symbol
+            .declaration
+            .as_ref()
+            .is_some_and(|declaration| declaration.file.contains("/node_modules/@types/node/"))
 }
 
 /// Whether `file` is one of the TypeScript lib declaration files.

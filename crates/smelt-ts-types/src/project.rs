@@ -128,6 +128,19 @@ declare module "@fast-check/vitest" {
 }
 "#;
 
+/// Whether every program already declares the module `specifier`: a test
+/// framework Smelt models, or a module of the vendored `@types/node`
+/// (`"fs"`, `"node:fs"`, `"timers/promises"`).
+#[must_use]
+pub fn declares_module(specifier: &str) -> bool {
+    let double = format!("declare module \"{specifier}\"");
+    let single = format!("declare module '{specifier}'");
+    TEST_FRAMEWORK_TEXT.contains(&double)
+        || crate::node_types::NODE_TYPE_FILES
+            .iter()
+            .any(|(_, text)| text.contains(&double) || text.contains(&single))
+}
+
 /// A whole program for the checker: the sources it walks, declarations it
 /// only reads, and how bare specifiers resolve.
 ///

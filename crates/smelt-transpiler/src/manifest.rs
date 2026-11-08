@@ -62,6 +62,13 @@ pub(crate) struct ManifestSource {
     /// resolver — so the collector, which already resolved every edge, records
     /// it here.
     pub(crate) excluded_imports: Vec<String>,
+    /// Bare package specifiers Smelt resolved to nothing: no file (not
+    /// installed, not a `[packages]` source) and no host module Smelt models.
+    ///
+    /// Lowering reads such an import as a dynamic value, and the type checker
+    /// is given the same view: an untyped module (see
+    /// `crate::check_program::typescript_program`).
+    pub(crate) unresolved_packages: Vec<String>,
     /// The typed version of a package this source was laid from, if any.
     ///
     /// Set for a file a `sound.json` lays (see [`crate::sound`]): its text is
@@ -140,6 +147,7 @@ pub(crate) fn read_manifest_source(
         excluded_targets: Vec::new(),
         value_dependencies: Vec::new(),
         excluded_imports: Vec::new(),
+        unresolved_packages: Vec::new(),
         typed_version: None,
     })
 }
@@ -177,6 +185,7 @@ fn read_collected_source(
         excluded_targets: Vec::new(),
         value_dependencies: Vec::new(),
         excluded_imports: Vec::new(),
+        unresolved_packages: Vec::new(),
         typed_version: Some(origin),
     })
 }
@@ -376,6 +385,7 @@ impl DependencyCollector {
         let mut excluded_targets = Vec::new();
         let mut value_dependencies = Vec::new();
         let mut excluded_imports = Vec::new();
+        let mut unresolved_packages = Vec::new();
         for import in &imports {
             let resolved =
                 self.resolve_import_to_existing_sources(&source_path, lang, import)?;
@@ -396,6 +406,13 @@ impl DependencyCollector {
                 resolved_imports.push(ResolvedImport { specifier: import.module.clone(), target: target.clone() });
             } else if let Some(target) = excluded.first() {
                 excluded_targets.push(ResolvedImport { specifier: import.module.clone(), target: target.clone() });
+            } else if lang.is_typescript()
+                && is_bare_package_specifier(&import.module)
+                && !smelt_stdlib::is_host_module(&import.module)
+                && !is_installed_package(&source_path, &import.module)
+                && !unresolved_packages.contains(&import.module)
+            {
+                unresolved_packages.push(import.module.clone());
             }
             dependencies.extend(included);
         }
@@ -404,6 +421,7 @@ impl DependencyCollector {
         source.excluded_targets = excluded_targets;
         source.value_dependencies = value_dependencies;
         source.excluded_imports = excluded_imports;
+        source.unresolved_packages = unresolved_packages;
         self.sources.push(source);
         for path in dependencies {
             if self.seen.contains(&normalize_path_key(&path)) {
@@ -1132,6 +1150,27 @@ fn quoted_module_specifier(input: &str) -> Option<String> {
     Some(rest[..end].to_owned())
 }
 
+/// Whether `specifier` names a package (`fast-check`, `@scope/pkg/sub`), not a
+/// path (`./a`, `/abs`) or a `node:`/`bun:` builtin.
+fn is_bare_package_specifier(specifier: &str) -> bool {
+    !specifier.is_empty()
+        && !specifier.starts_with('.')
+        && !specifier.starts_with('/')
+        && !specifier.contains(':')
+}
+
+/// Whether the package `specifier` names is installed where `importer`
+/// resolves packages, itself or as its `@types/` declarations: the type
+/// checker then reads its types from disk, whatever Smelt's resolution made
+/// of the import (a type-only import of `type-fest`).
+fn is_installed_package(importer: &Path, specifier: &str) -> bool {
+    let name = bare_package_name(specifier);
+    let from = importer.parent().unwrap_or(importer);
+    let types_name = format!("@types/{}", name.trim_start_matches('@').replacen('/', "__", 1));
+    crate::sound::installed_package_dir(from, &name).is_some()
+        || crate::sound::installed_package_dir(from, &types_name).is_some()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1430,3 +1469,4 @@ mod tests {
         );
     }
 }
+

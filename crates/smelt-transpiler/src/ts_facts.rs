@@ -16,6 +16,9 @@
 //! (`crate::type_gate`) refuses to build them unless type errors are allowed.
 //! The checker's own diagnostics are the TypeScript type errors of that gate.
 
+use std::collections::HashMap;
+use std::path::Path;
+
 use smelt_stdlib::DiagnosticCategory;
 use smelt_ts_model::{TsDiagnostic, TsDiagnosticCategory, TsTypeFacts};
 
@@ -75,10 +78,11 @@ impl TsCheck {
             .iter()
             .map(|source| (checker_location(source).display().to_string(), *source))
             .collect::<Vec<_>>();
+        let untyped = untyped_callback_parameters(graph);
         self.facts
             .iter()
             .flat_map(|facts| &facts.diagnostics)
-            .filter_map(|diagnostic| checker_diagnostic(diagnostic, &located, graph))
+            .filter_map(|diagnostic| checker_diagnostic(diagnostic, &located, graph, &untyped))
             .collect()
     }
 }
@@ -97,6 +101,7 @@ fn checker_diagnostic(
     diagnostic: &TsDiagnostic,
     located: &[(String, &ManifestSource)],
     graph: &ModuleGraph<'_>,
+    untyped: &HashMap<&Path, Vec<(u32, u32)>>,
 ) -> Option<ManifestDiagnostic> {
     if diagnostic.code == UNUSED_EXPECT_ERROR {
         return None;
@@ -117,6 +122,17 @@ fn checker_diagnostic(
     // module the manifest excludes, Node's declarations) is not about the
     // crate's sources; one with no file is about the whole program.
     if found.is_none() && diagnostic.file.is_some() {
+        return None;
+    }
+    // An implicit `any` on a parameter of a callback an untyped import's call
+    // receives: the dependency's types are missing, the program is not
+    // ill-typed (see `smelt_frontend_ts::untyped_callback_parameter_spans`).
+    if IMPLICIT_ANY_PARAMETER.contains(&diagnostic.code)
+        && let (Some(source), Some(start)) = (found, diagnostic.start)
+        && untyped
+            .get(source.path.as_path())
+            .is_some_and(|spans| spans.iter().any(|(from, to)| (*from..*to).contains(&start)))
+    {
         return None;
     }
     let (line, column) = found
@@ -160,6 +176,25 @@ fn checker_diagnostic(
         column,
         severity: Some(severity),
     })
+}
+
+/// TS7006 and TS7031: a parameter, or a destructured element of one,
+/// "implicitly has an 'any' type".
+const IMPLICIT_ANY_PARAMETER: [i32; 2] = [7006, 7031];
+
+/// For each source that imports an untyped package (one Smelt resolved to
+/// nothing, `ManifestSource::unresolved_packages`), the parameter ranges of
+/// the callbacks its calls receive.
+fn untyped_callback_parameters<'graph>(graph: &ModuleGraph<'graph>) -> HashMap<&'graph Path, Vec<(u32, u32)>> {
+    graph
+        .sources()
+        .iter()
+        .filter(|source| !source.unresolved_packages.is_empty())
+        .map(|source| {
+            let modules = source.unresolved_packages.iter().map(String::as_str).collect::<Vec<_>>();
+            (source.path.as_path(), smelt_frontend_ts::untyped_callback_parameter_spans(&source.source, &modules))
+        })
+        .collect()
 }
 
 /// TS2578, "Unused '@ts-expect-error' directive": not a type error in the

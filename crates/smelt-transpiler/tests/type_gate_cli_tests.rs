@@ -334,3 +334,41 @@ fn a_hook_context_is_typed() -> TestResult {
     ensure(stdout.contains("lifecycle callbacks with parameters"), format!("expected the lowering blocker:\n{stdout}"))?;
     ensure(!stdout.contains("\"type-check\""), format!("the hook context must type-check:\n{stdout}"))
 }
+
+/// A package Smelt resolves to nothing (a test-only dev dependency not
+/// installed) is an untyped module to the checker, as it is a dynamic value
+/// to lowering in a test file: no
+/// "cannot find module", and no implicit `any` on the parameters of a
+/// callback its calls receive. Code that does not touch it is still checked.
+#[cfg(feature = "ts7")]
+#[test]
+fn an_uninstalled_package_is_an_untyped_module() -> TestResult {
+    let program = |extra: &str| {
+        format!(
+            "import {{ it }} from \"vitest\";\nimport fc from \"not-installed-anywhere\";\n\nit(\"property\", () => {{\n  fc.check([1, 2], (value, index) => value + index);\n  const total: number = 3;\n  {extra}\n}});\n"
+        )
+    };
+    ensure_gate_sees(
+        build_files(&[("src/main.spec.ts", &program(""))], "main.spec.ts", "")?,
+        build_files(&[("src/main.spec.ts", &program("const wrong: string = total; void wrong;"))], "main.spec.ts", "")?,
+        "TS2322",
+    )
+}
+
+/// Node's timer handle (`ReturnType<typeof setTimeout>`, `NodeJS.Timeout`
+/// under `@types/node`) is a `number`, the id Smelt's runtime hands out, so
+/// the local holding one is typed, not erased.
+#[cfg(feature = "ts7")]
+#[test]
+fn a_node_timer_handle_is_a_number() -> TestResult {
+    let temp = TempProject::new()?;
+    let source = "let timer: ReturnType<typeof setTimeout> | null = null;\ntimer = setTimeout(() => {}, 1);\nclearTimeout(timer);\nconsole.log(timer != null);\n";
+    project(temp.path(), "main.ts", source, "")?;
+    let output = Command::new(env!("CARGO_BIN_EXE_smelt"))
+        .current_dir(temp.path())
+        .args(["build", "--hir"])
+        .output()?;
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    ensure(output.status.success(), String::from_utf8_lossy(&output.stderr).into_owned())?;
+    ensure(stdout.contains("let timer: Optional<Float>"), stdout)
+}

@@ -57,6 +57,8 @@ mod ident;
 mod lowering;
 #[doc(hidden)]
 pub mod test_support;
+mod untyped_imports;
+pub use untyped_imports::untyped_callback_parameter_spans;
 
 pub use context::{
     HirCtx, ObjectConst, ObjectConstEntry, ObjectConstEntryValue, ObjectConstValue,

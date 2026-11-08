@@ -616,8 +616,8 @@ jobs:
       # The opt-out is for one genuine type error in Radash itself:
       # `src/async.ts:313` (TS2322, a `Promise<any>` returned where the
       # conditional return type is expected; `tsc` 5.9.3 and TypeScript 7
-      # report it too). The tests' `chai` import is unresolved here as well
-      # (no `node_modules` in this checkout), 9 more errors.
+      # report it too). The tests' `chai` import, not installed here, is an
+      # untyped module to the checker (as to lowering) and adds no error.
       - name: Transpile Radash to Rust
         run: target/debug/smelt --manifest-path target/compat-repos/radash/Smelt.toml build --allow-type-errors
 
@@ -789,8 +789,8 @@ jobs:
       # The opt-out is for one type error TypeScript 7 reports in es-toolkit's
       # tests: `src/function/partial.spec.ts:104` (TS2554, overload
       # resolution of `partial(curried, placeholder, ...)`; `tsgo` 7.0 reports
-      # it, `tsc` 5.9 does not). The `fast-check` dev dependency is also
-      # unresolved here (no `node_modules`), 3 more errors.
+      # it, `tsc` 5.9 does not). The `fast-check` dev dependency, not
+      # installed here, is an untyped module to the checker and adds none.
       - name: Probe es-toolkit (JSON report)
         run: |
           target/debug/smelt --manifest-path target/compat-repos/es-toolkit/Smelt.toml \

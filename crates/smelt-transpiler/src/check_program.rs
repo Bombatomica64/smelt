@@ -254,9 +254,26 @@ pub(crate) fn typescript_program(graph: &ModuleGraph<'_>, stubs: &CrossLanguageS
             excluded.insert(target);
         }
     }
+    let modeled = smelt_frontend_ts::modeled_module_declarations();
+    let mut untyped = BTreeSet::new();
+    for importer in &typescript {
+        for specifier in &importer.unresolved_packages {
+            let declared = format!("declare module {specifier:?}");
+            if !smelt_ts_types::declares_module(specifier) && !modeled.contains(&declared) {
+                untyped.insert(specifier.as_str());
+            }
+        }
+    }
+    // A package Smelt resolved to nothing (a dev dependency not installed)
+    // is what lowering reads as a dynamic value; the checker gets the same
+    // view, an untyped module, rather than a "cannot find module" error.
+    let mut untyped_declarations = String::new();
+    for specifier in &untyped {
+        let _ = writeln!(untyped_declarations, "declare module {specifier:?};");
+    }
     declarations.push(smelt_ts_types::SourceInput::new(
         HOST_MODULES_PATH,
-        format!("{}{}", host_module_declarations(), smelt_frontend_ts::modeled_module_declarations()),
+        format!("{}{modeled}{untyped_declarations}", host_module_declarations()),
     ));
     let mut module_paths = BTreeMap::new();
     for importer in &typescript {

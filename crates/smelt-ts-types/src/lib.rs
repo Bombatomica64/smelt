@@ -41,7 +41,7 @@ mod walk;
 use std::collections::HashMap;
 use std::fmt;
 
-pub use project::{CheckProgram, SourceInput};
+pub use project::{CheckProgram, SourceInput, declares_module};
 pub use smelt_ts_model::{
     FileTypes, SpanKey, TsDiagnostic, TsDiagnosticCategory, TsType, TsTypeFacts, TsTypeId, TsTypeKind, TsTypeTable,
     model,
