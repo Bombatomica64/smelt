@@ -1057,7 +1057,7 @@ return_ty,
         if let Some(description) = Self::symbol_for_call_description(call) {
             return Ok(ConstLiteral {
                 literal: Literal::Symbol(symbols::registry_symbol_spelling(&description)),
-                ty: self.erase(ErasureReason::UnmodeledType),
+                ty: self.ctx.krate.types.intern(Type::Symbol),
             });
         }
         if matches!(&call.callee, Expression::Identifier(callee) if callee.name == "Symbol") {
@@ -1079,7 +1079,7 @@ return_ty,
                     &description,
                     self.span(call.span.start, call.span.end),
                 )),
-                ty: self.erase(ErasureReason::UnmodeledType),
+                ty: self.ctx.krate.types.intern(Type::Symbol),
             });
         }
         let Some(op) = stdlib_dispatch::pure_math_call(call) else {

@@ -35,6 +35,10 @@ impl FunctionEmitter<'_> {
             Type::Float => Ok(RustExpr::path("0.0")),
             Type::String => Ok(RustExpr::atom("JsString::new()")),
             Type::PyStr => Ok(RustExpr::atom("String::new()")),
+            // Placeholders for a slot declared before its first write; no
+            // source value is ever this default.
+            Type::Symbol => Ok(RustExpr::atom("SmeltSymbol::default()").delegating_default()),
+            Type::PropKey => Ok(RustExpr::atom("SmeltPropKey::default()").delegating_default()),
             Type::Unknown => Ok(self.null_value()),
             Type::Never => Ok(self.null_value()),
             Type::None => Ok(RustExpr::unit()),

@@ -347,6 +347,9 @@ impl ModuleBuilder<'_> {
             | (_, Some(Type::Unknown | Type::TypeParam { .. }))
             | (Some(Type::Float), Some(Type::Int))
             | (Some(Type::Int), Some(Type::Float)) => true,
+            // A property-key record's key takes any key: every key a record
+            // stores went through `ToPropertyKey`.
+            (Some(Type::PropKey), _) => true,
             _ if self.is_date_constructor_arg_type(expected)
                 && self.is_date_constructor_arg_type(actual) =>
             {

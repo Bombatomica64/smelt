@@ -574,6 +574,9 @@ impl ModuleBuilder<'_> {
             if let Some(expr) = self.blob_member_read(member, receiver, access_receiver_ty, body)? {
                 return Ok(expr);
             }
+            if let Some(expr) = self.symbol_member_read(member, receiver, receiver_ty, body) {
+                return Ok(expr);
+            }
         }
         if self.element_count_member(access_receiver_ty, member.property.name.as_str()) {
             let ty = self.ctx.krate.types.intern(Type::Float);
@@ -919,9 +922,8 @@ impl ModuleBuilder<'_> {
             crate::lowering::ty::computed_key_symbols::well_known_symbol_value_spelling(
                 member.property.name.as_str(),
             )?;
-        // Symbol values are erased at runtime (`SmeltUnknown::Symbol`), the same
-        // type the `Symbol()` / `Symbol.for()` call paths intern.
-        let ty = self.erase_with(ErasureReason::UnmodeledType, "symbol");
+        // The same `symbol` type the `Symbol()` / `Symbol.for()` calls have.
+        let ty = self.ctx.krate.types.intern(Type::Symbol);
         Some(body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::Symbol(spelling)),
             ty,

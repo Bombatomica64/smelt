@@ -292,6 +292,10 @@ const MODULES: &[RuntimeModule] = &[
         source: include_str!("runtime/structural_eq.rs"),
     },
     RuntimeModule {
+        name: "symbol",
+        source: include_str!("runtime/symbol.rs"),
+    },
+    RuntimeModule {
         name: "symbol_keys",
         source: include_str!("runtime/symbol_keys.rs"),
     },

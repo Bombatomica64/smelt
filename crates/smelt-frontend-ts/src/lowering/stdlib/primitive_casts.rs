@@ -94,7 +94,11 @@ impl ModuleBuilder<'_> {
         if !self.primitive_cast_accepts_operand(op, operand_ty) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                format!("{} requires a primitive argument", callee.name),
+                format!(
+                    "{} requires a primitive argument (got `{}`)",
+                    callee.name,
+                    smelt_hir::type_display(&self.ctx.krate, operand_ty)
+                ),
             ));
         }
         if callee.name == "String" && matches!(operand_type, Some(Type::Bool)) {
@@ -117,14 +121,28 @@ impl ModuleBuilder<'_> {
         op: PrimitiveCastOp,
         operand_ty: smelt_hir::TypeId,
     ) -> bool {
-        if op == PrimitiveCastOp::ToString && self.erased_or_union_surface(operand_ty) {
+        // `String(x)` is defined for every value, and a union is converted by
+        // its erased arm match whatever its arms are.
+        if op == PrimitiveCastOp::ToString
+            && (self.erased_or_union_surface(operand_ty)
+                // `never` is a branch narrowing proved unreachable, and an
+                // array's string is its elements joined with `,`.
+                || matches!(
+                    self.ctx.krate.types.get(operand_ty),
+                    Some(Type::Union(_) | Type::Never | Type::List(_) | Type::Tuple(_))
+                ))
+        {
             return true;
         }
         if matches!(op, PrimitiveCastOp::ToFloat | PrimitiveCastOp::ToJsNumber) {
-            return !matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Never));
+            // `Number(sym)` always throws a TypeError in JavaScript.
+            return !matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Never | Type::Symbol));
         }
         match self.ctx.krate.types.get(operand_ty) {
             Some(Type::Bool | Type::String | Type::Int | Type::BigInt | Type::Float | Type::Unknown) => true,
+            // `String(sym)` is `"Symbol(d)"` and `Boolean(sym)` is `true`.
+            // (`Number(sym)` throws, and is answered by the arm above.)
+            Some(Type::Symbol) => matches!(op, PrimitiveCastOp::ToString | PrimitiveCastOp::ToBool),
             Some(Type::TypeParam { .. } | Type::Class { .. }) => {
                 matches!(
                     op,

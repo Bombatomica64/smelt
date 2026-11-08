@@ -237,6 +237,11 @@ impl ModuleBuilder<'_> {
         {
             return !matches!(self.ctx.krate.types.get(actual), Some(Type::None));
         }
+        // A property-key record takes ANY key: JavaScript converts whatever is
+        // used as a key with `ToPropertyKey`, and so does codegen at the site.
+        if matches!(self.ctx.krate.types.get(expected), Some(Type::PropKey)) {
+            return true;
+        }
         if let Some(Type::Union(items)) = self.ctx.krate.types.get(expected) {
             return items
                 .iter()
@@ -250,16 +255,12 @@ impl ModuleBuilder<'_> {
         if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(actual) {
             return self.map_key_type_compatible(expected, *inner);
         }
+        // A string-keyed record takes a symbol key too: it stores it under
+        // the symbol's reserved string spelling.
         if self.ctx.krate.types.get(expected) == Some(&Type::String)
-            && let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(actual)
-            && self.ctx.krate.symbols.get(*name) == Some("PropertyKey")
+            && matches!(self.ctx.krate.types.get(actual), Some(Type::Symbol | Type::PropKey))
         {
             return true;
-        }
-        if let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(expected)
-            && self.ctx.krate.symbols.get(*name) == Some("PropertyKey")
-        {
-            return !matches!(self.ctx.krate.types.get(actual), Some(Type::None));
         }
         false
     }

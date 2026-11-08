@@ -38,6 +38,17 @@ fn smelt_symbol_property_key(description: &str) -> String { match description { 
 /// The symbol value spelling a folded symbol key came from.
 fn smelt_folded_symbol_key_spelling(key: &str) -> Option<String> { if let Some(escaped) = key.strip_prefix("__smelt_symbol_unique_") { let (description, offset) = escaped.rsplit_once("_at_")?; return Some(format!("Symbol({})@{offset}", smelt_symbol_key_unescape(description))); } let escaped = key.strip_prefix("__smelt_symbol_for_")?; Some(format!("Symbol.for({})", smelt_symbol_key_unescape(escaped))) }
 
+//~ A unique symbol is spelled `Symbol(d)@<site>`, a registry one
+//~ `Symbol.for(d)`, and every other spelling (`Symbol.iterator`, a key decoded
+//~ from an erased object) is its own description. A unique symbol created
+//~ without an argument has an empty description, so `Symbol()` and
+//~ `Symbol('')` both answer `undefined`.
+/// `symbol.description` of the symbol a spelling names.
+fn smelt_symbol_description(spelling: &str) -> Option<String> { if let Some(registry) = spelling.strip_prefix("Symbol.for(").and_then(|rest| rest.strip_suffix(')')) { return Some(registry.to_owned()); } let unique = spelling.rsplit_once('@').filter(|(_, site)| !site.is_empty() && site.bytes().all(|byte| byte.is_ascii_digit())).and_then(|(head, _)| head.strip_prefix("Symbol(").and_then(|rest| rest.strip_suffix(')'))); match unique { Some(unique) => (!unique.is_empty()).then(|| unique.to_owned()), None => Some(spelling.to_owned()) } }
+
+/// `String(symbol)`: `Symbol(<description>)`, the text JavaScript prints.
+fn smelt_symbol_to_string(spelling: &str) -> String { format!("Symbol({})", smelt_symbol_description(spelling).unwrap_or_default()) }
+
 //~ `Object.getOwnPropertySymbols` reports the symbols a program itself put on
 //~ an object: the opaque form and the two folded forms. A well-known key is
 //~ deliberately NOT one of them here — Smelt also writes

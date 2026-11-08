@@ -94,6 +94,12 @@ impl ModuleBuilder<'_> {
         }
         match (builtin_spelling, args.as_slice()) {
             ("RegExp", []) => Ok(self.regexp_type()),
+            // The lib's `type PropertyKey = string | number | symbol`: a VALUE
+            // of this type keeps its kind (`typeof` still tells a number from a
+            // string), so it is the union of the three, not the converted key a
+            // record stores (`Type::PropKey`). A source declaration of the name
+            // never reaches here (`builtin_spelling` is empty for it).
+            ("PropertyKey", []) => Ok(self.property_key_value_type()),
             // `BodyInit` is a UNION, not an opaque class. Leaving it opaque made
             // `JSON.stringify(body)` report "value must be JSON-serializable
             // (got Class `BodyInit`)" for a value that is a `string` on every

@@ -328,6 +328,11 @@ impl FunctionEmitter<'_> {
         if operand_ty == key_ty {
             return Ok(true);
         }
+        // A property-key record takes any key: `dict_key_operand_expr` applies
+        // `ToPropertyKey` through the coercion seam.
+        if self.mir.types.get(key_ty) == Some(&Type::PropKey) {
+            return Ok(true);
+        }
         // A `SmeltUnknown`-keyed Map (`Map<object, _>`, `Map<unknown, _>`) accepts
         // any concrete key: the key is erased to its runtime `SmeltUnknown` form
         // at the operation site by `dict_key_operand_expr`, the same erasure the
@@ -915,6 +920,14 @@ impl FunctionEmitter<'_> {
         ) {
             return Err(EmitError::new("dict projection receiver must be a dict"));
         }
+        // A property-key record enumerates in JavaScript's own-key order
+        // (array indices ascending, then strings, then symbols, each in
+        // insertion order), which its insertion-ordered backing does not keep.
+        if let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?)
+            && self.mir.types.get(*key_ty) == Some(&Type::PropKey)
+        {
+            return self.prop_key_projection_expr(op, &self.operand_borrow_expr(dict)?);
+        }
         // A record that holds no `__smelt` markers projects its own entries,
         // whatever its key type.
         if let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?)
@@ -1176,6 +1189,40 @@ impl FunctionEmitter<'_> {
                 }
             }
         }
+    }
+
+    /// A projection of a property-key record (`SmeltJsMap<SmeltPropKey, _>`).
+    ///
+    /// `Object.keys`/`values`/`entries` and `for...in` see the string keys only,
+    /// `Object.getOwnPropertySymbols` the symbol keys only and `Reflect.ownKeys`
+    /// both; every one of them in own-key order (`smelt_prop_key_entries`).
+    /// The two symbol-reporting projections answer the erased element type the
+    /// frontend gives them on every record (`string | symbol` is not one Rust
+    /// type), so their symbols cross through `IntoSmeltUnknown`.
+    fn prop_key_projection_expr(
+        &self,
+        op: smelt_hir::DictProjectionOp,
+        dict_ref: &RustExpr,
+    ) -> Result<RustExpr, EmitError> {
+        let text = match op {
+            smelt_hir::DictProjectionOp::FromEntries => {
+                return Err(EmitError::new("fromEntries receiver must be erased"));
+            }
+            smelt_hir::DictProjectionOp::Keys | smelt_hir::DictProjectionOp::ForInKeys => {
+                format!("smelt_prop_key_string_entries(&{dict_ref}).into_iter().map(|(key, _)| key).collect::<Vec<_>>()")
+            }
+            smelt_hir::DictProjectionOp::Values => {
+                format!("smelt_prop_key_string_entries(&{dict_ref}).into_iter().map(|(_, value)| value).collect::<Vec<_>>()")
+            }
+            smelt_hir::DictProjectionOp::Entries => format!("smelt_prop_key_string_entries(&{dict_ref})"),
+            smelt_hir::DictProjectionOp::Symbols => {
+                format!("smelt_prop_key_symbols(&{dict_ref}).into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<Vec<_>>()")
+            }
+            smelt_hir::DictProjectionOp::OwnKeys => {
+                format!("smelt_prop_key_entries(&{dict_ref}).into_iter().map(|(key, _)| key.to_unknown()).collect::<Vec<_>>()")
+            }
+        };
+        Ok(RustExpr::chain(text))
     }
 
     /// Converts a JSON serialization operation to Rust text.

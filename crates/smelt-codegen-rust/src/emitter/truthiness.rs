@@ -24,6 +24,12 @@ impl FunctionEmitter<'_> {
             Some(Type::String | Type::PyStr) => Ok(RustExpr::postfix_on(&operand_expr, format!(
                 "{operand_expr}.clone().is_some_and(|value| !value.is_empty())"
             ))),
+            // Every symbol is truthy; only its absence is falsy.
+            Some(Type::Symbol) => Ok(RustExpr::postfix_on(&operand_expr, format!("{operand_expr}.is_some()"))),
+            // A key is truthy unless it is the empty string.
+            Some(Type::PropKey) => Ok(RustExpr::postfix_on(&operand_expr, format!(
+                "{operand_expr}.as_ref().is_some_and(|value| value.as_string().is_none_or(|text| !text.is_empty()))"
+            ))),
             Some(Type::Union(_)) => {
                 // A concrete generated union (`SmeltUnionNNNN`) is not a
                 // `SmeltUnknown`, so its inner value cannot be matched against
@@ -121,6 +127,8 @@ impl FunctionEmitter<'_> {
                 "{{ let smelt_number = ({value_text}); smelt_number != 0.0 && !smelt_number.is_nan() }}"
             ))),
             Some(Type::String | Type::PyStr) => Ok(RustExpr::loose(format!("!({value_text}).is_empty()"))),
+            Some(Type::Symbol) => Ok(RustExpr::path("true")),
+            Some(Type::PropKey) => Ok(RustExpr::atom(format!("({value_text}).as_string().is_none_or(|text| !text.is_empty())"))),
             Some(Type::Union(_)) => {
                 // A concrete generated union is not a `SmeltUnknown`; erase it
                 // through its `IntoSmeltUnknown` boundary adapter before the

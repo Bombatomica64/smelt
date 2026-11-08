@@ -242,7 +242,7 @@ impl ModuleBuilder<'_> {
                 (key_ty, value_ty)
             }
         };
-        let key_ty = key_type;
+        let key_ty = self.enumerated_key_type(key_type);
         let value_ty = value_type;
         let ty = match op {
             DictProjectionOp::FromEntries => return Ok(None),
@@ -290,6 +290,19 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// The type of the keys a record's string-key enumeration yields
+    /// (`Object.keys`, `Object.entries`, `for...in`).
+    ///
+    /// A property-key record ([`Type::PropKey`]) also holds symbol keys, but
+    /// those enumerations report only its string keys, so they are `string`.
+    pub(in crate::lowering) fn enumerated_key_type(&mut self, key_ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
+        if matches!(self.ctx.krate.types.get(key_ty), Some(Type::PropKey)) {
+            self.ctx.krate.types.intern(Type::String)
+        } else {
+            key_ty
+        }
     }
 
     /// Return whether a type can use JavaScript object projection through `Object.*`.
@@ -875,7 +888,11 @@ impl ModuleBuilder<'_> {
             });
             let key = this.expression(key_expr, target)?;
             let key_ty = Self::expr_ty(target, key);
-            let key = if key_ty == string_ty {
+            // A symbol key indexes the string-keyed record under its reserved
+            // storage spelling; the key conversion does that at the site.
+            let key = if key_ty == string_ty
+                || matches!(this.ctx.krate.types.get(key_ty), Some(Type::Symbol))
+            {
                 key
             } else if this.is_string_compatible_type(key_ty) {
                 target.push_expr(Expr {

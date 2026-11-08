@@ -51,6 +51,9 @@ pub(crate) enum Need {
     PanicRoute,
     /// JavaScript `bigint`.
     BigInt,
+    /// JavaScript `symbol` values and property-key records (`SmeltSymbol`,
+    /// `SmeltPropKey`).
+    Symbol,
     /// The iterator-result enum a list's `next()` answers with.
     IteratorResult,
     /// Generator state machines.
@@ -285,6 +288,9 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::UrlThrowing, &[Need::Unknown, Need::Url]),
     (Need::DataViewAccess, &[Need::Unknown, Need::ByteArray, Need::DataView]),
     (Need::BigInt, &[Need::Unknown]),
+    // A symbol erases to the carrier's `Symbol` tag and its key form is the
+    // reserved spelling the carrier's objects store it under.
+    (Need::Symbol, &[Need::Unknown]),
     // The host families.
     (Need::Response, &[Need::Headers, Need::Body, Need::ObjectIds]),
     (Need::Request, &[Need::Headers, Need::Body, Need::ObjectIds, Need::DepUrl]),
@@ -511,6 +517,7 @@ impl RuntimeDemand {
                     }
                 }
                 Type::BigInt => self.add(Need::BigInt),
+                Type::Symbol | Type::PropKey => self.add(Need::Symbol),
                 Type::Dict(key, _) if crate::emitter::dict_key_uses_smelt_record(mir, *key) => {
                     self.add(Need::Record);
                 }

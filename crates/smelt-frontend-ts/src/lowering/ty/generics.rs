@@ -627,13 +627,22 @@ impl ModuleBuilder<'_> {
     }
 
     /// Bind every parameter of `type_params` that is unbound, or bound only to
-    /// `unknown`, to its constraint when the constraint is a primitive.
+    /// `unknown`, to its constraint when the constraint is a primitive or a
+    /// union of primitives.
     ///
     /// `K extends keyof T` (which lowers to `string`) can only be instantiated
     /// with that primitive's values, so the constraint is a sound and concrete
     /// instantiation where inference found nothing better: `Record<K, V>`
-    /// then has string keys instead of erased ones. Any other constraint
-    /// leaves the parameter as inference left it.
+    /// then has string keys instead of erased ones. The same holds for a union
+    /// of primitives such as `K extends PropertyKey`: every value the
+    /// definition can hand back for `K` is one of the constraint's arms, and
+    /// the arm a value is in is decided by the value itself. That is also why
+    /// the constraint is preferred over a narrower type the checker reports
+    /// for the call: `invert<K extends PropertyKey, V>` returns its keys
+    /// through `Object.keys(obj) as K[]`, so for `invert({ 1: 'a' })` the
+    /// checker says `K = 1` while the value is the string `'1'`; the
+    /// constraint holds it as the string it is. Any other constraint leaves
+    /// the parameter as inference left it.
     pub(in crate::lowering) fn bind_primitive_constraints(
         &self,
         type_params: &[TypeParamDef],
@@ -645,13 +654,25 @@ impl ModuleBuilder<'_> {
                 .is_none_or(|bound| self.ctx.krate.types.get(*bound) == Some(&Type::Unknown));
             if let Some(constraint) = param.constraint
                 && open
-                && matches!(
-                    self.ctx.krate.types.get(constraint),
-                    Some(Type::String | Type::Float | Type::Int | Type::Bool)
-                )
+                && self.is_primitive_constraint(constraint)
             {
                 substitutions.insert(param.name, constraint);
             }
+        }
+    }
+
+    /// Whether `constraint` is a primitive, or a union of primitives (see
+    /// [`Self::bind_primitive_constraints`]).
+    fn is_primitive_constraint(&self, constraint: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(constraint) {
+            Some(Type::String | Type::Float | Type::Int | Type::Bool) => true,
+            Some(Type::Union(items)) => items.iter().all(|item| {
+                matches!(
+                    self.ctx.krate.types.get(*item),
+                    Some(Type::String | Type::Float | Type::Int | Type::Bool | Type::BigInt | Type::Symbol)
+                )
+            }),
+            _ => false,
         }
     }
 
@@ -898,6 +919,8 @@ impl ModuleBuilder<'_> {
             | Type::Float
             | Type::String
             | Type::PyStr
+            | Type::Symbol
+            | Type::PropKey
             | Type::Unknown
             | Type::Never
             | Type::None => ty,

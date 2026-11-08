@@ -447,6 +447,13 @@ macro_rules! op_group_transcribed {
                 operand: one,
             }
                 => (format!("object_to_string_tag {operand}"));
+            /// JavaScript `symbol.description`: the text a symbol was created
+            /// with, or `undefined` for a `Symbol()` made without one.
+            SymbolDescription {
+                /// Symbol operand to read.
+                operand: one,
+            }
+                => (format!("symbol_description {operand}"));
             /// Deep-copy an erased value graph with fresh identities, preserving host
             /// markers (`structuredClone(x)`; see the runtime `smelt_structured_clone`).
             StructuredClone {

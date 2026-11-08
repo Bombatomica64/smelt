@@ -51,6 +51,8 @@ impl ModuleBuilder<'_> {
                 | Type::Float
                 | Type::String
                 | Type::PyStr
+                | Type::Symbol
+                | Type::PropKey
                 | Type::Unknown
                 | Type::TypeParam { .. }
                 | Type::Class { .. }

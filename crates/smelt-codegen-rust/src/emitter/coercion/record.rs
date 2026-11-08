@@ -479,6 +479,7 @@ pub(crate) fn record_field_unknown_expr(mir: &Mir, value_text: &RustExpr, ty: Ty
         Some(Type::Bool) => RustExpr::atom(format!("SmeltUnknown::Bool({value_text})")),
         Some(Type::Int | Type::FixedInt(_) | Type::Float) => RustExpr::atom(format!("SmeltUnknown::Number({value_text} as f64)")),
         Some(Type::BigInt) => RustExpr::atom(format!("SmeltUnknown::BigInt(({value_text}).clone())")),
+        Some(Type::Symbol | Type::PropKey) => RustExpr::atom(format!("({value_text}).clone().into_smelt_unknown()")),
         Some(Type::String | Type::PyStr) => erased_string(value_text),
         Some(Type::Optional(inner)) => {
             let inner_text = record_field_unknown_expr(mir, &RustExpr::path("value"), *inner)?;

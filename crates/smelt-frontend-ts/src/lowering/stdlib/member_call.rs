@@ -136,6 +136,17 @@ impl ModuleBuilder<'_> {
             // No declaration answers this method, so the value decides at run
             // time through the erased call ABI.
             let span = self.span(call.span.start, call.span.end);
+            // `valueOf()` on a closed prototype is the value itself:
+            // `Object.prototype.valueOf` for an array, and each primitive
+            // wrapper's `valueOf` for its primitive. An absent optional
+            // receiver (`x?.valueOf()`) is `undefined`, which is the receiver
+            // too.
+            if property_name == "valueOf"
+                && args.is_empty()
+                && self.value_of_is_identity(access_receiver_ty)
+            {
+                return Ok(receiver);
+            }
             if let Some(blocked) =
                 self.closed_prototype_call_blocked(access_receiver_ty, property_name, span, body)?
             {
@@ -289,6 +300,25 @@ impl ModuleBuilder<'_> {
             _ => return None,
         };
         (!answered && method != "toString").then_some(prototype)
+    }
+
+    /// Whether `receiver_ty.valueOf()` is the receiver itself: an array, a
+    /// tuple or a primitive, whose prototypes no source can redefine.
+    fn value_of_is_identity(&self, receiver_ty: smelt_hir::TypeId) -> bool {
+        matches!(
+            self.ctx.krate.types.get(receiver_ty),
+            Some(
+                Type::String
+                    | Type::List(_)
+                    | Type::Tuple(_)
+                    | Type::Float
+                    | Type::Int
+                    | Type::FixedInt(_)
+                    | Type::Bool
+                    | Type::BigInt
+                    | Type::Symbol
+            )
+        )
     }
 
     /// Contextual types for function-valued parameters of a class method.

@@ -107,7 +107,7 @@ impl ModuleBuilder<'_> {
             TSType::TSBooleanKeyword(_) | TSType::TSTypePredicate(_) => {
                 Ok(self.ctx.krate.types.intern(Type::Bool))
             }
-            TSType::TSSymbolKeyword(_) => Ok(self.erase(ErasureReason::UnmodeledType)),
+            TSType::TSSymbolKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Symbol)),
             TSType::TSNeverKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Never)),
             TSType::TSVoidKeyword(_) | TSType::TSNullKeyword(_) | TSType::TSUndefinedKeyword(_) => {
                 Ok(self.ctx.krate.types.intern(Type::None))

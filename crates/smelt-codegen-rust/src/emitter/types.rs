@@ -290,6 +290,8 @@ impl FunctionEmitter<'_> {
             Type::Float => Ok(RustType::raw("f64")),
             Type::String => Ok(RustType::raw("JsString")),
             Type::PyStr => Ok(RustType::raw("String")),
+            Type::Symbol => Ok(RustType::raw("SmeltSymbol")),
+            Type::PropKey => Ok(RustType::raw("SmeltPropKey")),
             Type::Unknown => Ok(RustType::erased()),
             Type::Never => {
                 self.note_backend_erasure(ErasureReason::NeverValue, String::new());

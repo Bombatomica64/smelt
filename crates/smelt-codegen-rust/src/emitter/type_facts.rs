@@ -607,6 +607,11 @@ pub(crate) fn dict_key_uses_js_key_map(mir: &Mir, key_ty: TypeId) -> bool {
         // A bigint key hashes by value, which is SameValueZero for bigints.
         Some(Type::Bool | Type::Int | Type::FixedInt(_) | Type::BigInt | Type::String | Type::PyStr) => false,
         Some(Type::Float) => true,
+        // A property-key record (`Record<K, V>` with a type-parameter key, or
+        // one holding symbols) is a `SmeltJsMap<SmeltPropKey, _>`: insertion
+        // ordered, with the own-key order applied when it is enumerated. A
+        // symbol key compares by identity like any `SmeltJsKeyEq` key.
+        Some(Type::PropKey | Type::Symbol) => true,
         Some(Type::Optional(inner) | Type::Future(inner)) => dict_key_uses_js_key_map(mir, *inner),
         Some(Type::Union(items)) => items.iter().any(|item| dict_key_uses_js_key_map(mir, *item)),
         Some(

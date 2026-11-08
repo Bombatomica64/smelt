@@ -111,6 +111,18 @@ impl ModuleBuilder<'_> {
         })
     }
 
+    /// The lib's `PropertyKey` as a value type: `string | number | symbol`.
+    ///
+    /// Each arm is a concrete value kind, so a `PropertyKey` is a generated
+    /// union and never erased. It is converted to the record key type
+    /// (`Type::PropKey`) only where it is used as a key.
+    pub(in crate::lowering) fn property_key_value_type(&mut self) -> smelt_hir::TypeId {
+        let string = self.ctx.krate.types.intern(Type::String);
+        let number = self.ctx.krate.types.intern(Type::Float);
+        let symbol = self.ctx.krate.types.intern(Type::Symbol);
+        self.ctx.krate.types.intern(Type::Union(vec![string, number, symbol]))
+    }
+
     /// Return the concrete HIR type for a `RegExp` match result value.
     ///
     /// `RegExp.exec` and `String.matchAll` produce a JavaScript match object

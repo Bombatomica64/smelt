@@ -463,6 +463,19 @@ impl FunctionEmitter<'_> {
             if matches!(self.mir.types.get(left_item_ty), Some(Type::Never)) {
                 return self.type_id(Type::List(right_item_ty));
             }
+            // Two concrete, different element types: the same rule
+            // `list_concat_expr` renders with, so the type and the text agree.
+            // An erased side absorbs the other; otherwise the narrowest
+            // interned union covering both is the element type.
+            if !self.has_dynamic_shape(left_ty) && !self.has_dynamic_shape(right_ty) {
+                let unknown_ty = self.find_type_id(&Type::Unknown);
+                if unknown_ty.is_some_and(|unknown| unknown == left_item_ty || unknown == right_item_ty) {
+                    return self.type_id(Type::List(unknown_ty.unwrap_or(left_item_ty)));
+                }
+                if let Some(list_ty) = self.narrowest_common_list_ty(left_item_ty, right_item_ty) {
+                    return Ok(list_ty);
+                }
+            }
         }
         if let Some(left_item_ty) = left_item
             && self.has_dynamic_shape(right_ty)

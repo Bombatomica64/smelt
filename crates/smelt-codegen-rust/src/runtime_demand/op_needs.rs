@@ -437,6 +437,8 @@ impl RuntimeDemand {
             | Rvalue::StringIsWellFormed { .. }
             | Rvalue::StringToWellFormed { .. }
             | Rvalue::ObjectToStringTag { .. }
+            // The operand's `Symbol` type already demands `Need::Symbol`.
+            | Rvalue::SymbolDescription { .. }
             | Rvalue::StringTrim { .. }
             | Rvalue::StringAffix { .. }
             | Rvalue::StringReplace { .. }

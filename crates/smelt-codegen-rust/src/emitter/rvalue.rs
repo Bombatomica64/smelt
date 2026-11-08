@@ -346,6 +346,12 @@ impl FunctionEmitter<'_> {
                 self.string_locale_compare_expr(left, right)
             }
             Rvalue::ObjectToStringTag { operand } => self.object_to_string_tag_expr(operand),
+            // `SmeltSymbol::description` answers the `Option<JsString>` an
+            // optional string is.
+            Rvalue::SymbolDescription { operand } => {
+                let symbol = self.operand_expr(operand)?;
+                Ok(RustExpr::postfix_on(&symbol, format!("{symbol}.description()")))
+            }
             Rvalue::StructuredClone { operand } => self.structured_clone_expr(operand),
             Rvalue::StringTrim { side, operand } => self.string_trim_expr(*side, operand),
             Rvalue::StringAffix {

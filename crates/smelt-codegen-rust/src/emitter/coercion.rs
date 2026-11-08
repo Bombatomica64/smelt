@@ -17,6 +17,7 @@
 mod erase;
 mod extract;
 mod function_adapter;
+mod prop_key;
 pub(crate) mod record;
 mod record_adapter;
 mod tag;
@@ -151,6 +152,9 @@ impl FunctionEmitter<'_> {
         }
         let source_ty = self.operand_ty(operand)?;
         let operand_expr = self.operand_expr(operand)?;
+        if let Some(key) = self.prop_key_conversion(&operand_expr, source_ty, target)? {
+            return Ok(key);
+        }
         // A function operand renders as a borrow of its binding, and a union arm
         // owns its value: the binding may be read again after the injection.
         let owned_text = if matches!(self.mir.types.get(source_ty), Some(Type::Function(_)))
@@ -814,6 +818,12 @@ impl FunctionEmitter<'_> {
         target: TypeId,
         scope: &RenderScope,
     ) -> Result<RustExpr, EmitError> {
+        if let Some(key) = self.prop_key_conversion(value_text, source, target)? {
+            return Ok(key);
+        }
+        if let Some(key) = self.key_union_at_string(value_text, source, target)? {
+            return Ok(key);
+        }
         if let Some(injected) = self.inject_union_value(value_text, source, target, scope)? {
             return Ok(injected);
         }

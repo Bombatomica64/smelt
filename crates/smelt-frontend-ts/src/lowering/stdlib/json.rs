@@ -352,8 +352,13 @@ impl ModuleBuilder<'_> {
             | Type::Float
             | Type::String
             | Type::PyStr
+            // A symbol serializes like `undefined`: dropped from an object,
+            // `null` in an array; the erased serializer applies that rule.
+            | Type::Symbol
             | Type::Unknown
             | Type::TypeParam { .. } => true,
+            // Never a value on its own; only a record key.
+            Type::PropKey => true,
             // `JSON.stringify(1n)` throws `TypeError: Do not know how to
             // serialize a BigInt`; there is no JSON spelling to emit. Only the
             // `bigint_ok` walk accepts it, to pick the fallible lowering.
@@ -368,7 +373,7 @@ impl ModuleBuilder<'_> {
                 .iter()
                 .all(|item| self.is_json_serializable_type_inner(*item, seen, true, bigint_ok)),
             Type::Dict(key, value) | Type::JsMap(key, value) => {
-                matches!(self.ctx.krate.types.get(key), Some(Type::String))
+                matches!(self.ctx.krate.types.get(key), Some(Type::String | Type::PropKey))
                     && self.is_json_serializable_type_inner(value, seen, true, bigint_ok)
             }
             Type::Class { name, args } => {
