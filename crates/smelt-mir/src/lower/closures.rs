@@ -32,7 +32,8 @@
 //! 2. **Escape reachability is transitive.** A closure is escaping if it is
 //!    returned directly, returned through local aliases, returned inside an
 //!    aggregate (`list`/`set`/`tuple`/`dict`), or captured by another escaping
-//!    closure. The emitter does not need to chase aliases itself.
+//!    closure. The emitter does not need to chase aliases itself. Every body
+//!    is scanned, so a closure returned from a closure escapes too.
 //! 3. **Throwing closures use a throwing function ABI uniformly.** When a
 //!    closure body `can_throw`, every MIR local that stores, aliases, or
 //!    captures that closure is typed `Type::Function { may_throw: true, .. }`
@@ -41,7 +42,13 @@
 //! 4. **Capture metadata matches captured-local types.** After widening, each
 //!    `MirClosureCapture::ty` and the closure-body local it targets share the
 //!    (possibly widened) type of the captured source local, so the emitter's
-//!    capture-struct field types agree with the owner's local types.
+//!    capture-struct field types agree with the owner's local types. Every
+//!    later retyping pass keeps it (erased-record promotion promotes a capture's
+//!    two ends together), and [`crate::validate`] checks it in every build.
+//! 5. **`source_local` is the construction site's operand.** Each capture's
+//!    `source_local` is the local the `Rvalue::Closure` reads at that position;
+//!    `crate::sync_capture_sources` re-derives it after every optimization
+//!    pass, and [`crate::validate`] checks it.
 
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
@@ -49,7 +56,7 @@ use std::convert::TryFrom;
 use smelt_hir::Type;
 
 use crate::{
-    BasicBlock, ClosureId, LocalDecl, LocalId, Mir, MirClosure, MirClosureCapture, MirFunction,
+    BasicBlock, ClosureId, LocalDecl, LocalId, Mir, MirClosure, MirClosureCapture,
     Operand, Place, Rvalue, Statement, Terminator,
 };
 
@@ -198,21 +205,29 @@ impl LoweringCtx<'_> {
 /// closure instead of borrowing stack locals that are about to disappear.
 ///
 /// Publishes invariants 1 and 2 in the module docstring.
+///
+/// Every body is scanned through [`Mir::bodies`], closures included: a closure
+/// returned from a closure escapes the creating closure's frame exactly as one
+/// returned from a function does, and a closure created in a closure body and
+/// captured by an escaping closure is found through the creating closure's
+/// own definitions (audit finding C3).
 pub(super) fn mark_escaping_closures(mir: &mut Mir) {
-    let closure_defs_by_function = mir
-        .functions
+    let bodies = mir.bodies().collect::<Vec<_>>();
+    let closure_defs_by_function = bodies
         .iter()
-        .map(closure_definitions)
+        .map(|body| closure_definitions(body.blocks))
         .collect::<Vec<_>>();
-    let local_rvalues_by_function = mir.functions.iter().map(local_rvalues).collect::<Vec<_>>();
+    let local_rvalues_by_function = bodies
+        .iter()
+        .map(|body| local_rvalues(body.blocks))
+        .collect::<Vec<_>>();
     let mut escaping = HashSet::new();
-    for ((function, definitions), local_rvalues) in mir
-        .functions
+    for ((function, definitions), local_rvalues) in bodies
         .iter()
         .zip(&closure_defs_by_function)
         .zip(&local_rvalues_by_function)
     {
-        for block in &function.blocks {
+        for block in function.blocks {
             let Some(Terminator::Return(operand)) = &block.terminator else {
                 continue;
             };
@@ -283,10 +298,10 @@ pub(super) fn mark_escaping_closures(mir: &mut Mir) {
     }
 }
 
-/// Return local assignments in a function for escape analysis.
-fn local_rvalues(function: &MirFunction) -> HashMap<LocalId, Rvalue> {
+/// Return local assignments in one body for escape analysis.
+fn local_rvalues(blocks: &[BasicBlock]) -> HashMap<LocalId, Rvalue> {
     let mut rvalues = HashMap::new();
-    for block in &function.blocks {
+    for block in blocks {
         for statement in &block.statements {
             if let Statement::Assign { dest, value } = statement {
                 rvalues.insert(*dest, value.clone());
@@ -374,10 +389,10 @@ macro_rules! define_closure_carrying_operands {
 
 smelt_hir::for_each_op!(define_closure_carrying_operands);
 
-/// Return the closure and alias definitions inside one MIR function.
-fn closure_definitions(function: &MirFunction) -> HashMap<LocalId, ClosureLocalDef> {
+/// Return the closure and alias definitions inside one MIR body.
+fn closure_definitions(blocks: &[BasicBlock]) -> HashMap<LocalId, ClosureLocalDef> {
     let mut definitions = HashMap::new();
-    for block in &function.blocks {
+    for block in blocks {
         for statement in &block.statements {
             let Statement::Assign { dest, value } = statement else {
                 continue;

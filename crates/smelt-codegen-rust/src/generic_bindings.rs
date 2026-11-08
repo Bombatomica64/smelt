@@ -817,7 +817,8 @@ mod tests {
         Span::new(FileId(0), 0, 0)
     }
 
-    /// Build a function declaring `type_params` and one local per parameter type.
+    /// Build a function named `Symbol(id)` declaring `type_params` and one local
+    /// per parameter type; its table id is assigned by `Mir::push_function`.
     fn function_with_params(
         id: u32,
         type_params: &[Symbol],
@@ -825,7 +826,7 @@ mod tests {
         return_ty: TypeId,
     ) -> MirFunction {
         MirFunction {
-            id: FuncId(id),
+            id: FuncId::SYNTHETIC,
             name: Symbol(id),
             type_params: type_params
                 .iter()
@@ -1188,7 +1189,7 @@ mod tests {
         let mut mir = mir_with_types(types);
         let callee = function_with_params(0, &[Symbol(0)], &[type_param], type_param);
         let call_site = function_with_params(1, &[], &[], float);
-        mir.functions.push(callee);
+        mir.push_function(callee);
 
         let bindings = collect_bindings(
             &mir,
@@ -1221,7 +1222,7 @@ mod tests {
         let mut mir = mir_with_types(types);
         let callee = function_with_params(0, &[Symbol(0)], &[callback], float);
         let call_site = function_with_params(1, &[], &[], float);
-        mir.functions.push(callee);
+        mir.push_function(callee);
 
         let bindings = collect_bindings(&mir, &mir.functions[0], &call_site, &[]);
 
@@ -1254,7 +1255,7 @@ mod tests {
             type_param,
         );
         let call_site = function_with_params(1, &[], &[actual_list, unknown], float);
-        mir.functions.push(callee);
+        mir.push_function(callee);
 
         let bindings = collect_bindings(
             &mir,
@@ -1280,7 +1281,7 @@ mod tests {
             function_with_params(0, &[Symbol(0)], &[type_param, declared_list], type_param);
         callee.rest = Some(1);
         let call_site = function_with_params(1, &[], &[float, float], float);
-        mir.functions.push(callee);
+        mir.push_function(callee);
 
         let bindings = collect_bindings(
             &mir,
@@ -1306,7 +1307,7 @@ mod tests {
         let mut mir = mir_with_types(types);
         let callee = function_with_params(0, &[Symbol(0)], &[type_param], type_param);
         let call_site = function_with_params(1, &[], &[float], float);
-        mir.functions.push(callee);
+        mir.push_function(callee);
 
         let bindings = collect_bindings(
             &mir,

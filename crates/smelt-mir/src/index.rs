@@ -13,13 +13,102 @@ use smelt_hir::Symbol;
 
 use crate::{Callee, FuncId, Mir, MirClass, MirFunction, MirInterface, Terminator};
 
+/// Two declarations of one kind share a name.
+///
+/// Every by-name lookup in MIR (`class_named`, inherited-type substitution,
+/// bound-method throwing) assumes a class name, and an interface name, picks
+/// out one declaration. A duplicate used to be answered by whichever came
+/// first (audit finding C12); [`NameIndex::new`] refuses it instead, and both
+/// lowering and the validator build the index through it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DuplicateName {
+    /// `"class"` or `"interface"`.
+    pub kind: &'static str,
+    /// The repeated name.
+    pub name: Symbol,
+    /// Table positions of the first and the repeated declaration.
+    pub positions: (usize, usize),
+}
+
+impl DuplicateName {
+    /// The diagnostic for this repeated declaration name.
+    #[must_use]
+    pub fn message(&self, mir: &Mir) -> String {
+        let (first, second) = self.positions;
+        format!(
+            "{} `{}` is declared twice (positions {first} and {second}); every by-name lookup needs one declaration",
+            self.kind,
+            mir.symbols.get(self.name).unwrap_or("<unknown>")
+        )
+    }
+}
+
+/// Positions of classes and of interfaces by name, each name unique within
+/// its kind. A class and an interface MAY share a name (TypeScript
+/// declaration merging); the two kinds are looked up separately.
+#[derive(Debug, Default)]
+pub struct NameIndex {
+    /// Position of the class of each name.
+    classes: HashMap<Symbol, usize>,
+    /// Position of the interface of each name.
+    interfaces: HashMap<Symbol, usize>,
+}
+
+impl NameIndex {
+    /// Index `mir`'s classes and interfaces by name.
+    ///
+    /// # Errors
+    ///
+    /// Every name declared twice within one kind.
+    pub fn new(mir: &Mir) -> Result<Self, Vec<DuplicateName>> {
+        let mut duplicates = Vec::new();
+        let classes = unique_positions(
+            "class",
+            mir.classes.iter().map(|class| class.name),
+            &mut duplicates,
+        );
+        let interfaces = unique_positions(
+            "interface",
+            mir.interfaces.iter().map(|interface| interface.name),
+            &mut duplicates,
+        );
+        if duplicates.is_empty() {
+            Ok(Self { classes, interfaces })
+        } else {
+            Err(duplicates)
+        }
+    }
+}
+
+/// Map each name to its position, recording every repeat in `duplicates`. A
+/// repeated name maps to no position, so a lookup of it answers nothing rather
+/// than an arbitrary one of the declarations.
+fn unique_positions(
+    kind: &'static str,
+    names: impl Iterator<Item = Symbol>,
+    duplicates: &mut Vec<DuplicateName>,
+) -> HashMap<Symbol, usize> {
+    let mut positions: HashMap<Symbol, usize> = HashMap::new();
+    let mut repeated = Vec::new();
+    for (position, name) in names.enumerate() {
+        if let Some(first) = positions.get(&name) {
+            duplicates.push(DuplicateName { kind, name, positions: (*first, position) });
+            repeated.push(name);
+        } else {
+            positions.insert(name, position);
+        }
+    }
+    for name in repeated {
+        positions.remove(&name);
+    }
+    positions
+}
+
 /// The lookups, by name and by call target.
 #[derive(Debug, Default)]
 struct Lookups {
-    /// Position of the first class of each name.
-    classes: HashMap<Symbol, usize>,
-    /// Position of the first interface of each name.
-    interfaces: HashMap<Symbol, usize>,
+    /// Classes and interfaces by name.
+    names: NameIndex,
     /// Positions of the functions that statically call each function, in
     /// function order.
     static_callers: HashMap<FuncId, Vec<usize>>,
@@ -45,13 +134,27 @@ impl Mir {
     /// The lookups, built on first use.
     fn lookups(&self) -> &Lookups {
         self.index.0.get_or_init(|| {
-            let mut lookups = Lookups::default();
-            for (position, class) in self.classes.iter().enumerate() {
-                lookups.classes.entry(class.name).or_insert(position);
-            }
-            for (position, interface) in self.interfaces.iter().enumerate() {
-                lookups.interfaces.entry(interface.name).or_insert(position);
-            }
+            let mut lookups = Lookups {
+                // A program with a duplicate never gets here (lowering and the
+                // validator both reject it); should one be built by hand, the
+                // ambiguous name answers nothing rather than its first entry.
+                names: NameIndex::new(self).unwrap_or_else(|_| {
+                    let mut ignored = Vec::new();
+                    NameIndex {
+                        classes: unique_positions(
+                            "class",
+                            self.classes.iter().map(|class| class.name),
+                            &mut ignored,
+                        ),
+                        interfaces: unique_positions(
+                            "interface",
+                            self.interfaces.iter().map(|interface| interface.name),
+                            &mut ignored,
+                        ),
+                    }
+                }),
+                static_callers: HashMap::new(),
+            };
             for (position, function) in self.functions.iter().enumerate() {
                 for block in &function.blocks {
                     if let Some(Terminator::Call { callee: Callee::Static(target), .. }) = &block.terminator {
@@ -71,28 +174,28 @@ impl Mir {
         self.index = MirIndex::default();
     }
 
-    /// The first class named `name`.
+    /// The class named `name`.
     #[must_use]
     pub fn class_named(&self, name: Symbol) -> Option<&MirClass> {
-        self.classes.get(*self.lookups().classes.get(&name)?)
+        self.classes.get(*self.lookups().names.classes.get(&name)?)
     }
 
-    /// The first interface named `name`.
+    /// The interface named `name`.
     #[must_use]
     pub fn interface_named(&self, name: Symbol) -> Option<&MirInterface> {
-        self.interfaces.get(*self.lookups().interfaces.get(&name)?)
+        self.interfaces.get(*self.lookups().names.interfaces.get(&name)?)
     }
 
     /// Whether a class is named `name`.
     #[must_use]
     pub fn has_class(&self, name: Symbol) -> bool {
-        self.lookups().classes.contains_key(&name)
+        self.lookups().names.classes.contains_key(&name)
     }
 
     /// Whether an interface is named `name`.
     #[must_use]
     pub fn has_interface(&self, name: Symbol) -> bool {
-        self.lookups().interfaces.contains_key(&name)
+        self.lookups().names.interfaces.contains_key(&name)
     }
 
     /// The functions holding a static call to `target`, in function order.
@@ -179,19 +282,28 @@ mod tests {
         )
     }
 
-    /// The first declaration wins a repeated name, as a linear `find` answers.
+    /// A repeated class name is refused by the index constructor and answers
+    /// nothing, rather than its first declaration (audit C12); unique names
+    /// answer as before, and a class may share an interface's name.
     #[test]
-    fn a_name_finds_its_first_declaration() {
+    #[expect(clippy::expect_used, reason = "test fixtures unwrap and index their own known-good shapes")]
+    fn a_repeated_name_is_refused_not_resolved_to_its_first() {
         let mut program = mir();
         program.classes = vec![
             class(Symbol(1), Some(Symbol(7))),
             class(Symbol(1), Some(Symbol(8))),
             class(Symbol(2), None),
+            class(Symbol(3), None),
         ];
         program.interfaces = vec![interface(Symbol(3))];
-        assert_eq!(program.class_named(Symbol(1)).and_then(|found| found.base), Some(Symbol(7)));
+        let duplicates = super::NameIndex::new(&program).expect_err("duplicate class");
+        assert_eq!(
+            duplicates,
+            [super::DuplicateName { kind: "class", name: Symbol(1), positions: (0, 1) }]
+        );
+        assert!(program.class_named(Symbol(1)).is_none());
+        assert!(program.has_class(Symbol(3)), "a class may share an interface's name");
         assert!(program.has_class(Symbol(2)));
-        assert!(!program.has_class(Symbol(3)));
         assert!(program.has_interface(Symbol(3)));
         assert!(!program.has_interface(Symbol(1)));
         assert_eq!(program.interface_named(Symbol(3)).map(|found| found.name), Some(Symbol(3)));

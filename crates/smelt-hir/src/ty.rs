@@ -395,11 +395,15 @@ fn canonical(mut ty: Type) -> Type {
 
 impl TypeInterner {
     /// Returns the `TypeId` for `ty`, inserting it if needed.
+    ///
+    /// A late id is `types.len() + i`, so a type interned after a late one
+    /// would take a late type's id. Rather than assume interning has finished
+    /// before any [`Self::intern_late`] (a `debug_assert!` used to, which a
+    /// release build skipped), the late tail is first appended to `types` in
+    /// order: every late id then names the same type at the same position, and
+    /// the new type gets the next free id.
     pub fn intern(&mut self, mut ty: Type) -> TypeId {
-        debug_assert!(
-            self.late.0.is_empty(),
-            "late ids continue past `types`, so interning has to finish first"
-        );
+        self.absorb_late();
         // Union identity must not depend on source spelling order. Besides
         // deduplicating equivalent types, canonical member order gives Rust
         // codegen one stable tagged-enum definition for `A | B` and `B | A`.
@@ -420,6 +424,21 @@ impl TypeInterner {
         self.index.insert(ty.clone(), id);
         self.types.push(ty);
         id
+    }
+
+    /// Move the late tail into `types`, keeping every late id's meaning.
+    fn absorb_late(&mut self) {
+        if self.late.0.is_empty() {
+            return;
+        }
+        let late = std::mem::take(&mut self.late).0.into_vec();
+        for ty in late {
+            let id = TypeId(id_index(self.types.len()));
+            if self.index.len() == self.types.len() {
+                self.index.entry((*ty).clone()).or_insert(id);
+            }
+            self.types.push(*ty);
+        }
     }
 
     #[must_use]
@@ -499,6 +518,23 @@ mod tests {
         assert_eq!(types.get(late), Some(&Type::Float));
         assert_eq!(types.all(), [Type::String].as_slice());
         assert_eq!(types.lookup(&Type::Float), None);
+    }
+
+    /// Interning after a late type keeps the late id's meaning and gives the
+    /// new type a fresh id (the hazard the old `debug_assert!` only guarded in
+    /// debug builds).
+    #[test]
+    fn interning_after_a_late_type_keeps_every_id() {
+        let mut types = TypeInterner::default();
+        let string = types.intern(Type::String);
+        let late = types.intern_late(Type::Float);
+        let bool_id = types.intern(Type::Bool);
+        assert_ne!(bool_id, late);
+        assert_eq!(types.get(late), Some(&Type::Float));
+        assert_eq!(types.get(string), Some(&Type::String));
+        assert_eq!(types.get(bool_id), Some(&Type::Bool));
+        assert_eq!(types.intern(Type::Float), late);
+        assert_eq!(types.intern_late(Type::Float), late);
     }
 
     #[test]

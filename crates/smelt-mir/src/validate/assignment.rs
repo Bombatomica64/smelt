@@ -14,8 +14,7 @@
 use std::collections::{HashSet, VecDeque};
 
 use crate::{
-    Callee, GlobalProjection, LocalId, Mir, MirFunction, Operand, Place, Rvalue, Statement,
-    Terminator,
+    Callee, MirBody, GlobalProjection, LocalId, Mir, Operand, Place, Rvalue, Statement, Terminator,
 };
 
 use super::structure::validate_local_exists;
@@ -33,18 +32,18 @@ type EntryDefinitions = Vec<BlockDefinitions>;
 /// Perform forward dataflow to ensure locals are assigned before use.
 pub(super) fn validate_definite_assignment(
     mir: &Mir,
-    function: &MirFunction,
+    body: MirBody<'_>,
     errors: &mut Vec<ValidationError>,
 ) {
-    let entry_idx = block_index(function.entry);
-    if function.blocks.get(entry_idx).is_none() {
+    let entry_idx = block_index(body.entry);
+    if body.blocks.get(entry_idx).is_none() {
         return;
     }
 
-    let Some(in_sets) = compute_entry_definitions(function, entry_idx) else {
+    let Some(in_sets) = compute_entry_definitions(body, entry_idx) else {
         return;
     };
-    report_undefined_reads(mir, function, &in_sets, errors);
+    report_undefined_reads(mir, body, &in_sets, errors);
 }
 
 /// Run the forward worklist fixpoint and return the per-block entry
@@ -53,135 +52,103 @@ pub(super) fn validate_definite_assignment(
 /// `in_sets[i]` is `None` for blocks that are never reached, and otherwise the
 /// meet (intersection) of every predecessor's out-set. Returns `None` only when
 /// the entry index cannot be seeded, in which case the caller skips reporting.
+///
+/// # The two things this does NOT check, and why (audit finding C8)
+///
+/// Both are a contract with the Rust emitter rather than an oversight; the
+/// tests in `validate::tests` pin both halves of it.
+///
+/// * **User bindings are defined on entry.** The emitter predeclares a source
+///   binding at function scope, seeded with its type's default when any read
+///   can precede an assignment (`local_declaration.rs`), so a read before the
+///   first write is defined Rust. Source does produce such reads: a recursive
+///   arrow captures its own binding before the binding is assigned
+///   (`const walk = (n) => walk(n - 1)`), a hoisted function declaration is
+///   read before its statement, and a Python name assigned in one branch is
+///   read after the join. Temporaries get no such seed and are fully checked.
+/// * **Dead blocks are not checked.** Lowering legitimately leaves blocks no
+///   path reaches (the copy of a `finally` after an unconditional `break`),
+///   and they read temporaries defined only on the live path. The emitter
+///   renders regions from the entry block and never emits such a block.
 fn compute_entry_definitions(
-    function: &MirFunction,
+    body: MirBody<'_>,
     entry_idx: usize,
 ) -> Option<EntryDefinitions> {
-    let block_count = function.blocks.len();
+    let block_count = body.blocks.len();
     let mut in_sets: EntryDefinitions = vec![None; block_count];
-
-    let mut entry_defs = HashSet::new();
-    entry_defs.extend(function.params.iter().copied());
-    entry_defs.extend(function.locals.iter().enumerate().filter_map(
-        |(idx, local)| match local.kind {
+    let mut entry_defs: HashSet<LocalId> = body.defined_on_entry().collect();
+    entry_defs.extend(body.locals.iter().enumerate().filter_map(|(idx, local)| {
+        match local.kind {
             crate::LocalKind::UserBinding(_) => Some(LocalId(u32::try_from(idx).ok()?)),
             crate::LocalKind::Param { .. } | crate::LocalKind::Temp => None,
-        },
-    ));
+        }
+    }));
 
     *in_sets.get_mut(entry_idx)? = Some(entry_defs);
-
-    let mut queue = VecDeque::new();
-    queue.push_back(function.entry);
-
-    while let Some(block_id) = queue.pop_front() {
-        let block_idx = block_index(block_id);
-        let Some(block) = function.blocks.get(block_idx) else {
-            continue;
-        };
-        let Some(definitions_slot) = in_sets.get(block_idx) else {
-            continue;
-        };
-        let Some(mut definitions) = definitions_slot.clone() else {
-            continue;
-        };
-
-        accumulate_block_definitions(block, &mut definitions);
-
-        if let Some(terminator) = &block.terminator {
-            propagate_to_successors(terminator, &definitions, &mut in_sets, &mut queue);
-        }
-    }
-
+    run_worklist(body, body.entry, &mut in_sets);
     Some(in_sets)
 }
 
-/// Add every local the block itself defines (assignments, call/await
-/// destinations) to `definitions`.
-fn accumulate_block_definitions(block: &crate::BasicBlock, definitions: &mut HashSet<LocalId>) {
-    for stmt in &block.statements {
-        match stmt {
-            Statement::Assign { dest, .. } => {
-                definitions.insert(*dest);
-            }
-            Statement::AssignPlace { place, .. } => match place {
-                Place::Local(local) => {
-                    definitions.insert(*local);
-                }
-                // Writing through a projection -- into a local's interior or
-                // into a mutable global's cell -- defines no new local.
-                Place::Field { .. } | Place::Index { .. } | Place::Global { .. } => {}
-            },
-            // The fused entry update defines `current`; its container target is
-            // written through a place and so defines nothing new, exactly like
-            // an `AssignPlace` to `base[index]`.
-            Statement::DictEntryUpdate { current, .. } => {
-                definitions.insert(*current);
-            }
-        }
-    }
-
-    if let Some(terminator) = &block.terminator {
-        match terminator {
-            Terminator::Call { dest, .. } | Terminator::Await { dest, .. } => {
-                definitions.insert(*dest);
-            }
-            Terminator::Goto(_)
-            | Terminator::Switch { .. }
-            | Terminator::Match { .. }
-            | Terminator::Return(_)
-            | Terminator::Throw(_) => {}
+/// Propagate definitions forward from `start` until nothing changes.
+fn run_worklist(body: MirBody<'_>, start: crate::BlockId, in_sets: &mut [BlockDefinitions]) {
+    let mut queue = VecDeque::new();
+    queue.push_back(start);
+    while let Some(block_id) = queue.pop_front() {
+        let block_idx = block_index(block_id);
+        let Some(block) = body.blocks.get(block_idx) else {
+            continue;
+        };
+        let Some(Some(mut definitions)) = in_sets.get(block_idx).cloned() else {
+            continue;
+        };
+        accumulate_statement_definitions(block, &mut definitions);
+        if let Some(terminator) = &block.terminator {
+            propagate_to_successors(terminator, &definitions, in_sets, &mut queue);
         }
     }
 }
 
-/// Meet `definitions` into each successor's entry set, enqueueing successors
-/// whose set shrank so the fixpoint keeps propagating.
+/// Add every local the block's statements define to `definitions`.
+///
+/// The terminator's definition is not added here: what it defines depends on
+/// which edge leaves it, which [`propagate_to_successors`] applies per edge.
+fn accumulate_statement_definitions(
+    block: &crate::BasicBlock,
+    definitions: &mut HashSet<LocalId>,
+) {
+    for stmt in &block.statements {
+        definitions.extend(stmt.defs());
+    }
+}
+
+/// Meet `definitions`, plus what each edge defines, into each successor's
+/// entry set, enqueueing successors whose set changed so the fixpoint keeps
+/// propagating.
+///
+/// Per edge (see [`Terminator::edges`]): a call's `dest` reaches its normal
+/// target only, and a handler's exception local reaches its catch block only.
 fn propagate_to_successors(
     terminator: &Terminator,
     definitions: &HashSet<LocalId>,
     in_sets: &mut [BlockDefinitions],
     queue: &mut VecDeque<crate::BlockId>,
 ) {
-    // The exception edge of a throwing call or await also DEFINES the handler's
-    // exception local: the backend binds the thrown value to it on the way in
-    // (a `catch (e)` binding, or the value a `finally` rethrows).
-    let unwind_handler = match terminator {
-        Terminator::Call { unwind, .. } | Terminator::Await { unwind, .. } => *unwind,
-        Terminator::Goto(_)
-        | Terminator::Switch { .. }
-        | Terminator::Match { .. }
-        | Terminator::Return(_)
-        | Terminator::Throw(_) => None,
-    };
-    for successor in terminator.successors() {
-        let edge_definitions;
-        let definitions = match unwind_handler {
-            Some(handler) if handler.catch_block == successor => {
-                let mut with_exception = definitions.clone();
-                with_exception.extend(handler.exception_local);
-                edge_definitions = with_exception;
-                &edge_definitions
-            }
-            _ => definitions,
-        };
-        let Some(existing) = in_sets.get_mut(block_index(successor)) else {
+    for edge in terminator.edges() {
+        let mut edge_definitions = definitions.clone();
+        edge_definitions.extend(edge.defines);
+        let Some(existing) = in_sets.get_mut(block_index(edge.target)) else {
             continue;
         };
         let changed = if let Some(existing_defs) = existing {
-            let intersection = existing_defs
-                .intersection(definitions)
-                .copied()
-                .collect::<HashSet<_>>();
-            let changed = *existing_defs != intersection;
-            *existing_defs = intersection;
-            changed
+            let before = existing_defs.len();
+            existing_defs.retain(|local| edge_definitions.contains(local));
+            existing_defs.len() != before
         } else {
-            *existing = Some(definitions.clone());
+            *existing = Some(edge_definitions);
             true
         };
         if changed {
-            queue.push_back(successor);
+            queue.push_back(edge.target);
         }
     }
 }
@@ -190,11 +157,11 @@ fn propagate_to_successors(
 /// a local before it is definitely defined at that point.
 fn report_undefined_reads(
     mir: &Mir,
-    function: &MirFunction,
+    body: MirBody<'_>,
     in_sets: &[BlockDefinitions],
     errors: &mut Vec<ValidationError>,
 ) {
-    for (block_idx, block) in function.blocks.iter().enumerate() {
+    for (block_idx, block) in body.blocks.iter().enumerate() {
         let Some(definitions_slot) = in_sets.get(block_idx) else {
             continue;
         };
@@ -203,11 +170,11 @@ fn report_undefined_reads(
         };
 
         for stmt in &block.statements {
-            report_statement_reads(mir, function, &mut definitions, stmt, errors);
+            report_statement_reads(mir, body, &mut definitions, stmt, errors);
         }
 
         if let Some(terminator) = &block.terminator {
-            report_terminator_reads(mir, function, &mut definitions, terminator, errors);
+            report_terminator_reads(mir, body, &mut definitions, terminator, errors);
         }
     }
 }
@@ -216,24 +183,24 @@ fn report_undefined_reads(
 /// locals it defines.
 fn report_statement_reads(
     mir: &Mir,
-    function: &MirFunction,
+    body: MirBody<'_>,
     definitions: &mut HashSet<LocalId>,
     stmt: &Statement,
     errors: &mut Vec<ValidationError>,
 ) {
     match stmt {
         Statement::Assign { dest, value } => {
-            validate_rvalue(mir, function, definitions, value, errors);
+            validate_rvalue(mir, body, definitions, value, errors);
             definitions.insert(*dest);
         }
         Statement::AssignPlace { place, value } => {
-            validate_rvalue(mir, function, definitions, value, errors);
+            validate_rvalue(mir, body, definitions, value, errors);
             match place {
                 Place::Local(local) => {
                     definitions.insert(*local);
                 }
                 Place::Field { .. } | Place::Index { .. } | Place::Global { .. } => {
-                    validate_place(mir, function, definitions, place, errors);
+                    validate_place(mir, body, definitions, place, errors);
                 }
             }
         }
@@ -247,11 +214,11 @@ fn report_statement_reads(
             current,
             value,
         } => {
-            validate_place(mir, function, definitions, &Place::Local(*base), errors);
-            validate_operand(mir, function, definitions, index, errors);
-            validate_operand(mir, function, definitions, default, errors);
+            validate_place(mir, body, definitions, &Place::Local(*base), errors);
+            validate_operand(mir, body, definitions, index, errors);
+            validate_operand(mir, body, definitions, default, errors);
             definitions.insert(*current);
-            validate_rvalue(mir, function, definitions, value, errors);
+            validate_rvalue(mir, body, definitions, value, errors);
         }
     }
 }
@@ -260,7 +227,7 @@ fn report_statement_reads(
 /// call/await destination it defines.
 fn report_terminator_reads(
     mir: &Mir,
-    function: &MirFunction,
+    body: MirBody<'_>,
     definitions: &mut HashSet<LocalId>,
     terminator: &Terminator,
     errors: &mut Vec<ValidationError>,
@@ -274,14 +241,14 @@ fn report_terminator_reads(
             unwind,
             ..
         } => {
-            validate_callee(mir, function, definitions, callee, errors);
+            validate_callee(mir, body, definitions, callee, errors);
             for arg in args {
-                validate_operand(mir, function, definitions, arg, errors);
+                validate_operand(mir, body, definitions, arg, errors);
             }
             if let Some(handler) = unwind
                 && let Some(local) = handler.exception_local
             {
-                validate_local_exists(function, local, errors);
+                validate_local_exists(body, local, errors);
             }
             definitions.insert(*dest);
         }
@@ -291,22 +258,22 @@ fn report_terminator_reads(
             unwind,
             ..
         } => {
-            validate_operand(mir, function, definitions, future, errors);
+            validate_operand(mir, body, definitions, future, errors);
             if let Some(handler) = unwind
                 && let Some(local) = handler.exception_local
             {
-                validate_local_exists(function, local, errors);
+                validate_local_exists(body, local, errors);
             }
             definitions.insert(*dest);
         }
         Terminator::Switch { cond, .. } => {
-            validate_operand(mir, function, definitions, cond, errors);
+            validate_operand(mir, body, definitions, cond, errors);
         }
         Terminator::Match { scrutinee, .. } => {
-            validate_operand(mir, function, definitions, scrutinee, errors);
+            validate_operand(mir, body, definitions, scrutinee, errors);
         }
         Terminator::Return(operand) | Terminator::Throw(operand) => {
-            validate_operand(mir, function, definitions, operand, errors);
+            validate_operand(mir, body, definitions, operand, errors);
         }
     }
 }
@@ -314,7 +281,7 @@ fn report_terminator_reads(
 /// Validate definite-assignment constraints for one rvalue.
 fn validate_rvalue(
     mir: &Mir,
-    function: &MirFunction,
+    body: MirBody<'_>,
     definitions: &HashSet<LocalId>,
     value: &Rvalue,
     errors: &mut Vec<ValidationError>,
@@ -322,21 +289,21 @@ fn validate_rvalue(
     // Operand traversal is the single source of truth in `Rvalue::reads`;
     // route validation through it so the two cannot drift as variants are added.
     value.reads(|operand| {
-        validate_operand(mir, function, definitions, operand, errors);
+        validate_operand(mir, body, definitions, operand, errors);
     });
 }
 
 /// Validate definite-assignment constraints for one operand.
 fn validate_operand(
     mir: &Mir,
-    function: &MirFunction,
+    body: MirBody<'_>,
     definitions: &HashSet<LocalId>,
     operand: &Operand,
     errors: &mut Vec<ValidationError>,
 ) {
     match operand {
         Operand::Copy(place) | Operand::Move(place) => {
-            validate_place(mir, function, definitions, place, errors);
+            validate_place(mir, body, definitions, place, errors);
         }
         Operand::Const(_) => {}
     }
@@ -345,7 +312,7 @@ fn validate_operand(
 /// Validate definite-assignment constraints for one place projection chain.
 fn validate_place(
     mir: &Mir,
-    function: &MirFunction,
+    body: MirBody<'_>,
     definitions: &HashSet<LocalId>,
     place: &Place,
     errors: &mut Vec<ValidationError>,
@@ -353,35 +320,34 @@ fn validate_place(
     match place {
         Place::Local(local) => {
             if !definitions.contains(local) {
-                let function_name = mir.symbols.get(function.name).unwrap_or("<unknown>");
-                let local_detail = local_detail(mir, function, *local);
+                let owner = super::owner_name(mir, body.owner);
+                let local_detail = local_detail(mir, body, *local);
                 errors.push(error(format!(
-                    "function {:?} `{function_name}` reads local {:?} {local_detail} before it is definitely defined",
-                    function.id, local
+                    "{owner} reads local {local:?} {local_detail} before it is definitely defined"
                 )));
             }
         }
         Place::Field { base, .. } => {
-            validate_place(mir, function, definitions, &Place::Local(*base), errors);
+            validate_place(mir, body, definitions, &Place::Local(*base), errors);
         }
         Place::Index { base, index, .. } => {
-            validate_place(mir, function, definitions, &Place::Local(*base), errors);
-            validate_operand(mir, function, definitions, index, errors);
+            validate_place(mir, body, definitions, &Place::Local(*base), errors);
+            validate_operand(mir, body, definitions, index, errors);
         }
         // The base is a `thread_local!` cell, which is defined for the whole
         // program and needs no definite-assignment check. The index operand
         // does still need one.
         Place::Global { projection, .. } => {
             if let GlobalProjection::Index { index, .. } = projection {
-                validate_operand(mir, function, definitions, index, errors);
+                validate_operand(mir, body, definitions, index, errors);
             }
         }
     }
 }
 
 /// Render a local declaration for definite-assignment diagnostics.
-fn local_detail(mir: &Mir, function: &MirFunction, local: LocalId) -> String {
-    let Some(decl) = function.locals.get(local_index(local)) else {
+fn local_detail(mir: &Mir, body: MirBody<'_>, local: LocalId) -> String {
+    let Some(decl) = body.locals.get(local_index(local)) else {
         return "<unknown local>".to_owned();
     };
     let kind = match decl.kind {
@@ -405,7 +371,7 @@ fn local_detail(mir: &Mir, function: &MirFunction, local: LocalId) -> String {
 /// Validate definite-assignment constraints for one callee.
 fn validate_callee(
     mir: &Mir,
-    function: &MirFunction,
+    body: MirBody<'_>,
     definitions: &HashSet<LocalId>,
     callee: &Callee,
     errors: &mut Vec<ValidationError>,
@@ -413,10 +379,10 @@ fn validate_callee(
     match callee {
         Callee::Static(_) | Callee::Builtin(_) | Callee::BaseInit(_) => {}
         Callee::Indirect(operand) => {
-            validate_operand(mir, function, definitions, operand, errors);
+            validate_operand(mir, body, definitions, operand, errors);
         }
         Callee::Op(op, _) => {
-            op.reads(|operand| validate_operand(mir, function, definitions, operand, errors));
+            op.reads(|operand| validate_operand(mir, body, definitions, operand, errors));
         }
     }
 }

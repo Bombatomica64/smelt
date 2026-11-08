@@ -20,66 +20,205 @@ use std::collections::{HashMap, HashSet};
 
 use smelt_hir::{Type, TypeId};
 
-use crate::{
-    BasicBlock, Callee, FuncId, LocalDecl, LocalId, Mir, Operand, Place, Rvalue, Statement,
-    Terminator,
-};
+use crate::{BodyOwner, Callee, FuncId, LocalId, Mir, MirBody, Operand, Place, Rvalue, SiteLookup,
+    Statement, Terminator};
+
+/// One local of one body: the unit promotion decides on.
+///
+/// Promotion is decided over the whole program, not per body, because a
+/// closure capture ties a local of the constructing body to a local of the
+/// closure body, and the two must keep one type (closure ABI invariant 4).
+type Node = (BodyOwner, LocalId);
+
+/// Each statically callable function's parameter types, positionally; `None`
+/// for a parameter whose local is out of range.
+type ParamTypes = HashMap<FuncId, Vec<Option<TypeId>>>;
+
+/// What one body contributes to the promotion decision.
+#[derive(Default)]
+struct BodyFacts {
+    /// Locals both mutated through a place and erased by reference.
+    seeds: Vec<LocalId>,
+    /// Undirected `dest = copy/move src` edges.
+    copy_edges: Vec<(LocalId, LocalId)>,
+}
 
 /// Rewrite erased-and-mutated record locals to use an erased value type.
+///
+/// A seed's whole connected component is promoted: copy edges inside a body,
+/// and capture edges between a constructing body's source local and the
+/// closure body's target local. A promoted capture's `ty` follows its source
+/// local, so after this pass every capture's type, source local type and
+/// target local type are still one type (audit finding C2). A parameter is
+/// never promoted (that would change the function's ABI); a capture tied to a
+/// parameter therefore keeps BOTH ends unpromoted.
+///
+/// Types are interned in sorted node order so the type table does not depend
+/// on hash iteration order (audit finding C14).
 pub fn promote_erased_mutated_records(mir: &mut Mir) {
     // Parameter value types for each statically-known function, used to detect
     // arguments that are erased to `unknown`/a generic type parameter.
-    let func_param_tys: HashMap<FuncId, Vec<TypeId>> = mir
+    //
+    // One entry per parameter, `None` for an out-of-range parameter local, so
+    // argument `i` always pairs with parameter `i` (audit C13: a `filter_map`
+    // here shifted every later parameter past a bad one).
+    let func_param_tys: ParamTypes = mir
         .functions
         .iter()
         .map(|function| {
+            let body = function.body();
             let tys = function
                 .params
                 .iter()
-                .filter_map(|local| {
-                    usize::try_from(local.0)
-                        .ok()
-                        .and_then(|index| function.locals.get(index))
-                        .map(|decl| decl.ty)
-                })
+                .map(|local| body.local_decl(*local).map(|decl| decl.ty))
                 .collect::<Vec<_>>();
             (function.id, tys)
         })
         .collect();
 
-    let mut functions = std::mem::take(&mut mir.functions);
-    for function in &mut functions {
-        promote_body(
-            &mut mir.types,
-            &func_param_tys,
-            &function.params,
-            &mut function.locals,
-            &function.blocks,
+    let mut seeds: Vec<Node> = Vec::new();
+    let mut edges: Vec<(Node, Node)> = Vec::new();
+    let mut params: HashSet<Node> = HashSet::new();
+    for body in mir.bodies() {
+        let facts = analyze_body(&mir.types, &func_param_tys, body);
+        seeds.extend(facts.seeds.into_iter().map(|local| (body.owner, local)));
+        edges.extend(
+            facts
+                .copy_edges
+                .into_iter()
+                .map(|(dest, src)| ((body.owner, dest), (body.owner, src))),
         );
+        params.extend(body.params.iter().map(|local| (body.owner, *local)));
     }
-    mir.functions = functions;
+    if seeds.is_empty() {
+        return;
+    }
+    let capture_edges = capture_edges(mir);
+    edges.extend(capture_edges.iter().copied());
 
-    let mut closures = std::mem::take(&mut mir.closures);
-    for closure in &mut closures {
-        promote_body(
-            &mut mir.types,
-            &func_param_tys,
-            &closure.params,
-            &mut closure.locals,
-            &closure.blocks,
-        );
+    let mut promoted: HashSet<Node> = seeds.into_iter().collect();
+    expand_copy_component(&mut promoted, &edges);
+    promoted.retain(|node| !params.contains(node));
+    // A capture whose one end is a parameter cannot move its other end alone.
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for (source, target) in &capture_edges {
+            if promoted.contains(source) != promoted.contains(target) {
+                changed |= promoted.remove(source) | promoted.remove(target);
+            }
+        }
     }
-    mir.closures = closures;
+
+    let mut ordered: Vec<Node> = promoted.into_iter().collect();
+    ordered.sort_by_key(|(owner, local)| (owner_key(*owner), local.0));
+    let mut retyped: HashMap<Node, TypeId> = HashMap::new();
+    for node in ordered {
+        let (owner, local) = node;
+        let Some(old_ty) = mir.body(owner).and_then(|body| body.local_decl(local)).map(|decl| decl.ty)
+        else {
+            continue;
+        };
+        let Some(new_ty) = promoted_type(&mut mir.types, old_ty) else {
+            continue;
+        };
+        if let Some(decl) =
+            body_locals_mut(mir, owner).and_then(|locals| locals.get_mut(local.index()))
+        {
+            decl.ty = new_ty;
+            retyped.insert(node, new_ty);
+        }
+    }
+    sync_promoted_capture_types(mir, &retyped);
 }
 
-/// Analyze one function/closure body and promote qualifying record locals.
-fn promote_body(
-    types: &mut smelt_hir::TypeInterner,
-    func_param_tys: &HashMap<FuncId, Vec<TypeId>>,
-    params: &[LocalId],
-    locals: &mut [LocalDecl],
-    blocks: &[BasicBlock],
-) {
+/// A sort key for a body owner: functions first, then closures, by id.
+const fn owner_key(owner: BodyOwner) -> (u8, u32) {
+    match owner {
+        BodyOwner::Function(id) => (0, id.0),
+        BodyOwner::Closure(id) => (1, id.0),
+    }
+}
+
+/// The locals of the body `owner` names, mutably.
+fn body_locals_mut(mir: &mut Mir, owner: BodyOwner) -> Option<&mut Vec<crate::LocalDecl>> {
+    match owner {
+        BodyOwner::Function(id) => mir.functions.get_mut(id.index()).map(|f| &mut f.locals),
+        BodyOwner::Closure(id) => mir.closures.get_mut(id.index()).map(|c| &mut c.locals),
+    }
+}
+
+/// `Dict(K, V)` → `Dict(K, unknown)`, or `None` when `ty` is not a record with
+/// a typed value.
+fn promoted_type(types: &mut smelt_hir::TypeInterner, ty: TypeId) -> Option<TypeId> {
+    let Some(Type::Dict(key_ty, value_ty)) = types.get(ty).cloned() else {
+        return None;
+    };
+    if matches!(types.get(value_ty), Some(Type::Unknown)) {
+        return None;
+    }
+    let unknown_ty = types.intern(Type::Unknown);
+    Some(types.intern(Type::Dict(key_ty, unknown_ty)))
+}
+
+/// Every capture as an undirected edge from the constructing body's source
+/// local to the closure body's target local.
+fn capture_edges(mir: &Mir) -> Vec<(Node, Node)> {
+    let mut edges = Vec::new();
+    for (lookup, closure) in mir.closure_sites().into_iter().zip(&mir.closures) {
+        let SiteLookup::One(site) = lookup else {
+            continue;
+        };
+        for capture in &closure.captures {
+            if let Some(target) = capture.target_local {
+                edges.push((
+                    (site.owner, capture.source_local),
+                    (BodyOwner::Closure(closure.id), target),
+                ));
+            }
+        }
+    }
+    edges
+}
+
+/// A capture to retype: closure position, capture position, new type.
+type CaptureRetype = (usize, usize, TypeId);
+
+/// Give each capture whose source local was promoted the source's new type.
+fn sync_promoted_capture_types(mir: &mut Mir, retyped: &HashMap<Node, TypeId>) {
+    let updates: Vec<CaptureRetype> = mir
+        .closure_sites()
+        .into_iter()
+        .zip(&mir.closures)
+        .enumerate()
+        .flat_map(|(closure_index, (lookup, closure))| {
+            let owner = match lookup {
+                SiteLookup::One(site) => Some(site.owner),
+                SiteLookup::Unconstructed | SiteLookup::Many => None,
+            };
+            closure.captures.iter().enumerate().filter_map(move |(position, capture)| {
+                let ty = retyped.get(&(owner?, capture.source_local))?;
+                Some((closure_index, position, *ty))
+            })
+        })
+        .collect();
+    for (closure_index, position, ty) in updates {
+        if let Some(capture) = mir
+            .closures
+            .get_mut(closure_index)
+            .and_then(|closure| closure.captures.get_mut(position))
+        {
+            capture.ty = ty;
+        }
+    }
+}
+
+/// Collect one body's promotion seeds and copy edges.
+fn analyze_body(
+    types: &smelt_hir::TypeInterner,
+    func_param_tys: &ParamTypes,
+    body: MirBody<'_>,
+) -> BodyFacts {
     let mut mutated: HashSet<LocalId> = HashSet::new();
     let mut erased: HashSet<LocalId> = HashSet::new();
     // Undirected copy edges between locals (`dest = copy/move src`). A local that
@@ -94,7 +233,7 @@ fn promote_body(
         }
     };
 
-    for block in blocks {
+    for block in body.blocks {
         for statement in &block.statements {
             match statement {
                 Statement::AssignPlace { place, value } => {
@@ -147,7 +286,7 @@ fn promote_body(
             && let Some(param_tys) = func_param_tys.get(func_id)
         {
             for (index, arg) in args.iter().enumerate() {
-                let Some(param_ty) = param_tys.get(index) else {
+                let Some(Some(param_ty)) = param_tys.get(index) else {
                     continue;
                 };
                 if matches!(
@@ -160,44 +299,19 @@ fn promote_body(
         }
     }
 
-    // Seed promotion with record locals that are both mutated and erased, then
-    // expand across copy edges so their defining literals are promoted too.
-    let param_set: HashSet<LocalId> = params.iter().copied().collect();
-    let mut to_promote: HashSet<LocalId> = mutated.intersection(&erased).copied().collect();
-    if to_promote.is_empty() {
-        return;
-    }
-    expand_copy_component(&mut to_promote, &copy_edges);
-
-    for local in to_promote {
-        // Promoting a parameter would change the function's ABI; leave it alone.
-        if param_set.contains(&local) {
-            continue;
-        }
-        let Some(decl) = usize::try_from(local.0)
-            .ok()
-            .and_then(|index| locals.get_mut(index))
-        else {
-            continue;
-        };
-        if let Some(Type::Dict(key_ty, value_ty)) = types.get(decl.ty).cloned() {
-            if matches!(types.get(value_ty), Some(Type::Unknown)) {
-                continue;
-            }
-            let unknown_ty = types.intern(Type::Unknown);
-            decl.ty = types.intern(Type::Dict(key_ty, unknown_ty));
-        }
-    }
+    let mut seeds: Vec<LocalId> = mutated.intersection(&erased).copied().collect();
+    seeds.sort_by_key(|local| local.0);
+    BodyFacts { seeds, copy_edges }
 }
 
 /// Grow `seed` to include every local reachable through undirected copy edges.
-fn expand_copy_component(seed: &mut HashSet<LocalId>, copy_edges: &[(LocalId, LocalId)]) {
-    let mut adjacency: HashMap<LocalId, Vec<LocalId>> = HashMap::new();
+fn expand_copy_component(seed: &mut HashSet<Node>, copy_edges: &[(Node, Node)]) {
+    let mut adjacency: HashMap<Node, Vec<Node>> = HashMap::new();
     for (dest, src) in copy_edges {
         adjacency.entry(*dest).or_default().push(*src);
         adjacency.entry(*src).or_default().push(*dest);
     }
-    let mut stack: Vec<LocalId> = seed.iter().copied().collect();
+    let mut stack: Vec<Node> = seed.iter().copied().collect();
     while let Some(local) = stack.pop() {
         let Some(neighbors) = adjacency.get(&local) else {
             continue;

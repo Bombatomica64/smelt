@@ -333,7 +333,7 @@ impl ModuleBuilder<'_> {
         // erased callable is what `into_smelt_unknown` writes under the matching
         // `"__smelt_call"` object key that call routing later extracts.
         self.add_interface_call_signature_field(&mut fields, &call_signatures);
-        let interface = Item::Interface(Interface {
+        let interface = Interface {
             name,
             span,
             type_params,
@@ -347,7 +347,7 @@ impl ModuleBuilder<'_> {
             fields,
             methods,
             decode_facts,
-        });
+        };
         // The same declaration is lowered more than once: the predeclaration
         // passes run before every module is known, and the module's own
         // lowering runs again once they all are. Each later lowering sees more
@@ -360,15 +360,8 @@ impl ModuleBuilder<'_> {
         // (`blocker-logs/hono-crud-perf-round2.md`). Separate declarations of
         // one name (interface merging, a `.d.ts` then its `.ts`) have
         // different spans and are still appended.
-        let earlier = self.ctx.krate.items.iter().position(|existing| {
-            matches!(existing, Item::Interface(existing) if existing.name == name && existing.span == span)
-        });
-        let item = if let Some(position) = earlier {
-            self.ctx.krate.items[position] = interface;
-            smelt_hir::ItemId(u32::try_from(position).unwrap_or(u32::MAX))
-        } else {
-            self.ctx.krate.push_item(interface)
-        };
+        // `upsert_interface` holds that rule for every interface-push site.
+        let item = self.ctx.krate.upsert_interface(interface);
         // One call records the item, the locally-lowered mark and every sidecar
         // together; see `InterfaceRegistry` for why they cannot be split.
         self.interfaces.register_lowered(LoweredInterface {

@@ -45,6 +45,29 @@ pub fn validate(krate: &Crate) -> Vec<ValidationError> {
             *slot = true;
         }
     }
+    // Every body a function item or a module names has to exist: MIR lowering
+    // reserves a function slot for each, and a slot whose body is missing used
+    // to be skipped, which shifted every later function id (audit C5), or, for
+    // a module, silently dropped its top-level code.
+    for (item_idx, item) in krate.items.iter().enumerate() {
+        if let crate::Item::Function(function) = item
+            && let Some(body) = function.body
+            && krate.bodies.get(body.0 as usize).is_none()
+        {
+            errors.push(ValidationError {
+                message: format!("function item {item_idx} references unknown body {body:?}"),
+            });
+        }
+    }
+    for module in &krate.modules {
+        if let Some(body) = module.body
+            && krate.bodies.get(body.0 as usize).is_none()
+        {
+            errors.push(ValidationError {
+                message: format!("module `{}` references unknown body {body:?}", module.name),
+            });
+        }
+    }
     for (item_idx, item) in krate.items.iter().enumerate() {
         let crate::Item::Class(class) = item else {
             continue;
@@ -470,5 +493,20 @@ mod tests {
         assert!(body.is_generator() && body.async_state_machine().is_some());
         body.set_generator(false);
         assert!(!body.is_generator() && body.async_state_machine().is_some());
+    }
+
+    /// A module naming a body that does not exist is rejected, so MIR
+    /// lowering can never silently drop the module's top-level code (C5).
+    #[test]
+    fn a_module_with_a_missing_body_is_rejected() {
+        let mut krate = async_module(2);
+        if let Some(module) = krate.modules.first_mut() {
+            module.body = Some(crate::BodyId(99));
+        }
+        let errors = super::validate(&krate);
+        assert!(
+            errors.iter().any(|error| error.message.contains("references unknown body")),
+            "{errors:?}"
+        );
     }
 }

@@ -437,9 +437,15 @@ fn retype_body(
     // The rewrite turns integral `Float` constants into `Constant::Int`, whose
     // operand type the emitter looks up as `Type::Int`.
     types.intern(Type::Int);
-    let retyped: Vec<(LocalId, TypeId)> = widths
-        .iter()
-        .map(|(local, width)| (*local, types.intern(Type::FixedInt(*width))))
+    // Interned in local order, not `widths`' hash order: a new width's
+    // `TypeId` is its position in the table, which must not depend on hash
+    // iteration (audit finding C14).
+    let mut ordered: Vec<(LocalId, IntWidth)> =
+        widths.iter().map(|(local, width)| (*local, *width)).collect();
+    ordered.sort_by_key(|(local, _)| local.0);
+    let retyped: Vec<(LocalId, TypeId)> = ordered
+        .into_iter()
+        .map(|(local, width)| (local, types.intern(Type::FixedInt(width))))
         .collect();
     let mut rewriter = Rewriter {
         locals,
