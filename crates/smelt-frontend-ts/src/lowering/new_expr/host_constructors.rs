@@ -808,11 +808,24 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// `new X(args)` for a host constructor `X` the runtime models (`Date`,
-    /// `RegExp`, `Array`, the boxed primitives, typed arrays and byte buffers,
-    /// the fetch and codec classes, errors, `URL`, ...), or `None` when `X`
-    /// names none. The caller asks only for a name the program does not
-    /// declare as a class.
+    /// The host constructor `name` denotes in this module: [`HostConstructor::of`],
+    /// except that a typed-array family name the program declares itself is
+    /// the byte-backed host, or nothing.
+    pub(in crate::lowering) fn host_constructor_of(&self, name: &str) -> Option<HostConstructor> {
+        match HostConstructor::of(name)? {
+            HostConstructor::TypedArrayFamily if self.classes.contains(name) => {
+                smelt_stdlib::byte_buffer_role(name).map(|_| HostConstructor::ByteBuffer)
+            }
+            kind => Some(kind),
+        }
+    }
+
+    /// Lower `new <name>(..)` for the undeclared host constructor `name`, the
+    /// dispatch over the one [`HostConstructor`] table.
+    ///
+    /// A name a host-module import binds (`DatabaseSync`, possibly renamed) is
+    /// asked first: an imported binding is that module's export, whatever it
+    /// spells.
     pub(super) fn host_constructor_expression(
         &mut self,
         callee: &oxc::ast::ast::IdentifierReference<'_>,
@@ -820,122 +833,248 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        if callee.name == "Date" {
-            return self.new_date_expression(new_expr, body).map(Some);
+        if let Some(database) = self.sqlite_database_constructor_expression(new_expr, body)? {
+            return Ok(Some(database));
         }
-        if callee.name == "RegExp" {
-            return self.regexp_constructor_expression(new_expr, body).map(Some);
-        }
-        if callee.name == "Array" {
-            return self.array_constructor_expression(new_expr, body).map(Some);
-        }
-        if callee.name == "String" {
-            return self.boxed_primitive_constructor_expression(
+        let name = callee.name.as_str();
+        let Some(kind) = self.host_constructor_of(name) else {
+            return Ok(None);
+        };
+        self.construct_host(kind, name, new_expr, body, type_hint).map(Some)
+    }
+
+    /// Construct one [`HostConstructor`].
+    pub(in crate::lowering) fn construct_host(
+        &mut self,
+        kind: HostConstructor,
+        name: &str,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        match kind {
+            HostConstructor::Date => self.new_date_expression(new_expr, body),
+            HostConstructor::RegExp => self.regexp_constructor_expression(new_expr, body),
+            HostConstructor::Array => self.array_constructor_expression(new_expr, body),
+            HostConstructor::Object => self.object_constructor_expression(new_expr, body, type_hint),
+            HostConstructor::BoxedString => self.boxed_primitive_constructor_expression(
                 new_expr,
                 body,
                 "__smelt_string",
                 Literal::String(String::new()),
-            ).map(Some);
-        }
-        if callee.name == "Object" {
-            return self.object_constructor_expression(new_expr, body, type_hint).map(Some);
-        }
-        // The concrete typed-array family — the eleven views,
-        // `ArrayBuffer`/`SharedArrayBuffer` and `DataView` — constructs its own
-        // Rust value. Asked BEFORE the erased byte-buffer path below, which now
-        // owns only Node's `Buffer` (see `stdlib::typed_array`).
-        if self.is_typed_array_family_name(callee.name.as_str()) {
-            let class_name = callee.name.to_string();
-            return self.typed_array_constructor_expression(new_expr, &class_name, body).map(Some);
-        }
-        // The byte-backed host objects other than Node's `Buffer` (which keeps its
-        // own `Buffer.from`/`alloc`/`concat`-shaped lowering) construct through the
-        // shared host constructor so their records carry real byte storage.
-        if callee.name != "Buffer"
-            && smelt_stdlib::byte_buffer_role(callee.name.as_str()).is_some()
-        {
-            let class_name = callee.name.to_string();
-            return self.byte_buffer_constructor_expression(new_expr, &class_name, body).map(Some);
-        }
-        if callee.name == "Buffer" {
-            return self.buffer_constructor_expression(new_expr, body).map(Some);
-        }
-        if callee.name == "Blob" {
-            return self.blob_constructor_expression(new_expr, body).map(Some);
-        }
-        if callee.name == "File" {
-            return self.file_constructor_expression(new_expr, body).map(Some);
-        }
-        if callee.name == "Number" {
-            return self.boxed_primitive_constructor_expression(
+            ),
+            HostConstructor::BoxedNumber => self.boxed_primitive_constructor_expression(
                 new_expr,
                 body,
                 "__smelt_number",
                 Literal::Float(0.0),
-            ).map(Some);
-        }
-        if callee.name == "Boolean" {
-            return self.boxed_primitive_constructor_expression(
+            ),
+            HostConstructor::BoxedBoolean => self.boxed_primitive_constructor_expression(
                 new_expr,
                 body,
                 "__smelt_boolean",
                 Literal::Bool(false),
-            ).map(Some);
+            ),
+            HostConstructor::TypedArrayFamily => {
+                self.typed_array_constructor_expression(new_expr, name, body)
+            }
+            HostConstructor::ByteBuffer => self.byte_buffer_constructor_expression(new_expr, name, body),
+            HostConstructor::Buffer => self.buffer_constructor_expression(new_expr, body),
+            HostConstructor::Blob => self.blob_constructor_expression(new_expr, body),
+            HostConstructor::File => self.file_constructor_expression(new_expr, body),
+            HostConstructor::Proxy => self.proxy_constructor_expression(new_expr, body),
+            HostConstructor::Function => self.function_constructor_expression(new_expr, body),
+            HostConstructor::AbortController => self.abort_controller_constructor_expression(new_expr, body),
+            HostConstructor::TextEncoder => self.text_encoder_constructor_expression(new_expr, body),
+            HostConstructor::TextDecoder => self.text_decoder_constructor_expression(new_expr, body),
+            HostConstructor::Headers => self.headers_constructor_expression(new_expr, body),
+            HostConstructor::UrlSearchParams => self.url_search_params_constructor_expression(new_expr, body),
+            HostConstructor::FormData => self.form_data_constructor_expression(new_expr, body),
+            HostConstructor::Response => self.response_constructor_expression(new_expr, body),
+            HostConstructor::Request => self.request_constructor_expression(new_expr, body),
+            HostConstructor::EventEmitter => self.event_emitter_constructor_expression(new_expr, body),
+            HostConstructor::MarkerOnly(marker) => {
+                self.marker_only_builtin_constructor_expression(new_expr, body, marker)
+            }
+            HostConstructor::DomException => self.domexception_object_constructor_expression(new_expr, body),
+            HostConstructor::Error => self.error_object_constructor_expression(new_expr, body),
+            HostConstructor::Url => self.url_constructor_expression(new_expr, body),
         }
-        if callee.name == "Proxy" {
-            return self.proxy_constructor_expression(new_expr, body).map(Some);
+    }
+}
+
+/// Every host class `new` can name, the one table of TypeScript host
+/// constructors: [`HostConstructor::of`] recognises, and
+/// [`ModuleBuilder::construct_host`] constructs through an exhaustive match, so
+/// a new entry fails to compile until it says how it is built.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::lowering) enum HostConstructor {
+    /// `Date`.
+    Date,
+    /// `RegExp`.
+    RegExp,
+    /// `Array`.
+    Array,
+    /// `Object`.
+    Object,
+    /// `new String(..)`, an object wrapper.
+    BoxedString,
+    /// `new Number(..)`, an object wrapper.
+    BoxedNumber,
+    /// `new Boolean(..)`, an object wrapper.
+    BoxedBoolean,
+    /// A typed-array view, `ArrayBuffer`, `SharedArrayBuffer` or `DataView`.
+    TypedArrayFamily,
+    /// A byte-backed host outside that family.
+    ByteBuffer,
+    /// Node's `Buffer`.
+    Buffer,
+    /// `Blob`.
+    Blob,
+    /// `File`.
+    File,
+    /// `Proxy`.
+    Proxy,
+    /// `Function`.
+    Function,
+    /// `AbortController`.
+    AbortController,
+    /// `TextEncoder`.
+    TextEncoder,
+    /// `TextDecoder`.
+    TextDecoder,
+    /// `Headers`.
+    Headers,
+    /// `URLSearchParams`.
+    UrlSearchParams,
+    /// `FormData`.
+    FormData,
+    /// `Response`.
+    Response,
+    /// `Request`, which is [`Self::MarkerOnly`] when a program overrides the
+    /// global ([`Self::overridable_marker`]).
+    Request,
+    /// `EventEmitter`.
+    EventEmitter,
+    /// A host modeled only by its identity marker (`WeakMap`, `WeakSet`).
+    MarkerOnly(&'static str),
+    /// `DOMException`.
+    DomException,
+    /// A built-in error class.
+    Error,
+    /// `URL`.
+    Url,
+}
+
+impl HostConstructor {
+    /// The host constructor spelled `name`, if there is one.
+    pub(in crate::lowering) fn of(name: &str) -> Option<Self> {
+        Some(match name {
+            "Date" => Self::Date,
+            "RegExp" => Self::RegExp,
+            "Array" => Self::Array,
+            "Object" => Self::Object,
+            "String" => Self::BoxedString,
+            "Number" => Self::BoxedNumber,
+            "Boolean" => Self::BoxedBoolean,
+            "Buffer" => Self::Buffer,
+            "Blob" => Self::Blob,
+            "File" => Self::File,
+            "Proxy" => Self::Proxy,
+            "Function" => Self::Function,
+            "AbortController" => Self::AbortController,
+            "TextEncoder" => Self::TextEncoder,
+            "TextDecoder" => Self::TextDecoder,
+            "Headers" => Self::Headers,
+            "URLSearchParams" => Self::UrlSearchParams,
+            "FormData" => Self::FormData,
+            "Response" => Self::Response,
+            "Request" => Self::Request,
+            "EventEmitter" => Self::EventEmitter,
+            "DOMException" => Self::DomException,
+            "URL" => Self::Url,
+            _ if matches!(
+                smelt_stdlib::typescript_stdlib_class(name),
+                Some(
+                    smelt_stdlib::StdlibClass::TypedArray
+                        | smelt_stdlib::StdlibClass::ArrayBuffer
+                        | smelt_stdlib::StdlibClass::DataView
+                )
+            ) =>
+            {
+                Self::TypedArrayFamily
+            }
+            _ if smelt_stdlib::byte_buffer_role(name).is_some() => Self::ByteBuffer,
+            _ if ModuleBuilder::marker_only_builtin_marker(name).is_some() => {
+                Self::MarkerOnly(ModuleBuilder::marker_only_builtin_marker(name)?)
+            }
+            _ if smelt_stdlib::is_error_class_name(name) => Self::Error,
+            _ => return None,
+        })
+    }
+
+    /// How this host is rebuilt natively behind a program's override of its
+    /// global (`host_override`), or `None` when it cannot be overridden.
+    /// `Request` needs only its identity there, not its constructor's fields.
+    pub(in crate::lowering) fn overridable(self, name: &str) -> Option<Self> {
+        match self {
+            Self::Blob
+            | Self::File
+            | Self::Buffer
+            | Self::TypedArrayFamily
+            | Self::ByteBuffer
+            | Self::MarkerOnly(_) => Some(self),
+            Self::Request => ModuleBuilder::marker_only_builtin_marker(name).map(Self::MarkerOnly),
+            Self::Date
+            | Self::RegExp
+            | Self::Array
+            | Self::Object
+            | Self::BoxedString
+            | Self::BoxedNumber
+            | Self::BoxedBoolean
+            | Self::Proxy
+            | Self::Function
+            | Self::AbortController
+            | Self::TextEncoder
+            | Self::TextDecoder
+            | Self::Headers
+            | Self::UrlSearchParams
+            | Self::FormData
+            | Self::Response
+            | Self::EventEmitter
+            | Self::DomException
+            | Self::Error
+            | Self::Url => None,
         }
-        if callee.name == "Function" {
-            return self.function_constructor_expression(new_expr, body).map(Some);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{HostConstructor, ModuleBuilder};
+
+    /// The names whose global a program can override are the ones the `typeof`
+    /// guards treat as defined: a marker, a byte-backed host, `Blob` or `File`.
+    #[test]
+    fn overridable_hosts_are_the_known_defined_constructors() {
+        for name in [
+            "Blob", "File", "Buffer", "Request", "WeakMap", "WeakSet", "ArrayBuffer",
+            "SharedArrayBuffer", "DataView", "Uint8Array", "BigInt64Array", "URL", "Date", "Map",
+            "Set", "Error", "TypeError", "Headers", "Response", "NotAHost",
+        ] {
+            let table = HostConstructor::of(name).and_then(|kind| kind.overridable(name)).is_some();
+            let registry = matches!(name, "Blob" | "File")
+                || ModuleBuilder::marker_only_builtin_marker(name).is_some()
+                || smelt_stdlib::byte_buffer_role(name).is_some();
+            assert_eq!(table, registry, "{name}");
         }
-        if callee.name == "AbortController" {
-            return self.abort_controller_constructor_expression(new_expr, body).map(Some);
-        }
-        // The numeric typed-array views are byte-backed host objects. The family
-        // dispatch above routes them to `typed_array_constructor_expression`, so
-        // this branch is not the live path for them.
-        if smelt_stdlib::is_typed_array_class_name(callee.name.as_str()) {
-            return self.byte_buffer_constructor_expression(new_expr, callee.name.as_str(), body).map(Some);
-        }
-        if callee.name == "TextEncoder" {
-            return self.text_encoder_constructor_expression(new_expr, body).map(Some);
-        }
-        if callee.name == "TextDecoder" {
-            return self.text_decoder_constructor_expression(new_expr, body).map(Some);
-        }
-        if callee.name == "Headers" {
-            return self.headers_constructor_expression(new_expr, body).map(Some);
-        }
-        if callee.name == "URLSearchParams" {
-            return self.url_search_params_constructor_expression(new_expr, body).map(Some);
-        }
-        if callee.name == "FormData" {
-            return self.form_data_constructor_expression(new_expr, body).map(Some);
-        }
-        if callee.name == "Response" {
-            return self.response_constructor_expression(new_expr, body).map(Some);
-        }
-        if callee.name == "Request" {
-            return self.request_constructor_expression(new_expr, body).map(Some);
-        }
-        if let Some(database) = self.sqlite_database_constructor_expression(new_expr, body)? {
-            return Ok(Some(database));
-        }
-        if callee.name == "EventEmitter" {
-            return self.event_emitter_constructor_expression(new_expr, body).map(Some);
-        }
-        if let Some(marker) = Self::marker_only_builtin_marker(callee.name.as_str()) {
-            return self.marker_only_builtin_constructor_expression(new_expr, body, marker).map(Some);
-        }
-        if callee.name == "DOMException" {
-            return self.domexception_object_constructor_expression(new_expr, body).map(Some);
-        }
-        if smelt_stdlib::is_error_class_name(callee.name.as_str()) {
-            return self.error_object_constructor_expression(new_expr, body).map(Some);
-        }
-        if callee.name == "URL" {
-            return self.url_constructor_expression(new_expr, body).map(Some);
-        }
-        Ok(None)
+    }
+
+    /// `Request` is a real constructor directly and a marker behind an override.
+    #[test]
+    fn request_is_a_marker_only_behind_an_override() {
+        let request = HostConstructor::of("Request").expect("a host");
+        assert_eq!(request, HostConstructor::Request);
+        assert!(matches!(request.overridable("Request"), Some(HostConstructor::MarkerOnly(_))));
     }
 }

@@ -298,32 +298,10 @@ impl ModuleBuilder<'_> {
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let expr = match name {
-            "Blob" => self.blob_constructor_expression(new_expr, body)?,
-            "File" => self.file_constructor_expression(new_expr, body)?,
-            "Buffer" => self.buffer_constructor_expression(new_expr, body)?,
-            // The byte-backed host objects other than `Buffer` construct through
-            // the shared host constructor (`ExprKind::HostConstruct`).
-            // The concrete family first: an overridden global that names any
-            // of the family's spellings — the eleven views,
-            // `ArrayBuffer`/`SharedArrayBuffer`, `DataView` — constructs the
-            // Rust value. Blob, File and Buffer are matched by the explicit arms
-            // above; the byte-buffer hosts and the marker-only builtins by the
-            // arms below. A name none of them recognizes answers `Ok(None)`.
-            _ if self.is_typed_array_family_name(name) => {
-                self.typed_array_constructor_expression(new_expr, name, body)?
-            }
-            _ if smelt_stdlib::byte_buffer_role(name).is_some() => {
-                self.byte_buffer_constructor_expression(new_expr, name, body)?
-            }
-            _ => {
-                let Some(marker) = Self::marker_only_builtin_marker(name) else {
-                    return Ok(None);
-                };
-                self.marker_only_builtin_constructor_expression(new_expr, body, marker)?
-            }
+        let Some(kind) = self.host_constructor_of(name).and_then(|kind| kind.overridable(name)) else {
+            return Ok(None);
         };
-        Ok(Some(expr))
+        self.construct_host(kind, name, new_expr, body, None).map(Some)
     }
 
     /// Wrap a native host construction expression in a slot-checked `new X(...)`

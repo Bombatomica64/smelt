@@ -52,24 +52,6 @@ use crate::error::SmeltError;
 use crate::lowering::ModuleBuilder;
 
 impl ModuleBuilder<'_> {
-    /// Return whether a source class name is one of the family's spellings.
-    ///
-    /// The eleven views plus `ArrayBuffer`/`SharedArrayBuffer` and `DataView`,
-    /// asked of the shared registry so the construction side, the annotation
-    /// side and codegen's Rust-type side cannot disagree. A user class of the
-    /// same name shadows the global, as it does for every other modeled host
-    /// class.
-    pub(in crate::lowering) fn is_typed_array_family_name(&self, name: &str) -> bool {
-        matches!(
-            smelt_stdlib::typescript_stdlib_class(name),
-            Some(
-                smelt_stdlib::StdlibClass::TypedArray
-                    | smelt_stdlib::StdlibClass::ArrayBuffer
-                    | smelt_stdlib::StdlibClass::DataView
-            )
-        ) && !self.classes.contains(name)
-    }
-
     /// Lower `new <view>(..)` / `new ArrayBuffer(..)` to the concrete family.
     ///
     /// The node carries the source NAME and the arguments as written; codegen

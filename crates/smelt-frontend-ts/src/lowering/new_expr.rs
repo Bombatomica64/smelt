@@ -8,6 +8,8 @@
 mod error_constructors;
 mod host_constructors;
 
+pub(in crate::lowering) use host_constructors::HostConstructor;
+
 use std::collections::HashMap;
 use crate::SmeltError;
 use oxc::ast::ast::{Argument, Expression};
