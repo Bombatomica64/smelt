@@ -1046,7 +1046,11 @@ impl ModuleBuilder<'_> {
             | Stmt::Expr(_)
             | Stmt::Return(_)
             | Stmt::Break
-            | Stmt::Continue => false,
+            | Stmt::Continue
+            | Stmt::LabelStart { .. }
+            | Stmt::LabelEnd(_)
+            | Stmt::BreakLabel(_)
+            | Stmt::ContinueLabel(_) => false,
         }
     }
 

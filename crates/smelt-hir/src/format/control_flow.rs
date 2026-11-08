@@ -27,6 +27,10 @@ pub(super) fn stmt_text(krate: &Crate, body: &Body, stmt: &Stmt) -> String {
         Stmt::Return(None) => "return".to_owned(),
         Stmt::Break => "break".to_owned(),
         Stmt::Continue => "continue".to_owned(),
+        Stmt::LabelStart { label, .. } => format!("label#{} {{", label.0),
+        Stmt::LabelEnd(label) => format!("}} label#{}", label.0),
+        Stmt::BreakLabel(label) => format!("break label#{}", label.0),
+        Stmt::ContinueLabel(label) => format!("continue label#{}", label.0),
         Stmt::If { .. }
         | Stmt::While { .. }
         | Stmt::WhileUpdate { .. }
@@ -97,7 +101,11 @@ fn control_stmt_text(body: &Body, stmt: &Stmt) -> String {
         | Stmt::Expr(_)
         | Stmt::Return(_)
         | Stmt::Break
-        | Stmt::Continue => "invalid statement".to_owned(),
+        | Stmt::Continue
+        | Stmt::LabelStart { .. }
+        | Stmt::LabelEnd(_)
+        | Stmt::BreakLabel(_)
+        | Stmt::ContinueLabel(_) => "invalid statement".to_owned(),
     }
 }
 

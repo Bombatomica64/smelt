@@ -360,6 +360,27 @@ pub enum Stmt {
     Break,
     /// Continue statement.
     Continue,
+    /// Opens the region of a labelled statement (`outer: for (...) { ... }`).
+    ///
+    /// The labelled statement's own lowering follows in the same block, up to
+    /// the matching [`Stmt::LabelEnd`]; the region is a marker pair rather than
+    /// a child block so every pass that walks blocks sees the labelled
+    /// statement exactly as it would without its label. `loops` says whether
+    /// the labelled statement is a loop, which a `continue` of the label may
+    /// only target.
+    LabelStart {
+        /// The label.
+        label: Symbol,
+        /// Whether the labelled statement is an iteration statement.
+        loops: bool,
+    },
+    /// Closes the region [`Stmt::LabelStart`] opened for `label`: a
+    /// `break label` resumes here.
+    LabelEnd(Symbol),
+    /// `break label`: leaves the labelled statement.
+    BreakLabel(Symbol),
+    /// `continue label`: starts the next iteration of the labelled loop.
+    ContinueLabel(Symbol),
 }
 
 /// An arm in a match statement.

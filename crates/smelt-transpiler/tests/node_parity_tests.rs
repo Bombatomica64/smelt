@@ -627,3 +627,12 @@ fn record_source_keys() -> TestResult {
 fn splice_precedence() -> TestResult {
     verify_node_parity("splice_precedence")
 }
+
+/// Labelled statements: `continue outer` and `break search` across nested
+/// loops, a labelled block left by `break`, a `break outer` that runs the
+/// `finally` it crosses, labels inside a closure body, and a labelled
+/// `do`/`while` at module level.
+#[test]
+fn labeled_statements() -> TestResult {
+    verify_node_parity("labeled_statements")
+}
