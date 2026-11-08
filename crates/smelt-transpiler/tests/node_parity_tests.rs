@@ -245,6 +245,13 @@ fn block_local_type_alias_redeclaration() -> TestResult {
     verify_node_parity("block_local_type_alias_redeclaration")
 }
 
+/// Source items named like Rust prelude items (`Fn`, `Iterator`, `Clone`,
+/// `Default`, `drop`) neither shadow the prelude nor lose their own meaning.
+#[test]
+fn prelude_named_items() -> TestResult {
+    verify_node_parity("prelude_named_items")
+}
+
 /// Enum members auto-increment, string members fold, numeric members map back
 /// to their names, and an enum may be declared inside a function.
 #[test]
