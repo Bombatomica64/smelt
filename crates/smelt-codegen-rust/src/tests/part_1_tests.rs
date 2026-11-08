@@ -1035,7 +1035,7 @@ export function format(units: string[]): string[] {
 ",
     );
 
-    assert!(source.contains("regex::Regex::new"));
+    assert!(source.contains(".replace_with(&") && source.contains("|smelt_match: &SmeltMatch|"), "{source}");
     assert!(source.contains("to_upper_case()"));
 }
 

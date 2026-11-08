@@ -82,59 +82,61 @@ module examples/typescript/end-to-end/51_web_crypto/input.ts (ModuleId(0))
     #73: None = call #72(#67, #71)
     #74: String = %0
     #75: String = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-    #76: Bool = regex_search #75, #74
-    #77: None = @9(console_log)
-    #78: None = call #77(#76)
-    #79: TextEncoder = text_encoder_new
-    #80: String = "abc"
-    #81: Uint8Array = text_encoder_encode #79 #80
-    #82: String = "SHA-1"
-    #83: Uint8Array = %2
-    #84: Future<ArrayBuffer> = crypto_digest #82, #83
-    #85: ArrayBuffer = await #84
-    #86: Float = byte_array_byte_length #85
-    #87: None = @10(console_log)
-    #88: None = call #87(#86)
-    #89: String = "SHA-256"
-    #90: Uint8Array = %2
-    #91: Future<ArrayBuffer> = crypto_digest #89, #90
-    #92: ArrayBuffer = await #91
-    #93: Float = byte_array_byte_length #92
-    #94: None = @11(console_log)
-    #95: None = call #94(#93)
-    #96: String = "SHA-384"
-    #97: Uint8Array = %2
-    #98: Future<ArrayBuffer> = crypto_digest #96, #97
-    #99: ArrayBuffer = await #98
-    #100: Float = byte_array_byte_length #99
-    #101: None = @12(console_log)
-    #102: None = call #101(#100)
-    #103: String = "SHA-512"
-    #104: Uint8Array = %2
-    #105: Future<ArrayBuffer> = crypto_digest #103, #104
-    #106: ArrayBuffer = await #105
-    #107: Float = byte_array_byte_length #106
-    #108: None = @13(console_log)
-    #109: None = call #108(#107)
-    #110: String = "sha-256"
-    #111: Uint8Array = %2
-    #112: Future<ArrayBuffer> = crypto_digest #110, #111
-    #113: ArrayBuffer = await #112
-    #114: Float = byte_array_byte_length #113
-    #115: None = @14(console_log)
-    #116: None = call #115(#114)
-    #117: TextEncoder = text_encoder_new
-    #118: String = ""
-    #119: Uint8Array = text_encoder_encode #117 #118
-    #120: String = "SHA-256"
-    #121: Uint8Array = %3
-    #122: Future<ArrayBuffer> = crypto_digest #120, #121
-    #123: ArrayBuffer = await #122
-    #124: Float = byte_array_byte_length #123
-    #125: None = @15(console_log)
-    #126: None = call #125(#124)
-    #127: Future<None> = async_exit_drain()
-    #128: None = await #127
+    #76: String = ""
+    #77: RegExp = new RegExp(#75, #76)
+    #78: Bool = regex_search #77, #74
+    #79: None = @9(console_log)
+    #80: None = call #79(#78)
+    #81: TextEncoder = text_encoder_new
+    #82: String = "abc"
+    #83: Uint8Array = text_encoder_encode #81 #82
+    #84: String = "SHA-1"
+    #85: Uint8Array = %2
+    #86: Future<ArrayBuffer> = crypto_digest #84, #85
+    #87: ArrayBuffer = await #86
+    #88: Float = byte_array_byte_length #87
+    #89: None = @10(console_log)
+    #90: None = call #89(#88)
+    #91: String = "SHA-256"
+    #92: Uint8Array = %2
+    #93: Future<ArrayBuffer> = crypto_digest #91, #92
+    #94: ArrayBuffer = await #93
+    #95: Float = byte_array_byte_length #94
+    #96: None = @11(console_log)
+    #97: None = call #96(#95)
+    #98: String = "SHA-384"
+    #99: Uint8Array = %2
+    #100: Future<ArrayBuffer> = crypto_digest #98, #99
+    #101: ArrayBuffer = await #100
+    #102: Float = byte_array_byte_length #101
+    #103: None = @12(console_log)
+    #104: None = call #103(#102)
+    #105: String = "SHA-512"
+    #106: Uint8Array = %2
+    #107: Future<ArrayBuffer> = crypto_digest #105, #106
+    #108: ArrayBuffer = await #107
+    #109: Float = byte_array_byte_length #108
+    #110: None = @13(console_log)
+    #111: None = call #110(#109)
+    #112: String = "sha-256"
+    #113: Uint8Array = %2
+    #114: Future<ArrayBuffer> = crypto_digest #112, #113
+    #115: ArrayBuffer = await #114
+    #116: Float = byte_array_byte_length #115
+    #117: None = @14(console_log)
+    #118: None = call #117(#116)
+    #119: TextEncoder = text_encoder_new
+    #120: String = ""
+    #121: Uint8Array = text_encoder_encode #119 #120
+    #122: String = "SHA-256"
+    #123: Uint8Array = %3
+    #124: Future<ArrayBuffer> = crypto_digest #122, #123
+    #125: ArrayBuffer = await #124
+    #126: Float = byte_array_byte_length #125
+    #127: None = @15(console_log)
+    #128: None = call #127(#126)
+    #129: Future<None> = async_exit_drain()
+    #130: None = await #129
   stmts
     s0: let %0: String = #0
     s1: #4
@@ -147,25 +149,25 @@ module examples/typescript/end-to-end/51_web_crypto/input.ts (ModuleId(0))
     s8: #49
     s9: #63
     s10: #73
-    s11: #78
-    s12: let %2: Uint8Array = #81
-    s13: #88
-    s14: #95
-    s15: #102
-    s16: #109
-    s17: #116
-    s18: let %3: Uint8Array = #119
-    s19: #126
-    s20: #128
+    s11: #80
+    s12: let %2: Uint8Array = #83
+    s13: #90
+    s14: #97
+    s15: #104
+    s16: #111
+    s17: #118
+    s18: let %3: Uint8Array = #121
+    s19: #128
+    s20: #130
   async state machine
     states [state0, state1, state2, state3, state4, state5, state6, state7]
-    suspend #85 on #84 -> state86
-    suspend #92 on #91 -> state93
-    suspend #99 on #98 -> state100
-    suspend #106 on #105 -> state107
-    suspend #113 on #112 -> state114
-    suspend #123 on #122 -> state124
-    suspend #128 on #127 -> state129
+    suspend #87 on #86 -> state88
+    suspend #94 on #93 -> state95
+    suspend #101 on #100 -> state102
+    suspend #108 on #107 -> state109
+    suspend #115 on #114 -> state116
+    suspend #125 on #124 -> state126
+    suspend #130 on #129 -> state131
 
 interned types
   t0 = String
@@ -175,6 +177,7 @@ interned types
   t4 = Float
   t5 = None
   t6 = Bool
-  t7 = ArrayBuffer
-  t8 = Future<ArrayBuffer>
-  t9 = Future<None>
+  t7 = RegExp
+  t8 = ArrayBuffer
+  t9 = Future<ArrayBuffer>
+  t10 = Future<None>

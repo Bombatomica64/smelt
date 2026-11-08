@@ -104,7 +104,8 @@ interned types
   t28 = Failure
   t29 = fn(Float) -> Float
   t30 = async fn() -> Future<None>
-  t31 = Optional<String>
-  t32 = fn(Optional<Dict<String, String>>) -> String
-  t33 = fn(String) -> (Float, Optional<Accept>)
-  t34 = fn() -> Future<None>
+  t31 = RegExp
+  t32 = Optional<String>
+  t33 = fn(Optional<Dict<String, String>>) -> String
+  t34 = fn(String) -> (Float, Optional<Accept>)
+  t35 = fn() -> Future<None>

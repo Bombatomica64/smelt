@@ -754,42 +754,33 @@ return_ty,
         }
     }
 
-    /// Convert a JavaScript regex literal into a Rust `regex` pattern string.
+    /// A regex literal as one JavaScript pattern string, for a site that takes
+    /// a pattern rather than a `RegExp` value.
+    ///
+    /// The `i`, `m` and `s` flags fold into an ES2025 modifier group
+    /// (`/a/i` is `(?i:a)`), which is JavaScript syntax with the flags' exact
+    /// meaning, so the string is a pattern `new RegExp(text)` reads the same
+    /// way. The other flags have no in-pattern spelling; a site that needs
+    /// them takes the literal as a `RegExp` value (`regexp_literal_expression`).
     pub(in crate::lowering) fn regex_literal_pattern_text(literal: &oxc::ast::ast::RegExpLiteral<'_>) -> String {
         let flags = literal.regex.flags.to_string();
-        let mut inline_flags = String::new();
-        for flag in flags.chars() {
-            match flag {
-                'i' | 'm' | 's' => inline_flags.push(flag),
-                _ => {}
-            }
-        }
-        let pattern = Self::rust_regex_pattern_text(&literal.regex.pattern.text);
-        if inline_flags.is_empty() {
+        let modifiers = flags.chars().filter(|flag| matches!(flag, 'i' | 'm' | 's')).collect::<String>();
+        let pattern = Self::regex_literal_pattern_text_without_flags(literal);
+        if modifiers.is_empty() {
             pattern
         } else {
-            format!("(?{inline_flags}){pattern}")
+            format!("(?{modifiers}:{pattern})")
         }
     }
 
-    /// Convert a JavaScript regex literal pattern without applying flags.
+    /// A regex literal's JavaScript pattern source, without its flags.
+    ///
+    /// The runtime `RegExp` (`SmeltRegExp`, on `regress`) reads ECMAScript
+    /// pattern syntax itself, so the source is kept as written.
     pub(in crate::lowering) fn regex_literal_pattern_text_without_flags(
         literal: &oxc::ast::ast::RegExpLiteral<'_>,
     ) -> String {
-        Self::rust_regex_pattern_text(&literal.regex.pattern.text)
-    }
-
-    /// Translate JavaScript regex syntax into Rust regex syntax.
-    ///
-    /// The translation itself lives in [`smelt_stdlib::js_regex`], which states
-    /// each rule as a difference between the two *grammars*; this wrapper only
-    /// decides what to do when a pattern cannot be translated. It keeps the
-    /// pattern text unchanged in that case so the failure surfaces where the
-    /// pattern is compiled, which reports the original JavaScript spelling --
-    /// rather than making every regex-lowering call site fallible for a
-    /// construct `tsc` itself would have rejected.
-    pub(in crate::lowering) fn rust_regex_pattern_text(pattern: &str) -> String {
-        smelt_stdlib::js_regex::to_rust_pattern(pattern).unwrap_or_else(|_| pattern.to_owned())
+        literal.regex.pattern.text.to_string()
     }
 
     /// Return whether an exported const has known metadata value that is safe to skip.

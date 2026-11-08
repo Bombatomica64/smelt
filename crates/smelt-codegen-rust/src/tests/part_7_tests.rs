@@ -2426,10 +2426,10 @@ export function replaceAll(str: string, table: unknown): string {
 "#,
     );
 
-    assert!(source.contains("replace_all"), "{source}");
-    // The replacement is JavaScript ToString of the erased answer.
+    // `/g` replaces every match; the replacement is JavaScript ToString of the
+    // erased answer.
     assert!(
-        source.contains("|caps: &fancy_regex::Captures<'_>| smelt_erased_to_js_string(&"),
+        source.contains(", true, |smelt_match: &SmeltMatch| smelt_erased_to_js_string(&"),
         "{source}"
     );
     assert!(
@@ -5602,7 +5602,7 @@ console.log(m === null);
     // concrete fields, not assembled as an untyped object during exec.
     assert!(source.contains("groups: ::std::rc::Rc<Vec<Option<JsString>>>"));
     assert!(source.contains("named: ::std::rc::Rc<::std::collections::HashMap<String, Option<JsString>>>"));
-    assert!(source.contains("fn from_captures(regex: &fancy_regex::Regex"));
+    assert!(source.contains("fn from_regress(found: &regress::Match, input: &JsStr, spans: bool)"));
 }
 
 #[test]
@@ -5732,7 +5732,11 @@ function inner(value: string): string[] | undefined {
 ",
     );
 
-    assert!(source.contains("replace(\"[^]\", \"(?s:.)\")"), "{source}");
+    // `[^]` (any code unit, line terminators included) is ECMAScript syntax
+    // `regress` reads itself, so the pattern reaches it untranslated. (This
+    // used to pin a `[^]` -> `(?s:.)` rewrite for the UTF-8 engine.)
+    assert!(source.contains("[^]*?"), "{source}");
+    assert!(!source.contains("(?s:.)"), "{source}");
     assert!(source.contains(".match_string(&"), "{source}");
 }
 
@@ -13693,13 +13697,15 @@ export function second(text: string): number {
     );
 
     assert!(
-        source.contains("static SMELT_REGEX_CACHE:"),
+        source.contains("static SMELT_REGRESS_CACHE:"),
         "the prelude must declare the compiled-automaton memo\n{source}"
     );
+    // One compile site, behind the memo: `with_flags` for a `u`/`v` pattern
+    // and `from_unicode` over code units otherwise, one call each.
     assert_eq!(
-        source.matches("fancy_regex::RegexBuilder::new(").count(),
-        1,
-        "the emitted crate must hold exactly one regex compile site (the memo), \
+        source.matches("regress::Regex::with_flags(").count() + source.matches("regress::Regex::from_unicode(").count(),
+        2,
+        "the emitted crate must compile patterns only inside the memo, \
          so an inlined module-level const never recompiles its pattern\n{source}"
     );
     assert!(
@@ -13708,8 +13714,8 @@ export function second(text: string): number {
          reference identity and `lastIndex` stay per-object\n{source}"
     );
     assert!(
-        source.contains("cache.borrow().get(&pattern).cloned()")
-            && source.contains("cache.borrow_mut().insert(pattern, compiled.clone())"),
+        source.contains("cache.borrow().get(&key).cloned()")
+            && source.contains("cache.borrow_mut().insert(key, compiled.clone())"),
         "`try_compiled` must read through and populate the memo\n{source}"
     );
 }

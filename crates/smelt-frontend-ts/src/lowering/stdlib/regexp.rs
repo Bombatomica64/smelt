@@ -151,6 +151,10 @@ impl ModuleBuilder<'_> {
     fn string_literal_expr_text(body: &Body, expr: smelt_hir::ExprId) -> Option<String> {
         match body.expr_at(expr).map(|held| &held.kind) {
             Some(ExprKind::Literal(Literal::String(text))) => Some(text.clone()),
+            // A regex literal's `RegExp` value: its source is the first argument.
+            Some(ExprKind::New { args, .. }) => {
+                args.first().and_then(|source| Self::string_literal_expr_text(body, *source))
+            }
             _ => None,
         }
     }
@@ -262,7 +266,8 @@ impl ModuleBuilder<'_> {
         }
         if !(self.is_string_compatible_type(Self::expr_ty(body, haystack))
             || self.type_contains_unknown(Self::expr_ty(body, haystack)))
-            || self.ctx.krate.types.get(Self::expr_ty(body, pattern)) != Some(&Type::String)
+            || !(self.ctx.krate.types.get(Self::expr_ty(body, pattern)) == Some(&Type::String)
+                || self.is_regexp_class_type(Self::expr_ty(body, pattern)))
             || self.ctx.krate.types.get(Self::expr_ty(body, replacement)) != Some(&Type::String)
         {
             return Err(SmeltError::unsupported(
@@ -291,11 +296,11 @@ impl ModuleBuilder<'_> {
     ) -> Result<(), SmeltError> {
         if flags
             .chars()
-            .any(|flag| !matches!(flag, 'g' | 'i' | 'm' | 's'))
+            .any(|flag| !matches!(flag, 'd' | 'g' | 'i' | 'm' | 's' | 'u' | 'v'))
         {
             return Err(SmeltError::unsupported(
                 self.span(span.start, span.end),
-                "regex replacement supports only g/i/m/s RegExp literal flags",
+                "regex replacement does not support the sticky `y` flag",
             ));
         }
         Ok(())
@@ -329,14 +334,7 @@ impl ModuleBuilder<'_> {
                 let op = flags
                     .contains('g')
                     .then_some(StringReplaceOp::All);
-                let ty = self.ctx.krate.types.intern(Type::String);
-                Ok(Some((body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::String(
-                        Self::regex_literal_pattern_text(literal),
-                    )),
-                    ty,
-                    span: self.span(literal.span.start, literal.span.end),
-                }), op)))
+                Ok(Some((self.regexp_literal_expression(literal, body)?, op)))
             }
             Expression::Identifier(identifier) => {
                 let Some((pattern, flags, _ty)) =
@@ -346,24 +344,8 @@ impl ModuleBuilder<'_> {
                 };
                 self.require_replacement_flags(&flags, identifier.span)?;
                 let op = flags.contains('g').then_some(StringReplaceOp::All);
-                let ty = self.ctx.krate.types.intern(Type::String);
-                let pattern = if flags.chars().any(|flag| matches!(flag, 'i' | 'm' | 's')) {
-                    let inline_flags = flags
-                        .chars()
-                        .filter(|flag| matches!(flag, 'i' | 'm' | 's'))
-                        .collect::<String>();
-                    format!("(?{inline_flags}){pattern}")
-                } else {
-                    pattern
-                };
-                Ok(Some((
-                    body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::String(pattern)),
-                        ty,
-                        span: self.span(identifier.span.start, identifier.span.end),
-                    }),
-                    op,
-                )))
+                let span = self.span(identifier.span.start, identifier.span.end);
+                Ok(Some((self.regexp_value_expression(pattern, flags, span, body), op)))
             }
             _ => Ok(None),
         }
@@ -936,16 +918,7 @@ impl ModuleBuilder<'_> {
             return self.regexp_pattern_operand(pattern, body);
         }
         match expression {
-            Expression::RegExpLiteral(literal) => {
-                let ty = self.ctx.krate.types.intern(Type::String);
-                Ok(Some(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::String(Self::regex_literal_pattern_text(
-                        literal,
-                    ))),
-                    ty,
-                    span: self.span(literal.span.start, literal.span.end),
-                })))
-            }
+            Expression::RegExpLiteral(literal) => Ok(Some(self.regexp_literal_expression(literal, body)?)),
             Expression::Identifier(_)
             | Expression::StaticMemberExpression(_)
             | Expression::ComputedMemberExpression(_) => {
@@ -1028,26 +1001,33 @@ impl ModuleBuilder<'_> {
         literal: &oxc::ast::ast::RegExpLiteral<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(literal.span.start, literal.span.end);
+        Ok(self.regexp_value_expression(
+            Self::regex_literal_pattern_text_without_flags(literal),
+            literal.regex.flags.to_string(),
+            span,
+            body,
+        ))
+    }
+
+    /// A `new RegExp(pattern, flags)` value over a JavaScript pattern source.
+    pub(in crate::lowering) fn regexp_value_expression(
+        &mut self,
+        pattern: String,
+        flags: String,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
         let string_ty = self.ctx.krate.types.intern(Type::String);
-        let pattern = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String(
-                Self::regex_literal_pattern_text_without_flags(literal),
-            )),
-            ty: string_ty,
-            span: self.span(literal.span.start, literal.span.end),
-        });
-        let flags = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String(literal.regex.flags.to_string())),
-            ty: string_ty,
-            span: self.span(literal.span.start, literal.span.end),
-        });
-        Ok(body.push_expr(Expr {
+        let pattern = body.push_expr(Expr { kind: ExprKind::Literal(Literal::String(pattern)), ty: string_ty, span });
+        let flags = body.push_expr(Expr { kind: ExprKind::Literal(Literal::String(flags)), ty: string_ty, span });
+        body.push_expr(Expr {
             kind: ExprKind::New {
                 class: self.intern_type_name("RegExp"),
                 args: vec![pattern, flags],
             },
             ty: self.regexp_type(),
-            span: self.span(literal.span.start, literal.span.end),
-        }))
+            span,
+        })
     }
 }

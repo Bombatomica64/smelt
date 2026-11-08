@@ -227,9 +227,12 @@ fn regex_test_uses_a_look_around_capable_engine() {
 console.log(/\((?!\?:)/.test('(a|b)'));
 ",
     );
+    // A JavaScript pattern runs on `regress`, an ECMAScript engine, which
+    // supports look-around as JavaScript does. (This used to pin `fancy-regex`,
+    // the look-around-capable engine the old UTF-8 translation compiled to.)
     let main = source.split("fn main()").nth(1).unwrap_or_default();
-    assert!(main.contains("fancy_regex::Regex::new(&"), "{main}");
-    assert!(main.contains(".unwrap_or(false)"), "{main}");
+    assert!(main.contains("SmeltRegExp::new(") && main.contains(".is_match(&"), "{main}");
+    assert!(source.contains("regress::Regex::"), "{source}");
 }
 
 /// A call through a function-valued class FIELD installs the instance as
