@@ -133,7 +133,7 @@ Fork the repo and submit a pr :)
 | Functions | 78.44% |
 | Lines | 80.74% |
 | Regions | 74.00% |
-| Branches | 68.47% |
+| Branches | 68.48% |
 
 ### Per Crate
 
@@ -152,6 +152,7 @@ Fork the repo and submit a pr :)
 | `smelt-ts-model` | 91.67% | 92.22% | 50.00% |
 | `smelt-ts-types` | 91.40% | 94.44% | 88.39% |
 <!-- COVERAGE:END -->
+
 
 
 
