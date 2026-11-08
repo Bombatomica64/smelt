@@ -662,4 +662,77 @@ impl ModuleBuilder<'_> {
             }
         }
     }
+
+    /// Lower JavaScript `typeof value` to a string result when used as a value.
+    pub(in crate::lowering) fn typeof_expression(
+        &mut self,
+        unary: &oxc::ast::ast::UnaryExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        // `typeof crypto` used to fold to `"undefined"` here — a per-name
+        // special case that predated the WebCrypto surface, and one whose
+        // answer was the OPPOSITE of the profile's: the object is
+        // unconditionally present in the target profile (which is what
+        // `global_member_presence("crypto")` has said since that surface
+        // landed), so `typeof crypto === "undefined"` folded true and every
+        // program that guards on it took its no-crypto branch. `crypto` is a
+        // registry namespace now (`smelt_stdlib::GLOBAL_NAMESPACES`), so the
+        // operand lowers to a present object and `typeof` reports `"object"`
+        // through the ordinary rule below, like `Math` and `JSON`.
+        // A bare `typeof Blob` references the modeled host constructor, which is
+        // a function value in JavaScript. (The `typeof Blob === 'undefined'`
+        // support-guard comparison is folded earlier in `unknown_typeof_comparison`.)
+        if let Expression::Identifier(identifier) = &unary.argument
+            && Self::is_known_defined_global_constructor(identifier.name.as_str())
+        {
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String("function".to_owned())),
+                ty,
+                span: self.span(unary.span.start, unary.span.end),
+            }));
+        }
+        // A CLASS REFERENCE is a function value in JavaScript: `typeof Foo` is
+        // `"function"` for `class Foo {}` exactly as it is for `Blob` above,
+        // while `typeof new Foo()` is `"object"`. HIR types both the class and
+        // its instances as `Type::Class`, so the distinction has to come from
+        // the operand's SPELLING — a name bound to a class in this module,
+        // not shadowed by a local. Folding to the instance answer said
+        // `typeof Foo === "object"`, and a `typeof X === "function"` guard over
+        // a class value took its no-constructor branch.
+        if let Expression::Identifier(identifier) = &unary.argument
+            && !self.scope.is_bound(identifier.name.as_str())
+            && self.classes.is_known(identifier.name.as_str())
+        {
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String("function".to_owned())),
+                ty,
+                span: self.span(unary.span.start, unary.span.end),
+            }));
+        }
+        let operand = self.expression(&unary.argument, body)?;
+        let operand_ty = Self::expr_ty(body, operand);
+        let ty = self.ctx.krate.types.intern(Type::String);
+        // When the operand has no statically-known `typeof` spelling (erased
+        // `unknown`/`any`, unions, type params, futures — everything
+        // `typeof_type_name` returns `None` for), the JavaScript `typeof` must be
+        // computed at runtime by inspecting the value's tag. Folding to a literal
+        // here (the historical `.unwrap_or("object")`) mis-typed erased values as
+        // objects, which made `typeof a === typeof b` fold to `"object" ==
+        // "object"` and the primitive arms of `switch (typeof a)` dead (see
+        // es-toolkit `isEqualWith`). Only fold when the type pins a single spelling.
+        if let Some(kind) = self.typeof_type_name(operand_ty) {
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(kind.to_owned())),
+                ty,
+                span: self.span(unary.span.start, unary.span.end),
+            }));
+        }
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::TypeofValue { value: operand },
+            ty,
+            span: self.span(unary.span.start, unary.span.end),
+        }))
+    }
 }
