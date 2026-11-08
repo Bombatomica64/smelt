@@ -102,12 +102,14 @@ pub(crate) fn cargo_toml(
         crate::ReleaseProfile::Default => "",
     };
     let crate::PackageMetadata { version, edition, description } = &options.package;
+    let edition_text = edition.as_str();
+
     let description = description
         .as_deref()
         .map_or_else(String::new, |text| format!("description = {text}\n"));
     let deps = with_declared_dependencies(&deps, &options.dependencies);
     format!(
-        "[workspace]\n\n[package]\nname = \"{crate_name}\"\nversion = \"{version}\"\nedition = \"{edition}\"\n{description}\n[dependencies]\n{deps}{profile}"
+        "[workspace]\n\n[package]\nname = \"{crate_name}\"\nversion = \"{version}\"\nedition = \"{edition_text}\"\n{description}\n[dependencies]\n{deps}{profile}"
     )
 }
 

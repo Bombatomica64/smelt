@@ -168,3 +168,18 @@ fn int_rebinds_to_float() -> TestResult {
 fn dict_destructuring_and_pop() -> TestResult {
     verify_python_parity("dict_destructuring_and_pop")
 }
+
+/// Module variables written through `global`, defaulted parameters, generic
+/// functions (`TypeVar` and PEP 695) and `str * int` repetition.
+#[test]
+fn module_state_and_defaults() -> TestResult {
+    verify_python_parity("module_state_and_defaults")
+}
+
+/// A write through a class-typed or list-typed module global (a field, a
+/// property setter, an augmented assignment, an index) lands in the global,
+/// from module level and from a function.
+#[test]
+fn writes_through_module_globals() -> TestResult {
+    verify_python_parity("writes_through_module_globals")
+}

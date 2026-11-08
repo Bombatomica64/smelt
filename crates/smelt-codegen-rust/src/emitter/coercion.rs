@@ -850,6 +850,20 @@ impl FunctionEmitter<'_> {
         if source == target && !matches!(self.mir.types.get(target), Some(Type::Function(_))) {
             return Ok(value_text.to_owned());
         }
+        // Text crossing between the two languages of a mixed crate: a
+        // JavaScript string is UTF-16 (`JsString`), a Python `str` is UTF-8
+        // (`String`). A frontend marks each crossing with a `TypeAssert` to the
+        // receiving language's view of the type; containers reach here per
+        // element through their own arms.
+        match (self.mir.types.get(source), self.mir.types.get(target)) {
+            (Some(Type::String), Some(Type::PyStr)) => {
+                return Ok(RustExpr::postfix_on(&smelt_owned_value, format!("{smelt_owned_value}.to_string_lossy()")));
+            }
+            (Some(Type::PyStr), Some(Type::String)) => {
+                return Ok(RustExpr::atom(format!("JsString::from({smelt_owned_value})")));
+            }
+            _ => {}
+        }
         // A Python exception (or its `args`) at a `str` slot is its `str`: the
         // pytest `raises` lowering keeps the caught message as a string.
         if (self.is_py_exception_type(source) || self.is_py_exception_args_type(source))

@@ -1,14 +1,15 @@
 module examples/python/end-to-end/04_none/input.py (ModuleId(0))
-  body BodyId(0)
-  locals
-    %0 let x: None
+  body BodyId(1)
+  items
+    global mut x: None
+    fn smelt_global_init$x$0 owner Module
   exprs
-    #0: None = none
-    #1: None = @0(console_log)
-    #2: None = %0
+    #0: None = global_get @0(x)
+    #1: None = @2(console_log)
+    #2: None = global_get @0(x)
     #3: None = call #1(#2)
   stmts
-    s0: let %0: None = #0
+    s0: #0
     s1: #3
 
 interned types

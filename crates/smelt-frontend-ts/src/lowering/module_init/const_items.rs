@@ -18,12 +18,9 @@ impl ModuleBuilder<'_> {
         if decl.declare {
             return Ok(Vec::new());
         }
-        if decl.kind != oxc::ast::ast::VariableDeclarationKind::Const {
-            return Err(SmeltError::unsupported(
-                self.span(decl.span.start, decl.span.end),
-                "exported variable declarations must use const",
-            ));
-        }
+        // An exported `let`/`var` is written only by its own module (an
+        // import is a read-only binding), so a written one is a lifted module
+        // slot (below) and an unwritten one is, observably, a `const`.
         let mut items = Vec::new();
         for declarator in &decl.declarations {
             let BindingPattern::BindingIdentifier(binding) = &declarator.id else {

@@ -1329,7 +1329,22 @@ fn build_resolves_a_declared_package_from_a_pinned_git_revision() -> TestResult 
         let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
         ensure_eq(&actual_stdout, &"10\n".to_owned(), "unexpected stdout")?;
     }
-    ensure(cache.join("utility-v1/.git").is_dir(), "the pinned checkout is cached under <name>-<rev>")?;
+    // The checkout is keyed by the commit `v1` resolves to (and the URL), not
+    // by the spelling `v1`, so a moved tag or branch is a new checkout.
+    let tagged = std::process::Command::new("git").current_dir(&repo).args(["rev-parse", "v1^0"]).output()?;
+    let commit = String::from_utf8(tagged.stdout)?.trim().to_owned();
+    let checkouts = fs::read_dir(&cache)?
+        .map(|listed| listed.map(|entry| entry.file_name().to_string_lossy().into_owned()))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .filter(|name| !name.starts_with('.'))
+        .collect::<Vec<_>>();
+    ensure(
+        checkouts.len() == 1
+            && checkouts.iter().all(|name| name.starts_with("utility-") && name.ends_with(&commit))
+            && checkouts.first().is_some_and(|name| cache.join(name).join(".git").is_dir()),
+        format!("the pinned checkout is cached under <name>-<url hash>-<commit {commit}>: {checkouts:?}"),
+    )?;
     Ok(())
 }
 
@@ -1398,6 +1413,13 @@ clone-strategy = "aggressive"
     fs::write(
         project_path.join("src/types.ts"),
         "export type OnlyType = number;\nimport { missing } from './missing-runtime';\n",
+    )?;
+    // The runtime module is declared, never implemented: a program tsc
+    // accepts, whose `missing` has no value Smelt could lower. Reaching it only
+    // through `import type` must not need one.
+    fs::write(
+        project_path.join("src/missing-runtime.d.ts"),
+        "export declare const missing: number;\n",
     )?;
     fs::write(
         project_path.join("src/main.ts"),
@@ -2856,11 +2878,14 @@ class Pair {
 }
 
 const p = new Pair()
-console.log(p[KEY_A], p[KEY_B], KEY_A === KEY_B)
+console.log(p[KEY_A], p[KEY_B], (KEY_A as symbol) === KEY_B)
 ",
         ),
     ];
     let (project, manifest) = multi_module_project("symbol-site-identity", true, files)?;
+    // `KEY_A === KEY_B` alone compares two distinct unique symbols, which tsc
+    // rejects (TS2367); widening one side to `symbol` keeps the runtime
+    // question and makes the program valid.
     smelt(&["--manifest-path", &manifest, "build"])?;
     let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
     ensure_eq(&stdout, &"1 2 false\n".to_owned(), "unexpected stdout")?;

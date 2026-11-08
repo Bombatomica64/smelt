@@ -68,7 +68,10 @@
 
 use std::collections::HashMap;
 
+mod check;
 pub(crate) mod db;
+
+pub use check::{CheckDiagnostic, CheckSeverity, CheckSource, check_sources};
 
 use anyhow::{Context, Result, anyhow};
 use ruff_db::files::system_path_to_file;

@@ -13,7 +13,7 @@ class User {
 }
 
 const present: User | null = new User("Ada", [3]);
-const missing: User | null = null;
+const missing = null as User | null;
 
 const name = present?.name;
 const absentName = missing?.name;

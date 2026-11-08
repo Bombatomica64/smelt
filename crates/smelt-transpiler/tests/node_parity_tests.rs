@@ -575,6 +575,13 @@ fn lone_surrogate_static_keys() -> TestResult {
     verify_node_parity("lone_surrogate_static_keys")
 }
 
+/// `==`/`!=` are JavaScript's loose equality: nullish, numeric-string,
+/// boolean, bigint and object-identity cases.
+#[test]
+fn loose_equality() -> TestResult {
+    verify_node_parity("loose_equality")
+}
+
 /// `Pick`, `Omit`, `Partial` and `Required` whose keys the annotation fixes
 /// enumerate exactly the properties the utility leaves.
 #[test]

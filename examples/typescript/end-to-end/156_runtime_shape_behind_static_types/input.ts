@@ -37,14 +37,14 @@ function counted(flag: boolean) {
 }
 
 function maybe(flag: boolean) {
-  return new Promise((resolve) => (flag ? resolve(1) : resolve()));
+  return new Promise((resolve) => (flag ? resolve(1) : resolve(undefined)));
 }
 
 type Greet = (name: string) => string;
 
 async function entry(): Promise<void> {
   const reply = await later();
-  console.log(reply.body);
+  console.log((reply as Reply).body);
   console.log(await counted(true), await counted(false));
   const present = await maybe(true);
   const absent = await maybe(false);

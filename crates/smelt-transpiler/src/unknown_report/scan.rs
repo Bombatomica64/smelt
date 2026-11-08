@@ -3,7 +3,7 @@
 
 use super::classify::{AdapterBody, LineSite, PreludeBoundary, classify_line};
 use super::{Category, ShapeGroup, UnknownReport, display_path};
-use crate::{CliResult, report::bump};
+use crate::{CliResult, report::{SchemaVersion, bump}};
 use std::{collections::BTreeMap, path::PathBuf};
 
 /// Identity of one shape group: its category and normalized line pattern.
@@ -98,6 +98,7 @@ pub(super) fn scan_files(files: &[PathBuf]) -> CliResult<ScanResult> {
 
     Ok(ScanResult {
         report: UnknownReport {
+            version: SchemaVersion::CURRENT,
             files_scanned: files.len(),
             total,
             category_totals,

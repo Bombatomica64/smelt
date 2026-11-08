@@ -68,6 +68,50 @@ where
     }
 }
 
+/// Every body holding a module's top-level code, in order: the module body,
+/// then the initializer of each module global.
+///
+/// A typed top-level binding (`total: int = sum(xs)`) is a module global
+/// (`Item::MutableGlobal`) because functions and importers read it; its value
+/// lowers into the global's nullary initializer, not into the module body.
+/// A test asking whether the module's code lowered an expression asks it of
+/// all of these bodies.
+struct ModuleCode<'a> {
+    /// The module body first, then the initializer bodies.
+    bodies: Vec<&'a Body>,
+}
+
+impl<'a> ModuleCode<'a> {
+    /// Every expression of the module's code.
+    fn exprs(&self) -> impl Iterator<Item = &'a smelt_hir::Expr> + '_ {
+        self.bodies.iter().flat_map(|body| body.exprs.iter())
+    }
+
+    /// Every statement of the module's code.
+    fn stmts(&self) -> impl Iterator<Item = &'a Stmt> + '_ {
+        self.bodies.iter().flat_map(|body| body.stmts.iter())
+    }
+}
+
+/// The [`ModuleCode`] of `module`.
+fn module_code<'a>(ctx: &'a HirCtx, module: &Module) -> Result<ModuleCode<'a>, String> {
+    let mut bodies = vec![body(ctx, module.body.ok_or("expected module body")?)?];
+    for item_id in &module.items {
+        let Item::MutableGlobal(global) = item(ctx, *item_id)? else {
+            continue;
+        };
+        let smelt_hir::MutableGlobalInit::Initializer(init) = global.init else {
+            continue;
+        };
+        if let Item::Function(function) = item(ctx, init)?
+            && let Some(init_body) = function.body
+        {
+            bodies.push(body(ctx, init_body)?);
+        }
+    }
+    Ok(ModuleCode { bodies })
+}
+
 /// Looks up a module by ID.
 fn module(ctx: &HirCtx, module_id: ModuleId) -> Result<&Module, String> {
     let idx = usize::try_from(module_id.0)

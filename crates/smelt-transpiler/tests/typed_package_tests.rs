@@ -609,14 +609,24 @@ fn rejected_typed_version_stops_the_build_naming_it() -> TestResult {
         ".sound/geom/lay/index.ts",
         &INDEX_TS.replace("sumTo(n: number)", "sumTo(n)"),
     )?;
+    // TypeScript rejects the parameter (TS7006), so the type gate stops the
+    // build first, naming the typed version as the frontend error does.
     let run = build(root, &[])?;
     ensure(!run.success, "the build must stop")?;
     ensure(
-        run.stderr.contains(
+        run.stderr.contains("TS7006")
+            && run.stderr.contains("in the typed version of 'geom' in .sound/geom; fix it, or remove it to compile 'geom' untyped"),
+        format!("expected the typed version's checker error:\n{}", run.stderr),
+    )?;
+    // With type errors allowed, Smelt's frontend rejects the same text.
+    let allowed = build(root, &["--allow-type-errors"])?;
+    ensure(!allowed.success, "the build must stop")?;
+    ensure(
+        allowed.stderr.contains(
             "error: the typed version of 'geom' in .sound/geom is rejected by Smelt's frontend (",
-        ) && run
+        ) && allowed
             .stderr
             .contains("Fix it, or remove it to compile 'geom' untyped."),
-        format!("expected the typed-version error:\n{}", run.stderr),
+        format!("expected the typed-version error:\n{}", allowed.stderr),
     )
 }

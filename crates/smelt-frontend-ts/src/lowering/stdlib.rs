@@ -7,7 +7,7 @@ mod date;
 mod event_emitter;
 mod function_bind;
 mod global_functions;
-mod json;
+pub(in crate::lowering) mod json;
 mod lists;
 mod local_callable;
 mod math;

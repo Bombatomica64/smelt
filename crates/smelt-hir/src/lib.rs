@@ -55,6 +55,8 @@ pub mod op_field_types;
 mod item;
 /// Crate/module metadata and imports.
 mod krate;
+
+pub mod language_view;
 /// Symbol interning and original-name tracking.
 mod symbol;
 /// HIR type system and type interning.

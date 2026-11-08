@@ -1024,6 +1024,14 @@ macro_rules! op_group_transcribed {
                 name: [String],
             }
                 => (format!("process_env_read {name:?}"));
+            /// `process.argv`: the executable path twice (it is both the
+            /// runtime Node would name first and the script it would name
+            /// second), then the arguments the program was started with, so
+            /// `process.argv.slice(2)` is the user's arguments as under Node.
+            /// Typed `List<String>`.
+            ProcessArgv
+                fresh(true)
+                => ("process_argv".to_owned());
             /// An `EventEmitter` member operation on a concrete emitter receiver.
             ///
             /// The receiver is any value whose class

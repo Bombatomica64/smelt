@@ -115,6 +115,12 @@ Class constructors become a method named `__init__` (canonical HIR convention sh
 
 Python is already snake_case. Class names stay PascalCase. No conversion at the boundary, but every name is still interned through `OriginalNameTable` so cross-language imports work uniformly.
 
+A name is one HIR symbol in a mixed crate whichever frontend interned it first (`SymbolInterner::intern_shared`): the TypeScript frontend renders `labelText` as `label_text`, so a Python `p.labelText` on a TypeScript class, or a TypeScript `c.stepSize` on a Python one, names the declaring class's own field symbol. A verbatim symbol (what Python always interns, and what TypeScript interns a type name as) wins over the shared one, so a TypeScript value use of `Point` never renames a Python class `Point`.
+
+#### Module variables
+
+A top-level binding whose type is known before lowering (an annotation, or a literal value) is a module global (`Item::MutableGlobal`): functions read it, `global NAME` in a function writes it, and another module imports it, from Python or from TypeScript. Its value lowers into a lazy initializer the module body touches at the assignment, so it runs in source order. A binding stays a module-body local when its value reads a module-body local, when the module rebinds it in a way that may change its type (`z = 9` then `z /= 3`), when a form other than a plain assignment binds it (a `for` or `with` target, an unpacking), or when it is a lambda with defaults or `*args` (whose calls need its defining body).
+
 ## Type Mapping
 
 | Python type                        | HIR type                                  |

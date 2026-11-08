@@ -39,7 +39,7 @@ console.log(gi.next())
 const pe = ["a", "b"].entries()
 const fe = pe.next()
 if ("done" in fe && fe.done) { console.log("empty") }
-const { value: [, firstV] } = fe
+const { value: [, firstV] } = fe as IteratorYieldResult<[number, string]>
 console.log(firstV)
 const mi3 = new Map([["k", 9]]).values()
 const { value: vv, done: dd } = mi3.next()

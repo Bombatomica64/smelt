@@ -19,10 +19,9 @@
     "smelt-frontend-py": {
       "clippy::as_conversions": 2,
       "clippy::collapsible_if": 4,
-      "clippy::shadow_reuse": 27,
+      "clippy::shadow_reuse": 26,
       "clippy::shadow_unrelated": 27,
-      "unfulfilled_lint_expectations": 1,
-      "unused_qualifications": 2
+      "unfulfilled_lint_expectations": 1
     },
     "smelt-frontend-ts": {
       "clippy::as_conversions": 184,
@@ -56,7 +55,7 @@
       "clippy::shadow_unrelated": 6,
       "clippy::unreachable": 2,
       "clippy::use_debug": 2,
-      "clippy::wildcard_enum_match_arm": 16,
+      "clippy::wildcard_enum_match_arm": 15,
       "trivial_casts": 1
     },
     "smelt-runtime": {
@@ -113,12 +112,12 @@
     "smelt-transpiler": {
       "clippy::arithmetic_side_effects": 9,
       "clippy::as_conversions": 4,
-      "clippy::expect_used": 90,
+      "clippy::expect_used": 69,
       "clippy::indexing_slicing": 22,
       "clippy::integer_division": 2,
       "clippy::print_stderr": 2,
-      "clippy::shadow_reuse": 21,
-      "clippy::shadow_unrelated": 36,
+      "clippy::shadow_reuse": 19,
+      "clippy::shadow_unrelated": 35,
       "clippy::unwrap_used": 11,
       "unfulfilled_lint_expectations": 1,
       "unused_qualifications": 10

@@ -80,6 +80,7 @@ fn emitted_function_body<'a>(source: &'a str, signature: &str) -> &'a str {
 mod carrier_trial_tests;
 mod local_binding_tests;
 mod name_rule_tests;
+mod edition_tests;
 mod reserved_name_tests;
 mod runtime_demand_tests;
 mod part_1_tests;

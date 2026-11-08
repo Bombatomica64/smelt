@@ -10,7 +10,7 @@ use smelt_hir::{ExprId, ExprKind};
 use crate::{Constant, GlobalProjection, Operand, Place};
 
 use super::context::LoweringCtx;
-use super::{LoweredPlace, LoweredPlaceBase, LowerError, PlaceWritebacks};
+use super::{LoweredPlace, LoweredPlaceBase, LowerError, PlaceWritebacks, WritebackTarget};
 
 impl LoweringCtx<'_> {
     /// Lowers an lvalue expression to a MIR place for assignment targets.
@@ -42,6 +42,10 @@ impl LoweringCtx<'_> {
                 // silently lost for the other. See
                 // `blocker-logs/hono-h6-place-global.md`.
                 if let Some(base) = self.mutable_global_receiver(*receiver) {
+                    if !self.global_writes_in_place(*receiver)? {
+                        let (copy, writebacks) = self.global_receiver_copy(base, *receiver, expr.span)?;
+                        return Ok((Place::Field { base: copy, field: *field }, writebacks));
+                    }
                     return Ok((
                         Place::Global {
                             base,
@@ -60,6 +64,20 @@ impl LoweringCtx<'_> {
                 ))
             }
             ExprKind::Index { receiver, index } => {
+                if let Some(base) = self.mutable_global_receiver(*receiver)
+                    && !self.global_writes_in_place(*receiver)?
+                {
+                    let (copy, writebacks) = self.global_receiver_copy(base, *receiver, expr.span)?;
+                    let index_operand = self.lower_expr(*index)?;
+                    return Ok((
+                        Place::Index {
+                            base: copy,
+                            index: Box::new(index_operand),
+                            negative: self.negative_index_policy(expr.span),
+                        },
+                        writebacks,
+                    ));
+                }
                 if let Some(base) = self.mutable_global_receiver(*receiver) {
                     // The index is lowered here, BEFORE the cell is borrowed at
                     // emission time, which is what keeps `cache[cache_key()] =
@@ -219,7 +237,7 @@ impl LoweringCtx<'_> {
             dest: local,
             value: crate::Rvalue::Use(Operand::Copy(place.clone())),
         });
-        writebacks.push((place, local));
+        writebacks.push((WritebackTarget::Place(place), local));
         Ok((local, writebacks))
     }
 
@@ -265,8 +283,36 @@ impl LoweringCtx<'_> {
             dest: local,
             value: crate::Rvalue::Use(Operand::Copy(Place::Local(base))),
         });
-        writebacks.push((Place::Local(base), local));
+        writebacks.push((WritebackTarget::Place(Place::Local(base)), local));
         Ok((local, writebacks))
+    }
+
+    /// Whether a write through the global `receiver` reads lands in the cell
+    /// itself (`Place::Global`): only a map global (`Type::Dict`, a
+    /// `SmeltRecord`/`Map` in Rust) has an in-cell write the emitter spells.
+    fn global_writes_in_place(&self, receiver: ExprId) -> Result<bool, LowerError> {
+        let ty = self.hir_expr(receiver)?.ty;
+        Ok(matches!(self.krate.types.get(ty), Some(smelt_hir::Type::Dict(..))))
+    }
+
+    /// A copy of the global `receiver` reads, as a write root, with the
+    /// writeback that stores it back into the global's cell.
+    ///
+    /// The write through a class instance, a list or any other non-map global
+    /// (`_counter.value = 5`, `items[0] = x`) then lowers exactly as through a
+    /// local -- plain fields, descriptor setters, index writes -- and the copy
+    /// is committed afterwards. For a shared handle the commit stores an equal
+    /// handle; for a value representation it is what keeps the write.
+    fn global_receiver_copy(
+        &mut self,
+        global: u32,
+        receiver: ExprId,
+        span: smelt_hir::Span,
+    ) -> Result<LoweredPlaceBase, LowerError> {
+        let receiver_ty = self.hir_expr(receiver)?.ty;
+        let operand = self.lower_expr(receiver)?;
+        let copy = self.materialize_operand_local(operand, receiver_ty, span)?;
+        Ok((copy, vec![(WritebackTarget::Global(global), copy)]))
     }
 
     /// The MIR global index when `receiver` reads a module-level mutable global.

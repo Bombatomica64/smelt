@@ -44,7 +44,7 @@ console.log(portOf([8080]), portOf([0]), portOf([]))
 // 4.
 async function responseFacts(): Promise<void> {
   const maybe: Response | undefined = new Response('hi', { status: 201, statusText: 'Made' })
-  const missing: Response | undefined = undefined
+  const missing = undefined as Response | undefined
   const status: number | undefined = maybe?.status
   console.log(status, maybe?.ok, maybe?.statusText, missing?.status)
   if (maybe) {

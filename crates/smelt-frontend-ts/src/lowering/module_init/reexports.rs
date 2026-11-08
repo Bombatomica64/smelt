@@ -79,6 +79,8 @@ impl ModuleBuilder<'_> {
             self.alias_imported_item(source_text, &imported, &exported);
             if let Some(item) = self.items.get(&exported).copied() {
                 self.publish_export_alias(exported.clone(), item);
+                let exported_symbol = alias.unwrap_or(name);
+                module.reexports.push((exported_symbol, item));
             }
             if let Some(namespace) = self.object_namespaces.get(&exported).cloned() {
                 self.publish_export(|ctx| &mut ctx.object_namespaces, exported.clone(), namespace);

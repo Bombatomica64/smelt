@@ -1,24 +1,18 @@
 module examples/python/end-to-end/03_boolean/input.py (ModuleId(0))
-  body BodyId(0)
-  locals
-    %0 let flag: Bool
-    %1 let other: Bool
-    %2 let result: Bool
+  body BodyId(1)
+  items
+    global mut flag: Bool
+    global mut other: Bool
+    global mut result: Bool
+    fn smelt_global_init$result$2 owner Module
   exprs
-    #0: Bool = true
-    #1: Bool = false
-    #2: Bool = %0
-    #3: Bool = %1
-    #4: Bool = Not #3
-    #5: Bool = And #2, #4
-    #6: None = @0(console_log)
-    #7: Bool = %2
-    #8: None = call #6(#7)
+    #0: None = global_get @2(result)
+    #1: None = @4(console_log)
+    #2: Bool = global_get @2(result)
+    #3: None = call #1(#2)
   stmts
-    s0: let %0: Bool = #0
-    s1: let %1: Bool = #1
-    s2: let %2: Bool = #5
-    s3: #8
+    s0: #0
+    s1: #3
 
 interned types
   t0 = None

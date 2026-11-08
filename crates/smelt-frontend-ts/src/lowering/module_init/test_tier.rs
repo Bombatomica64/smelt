@@ -29,12 +29,8 @@ impl ModuleBuilder<'_> {
     /// import, or its own top-level declaration — keeps its own meaning: the
     /// global is only the fallback vitest makes it.
     pub(super) fn mark_ambient_test_builtins(&mut self, program: &Program<'_>) {
-        let declared = Self::program_top_level_binding_names(program);
-        for name in test_support::vitest_builtin_names() {
-            if self.imports.is_imported_binding(name) || declared.contains(*name) {
-                continue;
-            }
-            self.imports.mark_test_builtin((*name).to_owned());
+        for name in ambient_test_builtin_names(program, &|name| self.imports.is_imported_binding(name)) {
+            self.imports.mark_test_builtin(name.to_owned());
         }
     }
 
@@ -45,7 +41,7 @@ impl ModuleBuilder<'_> {
     /// `const`/`let`/`var` statement (a destructuring pattern that rebinds
     /// `expect` is not a shape any suite writes, and missing it only means the
     /// global is preferred, which is what an un-shadowed file wants anyway).
-    fn program_top_level_binding_names(program: &Program<'_>) -> HashSet<String> {
+    pub(in crate::lowering) fn program_top_level_binding_names(program: &Program<'_>) -> HashSet<String> {
         let mut names = HashSet::new();
         for statement in &program.body {
             match statement {
@@ -78,15 +74,52 @@ impl ModuleBuilder<'_> {
     /// Vitest-compatible framework. Both spellings appear in the corpora Smelt
     /// tracks, and the answer is needed before any body is lowered.
     pub(super) fn is_test_tier_program(&self, program: &Program<'_>) -> bool {
-        if Self::is_declaration_type_test_path(&self.path)
-            || self.path.ends_with(".spec.ts")
-            || self.path.ends_with(".test-d.tsx")
-        {
-            return true;
-        }
-        program.body.iter().any(|statement| {
-            matches!(statement, Statement::ImportDeclaration(import)
-                if test_support::is_vitest_compatible_module(&js_str_text(import.source.value)))
-        })
+        is_test_tier(&self.path, program)
     }
+}
+
+/// Whether the program at `path` belongs to the test tier; see
+/// [`ModuleBuilder::is_test_tier_program`].
+pub(in crate::lowering) fn is_test_tier(path: &str, program: &Program<'_>) -> bool {
+    if ModuleBuilder::is_declaration_type_test_path(path) || path.ends_with(".spec.ts") || path.ends_with(".test-d.tsx")
+    {
+        return true;
+    }
+    program.body.iter().any(|statement| {
+        matches!(statement, Statement::ImportDeclaration(import)
+            if test_support::is_vitest_compatible_module(&js_str_text(import.source.value)))
+    })
+}
+
+/// The vitest API names a test-tier module reaches as globals: every one it
+/// neither imports (`is_imported`) nor declares at its top level. This one
+/// decision is what lowering models ([`ModuleBuilder::mark_ambient_test_builtins`])
+/// and what the transpiler declares to the type checker
+/// ([`crate::ambient_test_globals`]), so the two cannot disagree.
+pub(in crate::lowering) fn ambient_test_builtin_names(
+    program: &Program<'_>,
+    is_imported: &dyn Fn(&str) -> bool,
+) -> Vec<&'static str> {
+    let declared = ModuleBuilder::program_top_level_binding_names(program);
+    test_support::vitest_builtin_names()
+        .iter()
+        .copied()
+        .filter(|name| !is_imported(name) && !declared.contains(*name))
+        .collect()
+}
+
+/// The mock namespaces (`vi`, and Jest's spelling of it, `jest`) a test-tier
+/// module reaches as globals: each one it neither imports nor declares.
+/// Lowering recognizes them by name as the one mock API
+/// (`lowering::testing::is_test_mock_namespace`), import or not.
+pub(in crate::lowering) fn ambient_mock_namespaces(
+    program: &Program<'_>,
+    is_imported: &dyn Fn(&str) -> bool,
+) -> Vec<&'static str> {
+    let declared = ModuleBuilder::program_top_level_binding_names(program);
+    ["vi", "jest"]
+        .into_iter()
+        .filter(|name| crate::lowering::testing::is_test_mock_namespace(name))
+        .filter(|name| !is_imported(name) && !declared.contains(*name))
+        .collect()
 }

@@ -155,6 +155,8 @@ pub(super) struct ModuleInputs<'input> {
     pub(super) specialization: &'input crate::specialization::PreparedSpecialization,
     /// TypeScript 7 checker facts for the crate's TypeScript sources.
     pub(super) ts_facts: Option<&'input smelt_ts_model::TsTypeFacts>,
+    /// The checkers' verdict, which decides how far each source is trusted.
+    pub(super) check: &'input crate::type_gate::CheckReport,
 }
 
 /// A predeclared lowering context that lowers manifest files one at a time.
@@ -207,6 +209,7 @@ impl PredeclaredLowering {
                         specialization: inputs.specialization.typescript(),
                         excluded_modules: &source.excluded_imports,
                         ts_facts: inputs.ts_facts,
+                        trust: inputs.check.typescript_trust(&file_string),
                     },
                 )
                 .map_err(|errors| {

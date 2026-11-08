@@ -307,8 +307,9 @@ def make_adder(base: int) -> Callable[[int], int]:
         return value + base
     return add
 
-adder: Callable[[int], int] = make_adder(5)
-result: int = adder(6)
+def run() -> None:
+    adder: Callable[[int], int] = make_adder(5)
+    result: int = adder(6)
 ",
         Some("fn make_adder"),
     );
@@ -321,10 +322,11 @@ fn python_map_filter_lambda_emission() {
     assert_emitted_py_source_snapshot(
         "python_map_filter_lambda_emission",
         r"
-values: list[int] = [1, 2, 3]
-doubled: list[int] = list(map(lambda value: value * 2, values))
-positives: list[int] = list(filter(lambda value: value > 1, values))
+def run() -> None:
+    values: list[int] = [1, 2, 3]
+    doubled: list[int] = list(map(lambda value: value * 2, values))
+    positives: list[int] = list(filter(lambda value: value > 1, values))
 ",
-        Some("fn main"),
+        Some("fn run"),
     );
 }

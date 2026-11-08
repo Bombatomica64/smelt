@@ -7,11 +7,19 @@ fn annotated_assignment_lowers() -> TestResult {
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body_id = module
-        .body
-        .ok_or_else(|| "expected module body".to_owned())?;
-    let body = body(&ctx, body_id)?;
-    ensure(!body.stmts.is_empty(), "expected body statements")?;
+    // A typed module binding is a module global (functions and importers
+    // read it); a literal value is its inline initializer.
+    ensure(
+        module.items.iter().any(|item_id| {
+            matches!(
+                item(&ctx, *item_id),
+                Ok(Item::MutableGlobal(global))
+                    if symbol(&ctx, global.name).ok() == Some("x")
+                        && matches!(global.init, smelt_hir::MutableGlobalInit::Literal(Literal::Int(42)))
+            )
+        }),
+        "expected `x` to be a module global initialized to 42",
+    )?;
     Ok(())
 }
 

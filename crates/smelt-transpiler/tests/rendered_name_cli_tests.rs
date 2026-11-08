@@ -216,7 +216,10 @@ fn module_files_are_unique_and_stale_ones_are_removed() -> TestResult {
             ("foo-bar.ts", "export function a(): number { return 1 }\n"),
             ("foo_bar.ts", "export function b(): number { return 2 }\n"),
             ("Foo.ts", "export function c(): number { return 3 }\n"),
-            ("foo.ts", "export function d(): number { return 4 }\n"),
+            // `Foo.ts` and `foo.ts` side by side are rejected by tsc (TS1149,
+            // names differing only in casing); a Python `foo` beside the
+            // TypeScript `Foo` is valid and collides the same way here.
+            ("foo.py", "def d() -> int:\n    return 4\n"),
         ],
     )?;
     smelt_in(root, &["build"])?;

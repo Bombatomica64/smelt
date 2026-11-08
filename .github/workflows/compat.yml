@@ -55,8 +55,12 @@ jobs:
         continue-on-error: true
         run: |
           mkdir -p "target/compat-reports"
+          # Lowering coverage, not the type gate: the libraries are checked
+          # out without their dependencies, so the checker cannot resolve
+          # their dev-dependency imports (see scripts/probe_libraries.py).
           "$SMELT_BIN" rust-test-report \
             --build-manifest "target/compat-repos/${{ matrix.name }}/Smelt.toml" \
+            --allow-type-errors \
             --cargo-manifest "target/compat-repos/${{ matrix.name }}/dist-smelt/Cargo.toml" \
             --full \
             --diagnostics \

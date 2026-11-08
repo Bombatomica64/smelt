@@ -6,8 +6,9 @@ use super::*;
 fn emits_python_list_copy_method() {
     let source = source_for_py(
         r"
-values: list[int] = [1, 2]
-copied: list[int] = values.copy()
+def run() -> None:
+    values: list[int] = [1, 2]
+    copied: list[int] = values.copy()
 ",
     );
 
@@ -19,24 +20,25 @@ copied: list[int] = values.copy()
 fn emits_python_container_constructors() {
     let source = source_for_py(
         r#"
-values: list[int] = [1, 2]
-copied_values: list[int] = list(values)
-value_tuple: tuple[int, int] = tuple(values)
-empty_values: list[int] = list()
-value_set: set[int] = set(values)
-items: set[int] = {1, 2}
-copied_items: set[int] = set(items)
-empty_items: set[int] = set()
-names: dict[str, int] = {"Ada": 1}
-copied_names: dict[str, int] = dict(names)
-empty_names: dict[str, int] = dict()
-pairs: list[tuple[str, int]] = [("Ada", 1)]
-pair_names: dict[str, int] = dict(pairs)
-item_list: list[int] = list(items)
-name_keys: list[str] = list(names)
-coords: tuple[int, int] = (1, 2)
-coord_list: list[int] = list(coords)
-coord_set: set[int] = set(coords)
+def run() -> None:
+    values: list[int] = [1, 2]
+    copied_values: list[int] = list(values)
+    value_tuple: tuple[int, int] = tuple(values)
+    empty_values: list[int] = list()
+    value_set: set[int] = set(values)
+    items: set[int] = {1, 2}
+    copied_items: set[int] = set(items)
+    empty_items: set[int] = set()
+    names: dict[str, int] = {"Ada": 1}
+    copied_names: dict[str, int] = dict(names)
+    empty_names: dict[str, int] = dict()
+    pairs: list[tuple[str, int]] = [("Ada", 1)]
+    pair_names: dict[str, int] = dict(pairs)
+    item_list: list[int] = list(items)
+    name_keys: list[str] = list(names)
+    coords: tuple[int, int] = (1, 2)
+    coord_list: list[int] = list(coords)
+    coord_set: set[int] = set(coords)
 "#,
     );
 
@@ -72,10 +74,11 @@ coord_set: set[int] = set(coords)
 fn python_set_of_tuple_builds_the_declared_set_container() {
     let source = source_for_py(
         r#"
-coords: tuple[float, float] = (1.5, 2.5)
-coord_set: set[float] = set(coords)
-names: tuple[str, str] = ("a", "b")
-name_set: set[str] = set(names)
+def run() -> None:
+    coords: tuple[float, float] = (1.5, 2.5)
+    coord_set: set[float] = set(coords)
+    names: tuple[str, str] = ("a", "b")
+    name_set: set[str] = set(names)
 "#,
     );
 
@@ -163,9 +166,10 @@ fallback: int = mapping.pop("b", 0)
 fn emits_python_dict_get_method() {
     let source = source_for_py(
         r#"
-mapping: dict[str, int] = {"a": 1}
-maybe: int | None = mapping.get("a")
-fallback: int = mapping.get("b", 0)
+def run() -> None:
+    mapping: dict[str, int] = {"a": 1}
+    maybe: int | None = mapping.get("a")
+    fallback: int = mapping.get("b", 0)
 "#,
     );
 
@@ -178,8 +182,9 @@ fallback: int = mapping.get("b", 0)
 fn emits_python_dict_setdefault_method() {
     let source = source_for_py(
         r#"
-mapping: dict[str, int] = {"a": 1}
-value: int = mapping.setdefault("b", 2)
+def run() -> None:
+    mapping: dict[str, int] = {"a": 1}
+    value: int = mapping.setdefault("b", 2)
 "#,
     );
 
@@ -207,8 +212,9 @@ result: None = left.update(right)
 fn emits_python_dict_copy_method() {
     let source = source_for_py(
         r#"
-mapping: dict[str, int] = {"a": 1}
-copied: dict[str, int] = mapping.copy()
+def run() -> None:
+    mapping: dict[str, int] = {"a": 1}
+    copied: dict[str, int] = mapping.copy()
 "#,
     );
 

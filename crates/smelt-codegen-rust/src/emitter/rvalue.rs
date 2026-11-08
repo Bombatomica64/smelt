@@ -203,6 +203,7 @@ impl FunctionEmitter<'_> {
             // A real read: a server must see its environment (`PORT`). The
             // profile's one fixed variable, `TZ`, never reaches here.
             Rvalue::ProcessEnvRead { name } => Ok(RustExpr::loose(format!("::std::env::var({name:?}).ok()"))),
+            Rvalue::ProcessArgv => Ok(self.process_argv_expr()),
             Rvalue::EventEmitterNew => Ok(RustExpr::atom("SmeltEventEmitter::new()")),
             Rvalue::SqliteOpen { path } => self.sqlite_open_expr(path),
             Rvalue::SqliteOp { op, receiver, args } => {

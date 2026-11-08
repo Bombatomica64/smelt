@@ -397,17 +397,20 @@ function run(): boolean { const a = new Box(); const b = new Box(); return a ===
 #[test]
 fn value_class_derives_partial_eq() {
     // A value class with only comparable fields derives structural `PartialEq`
-    // so generated comparisons (`!=`, `assert_eq!`) type-check. The comparison
-    // is the LOOSE `!=`: a strict `!==` is an identity comparison, which lifts
-    // the class to a handle (`classifies_identity_comparison_as_reference`).
+    // so generated structural comparisons (`toEqual`, `assert_eq!`)
+    // type-check. The comparison is the deep `toEqual`: `!=` and `!==` on two
+    // instances both compare identity in JavaScript, which lifts the class to
+    // a handle (`classifies_identity_comparison_as_reference`).
     let source = source_for(
-        r"
+        r#"
+import { test, expect } from "vitest";
+
 class Point {
   x: number;
   constructor(x: number) { this.x = x; }
 }
-function run(): boolean { const p = new Point(1); const q = new Point(2); return p != q; }
-",
+test("points", () => { const p = new Point(1); const q = new Point(1); expect(p).toEqual(q); });
+"#,
     );
     assert!(
         source.contains("#[derive(Clone, Debug, Default, PartialEq)]"),

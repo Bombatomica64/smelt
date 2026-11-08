@@ -1271,11 +1271,24 @@ impl LoweringCtx<'_> {
         &mut self,
         writebacks: super::PlaceWritebacks,
     ) -> Result<(), LowerError> {
-        for (place, local) in writebacks.into_iter().rev() {
-            self.block_mut()?.statements.push(Statement::AssignPlace {
-                place,
-                value: Rvalue::Use(Operand::Copy(Place::Local(local))),
-            });
+        for (target, local) in writebacks.into_iter().rev() {
+            match target {
+                super::WritebackTarget::Place(place) => {
+                    self.block_mut()?.statements.push(Statement::AssignPlace {
+                        place,
+                        value: Rvalue::Use(Operand::Copy(Place::Local(local))),
+                    });
+                }
+                super::WritebackTarget::Global(global) => {
+                    let decl = self
+                        .function
+                        .locals
+                        .get(usize::try_from(local.0).unwrap_or(usize::MAX))
+                        .ok_or_else(|| self.error("a global writeback names an unknown local", None))?;
+                    let (ty, span) = (decl.ty, decl.span);
+                    self.assign_temp(ty, span, Rvalue::GlobalSet { global, value: Operand::Copy(Place::Local(local)) })?;
+                }
+            }
         }
         Ok(())
     }

@@ -192,19 +192,7 @@ impl ModuleBuilder<'_> {
         lhs_ty: smelt_hir::TypeId,
         rhs_ty: smelt_hir::TypeId,
     ) -> smelt_hir::TypeId {
-        if matches!(
-            op,
-            BinOp::Eq
-                | BinOp::NotEq
-                | BinOp::StrictEq
-                | BinOp::StrictNotEq
-                | BinOp::JsStrictEq
-                | BinOp::JsStrictNotEq
-                | BinOp::Lt
-                | BinOp::Lte
-                | BinOp::Gt
-                | BinOp::Gte
-        ) {
+        if op.is_comparison() {
             return self.ctx.krate.types.intern(Type::Bool);
         }
         if op == BinOp::Add && (self.has_static_string_type(lhs_ty) || self.has_static_string_type(rhs_ty)) {

@@ -37,7 +37,7 @@ class Store {
   }
 
   all(): Row[] {
-    return this.db.prepare('SELECT id, title, score, ratio FROM items ORDER BY id').all() as Row[];
+    return this.db.prepare('SELECT id, title, score, ratio FROM items ORDER BY id').all() as unknown as Row[];
   }
 
   bump(): number {

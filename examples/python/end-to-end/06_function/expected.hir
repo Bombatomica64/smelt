@@ -1,20 +1,17 @@
 module examples/python/end-to-end/06_function/input.py (ModuleId(0))
-  body BodyId(1)
+  body BodyId(2)
   items
+    global mut result: Int
     fn add owner Module
-  locals
-    %0 let result: Int
+    fn smelt_global_init$result$0 owner Module
   exprs
-    #0: fn(Int, Int) -> Int = @0(add)
-    #1: Int = 3
-    #2: Int = 4
-    #3: Int = call #0(#1, #2)
-    #4: None = @1(console_log)
-    #5: Int = %0
-    #6: None = call #4(#5)
+    #0: None = global_get @0(result)
+    #1: None = @3(console_log)
+    #2: Int = global_get @0(result)
+    #3: None = call #1(#2)
   stmts
-    s0: let %0: Int = #3
-    s1: #6
+    s0: #0
+    s1: #3
 
 interned types
   t0 = None

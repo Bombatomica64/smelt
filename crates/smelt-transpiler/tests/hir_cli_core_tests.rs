@@ -564,7 +564,7 @@ name = "linked-py"
 version = "0.1.0"
 
 [sources]
-entries = ["src/math.py", "src/main.py"]
+entries = ["src/arith.py", "src/main.py"]
 
 [output]
 target = "./dist"
@@ -576,20 +576,20 @@ clone-strategy = "aggressive"
 "#,
     )?;
     fs::write(
-        project_path.join("src/math.py"),
+        project_path.join("src/arith.py"),
         "def add(a: int, b: int) -> int:\n    return a + b\n",
     )?;
     fs::write(
         project_path.join("src/main.py"),
-        "from math import add\nresult: int = add(2, 3)\nprint(result)\n",
+        "from arith import add\nresult: int = add(2, 3)\nprint(result)\n",
     )?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
     smelt(&["--manifest-path", &manifest_arg, "check"])?;
 
-    let stub = fs::read_to_string(project_path.join("src/math.pyi"))?;
+    let stub = fs::read_to_string(project_path.join("src/arith.pyi"))?;
     let entry_stub = fs::read_to_string(project_path.join("src/main.pyi"))?;
-    let ts_declaration = fs::read_to_string(project_path.join("src/math.d.ts"))?;
+    let ts_declaration = fs::read_to_string(project_path.join("src/arith.d.ts"))?;
     let entry_ts_declaration = fs::read_to_string(project_path.join("src/main.d.ts"))?;
     ensure(
         stub.contains("def add(a: int, b: int) -> int: ..."),
@@ -623,7 +623,7 @@ name = "cross-run-reversed"
 version = "0.1.0"
 
 [sources]
-entries = ["src/main.py", "src/math.ts"]
+entries = ["src/main.py", "src/arith.ts"]
 
 [output]
 target = "./dist"
@@ -635,12 +635,12 @@ clone-strategy = "aggressive"
 "#,
     )?;
     fs::write(
-        project_path.join("src/math.ts"),
+        project_path.join("src/arith.ts"),
         "export function add(a: number, b: number): number {\n  return a + b;\n}\n",
     )?;
     fs::write(
         project_path.join("src/main.py"),
-        "from math import add\nresult: float = add(2.0, 3.0)\nprint(result)\n",
+        "from arith import add\nresult: float = add(2.0, 3.0)\nprint(result)\n",
     )?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
@@ -862,6 +862,11 @@ fn dump_hir_reports_a_dependency_that_fails_to_lower() -> TestResult {
 /// `[project]`, `[rust] edition` and `[rust.dependencies]` reach the generated crate,
 /// and it builds and runs under them. A declared crate replaces what Smelt would
 /// add for that name, so `Cargo.toml` never holds a key twice.
+///
+/// The edition was `2021` here; generated code needs 2024 (let-chains in the
+/// runtime), so 2024 is now the only edition a manifest may name and an older
+/// one is refused when the manifest is read
+/// (`config_parser::tests::only_a_compiling_rust_edition_is_accepted`).
 #[test]
 fn generated_crate_takes_the_manifest_package_edition_and_dependencies() -> TestResult {
     let project = TempProject::new()?;
@@ -883,7 +888,7 @@ target = "./dist"
 build = false
 
 [rust]
-edition = "2021"
+edition = "2024"
 
 [rust.dependencies]
 itoa = "1"
@@ -894,7 +899,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
     let manifest = fs::read_to_string(root.join("dist/Cargo.toml"))?;
     for line in [
         "version = \"1.2.3\"",
-        "edition = \"2021\"",
+        "edition = \"2024\"",
         "itoa = \"1\"",
         "serde_json = { features = [\"preserve_order\"], version = \"1\" }",
     ] {

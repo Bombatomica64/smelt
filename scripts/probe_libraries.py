@@ -149,7 +149,13 @@ def probe_library(smelt_bin, smelt_root, lib, work_dir, fixtures_dir):
     shutil.copy(fixture, os.path.join(lib_dir, "Smelt.toml"))
     manifest = os.path.join(lib_dir, "Smelt.toml")
 
-    build = run([smelt_bin, "build", "--manifest-path", manifest], cwd=smelt_root)
+    # The probe measures how far LOWERING gets for every tracked library,
+    # checked out without its dependencies installed (`node_modules`,
+    # site-packages), so an import of a dev dependency is unresolved for the
+    # checker. Whether a library type-checks is the type gate's question,
+    # measured by the CI regression jobs; here the checker's errors are
+    # reported as warnings and lowering proceeds.
+    build = run([smelt_bin, "build", "--allow-type-errors", "--manifest-path", manifest], cwd=smelt_root)
     build_out = build.stdout + build.stderr
 
     # output.target / output.crate-name from fixture (default dist-smelt)

@@ -14,7 +14,8 @@ use crate::{
 };
 
 /// Embedded, versioned Node specialization guest.
-const NODE_GUEST: &str = include_str!("../guest/node.js");
+#[expect(clippy::redundant_pub_crate, reason = "the cache key hashes the guest; plain pub trips unreachable_pub")]
+pub(crate) const NODE_GUEST: &str = include_str!("../guest/node.js");
 
 /// Monotonic suffix for Node scratch directories.
 static NODE_SCRATCH_SEQUENCE: AtomicU64 = AtomicU64::new(0);

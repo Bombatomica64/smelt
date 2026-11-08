@@ -21,7 +21,9 @@ mod python;
 mod sandbox;
 
 pub use artifact::{ArtifactError, SpecializationArtifact, SpecializationArtifactStore};
-pub use cache_key::{CacheKeyInput, SpecializationCacheKey};
+pub use cache_key::{
+    CacheKeyInput, GuestScriptHash, ProjectRoot, SPECIALIZER_REVISION, SpecializationCacheKey, SpecializerIdentity,
+};
 pub use detection::{DetectionReason, ModuleDetection, ModuleInput, detect_specialization_modules};
 pub use manifest::{
     AdapterRequirement, BindingMode, CallableProvenance, ClassDefinition, ConstructorShape,

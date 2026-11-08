@@ -3,25 +3,14 @@
 use crate::rust::RustExpr;
 use super::*;
 
-/// Whether `op` is one of the six equality operators, in either polarity.
+/// Whether `op` is an equality operator, in either polarity.
 const fn is_equality_op(op: smelt_hir::BinOp) -> bool {
-    matches!(
-        op,
-        smelt_hir::BinOp::Eq
-            | smelt_hir::BinOp::NotEq
-            | smelt_hir::BinOp::StrictEq
-            | smelt_hir::BinOp::StrictNotEq
-            | smelt_hir::BinOp::JsStrictEq
-            | smelt_hir::BinOp::JsStrictNotEq
-    )
+    op.is_equality()
 }
 
 /// Whether `op` is an inequality, whose text is the negation of its equality.
 const fn is_negated_equality(op: smelt_hir::BinOp) -> bool {
-    matches!(
-        op,
-        smelt_hir::BinOp::NotEq | smelt_hir::BinOp::StrictNotEq | smelt_hir::BinOp::JsStrictNotEq
-    )
+    op.is_negated_equality()
 }
 
 impl FunctionEmitter<'_> {
@@ -1174,6 +1163,26 @@ impl FunctionEmitter<'_> {
         }))
     }
 
+    /// JavaScript `==`/`!=` across value kinds ([`smelt_hir::BinOp::JsLooseEq`]):
+    /// both operands erased and compared by the runtime's IsLooselyEqual
+    /// (`smelt_js_loose_eq`), so `2n == 2`, `"1" == 1` and `null == undefined`
+    /// answer as in JavaScript whatever arm a union holds.
+    fn js_loose_equality_expr(
+        &self,
+        op: smelt_hir::BinOp,
+        lhs: &Operand,
+        rhs: &Operand,
+    ) -> Result<Option<RustExpr>, EmitError> {
+        let negated = match op {
+            smelt_hir::BinOp::JsLooseEq => false,
+            smelt_hir::BinOp::JsLooseNotEq => true,
+            _ => return Ok(None),
+        };
+        self.context.note_carrier_use();
+        let call = format!("smelt_js_loose_eq(&{}, &{})", self.erase(lhs)?, self.erase(rhs)?);
+        Ok(Some(if negated { RustExpr::loose(format!("!{call}")) } else { RustExpr::atom(call) }))
+    }
+
     /// Emits equality for structurally compatible values with erased members.
     ///
     /// Test assertions often compare a concrete expected value with a result
@@ -1544,7 +1553,11 @@ impl FunctionEmitter<'_> {
         rhs: &Operand,
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
+        // A bigint against a number has its typed rule, which `==` shares.
         if let Some(text) = self.bigint_binary_expr(op, lhs, rhs, dest_ty)? {
+            return Ok(text);
+        }
+        if let Some(text) = self.js_loose_equality_expr(op, lhs, rhs)? {
             return Ok(text);
         }
         if let Some(text) = self.fixed_int_binary_expr(op, lhs, rhs)? {

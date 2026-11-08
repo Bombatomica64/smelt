@@ -1,10 +1,16 @@
-fn main (FuncId(0)) -> None
-  locals
-    %0 user x: None
-    %1 temp: None
+fn smelt_global_init$x$0 (FuncId(0)) -> None
   bb0:
-    %0 = none
-    %1 = call @console_log(move %0) -> bb1
+    return none
+
+fn main (FuncId(1)) -> None
+  locals
+    %0 temp: None
+    %1 temp: None
+    %2 temp: None
+  bb0:
+    %0 = global_get #0
+    %1 = global_get #0
+    %2 = call @console_log(move %1) -> bb1
   bb1:
     return none
 

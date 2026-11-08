@@ -34,6 +34,7 @@
     reason = "manifest lowering orchestration is intentionally kept in one helper during the active feature phase"
 )]
 
+mod check_program;
 mod clean;
 pub mod cli;
 pub mod cli_parser;
@@ -58,6 +59,7 @@ pub mod stubs;
 mod test_report;
 mod timing;
 mod ts_facts;
+pub mod type_gate;
 #[cfg(feature = "ts7")]
 mod ts7_parity;
 #[cfg(feature = "ts7")]

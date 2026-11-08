@@ -242,7 +242,15 @@ return_ty: none_ty,
 
     /// Intern a source-level identifier name.
     fn intern_name(&mut self, name: &str) -> Symbol {
-        self.ctx.krate.symbols.intern(name)
+        // A verbatim symbol is what Python always interned, and what the
+        // TypeScript frontend interns a TYPE name as (`class Point`), so it
+        // wins. Otherwise the name is shared with TypeScript: a TS class's
+        // `labelText` field is the symbol TypeScript interned, and a Python
+        // `labelText` is the one TypeScript reuses (see `intern_shared`).
+        let symbols = &mut self.ctx.krate.symbols;
+        symbols
+            .lookup_rendered(name, name)
+            .unwrap_or_else(|| symbols.intern_shared(name, name))
     }
 
     /// Intern a name this lowering mints itself (`__smelt_super`,

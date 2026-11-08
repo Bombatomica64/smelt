@@ -128,6 +128,12 @@ pub struct Module {
     pub imports: Vec<Import>,
     /// Item IDs defined in this module.
     pub items: Vec<ItemId>,
+    /// Items of other modules this module exports under a name of its own
+    /// (`export { twice } from "./impl"`, a Python package's
+    /// `from .impl import twice`), in source order: the module's public
+    /// surface beyond [`Self::items`], which a declaration stub of it lists.
+    #[serde(default)]
+    pub reexports: Vec<(Symbol, ItemId)>,
     /// Optional module-level body.
     pub body: Option<BodyId>,
     /// Whether the module body needs the async runtime.
@@ -151,6 +157,7 @@ impl Module {
             is_async: false,
             imports: Vec::new(),
             items: Vec::new(),
+            reexports: Vec::new(),
             body: None,
         }
     }

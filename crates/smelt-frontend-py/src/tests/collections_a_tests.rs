@@ -53,15 +53,9 @@ text: str = json.dumps(values)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::JsonStringify { .. })),
         "expected json.dumps lowering",
     )
@@ -77,15 +71,9 @@ values: list[int] = json.loads(text)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::JsonParse { .. })),
         "expected json.loads lowering",
     )
@@ -104,12 +92,7 @@ full: bool = re.fullmatch(pattern, text)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
 
     for expected in [
         RegexMatchOp::Search,
@@ -117,7 +100,7 @@ full: bool = re.fullmatch(pattern, text)
         RegexMatchOp::FullMatch,
     ] {
         ensure(
-            body.exprs.iter().any(
+            code.exprs().any(
                 |expr| matches!(expr.kind, ExprKind::RegexIsMatch { op, .. } if op == expected),
             ),
             "expected re module regex lowering",
@@ -224,14 +207,9 @@ letters: int = len(word)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body_id = module
-        .body
-        .ok_or_else(|| "expected module body".to_owned())?;
-    let body = body(&ctx, body_id)?;
+    let code = module_code(&ctx, module)?;
 
-    let len_count = body
-        .exprs
-        .iter()
+    let len_count = code.exprs()
         .filter(|expr| matches!(expr.kind, ExprKind::Len { .. }))
         .count();
     ensure_eq(&len_count, &2, "len call count")?;
@@ -247,14 +225,10 @@ positive: int = abs(value)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body_id = module
-        .body
-        .ok_or_else(|| "expected module body".to_owned())?;
-    let body = body(&ctx, body_id)?;
+    let code = module_code(&ctx, module)?;
 
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::NumericAbs { .. })),
         "expected abs() lowering",
     )?;
@@ -271,13 +245,10 @@ upper: str = word.upper()
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body_id = module
-        .body
-        .ok_or_else(|| "expected module body".to_owned())?;
-    let body = body(&ctx, body_id)?;
+    let code = module_code(&ctx, module)?;
 
     ensure(
-        body.exprs.iter().any(|expr| {
+        code.exprs().any(|expr| {
             matches!(
                 expr.kind,
                 ExprKind::StringCase {
@@ -289,7 +260,7 @@ upper: str = word.upper()
         "expected lower() lowering",
     )?;
     ensure(
-        body.exprs.iter().any(|expr| {
+        code.exprs().any(|expr| {
             matches!(
                 expr.kind,
                 ExprKind::StringCase {
@@ -314,10 +285,7 @@ right: str = word.rstrip()
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body_id = module
-        .body
-        .ok_or_else(|| "expected module body".to_owned())?;
-    let body = body(&ctx, body_id)?;
+    let code = module_code(&ctx, module)?;
 
     for expected in [
         StringTrimSide::Both,
@@ -325,7 +293,7 @@ right: str = word.rstrip()
         StringTrimSide::End,
     ] {
         ensure(
-            body.exprs.iter().any(
+            code.exprs().any(
                 |expr| matches!(expr.kind, ExprKind::StringTrim { side, .. } if side == expected),
             ),
             "expected string trim side lowering",
@@ -344,16 +312,11 @@ ends: bool = word.endswith("lt")
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
 
     for expected in [StringAffixOp::StartsWith, StringAffixOp::EndsWith] {
         ensure(
-            body.exprs.iter().any(
+            code.exprs().any(
                 |expr| matches!(expr.kind, ExprKind::StringAffix { op, .. } if op == expected),
             ),
             "expected string affix lowering",
@@ -372,16 +335,11 @@ last: int = word.rfind("t")
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
 
     for expected in [StringSearchOp::Find, StringSearchOp::RFind] {
         ensure(
-            body.exprs.iter().any(
+            code.exprs().any(
                 |expr| matches!(expr.kind, ExprKind::StringSearch { op, .. } if op == expected),
             ),
             "expected string search lowering",
@@ -407,21 +365,12 @@ last_text: str = word[-3:]
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
 
-    let list_slices = body
-        .exprs
-        .iter()
+    let list_slices = code.exprs()
         .filter(|expr| matches!(expr.kind, ExprKind::ListSlice { .. }))
         .count();
-    let string_slices = body
-        .exprs
-        .iter()
+    let string_slices = code.exprs()
         .filter(|expr| matches!(expr.kind, ExprKind::StringSlice { .. }))
         .count();
     ensure_eq(&list_slices, &4, "list slice count")?;
@@ -438,16 +387,10 @@ result: None = values.append(3)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
 
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::ListPush { .. })),
         "expected list append lowering",
     )
@@ -463,15 +406,9 @@ result: None = left.extend(right)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::ListExtend { .. })),
         "expected list extend lowering",
     )
@@ -486,15 +423,9 @@ result: None = values.insert(1, 0)
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::ListInsert { .. })),
         "expected list insert lowering",
     )
@@ -509,15 +440,9 @@ result: None = values.reverse()
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        body.exprs
-            .iter()
+        code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::ListReverse { .. })),
         "expected list reverse lowering",
     )
@@ -590,14 +515,9 @@ negated: list[int] = list(map(lambda value: -value, values))
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        body.exprs.iter().any(|expr| {
+        code.exprs().any(|expr| {
             matches!(
                 &expr.kind,
                 ExprKind::ListCallback {
@@ -619,14 +539,9 @@ clamped: list[int] = list(map(lambda value: value if value > 0 else 0, values))
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    let body = body(
-        &ctx,
-        module
-            .body
-            .ok_or_else(|| "expected module body".to_owned())?,
-    )?;
+    let code = module_code(&ctx, module)?;
     ensure(
-        body.exprs.iter().any(|expr| {
+        code.exprs().any(|expr| {
             matches!(
                 &expr.kind,
                 ExprKind::ListCallback {

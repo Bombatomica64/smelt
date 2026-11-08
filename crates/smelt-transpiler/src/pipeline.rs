@@ -9,6 +9,7 @@ use std::{
 
 use smelt_hir::format_compact;
 
+use crate::type_gate::TypeErrorPolicy;
 use crate::{
     config::{Allocator, Config, OutputKind, ReleaseProfile},
     erasure, lowering, typedness_report,
@@ -59,13 +60,15 @@ pub(crate) fn lower_to_optimized_mir(
 }
 
 /// Builds a Rust crate from manifest configuration, with the manifest's own
-/// `[erasure]` settings (no CLI overrides).
+/// `[erasure]` settings (no CLI overrides) and `type_errors` deciding the
+/// type gate.
 pub(crate) fn build_rust_crate(
     config: &Config,
     manifest_path: &Path,
+    type_errors: TypeErrorPolicy,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let settings = erasure::ErasureSettings::new(config.erasure(), &[])?;
-    build_rust_crate_with_erasure(config, manifest_path, &settings)
+    build_rust_crate_with_erasure(config, manifest_path, &settings, type_errors)
 }
 
 /// Builds a Rust crate from manifest configuration.
@@ -75,6 +78,10 @@ pub(crate) fn build_rust_crate(
 /// typedness sidecar, and prints the erasures `settings` marks `warn`/`deny`;
 /// any `deny` fails the build after the output is written.
 ///
+/// The type checkers run first: under [`TypeErrorPolicy::Deny`] a checker
+/// error (or a language no checker could vouch for) fails the build before
+/// anything is lowered or written (see `crate::type_gate`).
+///
 /// Every fallible analysis runs before the output directory is touched, so a
 /// failure leaves the previous output as it was; once the crate is emitted,
 /// only the sidecar writes themselves can fail, and the crate and both
@@ -83,10 +90,15 @@ pub(crate) fn build_rust_crate_with_erasure(
     config: &Config,
     manifest_path: &Path,
     settings: &erasure::ErasureSettings,
+    type_errors: TypeErrorPolicy,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (krate, modules) = timing::measure("manifest.lower", || {
-        lowering::ManifestLowering::for_manifest(config, manifest_path)?.lower()
+    let lowered = timing::measure("manifest.lower", || -> Result<_, Box<dyn std::error::Error>> {
+        lowering::ManifestLowering::for_manifest(config, manifest_path)?
+            .check()?
+            .into_inner(type_errors)?
+            .lower()
     })?;
+    let lowering::LoweredCrate { krate, modules, sources } = lowered;
     timing::measure("stubs.emit", || {
         stubs::emit_type_declarations(&krate, &modules)
     })?;
@@ -116,7 +128,7 @@ pub(crate) fn build_rust_crate_with_erasure(
                 .with_dependencies(config.rust_dependencies()),
         )
     })?;
-    let erasures = erasure::resolve(&krate, &backend_erasures, manifest_dir, settings);
+    let erasures = erasure::resolve(&krate, &sources, &backend_erasures, manifest_dir, settings);
     erasure::write_sidecar(&output_dir, &erasures)?;
     typedness_report::write_report_if_changed(
         &output_dir.join(typedness_report::SIDECAR_FILE_NAME),
@@ -136,30 +148,30 @@ pub(crate) fn build_rust_crate_with_erasure(
 
 /// Checks manifest entries and emits declaration stubs without Rust generation.
 ///
-/// Prints the TypeScript checker's report and the frontend erasures `settings`
+/// Prints the type checkers' report and the frontend erasures `settings`
 /// marks `warn`/`deny` (the backend's erasures are only known to `build`). Any
-/// `deny` fails the check, and so does a checker error with `deny_type_errors`.
+/// `deny` fails the check, and so does a checker error under `type_errors`
+/// [`TypeErrorPolicy::Deny`] (`--deny-type-errors`).
 pub(crate) fn check_manifest(
     config: &Config,
     manifest_path: &Path,
     settings: &erasure::ErasureSettings,
-    deny_type_errors: bool,
+    type_errors: TypeErrorPolicy,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let ((krate, modules), type_check) = timing::measure("manifest.lower", || {
-        lowering::ManifestLowering::for_manifest(config, manifest_path)?.lower_checked()
+    let lowered = timing::measure("manifest.lower", || -> Result<_, Box<dyn std::error::Error>> {
+        lowering::ManifestLowering::for_manifest(config, manifest_path)?
+            .check()?
+            .into_inner(type_errors)?
+            .lower()
     })?;
     timing::measure("stubs.emit", || {
-        stubs::emit_type_declarations(&krate, &modules)
+        stubs::emit_type_declarations(&lowered.krate, &lowered.modules)
     })?;
     let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
-    let erasures = erasure::resolve(&krate, &[], manifest_dir, settings);
+    let erasures = erasure::resolve(&lowered.krate, &lowered.sources, &[], manifest_dir, settings);
     let denied = erasure::print_diagnostics(&erasures);
-    crate::ts_facts::print_diagnostics(&type_check, deny_type_errors);
     if denied > 0 {
         return Err(erasure::denied_error(denied));
-    }
-    if deny_type_errors {
-        crate::ts_facts::fail_on_type_errors(&type_check)?;
     }
     Ok(())
 }
@@ -168,7 +180,7 @@ pub(crate) fn check_manifest(
 fn generated_package(config: &Config) -> smelt_codegen_rust::PackageMetadata {
     let mut package = smelt_codegen_rust::PackageMetadata::default();
     config.project_version().clone_into(&mut package.version);
-    config.rust_edition().clone_into(&mut package.edition);
+    package.edition = config.rust_edition().codegen();
     package.description = config
         .project_description()
         .map(|text| toml::Value::String(text.to_owned()).to_string());

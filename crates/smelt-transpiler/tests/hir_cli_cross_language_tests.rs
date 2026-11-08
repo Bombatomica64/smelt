@@ -22,7 +22,7 @@ name = "cross-run"
 version = "0.1.0"
 
 [sources]
-entries = ["src/math.ts", "src/main.py"]
+entries = ["src/arith.ts", "src/main.py"]
 
 [output]
 target = "./dist"
@@ -34,12 +34,12 @@ clone-strategy = "aggressive"
 "#,
     )?;
     fs::write(
-        project_path.join("src/math.ts"),
+        project_path.join("src/arith.ts"),
         "export function add(a: number, b: number): number {\n  return a + b;\n}\n",
     )?;
     fs::write(
         project_path.join("src/main.py"),
-        "from math import add\nresult: float = add(2.0, 3.0)\nprint(result)\n",
+        "from arith import add\nresult: float = add(2.0, 3.0)\nprint(result)\n",
     )?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;

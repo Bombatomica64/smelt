@@ -12,8 +12,42 @@ impl ModuleBuilder<'_> {
         self.expression_with_hint(expr, body, None)
     }
 
-    /// Lower an expression with an optional expected type hint.
+    /// Lower an expression with an optional expected type hint, in Python's
+    /// view: a value carrying TypeScript text (it comes from a TypeScript
+    /// module) is converted to Python's ([`Self::in_own_language_view`]).
     fn expression_with_hint(
+        &mut self,
+        expr: &Expr,
+        body: &mut Body,
+        type_hint: Option<TypeId>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let lowered = self.expression_shape_with_hint(expr, body, type_hint)?;
+        Ok(self.in_own_language_view(lowered, body))
+    }
+
+    /// A value whose type carries TypeScript text (a call result, a field or
+    /// a constant of a TypeScript module) as Python sees it: a `TypeAssert` to
+    /// the Python view, which the backend converts. A function value is left
+    /// alone; its calls convert their own arguments and results. See
+    /// `smelt_hir::language_view`.
+    pub(crate) fn in_own_language_view(&mut self, value: smelt_hir::ExprId, body: &mut Body) -> smelt_hir::ExprId {
+        let ty = Self::expr_ty(body, value);
+        let language = smelt_hir::language_view::SourceLanguage::Python;
+        if matches!(self.ctx.krate.types.get(ty), Some(Type::Function(_)))
+            || !smelt_hir::language_view::crosses_into(&self.ctx.krate.types, ty, language)
+        {
+            return value;
+        }
+        let span = body
+            .exprs
+            .get(usize::try_from(value.0).unwrap_or(usize::MAX))
+            .map_or_else(|| Span::new(self.file_id, 0, 0), |expr| expr.span);
+        let viewed = smelt_hir::language_view::view_in(&mut self.ctx.krate.types, ty, language);
+        body.push_expr(HirExpr { kind: ExprKind::TypeAssert { value }, ty: viewed, span })
+    }
+
+    /// Lower one expression; see [`Self::expression_with_hint`].
+    fn expression_shape_with_hint(
         &mut self,
         expr: &Expr,
         body: &mut Body,
@@ -520,6 +554,32 @@ impl ModuleBuilder<'_> {
         Ok(acc)
     }
 
+    /// `str * int` or `int * str`: Python's sequence repetition, not arithmetic.
+    ///
+    /// The string operand keeps its own type (a `str` stays `PyStr`), and a
+    /// count of zero or less yields the empty string, as `CPython` does; the
+    /// emitter clamps an integer count at zero for that. `None` for any other
+    /// operand pair, which stays a numeric multiplication.
+    fn sequence_repeat(
+        operand_kinds: &(Option<Type>, Option<Type>),
+        lhs: smelt_hir::ExprId,
+        rhs: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let (operand, count) = match operand_kinds {
+            (Some(Type::String | Type::PyStr), Some(Type::Int)) => (lhs, rhs),
+            (Some(Type::Int), Some(Type::String | Type::PyStr)) => (rhs, lhs),
+            _ => return None,
+        };
+        let ty = Self::expr_ty(body, operand);
+        Some(body.push_expr(HirExpr {
+            kind: ExprKind::StringRepeat { operand, count },
+            ty,
+            span,
+        }))
+    }
+
     /// Lower a Python conditional expression (`then if cond else else_`).
     fn if_expression(
         &mut self,
@@ -613,6 +673,11 @@ impl ModuleBuilder<'_> {
         } else {
             (lhs, rhs)
         };
+        if op == PythonArithmetic::Plain(BinOp::Mul)
+            && let Some(repeat) = Self::sequence_repeat(&operand_kinds, lhs, rhs, span, body)
+        {
+            return Ok(repeat);
+        }
         let lhs_ty = Self::expr_ty(body, lhs);
         match op {
             PythonArithmetic::Plain(op) => {

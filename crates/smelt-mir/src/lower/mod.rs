@@ -141,7 +141,19 @@ type LoweredMutationReceiver = (Operand, MutationWriteback);
 /// that is itself still live.
 ///
 /// See `blocker-logs/hono-h31-projected-receiver-writeback.md`.
-type PlaceWritebacks = Vec<(Place, LocalId)>;
+type PlaceWritebacks = Vec<(WritebackTarget, LocalId)>;
+
+/// Where a receiver copy commits back to once the write through it is done.
+#[derive(Debug, Clone)]
+enum WritebackTarget {
+    /// The place the copy was read from.
+    Place(Place),
+    /// A whole module-level mutable global (by MIR global index): the copy is
+    /// stored back into its cell (`Rvalue::GlobalSet`). A write through a
+    /// global whose cell cannot be written in place (anything but a map, see
+    /// `LoweringCtx::lower_place`) goes through a copy and commits it here.
+    Global(u32),
+}
 
 /// A lowered assignment target: the place to write, and the receiver copies that
 /// write must commit back afterwards.

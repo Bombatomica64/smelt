@@ -1,11 +1,11 @@
 fn main (FuncId(0)) -> None
   locals
-    %0 user status: Int
+    %0 temp: Int
     %1 temp: None
     %2 temp: None
     %3 temp: None
   bb0:
-    %0 = 2
+    %0 = global_get #0
     match move %0 {1 => bb1, 2 => bb2, _ => bb3}
   bb1:
     %1 = call @console_log(100) -> bb5

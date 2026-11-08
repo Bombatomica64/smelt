@@ -7,16 +7,23 @@ fn add (FuncId(0)) -> Int
     %2 = copy %0 + copy %1
     return move %2
 
-fn main (FuncId(1)) -> None
+fn smelt_global_init$result$0 (FuncId(1)) -> Int
   locals
-    %0 user result: Int
+    %0 temp: Int
+  bb0:
+    %0 = call fn0(3, 4) -> bb1
+  bb1:
+    return move %0
+
+fn main (FuncId(2)) -> None
+  locals
+    %0 temp: None
     %1 temp: Int
     %2 temp: None
   bb0:
-    %1 = call fn0(3, 4) -> bb1
+    %0 = global_get #0
+    %1 = global_get #0
+    %2 = call @console_log(move %1) -> bb1
   bb1:
-    %0 = move %1
-    %2 = call @console_log(move %0) -> bb2
-  bb2:
     return none
 

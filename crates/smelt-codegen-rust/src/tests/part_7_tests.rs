@@ -4682,12 +4682,20 @@ fn emits_nan_equal_leaves_for_a_nested_float_comparison() {
     // does not, and `SmeltList<f64> == SmeltList<f64>` inherits that — so
     // `expect([NaN, 1]).toEqual([NaN, 1])` failed with the right value on both
     // sides. The scalar case already had this rule; this is the nested one.
+    //
+    // The comparison is `toEqual`, the deep equality: `left == right` used to
+    // stand in for it, but JavaScript's `==` on two arrays compares identity
+    // (`[1] == [1]` is `false`), and now lowers as such.
     let source = source_for(
-        r"
-export function listsEqual(left: number[], right: number[]): boolean {
-  return left == right;
-}
-",
+        r#"
+import { test, expect } from "vitest";
+
+test("nested NaN", () => {
+  const left: number[] = [NaN, 1];
+  const right: number[] = [NaN, 1];
+  expect(left).toEqual(right);
+});
+"#,
     );
     assert!(
         source.contains("left_item.is_nan() && right_item.is_nan()"),

@@ -539,6 +539,11 @@ impl ModuleBuilder<'_> {
     /// Lower a bare name in annotation position (e.g. `int`, `str`, `MyClass`).
     fn name_annotation(&mut self, name: &str, range: TextRange) -> Result<TypeId, SmeltError> {
         let span = self.span(range);
+        // A type parameter of the function being lowered.
+        if self.function_type_params.iter().any(|param| param == name) {
+            let symbol = self.intern_name(name);
+            return Ok(self.intern_type(Type::TypeParam { name: symbol }));
+        }
         // A module-level type alias resolves to the type it names.
         if let Some(alias) = self.type_aliases.get(name) {
             return Ok(alias.ty);

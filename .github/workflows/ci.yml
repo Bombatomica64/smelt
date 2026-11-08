@@ -504,6 +504,15 @@ jobs:
         with:
           name: remeda
 
+      # Remeda's types import `type-fest` (a type-only dependency): without it
+      # every such import is unresolved and its uses cascade into ~280
+      # checker errors. With the lockfile's dependencies installed the
+      # checker sees what the library's own `tsc` sees and Remeda type-checks,
+      # so the build runs under the default type gate.
+      - name: Install Remeda's locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: target/compat-repos/remeda
+
       - name: Transpile Remeda to Rust
         run: target/debug/smelt --manifest-path target/compat-repos/remeda/Smelt.toml build
 
@@ -604,8 +613,13 @@ jobs:
           sed -i "/import { assert } from 'chai'/a import { describe, test } from 'vitest'" "$test_file"
           test "$(grep -Fc "import { describe, test } from 'vitest'" "$test_file")" -eq 1
 
+      # The opt-out is for one genuine type error in Radash itself:
+      # `src/async.ts:313` (TS2322, a `Promise<any>` returned where the
+      # conditional return type is expected; `tsc` 5.9.3 and TypeScript 7
+      # report it too). The tests' `chai` import, not installed here, is an
+      # untyped module to the checker (as to lowering) and adds no error.
       - name: Transpile Radash to Rust
-        run: target/debug/smelt --manifest-path target/compat-repos/radash/Smelt.toml build
+        run: target/debug/smelt --manifest-path target/compat-repos/radash/Smelt.toml build --allow-type-errors
 
       - name: Compile and run generated Radash tests (regression gate)
         run: |
@@ -653,8 +667,12 @@ jobs:
         with:
           name: ts-pattern
 
+      # The opt-out is for one type error TypeScript 7 reports in ts-pattern's
+      # own tests: `tests/distribute-unions.test.ts:240` (TS2344, a type-level
+      # `Expect<Equal<...>>` that is `false`); `tsgo` 7.0 reports it, `tsc`
+      # 5.9 does not, and Smelt checks with TypeScript 7's checker.
       - name: Transpile ts-pattern (a refused corpus fails here)
-        run: target/debug/smelt --manifest-path target/compat-repos/ts-pattern/Smelt.toml build
+        run: target/debug/smelt --manifest-path target/compat-repos/ts-pattern/Smelt.toml build --allow-type-errors
 
   hono:
     # Opt-in on PRs via the `run-regressions` label; always on for main pushes.
@@ -768,10 +786,15 @@ jobs:
       # G1: probe how far es-toolkit transpiles and gate the blocker count.
       # `smelt probe` runs the whole-crate build itself, so dist-smelt exists
       # afterwards for the compile gates and rust-diagnostics below.
+      # The opt-out is for one type error TypeScript 7 reports in es-toolkit's
+      # tests: `src/function/partial.spec.ts:104` (TS2554, overload
+      # resolution of `partial(curried, placeholder, ...)`; `tsgo` 7.0 reports
+      # it, `tsc` 5.9 does not). The `fast-check` dev dependency, not
+      # installed here, is an untyped module to the checker and adds none.
       - name: Probe es-toolkit (JSON report)
         run: |
           target/debug/smelt --manifest-path target/compat-repos/es-toolkit/Smelt.toml \
-            probe --format json --output probe.json
+            probe --allow-type-errors --format json --output probe.json
           cat probe.json
 
       - name: Probe blocker gate (blockers <= baseline)

@@ -871,6 +871,7 @@ fn marker_defines_authoritative_prelude_boundary() {
 #[test]
 fn markdown_flags_avoidable_regression() {
     let baseline = UnknownReport {
+        version: SchemaVersion::CURRENT,
         files_scanned: 1,
         total: 2,
         category_totals: BTreeMap::from([(
@@ -881,6 +882,7 @@ fn markdown_flags_avoidable_regression() {
         erasure: None,
     };
     let current = UnknownReport {
+        version: SchemaVersion::CURRENT,
         files_scanned: 1,
         total: 5,
         category_totals: BTreeMap::from([(
@@ -900,6 +902,7 @@ fn markdown_flags_avoidable_regression() {
 #[test]
 fn markdown_reports_no_regression_when_flat() {
     let baseline = UnknownReport {
+        version: SchemaVersion::CURRENT,
         files_scanned: 1,
         total: 4,
         category_totals: BTreeMap::from([(
@@ -919,6 +922,7 @@ fn markdown_reports_no_regression_when_flat() {
 fn fixture_scan(avoidable: usize, avoidable_by_file: &[(&str, usize)]) -> ScanResult {
     ScanResult {
         report: UnknownReport {
+            version: SchemaVersion::CURRENT,
             files_scanned: avoidable_by_file.len(),
             total: avoidable,
             category_totals: BTreeMap::from([(
@@ -938,6 +942,7 @@ fn fixture_scan(avoidable: usize, avoidable_by_file: &[(&str, usize)]) -> ScanRe
 /// A fabricated baseline report carrying just an avoidable total.
 fn fixture_baseline(avoidable: usize) -> UnknownReport {
     UnknownReport {
+        version: SchemaVersion::CURRENT,
         files_scanned: 1,
         total: avoidable,
         category_totals: BTreeMap::from([(

@@ -77,6 +77,24 @@
     reason = "range conversion indexes validated source offsets from Ruff spans"
 )]
 pub use ruff_python_ast as ast;
+/// Whether an absolute `import module` names a standard-library module no
+/// local file can shadow: a module built into the interpreter (`math`,
+/// `sys`, …) or `types`.
+///
+/// `CPython` imports these from the interpreter whatever is on `sys.path`, and
+/// ty resolves them the same way, so Smelt's import resolution must not turn
+/// such an import into one of the project's files. The rule and the version
+/// it is decided for are ty's (`ty_module_resolver`), so the two agree.
+#[must_use]
+pub fn is_unshadowable_module(module: &str) -> bool {
+    let top = module.split('.').next().unwrap_or(module);
+    let minor = ruff_python_ast::PythonVersion::default().minor;
+    top == "types" || ruff_python_stdlib::sys::is_builtin_module(minor, top)
+}
+
+/// Whole-program checking with ty, for the build's type gate.
+#[cfg(feature = "ty")]
+pub use smelt_py_types::{CheckDiagnostic, CheckSeverity, CheckSource, check_sources};
 
 use std::path::Path;
 

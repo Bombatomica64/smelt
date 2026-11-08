@@ -10,6 +10,28 @@ Smelt lowers source through four stages, each behind a small interface:
 
 `frontend (TS/Python) → HIR → MIR → codegen-rust (Rust text)`
 
+- **Type gate** — the checkers (TypeScript 7, ty) run over every source before
+  anything lowers, and a lowering's result is held in `Checked<T>` until its
+  caller decides what their errors mean (`TypeErrorPolicy`): `smelt build`
+  denies by default, `--allow-type-errors` / `[build] type-errors = "allow"`
+  opts out (`crates/smelt-transpiler/src/type_gate.rs`).
+- **Checker program** — what the checkers see is built from the same resolved
+  module graph lowering uses (`ModuleGraph`, `crates/smelt-transpiler/src/check_program.rs`):
+  every source Smelt resolved (local files, `[packages]`, typed versions laid
+  in memory), each bare specifier mapped to the file Smelt chose, the vendored
+  `@types/node`, in-memory stubs for modules of the other language (a `.d.ts`
+  of a Python module, a `.pyi` of a TypeScript one), and, in a test file, the
+  test API Smelt models as globals. An import the checker cannot resolve but
+  Smelt did is `smelt::checker-resolution-drift`, a Smelt bug.
+- **Cross-language seam** — TypeScript and Python modules import each other;
+  a name is one HIR symbol whichever frontend interned it first
+  (`SymbolInterner::intern_shared`), text crossing the seam converts between
+  JavaScript's UTF-16 `String` and Python's `PyStr` (`smelt_hir::language_view`),
+  and the matrix in `crates/smelt-transpiler/tests/cross_language_matrix_tests.rs`
+  checks both directions against Node and CPython.
+- **Source trust** — whether the checker accepted a file (`SourceTrust::Checked`)
+  or not (`Unchecked`); frontend shortcuts that rely on a checked program refuse
+  an unchecked source with `smelt::ill-typed-source` instead of miscompiling it.
 - **Specialization** — build-time partial evaluation of definition-time
   metaprogramming by a sandboxed host runtime before frontend lowering.
 - **Specialization artifact** — cache-addressed, versioned manifest carrying

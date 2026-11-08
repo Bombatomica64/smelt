@@ -96,6 +96,19 @@ pub(crate) struct ModuleBuilder<'ctx> {
     items: HashMap<String, ItemId>,
     /// Names exported by the module currently being lowered.
     exports: HashMap<String, ItemId>,
+    /// The type parameters of the function whose signature and body are being
+    /// lowered (its PEP 695 `[T]`, and the module `TypeVar`s its annotations
+    /// name): inside it, such a name is a [`Type::TypeParam`].
+    function_type_params: Vec<String>,
+    /// The type-parameter solution of the last generic call whose arguments
+    /// were lowered (see `callable_call_args`), for its result type.
+    last_call_substitutions: HashMap<String, TypeId>,
+    /// Top-level bindings lowered as module globals, by name; see
+    /// `lowering/module_variables.rs`.
+    module_variables: HashMap<String, ModuleVariable>,
+    /// Items synthesized while lowering the module body (global
+    /// initializers), added to the module when it is done.
+    pending_module_items: Vec<ItemId>,
     /// Integer enum members keyed by class name, then member name.
     enum_members: HashMap<String, HashMap<String, i64>>,
     /// Instance-method items keyed by class name, then method name.
@@ -183,6 +196,9 @@ struct FnScope {
     kind: FnKind,
     /// Call-packing metadata of callable locals, by name.
     local_callbacks: HashMap<String, LocalCallback>,
+    /// Module variables this function declared `global`: its writes of them
+    /// store the module globals.
+    globals: HashSet<String>,
 }
 
 /// How a call site packs its arguments for a callable local: what a `Callable`
@@ -198,7 +214,7 @@ struct LocalCallback {
 }
 
 /// What a Python arithmetic operator lowers to.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PythonArithmetic {
     /// An operator whose meaning a plain HIR binary op already has.
     Plain(BinOp),
@@ -247,6 +263,10 @@ struct CallableCallSignature<'a> {
     defaults: &'a [Option<smelt_hir::ExprId>],
     /// Diagnostic label for this kind of callable.
     label: &'a str,
+    /// The callee's own type parameters, by name, which each call solves
+    /// from its arguments (`first([1])` binds `T` to `int`); empty when the
+    /// callee is not generic.
+    type_params: &'a [String],
 }
 
 /// A closure expression prepared for a callback-consuming Python API.
@@ -333,6 +353,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
             scope: FnScope::default(),
             items,
             exports: HashMap::new(),
+            module_variables: HashMap::new(),
+            last_call_substitutions: HashMap::new(),
+            function_type_params: Vec::new(),
+            pending_module_items: Vec::new(),
             enum_members,
             class_methods,
             class_static_methods,
@@ -409,6 +433,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         // care of (successfully or not) is recorded, and pass 2 skips exactly
         // those: a second predicate re-deciding "was this declared?" against
         // the *final* item table could disagree with what pass 1 actually did.
+        // Pass 0 — module variables, so functions lowered in pass 1 read and
+        // write them as module globals.
+        self.declare_module_variables(module, &mut hir_module);
         let mut declared = vec![false; module.body.len()];
         for (slot, stmt) in declared.iter_mut().zip(&module.body) {
             *slot = self.declare_module_stmt(stmt, module, &mut hir_module, &mut errors);
@@ -434,6 +461,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if !errors.is_empty() {
             return Err(errors);
         }
+        hir_module.items.append(&mut self.pending_module_items);
 
         if self.module_awaits {
             hir_module.is_async = true;
@@ -518,6 +546,10 @@ impl ModuleBuilder<'_> {
 
 // Module/import lowering helpers.
 include!("lowering/module_imports.rs");
+// Top-level bindings as module globals.
+include!("lowering/module_variables.rs");
+// Default parameter values, applied by the callee.
+include!("lowering/default_params.rs");
 // Host-runtime specialization manifest consumption.
 include!("lowering/specialization.rs");
 // Class lowering helpers.

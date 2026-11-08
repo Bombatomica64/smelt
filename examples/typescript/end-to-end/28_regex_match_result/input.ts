@@ -11,7 +11,7 @@ const pattern = /(?<letter>[a-z])(\d)?/g;
 const matches = "a1 b c3".matchAll(pattern);
 for (const found of matches) {
   const whole = found[0];
-  const letter = found.groups.letter;
+  const letter = found.groups!.letter;
   const digit = found[2];
   console.log(whole);
   console.log(letter);
@@ -28,7 +28,7 @@ const single = /(?<year>\d{4})-(\d{2})/;
 const found = single.exec("2024-07");
 if (found !== null) {
   console.log(found[0]);
-  console.log(found.groups.year);
+  console.log(found.groups!.year);
   console.log(found[1]);
   console.log(found[2]);
   console.log(found.index);

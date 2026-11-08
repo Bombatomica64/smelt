@@ -33,13 +33,15 @@
 
 mod convert;
 mod diagnostics;
+mod layered_fs;
+mod node_types;
 mod project;
 mod walk;
 
 use std::collections::HashMap;
 use std::fmt;
 
-pub use project::SourceInput;
+pub use project::{CheckProgram, SourceInput, declares_module};
 pub use smelt_ts_model::{
     FileTypes, SpanKey, TsDiagnostic, TsDiagnosticCategory, TsType, TsTypeFacts, TsTypeId, TsTypeKind, TsTypeTable,
     model,
@@ -110,18 +112,30 @@ pub fn analyze(inputs: Vec<SourceInput>) -> Result<TsTypeFacts, TsTypesError> {
 ///
 /// As [`analyze`].
 pub fn analyze_with(inputs: Vec<SourceInput>, spellings: Spellings) -> Result<TsTypeFacts, TsTypesError> {
+    analyze_program(CheckProgram::of_sources(inputs), spellings)
+}
+
+/// [`analyze_with`] over a whole [`CheckProgram`]: its declarations are in
+/// the program and its bare specifiers resolve through its `module_paths`;
+/// facts are collected for its sources only.
+///
+/// # Errors
+///
+/// As [`analyze`].
+pub fn analyze_program(program: CheckProgram, spellings: Spellings) -> Result<TsTypeFacts, TsTypesError> {
     std::thread::Builder::new()
         .name("smelt-tsrs".to_owned())
         .stack_size(CHECKER_STACK_BYTES)
-        .spawn(move || analyze_on_checker_thread(&inputs, spellings))
+        .spawn(move || analyze_on_checker_thread(&program, spellings))
         .map_err(|error| TsTypesError::Checker(error.to_string()))?
         .join()
         .map_err(|panic| TsTypesError::Checker(panic_message(panic.as_ref())))?
 }
 
 /// Builds, checks and walks the program; runs on the checker thread.
-fn analyze_on_checker_thread(inputs: &[SourceInput], spellings: Spellings) -> Result<TsTypeFacts, TsTypesError> {
-    let program = project::build_program(inputs)?;
+fn analyze_on_checker_thread(check: &CheckProgram, spellings: Spellings) -> Result<TsTypeFacts, TsTypesError> {
+    let inputs = &check.sources;
+    let program = project::build_program(check)?;
     let ctx = tsrs_compiler::Context::default();
     // Diagnostics first: they check every file, and they take the checker lock
     // themselves, so they must finish before the walk holds the checker.
