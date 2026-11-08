@@ -34,9 +34,15 @@
 //! ```
 //!
 //! `f` moves above `const r`, so `g` must move there too, ahead of `f`.
-//! Targets are therefore computed as a fixpoint over the sibling
+//! Targets are therefore propagated over the reference graph of the sibling
 //! declarations, and the declarations hoisted to one position are emitted
 //! dependencies first.
+//!
+//! The work is linear in the block: each statement is walked once for every
+//! sibling name at a time ([`super::scoped_references::statement_name_uses`]),
+//! the references form a graph, and targets propagate along it in one
+//! Dijkstra-style pass (every edge has weight zero and a target only takes
+//! the minimum, so each declaration is settled once).
 //!
 //! "Mentions" means a reference that resolves to the sibling declaration, as
 //! decided by [`super::scoped_references`]: a parameter or nested declaration
@@ -47,9 +53,10 @@
 //! recursive declarations keep source order between themselves.
 
 use oxc::ast::ast::Statement;
-use std::collections::HashSet;
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 
-use super::scoped_references::statement_uses;
+use super::scoped_references::statement_name_uses;
 
 /// One sibling `function` declaration that may move.
 struct Declaration<'name> {
@@ -84,6 +91,26 @@ fn sibling_declarations<'name>(statements: &'name [Statement<'_>]) -> Vec<Declar
     declarations
 }
 
+/// For each statement, the sibling declarations (by position in
+/// `declarations`) it refers to: one scoped walk per statement.
+fn reference_graph(statements: &[Statement<'_>], declarations: &[Declaration<'_>]) -> Vec<Vec<usize>> {
+    let names: HashSet<&str> = declarations.iter().map(|declaration| declaration.name).collect();
+    let by_name: HashMap<&str, usize> =
+        declarations.iter().enumerate().map(|(d, declaration)| (declaration.name, d)).collect();
+    statements
+        .iter()
+        .map(|statement| {
+            let mut referenced: Vec<usize> = statement_name_uses(statement, &names)
+                .referenced
+                .iter()
+                .filter_map(|name| by_name.get(name.as_str()).copied())
+                .collect();
+            referenced.sort_unstable();
+            referenced
+        })
+        .collect()
+}
+
 /// Return `statements` in the order they must be LOWERED.
 ///
 /// Every element of `statements` appears exactly once. The order differs from
@@ -97,67 +124,70 @@ pub(in crate::lowering) fn hoisted_statements<'a, 'src>(
     if declarations.is_empty() {
         return statements.iter().collect();
     }
-    // `uses[s][d]`: statement `s` refers to declaration `d`'s binding.
-    let uses: Vec<Vec<bool>> = statements
-        .iter()
-        .map(|statement| {
-            declarations
-                .iter()
-                .map(|declaration| statement_uses(statement, declaration.name).referenced)
-                .collect()
-        })
-        .collect();
-    // A declaration must be lowered no later than every statement that refers
-    // to it, where "statement" is wherever that statement is itself lowered.
-    // Targets only ever decrease, so the loop ends.
-    loop {
-        let targets: Vec<usize> = declarations
-            .iter()
-            .enumerate()
-            .map(|(d, declaration)| {
-                uses.iter()
-                    .enumerate()
-                    .filter(|&(s, _)| s != declaration.index && refers(&uses, s, d))
-                    .map(|(s, _)| {
-                        declarations
-                            .iter()
-                            .find(|other| other.index == s)
-                            .map_or(s, |other| other.target)
-                    })
-                    .fold(declaration.target, usize::min)
-            })
-            .collect();
-        let changed = declarations
-            .iter()
-            .zip(&targets)
-            .any(|(declaration, &target)| target < declaration.target);
-        for (declaration, target) in declarations.iter_mut().zip(targets) {
-            declaration.target = target;
+    let refers = reference_graph(statements, &declarations);
+    let declaration_at: HashMap<usize, usize> =
+        declarations.iter().enumerate().map(|(d, declaration)| (declaration.index, d)).collect();
+    // A plain statement is lowered where it stands, so it seeds the target of
+    // every declaration it refers to; a declaration referring to another
+    // passes on its own target, settled below.
+    for (s, referenced) in refers.iter().enumerate() {
+        if declaration_at.contains_key(&s) {
+            continue;
         }
-        if !changed {
-            break;
+        for &d in referenced {
+            if let Some(declaration) = declarations.get_mut(d) {
+                declaration.target = declaration.target.min(s);
+            }
+        }
+    }
+    let mut queue: BinaryHeap<Reverse<(usize, usize)>> =
+        declarations.iter().enumerate().map(|(d, declaration)| Reverse((declaration.target, d))).collect();
+    let mut settled = vec![false; declarations.len()];
+    while let Some(Reverse((target, e))) = queue.pop() {
+        if settled.get(e).copied().unwrap_or(true) {
+            continue;
+        }
+        if let Some(flag) = settled.get_mut(e) {
+            *flag = true;
+        }
+        let Some(index) = declarations.get(e).map(|declaration| declaration.index) else {
+            continue;
+        };
+        for &d in refers.get(index).map_or(&[][..], Vec::as_slice) {
+            if d == e {
+                continue;
+            }
+            if let Some(declaration) = declarations.get_mut(d)
+                && target < declaration.target
+            {
+                declaration.target = target;
+                queue.push(Reverse((target, d)));
+            }
         }
     }
     if declarations.iter().all(|declaration| declaration.target == declaration.index) {
         return statements.iter().collect();
     }
 
+    let mut groups: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (d, declaration) in declarations.iter().enumerate() {
+        if declaration.target != declaration.index {
+            groups.entry(declaration.target).or_default().push(d);
+        }
+    }
     let mut ordered = Vec::with_capacity(statements.len());
     for (index, statement) in statements.iter().enumerate() {
-        let group: Vec<usize> = declarations
-            .iter()
-            .enumerate()
-            .filter(|(_, declaration)| declaration.target == index && declaration.index != index)
-            .map(|(d, _)| d)
-            .collect();
-        for d in dependency_order(&group, &declarations, &uses) {
-            if let Some(moved) = declarations.get(d).and_then(|declaration| statements.get(declaration.index)) {
-                ordered.push(moved);
+        if let Some(group) = groups.get(&index) {
+            for d in dependency_order(group, &declarations, &refers) {
+                if let Some(moved) = declarations.get(d).and_then(|declaration| statements.get(declaration.index)) {
+                    ordered.push(moved);
+                }
             }
         }
-        let moved = declarations
-            .iter()
-            .any(|declaration| declaration.index == index && declaration.target != index);
+        let moved = declaration_at
+            .get(&index)
+            .and_then(|&d| declarations.get(d))
+            .is_some_and(|declaration| declaration.target != index);
         if !moved {
             ordered.push(statement);
         }
@@ -165,17 +195,10 @@ pub(in crate::lowering) fn hoisted_statements<'a, 'src>(
     ordered
 }
 
-/// Whether statement `statement` refers to sibling declaration `declaration`.
-fn refers(uses: &[Vec<bool>], statement: usize, declaration: usize) -> bool {
-    uses.get(statement)
-        .and_then(|row| row.get(declaration))
-        .copied()
-        .unwrap_or(false)
-}
-
 /// Order the declarations hoisted to one position so that one referring to
-/// another comes after it; ties and cycles keep source order.
-fn dependency_order(group: &[usize], declarations: &[Declaration<'_>], uses: &[Vec<bool>]) -> Vec<usize> {
+/// another comes after it; ties and cycles keep source order. `group` is in
+/// source order.
+fn dependency_order(group: &[usize], declarations: &[Declaration<'_>], refers: &[Vec<usize>]) -> Vec<usize> {
     let mut remaining = group.to_vec();
     let mut ordered = Vec::with_capacity(group.len());
     while !remaining.is_empty() {
@@ -184,14 +207,18 @@ fn dependency_order(group: &[usize], declarations: &[Declaration<'_>], uses: &[V
         let ready = remaining
             .iter()
             .position(|&d| {
-                let index = declarations.get(d).map_or(usize::MAX, |declaration| declaration.index);
-                !remaining.iter().any(|&other| other != d && refers(uses, index, other))
+                let needs = declarations
+                    .get(d)
+                    .and_then(|declaration| refers.get(declaration.index))
+                    .map_or(&[][..], Vec::as_slice);
+                !remaining.iter().any(|&other| other != d && needs.binary_search(&other).is_ok())
             })
             .unwrap_or(0);
         ordered.push(remaining.remove(ready));
     }
     ordered
 }
+
 
 #[cfg(test)]
 mod tests {

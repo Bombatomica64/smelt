@@ -232,8 +232,9 @@ fn count_members_are_resolved_by_receiver_type() -> TestResult {
 ///
 /// - An object literal argument keeps its own shape; it is not typed by the
 ///   callee's uninstantiated `Record<K, V>`, so `K`/`V` bind from it.
-/// - A substituted record key is a property key (`Record<V, K>` with
-///   `V := number` has string keys, as JavaScript stores them).
+/// - A record with a typed non-string key (`Record<V, K>` with `V := number`)
+///   reads its own keys (`Object.keys`) and prints as the object JavaScript
+///   prints.
 /// - `K extends keyof T`, unbound by the value arguments, is a string, so a
 ///   callback's `key` and the result's keys are typed.
 const GENERIC_RECORDS_TS: &str = r#"function invert<K extends PropertyKey, V extends PropertyKey>(obj: Record<K, V>): Record<V, K> {
@@ -271,7 +272,10 @@ fn generic_record_helpers_instantiate_from_their_arguments() -> TestResult {
     let rust = fs::read_dir(root.join("dist/src"))?
         .map(|entry| fs::read_to_string(entry?.path()))
         .collect::<Result<String, _>>()?;
-    for typed in ["let r: SmeltRecord<JsString, JsString>", "let s: SmeltRecord<JsString, JsString>"] {
+    // `s` binds `V := string`, a string-keyed record; `r` binds `V := number`,
+    // a number-keyed record (the backing `Record<K, V>` takes for a key that is
+    // not a plain string), with typed values.
+    for typed in ["let s: SmeltRecord<JsString, JsString>", "let r: SmeltJsMap<f64, JsString>"] {
         common::ensure(rust.contains(typed), format!("generated crate must spell `{typed}`"))?;
     }
     Ok(())

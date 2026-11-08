@@ -789,30 +789,6 @@ impl ModuleBuilder<'_> {
             .unwrap_or_default()
     }
 
-    /// The key a record (`Dict`) has once a substitution fills its key type.
-    ///
-    /// A record's keys are property keys, which JavaScript stores as strings,
-    /// so a key type parameter bound to a number, boolean, `unknown` or a
-    /// union of those (`invert({ a: 1 })` binds `V := number` in
-    /// `Record<V, K>`) becomes `String`, exactly as an annotated
-    /// `Record<number, T>` key lowers (`record_key_type_to_hir`). A symbol key
-    /// is representable too: a record stores it under its encoded string key
-    /// (`smelt_stdlib::symbol_keys`, `smelt_property_key` at the boundary).
-    /// Any other key (a class, a list) is kept.
-    fn record_property_key(&mut self, key: smelt_hir::TypeId) -> smelt_hir::TypeId {
-        let is_primitive =
-            |ty: Option<&Type>| matches!(ty, Some(Type::Float | Type::Int | Type::Bool | Type::String | Type::Unknown));
-        let primitive_key = match self.ctx.krate.types.get(key) {
-            Some(Type::Union(members)) => members.iter().all(|member| is_primitive(self.ctx.krate.types.get(*member))),
-            other => is_primitive(other),
-        };
-        if primitive_key {
-            self.ctx.krate.types.intern(Type::String)
-        } else {
-            key
-        }
-    }
-
     /// Substitute generic type parameters within a previously lowered HIR type.
     pub(in crate::lowering) fn substitute_type_params(
         &mut self,
@@ -834,7 +810,6 @@ impl ModuleBuilder<'_> {
             }
             Type::Dict(key, value) => {
                 let key = self.substitute_type_params(key, substitutions);
-                let key = self.record_property_key(key);
                 let value = self.substitute_type_params(value, substitutions);
                 self.ctx.krate.types.intern(Type::Dict(key, value))
             }

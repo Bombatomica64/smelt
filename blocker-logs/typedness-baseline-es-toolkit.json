@@ -2,9 +2,9 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 13683,
+      "concrete": 13679,
       "generic": 226,
-      "erased": 8292
+      "erased": 8288
     },
     "reads": {
       "concrete": 324,
@@ -12,9 +12,9 @@
       "erased": 1073
     },
     "calls": {
-      "concrete": 2135,
+      "concrete": 2137,
       "generic": 39,
-      "erased": 1282
+      "erased": 1280
     }
   },
   "programs": {
@@ -10152,9 +10152,9 @@
     },
     "src/object/merge.spec.ts": {
       "values": {
-        "concrete": 91,
+        "concrete": 87,
         "generic": 0,
-        "erased": 93
+        "erased": 97
       },
       "reads": {
         "concrete": 0,
@@ -10220,9 +10220,9 @@
     },
     "src/object/omit.spec.ts": {
       "values": {
-        "concrete": 16,
+        "concrete": 25,
         "generic": 0,
-        "erased": 18
+        "erased": 1
       },
       "reads": {
         "concrete": 0,
@@ -10230,9 +10230,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 4,
         "generic": 0,
-        "erased": 4
+        "erased": 0
       }
     },
     "src/object/omit.ts": {
@@ -11597,9 +11597,9 @@
     },
     "src/promise/allKeyed.spec.ts": {
       "values": {
-        "concrete": 39,
+        "concrete": 30,
         "generic": 0,
-        "erased": 28
+        "erased": 37
       },
       "reads": {
         "concrete": 0,
@@ -11607,9 +11607,9 @@
         "erased": 3
       },
       "calls": {
-        "concrete": 2,
+        "concrete": 0,
         "generic": 0,
-        "erased": 7
+        "erased": 9
       }
     },
     "src/promise/allKeyed.ts": {

@@ -44,28 +44,23 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn module_constructor_function_names(
         program: &Program<'_>,
     ) -> HashSet<String> {
-        let mut names = HashSet::new();
-        for function in Self::module_function_declarations(program) {
-            let Some(id) = &function.id else {
-                continue;
-            };
-            // An ambient `declare function` has no body to derive fields from.
-            if function.declare || function.body.is_none() {
-                continue;
-            }
-            let name = id.name.as_str();
-            if names.contains(name) {
-                continue;
-            }
-            if program
-                .body
-                .iter()
-                .any(|statement| Self::module_statement_uses_constructor_function(name, statement))
-            {
-                names.insert(name.to_owned());
-            }
+        // An ambient `declare function` has no body to derive fields from.
+        let candidates: HashSet<&str> = Self::module_function_declarations(program)
+            .filter(|function| !function.declare && function.body.is_some())
+            .filter_map(|function| function.id.as_ref().map(|id| id.name.as_str()))
+            .collect();
+        if candidates.is_empty() {
+            return HashSet::new();
         }
-        names
+        // One scoped walk of the module for every candidate at once: a walk
+        // per candidate made a module of `n` functions quadratic.
+        let mut constructed = HashSet::new();
+        for statement in &program.body {
+            constructed.extend(
+                crate::lowering::scoped_references::statement_name_uses(statement, &candidates).constructed,
+            );
+        }
+        constructed
     }
 
     /// Return whether a module top-level function declaration was recorded as a
@@ -91,14 +86,6 @@ impl ModuleBuilder<'_> {
             },
             _ => None,
         })
-    }
-
-    /// Scan a module top-level statement for constructor uses of `name`,
-    /// at any depth, through `export` wrappers and sibling function bodies,
-    /// with references resolved through scopes
-    /// ([`crate::lowering::scoped_references`]).
-    fn module_statement_uses_constructor_function(name: &str, statement: &Statement<'_>) -> bool {
-        crate::lowering::scoped_references::statement_uses(statement, name).constructed
     }
 
     /// Collect `this.<name>` members assigned anywhere in a constructor body.

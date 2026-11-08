@@ -15,12 +15,16 @@
 //! function above `const apply` (which a text match does) moves it above
 //! `scale`, the binding it closes over.
 //!
-//! [`ScopedUses`] walks a statement with oxc's visitor and stops at every
-//! nested scope that declares `name` itself: a function or arrow (its
-//! parameters and its var-scoped declarations), a block (its lexical
-//! declarations), a `catch` parameter, a `for` head and a named class
-//! expression. Everything it reports therefore resolves to the binding that
-//! is visible where the statement sits.
+//! [`ScopedUses`] walks a statement ONCE with oxc's visitor for a whole set of
+//! names, and at every nested scope that declares some of them itself (a
+//! function or arrow: its parameters and var-scoped declarations; a block:
+//! its lexical declarations; a `catch` parameter; a `for` head; a named class
+//! expression) it shadows those names for the scope's extent. Everything it
+//! reports therefore resolves to the bindings visible where the statement
+//! sits. One walk per statement, whatever the number of names, is what keeps
+//! the callers (hoisting, constructor detection) linear in program size.
+
+use std::collections::HashSet;
 
 use oxc::ast::ast::{
     ArrowFunctionExpression, AssignmentExpression, AssignmentTarget,
@@ -49,11 +53,28 @@ pub(in crate::lowering) struct BindingUses {
     pub constructed: bool,
 }
 
-/// Scope-aware uses of `name` in `statement`; see the module docs.
-pub(in crate::lowering) fn statement_uses(statement: &Statement<'_>, name: &str) -> BindingUses {
-    let mut visitor = ScopedUses { name, uses: BindingUses::default() };
+/// How a statement uses each of a set of outer bindings: the names, among
+/// those asked about, it references and constructs (see [`BindingUses`]).
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(in crate::lowering) struct NameUses {
+    /// Names some identifier reference resolves to.
+    pub referenced: HashSet<String>,
+    /// Names used as a nominal constructor.
+    pub constructed: HashSet<String>,
+}
+
+/// Scope-aware uses of every name of `names` in `statement`, in one walk.
+pub(in crate::lowering) fn statement_name_uses(statement: &Statement<'_>, names: &HashSet<&str>) -> NameUses {
+    let mut visitor = ScopedUses { names, shadowed: Vec::new(), uses: NameUses::default() };
     visitor.visit_statement(statement);
     visitor.uses
+}
+
+/// Scope-aware uses of `name` in `statement`; see the module docs.
+pub(in crate::lowering) fn statement_uses(statement: &Statement<'_>, name: &str) -> BindingUses {
+    let names = HashSet::from([name]);
+    let uses = statement_name_uses(statement, &names);
+    BindingUses { referenced: uses.referenced.contains(name), constructed: uses.constructed.contains(name) }
 }
 
 /// Scope-aware uses of `name` across a statement list (one scope's body).
@@ -67,132 +88,163 @@ pub(in crate::lowering) fn statements_use(statements: &[Statement<'_>], name: &s
     uses
 }
 
-/// The visitor behind [`statement_uses`]: it records uses of `name` and does
-/// not descend into a nested scope that rebinds it.
-struct ScopedUses<'name> {
-    /// The outer binding being looked for.
-    name: &'name str,
+/// The visitor behind [`statement_name_uses`]: it records uses of `names` that
+/// no enclosing scope inside the statement rebinds.
+struct ScopedUses<'names, 'name> {
+    /// The outer bindings being looked for.
+    names: &'names HashSet<&'name str>,
+    /// For each nested scope being walked, the asked-about names it rebinds.
+    shadowed: Vec<Vec<String>>,
     /// What has been found so far.
-    uses: BindingUses,
+    uses: NameUses,
 }
 
-impl ScopedUses<'_> {
-    /// Whether `expression` (parentheses peeled) is a reference to `name`.
-    fn is_name(&self, expression: &Expression<'_>) -> bool {
-        matches!(expression.without_parentheses(), Expression::Identifier(id) if id.name == self.name)
+impl ScopedUses<'_, '_> {
+    /// The asked-about name `text` is when it is one and no scope shadows it.
+    fn visible(&self, text: &str) -> bool {
+        self.names.contains(text) && !self.shadowed.iter().any(|frame| frame.iter().any(|name| name == text))
     }
 
-    /// Whether `pattern` binds `name`.
-    fn pattern_binds(&self, pattern: &BindingPattern<'_>) -> bool {
-        pattern.get_binding_identifiers().iter().any(|id| id.name == self.name)
-    }
-
-    /// Whether a parameter list binds `name`.
-    fn params_bind(&self, params: &FormalParameters<'_>) -> bool {
-        params.items.iter().any(|param| self.pattern_binds(&param.pattern))
-            || params.rest.as_ref().is_some_and(|rest| self.pattern_binds(&rest.rest.argument))
-    }
-
-    /// Whether a variable declaration binds `name`.
-    fn declaration_binds(&self, declaration: &VariableDeclaration<'_>) -> bool {
-        declaration.declarations.iter().any(|declarator| self.pattern_binds(&declarator.id))
-    }
-
-    /// Whether a declaration statement directly in a block binds `name` in
-    /// that block: `let`/`const`/`using`, a class, or (block-scoped in strict
-    /// code) a function declaration.
-    fn lexically_declares(&self, statement: &Statement<'_>) -> bool {
-        match statement {
-            Statement::VariableDeclaration(declaration) => {
-                declaration.kind != VariableDeclarationKind::Var && self.declaration_binds(declaration)
-            }
-            Statement::FunctionDeclaration(function) => {
-                function.id.as_ref().is_some_and(|id| id.name == self.name)
-            }
-            Statement::ClassDeclaration(class) => class.id.as_ref().is_some_and(|id| id.name == self.name),
-            _ => false,
+    /// The visible asked-about name `expression` (parentheses peeled) reads.
+    fn visible_name(&self, expression: &Expression<'_>) -> Option<String> {
+        match expression.without_parentheses() {
+            Expression::Identifier(id) if self.visible(id.name.as_str()) => Some(id.name.to_string()),
+            _ => None,
         }
     }
 
-    /// Whether a function body binds `name` for the whole function: any
+    /// Run `walk` with `bound` (filtered to the asked-about names) shadowed.
+    fn within_scope(&mut self, bound: Vec<String>, walk: impl FnOnce(&mut Self)) {
+        let bound: Vec<String> = bound.into_iter().filter(|name| self.names.contains(name.as_str())).collect();
+        if bound.is_empty() {
+            walk(self);
+            return;
+        }
+        self.shadowed.push(bound);
+        walk(self);
+        self.shadowed.pop();
+    }
+
+    /// The names `pattern` binds.
+    fn pattern_names(pattern: &BindingPattern<'_>, out: &mut Vec<String>) {
+        out.extend(pattern.get_binding_identifiers().iter().map(|id| id.name.to_string()));
+    }
+
+    /// The names a parameter list binds.
+    fn params_names(params: &FormalParameters<'_>, out: &mut Vec<String>) {
+        for param in &params.items {
+            Self::pattern_names(&param.pattern, out);
+        }
+        if let Some(rest) = &params.rest {
+            Self::pattern_names(&rest.rest.argument, out);
+        }
+    }
+
+    /// The names a variable declaration binds.
+    fn declaration_names(declaration: &VariableDeclaration<'_>, out: &mut Vec<String>) {
+        for declarator in &declaration.declarations {
+            Self::pattern_names(&declarator.id, out);
+        }
+    }
+
+    /// The names a declaration statement directly in a block binds in that
+    /// block: `let`/`const`/`using`, a class, or (block-scoped in strict code)
+    /// a function declaration.
+    fn lexical_names(statement: &Statement<'_>, out: &mut Vec<String>) {
+        match statement {
+            Statement::VariableDeclaration(declaration) if declaration.kind != VariableDeclarationKind::Var => {
+                Self::declaration_names(declaration, out);
+            }
+            Statement::FunctionDeclaration(function) => out.extend(function.id.as_ref().map(|id| id.name.to_string())),
+            Statement::ClassDeclaration(class) => out.extend(class.id.as_ref().map(|id| id.name.to_string())),
+            _ => {}
+        }
+    }
+
+    /// The names a function body binds for the whole function: any
     /// declaration directly in it, or a `var` anywhere in its blocks (a `var`
     /// is function-scoped, so one inside an `if` still shadows).
-    fn function_scope_declares(&self, statements: &[Statement<'_>]) -> bool {
-        statements
-            .iter()
-            .any(|statement| self.lexically_declares(statement) || self.var_declares(statement))
-    }
-
-    /// Whether `statement` holds a `var` binding `name`, looking through nested
-    /// blocks but not into nested functions.
-    fn var_declares(&self, statement: &Statement<'_>) -> bool {
-        match statement {
-            Statement::VariableDeclaration(declaration) => {
-                declaration.kind == VariableDeclarationKind::Var && self.declaration_binds(declaration)
-            }
-            Statement::BlockStatement(block) => block.body.iter().any(|inner| self.var_declares(inner)),
-            Statement::IfStatement(statement) => {
-                self.var_declares(&statement.consequent)
-                    || statement.alternate.as_ref().is_some_and(|alternate| self.var_declares(alternate))
-            }
-            Statement::ForStatement(statement) => {
-                matches!(&statement.init, Some(ForStatementInit::VariableDeclaration(declaration))
-                    if declaration.kind == VariableDeclarationKind::Var && self.declaration_binds(declaration))
-                    || self.var_declares(&statement.body)
-            }
-            Statement::ForInStatement(statement) => {
-                self.for_left_var_binds(&statement.left) || self.var_declares(&statement.body)
-            }
-            Statement::ForOfStatement(statement) => {
-                self.for_left_var_binds(&statement.left) || self.var_declares(&statement.body)
-            }
-            Statement::WhileStatement(statement) => self.var_declares(&statement.body),
-            Statement::DoWhileStatement(statement) => self.var_declares(&statement.body),
-            Statement::LabeledStatement(statement) => self.var_declares(&statement.body),
-            Statement::TryStatement(statement) => {
-                statement.block.body.iter().any(|inner| self.var_declares(inner))
-                    || statement
-                        .handler
-                        .as_ref()
-                        .is_some_and(|handler| handler.body.body.iter().any(|inner| self.var_declares(inner)))
-                    || statement
-                        .finalizer
-                        .as_ref()
-                        .is_some_and(|finalizer| finalizer.body.iter().any(|inner| self.var_declares(inner)))
-            }
-            Statement::SwitchStatement(statement) => statement
-                .cases
-                .iter()
-                .any(|case| case.consequent.iter().any(|inner| self.var_declares(inner))),
-            _ => false,
+    fn function_scope_names(statements: &[Statement<'_>], out: &mut Vec<String>) {
+        for statement in statements {
+            Self::lexical_names(statement, out);
+            Self::var_names(statement, out);
         }
     }
 
-    /// Whether a `for (var x in/of ..)` head binds `name`.
-    fn for_left_var_binds(&self, left: &ForStatementLeft<'_>) -> bool {
-        matches!(left, ForStatementLeft::VariableDeclaration(declaration)
-            if declaration.kind == VariableDeclarationKind::Var && self.declaration_binds(declaration))
+    /// The `var` names `statement` holds, looking through nested blocks but
+    /// not into nested functions.
+    fn var_names(statement: &Statement<'_>, out: &mut Vec<String>) {
+        match statement {
+            Statement::VariableDeclaration(declaration) if declaration.kind == VariableDeclarationKind::Var => {
+                Self::declaration_names(declaration, out);
+            }
+            Statement::BlockStatement(block) => block.body.iter().for_each(|inner| Self::var_names(inner, out)),
+            Statement::IfStatement(statement) => {
+                Self::var_names(&statement.consequent, out);
+                if let Some(alternate) = &statement.alternate {
+                    Self::var_names(alternate, out);
+                }
+            }
+            Statement::ForStatement(statement) => {
+                if let Some(ForStatementInit::VariableDeclaration(declaration)) = &statement.init
+                    && declaration.kind == VariableDeclarationKind::Var
+                {
+                    Self::declaration_names(declaration, out);
+                }
+                Self::var_names(&statement.body, out);
+            }
+            Statement::ForInStatement(statement) => {
+                Self::for_left_names(&statement.left, true, out);
+                Self::var_names(&statement.body, out);
+            }
+            Statement::ForOfStatement(statement) => {
+                Self::for_left_names(&statement.left, true, out);
+                Self::var_names(&statement.body, out);
+            }
+            Statement::WhileStatement(statement) => Self::var_names(&statement.body, out),
+            Statement::DoWhileStatement(statement) => Self::var_names(&statement.body, out),
+            Statement::LabeledStatement(statement) => Self::var_names(&statement.body, out),
+            Statement::TryStatement(statement) => {
+                statement.block.body.iter().for_each(|inner| Self::var_names(inner, out));
+                if let Some(handler) = &statement.handler {
+                    handler.body.body.iter().for_each(|inner| Self::var_names(inner, out));
+                }
+                if let Some(finalizer) = &statement.finalizer {
+                    finalizer.body.iter().for_each(|inner| Self::var_names(inner, out));
+                }
+            }
+            Statement::SwitchStatement(statement) => {
+                for case in &statement.cases {
+                    case.consequent.iter().for_each(|inner| Self::var_names(inner, out));
+                }
+            }
+            _ => {}
+        }
     }
 
-    /// Whether a `for (let x in/of ..)` head binds `name` for the loop.
-    fn for_left_lexical_binds(&self, left: &ForStatementLeft<'_>) -> bool {
-        matches!(left, ForStatementLeft::VariableDeclaration(declaration)
-            if declaration.kind != VariableDeclarationKind::Var && self.declaration_binds(declaration))
+    /// The names a `for (.. in/of ..)` head binds: `var` ones when `var` is
+    /// set, lexical ones otherwise.
+    fn for_left_names(left: &ForStatementLeft<'_>, var: bool, out: &mut Vec<String>) {
+        if let ForStatementLeft::VariableDeclaration(declaration) = left
+            && (declaration.kind == VariableDeclarationKind::Var) == var
+        {
+            Self::declaration_names(declaration, out);
+        }
     }
 }
 
-impl<'a> Visit<'a> for ScopedUses<'_> {
-    /// A reference to `name` that reached here is not shadowed.
+impl<'a> Visit<'a> for ScopedUses<'_, '_> {
+    /// A reference to an asked-about name that reached here unshadowed.
     fn visit_identifier_reference(&mut self, identifier: &IdentifierReference<'a>) {
-        if identifier.name == self.name {
-            self.uses.referenced = true;
+        if self.visible(identifier.name.as_str()) {
+            self.uses.referenced.insert(identifier.name.to_string());
         }
     }
 
     /// `new name(..)` constructs the binding.
     fn visit_new_expression(&mut self, expression: &NewExpression<'a>) {
-        if self.is_name(&expression.callee) {
-            self.uses.constructed = true;
+        if let Some(name) = self.visible_name(&expression.callee) {
+            self.uses.constructed.insert(name);
         }
         walk::walk_new_expression(self, expression);
     }
@@ -202,106 +254,115 @@ impl<'a> Visit<'a> for ScopedUses<'_> {
         if let AssignmentTarget::StaticMemberExpression(member) = &expression.left
             && let Expression::StaticMemberExpression(prototype) = &member.object
             && prototype.property.name == "prototype"
-            && self.is_name(&prototype.object)
+            && let Some(name) = self.visible_name(&prototype.object)
         {
-            self.uses.constructed = true;
+            self.uses.constructed.insert(name);
         }
         walk::walk_assignment_expression(self, expression);
     }
 
-    /// A function scope that rebinds `name` (its own name for an expression,
-    /// a parameter, or a body declaration) hides every use inside it.
+    /// A function scope shadows its own name (for an expression), its
+    /// parameters and its body declarations.
     fn visit_function(&mut self, function: &Function<'a>, flags: ScopeFlags) {
-        let own_name = function.is_expression() && function.id.as_ref().is_some_and(|id| id.name == self.name);
-        let body_declares =
-            function.body.as_ref().is_some_and(|body| self.function_scope_declares(&body.statements));
-        if own_name || self.params_bind(&function.params) || body_declares {
-            return;
+        let mut bound = Vec::new();
+        if function.is_expression() {
+            bound.extend(function.id.as_ref().map(|id| id.name.to_string()));
         }
-        walk::walk_function(self, function, flags);
+        Self::params_names(&function.params, &mut bound);
+        if let Some(body) = &function.body {
+            Self::function_scope_names(&body.statements, &mut bound);
+        }
+        self.within_scope(bound, |this| walk::walk_function(this, function, flags));
     }
 
-    /// An arrow that rebinds `name` hides every use inside it.
+    /// An arrow shadows its parameters and body declarations.
     fn visit_arrow_function_expression(&mut self, arrow: &ArrowFunctionExpression<'a>) {
-        if self.params_bind(&arrow.params) || self.function_scope_declares(crate::lowering::support::arrow_block_statements(arrow)) {
-            return;
-        }
-        walk::walk_arrow_function_expression(self, arrow);
+        let mut bound = Vec::new();
+        Self::params_names(&arrow.params, &mut bound);
+        Self::function_scope_names(crate::lowering::support::arrow_block_statements(arrow), &mut bound);
+        self.within_scope(bound, |this| walk::walk_arrow_function_expression(this, arrow));
     }
 
-    /// A block whose own declarations rebind `name` hides every use inside it.
+    /// A block shadows its own lexical declarations.
     fn visit_block_statement(&mut self, block: &BlockStatement<'a>) {
-        if block.body.iter().any(|statement| self.lexically_declares(statement)) {
-            return;
-        }
-        walk::walk_block_statement(self, block);
+        let mut bound = Vec::new();
+        block.body.iter().for_each(|statement| Self::lexical_names(statement, &mut bound));
+        self.within_scope(bound, |this| walk::walk_block_statement(this, block));
     }
 
     /// A static block is a function scope of its own.
     fn visit_static_block(&mut self, block: &StaticBlock<'a>) {
-        if self.function_scope_declares(&block.body) {
-            return;
-        }
-        walk::walk_static_block(self, block);
+        let mut bound = Vec::new();
+        Self::function_scope_names(&block.body, &mut bound);
+        self.within_scope(bound, |this| walk::walk_static_block(this, block));
     }
 
-    /// The cases of a `switch` share one block scope.
+    /// The cases of a `switch` share one block scope; the discriminant is
+    /// evaluated outside it.
     fn visit_switch_statement(&mut self, statement: &SwitchStatement<'a>) {
-        if statement
-            .cases
-            .iter()
-            .any(|case| case.consequent.iter().any(|inner| self.lexically_declares(inner)))
-        {
-            self.visit_expression(&statement.discriminant);
-            return;
+        self.visit_expression(&statement.discriminant);
+        let mut bound = Vec::new();
+        for case in &statement.cases {
+            case.consequent.iter().for_each(|inner| Self::lexical_names(inner, &mut bound));
         }
-        walk::walk_switch_statement(self, statement);
+        self.within_scope(bound, |this| {
+            for case in &statement.cases {
+                this.visit_switch_case(case);
+            }
+        });
     }
 
-    /// A `catch (name)` parameter rebinds `name` for the handler.
+    /// A `catch (name)` parameter shadows `name` for the handler.
     fn visit_catch_clause(&mut self, clause: &CatchClause<'a>) {
-        if clause.param.as_ref().is_some_and(|param| self.pattern_binds(&param.pattern)) {
-            return;
+        let mut bound = Vec::new();
+        if let Some(param) = &clause.param {
+            Self::pattern_names(&param.pattern, &mut bound);
         }
-        walk::walk_catch_clause(self, clause);
+        self.within_scope(bound, |this| walk::walk_catch_clause(this, clause));
     }
 
-    /// A `for (let name ..)` head rebinds `name` for the whole loop.
+    /// A `for (let name ..)` head shadows `name` for the whole loop.
     fn visit_for_statement(&mut self, statement: &ForStatement<'a>) {
-        if matches!(&statement.init, Some(ForStatementInit::VariableDeclaration(declaration))
-            if declaration.kind != VariableDeclarationKind::Var && self.declaration_binds(declaration))
+        let mut bound = Vec::new();
+        if let Some(ForStatementInit::VariableDeclaration(declaration)) = &statement.init
+            && declaration.kind != VariableDeclarationKind::Var
         {
-            return;
+            Self::declaration_names(declaration, &mut bound);
         }
-        walk::walk_for_statement(self, statement);
+        self.within_scope(bound, |this| walk::walk_for_statement(this, statement));
     }
 
-    /// A `for (let name in ..)` head rebinds `name` for the loop body; the
-    /// iterated object is still evaluated outside it.
+    /// A `for (let name in ..)` head shadows `name` for the loop; the
+    /// iterated object is evaluated outside it.
     fn visit_for_in_statement(&mut self, statement: &ForInStatement<'a>) {
-        if self.for_left_lexical_binds(&statement.left) {
-            self.visit_expression(&statement.right);
-            return;
-        }
-        walk::walk_for_in_statement(self, statement);
+        self.visit_expression(&statement.right);
+        let mut bound = Vec::new();
+        Self::for_left_names(&statement.left, false, &mut bound);
+        self.within_scope(bound, |this| {
+            this.visit_for_statement_left(&statement.left);
+            this.visit_statement(&statement.body);
+        });
     }
 
-    /// A `for (let name of ..)` head rebinds `name` for the loop body; the
-    /// iterated value is still evaluated outside it.
+    /// A `for (let name of ..)` head shadows `name` for the loop; the
+    /// iterated value is evaluated outside it.
     fn visit_for_of_statement(&mut self, statement: &ForOfStatement<'a>) {
-        if self.for_left_lexical_binds(&statement.left) {
-            self.visit_expression(&statement.right);
-            return;
-        }
-        walk::walk_for_of_statement(self, statement);
+        self.visit_expression(&statement.right);
+        let mut bound = Vec::new();
+        Self::for_left_names(&statement.left, false, &mut bound);
+        self.within_scope(bound, |this| {
+            this.visit_for_statement_left(&statement.left);
+            this.visit_statement(&statement.body);
+        });
     }
 
     /// A class expression named `name` binds it inside its own body.
     fn visit_class(&mut self, class: &Class<'a>) {
-        if class.is_expression() && class.id.as_ref().is_some_and(|id| id.name == self.name) {
-            return;
+        let mut bound = Vec::new();
+        if class.is_expression() {
+            bound.extend(class.id.as_ref().map(|id| id.name.to_string()));
         }
-        walk::walk_class(self, class);
+        self.within_scope(bound, |this| walk::walk_class(this, class));
     }
 }
 

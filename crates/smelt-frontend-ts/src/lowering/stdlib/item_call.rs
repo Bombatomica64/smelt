@@ -318,14 +318,19 @@ impl ModuleBuilder<'_> {
             }) {
                 return Some(bound);
             }
-            // An object literal is never typed by a hint that names the
-            // callee's own uninstantiated type parameters (`obj: Record<K, V>`):
-            // they name nothing at the call site, so the literal would become
-            // `Dict<K, V>` and inference would bind `K := K`, leaking the raw
-            // parameters into the call's result. Its own shape decides, and
-            // the parameters are inferred from it.
+            // An object literal is never typed by a RECORD hint that names the
+            // callee's own uninstantiated type parameters (`obj: Record<K,
+            // V>`): they name nothing at the call site, so the literal would
+            // become `Dict<K, V>` and inference would bind `K := K`, leaking the
+            // raw parameters into the call's result. Its own shape decides, and
+            // the parameters are inferred from it. A declared shape (`box:
+            // Box<T>`, a generated struct) keeps its hint: the literal must be
+            // built as that struct.
             if matches!(arg, Argument::ObjectExpression(_))
-                && implementation_hint.is_some_and(|hint| builder.mentions_type_params(hint, callee_type_params))
+                && implementation_hint.is_some_and(|hint| {
+                    matches!(builder.ctx.krate.types.get(hint), Some(Type::Dict(..)))
+                        && builder.mentions_type_params(hint, callee_type_params)
+                })
             {
                 return None;
             }

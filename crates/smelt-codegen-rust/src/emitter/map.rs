@@ -979,6 +979,14 @@ impl FunctionEmitter<'_> {
                             "{dict_text}.keys().filter(|key| !key.starts_with(\"{SMELT_SYMBOL}\")).cloned().collect::<Vec<_>>()"
                         )))
                     }
+                } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty)
+                    && matches!(self.mir.types.get(*key_ty), Some(Type::Float | Type::Int | Type::Bool | Type::FixedInt(_)))
+                {
+                    // A scalar key (`Record<K, V>` with `K := number`) cannot hold
+                    // the representation markers or a symbol, which only a key
+                    // rendered as `SmeltUnknown` (erased, or a type parameter) can
+                    // spell, so the entries are read directly.
+                    Ok(RustExpr::atom(format!("{dict_text}.keys().collect::<Vec<_>>()")))
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     // Own string keys only: the prelude helper strips the
                     // representation markers and restores symbol tags, then the
@@ -1054,6 +1062,14 @@ impl FunctionEmitter<'_> {
                     Ok(RustExpr::atom_on(&dict_text, format!(
                         "{dict_text}.keys().filter_map(|key| smelt_own_symbol_key_value(&{key_text})).collect::<Vec<_>>()"
                     )))
+                } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty)
+                    && matches!(self.mir.types.get(*key_ty), Some(Type::Float | Type::Int | Type::Bool | Type::FixedInt(_)))
+                {
+                    // A scalar key (`Record<K, V>` with `K := number`) cannot hold
+                    // the representation markers or a symbol, which only a key
+                    // rendered as `SmeltUnknown` (erased, or a type parameter) can
+                    // spell, so the entries are read directly.
+                    Ok(RustExpr::atom("Vec::new()".to_owned()))
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     // The mirror image of the `Keys` arm: the same own-entry
                     // helper restores a `__smelt_symbol:` storage key to its tag,
@@ -1094,6 +1110,14 @@ impl FunctionEmitter<'_> {
                             "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"{SMELT_SYMBOL}\") && !key.starts_with(\"{SMELT_PROTO}:\") && !key.starts_with(\"{SMELT_METHOD}:\") && *key != \"{SMELT_CLASS}\").map(|(_, value)| value.clone()).collect::<Vec<_>>()"
                         )))
                     }
+                } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty)
+                    && matches!(self.mir.types.get(*key_ty), Some(Type::Float | Type::Int | Type::Bool | Type::FixedInt(_)))
+                {
+                    // A scalar key (`Record<K, V>` with `K := number`) cannot hold
+                    // the representation markers or a symbol, which only a key
+                    // rendered as `SmeltUnknown` (erased, or a type parameter) can
+                    // spell, so the entries are read directly.
+                    Ok(RustExpr::atom(format!("{dict_text}.values().collect::<Vec<_>>()")))
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     // Own, non-symbol entries only -- same rule as the `Keys` arm.
                     Ok(RustExpr::atom(self.carrier_format(format_args!(
@@ -1132,6 +1156,14 @@ impl FunctionEmitter<'_> {
                             "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"{SMELT_SYMBOL}\") && !key.starts_with(\"{SMELT_PROTO}:\") && !key.starts_with(\"{SMELT_METHOD}:\") && *key != \"{SMELT_CLASS}\").map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
                         )))
                     }
+                } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty)
+                    && matches!(self.mir.types.get(*key_ty), Some(Type::Float | Type::Int | Type::Bool | Type::FixedInt(_)))
+                {
+                    // A scalar key (`Record<K, V>` with `K := number`) cannot hold
+                    // the representation markers or a symbol, which only a key
+                    // rendered as `SmeltUnknown` (erased, or a type parameter) can
+                    // spell, so the entries are read directly.
+                    Ok(RustExpr::atom(format!("{dict_text}.iter().collect::<Vec<_>>()")))
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     // Own, non-symbol entries only -- same rule as the `Keys` arm.
                     Ok(RustExpr::atom(self.carrier_format(format_args!(
