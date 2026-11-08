@@ -21,6 +21,8 @@
     reason = "crate-visible helpers are shared with the emitter shards"
 )]
 
+mod op_needs;
+
 use smelt_hir::Type;
 use smelt_mir::{
     BasicBlock, Callee, LocalDecl, LocalId, Mir, Operand, Place, Rvalue, Statement,
@@ -635,57 +637,6 @@ impl RuntimeDemand {
         }
     }
 }
-
-/// Adds the runtime families one op states in its `needs` fact.
-macro_rules! add_op_needs {
-    ($demand:ident,) => {};
-    ($demand:ident, needs ($($need:ident $(if $condition:expr)?),* $(,)?) $($rest:tt)*) => {
-        $(
-            if true $(&& $condition)? {
-                $demand.add(Need::$need);
-            }
-        )*
-    };
-    ($demand:ident, $other:ident $value:tt $($rest:tt)*) => {
-        add_op_needs!($demand, $($rest)*);
-    };
-}
-
-/// Generates [`RuntimeDemand::scan_rvalue`] from the op table's `needs` facts.
-macro_rules! define_scan_rvalue {
-    ($(
-        $(#[$meta:meta])*
-        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt $(@ $role:tt)?),* $(,)? })?
-        $($fact:ident $fact_value:tt)*
-        => $display:tt;
-    )*) => {
-        impl RuntimeDemand {
-            /// Records what one rvalue demands, whether it is assigned or is the
-            /// callee of a call terminator.
-            #[expect(
-                unused_variables,
-                reason = "each arm binds every field; a fact reads the ones it needs"
-            )]
-            fn scan_rvalue(&mut self, rvalue: &Rvalue) {
-                match rvalue {
-                    $(
-                        Rvalue::$name $({ $($field,)* })? => {
-                            add_op_needs!(self, $($fact $fact_value)*);
-                        }
-                    )*
-                    // Wherever the parameter is not a real Rust generic, a read
-                    // through its bound converts from the erased carrier.
-                    Rvalue::BoundMethod { .. } | Rvalue::BoundField { .. } => {
-                        self.add(Need::ErasedAnswer);
-                    }
-                    _ => {}
-                }
-            }
-        }
-    };
-}
-
-smelt_hir::for_each_op!(define_scan_rvalue);
 
 /// The bit of a [`Need`].
 #[expect(
