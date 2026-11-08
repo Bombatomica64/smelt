@@ -543,6 +543,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             tuple_rest_arrows: HashMap::new(),
             type_param_owners: HashMap::new(),
             receiver_frames: Vec::new(),
+            kept_receivers: Vec::new(),
+            enum_reverse_names: HashMap::new(),
             source_facts: super::source_facts::SourceFacts::default(),
             asserted_call_return: None,
             erasure_anchor: Span::new(file_id, 0, 0),
@@ -1217,6 +1219,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             .export_renames
             .iter()
             .filter(|(exported, _)| !self.ctx.export_aliases.contains_key(*exported))
+            // A namespace import re-exported under a new name published its
+            // members instead (`reexport_namespace_members`).
+            .filter(|(_, local)| !self.imports.is_namespace(local))
             .filter_map(|(exported, local)| {
                 // Either registry can hold the declaration at this point: a class
                 // lives in the class registry, everything else in the item map.
@@ -1250,6 +1255,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if previous_export_aliases.get(alias) != Some(item_id) {
                 exports.insert(alias.clone(), *item_id);
             }
+        }
+        // The module's own `export { local as exported }` specifiers, including
+        // re-exports of an import (`import { matcher } from ..; export { matcher }`)
+        // whose alias another module already published to the shared map, so the
+        // novelty test above does not see it.
+        let own = self
+            .export_renames
+            .iter()
+            .filter(|(_, local)| !self.imports.is_namespace(local))
+            .filter_map(|(exported, local)| Some((exported.clone(), self.items.get(local).copied()?)))
+            .collect::<Vec<_>>();
+        for (exported, item_id) in own {
+            exports.entry(exported).or_insert(item_id);
         }
         self.publish_exported_predicates(&exports);
         self.ctx
@@ -3941,14 +3959,37 @@ impl<'ctx> ModuleBuilder<'ctx> {
             // `export { globalThis_ as globalThis }` re-exports a local under a
             // second spelling. This prepass runs before statement lowering, so
             // record the rename and let `record_module_global_object_aliases`
-            // project any later-discovered global-object alias onto it.
-            if local != exported {
-                self.export_renames.insert(exported.clone(), local.clone());
-            }
-            if let Some(item) = self.items.get(&local).copied() {
+            // project any later-discovered global-object alias onto it. A
+            // same-name specifier is recorded too: `import { matcher } from ..;
+            // export { matcher }` names an import this prepass has not bound
+            // yet, and `record_module_exports` publishes it once it is.
+            self.export_renames.insert(exported.clone(), local.clone());
+            // A namespace import is the value the specifier exports, whatever
+            // item of the same name the module also sees.
+            if self.imports.is_namespace(&local) {
+                self.reexport_namespace_members(&local, &exported);
+            } else if let Some(item) = self.items.get(&local).copied() {
                 self.items.insert(exported.clone(), item);
                 self.ctx.export_aliases.insert(exported, item);
             }
+        }
+    }
+
+    /// Publish the members of the namespace import `local` under `exported`
+    /// (`import * as Pattern from './patterns'; export { Pattern as P }`), the
+    /// `exported.<member>` keys an importer of `exported` resolves through,
+    /// exactly as `export * as exported from './patterns'` publishes them.
+    fn reexport_namespace_members(&mut self, local: &str, exported: &str) {
+        let prefix = format!("{local}.");
+        let mut members = self
+            .items
+            .iter()
+            .filter_map(|(name, item)| Some((format!("{exported}.{}", name.strip_prefix(&prefix)?), *item)))
+            .collect::<Vec<_>>();
+        members.sort_by(|left, right| left.0.cmp(&right.0));
+        for (alias, item) in members {
+            self.items.insert(alias.clone(), item);
+            self.ctx.export_aliases.insert(alias, item);
         }
     }
 
@@ -4044,6 +4085,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.interfaces.register_alias(alias, item);
             }
         }
+    }
+
+    /// Whether `source` exports `name` as a namespace re-export
+    /// (`export * as name from ..`): its exports hold `name.<member>` keys.
+    fn source_exports_namespace(&self, source: &str, name: &str) -> bool {
+        let prefix = format!("{name}.");
+        self.source_module_exports(source)
+            .is_some_and(|exports| !exports.contains_key(name) && exports.keys().any(|key| key.starts_with(&prefix)))
     }
 
     /// Return the exports for an import source resolved relative to this file.
@@ -4169,6 +4218,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.imports.mark_test_builtin(local.clone());
             } else if imported != "*" {
                 self.alias_imported_item(source, &imported, &local);
+                // `import { P } from './index'` where the index declares
+                // `export * as P from './patterns'`: `P` is that module's
+                // namespace object, whose members the line above aliased as `P.*`.
+                if !self.import_alias_resolved(&local) && self.source_exports_namespace(source, &imported) {
+                    self.imports.mark_namespace(local.clone());
+                    continue;
+                }
                 if !self.imports.is_type_only(&local) && !self.import_alias_resolved(&local) {
                     self.pending_host_imports.push(PendingHostImport {
                         module: source.to_owned(),

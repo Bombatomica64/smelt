@@ -185,7 +185,7 @@ fn analyze_files(files: Vec<(String, String)>) -> TsCheck {
             }
         })
         .collect();
-    match crate::timing::measure("manifest.ts7_check", || smelt_ts_types::analyze(inputs)) {
+    match crate::timing::measure("manifest.ts7_check", || smelt_ts_types::analyze_with(inputs, smelt_ts_types::Spellings::Omitted)) {
         Ok(facts) => TsCheck { facts: Some(facts), failure: None },
         Err(error) => TsCheck { facts: None, failure: Some(error.to_string()) },
     }

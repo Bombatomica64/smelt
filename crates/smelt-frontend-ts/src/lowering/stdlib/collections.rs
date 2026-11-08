@@ -1047,6 +1047,22 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// The arm of a union contextual type a `new Map(..)` builds: its only
+    /// map or record arm (`{ input: new Map(..) }` where `input` is
+    /// `string | Map<string, T> | ..`). Any other hint is returned unchanged.
+    fn map_arm_of_hint(&self, hint: smelt_hir::TypeId) -> smelt_hir::TypeId {
+        let Some(Type::Union(arms)) = self.ctx.krate.types.get(hint) else {
+            return hint;
+        };
+        let mut maps = arms
+            .iter()
+            .filter(|arm| matches!(self.ctx.krate.types.get(**arm), Some(Type::Dict(..) | Type::JsMap(..))));
+        match (maps.next(), maps.next()) {
+            (Some(arm), None) => *arm,
+            _ => hint,
+        }
+    }
+
     /// Lower `new Map(...)` to a dictionary literal.
     pub(in crate::lowering) fn map_constructor_expression(
         &mut self,
@@ -1087,6 +1103,7 @@ impl ModuleBuilder<'_> {
             }
             [Argument::ArrayExpression(array)] => {
                 let entries = self.map_constructor_entries(array, body)?;
+                let type_hint = type_hint.map(|hint| self.map_arm_of_hint(hint));
                 let ty = if let Some(hint) = type_hint {
                     let Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) =
                         self.ctx.krate.types.get(hint)

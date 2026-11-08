@@ -74,31 +74,60 @@ impl fmt::Display for TsTypesError {
 
 impl std::error::Error for TsTypesError {}
 
-/// Type-checks `inputs` as one TypeScript program and collects its type facts.
+/// Whether an analysis records the checker's spelling of every type
+/// ([`TsType::display`]).
+///
+/// `typeToString` prints a type in full before truncating it, so spelling every
+/// interned type costs time proportional to each type's size; on type-level
+/// libraries whose instantiations nest deeply it dominates the whole analysis.
+/// Lowering reads only a type's structure, so it omits them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Spellings {
+    /// Record `typeToString` for every type (reports, tests, hovers).
+    Recorded,
+    /// Leave every [`TsType::display`] `None`.
+    Omitted,
+}
+
+/// Type-checks `inputs` as one TypeScript program and collects its type
+/// facts, spelling every type ([`Spellings::Recorded`]).
 ///
 /// # Errors
 ///
 /// Returns [`TsTypesError`] when the program cannot be configured, an input
 /// is missing from the program, or the checker thread fails.
 pub fn analyze(inputs: Vec<SourceInput>) -> Result<TsTypeFacts, TsTypesError> {
+    analyze_with(inputs, Spellings::Recorded)
+}
+
+/// [`analyze`], choosing whether types carry their checker spelling.
+///
+/// The structure of every fact ([`TsType::kind`], [`TsType::alias`]) is the
+/// same either way; only [`TsType::display`] differs.
+///
+/// # Errors
+///
+/// As [`analyze`].
+pub fn analyze_with(inputs: Vec<SourceInput>, spellings: Spellings) -> Result<TsTypeFacts, TsTypesError> {
     std::thread::Builder::new()
         .name("smelt-tsrs".to_owned())
         .stack_size(CHECKER_STACK_BYTES)
-        .spawn(move || analyze_on_checker_thread(&inputs))
+        .spawn(move || analyze_on_checker_thread(&inputs, spellings))
         .map_err(|error| TsTypesError::Checker(error.to_string()))?
         .join()
         .map_err(|panic| TsTypesError::Checker(panic_message(panic.as_ref())))?
 }
 
 /// Builds, checks and walks the program; runs on the checker thread.
-fn analyze_on_checker_thread(inputs: &[SourceInput]) -> Result<TsTypeFacts, TsTypesError> {
+fn analyze_on_checker_thread(inputs: &[SourceInput], spellings: Spellings) -> Result<TsTypeFacts, TsTypesError> {
     let program = project::build_program(inputs)?;
     let ctx = tsrs_compiler::Context::default();
     // Diagnostics first: they check every file, and they take the checker lock
     // themselves, so they must finish before the walk holds the checker.
     let diagnostics = diagnostics::collect(program, &ctx);
     let mut checker = program.get_type_checker(&ctx);
-    let mut converter = Converter::new(&mut checker);
+    let mut converter = Converter::new(&mut checker, spellings);
     let mut by_span = HashMap::new();
     let mut type_nodes = HashMap::new();
     let mut evolved_arrays = HashMap::new();

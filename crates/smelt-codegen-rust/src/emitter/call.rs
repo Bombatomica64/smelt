@@ -789,7 +789,8 @@ impl FunctionEmitter<'_> {
             // are coerced to the emitted parameter types like any other
             // static call, and missing trailing parameters default.
             let class_name = sanitize_ident(self.symbol_name(class)?);
-            let method_name = sanitize_ident(self.symbol_name(method)?);
+            let method_name =
+                function_item::static_method_rust_name(self.context, function.id, self.symbol_name(method)?);
             let mut rendered_args = args
                 .iter()
                 .enumerate()

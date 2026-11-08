@@ -554,7 +554,7 @@ impl FunctionEmitter<'_> {
             HirOrigin::ClassStaticMethod { method, .. } => {
                 // A static method takes no receiver: emit every parameter and no
                 // `self`, producing an associated function `Class::name(..)`.
-                let name = sanitize_ident(self.symbol_name(method)?);
+                let name = static_method_rust_name(self.context, self.function.id, self.symbol_name(method)?);
                 let method_params = self.param_decls_text(0)?;
                 out.push_str(&format!(
                     "    {}fn {name}({method_params}) -> {} {{\n",
@@ -733,5 +733,17 @@ pub(super) fn emitted_signature_key_in(
     match symbol_name(owner) {
         Some(class_name) => format!("{class_name}::{rust_name}"),
         None => rust_name.to_owned(),
+    }
+}
+
+/// The Rust name of the static method `function`, whose source name is
+/// `method`: the sanitized name, suffixed with the function id when an
+/// instance method of the same class shares it (one `impl` block holds both).
+pub(crate) fn static_method_rust_name(context: &EmitContext, function: FuncId, method: &str) -> String {
+    let base = sanitize_ident(method);
+    if context.renamed_static_methods.contains(&function) {
+        format!("{base}_{}", function.0)
+    } else {
+        base
     }
 }

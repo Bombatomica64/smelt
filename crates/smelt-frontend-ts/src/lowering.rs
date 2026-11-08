@@ -760,6 +760,14 @@ struct ModuleBuilder<'ctx> {
     source: String,
     /// The member calls being dispatched, innermost last.
     receiver_frames: Vec<stdlib::call_dispatch::ReceiverFrame>,
+    /// One slot per call being lowered, innermost last: the receiver its
+    /// owned-member probe lowered and kept (see
+    /// [`stdlib::call_dispatch::KeptReceiver`]).
+    kept_receivers: Vec<Option<stdlib::call_dispatch::KeptReceiver>>,
+    /// Each numeric `enum` declared in this module: its `(value, member name)`
+    /// pairs in declaration order, the entries of the enum object's reverse
+    /// mapping (`Color[0] === "Red"`).
+    enum_reverse_names: HashMap<String, Vec<(f64, String)>>,
     /// Declarations and reads of this module, from its AST.
     source_facts: source_facts::SourceFacts,
     /// Mutable reference to the HIR context.

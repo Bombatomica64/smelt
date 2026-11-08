@@ -562,7 +562,9 @@ pub fn sanitize_identifier(name: &str) -> String {
         }
     }
 
-    if out.is_empty() || is_rust_keyword(&out) || is_rust_prelude_name(&out) {
+    // A lone `_` is the wildcard pattern, never an identifier (`{ _: v }` is
+    // an ordinary JavaScript property name).
+    if out.is_empty() || out == "_" || is_rust_keyword(&out) || is_rust_prelude_name(&out) {
         out.push('_');
     }
     out
@@ -582,11 +584,24 @@ pub fn sanitize_identifier(name: &str) -> String {
 /// `main` is the same case one level up: the crate root defines the binary's
 /// entry point `fn main`, so a source function named `main` (`async function
 /// main() {..}; main()`, a common script shape) was a second `main` (E0428).
+///
+/// The list is every Rust prelude item the runtime or the emitter spells
+/// unqualified (closure types `dyn Fn(..)`, `impl Clone for`, derives,
+/// `IntoIterator` bounds) and every runtime item declared at the crate root
+/// without a `smelt` prefix (`JsString`, `DateLike`, `IntoSmeltUnknown`): a
+/// source `type Fn` declared as `struct Fn` hid the `Fn` trait from every
+/// closure type of the crate (E0404). `tests/reserved_name_tests.rs` derives
+/// the required set from the rendered runtime and the committed example crates
+/// and fails when a name is missing here.
 fn is_rust_prelude_name(name: &str) -> bool {
     matches!(
         name,
         "Box" | "Vec" | "Option" | "Result" | "String" | "Some" | "None" | "Ok" | "Err" | "main"
             | "JsString" | "JsStr"
+            | "AsRef" | "Clone" | "Copy" | "Default" | "Drop" | "Eq" | "Ord" | "PartialEq" | "PartialOrd"
+            | "Fn" | "FnMut" | "FnOnce" | "From" | "Into" | "FromIterator" | "IntoIterator" | "Iterator"
+            | "IntoFuture" | "Send" | "Sized" | "ToOwned" | "ToString" | "drop"
+            | "DateLike" | "IntoSmeltUnknown"
     )
 }
 

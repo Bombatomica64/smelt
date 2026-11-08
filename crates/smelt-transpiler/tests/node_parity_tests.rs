@@ -238,6 +238,34 @@ fn block_local_classes() -> TestResult {
     verify_node_parity("block_local_classes")
 }
 
+/// A block-local alias redeclared later is the later block's type, and
+/// `new Map(..)` takes the map arm of a union contextual type.
+#[test]
+fn block_local_type_alias_redeclaration() -> TestResult {
+    verify_node_parity("block_local_type_alias_redeclaration")
+}
+
+/// Source items named like Rust prelude items (`Fn`, `Iterator`, `Clone`,
+/// `Default`, `drop`) neither shadow the prelude nor lose their own meaning.
+#[test]
+fn prelude_named_items() -> TestResult {
+    verify_node_parity("prelude_named_items")
+}
+
+/// Names that render alike stay distinct: same-named static and instance
+/// members, a module body function and the module's own export, a `_` key.
+#[test]
+fn rendered_name_collisions() -> TestResult {
+    verify_node_parity_with("rendered_name_collisions", &["is-even.ts"])
+}
+
+/// Enum members auto-increment, string members fold, numeric members map back
+/// to their names, and an enum may be declared inside a function.
+#[test]
+fn enums() -> TestResult {
+    verify_node_parity("enums")
+}
+
 /// A string key is a property name on whatever the erased receiver holds.
 #[test]
 fn string_key_on_erased_receiver() -> TestResult {
@@ -339,6 +367,13 @@ fn narrowed_union_receivers() -> TestResult {
 #[test]
 fn namespace_generic_calls() -> TestResult {
     verify_node_parity_with("namespace_generic_calls", &["lib.ts"])
+}
+
+/// A namespace re-exported under a name is the module's namespace in the
+/// importer, and a class may name itself from its own members.
+#[test]
+fn namespace_reexports() -> TestResult {
+    verify_node_parity_with("namespace_reexports", &["index.ts", "patterns.ts", "symbols.ts"])
 }
 
 /// A spread fills a rest parameter element by element through a function value.

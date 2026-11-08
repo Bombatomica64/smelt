@@ -278,6 +278,9 @@ pub(crate) struct EmitContext {
     test_runtime_resets: TestRuntimeResets,
     /// Rust function names keyed by MIR function ID.
     pub(crate) function_names: HashMap<FuncId, String>,
+    /// Static methods sharing their name with an instance method of their
+    /// class; see [`function_item::static_method_rust_name`].
+    pub(crate) renamed_static_methods: HashSet<FuncId>,
     /// Emitted parameter types keyed by Rust function name.
     function_param_types: HashMap<String, Vec<TypeId>>,
     /// Emitted return types keyed by Rust function name.
@@ -484,17 +487,44 @@ impl EmitContext {
             })
             .transpose()?
             .ok_or_else(|| EmitError::new("MIR is missing the None type"))?;
-        let mut duplicate_counts = HashMap::<Symbol, usize>::new();
+        // Counted by RENDERED name: two source names can render alike (a
+        // module `is-matching.ts`, whose body function is named after it, and
+        // its own `isMatching` both render `is_matching`), and the crate glob
+        // re-exports every module, so a free function's Rust name must be
+        // unique crate-wide.
+        let mut duplicate_counts = HashMap::<String, usize>::new();
         for function in &mir.functions {
             if !matches!(
                 function.origin,
                 HirOrigin::ClassConstructor { .. } | HirOrigin::ClassMethod { .. }
             ) {
-                let count = duplicate_counts.entry(function.name).or_insert(0usize);
+                let source_name = mir
+                    .symbols
+                    .get(function.name)
+                    .ok_or_else(|| EmitError::new("function has unknown symbol"))?;
+                let count = duplicate_counts.entry(sanitize_ident(source_name)).or_insert(0usize);
                 *count = count.saturating_add(1);
             }
         }
 
+        // A static method named like an instance method of its class would be
+        // a second associated item of that name in the class's one `impl`
+        // block (E0592), so it renders as `<name>_<function id>`.
+        let mut instance_method_names = HashSet::<(Symbol, Symbol)>::new();
+        for function in &mir.functions {
+            if let HirOrigin::ClassMethod { class, method, .. } = function.origin {
+                instance_method_names.insert((class, method));
+            }
+        }
+        let renamed_static_methods = mir
+            .functions
+            .iter()
+            .filter(|function| {
+                matches!(function.origin, HirOrigin::ClassStaticMethod { class, method, .. }
+                    if instance_method_names.contains(&(class, method)))
+            })
+            .map(|function| function.id)
+            .collect::<HashSet<_>>();
         let mut function_names = HashMap::new();
         let mut function_param_types = HashMap::new();
         let mut function_return_types = HashMap::new();
@@ -510,7 +540,7 @@ impl EmitContext {
                     // The binary's entry point keeps its Rust name; a SOURCE
                     // item named `main` renames (see `rust::sanitize_ident`).
                     "main".to_owned()
-                } else if duplicate_counts.get(&function.name).copied().unwrap_or(0) > 1
+                } else if duplicate_counts.get(&base).copied().unwrap_or(0) > 1
                     || source_name.starts_with("__smelt_module_")
                 {
                     format!("{}_{}", base, function.id.0)
@@ -561,6 +591,7 @@ impl EmitContext {
                 timers: demand.has(Need::Timers),
             },
             function_names,
+            renamed_static_methods,
             function_param_types,
             function_return_types,
             owned_callback_params,

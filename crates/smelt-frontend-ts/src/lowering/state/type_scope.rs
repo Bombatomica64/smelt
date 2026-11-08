@@ -85,6 +85,11 @@ impl TypeScope {
         self.alias_fields.write().insert(name, fields);
     }
 
+    /// Forget the structural fields recorded for the type alias `name`.
+    pub(in crate::lowering) fn clear_alias_fields(&mut self, name: Symbol) {
+        self.alias_fields.write().remove(&name);
+    }
+
     /// Return the fields attached to a callable intersection type.
     pub(in crate::lowering) fn callable_fields(&self, ty: TypeId) -> Option<&Vec<Field>> {
         self.callable_fields.get(&ty)

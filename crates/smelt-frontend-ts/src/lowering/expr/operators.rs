@@ -645,6 +645,13 @@ impl ModuleBuilder<'_> {
                 member.span.end,
                 body,
             )?)),
+            // A module-level binding with a computed value (`export const string =
+            // chainable(..)`) is read through its global, as a named import of it is.
+            Item::MutableGlobal(global) => Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::GlobalGet { item },
+                ty: global.ty,
+                span,
+            }))),
             _ => {
                 let ty = self.item_expr_type(item, span)?;
                 Ok(Some(body.push_expr(Expr {

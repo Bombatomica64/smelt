@@ -54,13 +54,12 @@ module examples/typescript/end-to-end/84_same_named_methods_across_classes/input
     #42: String = "other class: "
     #43: Sizer = new Sizer()
     #44: fn(String) -> Float = #43.describe
-    #45: Sizer = new Sizer()
-    #46: String = "abcd"
-    #47: Float = #45.describe(#46)
-    #48: String = primitive_cast_string #47
-    #49: String = Add #42, #48
-    #50: None = @14(console_log)
-    #51: None = call #50(#49)
+    #45: String = "abcd"
+    #46: Float = #43.describe(#45)
+    #47: String = primitive_cast_string #46
+    #48: String = Add #42, #47
+    #49: None = @14(console_log)
+    #50: None = call #49(#48)
   stmts
     s0: let %0: Ticker = #0
     s1: #5
@@ -70,7 +69,7 @@ module examples/typescript/end-to-end/84_same_named_methods_across_classes/input
     s5: let %2: String = #27
     s6: #32
     s7: #41
-    s8: #51
+    s8: #50
 
 interned types
   t0 = None

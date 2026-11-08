@@ -95,10 +95,12 @@ impl ModuleBuilder<'_> {
                 continue;
             }
             if let Statement::TSInterfaceDeclaration(interface) = statement {
+                self.shadow_outer_type(interface.id.name.as_str(), interface.span.start);
                 self.interface_declaration(interface)?;
                 continue;
             }
             if let Statement::TSTypeAliasDeclaration(alias) = statement {
+                self.shadow_outer_type(alias.id.name.as_str(), alias.span.start);
                 self.type_alias_declaration(alias)?;
                 continue;
             }
