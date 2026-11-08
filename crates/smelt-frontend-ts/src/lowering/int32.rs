@@ -505,28 +505,14 @@ impl ModuleBuilder<'_> {
         let rebuilt = match shape {
             Type::FixedInt(IntWidth::I32) if keep_top => return ty,
             Type::FixedInt(IntWidth::I32) => Type::Float,
-            Type::List(item) => Type::List(nested(self, item)),
-            Type::Set(item) => Type::Set(nested(self, item)),
-            Type::Optional(item) => Type::Optional(nested(self, item)),
-            Type::Future(item) => Type::Future(nested(self, item)),
-            Type::Dict(key, value) => Type::Dict(nested(self, key), nested(self, value)),
-            Type::JsMap(key, value) => Type::JsMap(nested(self, key), nested(self, value)),
-            Type::Tuple(items) => Type::Tuple(items.into_iter().map(|item| nested(self, item)).collect()),
-            Type::Union(items) => Type::Union(items.into_iter().map(|item| nested(self, item)).collect()),
-            Type::Class { name, args } => Type::Class {
-                name,
-                args: args.into_iter().map(|arg| nested(self, arg)).collect(),
-            },
-            Type::Function(mut function) => {
-                function.params = function
-                    .params
-                    .into_iter()
-                    .map(|param| nested(self, param))
-                    .collect();
-                function.return_ty = nested(self, function.return_ty);
-                Type::Function(function)
+            // Every other layer keeps its shape with each child rewritten,
+            // through the one child visitor, so no variant is skipped.
+            other => {
+                let Some(rewritten) = other.try_map_children(|child| Some(nested(self, child))) else {
+                    return ty;
+                };
+                rewritten
             }
-            _ => return ty,
         };
         self.ctx.krate.types.intern(rebuilt)
     }
