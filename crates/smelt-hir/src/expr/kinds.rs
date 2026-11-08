@@ -173,3 +173,39 @@ macro_rules! define_expr_kind {
 }
 
 crate::for_each_op!(define_expr_kind);
+
+/// Generates [`ExprKind::state_updated_receiver`] from the op table's
+/// `updates_state` facts.
+macro_rules! define_expr_state_update {
+    ($(
+        $(#[$meta:meta])*
+        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt $(@ $role:tt)?),* $(,)? })?
+        $($fact:ident $fact_value:tt)*
+        => $display:tt;
+    )*) => {
+        impl ExprKind {
+            /// The operand whose runtime-modelled state this op changes behind a
+            /// shared handle (`RegExp.prototype.test` moving `lastIndex`), if any.
+            ///
+            /// A field read of a value of that operand's type observes the change,
+            /// so an earlier sibling read is taken where it is evaluated.
+            #[must_use]
+            #[expect(
+                unused_variables,
+                reason = "each arm binds every field; a fact reads the ones it needs"
+            )]
+            pub const fn state_updated_receiver(&self) -> Option<ExprId> {
+                match self {
+                    $(
+                        Self::$name $({ $($field,)* })? => {
+                            $crate::op_updates_state!($($fact $fact_value)*)
+                        }
+                    )*
+                    _ => None,
+                }
+            }
+        }
+    };
+}
+
+crate::for_each_op!(define_expr_state_update);
