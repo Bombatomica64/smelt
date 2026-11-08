@@ -701,11 +701,19 @@ impl SmeltHostText for JsStr {
     fn host_text(&self) -> ::std::borrow::Cow<'_, str> {
         ::std::borrow::Cow::Owned(self.to_string_lossy())
     }
+
+    fn has_lone_surrogate(&self) -> bool {
+        !self.is_well_formed()
+    }
 }
 
 impl SmeltHostText for JsString {
     fn host_text(&self) -> ::std::borrow::Cow<'_, str> {
         ::std::borrow::Cow::Owned(self.to_string_lossy())
+    }
+
+    fn has_lone_surrogate(&self) -> bool {
+        !self.is_well_formed()
     }
 }
 
@@ -716,6 +724,12 @@ impl SmeltHostText for JsString {
 pub trait SmeltHostText {
     /// The UTF-8 text, borrowed when it already is UTF-8.
     fn host_text(&self) -> ::std::borrow::Cow<'_, str>;
+
+    /// Whether the text holds a lone surrogate, which has no UTF-8 spelling
+    /// (only a JavaScript string can).
+    fn has_lone_surrogate(&self) -> bool {
+        false
+    }
 
     /// The UTF-8 text as an owned `String`, for a host value that keeps it.
     fn into_host_string(self) -> String where Self: Sized {
@@ -742,6 +756,10 @@ impl SmeltHostText for String {
 impl<T: SmeltHostText + ?Sized> SmeltHostText for &T {
     fn host_text(&self) -> ::std::borrow::Cow<'_, str> {
         (**self).host_text()
+    }
+
+    fn has_lone_surrogate(&self) -> bool {
+        (**self).has_lone_surrogate()
     }
 }
 
@@ -3991,7 +4009,7 @@ impl serde::Serialize for SmeltUnknown {
             Self::Undefined => serializer.serialize_none(),
             Self::Bool(value) => serializer.serialize_bool(*value),
             Self::Number(value) => if !value.is_finite() { serializer.serialize_none() } else if *value == value.trunc() && value.abs() < 1e21 { serializer.serialize_i64(*value as i64) } else { serializer.serialize_f64(*value) },
-            Self::String(value) => serializer.serialize_str(&value.to_string_lossy()),
+            Self::String(value) => value.serialize(serializer),
             Self::Symbol(_) => serializer.serialize_none(),
             Self::Array(values) => serde::Serialize::serialize(&*values.values.borrow(), serializer),
             Self::Object(values) => { use serde::ser::SerializeMap as _; if let Some(elements) = smelt_host_buffer_own_elements(self) { let mut map = serializer.serialize_map(Some(elements.len()))?; for (index, element) in elements.iter().enumerate() { map.serialize_entry(&index.to_string(), element)?; } return map.end(); } let shape = smelt_for_in_object_shape(values); let store = values.store.borrow(); let included = |entry: &&SmeltFieldEntry<JsString, SmeltUnknown>| !matches!(entry.value, Self::Undefined | Self::Function(_) | Self::Symbol(_)) && smelt_is_for_in_shape_key(shape, &entry.key); let mut map = serializer.serialize_map(Some(store.entries().iter().filter(included).count()))?; for entry in store.entries().iter().filter(included) { map.serialize_entry(&entry.key, &entry.value)?; } map.end() },
@@ -4001,6 +4019,81 @@ impl serde::Serialize for SmeltUnknown {
     }
 }
 
+/// `JSON.stringify(value)`: the JSON text, or the `TypeError` message for a
+/// value JSON cannot hold (a bigint).
+fn smelt_json_stringify(value: &SmeltUnknown) -> Result<String, &'static str> {
+    let mut out = String::new();
+    smelt_json_write(value, &mut out)?;
+    Ok(out)
+}
+
+/// Appends `QuoteJSONString(text)`: `"` and `\` escaped, the short escapes
+/// for `\b \f \n \r \t`, other control characters and every lone surrogate as
+/// a lowercase `\uXXXX`, anything else as itself.
+fn smelt_json_quote(text: &JsStr, out: &mut String) {
+    use ::std::fmt::Write as _;
+    out.push('"');
+    for decoded in text.chars_lossless() {
+        match decoded {
+            Ok('"') => out.push_str("\\\""),
+            Ok('\\') => out.push_str("\\\\"),
+            Ok('\u{8}') => out.push_str("\\b"),
+            Ok('\u{c}') => out.push_str("\\f"),
+            Ok('\n') => out.push_str("\\n"),
+            Ok('\r') => out.push_str("\\r"),
+            Ok('\t') => out.push_str("\\t"),
+            Ok(ch) if u32::from(ch) < 0x20 => { let _ = write!(out, "\\u{:04x}", u32::from(ch)); }
+            Ok(ch) => out.push(ch),
+            Err(lone) => { let _ = write!(out, "\\u{lone:04x}"); }
+        }
+    }
+    out.push('"');
+}
+
+/// Appends the JSON text of `value` (see `smelt_json_stringify`).
+fn smelt_json_write(value: &SmeltUnknown, out: &mut String) -> Result<(), &'static str> {
+    match value {
+        SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Function(_) => out.push_str("null"),
+        SmeltUnknown::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
+        SmeltUnknown::Number(_) => out.push_str(&serde_json::to_string(value).map_err(|_unrepresentable| "JSON serialization failed")?),
+        SmeltUnknown::String(text) => smelt_json_quote(text, out),
+        SmeltUnknown::Promise(_) => out.push_str("\"[object Promise]\""),
+        SmeltUnknown::Array(values) => {
+            out.push('[');
+            for (index, element) in values.values.borrow().iter().enumerate() {
+                if index > 0 { out.push(','); }
+                smelt_json_write(element, out)?;
+            }
+            out.push(']');
+        }
+        SmeltUnknown::Object(values) => {
+            out.push('{');
+            if let Some(elements) = smelt_host_buffer_own_elements(value) {
+                for (index, element) in elements.iter().enumerate() {
+                    if index > 0 { out.push(','); }
+                    smelt_json_quote(&JsString::from(index.to_string()), out);
+                    out.push(':');
+                    smelt_json_write(element, out)?;
+                }
+                out.push('}');
+                return Ok(());
+            }
+            let shape = smelt_for_in_object_shape(values);
+            let store = values.store.borrow();
+            let mut first = true;
+            for entry in store.entries() {
+                if matches!(entry.value, SmeltUnknown::Undefined | SmeltUnknown::Function(_) | SmeltUnknown::Symbol(_)) || !smelt_is_for_in_shape_key(shape, &entry.key) { continue; }
+                if !first { out.push(','); }
+                first = false;
+                smelt_json_quote(&entry.key, out);
+                out.push(':');
+                smelt_json_write(&entry.value, out)?;
+            }
+            out.push('}');
+        }
+    }
+    Ok(())
+}
 impl<'de> serde::Deserialize<'de> for SmeltUnknown {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: serde::Deserializer<'de> {
         let value = <serde_json::Value as serde::Deserialize>::deserialize(deserializer)?;
@@ -5190,9 +5283,9 @@ fn main() {
     _smelt_tmp_92 = Into::<SmeltList<_>>::into(SmeltList::new(wide.clone().to_elements()));
     _smelt_tmp_93 = JsString::join(_smelt_tmp_92.borrow().iter().map(|item| JsString::from({ smelt_number_to_string(*item) })), &JsString::from("-"));
     let _ = { println!("{}", _smelt_tmp_93); };
-    _smelt_tmp_95 = JsString::from(serde_json::to_string(&from_elements.clone().into_smelt_unknown()).expect("JSON serialization failed"));
+    _smelt_tmp_95 = JsString::from(smelt_json_stringify(&from_elements.clone().into_smelt_unknown()).expect("JSON serialization failed"));
     let _ = { println!("{}", _smelt_tmp_95); };
-    _smelt_tmp_97 = JsString::from(serde_json::to_string(&buffer.clone().into_smelt_unknown()).expect("JSON serialization failed"));
+    _smelt_tmp_97 = JsString::from(smelt_json_stringify(&buffer.clone().into_smelt_unknown()).expect("JSON serialization failed"));
     let _ = { println!("{}", _smelt_tmp_97); };
     _smelt_tmp_99 = Into::<SmeltList<_>>::into(SmeltList::new((0..from_elements.clone().length() as usize).map(|index| JsString::from(index.to_string())).collect::<Vec<_>>()));
     _smelt_tmp_100 = JsString::join(_smelt_tmp_99.borrow().iter(), &JsString::from(","));
@@ -5223,32 +5316,32 @@ fn main() {
     _smelt_tmp_111 = JsString::join(_smelt_tmp_110.borrow().iter(), &JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_111); };
     _smelt_tmp_113 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
-    _smelt_tmp_114 = JsString::from(serde_json::to_string(&{ let smelt_l = _smelt_tmp_113; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>())) }).expect("JSON serialization failed"));
+    _smelt_tmp_114 = JsString::from(smelt_json_stringify(&{ let smelt_l = _smelt_tmp_113; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>())) }).expect("JSON serialization failed"));
     let _ = { println!("{}", _smelt_tmp_114); };
     _smelt_tmp_116 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![]; smelt_list_items }));
-    _smelt_tmp_117 = JsString::from(serde_json::to_string(&{ let smelt_l = _smelt_tmp_116; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::Number(value as f64)).collect::<Vec<_>>())) }).expect("JSON serialization failed"));
+    _smelt_tmp_117 = JsString::from(smelt_json_stringify(&{ let smelt_l = _smelt_tmp_116; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::Number(value as f64)).collect::<Vec<_>>())) }).expect("JSON serialization failed"));
     let _ = { println!("{}", _smelt_tmp_117); };
     _smelt_tmp_119 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(JsString, f64)> = vec![]; smelt_list_items }));
-    _smelt_tmp_120 = JsString::from(serde_json::to_string(&{ let smelt_l = _smelt_tmp_119; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::Array(vec![SmeltUnknown::String((value.0.clone()).into()), SmeltUnknown::Number(value.1.clone() as f64)].into())).collect::<Vec<_>>())) }).expect("JSON serialization failed"));
+    _smelt_tmp_120 = JsString::from(smelt_json_stringify(&{ let smelt_l = _smelt_tmp_119; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::Array(vec![SmeltUnknown::String((value.0.clone()).into()), SmeltUnknown::Number(value.1.clone() as f64)].into())).collect::<Vec<_>>())) }).expect("JSON serialization failed"));
     let _ = { println!("{}", _smelt_tmp_120); };
     _smelt_tmp_122 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
-    _smelt_tmp_123 = JsString::from(serde_json::to_string(&{ let smelt_l = _smelt_tmp_122; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>())) }).expect("JSON serialization failed"));
+    _smelt_tmp_123 = JsString::from(smelt_json_stringify(&{ let smelt_l = _smelt_tmp_122; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>())) }).expect("JSON serialization failed"));
     let _ = { println!("{}", _smelt_tmp_123); };
     _smelt_tmp_125 = Into::<SmeltList<_>>::into(SmeltList::new((0..wide.clone().length() as usize).map(|index| JsString::from(index.to_string())).collect::<Vec<_>>()));
-    _smelt_tmp_126 = JsString::from(serde_json::to_string(&{ let smelt_l = _smelt_tmp_125; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>())) }).expect("JSON serialization failed"));
+    _smelt_tmp_126 = JsString::from(smelt_json_stringify(&{ let smelt_l = _smelt_tmp_125; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>())) }).expect("JSON serialization failed"));
     let _ = { println!("{}", _smelt_tmp_126); };
     _smelt_tmp_128 = Into::<SmeltList<_>>::into(SmeltList::new(wide.to_elements()));
-    _smelt_tmp_129 = JsString::from(serde_json::to_string(&{ let smelt_l = _smelt_tmp_128; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::Number(value as f64)).collect::<Vec<_>>())) }).expect("JSON serialization failed"));
+    _smelt_tmp_129 = JsString::from(smelt_json_stringify(&{ let smelt_l = _smelt_tmp_128; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::Number(value as f64)).collect::<Vec<_>>())) }).expect("JSON serialization failed"));
     let _ = { println!("{}", _smelt_tmp_129); };
     _smelt_tmp_131 = -1.0;
     _smelt_tmp_132 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![_smelt_tmp_131, 300.0]; smelt_list_items }));
     _smelt_tmp_133 = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Int16, &_smelt_tmp_132.to_vec());
-    _smelt_tmp_134 = JsString::from(serde_json::to_string(&_smelt_tmp_133.clone().into_smelt_unknown()).expect("JSON serialization failed"));
+    _smelt_tmp_134 = JsString::from(smelt_json_stringify(&_smelt_tmp_133.clone().into_smelt_unknown()).expect("JSON serialization failed"));
     let _ = { println!("{}", _smelt_tmp_134); };
     _smelt_tmp_136 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![9.0]; smelt_list_items }));
     _smelt_tmp_137 = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8, &_smelt_tmp_136.to_vec());
     _smelt_tmp_138 = SmeltRecord::from([(JsString::from("payload"), _smelt_tmp_137)]);
-    _smelt_tmp_139 = JsString::from(serde_json::to_string(&{ let smelt_record = _smelt_tmp_138.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, value.clone().into_smelt_unknown())).collect())) }).expect("JSON serialization failed"));
+    _smelt_tmp_139 = JsString::from(smelt_json_stringify(&{ let smelt_record = _smelt_tmp_138.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, value.clone().into_smelt_unknown())).collect())) }).expect("JSON serialization failed"));
     let _ = { println!("{}", _smelt_tmp_139); };
     encoder = SmeltTextEncoder::new();
     encoded = encoder.encode(&JsString::from("hi"));
@@ -5258,7 +5351,7 @@ fn main() {
     let _ = { println!("{} {} {}", _smelt_tmp_143, smelt_console_number(_smelt_tmp_144), smelt_console_number(_smelt_tmp_145)); };
     _smelt_tmp_147 = JsString::from(smelt_object_to_string_tag(&(encoded.clone().into_smelt_unknown())));
     let _ = { println!("{}", _smelt_tmp_147); };
-    _smelt_tmp_149 = JsString::from(serde_json::to_string(&encoded.clone().into_smelt_unknown()).expect("JSON serialization failed"));
+    _smelt_tmp_149 = JsString::from(smelt_json_stringify(&encoded.clone().into_smelt_unknown()).expect("JSON serialization failed"));
     let _ = { println!("{}", _smelt_tmp_149); };
     _smelt_tmp_151 = SmeltTextDecoder::new();
     _smelt_tmp_152 = JsString::from(_smelt_tmp_151.decode(&encoded.clone()));

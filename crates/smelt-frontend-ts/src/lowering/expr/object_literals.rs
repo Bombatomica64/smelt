@@ -7,7 +7,7 @@ use crate::lowering::{
     Body, Expr, ExprKind, Expression, Field, FunctionType, HashSet, Literal, LogicalOperator,
     ModuleBuilder, ObjectPropertyKind, PropertyKey, PropertyKind, SmeltError, Statement, Type,
 };
-use crate::lowering::js_text::js_str_text;
+use crate::lowering::js_text::{js_str_literal, js_str_text};
 use oxc::span::GetSpan;
 use smelt_hir::ErasureReason;
 use std::borrow::Cow;
@@ -633,9 +633,17 @@ impl ModuleBuilder<'_> {
             return self.property_key_index_expression(&object_property.key, body);
         }
 
+        // A string key keeps a lone surrogate's code units, as a string literal does.
+        if let PropertyKey::StringLiteral(lit) = &object_property.key {
+            let key_ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(js_str_literal(lit.value)),
+                ty: key_ty,
+                span: self.span(object_property.key.span().start, object_property.key.span().end),
+            }));
+        }
         let key_text = match &object_property.key {
             PropertyKey::StaticIdentifier(ident) => ident.name.as_str().to_owned(),
-            PropertyKey::StringLiteral(lit) => js_str_text(lit.value).into_owned(),
             PropertyKey::NumericLiteral(lit) => lit.raw.as_ref().map_or_else(
                 || {
                     if lit.value.fract() == 0.0_f64 {

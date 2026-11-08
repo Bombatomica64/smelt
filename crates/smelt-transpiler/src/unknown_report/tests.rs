@@ -248,7 +248,7 @@ fn error_brand_instanceof_guard_is_a_boundary() {
 /// the marker does not widen to every line that mentions serde.
 #[test]
 fn json_serializer_argument_is_a_boundary() {
-    let stringify = "    _smelt_tmp_3 = serde_json::to_string(&SmeltUnknown::Number(4.0 as f64)).expect(\"JSON serialization failed\");";
+    let stringify = "    _smelt_tmp_3 = smelt_json_stringify(&SmeltUnknown::Number(4.0 as f64)).expect(\"JSON serialization failed\");";
     assert_eq!(
         classify_line(stringify, false),
         Category::LegitimateBoundary,

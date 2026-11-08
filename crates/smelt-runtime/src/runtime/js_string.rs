@@ -661,11 +661,19 @@ impl SmeltHostText for JsStr {
     fn host_text(&self) -> ::std::borrow::Cow<'_, str> {
         ::std::borrow::Cow::Owned(self.to_string_lossy())
     }
+
+    fn has_lone_surrogate(&self) -> bool {
+        !self.is_well_formed()
+    }
 }
 
 impl SmeltHostText for JsString {
     fn host_text(&self) -> ::std::borrow::Cow<'_, str> {
         ::std::borrow::Cow::Owned(self.to_string_lossy())
+    }
+
+    fn has_lone_surrogate(&self) -> bool {
+        !self.is_well_formed()
     }
 }
 
@@ -673,7 +681,8 @@ impl SmeltHostText for JsString {
 
 // @smelt:item impl_serde_for_JsString when dep_serde_json & js_string
 //~ JSON text is UTF-8 in serde's data model, so a string crosses it as its
-//~ UTF-8 text; a lone surrogate becomes U+FFFD there.
+//~ UTF-8 text; a lone surrogate becomes U+FFFD there. `JSON.stringify` does
+//~ not go through serde for strings (`smelt_json_stringify` writes them).
 impl serde::Serialize for JsString {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {
         serializer.serialize_str(&self.to_string_lossy())
@@ -700,6 +709,12 @@ pub trait SmeltHostText {
     /// The UTF-8 text, borrowed when it already is UTF-8.
     fn host_text(&self) -> ::std::borrow::Cow<'_, str>;
 
+    /// Whether the text holds a lone surrogate, which has no UTF-8 spelling
+    /// (only a JavaScript string can).
+    fn has_lone_surrogate(&self) -> bool {
+        false
+    }
+
     /// The UTF-8 text as an owned `String`, for a host value that keeps it.
     fn into_host_string(self) -> String where Self: Sized {
         self.host_text().into_owned()
@@ -725,6 +740,10 @@ impl SmeltHostText for String {
 impl<T: SmeltHostText + ?Sized> SmeltHostText for &T {
     fn host_text(&self) -> ::std::borrow::Cow<'_, str> {
         (**self).host_text()
+    }
+
+    fn has_lone_surrogate(&self) -> bool {
+        (**self).has_lone_surrogate()
     }
 }
 

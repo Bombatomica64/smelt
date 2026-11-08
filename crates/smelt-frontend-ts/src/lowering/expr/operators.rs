@@ -313,7 +313,7 @@ impl ModuleBuilder<'_> {
             let mut condition = None;
             for entry in object_const.entries {
                 let rhs = body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::String(entry.key)),
+                    kind: ExprKind::Literal(entry.key_literal()),
                     ty: string_ty,
                     span,
                 });

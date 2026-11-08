@@ -1,7 +1,7 @@
 //! Template literals and tagged templates, including `String.raw`.
 
 use crate::SmeltError;
-use crate::lowering::js_text::template_element_text;
+use crate::lowering::js_text::template_element_literal;
 use oxc::ast::ast::Expression;
 use oxc::span::GetSpan;
 use smelt_hir::{BinOp, Body, Expr, ExprKind, Literal, Type};
@@ -22,9 +22,8 @@ impl ModuleBuilder<'_> {
                 "template literals must contain at least one quasi",
             ));
         };
-        let first_str = template_element_text(&first_quasi.value).into_owned();
         let mut acc = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String(first_str)),
+            kind: ExprKind::Literal(template_element_literal(&first_quasi.value)),
             ty: str_ty,
             span,
         });
@@ -44,10 +43,10 @@ impl ModuleBuilder<'_> {
                 span,
             });
             if let Some(quasi) = tpl.quasis.get(i.saturating_add(1)) {
-                let s = template_element_text(&quasi.value);
-                if !s.is_empty() {
+                let quasi_literal = template_element_literal(&quasi.value);
+                if quasi_literal != Literal::String(String::new()) {
                     let lit = body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::String(s.into_owned())),
+                        kind: ExprKind::Literal(quasi_literal),
                         ty: str_ty,
                         span,
                     });

@@ -67,14 +67,13 @@ pub(in crate::lowering) fn static_name_text(name: StaticPropertyName<'_>) -> Cow
     }
 }
 
-/// Returns the text of a template literal quasi: its cooked value (see [`js_str_text`]), or the
-/// raw source text when the quasi has no cooked value (an invalid escape in a tagged template).
-pub(in crate::lowering) fn template_element_text<'a>(
-    value: &TemplateElementValue<'a>,
-) -> Cow<'a, str> {
+/// Returns a template literal quasi as a HIR literal: its cooked value (see
+/// [`js_str_literal`], so a lone surrogate keeps its code units), or the raw source text
+/// when the quasi has no cooked value.
+pub(in crate::lowering) fn template_element_literal(value: &TemplateElementValue<'_>) -> smelt_hir::Literal {
     value
         .cooked
-        .map_or_else(|| Cow::Borrowed(value.raw.as_str()), js_str_text)
+        .map_or_else(|| smelt_hir::Literal::String(value.raw.as_str().to_owned()), js_str_literal)
 }
 
 #[cfg(test)]

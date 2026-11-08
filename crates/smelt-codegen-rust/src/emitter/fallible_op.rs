@@ -285,17 +285,14 @@ impl FunctionEmitter<'_> {
             Rvalue::UriTranscode { op, .. } => {
                 let value = args
                     .first()
-                    .ok_or_else(|| EmitError::new("a URI decoder takes one string argument"))?;
+                    .ok_or_else(|| EmitError::new("a URI transcoder takes one string argument"))?;
                 let adapter = match op {
                     UriTranscodeOp::Decode => crate::thrown::DECODE_URI_FN,
                     UriTranscodeOp::DecodeComponent => crate::thrown::DECODE_URI_COMPONENT_FN,
-                    UriTranscodeOp::Encode | UriTranscodeOp::EncodeComponent => {
-                        return Err(EmitError::new(
-                            "internal: an infallible URI encoder reached the fallible call path",
-                        ));
-                    }
+                    UriTranscodeOp::Encode => crate::thrown::ENCODE_URI_FN,
+                    UriTranscodeOp::EncodeComponent => crate::thrown::ENCODE_URI_COMPONENT_FN,
                 };
-                let value_text = self.string_like_operand_expr(value, "URI decoder input")?;
+                let value_text = self.string_like_operand_expr(value, "URI transcoder input")?;
                 (
                     RenderedCall::propagating(RustExpr::postfix_on(&adapter, format!("{adapter}(&{value_text})"))),
                     self.type_id(Type::String)?,

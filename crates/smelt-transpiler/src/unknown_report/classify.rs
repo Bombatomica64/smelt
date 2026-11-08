@@ -469,7 +469,7 @@ const BOUNDARY_MARKERS: [&str; 41] = [
     // non-finite number is `null`, an `undefined`/function/symbol property
     // is omitted, key order is insertion order, and a byte view serializes
     // as its element indices. Every one of those rules lives in
-    // `Serialize for SmeltUnknown`, so the emitter erases the value at this
+    // `smelt_json_stringify` (mirroring `Serialize for SmeltUnknown`), so the emitter erases the value at this
     // one call site and lets that impl decide — for a union, whose arm is
     // only known at run time, it is the ONLY place the per-arm answer can
     // be decided at all.
@@ -477,7 +477,9 @@ const BOUNDARY_MARKERS: [&str; 41] = [
     // That makes the erasure an explicit boundary adapter into the "JSON
     // value" boundary the policy names, not program storage: the tagged
     // value exists for the duration of one call and is never read back as
-    // data. The marker is the adapter call itself (`serde_json::to_string(&`),
+    // data. The marker is the adapter call itself (`smelt_json_stringify(&`,
+    // the runtime JSON writer that applies those rules and quotes strings
+    // over their code units),
     // so a `Vec<SmeltUnknown>` or an erased local NEXT to it stays
     // avoidable — proven by `json_serializer_argument_is_a_boundary`.
     boundary::JSON_TO_STRING,

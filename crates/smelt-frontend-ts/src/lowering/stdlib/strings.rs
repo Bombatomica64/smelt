@@ -11,6 +11,50 @@ use smelt_hir::{
 };
 
 impl ModuleBuilder<'_> {
+    /// Lower `isWellFormed()` / `toWellFormed()` on a string receiver.
+    ///
+    /// Both read the receiver's UTF-16 code units: `isWellFormed` answers
+    /// whether no lone surrogate is present, `toWellFormed` replaces each with
+    /// U+FFFD. An erased receiver is recovered as a string first, as the other
+    /// string methods do.
+    pub(in crate::lowering) fn string_well_formed_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let repair = match member.property.name.as_str() {
+            "isWellFormed" => false,
+            "toWellFormed" => true,
+            _ => return Ok(None),
+        };
+        if !call.arguments.is_empty() || call.optional || member.optional {
+            return Ok(None);
+        }
+        let operand = self.expression(&member.object, body)?;
+        let operand_ty = self.type_param_constraint_or_self(Self::expr_ty(body, operand));
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let operand = if self.ctx.krate.types.get(operand_ty) == Some(&Type::String) {
+            operand
+        } else if self.string_method_erased_receiver(operand_ty) {
+            body.push_expr(Expr {
+                kind: ExprKind::UnknownCast { value: operand, target: string_ty },
+                ty: string_ty,
+                span: self.span(member.object.span().start, member.object.span().end),
+            })
+        } else {
+            return Ok(None);
+        };
+        let (kind, ty) = if repair {
+            (ExprKind::StringToWellFormed { operand }, string_ty)
+        } else {
+            (ExprKind::StringIsWellFormed { operand }, self.ctx.krate.types.intern(Type::Bool))
+        };
+        Ok(Some(body.push_expr(Expr { kind, ty, span: self.span(call.span.start, call.span.end) })))
+    }
+
     /// Lower direct TypeScript string case methods.
     pub(in crate::lowering) fn string_case_call(
         &mut self,

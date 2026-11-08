@@ -363,7 +363,8 @@ impl FunctionEmitter<'_> {
                 let erased =
                     self.erase_rendered(&self.operand_expr(value)?, self.operand_ty(value)?)?;
                 Ok(RenderedCall::propagating(RustExpr::atom(format!(
-                    "serde_json::to_string(&{erased}).map(JsString::from).map_err(|_| smelt_bigint_type_error_value(\"Do not know how to serialize a BigInt\".to_owned()))"
+                    "{json}{erased}).map(JsString::from).map_err(|_| smelt_bigint_type_error_value(\"Do not know how to serialize a BigInt\".to_owned()))",
+                    json = smelt_stdlib::runtime_symbols::boundary::JSON_TO_STRING
                 ))))
             }
             BigIntOp::ToStringRadix => {

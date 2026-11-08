@@ -1,6 +1,6 @@
 # UTF-16 JavaScript strings in generated Rust
 
-Status: implemented on branch `t3/1d353361` (steps 0-7); see "Implementation notes"
+Status: implemented in steps 0-7 (step 8, performance, was not needed); see "Implementation notes" and "Acceptance results"
 at the end for where the implementation departs from this design. Base: `origin/rw2-wrong-answers` at `f089c1eb`. That is
 the first branch carrying the string-index seam (`c5d98dce`). Every `file:line` below refers
 to that tree.
@@ -453,3 +453,65 @@ Where the implementation departs from the design above, and why.
   The erased-object key part of this step moved to step 4 (see above).
   `String.prototype.isWellFormed`/`toWellFormed` exist on `JsStr` but are not
   yet modelled as frontend string methods.
+- **Step 7 (host edges) and the rest of step 6.**
+  - Template literal parts and string-literal object keys keep a lone
+    surrogate's code units too (`template_element_literal`, the dict-literal
+    key path). A folded module object constant records such a key's units
+    (`ObjectConstEntry::key_units`), so `key in table` and the recreated object
+    read the exact key. A *typed* struct field named by such a key is a Rust
+    identifier and keeps the lossy spelling.
+  - `String.prototype.isWellFormed`/`toWellFormed` are modelled
+    (`StringIsWellFormed`, `StringToWellFormed`).
+  - `JSON.stringify` writes through the runtime's own JSON writer
+    (`smelt_json_stringify`), which applies the same ECMA-262 rules as
+    `Serialize for SmeltUnknown` and quotes every string, value or key, over
+    its code units (`QuoteJSONString`), so a lone half is its lowercase
+    `\uXXXX`. serde's data model cannot carry a lone surrogate, and a
+    `serde_json` `RawValue` would need a feature a project's own
+    `[rust.dependencies]` entry may leave out.
+  - `JSON.parse`: `serde_json` rejects a lone-surrogate `\u` escape. When it
+    fails on text holding a surrogate escape, a small ECMAScript-exact reader
+    (`SmeltJsonReader`) parses it, keeping each escape's code unit; other
+    invalid JSON throws `serde_json`'s `SyntaxError` as before.
+  - `encodeURI`/`encodeURIComponent` are fallible ops, like the decoders: a lone
+    surrogate (`SmeltHostText::has_lone_surrogate`) throws a catchable
+    `URIError: URI malformed`.
+  - `TextEncoder.encode` writes U+FFFD for a lone half, as Node does, through
+    the host-text path; no change was needed.
+
+## Acceptance results
+
+`benchmarks/strings/utf16_index.ts` through `benchmarks/strings/run.py`
+(release build, 20 rounds per phase, milliseconds for all 20 rounds; the
+checksums of every phase equal Node's). "Before" is main at `3a6ce75c`, the
+UTF-8 `String` representation; "after" is the step 7 tree.
+
+| phase | Node | before | after |
+| --- | ---: | ---: | ---: |
+| scan ascii (4000 x `charCodeAt`) | 2 | 3 | 1 |
+| scan wide | 1 | 57 | 1 |
+| words ascii (88 KB `indexOf` + `slice`) | 7 | 561 | 15 |
+| words wide | 4 | 10445 | 11 |
+| chars ascii (`s[i]`) | 1 | 3 | 0 |
+| chars wide | 1 | 25 | 1 |
+| build n=1048576 (`+=`) | 58 | 36 | 38 |
+| build n=2097152 | 65 | 75 | 75 |
+| build n=4194304 | 121 | 153 | 149 |
+
+- 88 KB `indexOf` + `slice`: 15 ms ASCII and 11 ms non-ASCII for all 20
+  rounds (target <= 30 ms), non-ASCII 0.73x ASCII (target <= 1.5x).
+- 4000-unit `charCodeAt`: 1 ms for 20 rounds (target <= 1 ms).
+- `+=` builder: linear, 38 / 75 / 149 ms at 1M / 2M / 4M pieces.
+- Peak RSS of the benchmark: Node 278900 KB; generated program 8488 KB
+  before, 14448 KB after (a JavaScript string is 2 bytes per code unit).
+- Defect check: with `JsString::push_str`/`push_unit` copying the buffer on
+  every append instead of appending in place when unshared, the 1M build takes
+  193810 ms instead of 38 ms and the 2M build does not finish within the
+  remaining four minutes, so the linearity check catches a broken
+  append-in-place. The unit test `a_unique_builder_appends_in_place` fails on
+  the same defect.
+- Lone halves (`"\ud83d"`, `"😀".slice(0, 1)`) print, compare and measure
+  `.length` as in Node, and `["😀", "\uffff"]` sorts as in Node (code unit
+  order): node-parity fixture `lone_surrogate_strings`.
+
+Step 8 (performance) was not needed: every target is met.

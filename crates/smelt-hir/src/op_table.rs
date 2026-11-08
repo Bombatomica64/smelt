@@ -427,6 +427,20 @@ macro_rules! op_group_transcribed {
                 operand: one,
             }
                 => (format!("string_{op} {operand}"));
+            /// `String.prototype.isWellFormed`: whether a JavaScript string
+            /// holds no lone surrogate.
+            StringIsWellFormed {
+                /// String operand to test.
+                operand: one,
+            }
+                => (format!("string_is_well_formed {operand}"));
+            /// `String.prototype.toWellFormed`: a JavaScript string with each
+            /// lone surrogate replaced by U+FFFD.
+            StringToWellFormed {
+                /// String operand to repair.
+                operand: one,
+            }
+                => (format!("string_to_well_formed {operand}"));
             /// Normalize a Unicode string value.
             StringNormalize {
                 /// Normalization form to apply.
@@ -2353,11 +2367,13 @@ macro_rules! op_group_transcribed {
                 operand: one,
             }
                 fallible(op.is_fallible())
-                call(if matches!(op, $crate::UriTranscodeOp::Decode) { "@decode_uri".to_owned() } else { "@decode_uri_component".to_owned() })
-                needs(
-                    UriEncode if !op.is_fallible(),
-                    UriDecode if op.is_fallible(),
-                )
+                call(match op {
+                    $crate::UriTranscodeOp::Decode => "@decode_uri".to_owned(),
+                    $crate::UriTranscodeOp::DecodeComponent => "@decode_uri_component".to_owned(),
+                    $crate::UriTranscodeOp::Encode => "@encode_uri".to_owned(),
+                    $crate::UriTranscodeOp::EncodeComponent => "@encode_uri_component".to_owned(),
+                })
+                needs(UriEncode, UriDecode)
                 => (format!("{op} {operand}"));
             /// A call into a modeled Node host module (`path.join(..)`,
             /// `createHash('sha256')`, `hash.update(..)`), resolved from the IMPORT the

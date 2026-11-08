@@ -7,6 +7,24 @@ use super::*;
 const SMELT_STRING_LEN: &str = "smelt_len_units";
 
 impl FunctionEmitter<'_> {
+    /// `isWellFormed()` (`repair == false`, a `bool`) or `toWellFormed()`
+    /// (`repair == true`, a string) over a JavaScript string's code units.
+    pub(super) fn string_well_formed_expr(
+        &self,
+        operand: &Operand,
+        repair: bool,
+        dest_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        let receiver_text = self.string_like_operand_expr(operand, "well-formed string")?;
+        let (method_name, result_ty) = if repair {
+            ("to_well_formed", self.type_id(Type::String)?)
+        } else {
+            ("is_well_formed", self.type_id(Type::Bool)?)
+        };
+        let result = RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.{method_name}()"));
+        self.rendered_at_type(&result, result_ty, dest_ty, &self.render_scope())
+    }
+
     /// Converts a string case operation to its Rust text representation.
     pub(super) fn string_case_expr(
         &self,
