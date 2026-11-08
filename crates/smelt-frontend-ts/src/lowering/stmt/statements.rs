@@ -46,13 +46,44 @@ impl ModuleBuilder<'_> {
         let plain = self.intern_type_name(name);
         let taken = self.classes.item(name).is_some()
             || (self.classes.in_body() && self.classes.declared_in_module(name))
-            || self.ctx.krate.items.iter().any(
-                |item| matches!(item, smelt_hir::Item::Class(lowered) if lowered.name == plain),
-            );
+            || self.ctx.krate.items.iter().any(|item| match item {
+                smelt_hir::Item::Class(lowered) => lowered.name == plain,
+                // An earlier type or interface of the name renders as the same
+                // Rust struct name, so it takes the name as a class does.
+                smelt_hir::Item::TypeAlias(alias) => alias.name == plain,
+                smelt_hir::Item::Interface(interface) => interface.name == plain,
+                _ => false,
+            });
         if !taken {
             return;
         }
         let internal_name = format!("{}SmeltSuiteF{}S{}", name, self.file_id.0, class.span.start);
+        let symbol = self.intern_type_name(&internal_name);
+        if self.classes.scoped_type_name(name) == Some(symbol) {
+            return;
+        }
+        self.classes.open_shadow(name);
+        self.classes.bind_scoped_type_name(name.to_owned(), symbol);
+    }
+
+    /// Give a block-local `type` or `interface` named like a type the crate
+    /// already declares its own scoped symbol, as [`Self::shadow_outer_class`]
+    /// does for a class: successive tests declaring `type Input` each mean their
+    /// own type, and one crate-level item per spelling made every later `Input`
+    /// the first one's struct.
+    pub(in crate::lowering) fn shadow_outer_type(&mut self, name: &str, start: u32) {
+        let plain = self.intern_type_name(name);
+        let taken = self.classes.scoped_type_name(name).is_some()
+            || self.ctx.krate.items.iter().any(|item| match item {
+                smelt_hir::Item::TypeAlias(alias) => alias.name == plain,
+                smelt_hir::Item::Interface(interface) => interface.name == plain,
+                smelt_hir::Item::Class(class) => class.name == plain,
+                _ => false,
+            });
+        if !taken {
+            return;
+        }
+        let internal_name = format!("{}SmeltSuiteF{}S{}", name, self.file_id.0, start);
         let symbol = self.intern_type_name(&internal_name);
         if self.classes.scoped_type_name(name) == Some(symbol) {
             return;
@@ -97,14 +128,23 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             Statement::TSTypeAliasDeclaration(alias) => {
+                self.shadow_outer_type(alias.id.name.as_str(), alias.span.start);
                 self.type_alias_declaration(alias)?;
                 Ok(())
             }
             Statement::TSInterfaceDeclaration(interface) => {
+                self.shadow_outer_type(interface.id.name.as_str(), interface.span.start);
                 self.interface_declaration(interface)?;
                 Ok(())
             }
             Statement::TSNamespaceDeclaration(_) => Ok(()),
+            // A block-local enum folds like a module-level one, and like a
+            // block-local class or type alias it is registered under its name
+            // for the rest of the module; it is not published to importers.
+            Statement::TSEnumDeclaration(decl) => {
+                self.collect_enum_members(decl, false);
+                Ok(())
+            }
             Statement::ExpressionStatement(expr_stmt) => {
                 self.expression_statement(&expr_stmt.expression, expr_stmt.span, body, block)
             }

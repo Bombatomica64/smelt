@@ -31,6 +31,7 @@ use tsrs_checker::{
 };
 use tsrs_core::P;
 
+use crate::Spellings;
 use smelt_ts_model::model::{
     TsAlias, TsDeferredKind, TsIndexSignature, TsLocation, TsObjectType, TsParameter, TsProperty,
     TsSignature, TsSymbolRef, TsTupleElement, TsTupleElementKind, TsType, TsTypeId, TsTypeKind,
@@ -86,12 +87,14 @@ pub(crate) struct Converter<'checker> {
     depth: usize,
     /// Expansions left for the root being converted.
     budget: usize,
+    /// Whether each type records its `typeToString` spelling.
+    spellings: Spellings,
 }
 
 impl<'checker> Converter<'checker> {
     /// Creates a converter over `checker`.
-    pub(crate) fn new(checker: &'checker mut Checker) -> Self {
-        Self { checker, table: TsTypeTable::default(), seen: HashMap::new(), depth: 0, budget: 0 }
+    pub(crate) fn new(checker: &'checker mut Checker, spellings: Spellings) -> Self {
+        Self { checker, table: TsTypeTable::default(), seen: HashMap::new(), depth: 0, budget: 0, spellings }
     }
 
     /// Gives mutable access to the checker for queries outside conversion.
@@ -143,7 +146,7 @@ impl<'checker> Converter<'checker> {
         }
         let id = self.table.reserve();
         self.seen.insert(ty, id);
-        let display = self.checker.type_to_string_exported(ty);
+        let display = (self.spellings == Spellings::Recorded).then(|| self.checker.type_to_string_exported(ty));
         let kind = self.kind_of(ty);
         let alias = self.alias_of(ty);
         self.table.fill(id, TsType { kind, display, alias });
@@ -201,7 +204,8 @@ impl<'checker> Converter<'checker> {
         };
         let enum_symbol = self.symbol_ref(enum_declaration);
         let value = self.table.reserve();
-        self.table.fill(value, TsType { kind: value_kind, display, alias: None });
+        let spelled = (self.spellings == Spellings::Recorded).then_some(display);
+        self.table.fill(value, TsType { kind: value_kind, display: spelled, alias: None });
         TsTypeKind::EnumMember { enum_symbol, value }
     }
 

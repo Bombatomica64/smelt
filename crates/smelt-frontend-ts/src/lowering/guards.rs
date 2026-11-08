@@ -180,6 +180,12 @@ impl ModuleBuilder<'_> {
             // only after all of its methods have been emitted.
             && !self.classes.is_known(class_text)
             && !self.imports.is_value(class_text)
+            // A class named from inside its own members (`input instanceof
+            // Some` in a method of a block-local `Some`) is the class being
+            // lowered, nominal before its item is inserted; a block-local class
+            // shadowing another of its name is bound under its scoped name.
+            && self.current_class.as_deref() != Some(class_text)
+            && self.classes.scoped_type_name(class_text).is_none()
         {
             // `x instanceof f` against a *function* value (the JS
             // constructor-function idiom, as in lodash-compat `bind`/`curry`

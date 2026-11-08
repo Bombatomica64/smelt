@@ -49,6 +49,7 @@ impl ModuleBuilder<'_> {
             .get(namespace)
             .and_then(|members| members.get(member_name))
             .copied()
+            .or_else(|| self.items.get(&format!("{namespace}.{member_name}")).copied())
             .or_else(|| self.items.get(member_name).copied());
         let Some(item) = item else {
             if self.imports.is_namespace(namespace) {
@@ -183,6 +184,27 @@ impl ModuleBuilder<'_> {
             ty: call_ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// The item a crate module's namespace binding exports under the member's
+    /// name (`P.map` for `import * as P from './patterns'`), when the receiver
+    /// is such a binding and not shadowed by a local one.
+    pub(in crate::lowering) fn crate_namespace_member_item(
+        &self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+    ) -> Option<smelt_hir::ItemId> {
+        let Expression::Identifier(object) = &member.object else {
+            return None;
+        };
+        if self.scope.is_bound(object.name.as_str()) {
+            return None;
+        }
+        let namespace = object.name.as_str();
+        let name = member.property.name.as_str();
+        if self.imports.is_namespace(namespace) {
+            return self.items.get(&format!("{namespace}.{name}")).copied();
+        }
+        self.object_namespaces.get(namespace)?.get(name).copied()
     }
 
     /// Return the namespace binding and exported member name for namespace member access.
@@ -1342,6 +1364,9 @@ impl ModuleBuilder<'_> {
         // dynamic global-object lookup handled by `global_alias_computed_read`.
         if self.expr_is_global_alias(&member.object) {
             return self.global_alias_computed_read(member, body);
+        }
+        if let Some(expr) = self.enum_reverse_mapping_read(member, body)? {
+            return Ok(expr);
         }
         let receiver = self.expression(&member.object, body)?;
         // A computed key that resolves to a STATIC member name is an ordinary

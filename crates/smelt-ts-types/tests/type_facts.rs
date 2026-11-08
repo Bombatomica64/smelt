@@ -77,7 +77,7 @@ export const b = probe(1);
 "#;
     let facts = facts(source)?;
     let yes = type_of(&facts, source, r#"probe("s")"#, 0)?;
-    assert_eq!(yes.display, r#""yes""#, "string instantiation picks the true arm");
+    assert_eq!(yes.display.as_deref(), Some(r#""yes""#), "string instantiation picks the true arm");
     assert_eq!(yes.kind, TsTypeKind::StringLiteral("yes".to_owned()), "true arm is a string literal");
     let zero = type_of(&facts, source, "probe(1)", 0)?;
     assert_eq!(zero.kind, TsTypeKind::NumberLiteral(0.0), "number instantiation picks the false arm");
@@ -98,7 +98,7 @@ const sum = vi.fn(function sum(arr: number[]) { return arr.length; });
 memo(sum, { key: probe => probe.join(",") });
 "#;
     let facts = facts(source)?;
-    assert_eq!(type_of(&facts, source, "probe", 0)?.display, "number[]");
+    assert_eq!(type_of(&facts, source, "probe", 0)?.display.as_deref(), Some("number[]"));
     Ok(())
 }
 
@@ -107,7 +107,7 @@ fn callback_inference_instantiates_map_result() -> Result<(), String> {
     let source = "export const labels = [1, 2].map((n) => String(n));\n";
     let facts = facts(source)?;
     let mapped = type_of(&facts, source, "[1, 2].map((n) => String(n))", 0)?;
-    assert_eq!(mapped.display, "string[]", "map infers U = string from the callback");
+    assert_eq!(mapped.display.as_deref(), Some("string[]"), "map infers U = string from the callback");
     let TsTypeKind::Array { element, readonly: false } = mapped.kind else {
         return Err(format!("expected a mutable array, got {:?}", mapped.kind));
     };
@@ -128,7 +128,7 @@ export function size(x: string | number): number {
 }
 "#;
     let facts = facts(source)?;
-    assert_eq!(type_of(&facts, source, "x", 2)?.display, "string | number", "guard operand is the declared union");
+    assert_eq!(type_of(&facts, source, "x", 2)?.display.as_deref(), Some("string | number"), "guard operand is the declared union");
     assert_eq!(type_of(&facts, source, "x", 3)?.kind, TsTypeKind::String, "true branch narrows to string");
     assert_eq!(type_of(&facts, source, "x", 4)?.kind, TsTypeKind::Number, "fallthrough narrows to number");
     Ok(())
@@ -143,7 +143,7 @@ export const read = partial;
 ";
     let facts = facts(source)?;
     let ty = type_of(&facts, source, "partial", 1)?;
-    assert_eq!(ty.display, "Partial<Point>", "alias spelling is preserved for display");
+    assert_eq!(ty.display.as_deref(), Some("Partial<Point>"), "alias spelling is preserved for display");
     let TsTypeKind::Object(object) = &ty.kind else {
         return Err(format!("expected a structural object, got {:?}", ty.kind));
     };
@@ -165,7 +165,7 @@ export const boxed = new Box(1);
 ";
     let facts = facts(source)?;
     let ty = type_of(&facts, source, "new Box(1)", 0)?;
-    assert_eq!(ty.display, "Box<number>", "constructor inference widens the literal");
+    assert_eq!(ty.display.as_deref(), Some("Box<number>"), "constructor inference widens the literal");
     let TsTypeKind::Named { symbol, type_arguments } = &ty.kind else {
         return Err(format!("expected a nominal class reference, got {:?}", ty.kind));
     };
@@ -181,7 +181,7 @@ fn const_tuple_keeps_literal_elements() -> Result<(), String> {
     let source = "export const pair = [1, \"a\"] as const;\nexport const copy = pair;\n";
     let facts = facts(source)?;
     let ty = type_of(&facts, source, "pair", 1)?;
-    assert_eq!(ty.display, "readonly [1, \"a\"]", "as const produces a readonly literal tuple");
+    assert_eq!(ty.display.as_deref(), Some("readonly [1, \"a\"]"), "as const produces a readonly literal tuple");
     let TsTypeKind::Tuple { elements, readonly: true } = &ty.kind else {
         return Err(format!("expected a readonly tuple, got {:?}", ty.kind));
     };
@@ -203,7 +203,7 @@ fn enum_member_carries_enum_identity_and_value() -> Result<(), String> {
     let source = "enum Color { Red, Green }\nexport const color = Color.Green;\n";
     let facts = facts(source)?;
     let ty = type_of(&facts, source, "Color.Green", 0)?;
-    assert_eq!(ty.display, "Color.Green", "member spelling");
+    assert_eq!(ty.display.as_deref(), Some("Color.Green"), "member spelling");
     let TsTypeKind::EnumMember { enum_symbol, value } = &ty.kind else {
         return Err(format!("expected an enum member, got {:?}", ty.kind));
     };
@@ -351,14 +351,14 @@ export function untouched(): number {
     let facts = facts(source)?;
     // TypeScript itself reports the evolving `any[]` at the declaration and at
     // a mutation receiver; only a later read shows the evolved type.
-    assert_eq!(type_of(&facts, source, "removed", 0)?.display, "any[]", "declaration reads as the evolving any[]");
-    assert_eq!(type_of(&facts, source, "removed", 2)?.display, "T[]", "the final read is evolved");
+    assert_eq!(type_of(&facts, source, "removed", 0)?.display.as_deref(), Some("any[]"), "declaration reads as the evolving any[]");
+    assert_eq!(type_of(&facts, source, "removed", 2)?.display.as_deref(), Some("T[]"), "the final read is evolved");
     let evolved = |needle: &str| -> Result<Option<String>, String> {
         let (start, end) = span_of(source, needle, 0)?;
         Ok(facts
             .evolved_array_type_id_at(FILE, start, end)
             .and_then(|id| facts.types.get(id))
-            .map(|ty| ty.display.clone()))
+            .and_then(|ty| ty.display.clone()))
     };
     assert_eq!(evolved("removed")?.as_deref(), Some("T[]"), "pushes of T evolve to T[]");
     assert_eq!(
@@ -381,5 +381,49 @@ fn a_branching_recursive_type_stops_at_the_budget() -> Result<(), String> {
     )?;
     let count = facts.types.len();
     assert!(count < 20_000, "the walk expanded {count} types");
+    Ok(())
+}
+
+/// Omitting spellings changes only [`TsType::display`]: every probed node gets
+/// the same type id, kind and alias as in a spelled analysis.
+#[test]
+fn omitted_spellings_keep_every_kind_and_alias() -> Result<(), String> {
+    let source = r#"
+enum Color { Red, Green = "green" }
+type Pick2<T, K extends keyof T> = { [P in K]: T[P] };
+type IsString<T> = T extends string ? "yes" : "no";
+class Box<T> { constructor(readonly value: T) {} }
+interface Point { x: number; y: number; label?: string }
+export function probe<T extends Point>(point: T, items: readonly (string | number)[]) {
+  const picked: Pick2<Point, "x"> = { x: point.x };
+  const boxed = new Box(items.map((item) => (typeof item === "string" ? item.length : item)));
+  const tag: IsString<"a"> = "yes";
+  const color = Color.Green;
+  const pair = [point.label ?? "none", picked.x] as const;
+  return { boxed, tag, color, pair, partial: {} as Partial<T> };
+}
+"#;
+    let spelled = facts(source)?;
+    let omitted = smelt_ts_types::analyze_with(vec![SourceInput::new(FILE, source)], smelt_ts_types::Spellings::Omitted)
+        .map_err(|error| error.to_string())?;
+    let allocator = Allocator::default();
+    let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
+    let mut collector = ExpressionSpans { spans: Vec::new() };
+    collector.visit_program(&parsed.program);
+    assert!(parsed.diagnostics.is_empty(), "oxc parses the probe");
+    assert!(collector.spans.len() > 30, "probe exercises many expressions: {}", collector.spans.len());
+    assert_eq!(spelled.types.len(), omitted.types.len(), "both analyses intern the same types");
+    for (start, end, label) in &collector.spans {
+        let ids = (spelled.type_id_at(FILE, *start, *end), omitted.type_id_at(FILE, *start, *end));
+        assert_eq!(ids.0, ids.1, "`{label}` keeps its type id");
+        let Some(id) = ids.0 else { continue };
+        let (Some(with), Some(without)) = (spelled.types.get(id), omitted.types.get(id)) else {
+            return Err(format!("`{label}` has no type"));
+        };
+        assert_eq!(with.kind, without.kind, "`{label}` keeps its kind");
+        assert_eq!(with.alias, without.alias, "`{label}` keeps its alias");
+        assert!(with.display.is_some(), "`{label}` is spelled by default");
+        assert_eq!(without.display, None, "`{label}` carries no spelling");
+    }
     Ok(())
 }

@@ -336,7 +336,7 @@ impl Measure<'_> {
     fn example(&self, source: &Source, start: u32, ts: smelt_ts_types::TsTypeId, reason: Option<&str>) -> String {
         let (line, column) = line_column(&source.text, start);
         let spelling: String =
-            self.facts.types.get(ts).map_or("?", |ty| ty.display.as_str()).chars().take(80).collect();
+            self.facts.types.get(ts).and_then(|ty| ty.display.as_deref()).unwrap_or("?").chars().take(80).collect();
         let erasure = reason.map_or_else(String::new, |name| format!(" (erasure: {name})"));
         format!("{}:{line}:{column} `{spelling}`{erasure}", source.path)
     }

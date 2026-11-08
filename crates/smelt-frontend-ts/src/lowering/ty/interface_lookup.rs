@@ -447,6 +447,20 @@ impl ModuleBuilder<'_> {
         })
     }
 
+    /// Whether the latest type declaration named `name` is a type alias visible
+    /// here rather than an interface: block-local declarations of one name
+    /// (`type Input = { value: 'a' }` in one test, `type Input = Map<..>` in the
+    /// next) are lowered in source order, and the one lowered last is the one in
+    /// scope, whichever kind each is.
+    pub(in crate::lowering) fn alias_shadows_interface(&self, name: smelt_hir::Symbol, source_name: &str) -> bool {
+        let latest_is_alias = self.ctx.krate.items.iter().rev().find_map(|item| match item {
+            Item::Interface(interface) if interface.name == name => Some(false),
+            Item::TypeAlias(alias) if alias.name == name => Some(true),
+            _ => None,
+        });
+        latest_is_alias == Some(true) && self.visible_type_alias(name, source_name).is_some()
+    }
+
     /// Find the latest previously lowered type alias by symbol.
     ///
     /// This mirrors interface lookup so `.ts` aliases can refine generated

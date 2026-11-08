@@ -31,7 +31,7 @@
       "clippy::collapsible_if": 9,
       "clippy::if_then_some_else_none": 1,
       "clippy::indexing_slicing": 145,
-      "clippy::missing_docs_in_private_items": 12,
+      "clippy::missing_docs_in_private_items": 11,
       "clippy::panic": 3,
       "clippy::shadow_same": 2,
       "clippy::shadow_unrelated": 68,

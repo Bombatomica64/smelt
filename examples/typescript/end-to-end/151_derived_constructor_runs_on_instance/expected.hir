@@ -153,19 +153,13 @@ module examples/typescript/end-to-end/151_derived_constructor_runs_on_instance/i
     #124: fn(String) -> Router<Float> = bind_this #121, #120
     #125: Router<Float> = closure_call #124(#123)
     #126: fn() -> String = #125.describe
-    #127: RoutedApp<Float> = %6
-    #128: fn(String) -> Router<Float> = #127.on_error
-    #129: RoutedApp<Float> = %6
-    #130: String = "again"
-    #131: fn(String) -> Router<Float> = bind_this #128, #127
-    #132: Router<Float> = closure_call #131(#130)
-    #133: String = #132.describe()
-    #134: RoutedApp<Float> = %6
-    #135: fn() -> String = #134.describe
-    #136: RoutedApp<Float> = %6
-    #137: String = #136.describe()
-    #138: None = @46(console_log)
-    #139: None = call #138(#133, #137)
+    #127: String = #125.describe()
+    #128: RoutedApp<Float> = %6
+    #129: fn() -> String = #128.describe
+    #130: RoutedApp<Float> = %6
+    #131: String = #130.describe()
+    #132: None = @46(console_log)
+    #133: None = call #132(#127, #131)
   stmts
     s0: let %0: SmartGreeter = #0
     s1: #7
@@ -187,7 +181,7 @@ module examples/typescript/end-to-end/151_derived_constructor_runs_on_instance/i
     s17: let %6: RoutedApp<Float> = #107
     s18: #113
     s19: #119
-    s20: #139
+    s20: #133
 
 interned types
   t0 = String
