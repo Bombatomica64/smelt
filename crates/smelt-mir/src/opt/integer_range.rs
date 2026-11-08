@@ -327,7 +327,9 @@ fn integral_constant(constant: &Constant) -> Option<i128> {
 fn is_integer_operand(operand: &Operand, candidates: &Candidates) -> bool {
     match operand {
         Operand::Const(constant) => integral_constant(constant).is_some(),
-        other => other.local().is_some_and(|local| candidates.contains(local)),
+        Operand::Copy(_) | Operand::Move(_) => {
+            operand.local().is_some_and(|local| candidates.contains(local))
+        }
     }
 }
 
@@ -650,7 +652,7 @@ fn definition_closed_candidates(
                         place: Place::Local(dest),
                         value,
                     } => (*dest, value),
-                    _ => continue,
+                    Statement::AssignPlace { .. } | Statement::DictEntryUpdate { .. } => continue,
                 };
                 if !candidates.contains(dest) {
                     continue;
@@ -851,7 +853,7 @@ impl Analysis<'_> {
                 place: Place::Local(dest),
                 value,
             } => (*dest, value),
-            _ => return,
+            Statement::AssignPlace { .. } | Statement::DictEntryUpdate { .. } => return,
         };
         if let Some(&position) = self.candidates.index.get(&dest) {
             state[position] = self.evaluate(value, state);
@@ -958,7 +960,7 @@ impl Analysis<'_> {
                         place: Place::Local(dest),
                         value,
                     } if *dest == target => Some((position, value)),
-                    _ => None,
+                    Statement::Assign { .. } | Statement::AssignPlace { .. } | Statement::DictEntryUpdate { .. } => None,
                 })?;
             match value {
                 Rvalue::Unary {
@@ -1021,7 +1023,7 @@ impl Analysis<'_> {
                     place: Place::Local(dest),
                     value,
                 } if *dest == compared => Some((position, value)),
-                _ => None,
+                Statement::Assign { .. } | Statement::AssignPlace { .. } | Statement::DictEntryUpdate { .. } => None,
             },
         )?;
         let (base, offset) = match value {
@@ -1314,7 +1316,7 @@ fn choose_widths(
                     place: Place::Local(dest),
                     value,
                 } => (*dest, value),
-                _ => continue,
+                Statement::AssignPlace { .. } | Statement::DictEntryUpdate { .. } => continue,
             };
             if accepted.contains(&dest) {
                 if !matches!(value, Rvalue::Len { .. }) {
@@ -1425,7 +1427,9 @@ impl Rewriter<'_> {
     fn is_integer_side(&self, operand: &Operand) -> bool {
         match operand {
             Operand::Const(constant) => integral_constant(constant).is_some(),
-            other => other.local().is_some_and(|local| self.is_retyped(local)),
+            Operand::Copy(_) | Operand::Move(_) => {
+                operand.local().is_some_and(|local| self.is_retyped(local))
+            }
         }
     }
 
@@ -1557,7 +1561,9 @@ impl Rewriter<'_> {
                 match index.as_mut() {
                     Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))
                         if self.is_retyped(*local) && base_is_list => {}
-                    other => self.rewrite_number_operand(other, prelude),
+                    other @ (Operand::Copy(_) | Operand::Move(_) | Operand::Const(_)) => {
+                        self.rewrite_number_operand(other, prelude);
+                    }
                 }
             }
             Place::Global {

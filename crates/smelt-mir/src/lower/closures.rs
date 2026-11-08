@@ -327,52 +327,52 @@ fn mark_local_escaping_closures(
     let Some(value) = local_rvalues.get(&local) else {
         return;
     };
-    #[expect(
-        clippy::wildcard_enum_match_arm,
-        reason = "closure escape analysis only descends into aggregate operands that can carry closures"
-    )]
-    match value {
-        Rvalue::Use(source) => {
-            mark_operand_escaping_closures(
-                source,
-                definitions,
-                local_rvalues,
-                seen_locals,
-                escaping,
-            );
-        }
-        Rvalue::List(items) | Rvalue::Set(items) | Rvalue::Tuple(items) => {
-            for item in items {
-                mark_operand_escaping_closures(
-                    item,
-                    definitions,
-                    local_rvalues,
-                    seen_locals,
-                    escaping,
-                );
-            }
-        }
-        Rvalue::Dict(entries) => {
-            for (key, entry_value) in entries {
-                mark_operand_escaping_closures(
-                    key,
-                    definitions,
-                    local_rvalues,
-                    seen_locals,
-                    escaping,
-                );
-                mark_operand_escaping_closures(
-                    entry_value,
-                    definitions,
-                    local_rvalues,
-                    seen_locals,
-                    escaping,
-                );
-            }
-        }
-        _ => {}
+    for operand in closure_carrying_operands(value) {
+        mark_operand_escaping_closures(operand, definitions, local_rvalues, seen_locals, escaping);
     }
 }
+
+/// Generates [`closure_carrying_operands`] over every op-table variant.
+macro_rules! define_closure_carrying_operands {
+    ($(
+        $(#[$meta:meta])*
+        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt $(@ $role:tt)?),* $(,)? })?
+        $($fact:ident $fact_value:tt)*
+        => $display:tt;
+    )*) => {
+        /// The operands of `value` through which a closure stays reachable from
+        /// its result: a plain copy and the aggregates. Every other variant is
+        /// listed (the table ones generated), so a new hand-written variant
+        /// must say here whether its result can carry a closure.
+        fn closure_carrying_operands(value: &Rvalue) -> Vec<&Operand> {
+            match value {
+                Rvalue::Use(source) => vec![source],
+                Rvalue::List(items) | Rvalue::Set(items) | Rvalue::Tuple(items) => {
+                    items.iter().collect()
+                }
+                Rvalue::Dict(entries) => {
+                    entries.iter().flat_map(|(key, entry)| [key, entry]).collect()
+                }
+                Rvalue::DictEntryPush { .. }
+                | Rvalue::GeneratorYield { .. }
+                | Rvalue::Binary { .. }
+                | Rvalue::Unary { .. }
+                | Rvalue::UnionMethod { .. }
+                | Rvalue::BoundMethod { .. }
+                | Rvalue::BoundField { .. }
+                | Rvalue::Struct { .. }
+                | Rvalue::ExternalClassInstance { .. }
+                | Rvalue::Closure { .. }
+                | Rvalue::GlobalGet { .. }
+                | Rvalue::GlobalSet { .. }
+                | Rvalue::Await(..) => Vec::new(),
+                $(Rvalue::$name $({ $($field: _,)* })? => Vec::new(),)*
+            }
+        }
+    };
+}
+
+smelt_hir::for_each_op!(define_closure_carrying_operands);
 
 /// Return the closure and alias definitions inside one MIR function.
 fn closure_definitions(function: &MirFunction) -> HashMap<LocalId, ClosureLocalDef> {

@@ -148,7 +148,11 @@ fn propagate_to_successors(
     // (a `catch (e)` binding, or the value a `finally` rethrows).
     let unwind_handler = match terminator {
         Terminator::Call { unwind, .. } | Terminator::Await { unwind, .. } => *unwind,
-        _ => None,
+        Terminator::Goto(_)
+        | Terminator::Switch { .. }
+        | Terminator::Match { .. }
+        | Terminator::Return(_)
+        | Terminator::Throw(_) => None,
     };
     for successor in terminator.successors() {
         let edge_definitions;
