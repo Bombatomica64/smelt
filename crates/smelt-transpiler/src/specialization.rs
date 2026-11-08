@@ -102,6 +102,7 @@ pub(crate) fn prepare(
         .into_iter()
         .map(|detection| (detection.path, detection.language))
         .collect::<BTreeSet<_>>();
+    refuse_cross_language_candidates(sources, &candidate_paths)?;
 
     let host = Host { project_root: &manifest_dir, fallback: oci_fallback(config) };
     let python_sources = candidates_for(HostLanguage::Python, sources, &candidate_paths);
@@ -118,6 +119,40 @@ pub(crate) fn prepare(
         prepare_typescript(&host, &cache, &package, sources, &typescript_sources)?
     };
     Ok(PreparedSpecialization { python, typescript })
+}
+
+/// Refuses a candidate whose definition-time code imports a module of the
+/// other language: its host (CPython or Node) cannot load that module, so
+/// specialization could only fail inside the guest with a bare import error.
+fn refuse_cross_language_candidates(
+    sources: &[&ManifestSource],
+    candidates: &BTreeSet<(String, HostLanguage)>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let by_path = sources.iter().map(|source| (normalized_path(&source.path), *source)).collect::<BTreeMap<_, _>>();
+    for (path, language) in candidates {
+        let mut pending = by_path.get(path).map(|source| source.dependencies.clone()).unwrap_or_default();
+        let mut seen = BTreeSet::new();
+        while let Some(dependency) = pending.pop() {
+            let key = normalized_path(&dependency);
+            if !seen.insert(key.clone()) {
+                continue;
+            }
+            let Some(source) = by_path.get(&key) else { continue };
+            if source_language(source.lang).is_some_and(|other| other != *language) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "`{path}` has definition-time behavior Smelt runs in its own language's host, \
+                         and it imports `{key}`, a module of the other language that host cannot load; \
+                         move the definition-time code away from the cross-language import"
+                    ),
+                )
+                .into());
+            }
+            pending.extend(source.dependencies.iter().cloned());
+        }
+    }
+    Ok(())
 }
 
 /// Converts the resolved source graph into centralized detector inputs.

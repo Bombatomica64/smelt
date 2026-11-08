@@ -196,61 +196,126 @@ fn is_declaration_path(path: &str) -> bool {
             .is_some_and(|extension| extension.eq_ignore_ascii_case("pyi"))
 }
 
-/// Format a TypeScript declaration file for one HIR module.
-#[must_use]
-#[expect(
-    clippy::too_many_lines,
-    reason = "declaration formatting keeps the TypeScript item cases together"
-)]
-fn typescript_declaration(krate: &Crate, module_id: ModuleId) -> String {
-    let Some(module_idx) = usize::try_from(module_id.0).ok() else {
+/// The module `module_id` names, if it exists.
+fn module_of(krate: &Crate, module_id: ModuleId) -> Option<&smelt_hir::Module> {
+    usize::try_from(module_id.0).ok().and_then(|index| krate.modules.get(index))
+}
+
+/// The item `item_id` names, if it exists.
+fn item_of(krate: &Crate, item_id: smelt_hir::ItemId) -> Option<&Item> {
+    usize::try_from(item_id.0).ok().and_then(|index| krate.items.get(index))
+}
+
+/// The function `item_id` names, if it is one.
+fn function_of(krate: &Crate, item_id: smelt_hir::ItemId) -> Option<&Function> {
+    match item_of(krate, item_id) {
+        Some(Item::Function(function)) => Some(function),
+        _ => None,
+    }
+}
+
+/// A module's public surface: each of its own items under its own name, then
+/// each item it re-exports under the name it exports it as.
+fn module_surface(krate: &Crate, module: &smelt_hir::Module) -> Vec<(smelt_hir::Symbol, smelt_hir::ItemId)> {
+    let own = module.items.iter().filter_map(|item_id| {
+        let name = match item_of(krate, *item_id)? {
+            Item::Function(function) if matches!(function.owner, smelt_hir::FunctionOwner::Module) => function.name,
+            Item::Class(class) => class.name,
+            Item::Interface(interface) => interface.name,
+            Item::TypeAlias(alias) => alias.name,
+            Item::Const(constant) => constant.name,
+            Item::MutableGlobal(global) => global.name,
+            Item::Function(_) => return None,
+        };
+        Some((name, *item_id))
+    });
+    own.chain(module.reexports.iter().copied()).collect()
+}
+
+/// The name a method is called by: its owner records the source spelling.
+const fn method_source_name(method: &Function) -> smelt_hir::Symbol {
+    match method.owner {
+        smelt_hir::FunctionOwner::ClassMethod { method: name, .. }
+        | smelt_hir::FunctionOwner::ClassStaticMethod { method: name, .. } => name,
+        smelt_hir::FunctionOwner::Module | smelt_hir::FunctionOwner::Constructor { .. } => method.name,
+    }
+}
+
+/// Whether a parameter is the explicit receiver of a Python method.
+fn is_receiver(krate: &Crate, param: &smelt_hir::Param) -> bool {
+    matches!(symbol_name(krate, param.name), "self" | "cls" | "this")
+}
+
+/// The parameters a caller passes, with whether each may be left out: those
+/// past `required_params` have a default.
+fn caller_params<'function>(
+    krate: &Crate,
+    function: &'function Function,
+) -> Vec<(&'function smelt_hir::Param, bool)> {
+    let params = function.params.iter().filter(|param| !is_receiver(krate, param)).collect::<Vec<_>>();
+    let required = function.required_params.unwrap_or(params.len());
+    params
+        .into_iter()
+        .enumerate()
+        .map(|(index, param)| (param, index >= required && function.rest != Some(index)))
+        .collect()
+}
+
+/// TypeScript `<T, U>` for `params`, or nothing.
+fn ts_type_params(krate: &Crate, params: &[smelt_hir::TypeParamDef]) -> String {
+    if params.is_empty() {
         return String::new();
-    };
-    let Some(module) = krate.modules.get(module_idx) else {
+    }
+    let names = params.iter().map(|param| symbol_name(krate, param.name)).collect::<Vec<_>>().join(", ");
+    format!("<{names}>")
+}
+
+/// TypeScript `(a: number, b?: string): R` of a function.
+fn ts_signature(krate: &Crate, function: &Function) -> String {
+    let params = caller_params(krate, function)
+        .into_iter()
+        .map(|(param, optional)| {
+            let rest = function.params.iter().position(|candidate| std::ptr::eq(candidate, param)) == function.rest;
+            format!(
+                "{}{}{}: {}",
+                if rest { "..." } else { "" },
+                symbol_name(krate, param.name),
+                if optional { "?" } else { "" },
+                ts_type(krate, param.ty)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("({params}): {}", ts_type(krate, function.return_ty))
+}
+
+/// Format a TypeScript declaration file for one HIR module: every function,
+/// class (fields, constructor, methods, static methods), interface, type
+/// alias and constant of its surface, own or re-exported.
+#[must_use]
+fn typescript_declaration(krate: &Crate, module_id: ModuleId) -> String {
+    let Some(module) = module_of(krate, module_id) else {
         return String::new();
     };
     let mut out = String::new();
     out.push_str(smelt_hir::TS_STUB_HEADER);
     out.push_str("\n\n");
-    for item_id in &module.items {
-        let Some(item_idx) = usize::try_from(item_id.0).ok() else {
-            continue;
-        };
-        let Some(item) = krate.items.get(item_idx) else {
-            continue;
-        };
+    for (exported, item_id) in module_surface(krate, module) {
+        let name = symbol_name(krate, exported);
+        let Some(item) = item_of(krate, item_id) else { continue };
         match item {
-            Item::Function(function)
-                if matches!(function.owner, smelt_hir::FunctionOwner::Module) =>
-            {
-                let params = function
-                    .params
-                    .iter()
-                    .map(|param| {
-                        format!(
-                            "{}: {}",
-                            symbol_name(krate, param.name),
-                            ts_type(krate, param.ty)
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                push_fmt(
-                    &mut out,
-                    format_args!(
-                        "export declare function {}({params}): {};\n",
-                        symbol_name(krate, function.name),
-                        ts_type(krate, function.return_ty)
-                    ),
-                );
-            }
+            Item::Function(function) => push_fmt(
+                &mut out,
+                format_args!(
+                    "export declare function {name}{}{};\n",
+                    ts_type_params(krate, &function.type_params),
+                    ts_signature(krate, function)
+                ),
+            ),
             Item::Class(class) => {
                 push_fmt(
                     &mut out,
-                    format_args!(
-                        "export declare class {} {{\n",
-                        symbol_name(krate, class.name)
-                    ),
+                    format_args!("export declare class {name}{} {{\n", ts_type_params(krate, &class.type_params)),
                 );
                 for field in &class.fields {
                     push_fmt(
@@ -262,16 +327,29 @@ fn typescript_declaration(krate: &Crate, module_id: ModuleId) -> String {
                         ),
                     );
                 }
+                if let Some(constructor) = class.constructor.and_then(|id| function_of(krate, id)) {
+                    let params = ts_signature(krate, constructor);
+                    let params = params.rsplit_once("): ").map_or(params.as_str(), |(params, _)| params);
+                    push_fmt(&mut out, format_args!("  constructor{params});\n"));
+                }
+                for (methods, prefix) in [(&class.methods, ""), (&class.static_methods, "static ")] {
+                    for method in methods.iter().filter_map(|id| function_of(krate, *id)) {
+                        let method_name = method_source_name(method);
+                        push_fmt(
+                            &mut out,
+                            format_args!(
+                                "  {prefix}{}{}{};\n",
+                                ts_property_name(symbol_name(krate, method_name)),
+                                ts_type_params(krate, &method.type_params),
+                                ts_signature(krate, method)
+                            ),
+                        );
+                    }
+                }
                 out.push_str("}\n");
             }
             Item::Interface(interface) => {
-                push_fmt(
-                    &mut out,
-                    format_args!(
-                        "export interface {} {{\n",
-                        symbol_name(krate, interface.name)
-                    ),
-                );
+                push_fmt(&mut out, format_args!("export interface {name} {{\n"));
                 for field in &interface.fields {
                     push_fmt(
                         &mut out,
@@ -286,13 +364,7 @@ fn typescript_declaration(krate: &Crate, module_id: ModuleId) -> String {
                     let params = method
                         .params
                         .iter()
-                        .map(|param| {
-                            format!(
-                                "{}: {}",
-                                symbol_name(krate, param.name),
-                                ts_type(krate, param.ty)
-                            )
-                        })
+                        .map(|param| format!("{}: {}", symbol_name(krate, param.name), ts_type(krate, param.ty)))
                         .collect::<Vec<_>>()
                         .join(", ");
                     push_fmt(
@@ -306,113 +378,145 @@ fn typescript_declaration(krate: &Crate, module_id: ModuleId) -> String {
                 }
                 out.push_str("}\n");
             }
-            Item::TypeAlias(alias) => {
-                let type_params = if alias.type_params.is_empty() {
-                    String::new()
-                } else {
-                    format!(
-                        "<{}>",
-                        alias
-                            .type_params
-                            .iter()
-                            .map(|param| symbol_name(krate, param.name))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    )
-                };
-                push_fmt(
-                    &mut out,
-                    format_args!(
-                        "export type {}{} = {};\n",
-                        symbol_name(krate, alias.name),
-                        type_params,
-                        ts_type(krate, alias.ty)
-                    ),
-                );
+            Item::TypeAlias(alias) => push_fmt(
+                &mut out,
+                format_args!(
+                    "export type {name}{} = {};\n",
+                    ts_type_params(krate, &alias.type_params),
+                    ts_type(krate, alias.ty)
+                ),
+            ),
+            Item::Const(constant) => {
+                push_fmt(&mut out, format_args!("export declare const {name}: {};\n", ts_type(krate, constant.ty)));
             }
-            Item::Function(_) | Item::Const(_) | Item::MutableGlobal(_) => {}
+            Item::MutableGlobal(global) => {
+                push_fmt(&mut out, format_args!("export declare let {name}: {};\n", ts_type(krate, global.ty)));
+            }
         }
     }
+    // A stub is a module even when the module exports nothing.
+    out.push_str("export {};\n");
     out
 }
 
-/// Format a Python stub file for one HIR module.
+/// Python `[T, U]`-free generics: the `TypeVar`s `params` need, declared once
+/// per stub in `declared`.
+fn py_type_vars(krate: &Crate, params: &[smelt_hir::TypeParamDef], declared: &mut Vec<String>, out: &mut String) {
+    for param in params {
+        let name = symbol_name(krate, param.name).to_owned();
+        if !declared.contains(&name) {
+            push_fmt(out, format_args!("{name} = typing.TypeVar({name:?})\n"));
+            declared.push(name);
+        }
+    }
+}
+
+/// Python `(self, a: float, b: str = ...) -> R` of a function; `receiver`
+/// prefixes `self`. An async function's `Awaitable[T]` result is its `T`.
+fn py_signature(krate: &Crate, function: &Function, receiver: Option<&str>) -> String {
+    let params = receiver
+        .map(str::to_owned)
+        .into_iter()
+        .chain(caller_params(krate, function).into_iter().map(|(param, optional)| {
+            format!(
+                "{}: {}{}",
+                symbol_name(krate, param.name),
+                py_type(krate, param.ty),
+                if optional { " = ..." } else { "" }
+            )
+        }))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let returned = match krate.types.get(function.return_ty) {
+        Some(Type::Future(inner)) if function.is_async => *inner,
+        _ => function.return_ty,
+    };
+    format!("({params}) -> {}", py_type(krate, returned))
+}
+
+/// `def` or `async def`.
+const fn py_def(function: &Function) -> &'static str {
+    if function.is_async { "async def" } else { "def" }
+}
+
+/// Format a Python stub file for one HIR module: every function, class
+/// (fields, constructor, methods, static methods) and constant of its
+/// surface, own or re-exported, with the `TypeVar`s its generics need.
 #[must_use]
 fn python_declaration(krate: &Crate, module_id: ModuleId) -> String {
-    let Some(module_idx) = usize::try_from(module_id.0).ok() else {
-        return String::new();
-    };
-    let Some(module) = krate.modules.get(module_idx) else {
+    let Some(module) = module_of(krate, module_id) else {
         return String::new();
     };
     let mut out = String::new();
     out.push_str(smelt_hir::PY_STUB_HEADER);
-    out.push_str("\n\n");
-    for item_id in &module.items {
-        let Some(item_idx) = usize::try_from(item_id.0).ok() else {
-            continue;
-        };
-        let Some(item) = krate.items.get(item_idx) else {
-            continue;
-        };
+    out.push_str("\n\nimport typing\n\n");
+    let mut type_vars = Vec::new();
+    for (exported, item_id) in module_surface(krate, module) {
+        let name = symbol_name(krate, exported);
+        let Some(item) = item_of(krate, item_id) else { continue };
         match item {
-            Item::Function(function)
-                if matches!(function.owner, smelt_hir::FunctionOwner::Module) =>
-            {
-                write_python_function(krate, function, &mut out);
-            }
-            Item::Class(class) => {
+            Item::Function(function) => {
+                py_type_vars(krate, &function.type_params, &mut type_vars, &mut out);
                 push_fmt(
                     &mut out,
-                    format_args!("class {}:\n", symbol_name(krate, class.name)),
+                    format_args!("{} {name}{}: ...\n", py_def(function), py_signature(krate, function, None)),
                 );
-                if class.fields.is_empty() && class.methods.is_empty() {
-                    out.push_str("    ...\n");
+            }
+            Item::Class(class) => {
+                py_type_vars(krate, &class.type_params, &mut type_vars, &mut out);
+                let generic = if class.type_params.is_empty() {
+                    String::new()
                 } else {
-                    for field in &class.fields {
+                    let names =
+                        class.type_params.iter().map(|param| symbol_name(krate, param.name)).collect::<Vec<_>>();
+                    format!("(typing.Generic[{}])", names.join(", "))
+                };
+                push_fmt(&mut out, format_args!("class {name}{generic}:\n"));
+                let mut body = String::new();
+                for field in &class.fields {
+                    push_fmt(
+                        &mut body,
+                        format_args!("    {}: {}\n", symbol_name(krate, field.name), py_type(krate, field.ty)),
+                    );
+                }
+                if let Some(constructor) = class.constructor.and_then(|id| function_of(krate, id)) {
+                    let signature = py_signature(krate, constructor, Some("self"));
+                    let params = signature.rsplit_once(") -> ").map_or(signature.as_str(), |(params, _)| params);
+                    push_fmt(&mut body, format_args!("    def __init__{params}) -> None: ...\n"));
+                }
+                for (methods, decorator) in [(&class.methods, ""), (&class.static_methods, "    @staticmethod\n")] {
+                    for method in methods.iter().filter_map(|id| function_of(krate, *id)) {
+                        let method_name = method_source_name(method);
+                        let receiver = decorator.is_empty().then_some("self");
                         push_fmt(
-                            &mut out,
+                            &mut body,
                             format_args!(
-                                "    {}: {}\n",
-                                symbol_name(krate, field.name),
-                                py_type(krate, field.ty)
+                                "{decorator}    {} {}{}: ...\n",
+                                py_def(method),
+                                symbol_name(krate, method_name),
+                                py_signature(krate, method, receiver)
                             ),
                         );
                     }
                 }
+                if body.is_empty() {
+                    body.push_str("    ...\n");
+                }
+                out.push_str(&body);
             }
-            Item::Function(_)
-            | Item::Interface(_)
-            | Item::TypeAlias(_)
-            | Item::Const(_)
-            | Item::MutableGlobal(_) => {}
+            Item::Const(constant) => {
+                push_fmt(&mut out, format_args!("{name}: {}\n", py_type(krate, constant.ty)));
+            }
+            Item::MutableGlobal(global) => {
+                push_fmt(&mut out, format_args!("{name}: {}\n", py_type(krate, global.ty)));
+            }
+            Item::TypeAlias(alias) => {
+                push_fmt(&mut out, format_args!("{name}: typing.TypeAlias = {}\n", py_type(krate, alias.ty)));
+            }
+            Item::Interface(_) => {}
         }
     }
     out
-}
-
-/// Append a Python function signature to a stub file.
-fn write_python_function(krate: &Crate, function: &Function, out: &mut String) {
-    let params = function
-        .params
-        .iter()
-        .map(|param| {
-            format!(
-                "{}: {}",
-                symbol_name(krate, param.name),
-                py_type(krate, param.ty)
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-    push_fmt(
-        out,
-        format_args!(
-            "def {}({params}) -> {}: ...\n",
-            symbol_name(krate, function.name),
-            py_type(krate, function.return_ty)
-        ),
-    );
 }
 
 /// Resolve a symbol to display text.

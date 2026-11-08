@@ -124,6 +124,37 @@ impl ModuleBuilder<'_> {
 
     /// Lower a Python function definition into an HIR function item.
     fn function_def(&mut self, func: &StmtFunctionDef) -> Result<ItemId, SmeltError> {
+        // A generic function's own parameters (PEP 695 `def f[T]`, or the
+        // module `TypeVar`s its annotations name) are type parameters while
+        // its signature and body lower, and the item declares them.
+        let type_param_names = self.function_type_param_names(func);
+        let enclosing = std::mem::replace(&mut self.function_type_params, type_param_names.clone());
+        let lowered = self.function_def_inner(func, &type_param_names);
+        self.function_type_params = enclosing;
+        lowered
+    }
+
+    /// The type parameters of `func`: its PEP 695 list, then every module
+    /// `TypeVar` one of its annotations names.
+    fn function_type_param_names(&self, func: &StmtFunctionDef) -> Vec<String> {
+        let mut names = func
+            .type_params
+            .as_ref()
+            .map(|params| params.iter().map(|param| param.name().as_str().to_owned()).collect::<Vec<_>>())
+            .unwrap_or_default();
+        let annotations = func
+            .parameters
+            .iter()
+            .filter_map(|param| param.annotation())
+            .chain(func.returns.as_deref());
+        for annotation in annotations {
+            self.collect_alias_params(annotation, &mut names);
+        }
+        names
+    }
+
+    /// [`Self::function_def`] with its type parameters in scope.
+    fn function_def_inner(&mut self, func: &StmtFunctionDef, type_param_names: &[String]) -> Result<ItemId, SmeltError> {
         let name_str = func.name.as_str();
         let name = self.intern_name(name_str);
 
@@ -184,6 +215,7 @@ impl ModuleBuilder<'_> {
             }
 
             // Parameters, with Python variadics represented as list/dict parameters.
+            let mut pending_defaults = Vec::new();
             for param_with_default in func.parameters.iter_non_variadic_params() {
                 let p = &param_with_default.parameter;
                 let param_name_str = p.name.as_str();
@@ -232,6 +264,14 @@ impl ModuleBuilder<'_> {
                     })?,
                 };
 
+                // A parameter with a default takes `None` when the caller
+                // leaves it out, whatever language the caller is; the
+                // prologue below puts the default in its place.
+                let defaulted = match param_with_default.default.as_deref() {
+                    Some(default) => this.defaulted_param(param_name_str, param_ty, default, func_span)?,
+                    None => None,
+                };
+                let param_ty = defaulted.as_ref().map_or(param_ty, |defaulted| defaulted.optional_ty);
                 let param_name = this.intern_name(param_name_str);
                 let local = fn_body.push_local(LocalDecl {
                     name: Some(param_name),
@@ -247,6 +287,14 @@ impl ModuleBuilder<'_> {
                     ty: param_ty,
                     span: this.span(p.range),
                 });
+                if let Some(defaulted) = defaulted {
+                    pending_defaults.push((param_name_str, local, defaulted, param_with_default.default.as_deref()));
+                }
+            }
+            for (name, local, defaulted, default) in pending_defaults {
+                if let Some(default) = default {
+                    this.default_prologue(name, local, &defaulted, default, &mut fn_body)?;
+                }
             }
 
             let mut variadics = FunctionVariadics::default();
@@ -329,15 +377,28 @@ impl ModuleBuilder<'_> {
         })?;
 
         let body_id = self.ctx.krate.push_body(fn_body);
+        // The parameters a caller may leave out are the ones with a default;
+        // a declaration stub of this function marks them optional.
+        let required_params = func
+            .parameters
+            .iter_non_variadic_params()
+            .position(|param| param.default.is_some());
+        let type_params = type_param_names
+            .iter()
+            .map(|param| TypeParamDef {
+                name: self.intern_name(param),
+                constraint: None,
+                default: None,
+                span: func_span,
+            })
+            .collect();
         let item = Item::Function(Function {
             name,
             span: func_span,
-            // Lowered Python functions carry no type params at this stage;
-            // specialized instances are concrete.
-            type_params: Vec::new(),
+            type_params,
             params,
             rest: None,
-            required_params: None,
+            required_params,
 return_ty,
             is_async: func.is_async,
             is_test: self.is_pytest_test_function(func),

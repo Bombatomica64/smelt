@@ -94,6 +94,10 @@ pub struct SymbolInterner {
     /// serialized before origins existed) is [`SymbolOrigin::Source`].
     #[serde(default)]
     origins: Vec<SymbolOrigin>,
+    /// Source key -> the symbol [`SymbolInterner::intern_shared`] first
+    /// returned for it: the one symbol every frontend shares for that name.
+    #[serde(default)]
+    shared: std::collections::HashMap<String, Symbol>,
 }
 
 impl SymbolInterner {
@@ -129,6 +133,36 @@ impl SymbolInterner {
     /// (`OriginalNameTable::record` is last-writer-wins).
     pub fn intern_rendered(&mut self, key: &str, rendered: &str) -> Symbol {
         self.intern_with_origin(SymbolOrigin::Source, key, rendered)
+    }
+
+    /// Returns the one `Symbol` every frontend uses for the source name `key`,
+    /// interning it rendered as `rendered` if no frontend has yet.
+    ///
+    /// Each frontend renders source names its own way (TypeScript folds
+    /// `labelText` to `label_text`, Python keeps it verbatim), and the
+    /// rendering is part of a symbol's identity. In a crate mixing the two,
+    /// `p.labelText` written in Python must name the field a TypeScript class
+    /// declared, so a frontend's general name interner goes through here and
+    /// the first rendering of a key is the crate's. Within one frontend this
+    /// is exactly [`Self::intern_rendered`]: it always renders a key the same
+    /// way, so the first answer is the answer it would compute.
+    pub fn intern_shared(&mut self, key: &str, rendered: &str) -> Symbol {
+        if let Some(symbol) = self.shared.get(key) {
+            return *symbol;
+        }
+        let symbol = self.intern_rendered(key, rendered);
+        self.shared.insert(key.to_owned(), symbol);
+        symbol
+    }
+
+    /// The source symbol already interned as `key` rendered `rendered`, if any.
+    pub fn lookup_rendered(&mut self, key: &str, rendered: &str) -> Option<Symbol> {
+        if self.index.len() != self.symbols.len() {
+            self.rebuild_index();
+        }
+        self.index
+            .get(&(SymbolOrigin::Source, key.to_owned(), rendered.to_owned()))
+            .copied()
     }
 
     /// Returns the `Symbol` of the compiler-minted `name`, rendered verbatim.

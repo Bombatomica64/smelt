@@ -8,3 +8,7 @@ def greet(name: str) -> str:
 
 def scale(xs: list[float], k: float) -> list[float]:
     return [x * k for x in xs]
+
+
+def addTwo(a: float) -> float:
+    return a + 2.5

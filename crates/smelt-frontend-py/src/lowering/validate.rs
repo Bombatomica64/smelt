@@ -27,10 +27,10 @@ fn visible_class_methods(ctx: &HirCtx) -> HashMap<String, HashMap<String, ItemId
         let Ok(item_idx) = u32::try_from(idx) else {
             continue;
         };
-        let Some(class_name) = ctx.krate.symbols.get(class) else {
+        let Some(class_name) = ctx.krate.symbols.source(class) else {
             continue;
         };
-        let Some(method_name) = ctx.krate.symbols.get(method) else {
+        let Some(method_name) = ctx.krate.symbols.source(method) else {
             continue;
         };
         class_methods
@@ -54,10 +54,10 @@ fn visible_class_static_methods(ctx: &HirCtx) -> HashMap<String, HashMap<String,
         let Ok(item_idx) = u32::try_from(idx) else {
             continue;
         };
-        let Some(class_name) = ctx.krate.symbols.get(class) else {
+        let Some(class_name) = ctx.krate.symbols.source(class) else {
             continue;
         };
-        let Some(method_name) = ctx.krate.symbols.get(method) else {
+        let Some(method_name) = ctx.krate.symbols.source(method) else {
             continue;
         };
         class_static_methods
@@ -215,6 +215,10 @@ fn dotted_module_name_from_path(path: &str) -> Option<String> {
 }
 
 /// Return an item's source name when available.
+///
+/// The SOURCE spelling, not the Rust rendering: a TypeScript module's
+/// `export const LIMIT` or `function addTwo` renders as `limit`/`add_two`,
+/// and `from consts import LIMIT` names it by what the module wrote.
 fn item_name<'a>(krate: &'a smelt_hir::Crate, hir_item: &Item) -> Option<&'a str> {
     let symbol = match hir_item {
         Item::Function(function) => function.name,
@@ -224,5 +228,5 @@ fn item_name<'a>(krate: &'a smelt_hir::Crate, hir_item: &Item) -> Option<&'a str
         Item::Const(const_item) => const_item.name,
         Item::MutableGlobal(global_item) => global_item.name,
     };
-    krate.symbols.get(symbol)
+    krate.symbols.source(symbol)
 }

@@ -64,9 +64,20 @@ pub fn detect_specialization_modules(modules: &[ModuleInput]) -> Vec<ModuleDetec
         .map(|module| module.path.as_str())
         .collect::<BTreeSet<_>>();
     let mut detected = BTreeMap::<String, (HostLanguage, BTreeSet<DetectionReason>)>::new();
+    let languages = modules
+        .iter()
+        .map(|module| (module.path.as_str(), module.language))
+        .collect::<BTreeMap<_, _>>();
 
     for module in modules {
-        let reasons = direct_reasons(module);
+        let mut reasons = direct_reasons(module);
+        // A factory binding is only a guess at definition-time work. A module
+        // that reaches a module of the other language cannot run in its
+        // language's host at all (CPython cannot import TypeScript), so its
+        // bindings are ordinary runtime code, lowered as such.
+        if reaches_other_language(module, modules, &languages) {
+            reasons.remove(&DetectionReason::PythonFactoryBinding);
+        }
         if !reasons.is_empty() {
             detected.insert(module.path.clone(), (module.language, reasons));
         }
@@ -77,7 +88,10 @@ pub fn detect_specialization_modules(modules: &[ModuleInput]) -> Vec<ModuleDetec
         let mut changed = false;
         for module in modules {
             for dependency in &module.dependencies {
-                if known_paths.contains(dependency.as_str()) && candidate_paths.contains(dependency)
+                // Only a module of the same language runs in the same host.
+                if known_paths.contains(dependency.as_str())
+                    && candidate_paths.contains(dependency)
+                    && languages.get(dependency.as_str()) == Some(&module.language)
                 {
                     let entry = detected
                         .entry(module.path.clone())
@@ -101,6 +115,29 @@ pub fn detect_specialization_modules(modules: &[ModuleInput]) -> Vec<ModuleDetec
             reasons: reasons.into_iter().collect(),
         })
         .collect()
+}
+
+/// Whether `module`'s dependency closure holds a module of another language.
+fn reaches_other_language(
+    module: &ModuleInput,
+    modules: &[ModuleInput],
+    languages: &BTreeMap<&str, HostLanguage>,
+) -> bool {
+    let by_path = modules.iter().map(|other| (other.path.as_str(), other)).collect::<BTreeMap<_, _>>();
+    let mut pending = module.dependencies.iter().map(String::as_str).collect::<Vec<_>>();
+    let mut seen = BTreeSet::new();
+    while let Some(path) = pending.pop() {
+        if !seen.insert(path) {
+            continue;
+        }
+        if languages.get(path).is_some_and(|language| *language != module.language) {
+            return true;
+        }
+        if let Some(dependency) = by_path.get(path) {
+            pending.extend(dependency.dependencies.iter().map(String::as_str));
+        }
+    }
+    false
 }
 
 /// Finds direct language-specific metaprogramming markers.
@@ -299,6 +336,21 @@ mod tests {
             return Err("the propagated dependency was not recorded".to_owned());
         }
         Ok(())
+    }
+
+    /// A Python factory binding over a TypeScript import is runtime code: the
+    /// module cannot run in CPython, so it is no candidate; and a decorated
+    /// TypeScript module makes no Python importer a candidate.
+    #[test]
+    fn modules_reaching_the_other_language_are_not_factory_candidates() {
+        let modules = vec![
+            module("seq.ts", HostLanguage::TypeScript, "@sealed class A {}\nexport function first<T>(xs: T[]): T { return xs[0]; }", &[]),
+            module("main.py", HostLanguage::Python, "from seq import first\nx = first([1])\n", &["seq.ts"]),
+            module("plain.py", HostLanguage::Python, "y = compute()\n", &[]),
+        ];
+        let detected = detect_specialization_modules(&modules);
+        let paths = detected.iter().map(|detection| detection.path.as_str()).collect::<Vec<_>>();
+        assert_eq!(paths, ["plain.py", "seq.ts"], "{detected:?}");
     }
 
     #[test]

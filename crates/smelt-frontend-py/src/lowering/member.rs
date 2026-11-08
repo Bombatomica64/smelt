@@ -378,29 +378,74 @@ impl ModuleBuilder<'_> {
             .bodies
             .get(usize::try_from(const_item.body.0).unwrap_or(usize::MAX))
             .ok_or_else(|| SmeltError::unsupported(span, "constant body is missing"))?;
-        let const_expr = const_body
-            .exprs
-            .get(usize::try_from(const_item.value.0).unwrap_or(usize::MAX))
-            .ok_or_else(|| SmeltError::unsupported(span, "constant value is missing"))?
-            .clone();
-        match const_expr.kind {
-            ExprKind::Literal(literal) => Ok(Some(body.push_expr(HirExpr {
-                kind: ExprKind::Literal(literal),
-                ty: const_item.ty,
-                span,
-            }))),
-            ExprKind::New { class, args } if args.is_empty() => Ok(Some(body.push_expr(HirExpr {
-                kind: ExprKind::New {
-                    class,
-                    args: Vec::new(),
-                },
-                ty: const_item.ty,
-                span,
-            }))),
-            _ => Err(SmeltError::unsupported(
-                span,
-                "only literal and zero-argument constructed constants can be imported",
-            )),
+        let value = Self::copy_pure_const_expr(const_body, const_item.value, body, span)
+            .ok_or_else(|| {
+                SmeltError::unsupported(
+                    span,
+                    "only constants built from literals, collection literals and zero-argument constructions can be imported",
+                )
+            })?;
+        // The use takes the constant's declared type (a `number[]` const is
+        // `List<Float>` even when its literal elements are narrower).
+        let index = usize::try_from(value.0).unwrap_or(usize::MAX);
+        if let Some(expr) = body.exprs.get_mut(index) {
+            expr.ty = const_item.ty;
         }
+        Ok(Some(value))
+    }
+
+    /// Copy the side-effect-free expression `expr` of a constant's `source`
+    /// body into `body`, or `None` when any node of it could run code.
+    ///
+    /// A HIR constant has no runtime cell: every frontend inlines its value at
+    /// each read, as TypeScript re-lowers an imported `export const PRIMES =
+    /// [...]`. Copying is only sound for a tree that evaluates to the same
+    /// value each time without effects: literals, list/set/dict/tuple
+    /// literals of such trees, type assertions and unary operators over them,
+    /// and a zero-argument construction. A call or any other node refuses.
+    fn copy_pure_const_expr(
+        source: &Body,
+        expr: smelt_hir::ExprId,
+        body: &mut Body,
+        span: Span,
+    ) -> Option<smelt_hir::ExprId> {
+        let node = source.exprs.get(usize::try_from(expr.0).ok()?)?;
+        let ty = node.ty;
+        let copy_all = |items: &[smelt_hir::ExprId], body: &mut Body| {
+            items
+                .iter()
+                .map(|item| Self::copy_pure_const_expr(source, *item, body, span))
+                .collect::<Option<Vec<_>>>()
+        };
+        let kind = match &node.kind {
+            ExprKind::Literal(literal) => ExprKind::Literal(literal.clone()),
+            ExprKind::ListLit(items) => ExprKind::ListLit(copy_all(items, body)?),
+            ExprKind::SetLit(items) => ExprKind::SetLit(copy_all(items, body)?),
+            ExprKind::TupleLit(items) => ExprKind::TupleLit(copy_all(items, body)?),
+            ExprKind::DictLit(entries) => ExprKind::DictLit(
+                entries
+                    .iter()
+                    .map(|(key, value)| {
+                        Some((
+                            Self::copy_pure_const_expr(source, *key, body, span)?,
+                            Self::copy_pure_const_expr(source, *value, body, span)?,
+                        ))
+                    })
+                    .collect::<Option<Vec<_>>>()?,
+            ),
+            ExprKind::TypeAssert { value } => ExprKind::TypeAssert {
+                value: Self::copy_pure_const_expr(source, *value, body, span)?,
+            },
+            ExprKind::UnaryOp { op, operand } => ExprKind::UnaryOp {
+                op: *op,
+                operand: Self::copy_pure_const_expr(source, *operand, body, span)?,
+            },
+            ExprKind::New { class, args } if args.is_empty() => ExprKind::New {
+                class: *class,
+                args: Vec::new(),
+            },
+            _ => return None,
+        };
+        Some(body.push_expr(HirExpr { kind, ty, span }))
     }
 }

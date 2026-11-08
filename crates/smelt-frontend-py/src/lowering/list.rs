@@ -68,19 +68,19 @@ impl ModuleBuilder<'_> {
             let Item::Class(class) = item else {
                 continue;
             };
-            if self.ctx.krate.symbols.get(class.name) != Some(class_name) {
+            if self.ctx.krate.symbols.source(class.name) != Some(class_name) {
                 continue;
             }
             for method_item in &class.methods {
                 let Item::Function(function) = self.item_ref(*method_item) else {
                     continue;
                 };
-                if self.ctx.krate.symbols.get(function.name) == Some(method) {
+                if self.ctx.krate.symbols.source(function.name) == Some(method) {
                     return Some(*method_item);
                 }
             }
             if let Some(base) = class.base
-                && let Some(base_name) = self.ctx.krate.symbols.get(base)
+                && let Some(base_name) = self.ctx.krate.symbols.source(base)
             {
                 return self.class_method_item_by_name(base_name, method);
             }

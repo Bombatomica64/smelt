@@ -51,6 +51,12 @@ impl ModuleBuilder<'_> {
                     return Ok(());
                 }
                 if let Expr::Name(target_name) = target_expr
+                    && let Some(result) =
+                        self.module_variable_assign(target_name.id.as_str(), &s.value, s.range, body, block)
+                {
+                    return result;
+                }
+                if let Expr::Name(target_name) = target_expr
                     && !self.scope.locals.contains_key(target_name.id.as_str())
                 {
                     let value = self.expression(&s.value, body)?;
@@ -75,7 +81,12 @@ impl ModuleBuilder<'_> {
             }
 
             // `x += value` — augmented assignment.
-            Stmt::AugAssign(aug) => self.aug_assign(aug, body, block),
+            Stmt::AugAssign(aug) => match self.module_variable_aug_assign(aug, body, block) {
+                Some(result) => result,
+                None => self.aug_assign(aug, body, block),
+            },
+
+            Stmt::Global(global) => self.global_statement(global),
 
             // `return [value]`
             Stmt::Return(ret) => {
@@ -187,7 +198,6 @@ impl ModuleBuilder<'_> {
             Stmt::Try(try_stmt) => self.try_statement(try_stmt, body, block),
 
             Stmt::TypeAlias(_)
-            | Stmt::Global(_)
             | Stmt::Nonlocal(_)
             | Stmt::IpyEscapeCommand(_) => Err(SmeltError::unsupported(
                 self.span(stmt.range()),
@@ -283,6 +293,11 @@ impl ModuleBuilder<'_> {
                 "annotated assignment target must be a simple name",
             ));
         };
+        if let Some(value) = ann.value.as_deref()
+            && let Some(result) = self.module_variable_assign(target_name.id.as_str(), value, ann.range, body, block)
+        {
+            return result;
+        }
 
         let ty = self.annotation_to_hir(&ann.annotation)?;
         if let Some(value) = ann.value.as_deref()

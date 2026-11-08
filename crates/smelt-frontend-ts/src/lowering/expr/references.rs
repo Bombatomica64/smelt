@@ -35,7 +35,7 @@ impl ModuleBuilder<'_> {
             .ctx
             .krate
             .symbols
-            .intern_rendered(name, &camel_to_snake(name));
+            .intern_shared(name, &camel_to_snake(name));
         self.ctx.krate.names.record(symbol, name);
         symbol
     }

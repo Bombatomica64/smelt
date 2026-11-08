@@ -530,7 +530,28 @@ impl ModuleBuilder<'_> {
                                     .to_owned()
                             })
                             .collect::<Vec<_>>();
-                        let defaults = vec![None; params.len()];
+                        // A parameter past `required_params` has a default the
+                        // callee applies: a call that leaves it out passes `None`.
+                        let required = function.required_params.unwrap_or(params.len());
+                        let defaults = params
+                            .iter()
+                            .enumerate()
+                            .map(|(index, param)| {
+                                (index >= required).then(|| {
+                                    body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::None), ty: *param, span })
+                                })
+                            })
+                            .collect::<Vec<_>>();
+                        // A Python callee's type parameters are the ones its
+                        // parameter types mention (it declares none in HIR).
+                        let mut type_params = function
+                            .type_params
+                            .iter()
+                            .map(|param| self.ctx.krate.symbols.get(param.name).unwrap_or("").to_owned())
+                            .collect::<Vec<_>>();
+                        for param in &params {
+                            self.collect_type_param_names(*param, &mut type_params);
+                        }
                         let args = self.callable_call_args(
                             call,
                             body,
@@ -541,8 +562,17 @@ impl ModuleBuilder<'_> {
                                 kwarg: variadics.and_then(|v| v.kwarg),
                                 defaults: &defaults,
                                 label: "function",
+                                type_params: &type_params,
                             },
                         )?;
+                        // A generic callee's result is its return type under
+                        // the parameters this call solved.
+                        let return_ty = if type_params.is_empty() {
+                            return_ty
+                        } else {
+                            let solved = std::mem::take(&mut self.last_call_substitutions);
+                            self.substitute_alias_params(return_ty, &solved)
+                        };
                         return Ok(Some(body.push_expr(HirExpr {
                             kind: ExprKind::Call { callee, args },
                             ty: return_ty,
@@ -593,6 +623,7 @@ impl ModuleBuilder<'_> {
                 kwarg: callback_meta.as_ref().and_then(|callback| callback.kwarg),
                 defaults: &defaults,
                 label: "closure",
+                type_params: &[],
             },
         )?;
         Ok(Some(body.push_expr(HirExpr {
@@ -627,6 +658,7 @@ impl ModuleBuilder<'_> {
                 kwarg: None,
                 defaults: &defaults,
                 label: "callable expression",
+                type_params: &[],
             },
         )?;
         Ok(Some(body.push_expr(HirExpr {
@@ -684,7 +716,8 @@ impl ModuleBuilder<'_> {
             .take(packed_param_start)
             .enumerate()
             .map(|(index, arg)| {
-                self.expression_with_hint(arg, body, signature.params.get(index).copied())
+                let hint = signature.params.get(index).copied().filter(|param| !self.mentions_type_params(*param, signature.type_params));
+                self.expression_with_hint(arg, body, hint)
             })
             .collect::<Result<Vec<_>, _>>()?;
         let mut fixed_args = vec![None; packed_param_start];
@@ -716,11 +749,8 @@ impl ModuleBuilder<'_> {
                     ),
                 ));
             }
-            fixed_args[index] = Some(self.expression_with_hint(
-                &keyword.value,
-                body,
-                signature.params.get(index).copied(),
-            )?);
+            let hint = signature.params.get(index).copied().filter(|param| !self.mentions_type_params(*param, signature.type_params));
+            fixed_args[index] = Some(self.expression_with_hint(&keyword.value, body, hint)?);
         }
         if signature.kwarg.is_none() && !extra_keywords.is_empty() {
             return Err(SmeltError::unsupported(
@@ -763,9 +793,40 @@ impl ModuleBuilder<'_> {
         if let Some(meta) = signature.kwarg {
             args.push(self.kwargs_argument(&extra_keywords, meta.value_ty, span, body)?);
         }
-        for (arg, expected) in args.iter().zip(signature.params) {
+        // A generic callee's parameters are solved from the arguments, and the
+        // arguments checked against the solved types.
+        let mut solved = HashMap::new();
+        if !signature.type_params.is_empty() {
+            for (arg, expected) in args.iter().zip(signature.params) {
+                let supplied = Self::expr_ty(body, *arg);
+                self.solve_type_params(*expected, supplied, signature.type_params, &mut solved);
+            }
+        }
+        let expected_types = signature
+            .params
+            .iter()
+            .map(|param| self.substitute_alias_params(*param, &solved))
+            .collect::<Vec<_>>();
+        self.last_call_substitutions = solved;
+        for (arg, expected) in args.iter_mut().zip(&expected_types) {
             let supplied = Self::expr_ty(body, *arg);
-            if supplied != *expected && !self.structurally_conforms(*expected, supplied) {
+            // An argument to a TypeScript function crosses into TypeScript's
+            // view of its text (`smelt_hir::language_view`).
+            if supplied != *expected
+                && smelt_hir::language_view::view_in(
+                    &mut self.ctx.krate.types,
+                    *expected,
+                    smelt_hir::language_view::SourceLanguage::Python,
+                ) == supplied
+            {
+                let span = body.exprs.get(arg.0 as usize).map_or(span, |expr| expr.span);
+                *arg = body.push_expr(HirExpr { kind: ExprKind::TypeAssert { value: *arg }, ty: *expected, span });
+                continue;
+            }
+            // A value is an `Optional` of its own type (a defaulted parameter).
+            let optional_of_supplied =
+                matches!(self.ctx.krate.types.get(*expected), Some(Type::Optional(inner)) if *inner == supplied);
+            if supplied != *expected && !optional_of_supplied && !self.structurally_conforms(*expected, supplied) {
                 return Err(SmeltError::unsupported(
                     span,
                     format!(
@@ -776,6 +837,115 @@ impl ModuleBuilder<'_> {
             }
         }
         Ok(args)
+    }
+
+    /// Add the names of the type parameters `ty` mentions to `names`.
+    fn collect_type_param_names(&self, ty: TypeId, names: &mut Vec<String>) {
+        match self.ctx.krate.types.get(ty).cloned() {
+            Some(Type::TypeParam { name }) => {
+                if let Some(name) = self.ctx.krate.symbols.get(name)
+                    && !names.iter().any(|known| known == name)
+                {
+                    names.push(name.to_owned());
+                }
+            }
+            Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
+                self.collect_type_param_names(item, names);
+            }
+            Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
+                self.collect_type_param_names(key, names);
+                self.collect_type_param_names(value, names);
+            }
+            Some(Type::Tuple(items) | Type::Union(items)) => {
+                for item in items {
+                    self.collect_type_param_names(item, names);
+                }
+            }
+            Some(Type::Function(function)) => {
+                for param in &function.params {
+                    self.collect_type_param_names(*param, names);
+                }
+                self.collect_type_param_names(function.return_ty, names);
+            }
+            _ => {}
+        }
+    }
+
+    /// Whether `ty` mentions one of `params` (a callee's type parameters).
+    fn mentions_type_params(&self, ty: TypeId, params: &[String]) -> bool {
+        if params.is_empty() {
+            return false;
+        }
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::TypeParam { name }) => {
+                self.ctx.krate.symbols.get(*name).is_some_and(|name| params.iter().any(|param| param == name))
+            }
+            Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
+                self.mentions_type_params(*item, params)
+            }
+            Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
+                self.mentions_type_params(*key, params) || self.mentions_type_params(*value, params)
+            }
+            Some(Type::Tuple(items) | Type::Union(items)) => {
+                items.clone().iter().any(|item| self.mentions_type_params(*item, params))
+            }
+            Some(Type::Function(function)) => {
+                let function = function.clone();
+                function.params.iter().any(|param| self.mentions_type_params(*param, params))
+                    || self.mentions_type_params(function.return_ty, params)
+            }
+            _ => false,
+        }
+    }
+
+    /// Solve `params` (a callee's type parameters, by name) by matching the
+    /// declared `expected` type against the `supplied` argument type, the
+    /// first binding winning.
+    fn solve_type_params(
+        &self,
+        expected: TypeId,
+        supplied: TypeId,
+        params: &[String],
+        solved: &mut HashMap<String, TypeId>,
+    ) {
+        let (Some(expected_ty), Some(supplied_ty)) =
+            (self.ctx.krate.types.get(expected).cloned(), self.ctx.krate.types.get(supplied).cloned())
+        else {
+            return;
+        };
+        match (expected_ty, supplied_ty) {
+            (Type::TypeParam { name }, _) => {
+                if let Some(name) = self.ctx.krate.symbols.get(name)
+                    && params.iter().any(|param| param == name)
+                {
+                    solved.entry(name.to_owned()).or_insert(supplied);
+                }
+            }
+            (Type::List(expected), Type::List(supplied))
+            | (Type::Set(expected), Type::Set(supplied))
+            | (Type::Optional(expected), Type::Optional(supplied))
+            | (Type::Future(expected), Type::Future(supplied)) => {
+                self.solve_type_params(expected, supplied, params, solved);
+            }
+            (Type::Optional(expected), _) => self.solve_type_params(expected, supplied, params, solved),
+            (Type::Dict(expected_key, expected_value), Type::Dict(supplied_key, supplied_value))
+            | (Type::JsMap(expected_key, expected_value), Type::JsMap(supplied_key, supplied_value)) => {
+                self.solve_type_params(expected_key, supplied_key, params, solved);
+                self.solve_type_params(expected_value, supplied_value, params, solved);
+            }
+            (Type::Tuple(expected), Type::Tuple(supplied)) if expected.len() == supplied.len() => {
+                for (expected, supplied) in expected.into_iter().zip(supplied) {
+                    self.solve_type_params(expected, supplied, params, solved);
+                }
+            }
+            (Type::Function(expected), Type::Function(supplied)) if expected.params.len() == supplied.params.len() => {
+                for (expected, supplied) in expected.params.iter().zip(&supplied.params) {
+                    self.solve_type_params(*expected, *supplied, params, solved);
+                }
+                self.solve_type_params(expected.return_ty, supplied.return_ty, params, solved);
+            }
+            _ => {}
+        }
     }
 
     /// Packs Python keyword arguments into the lowered `**kwargs` dictionary argument.
@@ -905,14 +1075,13 @@ impl ModuleBuilder<'_> {
         let method = attr.attr.as_str();
         // A union receiver dispatches statically when every arm declares the
         // method; see `union_method_return_ty`.
-        if let Some(return_ty) = self.union_method_return_ty(receiver_ty, method) {
+        if let Some((return_ty, method_sym)) = self.union_method_return_ty(receiver_ty, method) {
             let args = call
                 .arguments
                 .args
                 .iter()
                 .map(|arg| self.expression(arg, body))
                 .collect::<Result<Vec<_>, _>>()?;
-            let method_sym = self.intern_name(method);
             return Ok(Some(body.push_expr(HirExpr {
                 kind: ExprKind::Method {
                     receiver,
@@ -1101,6 +1270,13 @@ impl ModuleBuilder<'_> {
             ));
         };
         let return_ty = function.return_ty;
+        // The method's own symbol: a TypeScript class's `scaledBy` is
+        // interned with its `scaled_by` rendering, which `intern_name` of the
+        // source text would not reproduce.
+        let declared_method = match function.owner {
+            FunctionOwner::ClassMethod { method, .. } => Some(method),
+            _ => None,
+        };
         if dispatch.receiver_free {
             // Classmethod/staticmethod: drop the receiver and call the
             // associated function directly (`Class::method(args)`).
@@ -1118,7 +1294,7 @@ impl ModuleBuilder<'_> {
                 span,
             }));
         }
-        let method_sym = self.intern_name(&method);
+        let method_sym = declared_method.unwrap_or_else(|| self.intern_name(&method));
         Ok(body.push_expr(HirExpr {
             kind: ExprKind::Method {
                 receiver,
@@ -1148,7 +1324,11 @@ impl ModuleBuilder<'_> {
     /// The result type is the union of the arms' return types, collapsed to a
     /// single type when they agree. Deliberately *not* erased to a dynamic
     /// value: the arms are concrete, so the static shape survives the call.
-    fn union_method_return_ty(&mut self, receiver_ty: TypeId, method: &str) -> Option<TypeId> {
+    ///
+    /// Also returns the method symbol every arm declares: one `Method`
+    /// expression dispatches all arms, so arms whose declarations interned
+    /// `method` differently (a TypeScript and a Python class) do not qualify.
+    fn union_method_return_ty(&mut self, receiver_ty: TypeId, method: &str) -> Option<(TypeId, Symbol)> {
         let Some(Type::Union(members)) = self.ctx.krate.types.get(receiver_ty).cloned() else {
             return None;
         };
@@ -1156,6 +1336,7 @@ impl ModuleBuilder<'_> {
             return None;
         }
         let mut return_tys: Vec<TypeId> = Vec::new();
+        let mut method_symbol = None;
         for member in members {
             let dispatch = self.class_method_dispatch(member, method)?;
             if dispatch.receiver_free {
@@ -1164,16 +1345,25 @@ impl ModuleBuilder<'_> {
             let Item::Function(function) = self.item_ref(dispatch.item) else {
                 return None;
             };
+            let FunctionOwner::ClassMethod { method: declared, .. } = function.owner else {
+                return None;
+            };
+            if method_symbol.is_some_and(|symbol| symbol != declared) {
+                return None;
+            }
+            method_symbol = Some(declared);
             let return_ty = function.return_ty;
             if !return_tys.contains(&return_ty) {
                 return_tys.push(return_ty);
             }
         }
-        match return_tys.as_slice() {
-            [single] => Some(*single),
-            [] => None,
-            _ => Some(self.intern_type(Type::Union(return_tys))),
-        }
+        let method_symbol = method_symbol?;
+        let return_ty = match return_tys.as_slice() {
+            [single] => *single,
+            [] => return None,
+            _ => self.intern_type(Type::Union(return_tys)),
+        };
+        Some((return_ty, method_symbol))
     }
 
     /// Resolve a class method by receiver type and name, classifying its
@@ -1188,7 +1378,9 @@ impl ModuleBuilder<'_> {
         let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(receiver_ty) else {
             return None;
         };
-        let class_name = self.ctx.krate.symbols.get(*name)?;
+        // Registries are keyed by SOURCE spelling, whichever frontend
+        // declared the class (see `member_symbol`).
+        let class_name = self.ctx.krate.symbols.source(*name)?;
         // Static methods and classmethods dispatch receiver-free.
         if let Some(item) = self
             .class_static_methods
