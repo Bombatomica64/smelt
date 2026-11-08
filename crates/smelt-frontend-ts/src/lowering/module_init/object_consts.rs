@@ -4,7 +4,7 @@
 
 use crate::{ObjectConst, ObjectConstEntry, ObjectConstEntryValue, ObjectConstValue, SmeltError};
 use crate::lowering::body_arena::BodyArena;
-use crate::lowering::js_text::js_str_text;
+use crate::lowering::js_text::{has_lone_surrogate, js_str_literal, js_str_text};
 use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::support::source_spelling;
 use indexmap::IndexMap;
@@ -131,6 +131,11 @@ impl ModuleBuilder<'_> {
                     self.span(object_property.span.start, object_property.span.end),
                     "exported object namespace constants require static data properties",
                 ));
+            }
+            // A namespace member is a named item, which a lone surrogate cannot
+            // name; such an object stays an ordinary object constant.
+            if matches!(&object_property.key, PropertyKey::StringLiteral(lit) if has_lone_surrogate(lit.value)) {
+                return Ok(false);
             }
             let key_text = match &object_property.key {
                 PropertyKey::StaticIdentifier(ident) => ident.name.as_str().to_owned(),
@@ -540,9 +545,7 @@ impl ModuleBuilder<'_> {
                 ArrayExpressionElement::StringLiteral(literal) => {
                     let ty = self.ctx.krate.types.intern(Type::String);
                     items.push(ObjectConstEntryValue {
-                        value: ObjectConstValue::Literal(Literal::String(
-                            js_str_text(literal.value).into_owned(),
-                        )),
+                        value: ObjectConstValue::Literal(js_str_literal(literal.value)),
                         ty,
                     });
                     continue;

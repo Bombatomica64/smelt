@@ -10067,3 +10067,23 @@ function matches(pattern: string, text: string): boolean {
     );
     Ok(())
 }
+
+/// A member name that becomes a Rust field cannot hold a lone surrogate, and
+/// replacing it would make two different keys one: each declaration form is
+/// refused rather than lowered to a wrong key.
+#[test]
+fn rejects_lone_surrogate_member_names() -> Result<(), String> {
+    for source in [
+        ts!(r#"interface T { "\ud83d": number }"#),
+        ts!(r#"type T = { "\ud83d"(): number };"#),
+        ts!(r#"class C { "\ud83d" = 1 }"#),
+        ts!(r#"class C { "\ud83d"(): number { return 1; } }"#),
+    ] {
+        let mut ctx = HirCtx::new();
+        let errors = lowering_errors(source, &mut ctx)?;
+        assert_unsupported_ts(&errors, "lone surrogate")?;
+    }
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(ts!(r#"const s = Symbol("\ud83d");"#), &mut ctx)?;
+    assert_unsupported_ts(&errors, "lone surrogate")
+}

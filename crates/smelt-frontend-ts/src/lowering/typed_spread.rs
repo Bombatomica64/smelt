@@ -25,7 +25,7 @@
 //! order, so the struct literal's field order cannot reorder their effects.
 
 use crate::lowering::support::source_spelling;
-use crate::lowering::js_text::js_str_text;
+use crate::lowering::js_text::{has_lone_surrogate, js_str_text};
 use oxc::ast::ast::{Expression, ObjectExpression, ObjectPropertyKind, PropertyKey};
 use smelt_hir::{Body, Expr, ExprKind, Field, Literal, Type};
 use std::borrow::Cow;
@@ -99,7 +99,7 @@ impl ModuleBuilder<'_> {
                         PropertyKey::StaticIdentifier(identifier) => {
                             Cow::Borrowed(identifier.name.as_str())
                         }
-                        PropertyKey::StringLiteral(literal) => js_str_text(literal.value),
+                        PropertyKey::StringLiteral(literal) if !has_lone_surrogate(literal.value) => js_str_text(literal.value),
                         _ => return Ok(None),
                     };
                     let name = self.intern_source_name(&key);

@@ -3,7 +3,7 @@
 
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
-use crate::lowering::js_text::js_str_text;
+use crate::lowering::js_text::{has_lone_surrogate, js_str_text};
 use indexmap::IndexMap;
 use oxc::ast::ast::{TSSignature, TSType, TSTypeName};
 use smelt_hir::{ErasureReason, Field, Type, Visibility};
@@ -155,7 +155,7 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn static_pick_keys(ty: &TSType<'_>) -> Option<Vec<String>> {
         match ty {
             TSType::TSLiteralType(literal) => match &literal.literal {
-                oxc::ast::ast::TSLiteral::StringLiteral(value) => {
+                oxc::ast::ast::TSLiteral::StringLiteral(value) if !has_lone_surrogate(value.value) => {
                     Some(vec![js_str_text(value.value).into_owned()])
                 }
                 _ => None,

@@ -598,10 +598,10 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         if object_property.computed {
-            if let Some(key_text) = self.computed_string_literal_key(object_property) {
+            if let PropertyKey::StringLiteral(literal) = &object_property.key {
                 let ty = self.ctx.krate.types.intern(Type::String);
                 return Ok(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::String(key_text)),
+                    kind: ExprKind::Literal(js_str_literal(literal.value)),
                     ty,
                     span: self.span(
                         object_property.key.span().start,
@@ -695,27 +695,6 @@ impl ModuleBuilder<'_> {
                 PropertyKey::CallExpression(call)
                     if matches!(&call.callee, Expression::Identifier(callee) if callee.name == "Symbol")
             )
-    }
-
-    /// Extract the source string from a computed string literal key with erased assertions.
-    pub(in crate::lowering) fn computed_string_literal_key(
-        &self,
-        object_property: &oxc::ast::ast::ObjectProperty<'_>,
-    ) -> Option<String> {
-        let source = self
-            .source
-            .get(
-                usize::try_from(object_property.key.span().start).ok()?
-                    ..usize::try_from(object_property.key.span().end).ok()?,
-            )?
-            .trim();
-        let quote = source.chars().next()?;
-        if quote != '"' && quote != '\'' {
-            return None;
-        }
-        let rest = &source[quote.len_utf8()..];
-        let end = rest.find(quote)?;
-        Some(rest[..end].to_owned())
     }
 
     /// Flush pending explicit properties into an ordered object-spread source.

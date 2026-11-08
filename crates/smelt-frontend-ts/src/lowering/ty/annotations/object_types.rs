@@ -3,7 +3,7 @@
 
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
-use crate::lowering::js_text::js_str_text;
+use crate::lowering::js_text::{has_lone_surrogate, js_str_text};
 use oxc::ast::ast::{TSSignature, TSType, TSTypeName};
 use smelt_hir::{ErasureReason, Field, FunctionType, Type};
 
@@ -105,7 +105,7 @@ impl ModuleBuilder<'_> {
                     oxc::ast::ast::PropertyKey::StaticIdentifier(identifier) => {
                         std::borrow::Cow::Borrowed(identifier.name.as_str())
                     }
-                    oxc::ast::ast::PropertyKey::StringLiteral(literal) => {
+                    oxc::ast::ast::PropertyKey::StringLiteral(literal) if !has_lone_surrogate(literal.value) => {
                         js_str_text(literal.value)
                     }
                     _ => return false,

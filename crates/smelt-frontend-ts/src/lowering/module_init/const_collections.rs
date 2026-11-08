@@ -2,7 +2,7 @@
 //! elements are known literals, recorded so reads can fold them.
 
 use crate::{ObjectConst, ObjectConstValue};
-use crate::lowering::js_text::js_str_text;
+use crate::lowering::js_text::js_str_literal;
 use oxc::ast::ast::{Argument, ArrayExpressionElement, Expression, ObjectPropertyKind};
 use smelt_hir::{ErasureReason, ExprKind, Literal, Type};
 use super::super::{ConstCollection, ConstCollectionItem, ConstCollectionValue, ModuleBuilder};
@@ -70,9 +70,7 @@ impl ModuleBuilder<'_> {
                 ArrayExpressionElement::StringLiteral(literal) => {
                     let ty = self.ctx.krate.types.intern(Type::String);
                     items.push(ConstCollectionItem {
-                        value: ConstCollectionValue::Expr(ExprKind::Literal(Literal::String(
-                            js_str_text(literal.value).into_owned(),
-                        ))),
+                        value: ConstCollectionValue::Expr(ExprKind::Literal(js_str_literal(literal.value))),
                         ty,
                     });
                 }
@@ -216,9 +214,7 @@ impl ModuleBuilder<'_> {
     ) -> ConstCollectionItem {
         match expression {
             Expression::StringLiteral(literal) => ConstCollectionItem {
-                value: ConstCollectionValue::Expr(ExprKind::Literal(Literal::String(
-                    js_str_text(literal.value).into_owned(),
-                ))),
+                value: ConstCollectionValue::Expr(ExprKind::Literal(js_str_literal(literal.value))),
                 ty: self.ctx.krate.types.intern(Type::String),
             },
             Expression::NumericLiteral(literal) => ConstCollectionItem {
