@@ -35,14 +35,6 @@ use crate::lowering::{ConstLiteral, ModuleBuilder};
 use crate::error::SmeltError;
 use smelt_hir::{Body, Expr, ExprId, ExprKind, Item, Literal, Type, TypeAlias};
 
-/// The property key JavaScript makes of a number (`String(5) === "5"`).
-fn js_number_key(value: f64) -> String {
-    if value == value.trunc() && value.abs() < 1e21 {
-        format!("{value:.0}")
-    } else {
-        value.to_string()
-    }
-}
 
 impl ModuleBuilder<'_> {
     /// Const-fold every statically-resolvable member of an `enum` declaration
@@ -186,7 +178,7 @@ impl ModuleBuilder<'_> {
             .into_iter()
             .map(|(value, name)| {
                 let key = body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::String(js_number_key(value))),
+                    kind: ExprKind::Literal(Literal::String(Self::numeric_property_key_name(value))),
                     ty: string_ty,
                     span,
                 });

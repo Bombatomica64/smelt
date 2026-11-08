@@ -816,6 +816,13 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Whether `name` is a lowered `abstract` class.
+    fn class_is_abstract(&self, name: &str) -> bool {
+        self.classes.item(name).is_some_and(|item| {
+            matches!(self.item_ref(item), Item::Class(class) if matches!(class.kind, smelt_hir::ClassKind::Abstract))
+        })
+    }
+
     /// A class name in value position: the runtime constructor object.
     ///
     /// `SmeltUnknown` is the honest carrier: a slot can hold any class, and a read
@@ -845,6 +852,7 @@ impl ModuleBuilder<'_> {
             })
         });
         let constructor = match params {
+            Some(_) if self.class_is_abstract(name) => None,
             Some(params) => {
                 let instance_ty = self.ctx.krate.types.intern(Type::Class {
                     name: class,
@@ -910,6 +918,11 @@ impl ModuleBuilder<'_> {
         let is_error_builtin = smelt_stdlib::is_error_class_name(name);
         let is_user_class = self.classes.is_known(name) || self.source_contains_class(name);
         if !is_error_builtin && !is_user_class {
+            return Ok(None);
+        }
+        // TypeScript rejects `new` on an abstract class, through an `abstract
+        // new (..)` constructor type too, so its value constructs nothing.
+        if self.class_is_abstract(name) {
             return Ok(None);
         }
 

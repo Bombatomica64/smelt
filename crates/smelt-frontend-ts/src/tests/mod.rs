@@ -261,3 +261,4 @@ mod erasure_tests;
 mod fn_ctx_tests;
 mod anonymous_record_tests;
 mod receiver_reuse_tests;
+mod abstract_class_value_tests;

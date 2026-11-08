@@ -49,6 +49,7 @@ impl ModuleBuilder<'_> {
             .get(namespace)
             .and_then(|members| members.get(member_name))
             .copied()
+            .or_else(|| self.items.get(&format!("{namespace}.{member_name}")).copied())
             .or_else(|| self.items.get(member_name).copied());
         let Some(item) = item else {
             if self.imports.is_namespace(namespace) {
