@@ -88,6 +88,7 @@ impl ModuleBuilder<'_> {
 
         let lhs_ty = Self::expr_ty(body, lhs);
         let rhs_ty = Self::expr_ty(body, rhs);
+        let op = self.loose_equality_op(op, lhs_ty, rhs_ty);
         // Erased operands say nothing about `+`; the checker may know it concatenates.
         let ty = if op == BinOp::Add && self.checker_types_as_string(binary.span.start, binary.span.end) {
             self.ctx.krate.types.intern(Type::String)
@@ -734,5 +735,101 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(unary.span.start, unary.span.end),
         }))
+    }
+}
+
+/// The JavaScript value kinds a `==` operand's type can hold; see
+/// [`ModuleBuilder::loose_equality_op`].
+#[derive(Default)]
+struct ValueKinds {
+    /// `number` (and Smelt's integer spellings of it).
+    number: bool,
+    /// `bigint`.
+    bigint: bool,
+    /// `string`.
+    string: bool,
+    /// `boolean`.
+    boolean: bool,
+    /// Objects, arrays, functions, promises: compared by reference.
+    object: bool,
+    /// `unknown`: any kind at all.
+    any: bool,
+    /// A type parameter: whatever its instantiation is.
+    parameter: bool,
+}
+
+impl ValueKinds {
+    /// How many distinct non-nullish kinds were seen.
+    fn count(&self) -> usize {
+        [self.number, self.bigint, self.string, self.boolean, self.object].into_iter().filter(|kind| *kind).count()
+    }
+}
+
+impl ModuleBuilder<'_> {
+    /// What a source `==`/`!=` (`op`, [`BinOp::Eq`]/[`BinOp::NotEq`]) between
+    /// values of `lhs` and `rhs` lowers to.
+    ///
+    /// ECMA-262 IsLooselyEqual between two values of one kind is that kind's
+    /// strict equality, and `null`/`undefined` equal each other: so operands of
+    /// one primitive kind (with or without `null`) keep [`BinOp::Eq`], whose
+    /// typed comparisons are exactly that; operands that are only objects compare
+    /// by reference ([`BinOp::JsStrictEq`]), never field by field; and operands
+    /// that can hold different kinds (a union, `unknown`, `bigint` against
+    /// `number`) get [`BinOp::JsLooseEq`], which converts across kinds at run
+    /// time. A generic parameter keeps the typed equality its bounds give.
+    pub(in crate::lowering) fn loose_equality_op(&self, op: BinOp, lhs: smelt_hir::TypeId, rhs: smelt_hir::TypeId) -> BinOp {
+        let (same_kind, objects, crossing) = match op {
+            BinOp::Eq => (BinOp::Eq, BinOp::JsStrictEq, BinOp::JsLooseEq),
+            BinOp::NotEq => (BinOp::NotEq, BinOp::JsStrictNotEq, BinOp::JsLooseNotEq),
+            _ => return op,
+        };
+        let mut kinds = ValueKinds::default();
+        self.collect_value_kinds(lhs, &mut kinds, 0);
+        self.collect_value_kinds(rhs, &mut kinds, 0);
+        if kinds.parameter {
+            return same_kind;
+        }
+        if kinds.any || kinds.count() > 1 {
+            return crossing;
+        }
+        if kinds.object {
+            return objects;
+        }
+        same_kind
+    }
+
+    /// Record the value kinds `ty` can hold into `kinds`.
+    fn collect_value_kinds(&self, ty: smelt_hir::TypeId, kinds: &mut ValueKinds, depth: usize) {
+        if depth > 16 {
+            kinds.any = true;
+            return;
+        }
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Int | Type::Float | Type::FixedInt(_)) => kinds.number = true,
+            Some(Type::BigInt) => kinds.bigint = true,
+            Some(Type::String | Type::PyStr) => kinds.string = true,
+            Some(Type::Bool) => kinds.boolean = true,
+            Some(Type::None | Type::Never) => {}
+            Some(Type::Optional(inner)) => self.collect_value_kinds(*inner, kinds, depth + 1),
+            Some(Type::Union(members)) => {
+                for member in members {
+                    self.collect_value_kinds(*member, kinds, depth + 1);
+                }
+            }
+            Some(Type::TypeParam { .. }) => kinds.parameter = true,
+            Some(Type::Unknown) | None => kinds.any = true,
+            Some(
+                Type::List(_)
+                | Type::Set(_)
+                | Type::Dict(_, _)
+                | Type::JsMap(_, _)
+                | Type::Tuple(_)
+                | Type::Class { .. }
+                | Type::Function(_)
+                | Type::Future(_)
+                | Type::Generator { .. }
+                | Type::GeneratorResult { .. },
+            ) => kinds.object = true,
+        }
     }
 }

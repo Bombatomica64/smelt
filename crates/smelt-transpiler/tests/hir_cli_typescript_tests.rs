@@ -378,9 +378,6 @@ const result = quartersToMonths(2);\nconsole.log(result);\n",
 
 #[test]
 fn build_runs_node_buffer_identity_and_length_program() -> TestResult {
-    // The checkers cannot vouch for this program (Smelt resolves an import
-    // or a global the closure-only checker setup does not see), so it is
-    // built with type errors allowed; see `type_gate_cli_tests.rs`.
     // End-to-end compile + run coverage for the modeled Node `Buffer`:
     // construction (`Buffer.from`/`Buffer.alloc`/`Buffer.concat`/`new Buffer`),
     // `Buffer.isBuffer`, `instanceof Buffer` (buffer vs non-buffer), and the
@@ -425,7 +422,7 @@ console.log(allocated.byteLength);
     )?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
-    smelt(&["--manifest-path", &manifest_arg, "build", "--allow-type-errors"])?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
 
     let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
     ensure_eq(
@@ -1125,9 +1122,6 @@ clone-strategy = "aggressive"
 
 #[test]
 fn build_resolves_named_import_from_workspace_package_source_fallback() -> TestResult {
-    // The checkers cannot vouch for this program (Smelt resolves an import
-    // or a global the closure-only checker setup does not see), so it is
-    // built with type errors allowed; see `type_gate_cli_tests.rs`.
     let project = TempProject::new()?;
     let project_path = project.path();
     fs::create_dir_all(project_path.join("src"))?;
@@ -1172,7 +1166,7 @@ clone-strategy = "aggressive"
     )?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
-    smelt(&["--manifest-path", &manifest_arg, "build", "--allow-type-errors"])?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
 
     let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
     ensure_eq(&actual_stdout, &"5\n".to_owned(), "unexpected stdout")?;
@@ -1286,16 +1280,13 @@ clone-strategy = "aggressive"
 /// subpath next to the entry, and the package's own excludes prune its tree.
 #[test]
 fn build_resolves_a_declared_package_from_a_local_path() -> TestResult {
-    // The checkers cannot vouch for this program (Smelt resolves an import
-    // or a global the closure-only checker setup does not see), so it is
-    // built with type errors allowed; see `type_gate_cli_tests.rs`.
     let project = TempProject::new()?;
     let project_path = project.path();
     write_package_sources(&project_path.join("vendor/utility"))?;
     write_package_consumer(project_path, "path = \"vendor/utility\"")?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
-    smelt(&["--manifest-path", &manifest_arg, "build", "--allow-type-errors"])?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
 
     let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
     ensure_eq(&actual_stdout, &"10\n".to_owned(), "unexpected stdout")?;
@@ -1306,9 +1297,6 @@ fn build_resolves_a_declared_package_from_a_local_path() -> TestResult {
 /// package cache once and reuses it; a later commit on the branch is not seen.
 #[test]
 fn build_resolves_a_declared_package_from_a_pinned_git_revision() -> TestResult {
-    // The checkers cannot vouch for this program (Smelt resolves an import
-    // or a global the closure-only checker setup does not see), so it is
-    // built with type errors allowed; see `type_gate_cli_tests.rs`.
     let project = TempProject::new()?;
     let project_path = project.path();
     let repo = project_path.join("upstream");
@@ -1337,7 +1325,7 @@ fn build_resolves_a_declared_package_from_a_pinned_git_revision() -> TestResult 
     let cache = project_path.join("cache");
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
     for _ in 0_u8..2 {
-        smelt_with_env(&["--manifest-path", &manifest_arg, "build", "--allow-type-errors"], &[("SMELT_PACKAGE_CACHE", &cache)])?;
+        smelt_with_env(&["--manifest-path", &manifest_arg, "build"], &[("SMELT_PACKAGE_CACHE", &cache)])?;
         let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
         ensure_eq(&actual_stdout, &"10\n".to_owned(), "unexpected stdout")?;
     }
@@ -1364,9 +1352,6 @@ fn build_resolves_a_declared_package_from_a_pinned_git_revision() -> TestResult 
 /// sees its `PORT`; the profile's timezone stays fixed whatever `TZ` says.
 #[test]
 fn process_env_reads_the_environment_at_run_time() -> TestResult {
-    // The checkers cannot vouch for this program (Smelt resolves an import
-    // or a global the closure-only checker setup does not see), so it is
-    // built with type errors allowed; see `type_gate_cli_tests.rs`.
     let project = TempProject::new()?;
     let project_path = project.path();
     fs::create_dir_all(project_path.join("src"))?;
@@ -1392,7 +1377,7 @@ clone-strategy = "aggressive"
         "const port = Number(process.env.SMELT_TEST_PORT ?? 3000);\nconsole.log(port, process.env.TZ ?? \"UTC\");\n",
     )?;
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
-    smelt(&["--manifest-path", &manifest_arg, "build", "--allow-type-errors"])?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
 
     let manifest = project_path.join("dist/Cargo.toml");
     let unset = cargo_run_manifest_with_env(&manifest, &[("TZ", "UTC")], &["SMELT_TEST_PORT"])?;
@@ -1404,9 +1389,6 @@ clone-strategy = "aggressive"
 
 #[test]
 fn build_dependency_closure_ignores_typescript_type_only_edges() -> TestResult {
-    // The checkers cannot vouch for this program (Smelt resolves an import
-    // or a global the closure-only checker setup does not see), so it is
-    // built with type errors allowed; see `type_gate_cli_tests.rs`.
     let project = TempProject::new()?;
     let project_path = project.path();
     fs::create_dir_all(project_path.join("src"))?;
@@ -1432,13 +1414,20 @@ clone-strategy = "aggressive"
         project_path.join("src/types.ts"),
         "export type OnlyType = number;\nimport { missing } from './missing-runtime';\n",
     )?;
+    // The runtime module is declared, never implemented: a program tsc
+    // accepts, whose `missing` has no value Smelt could lower. Reaching it only
+    // through `import type` must not need one.
+    fs::write(
+        project_path.join("src/missing-runtime.d.ts"),
+        "export declare const missing: number;\n",
+    )?;
     fs::write(
         project_path.join("src/main.ts"),
         "import type { OnlyType } from './types';\nconst result = 7;\nconsole.log(result);\n",
     )?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
-    smelt(&["--manifest-path", &manifest_arg, "build", "--allow-type-errors"])?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
 
     let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
     ensure_eq(&actual_stdout, &"7\n".to_owned(), "unexpected stdout")?;
@@ -2889,15 +2878,15 @@ class Pair {
 }
 
 const p = new Pair()
-console.log(p[KEY_A], p[KEY_B], KEY_A === KEY_B)
+console.log(p[KEY_A], p[KEY_B], (KEY_A as symbol) === KEY_B)
 ",
         ),
     ];
     let (project, manifest) = multi_module_project("symbol-site-identity", true, files)?;
-    // `KEY_A === KEY_B` compares two distinct unique symbols, which tsc
-    // rejects (TS2367); the program is about the runtime answer, so it is
-    // built with type errors allowed.
-    smelt(&["--manifest-path", &manifest, "build", "--allow-type-errors"])?;
+    // `KEY_A === KEY_B` alone compares two distinct unique symbols, which tsc
+    // rejects (TS2367); widening one side to `symbol` keeps the runtime
+    // question and makes the program valid.
+    smelt(&["--manifest-path", &manifest, "build"])?;
     let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
     ensure_eq(&stdout, &"1 2 false\n".to_owned(), "unexpected stdout")?;
     Ok(())

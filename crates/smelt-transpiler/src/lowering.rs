@@ -30,6 +30,7 @@ use crate::source_files::{
 use crate::specialization::PreparedSpecialization;
 use crate::timing;
 use crate::ts_facts::TsCheck;
+use crate::check_program::{CrossLanguageStubs, Language, ModuleGraph};
 use crate::type_gate::{CheckReport, Checked};
 
 mod driver;
@@ -44,6 +45,14 @@ pub(crate) struct LoweredCrate {
     pub(crate) modules: Vec<(String, ModuleId)>,
     /// The text every source was lowered from.
     pub(crate) sources: LoweredSources,
+}
+
+impl LoweredCrate {
+    /// The module lowered from the source at `path`.
+    pub(crate) fn module_of(&self, path: &Path) -> Option<ModuleId> {
+        let wanted = path.display().to_string();
+        self.modules.iter().find(|(module_path, _)| *module_path == wanted).map(|(_, module)| *module)
+    }
 }
 
 /// The text every module of a lowered crate was lowered from, by file id.
@@ -183,19 +192,83 @@ impl ManifestLowering {
     }
 
     /// Type-checks every source of the run: the TypeScript checker over the
-    /// TypeScript sources, ty over the Python ones.
+    /// TypeScript sources, ty over the Python ones, each over a program
+    /// generated from the run's resolved module graph (`crate::check_program`).
     ///
-    /// Nothing lowers before this: the lowering waits behind the
+    /// A module one checker cannot read (a Python module TypeScript imports,
+    /// or the reverse) is declared to it by a stub generated from the module's
+    /// lowered HIR, the way `smelt build` writes `.d.ts`/`.pyi` stubs; those
+    /// providers (with what they import) are lowered first for that, and only
+    /// when the graph has such an edge.
+    ///
+    /// Nothing else lowers before this: the lowering waits behind the
     /// [`Checked`] report, so its caller decides what checker errors mean
     /// before anything trusts the sources (see `crate::type_gate`).
-    pub(crate) fn check(self) -> Checked<ReadyLowering> {
+    ///
+    /// # Errors
+    ///
+    /// When a cross-language provider fails to lower: the full lowering
+    /// would fail on the same module.
+    pub(crate) fn check(self) -> Result<Checked<ReadyLowering>, Box<dyn std::error::Error>> {
         let ordered = self.sources.iter().collect::<Vec<_>>();
-        let ts_check = crate::ts_facts::analyze_sources(&ordered);
+        let graph = ModuleGraph::new(&ordered);
+        let mut stubs = CrossLanguageStubs::default();
+        // Python lowering reads no TypeScript facts, so the Python modules
+        // TypeScript imports can be lowered before the TypeScript checker runs.
+        let python_providers = graph.cross_language_providers(Language::Python);
+        if !python_providers.is_empty() {
+            let lowered = self.lower_subset(&graph.closure_of(&python_providers), None)?;
+            for provider in python_providers {
+                if let Some(module) = lowered.module_of(&provider.path) {
+                    stubs.add_typescript(&provider.path, crate::stubs::typescript_stub(&lowered.krate, module));
+                }
+            }
+        }
+        let ts_check = crate::ts_facts::analyze_graph(&graph, &stubs);
+        let typescript_providers = graph.cross_language_providers(Language::TypeScript);
+        if !typescript_providers.is_empty() {
+            let lowered =
+                self.lower_subset(&graph.closure_of(&typescript_providers), ts_check.facts.as_ref())?;
+            for provider in typescript_providers {
+                if let Some(module) = lowered.module_of(&provider.path) {
+                    stubs.add_python(&provider.path, crate::stubs::python_stub(&lowered.krate, module));
+                }
+            }
+        }
         let Ok(python) = timing::measure("manifest.ty_check", || {
-            Ok::<_, std::convert::Infallible>(crate::python::check_sources(&ordered, &self.project_dir))
+            Ok::<_, std::convert::Infallible>(crate::python::check_sources(&ordered, &self.project_dir, &stubs))
         });
-        let report = CheckReport::new(ts_check.language_check(&ordered), python);
-        Checked::new(ReadyLowering { run: self, ts_check, report: report.clone() }, report)
+        let report = CheckReport::new(ts_check.language_check(&graph), python);
+        Ok(Checked::new(ReadyLowering { run: self, ts_check, report: report.clone() }, report))
+    }
+
+    /// Lowers `subset` of this run's sources (a dependency-closed part of it,
+    /// in run order) on their own, with `ts_facts`, for the stubs of
+    /// [`Self::check`]. Every module is lowered unchecked: nothing has been
+    /// decided about the sources yet.
+    fn lower_subset(
+        &self,
+        subset: &[&ManifestSource],
+        ts_facts: Option<&smelt_ts_model::TsTypeFacts>,
+    ) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
+        let sources = subset.iter().map(|source| (*source).clone()).collect::<Vec<_>>();
+        let ordered = sources.iter().collect::<Vec<_>>();
+        let module_names = manifest_module_names(&ordered, |source| manifest_module_name(&source.path));
+        let run = Self {
+            file_ids: file_ids(sources.len())?,
+            module_names,
+            sources,
+            specialization: PreparedSpecialization::none(),
+            outside_crate: HashSet::new(),
+            project_dir: self.project_dir.clone(),
+            focus: None,
+        };
+        let unchecked = CheckReport::new(
+            crate::type_gate::LanguageCheck::Unverified("lowered for a cross-language stub".to_owned()),
+            crate::type_gate::LanguageCheck::Absent,
+        );
+        let inputs = ModuleInputs { specialization: &run.specialization, ts_facts, check: &unchecked };
+        lower_run(&run, inputs)
     }
 }
 
@@ -209,17 +282,42 @@ pub(crate) struct ReadyLowering {
     report: CheckReport,
 }
 
-impl ReadyLowering {
-    /// Runs what every lowering does first, in the order it must happen: the
-    /// seed scan, then the predeclaration pass, so no module body lowers before
-    /// the crate-wide facts exist.
-    fn prepare(&self) -> Result<Prepared<'_>, Box<dyn std::error::Error>> {
-        let ordered = self.run.sources.iter().collect::<Vec<_>>();
-        let seed = ManifestSeed::scan(&ordered, &self.run.module_names, self.run.outside_crate.clone());
-        let lowering = SeededLowering::new(seed).predeclare(&ordered, &self.run.file_ids)?;
-        Ok(Prepared { ordered, lowering })
-    }
+/// Runs what every lowering does first, in the order it must happen: the
+/// seed scan, then the predeclaration pass, so no module body lowers before
+/// the crate-wide facts exist.
+fn prepare_run(run: &ManifestLowering) -> Result<Prepared<'_>, Box<dyn std::error::Error>> {
+    let ordered = run.sources.iter().collect::<Vec<_>>();
+    let seed = ManifestSeed::scan(&ordered, &run.module_names, run.outside_crate.clone());
+    let lowering = SeededLowering::new(seed).predeclare(&ordered, &run.file_ids)?;
+    Ok(Prepared { ordered, lowering })
+}
 
+/// Lowers every source of `run` into one crate; the first file that fails stops it.
+fn lower_run(run: &ManifestLowering, inputs: ModuleInputs<'_>) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
+    timing::measure("manifest.frontend_lower", || {
+        let Prepared { ordered, mut lowering } = prepare_run(run)?;
+        let mut modules = Vec::new();
+        for ((source, file_id), name) in ordered.iter().zip(&run.file_ids).zip(&run.module_names) {
+            let module = lowering
+                .lower_source(source, *file_id, inputs)
+                .map_err(|diagnostics| manifest_source_error(source, &diagnostics))?;
+            if let Ok(module_idx) = usize::try_from(module.0)
+                && let Some(module_value) = lowering.krate_mut().modules.get_mut(module_idx)
+            {
+                module_value.name.clone_from(name);
+            }
+            modules.push((source.path.display().to_string(), module));
+        }
+        let modules = match run.focus {
+            Some(index) => modules.into_iter().skip(index).take(1).collect(),
+            None => modules,
+        };
+        let sources = LoweredSources::of(&ordered, &run.file_ids);
+        Ok(LoweredCrate { krate: lowering.into_crate(), modules, sources })
+    })
+}
+
+impl ReadyLowering {
     /// The whole-crate inputs of this run's module lowerings.
     fn module_inputs(&self) -> ModuleInputs<'_> {
         ModuleInputs {
@@ -231,28 +329,7 @@ impl ReadyLowering {
 
     /// Lowers every source into one crate; the first file that fails stops it.
     pub(crate) fn lower(self) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
-        timing::measure("manifest.frontend_lower", || {
-            let Prepared { ordered, mut lowering } = self.prepare()?;
-            let inputs = self.module_inputs();
-            let mut modules = Vec::new();
-            for ((source, file_id), name) in ordered.iter().zip(&self.run.file_ids).zip(&self.run.module_names) {
-                let module = lowering
-                    .lower_source(source, *file_id, inputs)
-                    .map_err(|diagnostics| manifest_source_error(source, &diagnostics))?;
-                if let Ok(module_idx) = usize::try_from(module.0)
-                    && let Some(module_value) = lowering.krate_mut().modules.get_mut(module_idx)
-                {
-                    module_value.name.clone_from(name);
-                }
-                modules.push((source.path.display().to_string(), module));
-            }
-            let modules = match self.run.focus {
-                Some(index) => modules.into_iter().skip(index).take(1).collect(),
-                None => modules,
-            };
-            let sources = LoweredSources::of(&ordered, &self.run.file_ids);
-            Ok(LoweredCrate { krate: lowering.into_crate(), modules, sources })
-        })
+        lower_run(&self.run, self.module_inputs())
     }
 
     /// Lowers every source, recovering from per-file failures so one pass
@@ -271,7 +348,7 @@ impl ReadyLowering {
         erasure: Option<&crate::erasure::ErasureSettings>,
     ) -> Result<Vec<ManifestDiagnostic>, Box<dyn std::error::Error>> {
         let _quiet = QuietPanics::install();
-        let Prepared { ordered, lowering: predeclared } = self.prepare()?;
+        let Prepared { ordered, lowering: predeclared } = prepare_run(&self.run)?;
         let inputs = self.module_inputs();
         let mut lowering = RecoverableLowering::new(predeclared);
         let mut diagnostics = Vec::new();

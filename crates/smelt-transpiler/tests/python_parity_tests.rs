@@ -55,11 +55,7 @@ build = false
 clone-strategy = "aggressive"
 "#,
     )?;
-    // Parity programs are judged against the language's own runtime, not its
-    // checker: some read Node globals the closure-only checker setup lacks,
-    // and some are ill-typed on purpose (an out-of-range index ty flags). So
-    // they build with type errors allowed; the gate is `type_gate_cli_tests.rs`.
-    smelt_in(root, &["build", "--allow-type-errors"])?;
+    smelt_in(root, &["build"])?;
     let stdout = cargo_run_manifest(&root.join("dist/Cargo.toml"))?;
     ensure_eq(&stdout, &expected, format!("{name}: generated Rust stdout"))
 }

@@ -63,6 +63,52 @@ declare module "@fast-check/vitest" {
 }
 "#;
 
+/// A whole program for the checker: the sources it walks, declarations it
+/// only reads, and how bare specifiers resolve.
+///
+/// The transpiler builds one from the module graph it lowers, so each bare
+/// specifier names the very file Smelt resolved it to (`module_paths`), and a
+/// module Smelt provides without TypeScript source (a Python module imported
+/// from TypeScript) is a `declarations` entry at the path the import names.
+#[derive(Clone, Debug, Default)]
+#[non_exhaustive]
+pub struct CheckProgram {
+    /// Files whose types are collected, as for [`crate::analyze`].
+    pub sources: Vec<SourceInput>,
+    /// Files in the program that are only read (generated declarations).
+    pub declarations: Vec<SourceInput>,
+    /// Bare specifier → the location (or path) of the source or declaration
+    /// it resolves to.
+    pub module_paths: std::collections::BTreeMap<String, String>,
+}
+
+impl CheckProgram {
+    /// A program of `sources` with nothing else.
+    #[must_use]
+    pub fn of_sources(sources: Vec<SourceInput>) -> Self {
+        Self { sources, ..Self::default() }
+    }
+
+    /// This program with `declarations` read alongside its sources.
+    #[must_use]
+    pub fn with_declarations(mut self, declarations: Vec<SourceInput>) -> Self {
+        self.declarations = declarations;
+        self
+    }
+
+    /// This program with bare specifiers resolving through `module_paths`.
+    #[must_use]
+    pub fn with_module_paths(mut self, module_paths: std::collections::BTreeMap<String, String>) -> Self {
+        self.module_paths = module_paths;
+        self
+    }
+}
+
+/// The program path of a file located at `location`, as [`SourceInput`] places it.
+fn program_path_of(location: &str) -> String {
+    format!("{ROOT}/{}", normalize_segments(&location.replace('\\', "/")))
+}
+
 /// One source file to analyse.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
@@ -102,7 +148,7 @@ impl SourceInput {
 
     /// Absolute path of this file inside the virtual program.
     pub(crate) fn program_path(&self) -> String {
-        format!("{ROOT}/{}", self.root_relative_path())
+        program_path_of(self.location.as_ref().unwrap_or(&self.path))
     }
 }
 
@@ -141,37 +187,65 @@ impl ParseConfigHost for ConfigHost {
     }
 }
 
-/// Renders the `tsconfig.json` for `inputs`.
+/// Renders the `tsconfig.json` for `program`.
 ///
 /// The options are the strict profile Smelt's check pipeline requires
 /// (`specs/check-pipeline.md`): `strict` (exact optional properties off, as
-/// in `tsc --strict`), a modern target with the DOM libs that type the web
-/// globals Smelt models (`URL`, `fetch`, `TextEncoder`), bundler resolution
-/// so extensionless and `.ts` relative imports between inputs resolve, and
-/// `moduleDetection: force` because Smelt treats every file as a module (an
-/// import-free file is not a global script whose declarations collide).
-fn tsconfig_json(inputs: &[SourceInput]) -> String {
+/// in `tsc --strict`), the newest ECMAScript lib (Smelt models ES2024 APIs
+/// such as `String.prototype.isWellFormed`; one it does not model is refused
+/// by lowering, not by the checker) with the DOM libs that type the web
+/// globals Smelt models (`URL`, `fetch`, `TextEncoder`) and Node's own
+/// declarations (`types: ["node"]`, the vendored `@types/node`) for the host
+/// globals and `node:` modules, bundler resolution so extensionless and `.ts`
+/// relative imports between inputs resolve, `paths` for every bare specifier
+/// the transpiler resolved, and `moduleDetection: force` because Smelt
+/// treats every file as a module (an import-free file is not a global script
+/// whose declarations collide).
+fn tsconfig_json(program: &CheckProgram) -> String {
     let mut files = format!("\"{}\"", TEST_FRAMEWORK_DECLARATIONS.trim_start_matches("/smelt/"));
-    for input in inputs {
+    for input in program.sources.iter().chain(&program.declarations) {
         let _ = write!(files, ",\"{}\"", input.root_relative_path().replace('"', "\\\""));
     }
+    let paths = program
+        .module_paths
+        .iter()
+        .map(|(specifier, location)| {
+            format!("{}: [{}]", json_string(specifier), json_string(&program_path_of(location)))
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
     format!(
         r#"{{
   "compilerOptions": {{
     "strict": true,
-    "target": "es2023",
-    "lib": ["es2023", "dom", "dom.iterable"],
+    "target": "esnext",
+    "lib": ["esnext", "dom", "dom.iterable"],
     "module": "esnext",
     "moduleDetection": "force",
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "types": []
+    "types": ["node"],
+    "paths": {{ {paths} }}
   }},
   "files": [{files}]
 }}"#
     )
+}
+
+/// `text` as a JSON string literal.
+fn json_string(text: &str) -> String {
+    let mut quoted = String::from("\"");
+    for ch in text.chars() {
+        match ch {
+            '"' => quoted.push_str("\\\""),
+            '\\' => quoted.push_str("\\\\"),
+            other => quoted.push(other),
+        }
+    }
+    quoted.push('"');
+    quoted
 }
 
 /// Builds the program for `inputs`.
@@ -184,13 +258,23 @@ fn tsconfig_json(inputs: &[SourceInput]) -> String {
 ///
 /// Returns [`TsTypesError::Config`] when the generated `tsconfig.json` does
 /// not parse; option diagnostics are reported as part of the error.
-pub(crate) fn build_program(inputs: &[SourceInput]) -> Result<&'static Program, TsTypesError> {
+pub(crate) fn build_program(program: &CheckProgram) -> Result<&'static Program, TsTypesError> {
     let config_path = format!("{ROOT}/tsconfig.json");
-    let mut files: Vec<(String, String)> =
-        inputs.iter().map(|input| (input.program_path(), input.text.clone())).collect();
+    let mut files: Vec<(String, String)> = program
+        .sources
+        .iter()
+        .chain(&program.declarations)
+        .map(|input| (input.program_path(), input.text.clone()))
+        .collect();
     files.push((TEST_FRAMEWORK_DECLARATIONS.to_owned(), TEST_FRAMEWORK_TEXT.to_owned()));
-    files.push((config_path.clone(), tsconfig_json(inputs)));
-    let fs: Arc<dyn FS> = Arc::new(bundled::wrap_fs(vfstest::from_map(files, true)));
+    files.extend(
+        crate::node_types::NODE_TYPE_FILES
+            .iter()
+            .map(|(path, text)| (format!("{ROOT}/{path}"), (*text).to_owned())),
+    );
+    files.push((config_path.clone(), tsconfig_json(program)));
+    let memory: Arc<dyn FS> = Arc::new(vfstest::from_map(files, true));
+    let fs: Arc<dyn FS> = Arc::new(bundled::wrap_fs(crate::layered_fs::LayeredFs::new(memory)));
     let config_host: &'static ConfigHost =
         Box::leak(Box::new(ConfigHost { fs: Arc::clone(&fs) }));
     let (config, diagnostics) =

@@ -500,6 +500,44 @@ pub fn to_hir_with_options(
     builder.program(&parsed.program)
 }
 
+/// The vitest API names the module `source` at `path` reaches as ambient
+/// globals: empty unless it is a test-tier module, and never a name it
+/// imports or declares itself. Lowering treats exactly these names as the
+/// test framework's, so a type checker given them sees the module as Smelt does.
+///
+/// A source that does not parse has none.
+#[must_use]
+pub fn ambient_test_globals(source: &str, path: &str) -> Vec<&'static str> {
+    let allocator = Allocator::default();
+    let parsed = Parser::new(&allocator, source, SourceType::default().with_typescript(true))
+        .with_options(ParseOptions::default())
+        .parse();
+    if !parsed.diagnostics.is_empty() || !module_init::test_tier::is_test_tier(path, &parsed.program) {
+        return Vec::new();
+    }
+    let imported = parsed
+        .program
+        .body
+        .iter()
+        .filter_map(|statement| match statement {
+            oxc::ast::ast::Statement::ImportDeclaration(import) => import.specifiers.as_ref(),
+            _ => None,
+        })
+        .flatten()
+        .map(|specifier| specifier.local().name.as_str().to_owned())
+        .collect::<std::collections::HashSet<_>>();
+    module_init::test_tier::ambient_test_builtin_names(&parsed.program, &|name| imported.contains(name))
+}
+
+/// Declarations, for a type checker, of what this frontend models itself
+/// rather than reading from a package or the lib: `"bun"`'s `int32`, and the
+/// typed `JSON.parse<T>`. The text is a declaration script (no imports or
+/// exports), so its `interface` merges into the global one.
+#[must_use]
+pub fn modeled_module_declarations() -> String {
+    format!("{}{}", int32::BUN_DECLARATION, stdlib::json::JSON_PARSE_DECLARATION)
+}
+
 /// Predeclare TypeScript aliases and class method surfaces before manifest body lowering.
 ///
 /// Dependency cycles through barrel files can otherwise cause a consumer to be

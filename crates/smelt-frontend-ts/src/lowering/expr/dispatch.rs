@@ -198,6 +198,7 @@ impl ModuleBuilder<'_> {
                 (lhs, rhs) = self.null_absent_concat_operands(op, lhs, rhs, binary, body);
                 let lhs_ty = Self::expr_ty(body, lhs);
                 let rhs_ty = Self::expr_ty(body, rhs);
+                let op = self.loose_equality_op(op, lhs_ty, rhs_ty);
                 let ty = if op == BinOp::Add
                     && type_hint
                         .is_some_and(|hint| self.ctx.krate.types.get(hint) == Some(&Type::String))

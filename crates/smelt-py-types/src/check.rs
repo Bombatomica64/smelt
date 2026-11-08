@@ -58,7 +58,9 @@ pub struct CheckDiagnostic {
     pub severity: CheckSeverity,
 }
 
-/// Type-checks `sources` as one program whose project directory is `project_root`.
+/// Type-checks `sources` as one program whose project directory is
+/// `project_root`, with `declarations` (stubs of modules the program imports
+/// from another language) laid out beside them and read but not checked.
 ///
 /// Returns every error and warning ty reports in the given sources; hints and
 /// infos say nothing wrong and are dropped. A source outside `project_root` is
@@ -68,7 +70,11 @@ pub struct CheckDiagnostic {
 /// # Errors
 /// Returns an error when the temporary program cannot be written or ty cannot
 /// open one of its files; never for an ill-typed program.
-pub fn check_sources(sources: &[CheckSource<'_>], project_root: &Path) -> Result<Vec<CheckDiagnostic>> {
+pub fn check_sources(
+    sources: &[CheckSource<'_>],
+    declarations: &[CheckSource<'_>],
+    project_root: &Path,
+) -> Result<Vec<CheckDiagnostic>> {
     if sources.is_empty() {
         return Ok(Vec::new());
     }
@@ -77,7 +83,7 @@ pub fn check_sources(sources: &[CheckSource<'_>], project_root: &Path) -> Result
     let guard = crate::TempDirGuard(dir.clone());
     let base = std::path::absolute(project_root).unwrap_or_else(|_| project_root.to_path_buf());
     let mut laid = Vec::with_capacity(sources.len());
-    for (index, source) in sources.iter().enumerate() {
+    for (index, source) in sources.iter().chain(declarations).enumerate() {
         let relative = relative_location(source.path, &base, index);
         let location = dir.join(&relative);
         if let Some(parent) = location.parent() {
@@ -87,6 +93,8 @@ pub fn check_sources(sources: &[CheckSource<'_>], project_root: &Path) -> Result
         laid.push((source, location));
     }
     let roots = search_roots(&dir, laid.iter().map(|(_, location)| location.as_path()))?;
+    // Declarations are read, not checked: they are generated, not the program's.
+    laid.truncate(sources.len());
     let system_root = utf8_path(dir)?;
     let db = SmeltTyDb::with_roots(OsSystem::new(&system_root), roots)?;
     let mut diagnostics = Vec::new();
@@ -172,7 +180,7 @@ mod tests {
             .zip(files)
             .map(|(path, (_, text))| CheckSource { path, text })
             .collect::<Vec<_>>();
-        check_sources(&sources, root)
+        check_sources(&sources, &[], root)
     }
 
     /// A well-typed program reports no error.

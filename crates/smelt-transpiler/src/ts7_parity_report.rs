@@ -200,10 +200,10 @@ fn lower_input(input: &Path, defines: &[(String, String)]) -> CliResult<Crate> {
     if input.file_name().is_some_and(|name| name == "Smelt.toml") {
         let mut config = config_parser::parse_path(input)?;
         config.extend_defines(defines.iter().cloned());
-        return Ok(lowering::ManifestLowering::for_manifest(&config, input)?.check().into_measured().lower()?.krate);
+        return Ok(lowering::ManifestLowering::for_manifest(&config, input)?.check()?.into_measured().lower()?.krate);
     }
     let file = input.to_str().ok_or("input path contains invalid UTF-8")?;
-    Ok(lowering::ManifestLowering::for_file(file)?.check().into_measured().lower()?.krate)
+    Ok(lowering::ManifestLowering::for_file(file)?.check()?.into_measured().lower()?.krate)
 }
 
 /// One TypeScript source of the lowered crate.

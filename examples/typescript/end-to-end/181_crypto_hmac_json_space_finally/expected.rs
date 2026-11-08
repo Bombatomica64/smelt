@@ -1999,6 +1999,26 @@ impl SmeltJsStrictEq for bool { fn js_strict_eq(&self, other: &Self) -> bool { s
 impl SmeltJsStrictEq for i64 { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }
 impl SmeltJsStrictEq for f64 { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }
 
+/// `left == right` in JavaScript.
+#[allow(dead_code)]
+fn smelt_js_loose_eq(left: &SmeltUnknown, right: &SmeltUnknown) -> bool {
+    use SmeltUnknown as U;
+    match (left, right) {
+        (U::Null | U::Undefined, U::Null | U::Undefined) => true,
+        (U::Null | U::Undefined, _) | (_, U::Null | U::Undefined) => false,
+        (U::Number(_), U::Number(_)) | (U::String(_), U::String(_)) | (U::Bool(_), U::Bool(_)) | (U::Symbol(_), U::Symbol(_)) => left.js_strict_eq(right),
+        
+        (U::Bool(value), other) | (other, U::Bool(value)) => smelt_js_loose_eq(&U::Number(if *value { 1.0 } else { 0.0 }), other),
+        (U::Number(_), U::String(_)) | (U::String(_), U::Number(_)) => smelt_unknown_to_number(left) == smelt_unknown_to_number(right),
+        
+        
+        (U::Array(_) | U::Object(_) | U::Function(_) | U::Promise(_), U::Array(_) | U::Object(_) | U::Function(_) | U::Promise(_)) => left.js_strict_eq(right),
+        (U::Array(_) | U::Object(_) | U::Function(_) | U::Promise(_), primitive) => smelt_js_loose_eq(&U::String(smelt_erased_to_js_string(left)), primitive),
+        (primitive, U::Array(_) | U::Object(_) | U::Function(_) | U::Promise(_)) => smelt_js_loose_eq(primitive, &U::String(smelt_erased_to_js_string(right))),
+        _ => false,
+    }
+}
+
 #[derive(Debug)]
 pub struct SmeltObject {
     id: usize,

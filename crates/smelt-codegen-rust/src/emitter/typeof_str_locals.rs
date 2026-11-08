@@ -206,13 +206,5 @@ fn is_comparable_side(operand: &Operand, candidates: &HashSet<LocalId>) -> bool 
 
 /// Whether a binary operator compares two values for (in)equality.
 fn is_equality_op(op: smelt_hir::BinOp) -> bool {
-    matches!(
-        op,
-        smelt_hir::BinOp::Eq
-            | smelt_hir::BinOp::NotEq
-            | smelt_hir::BinOp::StrictEq
-            | smelt_hir::BinOp::StrictNotEq
-            | smelt_hir::BinOp::JsStrictEq
-            | smelt_hir::BinOp::JsStrictNotEq
-    )
+    op.is_equality()
 }

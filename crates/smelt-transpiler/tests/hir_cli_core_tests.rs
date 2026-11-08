@@ -564,7 +564,7 @@ name = "linked-py"
 version = "0.1.0"
 
 [sources]
-entries = ["src/math.py", "src/main.py"]
+entries = ["src/arith.py", "src/main.py"]
 
 [output]
 target = "./dist"
@@ -576,20 +576,20 @@ clone-strategy = "aggressive"
 "#,
     )?;
     fs::write(
-        project_path.join("src/math.py"),
+        project_path.join("src/arith.py"),
         "def add(a: int, b: int) -> int:\n    return a + b\n",
     )?;
     fs::write(
         project_path.join("src/main.py"),
-        "from math import add\nresult: int = add(2, 3)\nprint(result)\n",
+        "from arith import add\nresult: int = add(2, 3)\nprint(result)\n",
     )?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
     smelt(&["--manifest-path", &manifest_arg, "check"])?;
 
-    let stub = fs::read_to_string(project_path.join("src/math.pyi"))?;
+    let stub = fs::read_to_string(project_path.join("src/arith.pyi"))?;
     let entry_stub = fs::read_to_string(project_path.join("src/main.pyi"))?;
-    let ts_declaration = fs::read_to_string(project_path.join("src/math.d.ts"))?;
+    let ts_declaration = fs::read_to_string(project_path.join("src/arith.d.ts"))?;
     let entry_ts_declaration = fs::read_to_string(project_path.join("src/main.d.ts"))?;
     ensure(
         stub.contains("def add(a: int, b: int) -> int: ..."),
@@ -613,9 +613,6 @@ clone-strategy = "aggressive"
 
 #[test]
 fn build_orders_manifest_entries_by_import_dependencies() -> TestResult {
-    // The checkers cannot vouch for this program (Smelt resolves an import
-    // or a global the closure-only checker setup does not see), so it is
-    // built with type errors allowed; see `type_gate_cli_tests.rs`.
     let project = TempProject::new()?;
     let project_path = project.path();
     fs::create_dir_all(project_path.join("src"))?;
@@ -626,7 +623,7 @@ name = "cross-run-reversed"
 version = "0.1.0"
 
 [sources]
-entries = ["src/main.py", "src/math.ts"]
+entries = ["src/main.py", "src/arith.ts"]
 
 [output]
 target = "./dist"
@@ -638,16 +635,16 @@ clone-strategy = "aggressive"
 "#,
     )?;
     fs::write(
-        project_path.join("src/math.ts"),
+        project_path.join("src/arith.ts"),
         "export function add(a: number, b: number): number {\n  return a + b;\n}\n",
     )?;
     fs::write(
         project_path.join("src/main.py"),
-        "from math import add\nresult: float = add(2.0, 3.0)\nprint(result)\n",
+        "from arith import add\nresult: float = add(2.0, 3.0)\nprint(result)\n",
     )?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
-    smelt(&["--manifest-path", &manifest_arg, "build", "--allow-type-errors"])?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
 
     // Requirement change (2026-11-04): this expected `5`, JavaScript's
     // number text. The `print` is in the Python entry and `result` is a
@@ -774,9 +771,6 @@ fn read_generated_sources(dir: &std::path::Path) -> TestResult<Vec<GeneratedSour
 
 #[test]
 fn exclude_globs_resolve_against_the_manifest_directory_not_the_process_directory() -> TestResult {
-    // The checkers cannot vouch for this program (Smelt resolves an import
-    // or a global the closure-only checker setup does not see), so it is
-    // built with type errors allowed; see `type_gate_cli_tests.rs`.
     // `[sources] exclude` globs are written relative to the MANIFEST, so which
     // directory they are matched against cannot depend on where `smelt` was
     // invoked from. It did: the manifest directory came from
@@ -796,7 +790,7 @@ fn exclude_globs_resolve_against_the_manifest_directory_not_the_process_director
 
     for manifest_arg in ["Smelt.toml", "./Smelt.toml"] {
         drop(fs::remove_dir_all(project_path.join("dist")));
-        smelt_in(project_path, &["--manifest-path", manifest_arg, "build", "--allow-type-errors"])?;
+        smelt_in(project_path, &["--manifest-path", manifest_arg, "build"])?;
         ensure(
             !project_path.join("dist/src/notes.rs").exists(),
             "an excluded module was lowered for a cwd-relative manifest path",
@@ -806,7 +800,7 @@ fn exclude_globs_resolve_against_the_manifest_directory_not_the_process_director
     // The absolute spelling, from an unrelated working directory, has to agree.
     drop(fs::remove_dir_all(project_path.join("dist")));
     let absolute = utf8_path(&project_path.join("Smelt.toml"))?;
-    smelt(&["--manifest-path", &absolute, "build", "--allow-type-errors"])?;
+    smelt(&["--manifest-path", &absolute, "build"])?;
     ensure(
         !project_path.join("dist/src/notes.rs").exists(),
         "an excluded module was lowered for an absolute manifest path",
@@ -821,9 +815,6 @@ fn exclude_globs_resolve_against_the_manifest_directory_not_the_process_director
 
 #[test]
 fn building_twice_produces_identical_output() -> TestResult {
-    // The checkers cannot vouch for this program (Smelt resolves an import
-    // or a global the closure-only checker setup does not see), so it is
-    // built with type errors allowed; see `type_gate_cli_tests.rs`.
     // `smelt build` writes a `.d.ts` and a `.pyi` beside every module it lowers,
     // so the second build runs over a source tree that contains the first
     // build's output. Those stubs must never become inputs: a generated
@@ -835,7 +826,7 @@ fn building_twice_produces_identical_output() -> TestResult {
     write_exclude_project(project_path)?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
-    smelt(&["--manifest-path", &manifest_arg, "build", "--allow-type-errors"])?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
     let first = read_generated_sources(&project_path.join("dist/src"))?;
     ensure(!first.is_empty(), "the first build emitted nothing")?;
     ensure(
@@ -843,7 +834,7 @@ fn building_twice_produces_identical_output() -> TestResult {
         "the first build did not write its stubs into the source tree",
     )?;
 
-    smelt(&["--manifest-path", &manifest_arg, "build", "--allow-type-errors"])?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
     let second = read_generated_sources(&project_path.join("dist/src"))?;
     ensure_eq(
         &format!("{second:?}"),

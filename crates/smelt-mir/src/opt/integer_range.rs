@@ -335,19 +335,7 @@ fn is_integer_operand(operand: &Operand, candidates: &Candidates) -> bool {
 
 /// Whether `op` is a comparison whose integer and `f64` meanings agree.
 const fn is_comparison(op: BinOp) -> bool {
-    matches!(
-        op,
-        BinOp::Lt
-            | BinOp::Lte
-            | BinOp::Gt
-            | BinOp::Gte
-            | BinOp::Eq
-            | BinOp::NotEq
-            | BinOp::StrictEq
-            | BinOp::StrictNotEq
-            | BinOp::JsStrictEq
-            | BinOp::JsStrictNotEq
-    )
+    op.is_comparison()
 }
 
 /// Whether `value` is one of the integer-producing definition forms.
@@ -1083,11 +1071,11 @@ impl Analysis<'_> {
             BinOp::Lte => (left.at_most(right.hi), right.at_least(left.lo)),
             BinOp::Gt => (left.at_least(plus(right.lo)), right.at_most(minus(left.hi))),
             BinOp::Gte => (left.at_least(right.lo), right.at_most(left.hi)),
-            BinOp::Eq | BinOp::StrictEq | BinOp::JsStrictEq => {
+            BinOp::Eq | BinOp::StrictEq | BinOp::JsStrictEq | BinOp::JsLooseEq => {
                 let both = left.at_least(right.lo).at_most(right.hi);
                 (both, both)
             }
-            BinOp::NotEq | BinOp::StrictNotEq | BinOp::JsStrictNotEq => {
+            BinOp::NotEq | BinOp::StrictNotEq | BinOp::JsStrictNotEq | BinOp::JsLooseNotEq => {
                 (exclude_point(left, right), exclude_point(right, left))
             }
             _ => (left, right),
@@ -1218,18 +1206,9 @@ fn exclude_point(value: Interval, other: Interval) -> Interval {
 
 /// The comparison that holds exactly when `op` does not (operands are never `NaN`).
 const fn negate(op: BinOp) -> BinOp {
-    match op {
-        BinOp::Lt => BinOp::Gte,
-        BinOp::Lte => BinOp::Gt,
-        BinOp::Gt => BinOp::Lte,
-        BinOp::Gte => BinOp::Lt,
-        BinOp::Eq => BinOp::NotEq,
-        BinOp::NotEq => BinOp::Eq,
-        BinOp::StrictEq => BinOp::StrictNotEq,
-        BinOp::StrictNotEq => BinOp::StrictEq,
-        BinOp::JsStrictEq => BinOp::JsStrictNotEq,
-        BinOp::JsStrictNotEq => BinOp::JsStrictEq,
-        other => other,
+    match op.negated() {
+        Some(negated) => negated,
+        None => op,
     }
 }
 

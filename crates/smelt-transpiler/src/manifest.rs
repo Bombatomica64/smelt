@@ -37,6 +37,18 @@ pub(crate) struct ManifestSource {
     imports: Vec<ManifestImport>,
     /// Resolved local dependency paths: every edge the dependency closure follows.
     pub(crate) dependencies: Vec<PathBuf>,
+    /// Each import specifier the closure resolved, with the module it names
+    /// (the first target; a barrel's re-exported files follow it in
+    /// [`Self::dependencies`]).
+    ///
+    /// The type checkers' module resolution is generated from these edges
+    /// (`crate::check_program`), so a module Smelt resolves is one the
+    /// checkers resolve, to the same file.
+    pub(crate) resolved_imports: Vec<ResolvedImport>,
+    /// Each import specifier whose modules `[sources] exclude` pruned, with the
+    /// module it names: out of the crate, but still the module the import
+    /// means, so the type checker reads its declarations.
+    pub(crate) excluded_targets: Vec<ResolvedImport>,
     /// The subset of [`Self::dependencies`] reached through VALUE imports,
     /// which is what the lowering order follows (see [`order_manifest_sources`]).
     pub(crate) value_dependencies: Vec<PathBuf>,
@@ -57,6 +69,15 @@ pub(crate) struct ManifestSource {
     /// of. A frontend rejection of such a source is reported as the typed
     /// version's error rather than as a project source's.
     pub(crate) typed_version: Option<Arc<TypedVersionOrigin>>,
+}
+
+/// One import edge as Smelt resolved it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ResolvedImport {
+    /// The specifier as written (`./math`, `geom`, `utility/sub`).
+    pub(crate) specifier: String,
+    /// The module it names.
+    pub(crate) target: PathBuf,
 }
 
 /// Import metadata found while scanning source text.
@@ -115,6 +136,8 @@ pub(crate) fn read_manifest_source(
         lang,
         imports,
         dependencies: Vec::new(),
+        resolved_imports: Vec::new(),
+        excluded_targets: Vec::new(),
         value_dependencies: Vec::new(),
         excluded_imports: Vec::new(),
         typed_version: None,
@@ -150,6 +173,8 @@ fn read_collected_source(
         lang,
         imports,
         dependencies: Vec::new(),
+        resolved_imports: Vec::new(),
+        excluded_targets: Vec::new(),
         value_dependencies: Vec::new(),
         excluded_imports: Vec::new(),
         typed_version: Some(origin),
@@ -347,6 +372,8 @@ impl DependencyCollector {
         let source_path = source.path.clone();
         let lang = source.lang;
         let mut dependencies = Vec::new();
+        let mut resolved_imports = Vec::new();
+        let mut excluded_targets = Vec::new();
         let mut value_dependencies = Vec::new();
         let mut excluded_imports = Vec::new();
         for import in &imports {
@@ -365,9 +392,16 @@ impl DependencyCollector {
             if !import.type_only {
                 value_dependencies.extend(included.iter().cloned());
             }
+            if let Some(target) = included.first() {
+                resolved_imports.push(ResolvedImport { specifier: import.module.clone(), target: target.clone() });
+            } else if let Some(target) = excluded.first() {
+                excluded_targets.push(ResolvedImport { specifier: import.module.clone(), target: target.clone() });
+            }
             dependencies.extend(included);
         }
         source.dependencies.clone_from(&dependencies);
+        source.resolved_imports = resolved_imports;
+        source.excluded_targets = excluded_targets;
         source.value_dependencies = value_dependencies;
         source.excluded_imports = excluded_imports;
         self.sources.push(source);
@@ -392,10 +426,14 @@ impl DependencyCollector {
             return self.resolve_typescript_import_to_existing_sources(importer_path, import);
         }
 
+        // `import math` is the interpreter's `math`, whatever the project holds.
+        if import.python_relative_level.is_none() && crate::python::is_unshadowable_module(&import.module) {
+            return Ok(Vec::new());
+        }
         let base = python_import_base(importer_path, import);
         for candidate in manifest_import_candidates(&base) {
             if candidate.is_file() {
-                return Ok(vec![candidate.canonicalize()?]);
+                return Ok(vec![stub_source(&candidate).canonicalize()?]);
             }
         }
         Ok(Vec::new())
@@ -419,6 +457,7 @@ impl DependencyCollector {
         else {
             return self.resolve_workspace_package_import(importer_path, import);
         };
+        let candidate = stub_source(&candidate);
         let canonical_candidate = self.overlay.canonical_path(&candidate)?;
         if let Some(mut targets) = self.resolve_barrel_import_targets(&candidate, import) {
             prepend_unique_dependency(&mut targets, canonical_candidate);
@@ -710,6 +749,35 @@ fn manifest_import_candidates(base: &Path) -> Vec<PathBuf> {
         }
     }
     candidates
+}
+
+/// The module a path names: itself, unless it is a declaration stub Smelt
+/// generated (`foo.d.ts` / `foo.pyi` written beside `foo.py` / `foo.ts` for
+/// editors), which stands for the source it was generated from.
+///
+/// `smelt build` writes those stubs into the source tree; an import resolver
+/// prefers a `.d.ts` to a `.py` (and a `.pyi` to a `.ts` for Python), so
+/// without this the second build of a cross-language project would resolve
+/// the import to the stub and lower nothing for the module it projects.
+fn stub_source(path: &Path) -> PathBuf {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return path.to_path_buf();
+    };
+    let (stem, header) = if let Some(stem) = name.strip_suffix(".d.ts") {
+        (stem, smelt_hir::TS_STUB_HEADER)
+    } else if let Some(stem) = name.strip_suffix(".pyi") {
+        (stem, smelt_hir::PY_STUB_HEADER)
+    } else {
+        return path.to_path_buf();
+    };
+    if !fs::read_to_string(path).is_ok_and(|text| text.starts_with(header)) {
+        return path.to_path_buf();
+    }
+    ["ts", "tsx", "mts", "cts", "py"]
+        .iter()
+        .map(|extension| path.with_file_name(format!("{stem}.{extension}")))
+        .find(|source| source.is_file())
+        .unwrap_or_else(|| path.to_path_buf())
 }
 
 /// Return the package name part of a bare TypeScript import specifier.

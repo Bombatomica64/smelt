@@ -9,7 +9,7 @@
 
 mod phases;
 mod construction;
-mod test_tier;
+pub(in crate::lowering) mod test_tier;
 mod imports;
 mod module_exports;
 mod reexports;

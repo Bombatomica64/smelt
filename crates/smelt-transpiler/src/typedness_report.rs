@@ -258,7 +258,7 @@ fn measure_input(path: &Path, defines: &[(String, String)]) -> CliResult<Program
     }
     // A single source program: the whole lowered crate is its record.
     let record = lowering::ManifestLowering::for_file(&name)
-        .and_then(|lowering| lowering.check().into_measured().lower())
+        .and_then(|lowering| lowering.check()?.into_measured().lower())
         .ok()
         .and_then(|lowered| pipeline::lower_to_optimized_mir(&lowered.krate).ok())
         .and_then(|mir| smelt_codegen_rust::measure_typedness(&mir).ok())
@@ -273,7 +273,7 @@ fn measure_manifest(
 ) -> CliResult<Programs> {
     let mut config = config_parser::parse_path(manifest_path)?;
     config.extend_defines(defines.iter().cloned());
-    let krate = lowering::ManifestLowering::for_manifest(&config, manifest_path)?.check().into_measured().lower()?.krate;
+    let krate = lowering::ManifestLowering::for_manifest(&config, manifest_path)?.check()?.into_measured().lower()?.krate;
     let mir = pipeline::lower_to_optimized_mir(&krate)?;
     let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
     Ok(programs_of(&smelt_codegen_rust::measure_typedness(&mir)?, manifest_dir))

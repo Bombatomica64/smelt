@@ -1946,6 +1946,26 @@ impl SmeltJsStrictEq for bool { fn js_strict_eq(&self, other: &Self) -> bool { s
 impl SmeltJsStrictEq for i64 { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }
 impl SmeltJsStrictEq for f64 { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }
 
+/// `left == right` in JavaScript.
+#[allow(dead_code)]
+fn smelt_js_loose_eq(left: &SmeltUnknown, right: &SmeltUnknown) -> bool {
+    use SmeltUnknown as U;
+    match (left, right) {
+        (U::Null | U::Undefined, U::Null | U::Undefined) => true,
+        (U::Null | U::Undefined, _) | (_, U::Null | U::Undefined) => false,
+        (U::Number(_), U::Number(_)) | (U::String(_), U::String(_)) | (U::Bool(_), U::Bool(_)) | (U::Symbol(_), U::Symbol(_)) => left.js_strict_eq(right),
+        
+        (U::Bool(value), other) | (other, U::Bool(value)) => smelt_js_loose_eq(&U::Number(if *value { 1.0 } else { 0.0 }), other),
+        (U::Number(_), U::String(_)) | (U::String(_), U::Number(_)) => smelt_unknown_to_number(left) == smelt_unknown_to_number(right),
+        
+        
+        (U::Array(_) | U::Object(_) | U::Function(_) | U::Promise(_), U::Array(_) | U::Object(_) | U::Function(_) | U::Promise(_)) => left.js_strict_eq(right),
+        (U::Array(_) | U::Object(_) | U::Function(_) | U::Promise(_), primitive) => smelt_js_loose_eq(&U::String(smelt_erased_to_js_string(left)), primitive),
+        (primitive, U::Array(_) | U::Object(_) | U::Function(_) | U::Promise(_)) => smelt_js_loose_eq(primitive, &U::String(smelt_erased_to_js_string(right))),
+        _ => false,
+    }
+}
+
 #[derive(Debug)]
 pub struct SmeltObject {
     id: usize,
@@ -5200,44 +5220,44 @@ pub(crate) fn port_of(ports: SmeltList<f64>) -> f64 {
 }
 
 pub(crate) async fn response_facts() -> Result<(), Box<dyn std::error::Error>> {
-    let _smelt_tmp_9: bool;
-    let _smelt_tmp_10: SmeltResponse;
-    let _smelt_tmp_11: Option<SmeltBody>;
-    let _smelt_tmp_12: Option<bool>;
-    let _smelt_tmp_13: SmeltResponse;
-    let _smelt_tmp_14: bool;
-    let _smelt_tmp_16: SmeltResponse;
-    let _smelt_tmp_18: JsString;
-    let _smelt_tmp_19: SmeltResponse;
-    let _smelt_tmp_20: Option<SmeltBody>;
-    let _smelt_tmp_21: Option<bool>;
-    let _smelt_tmp_22: SmeltResponse;
-    let _smelt_tmp_23: bool;
+    let _smelt_tmp_10: bool;
+    let _smelt_tmp_11: SmeltResponse;
+    let _smelt_tmp_12: Option<SmeltBody>;
+    let _smelt_tmp_13: Option<bool>;
+    let _smelt_tmp_14: SmeltResponse;
+    let _smelt_tmp_15: bool;
+    let _smelt_tmp_17: SmeltResponse;
+    let _smelt_tmp_19: JsString;
+    let _smelt_tmp_20: SmeltResponse;
+    let _smelt_tmp_21: Option<SmeltBody>;
+    let _smelt_tmp_22: Option<bool>;
+    let _smelt_tmp_23: SmeltResponse;
+    let _smelt_tmp_24: bool;
     let _smelt_tmp_3: SmeltResponse = SmeltResponse::from_parts(201.0, JsString::from("Made"), SmeltHeaders::new(), SmeltBody::from_text(&JsString::from("hi")));
     let maybe: Option<SmeltResponse> = Some(_smelt_tmp_3);
     let missing: Option<SmeltResponse> = None::<SmeltResponse>;
     let status: Option<f64> = maybe.clone().as_ref().map(|_smelt_value| _smelt_value.status());
-    let _smelt_tmp_5: Option<bool> = maybe.clone().as_ref().map(|_smelt_value| _smelt_value.ok());
-    let _smelt_tmp_6: Option<JsString> = maybe.clone().as_ref().map(|_smelt_value| JsString::from(_smelt_value.status_text()));
-    let _smelt_tmp_7: Option<f64> = missing.as_ref().map(|_smelt_value| _smelt_value.status());
-    let _ = { println!("{} {} {} {}", match &status { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_5 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_6 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_7 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    _smelt_tmp_9 = !(maybe.clone().is_none());
-    if _smelt_tmp_9 {
-    _smelt_tmp_10 = maybe.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_11 = { let smelt_body = _smelt_tmp_10.body(); if smelt_body.is_empty() { None } else { Some(smelt_body) } };
-    _smelt_tmp_12 = _smelt_tmp_11.as_ref().map(|_smelt_value| _smelt_value.locked());
-    _smelt_tmp_13 = maybe.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_14 = _smelt_tmp_13.body_used();
-    let _ = { println!("{} {} {}", JsString::from("locked before"), match &_smelt_tmp_12 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, _smelt_tmp_14); };
-    _smelt_tmp_16 = maybe.clone().expect("optional value was absent after narrowing");
-    let _smelt_tmp_17: SmeltFuture<JsString> = { let smelt_response = _smelt_tmp_16.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(JsString::from(smelt_response.take_text()?)) })) };
-    _smelt_tmp_18 = _smelt_tmp_17.await?;
-    _smelt_tmp_19 = maybe.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_20 = { let smelt_body = _smelt_tmp_19.body(); if smelt_body.is_empty() { None } else { Some(smelt_body) } };
-    _smelt_tmp_21 = _smelt_tmp_20.as_ref().map(|_smelt_value| _smelt_value.locked());
-    _smelt_tmp_22 = maybe.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_23 = _smelt_tmp_22.body_used();
-    let _ = { println!("{} {} {}", JsString::from("locked after"), match &_smelt_tmp_21 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, _smelt_tmp_23); };
+    let _smelt_tmp_6: Option<bool> = maybe.clone().as_ref().map(|_smelt_value| _smelt_value.ok());
+    let _smelt_tmp_7: Option<JsString> = maybe.clone().as_ref().map(|_smelt_value| JsString::from(_smelt_value.status_text()));
+    let _smelt_tmp_8: Option<f64> = missing.as_ref().map(|_smelt_value| _smelt_value.status());
+    let _ = { println!("{} {} {} {}", match &status { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_6 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_7 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_8 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    _smelt_tmp_10 = !(maybe.clone().is_none());
+    if _smelt_tmp_10 {
+    _smelt_tmp_11 = maybe.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_12 = { let smelt_body = _smelt_tmp_11.body(); if smelt_body.is_empty() { None } else { Some(smelt_body) } };
+    _smelt_tmp_13 = _smelt_tmp_12.as_ref().map(|_smelt_value| _smelt_value.locked());
+    _smelt_tmp_14 = maybe.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_15 = _smelt_tmp_14.body_used();
+    let _ = { println!("{} {} {}", JsString::from("locked before"), match &_smelt_tmp_13 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, _smelt_tmp_15); };
+    _smelt_tmp_17 = maybe.clone().expect("optional value was absent after narrowing");
+    let _smelt_tmp_18: SmeltFuture<JsString> = { let smelt_response = _smelt_tmp_17.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(JsString::from(smelt_response.take_text()?)) })) };
+    _smelt_tmp_19 = _smelt_tmp_18.await?;
+    _smelt_tmp_20 = maybe.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_21 = { let smelt_body = _smelt_tmp_20.body(); if smelt_body.is_empty() { None } else { Some(smelt_body) } };
+    _smelt_tmp_22 = _smelt_tmp_21.as_ref().map(|_smelt_value| _smelt_value.locked());
+    _smelt_tmp_23 = maybe.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_24 = _smelt_tmp_23.body_used();
+    let _ = { println!("{} {} {}", JsString::from("locked after"), match &_smelt_tmp_22 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, _smelt_tmp_24); };
     }
     return Ok(());
 }

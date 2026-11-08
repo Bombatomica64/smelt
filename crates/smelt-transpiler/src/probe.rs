@@ -309,7 +309,7 @@ fn scan_files(
     // The blocker scan reports lowering blockers, not type errors: the
     // whole-crate build above already applied the type gate.
     let mut diagnostics =
-        lowering::ManifestLowering::for_manifest(config, manifest_path)?.check().into_measured().diagnostics(None)?;
+        lowering::ManifestLowering::for_manifest(config, manifest_path)?.check()?.into_measured().diagnostics(None)?;
     diagnostics.sort_by(|left, right| left.file.cmp(&right.file));
     for diagnostic in diagnostics {
             let path = diagnostic.file.clone();

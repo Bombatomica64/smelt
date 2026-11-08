@@ -102,6 +102,13 @@ pub(crate) fn lower_manifest_source(
     (ctx.krate, ctx.module_namespaces, ctx.enum_members, outcome)
 }
 
+/// Whether an absolute Python import of `module` can never name a project
+/// file; see `smelt_frontend_py::is_unshadowable_module`.
+#[cfg(feature = "python")]
+pub(crate) fn is_unshadowable_module(module: &str) -> bool {
+    smelt_frontend_py::is_unshadowable_module(module)
+}
+
 /// Scans Python `import module` and `from module import name` specifiers with Ruff AST.
 #[cfg(feature = "python")]
 pub(crate) fn scan_imports(source: &str) -> Result<Vec<ManifestImport>, String> {
@@ -183,6 +190,7 @@ pub(crate) fn scan_imports(source: &str) -> Result<Vec<ManifestImport>, String> 
 pub(crate) fn check_sources(
     sources: &[&crate::manifest::ManifestSource],
     project_dir: &std::path::Path,
+    stubs: &crate::check_program::CrossLanguageStubs,
 ) -> crate::type_gate::LanguageCheck {
     use crate::lowering::{Severity, source_line_column};
     use crate::type_gate::LanguageCheck;
@@ -196,7 +204,12 @@ pub(crate) fn check_sources(
         .iter()
         .map(|source| CheckSource { path: &source.path, text: &source.source })
         .collect::<Vec<_>>();
-    let reported = match smelt_frontend_py::check_sources(&inputs, project_dir) {
+    let declared = stubs.python_declarations();
+    let declarations = declared
+        .iter()
+        .map(|(path, text)| CheckSource { path, text })
+        .collect::<Vec<_>>();
+    let reported = match smelt_frontend_py::check_sources(&inputs, &declarations, project_dir) {
         Ok(reported) => reported,
         Err(error) => return LanguageCheck::Unverified(format!("ty could not check the Python sources: {error:#}")),
     };
@@ -230,6 +243,7 @@ pub(crate) fn check_sources(
 pub(crate) fn check_sources(
     sources: &[&crate::manifest::ManifestSource],
     _project_dir: &std::path::Path,
+    _stubs: &crate::check_program::CrossLanguageStubs,
 ) -> crate::type_gate::LanguageCheck {
     if python_sources(sources).is_empty() {
         return crate::type_gate::LanguageCheck::Absent;
@@ -295,6 +309,12 @@ pub(crate) fn lower_manifest_source(
         severity: None,
     }];
     (krate, module_namespaces, enum_members, Err(diagnostics))
+}
+
+/// Without the Python frontend no Python import is resolved at all.
+#[cfg(not(feature = "python"))]
+pub(crate) const fn is_unshadowable_module(_module: &str) -> bool {
+    false
 }
 
 /// Reports that Python support was not compiled into this build.

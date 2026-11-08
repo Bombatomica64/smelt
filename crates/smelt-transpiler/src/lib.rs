@@ -34,6 +34,7 @@
     reason = "manifest lowering orchestration is intentionally kept in one helper during the active feature phase"
 )]
 
+mod check_program;
 mod clean;
 pub mod cli;
 pub mod cli_parser;

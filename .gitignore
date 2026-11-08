@@ -356,3 +356,6 @@ lcov.info
 
 # Python bytecode
 __pycache__/
+
+# The pinned Node type declarations the embedded TypeScript checker loads.
+!crates/smelt-ts-types/vendor/node_modules/

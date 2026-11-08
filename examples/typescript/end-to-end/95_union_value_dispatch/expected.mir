@@ -3,7 +3,7 @@ interface Noted
 
 async fn body_text (FuncId(0)) -> String
   locals
-    %0 param init: String | Uint8Array
+    %0 param init: String | Uint8Array<ArrayBuffer>
     %1 temp: Response
     %2 temp: Future<String>
     %3 temp: String
@@ -18,8 +18,8 @@ fn retag (FuncId(1)) -> String
     %0 param value: Keyed | Noted
     %1 param next: String
   bb0:
-    %0.field11 = copy %1
-    return copy %0.field11
+    %0.field12 = copy %1
+    return copy %0.field12
 
 async fn run (FuncId(2)) -> None
   locals

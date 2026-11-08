@@ -4,7 +4,7 @@
 // lib's own match types name the match value.
 const m = "ac".match(/(a)(b)?(c)/);
 if (m !== null) {
-  console.log(m[2], m[2] === undefined, m.length, m.index);
+  console.log(m[2], (m[2] as string | undefined) === undefined, m.length, m.index);
   console.log(m.indices, (m as any).foo);
 }
 const re = /x/g;

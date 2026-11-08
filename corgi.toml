@@ -2,3 +2,4 @@
 # because corgi sandboxes rustc/build scripts to the declared inputs.
 [extra-inputs]
 smelt-specialize = ["guest/**"]
+smelt-ts-types = ["vendor/**"]

@@ -55,6 +55,17 @@ impl StubKind {
     }
 }
 
+/// The TypeScript declaration of `module`, as the TypeScript checker reads a
+/// Python module that TypeScript imports.
+pub(crate) fn typescript_stub(krate: &Crate, module: ModuleId) -> String {
+    StubKind::TypeScript.render(krate, module)
+}
+
+/// The Python stub of `module`, as ty reads a TypeScript module that Python imports.
+pub(crate) fn python_stub(krate: &Crate, module: ModuleId) -> String {
+    StubKind::Python.render(krate, module)
+}
+
 /// A stub destination Smelt may write: nothing is there, or the file there
 /// carries Smelt's stub header of the same kind.
 ///

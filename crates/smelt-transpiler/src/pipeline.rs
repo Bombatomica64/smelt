@@ -94,7 +94,7 @@ pub(crate) fn build_rust_crate_with_erasure(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let lowered = timing::measure("manifest.lower", || -> Result<_, Box<dyn std::error::Error>> {
         lowering::ManifestLowering::for_manifest(config, manifest_path)?
-            .check()
+            .check()?
             .into_inner(type_errors)?
             .lower()
     })?;
@@ -160,7 +160,7 @@ pub(crate) fn check_manifest(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let lowered = timing::measure("manifest.lower", || -> Result<_, Box<dyn std::error::Error>> {
         lowering::ManifestLowering::for_manifest(config, manifest_path)?
-            .check()
+            .check()?
             .into_inner(type_errors)?
             .lower()
     })?;

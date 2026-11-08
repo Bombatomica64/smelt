@@ -141,7 +141,7 @@ pub fn run() -> CliResult<()> {
                 MessageFormat::Json => {
                     // The report goes to stdout whole, type errors included, and
                     // the gate's verdict decides the exit status after it.
-                    let checked = ManifestLowering::for_manifest(&config, &manifest_path)?.check();
+                    let checked = ManifestLowering::for_manifest(&config, &manifest_path)?.check()?;
                     let verdict = checked.verdict(type_errors);
                     let diagnostics = checked.into_measured().diagnostics(Some(&settings))?;
                     let mut stdout = io::stdout().lock();
@@ -156,7 +156,7 @@ pub fn run() -> CliResult<()> {
             let type_errors = TypeErrorPolicy::resolve(config.type_errors(), allow_type_errors);
             if let Some(mode) = hir.mode() {
                 let lowered = ManifestLowering::for_manifest(&config, &manifest_path)?
-                    .check()
+                    .check()?
                     .into_inner(type_errors)?
                     .lower()?;
                 pipeline::print_hir(&lowered.krate, &lowered.modules, mode);
@@ -174,12 +174,12 @@ pub fn run() -> CliResult<()> {
         // The dumps show what lowering makes of a file, type errors or not;
         // they emit no program.
         Command::DumpHir { file, debug } => {
-            let lowered = ManifestLowering::for_file(&file)?.check().into_measured().lower()?;
+            let lowered = ManifestLowering::for_file(&file)?.check()?.into_measured().lower()?;
             let mode = if debug { HirMode::Debug } else { HirMode::Compact };
             pipeline::print_hir(&lowered.krate, &lowered.modules, mode);
         }
         Command::DumpMir { file } => {
-            let lowered = ManifestLowering::for_file(&file)?.check().into_measured().lower()?;
+            let lowered = ManifestLowering::for_file(&file)?.check()?.into_measured().lower()?;
             pipeline::print_mir(&lowered.krate)?;
         }
         Command::DumpAst { file } => match SourceLang::from_path(&file)? {

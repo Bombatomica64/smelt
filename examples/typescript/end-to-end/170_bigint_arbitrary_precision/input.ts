@@ -57,8 +57,8 @@ console.log("power:", power(2n, 100n), power(-3n, 3n), power(7n, 0n));
 console.log("asIntN:", BigInt.asIntN(64, TWO_64 - 1n), BigInt.asIntN(8, 255n), BigInt.asIntN(64, HUGE));
 console.log("asUintN:", BigInt.asUintN(64, -1n), BigInt.asUintN(8, -1n), BigInt.asUintN(80, HUGE));
 
-console.log("compare:", 1n < 1.5, 2n == 2, 2n > 1.5, 3n <= 3, HUGE > 1e22, HUGE < 1e22);
-console.log("compare NaN:", 1n < NaN, 1n > NaN, 1n == NaN);
+console.log("compare:", 1n < 1.5, 2n == (2 as number | bigint), 2n > 1.5, 3n <= 3, HUGE > 1e22, HUGE < 1e22);
+console.log("compare NaN:", 1n < NaN, 1n > NaN, 1n == (NaN as number | bigint));
 console.log("strict:", 2n === 2n, TWO_53 + 1n === TWO_53 + 1n, HUGE !== HUGE + 1n);
 
 console.log("toString:", HUGE.toString(), HUGE.toString(16), HUGE.toString(2).length, (-255n).toString(16));
@@ -87,4 +87,5 @@ const unique = new Set<bigint>([1n, 2n, 1n, TWO_64, TWO_64]);
 console.log("collections:", keyed.get(TWO_64), keyed.has(HUGE + 1n), unique.size, unique.has(TWO_64));
 const ordered = [HUGE, -1n, TWO_53, 0n].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 console.log("sorted:", ordered, ordered.reduce((sum, value) => sum + value, 0n));
-console.log("truthy:", Boolean(0n), Boolean(-1n), 0n ? "yes" : "no", HUGE ? "yes" : "no");
+const zero: bigint = 0n;
+console.log("truthy:", Boolean(0n), Boolean(-1n), zero ? "yes" : "no", (HUGE as bigint) ? "yes" : "no");

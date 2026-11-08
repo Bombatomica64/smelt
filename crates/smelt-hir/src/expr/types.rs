@@ -32,6 +32,15 @@ pub enum BinOp {
     JsStrictEq,
     /// JavaScript `!==`, the negation of [`BinOp::JsStrictEq`].
     JsStrictNotEq,
+    /// JavaScript `==` between operands whose types can hold values of
+    /// different kinds (a `number | bigint`, a `string | number`, `unknown`):
+    /// ECMA-262 IsLooselyEqual, which converts across kinds (`"1" == 1`,
+    /// `2n == 2`, `null == undefined`). A `==` whose operands are of one kind
+    /// is that kind's strict equality and lowers to [`BinOp::Eq`] (primitives)
+    /// or [`BinOp::JsStrictEq`] (objects) instead.
+    JsLooseEq,
+    /// JavaScript `!=`, the negation of [`BinOp::JsLooseEq`].
+    JsLooseNotEq,
     /// Less-than operator.
     Lt,
     /// Less-than-or-equal operator.
@@ -75,8 +84,8 @@ pub const fn bin_op_text(op: BinOp) -> &'static str {
         BinOp::Mul => "*",
         BinOp::Div => "/",
         BinOp::Rem => "%",
-        BinOp::Eq | BinOp::StrictEq | BinOp::JsStrictEq => "==",
-        BinOp::NotEq | BinOp::StrictNotEq | BinOp::JsStrictNotEq => "!=",
+        BinOp::Eq | BinOp::StrictEq | BinOp::JsStrictEq | BinOp::JsLooseEq => "==",
+        BinOp::NotEq | BinOp::StrictNotEq | BinOp::JsStrictNotEq | BinOp::JsLooseNotEq => "!=",
         BinOp::Lt => "<",
         BinOp::Lte => "<=",
         BinOp::Gt => ">",
@@ -90,6 +99,90 @@ pub const fn bin_op_text(op: BinOp) -> &'static str {
         BinOp::BitOr => "|",
         BinOp::BitXor => "^",
         BinOp::IMul => "imul",
+    }
+}
+
+impl BinOp {
+    /// Whether this is one of the equality operators, in either polarity.
+    ///
+    /// Every pass that asks "is this a comparison" asks here, so a new equality
+    /// operator is classified in one place (exhaustively matched below).
+    #[must_use]
+    pub const fn is_equality(self) -> bool {
+        self.equality_polarity().is_some()
+    }
+
+    /// Whether this is an equality operator's negation (`!=`, `!==`, …).
+    #[must_use]
+    pub const fn is_negated_equality(self) -> bool {
+        matches!(self.equality_polarity(), Some(true))
+    }
+
+    /// `Some(negated)` for an equality operator, `None` for any other.
+    const fn equality_polarity(self) -> Option<bool> {
+        match self {
+            Self::Eq | Self::StrictEq | Self::JsStrictEq | Self::JsLooseEq => Some(false),
+            Self::NotEq | Self::StrictNotEq | Self::JsStrictNotEq | Self::JsLooseNotEq => Some(true),
+            Self::Add
+            | Self::Sub
+            | Self::Mul
+            | Self::Div
+            | Self::Rem
+            | Self::Lt
+            | Self::Lte
+            | Self::Gt
+            | Self::Gte
+            | Self::And
+            | Self::Or
+            | Self::Shl
+            | Self::Shr
+            | Self::UShr
+            | Self::BitAnd
+            | Self::BitOr
+            | Self::BitXor
+            | Self::IMul => None,
+        }
+    }
+
+    /// Whether this compares its operands into a boolean: an equality or an
+    /// ordering (`<`, `<=`, `>`, `>=`).
+    #[must_use]
+    pub const fn is_comparison(self) -> bool {
+        self.is_equality() || matches!(self, Self::Lt | Self::Lte | Self::Gt | Self::Gte)
+    }
+
+    /// The comparison that answers the opposite (`<` → `>=`, `==` → `!=`), or
+    /// `None` for an operator that is not a comparison.
+    #[must_use]
+    pub const fn negated(self) -> Option<Self> {
+        Some(match self {
+            Self::Lt => Self::Gte,
+            Self::Lte => Self::Gt,
+            Self::Gt => Self::Lte,
+            Self::Gte => Self::Lt,
+            Self::Eq => Self::NotEq,
+            Self::NotEq => Self::Eq,
+            Self::StrictEq => Self::StrictNotEq,
+            Self::StrictNotEq => Self::StrictEq,
+            Self::JsStrictEq => Self::JsStrictNotEq,
+            Self::JsStrictNotEq => Self::JsStrictEq,
+            Self::JsLooseEq => Self::JsLooseNotEq,
+            Self::JsLooseNotEq => Self::JsLooseEq,
+            Self::Add
+            | Self::Sub
+            | Self::Mul
+            | Self::Div
+            | Self::Rem
+            | Self::And
+            | Self::Or
+            | Self::Shl
+            | Self::Shr
+            | Self::UShr
+            | Self::BitAnd
+            | Self::BitOr
+            | Self::BitXor
+            | Self::IMul => return None,
+        })
     }
 }
 

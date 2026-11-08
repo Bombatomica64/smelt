@@ -857,10 +857,7 @@ clone-strategy = "aggressive"
 
     let manifest = project_path.join("Smelt.toml");
     let manifest_arg = utf8_path(&manifest)?;
-    // A few corpus programs are ones tsc rejects (or use Node globals the
-    // closure-only checker setup lacks); the corpus pins their lowering, so
-    // it builds with type errors allowed. The gate is `type_gate_cli_tests.rs`.
-    smelt(&["--manifest-path", &manifest_arg, "build", "--allow-type-errors"])?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
 
     // EVERY generated file, not just `main.rs`. A program whose lowering
     // splits into modules puts its user code in `source_<entry>.rs` and leaves

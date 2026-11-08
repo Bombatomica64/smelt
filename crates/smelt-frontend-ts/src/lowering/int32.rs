@@ -56,6 +56,11 @@ use crate::SmeltError;
 
 /// The module whose `int32` export carries the meaning.
 pub(super) const BUN_MODULE: &str = "bun";
+
+/// What a type checker needs to know of `"bun"` for the surface this module
+/// models: its `int32` type, which is a `number` to TypeScript (Bun declares it
+/// that way; the 32-bit proof is Smelt's, not the checker's).
+pub(crate) const BUN_DECLARATION: &str = "declare module \"bun\" {\n  export type int32 = number;\n}\n";
 /// The export name of the type.
 pub(super) const INT32_EXPORT: &str = "int32";
 /// Smallest int32.

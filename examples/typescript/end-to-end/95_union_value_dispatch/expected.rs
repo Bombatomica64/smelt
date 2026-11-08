@@ -1946,6 +1946,26 @@ impl SmeltJsStrictEq for bool { fn js_strict_eq(&self, other: &Self) -> bool { s
 impl SmeltJsStrictEq for i64 { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }
 impl SmeltJsStrictEq for f64 { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }
 
+/// `left == right` in JavaScript.
+#[allow(dead_code)]
+fn smelt_js_loose_eq(left: &SmeltUnknown, right: &SmeltUnknown) -> bool {
+    use SmeltUnknown as U;
+    match (left, right) {
+        (U::Null | U::Undefined, U::Null | U::Undefined) => true,
+        (U::Null | U::Undefined, _) | (_, U::Null | U::Undefined) => false,
+        (U::Number(_), U::Number(_)) | (U::String(_), U::String(_)) | (U::Bool(_), U::Bool(_)) | (U::Symbol(_), U::Symbol(_)) => left.js_strict_eq(right),
+        
+        (U::Bool(value), other) | (other, U::Bool(value)) => smelt_js_loose_eq(&U::Number(if *value { 1.0 } else { 0.0 }), other),
+        (U::Number(_), U::String(_)) | (U::String(_), U::Number(_)) => smelt_unknown_to_number(left) == smelt_unknown_to_number(right),
+        
+        
+        (U::Array(_) | U::Object(_) | U::Function(_) | U::Promise(_), U::Array(_) | U::Object(_) | U::Function(_) | U::Promise(_)) => left.js_strict_eq(right),
+        (U::Array(_) | U::Object(_) | U::Function(_) | U::Promise(_), primitive) => smelt_js_loose_eq(&U::String(smelt_erased_to_js_string(left)), primitive),
+        (primitive, U::Array(_) | U::Object(_) | U::Function(_) | U::Promise(_)) => smelt_js_loose_eq(primitive, &U::String(smelt_erased_to_js_string(right))),
+        _ => false,
+    }
+}
+
 #[derive(Debug)]
 pub struct SmeltObject {
     id: usize,
@@ -5581,11 +5601,11 @@ impl Default for SmeltUnion2 {
 }
 
 #[derive(Clone)]
-pub enum SmeltUnion5 {
+pub enum SmeltUnion6 {
     M0(JsString),
     M1(SmeltTypedArray),
 }
-impl IntoSmeltUnknown for SmeltUnion5 {
+impl IntoSmeltUnknown for SmeltUnion6 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         match self {
             Self::M0(value) => SmeltUnknown::String(value.into()),
@@ -5593,30 +5613,30 @@ impl IntoSmeltUnknown for SmeltUnion5 {
         }
     }
 }
-impl SmeltUnion5 {
+impl SmeltUnion6 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
         if matches!(value, SmeltUnknown::String(_)) { return Self::M0(match value.clone() { SmeltUnknown::String(value) => value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }); }
         Self::M1(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
     }
 }
-impl PartialEq for SmeltUnion5 {
+impl PartialEq for SmeltUnion6 {
     fn eq(&self, other: &Self) -> bool {
         self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()
     }
 }
-impl SmeltFromUnknown for SmeltUnion5 {
+impl SmeltFromUnknown for SmeltUnion6 {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }
 }
-impl SmeltJsKeyEq for SmeltUnion5 {
+impl SmeltJsKeyEq for SmeltUnion6 {
     fn same_js_key(&self, other: &Self) -> bool { self.clone().into_smelt_unknown().same_js_key(&other.clone().into_smelt_unknown()) }
     fn js_key_hash(&self) -> Option<u64> { self.clone().into_smelt_unknown().js_key_hash() }
 }
-impl ::std::fmt::Debug for SmeltUnion5 {
+impl ::std::fmt::Debug for SmeltUnion6 {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)
     }
 }
-impl Default for SmeltUnion5 {
+impl Default for SmeltUnion6 {
     fn default() -> Self {
         Self::M0(JsString::new())
     }
@@ -5642,8 +5662,8 @@ smelt_local.block_on(&smelt_runtime, async move {
 
 use super::*;
 
-pub(crate) async fn body_text(init: SmeltUnion5) -> Result<JsString, Box<dyn std::error::Error>> {
-    let _smelt_tmp_1: SmeltResponse = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), match init.clone() { SmeltUnion5::M0(smelt_body_arm) => SmeltBody::from_text(&smelt_body_arm), SmeltUnion5::M1(smelt_body_arm) => SmeltBody::from_bytes(smelt_body_arm.to_bytes()) });
+pub(crate) async fn body_text(init: SmeltUnion6) -> Result<JsString, Box<dyn std::error::Error>> {
+    let _smelt_tmp_1: SmeltResponse = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), match init.clone() { SmeltUnion6::M0(smelt_body_arm) => SmeltBody::from_text(&smelt_body_arm), SmeltUnion6::M1(smelt_body_arm) => SmeltBody::from_bytes(smelt_body_arm.to_bytes()) });
     let _smelt_tmp_2: SmeltFuture<JsString> = { let smelt_response = _smelt_tmp_1.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(JsString::from(smelt_response.take_text()?)) })) };
     let _smelt_tmp_3: JsString = _smelt_tmp_2.await?;
     return Ok(_smelt_tmp_3);
@@ -5661,12 +5681,12 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_5: SmeltList<f64>;
     let _smelt_tmp_6: SmeltTypedArray;
     let _smelt_tmp_8: JsString;
-    let _smelt_tmp_2 = SmeltFuture::from_future(Box::pin(body_text(SmeltUnion5::M0(JsString::from("hello")))));
+    let _smelt_tmp_2 = SmeltFuture::from_future(Box::pin(body_text(SmeltUnion6::M0(JsString::from("hello")))));
     _smelt_tmp_3 = _smelt_tmp_2.await?;
     let _ = { println!("{}", _smelt_tmp_3); };
     _smelt_tmp_5 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![104.0, 105.0, 33.0]; smelt_list_items }));
     _smelt_tmp_6 = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8, &_smelt_tmp_5.to_vec());
-    let _smelt_tmp_7 = SmeltFuture::from_future(Box::pin(body_text(SmeltUnion5::M1(_smelt_tmp_6))));
+    let _smelt_tmp_7 = SmeltFuture::from_future(Box::pin(body_text(SmeltUnion6::M1(_smelt_tmp_6))));
     _smelt_tmp_8 = _smelt_tmp_7.await?;
     let _ = { println!("{}", _smelt_tmp_8); };
     counted = Keyed { tag: JsString::from("first"), kind: JsString::from("k") };

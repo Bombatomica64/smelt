@@ -27,15 +27,16 @@ fn main (FuncId(2)) -> None
     %5 user label: Optional<String>
     %6 temp: List<Float>
     %7 temp: User
-    %8 temp: Optional<String>
+    %8 temp: Optional<User>
     %9 temp: Optional<String>
-    %10 temp: Optional<List<Float>>
-    %11 temp: Optional<Float>
-    %12 temp: Optional<String>
-    %13 temp: None
+    %10 temp: Optional<String>
+    %11 temp: Optional<List<Float>>
+    %12 temp: Optional<Float>
+    %13 temp: Optional<String>
     %14 temp: None
     %15 temp: None
     %16 temp: None
+    %17 temp: None
   bb0:
     %6 = [3.0]
     %7 = call fn0("Ada", move %6) -> bb1
@@ -44,16 +45,16 @@ fn main (FuncId(2)) -> None
     %1 = none
     %2 = copy %0?.field2
     %3 = move %1?.field2
-    %10 = copy %0?.field3
-    %4 = move %10?.[0.0]
+    %11 = copy %0?.field3
+    %4 = move %11?.[0.0]
     %5 = move %0?.method1()
-    %13 = call @console_log(move %2) -> bb2
+    %14 = call @console_log(move %2) -> bb2
   bb2:
-    %14 = call @console_log(move %3) -> bb3
+    %15 = call @console_log(move %3) -> bb3
   bb3:
-    %15 = call @console_log(move %4) -> bb4
+    %16 = call @console_log(move %4) -> bb4
   bb4:
-    %16 = call @console_log(move %5) -> bb5
+    %17 = call @console_log(move %5) -> bb5
   bb5:
     return none
 

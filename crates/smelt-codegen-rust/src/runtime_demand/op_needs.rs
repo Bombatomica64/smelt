@@ -315,6 +315,10 @@ impl RuntimeDemand {
             Rvalue::InstanceOfValue { .. } => {
                 self.add(Need::InstanceOfValue);
             }
+            // IsLooselyEqual runs over erased values (`smelt_js_loose_eq`).
+            Rvalue::Binary { op: smelt_hir::BinOp::JsLooseEq | smelt_hir::BinOp::JsLooseNotEq, .. } => {
+                self.add(Need::Unknown);
+            }
             Rvalue::UnknownIs { .. } => {
                 self.add(Need::Unknown);
             }
