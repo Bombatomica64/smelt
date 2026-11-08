@@ -262,3 +262,75 @@ fn cross_language_imports_type_check() -> TestResult {
         "invalid-argument-type",
     )
 }
+
+/// The test API declarations type what vitest's own types type: `it.each`
+/// callbacks from the table, `vi.fn<T>()` without an
+/// implementation, `vi.spyOn` call records, `expectTypeOf<T>()` chains, and
+/// Jest's `jest` as vitest's `vi`. Each was an error when the API was `any`
+/// (TS7006/TS7031 on untyped callbacks, TS2347 on type arguments, TS2554 on
+/// the implementation-less `vi.fn`); the ill-typed twin shows the table's
+/// element type really reaches the callback.
+#[cfg(feature = "ts7")]
+#[test]
+fn test_api_declarations_type_vitest_idioms() -> TestResult {
+    let spec = |callback_body: &str| {
+        format!(
+            "import {{ describe, it, expect, expectTypeOf, vi }} from \"vitest\";\n\
+             \n\
+             const target = {{ run(code: number): string {{ return String(code); }} }};\n\
+             \n\
+             describe(\"api\", () => {{\n\
+             \x20 it.each([\"/a\", \"/b\"])(\"path %s\", (path) => {{ {callback_body} }});\n\
+             \x20 it.each([[1, \"x\"], [2, \"y\"]])(\"pair %s\", (count, label) => {{ expect(count).toBe(label.length); }});\n\
+             \x20 it(\"mocks\", () => {{\n\
+             \x20   const quiet = vi.fn<() => void>();\n\
+             \x20   quiet();\n\
+             \x20   const spy = vi.spyOn(target, \"run\");\n\
+             \x20   target.run(3);\n\
+             \x20   const codes = spy.mock.calls.map(([code]) => code + 1);\n\
+             \x20   const fake = jest.fn((value: number) => value * 2);\n\
+             \x20   expect(fake(2)).toBe(4);\n\
+             \x20   expectTypeOf(codes).toEqualTypeOf<number[]>();\n\
+             \x20 }});\n\
+             }});\n"
+        )
+    };
+    let valid = spec("expect(path.length).toBe(2);");
+    let invalid = spec("const wrong: number = path; void wrong;");
+    ensure_gate_sees(
+        build_files(&[("src/api.spec.ts", &valid)], "api.spec.ts", "")?,
+        build_files(&[("src/api.spec.ts", &invalid)], "api.spec.ts", "")?,
+        "TS2322",
+    )
+}
+
+/// An unused `@ts-expect-error` is not a type error the gate counts: the
+/// directive asserts an error under the project's own compiler options,
+/// which Smelt's fixed profile may not raise.
+#[cfg(feature = "ts7")]
+#[test]
+fn an_unused_expect_error_directive_does_not_refuse_a_program() -> TestResult {
+    let source = "// @ts-expect-error -- an error only under the project's `noUncheckedIndexedAccess`\nconst first: number = [1, 2][0];\nconsole.log(first);\n";
+    let (ok, stderr) = build_files(&[("src/main.ts", source)], "main.ts", "")?;
+    ensure(ok, stderr.clone())?;
+    ensure(!stderr.contains("TS2578"), stderr)
+}
+
+/// A hook's context is typed (`beforeEach(({ task, skip }) => ...)` binds
+/// typed elements, as under vitest's `TestContext`): the checker reports no
+/// implicit `any` for it. Asked of `check`, whose type-check diagnostics are
+/// separate from lowering's (which does not lower a hook with parameters).
+#[cfg(feature = "ts7")]
+#[test]
+fn a_hook_context_is_typed() -> TestResult {
+    let temp = TempProject::new()?;
+    let spec = "import { beforeEach, it } from \"vitest\";\n\nbeforeEach(({ task, skip }) => { void task; void skip; });\nit(\"runs\", () => {});\n";
+    project(temp.path(), "hook.spec.ts", spec, "")?;
+    let output = Command::new(env!("CARGO_BIN_EXE_smelt"))
+        .current_dir(temp.path())
+        .args(["check", "--message-format", "json"])
+        .output()?;
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    ensure(stdout.contains("lifecycle callbacks with parameters"), format!("expected the lowering blocker:\n{stdout}"))?;
+    ensure(!stdout.contains("\"type-check\""), format!("the hook context must type-check:\n{stdout}"))
+}

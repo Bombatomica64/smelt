@@ -98,6 +98,9 @@ fn checker_diagnostic(
     located: &[(String, &ManifestSource)],
     graph: &ModuleGraph<'_>,
 ) -> Option<ManifestDiagnostic> {
+    if diagnostic.code == UNUSED_EXPECT_ERROR {
+        return None;
+    }
     let severity = if diagnostic.category == TsDiagnosticCategory::Error {
         Severity::Error
     } else if diagnostic.category == TsDiagnosticCategory::Warning {
@@ -158,6 +161,18 @@ fn checker_diagnostic(
         severity: Some(severity),
     })
 }
+
+/// TS2578, "Unused '@ts-expect-error' directive": not a type error in the
+/// program, so never one the gate counts.
+///
+/// A `@ts-expect-error` asserts an error under the PROJECT's compiler options
+/// (remeda's `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`), and
+/// Smelt checks every program under its own fixed profile, whose types are
+/// the ones lowering reads. Under that profile the expected error may not
+/// occur; the directive is then unused, which says nothing about whether the
+/// program is well typed. An error the directive does suppress is still
+/// suppressed, as the source asks.
+const UNUSED_EXPECT_ERROR: i32 = 2578;
 
 /// The specifier a "cannot find module" diagnostic names (TS2307, TS2792).
 fn unresolved_specifier(diagnostic: &TsDiagnostic) -> Option<&str> {

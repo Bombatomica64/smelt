@@ -37,29 +37,94 @@ const TEST_FRAMEWORK_DECLARATIONS: &str = "/smelt/__smelt_test_frameworks.d.ts";
 /// The program holds only the project's own sources, so `vitest` would resolve to
 /// nothing and `vi.fn(impl)` would be `any`, losing the signature of every mock:
 /// `memoize(vi.fn((a: number[]) => 0), { getCacheKey: (x) => x.join() })` could
-/// not type `x`. `vi.fn` keeps the implementation's type. Everything else stays
-/// `any`, which is what an unresolved import answers.
+/// not type `x`. `vi.fn` keeps the implementation's type, which is optional
+/// as in vitest (`vi.fn<() => void>()` names the type alone).
+///
+/// The assertion API (`expect`, `expectTypeOf`, `describe`, ...) is
+/// [`SmeltTestApi`]: callable with type arguments and chainable through any
+/// member, as vitest's own types are. `any` refused a type argument
+/// (`expectTypeOf(x).toEqualTypeOf<T>()` was TS2347, "untyped function calls
+/// may not accept type arguments"), an error vitest's declarations never give.
 const TEST_FRAMEWORK_TEXT: &str = r#"
-type SmeltMock<F> = F & { mock: any; [member: string]: any };
-interface SmeltVi {
-  fn<F extends (...args: any[]) => any>(implementation: F): SmeltMock<F>;
-  fn(): SmeltMock<(...args: any[]) => any>;
+type SmeltProcedure = (...args: any[]) => any;
+interface SmeltMockState<F extends SmeltProcedure> {
+  calls: Parameters<F>[];
+  lastCall: Parameters<F> | undefined;
+  results: { type: string; value: any }[];
+  instances: any[];
+  invocationCallOrder: number[];
   [member: string]: any;
 }
+type SmeltMock<F extends SmeltProcedure> = F & { mock: SmeltMockState<F>; [member: string]: any };
+type SmeltMethod<T> = T extends SmeltProcedure ? T : SmeltProcedure;
+interface SmeltVi {
+  fn<F extends SmeltProcedure = SmeltProcedure>(implementation?: F): SmeltMock<F>;
+  spyOn<T, K extends keyof T>(object: T, method: K, accessType?: "get" | "set"): SmeltMock<SmeltMethod<T[K]>>;
+  [member: string]: any;
+}
+interface SmeltTestApi {
+  <A = any, B = any, C = any>(...args: any[]): SmeltTestApi;
+  [member: string]: SmeltTestApi;
+}
+interface SmeltTestContext {
+  task: any;
+  skip: (...args: any[]) => any;
+  signal: AbortSignal;
+  expect: SmeltTestApi;
+  onTestFailed: (handler: SmeltProcedure) => void;
+  onTestFinished: (handler: SmeltProcedure) => void;
+  [member: string]: any;
+}
+type SmeltTestName = string | number | Function;
+interface SmeltEach<Context> {
+  (strings: TemplateStringsArray, ...values: any[]): (name: SmeltTestName, fn: (context: any) => any, options?: any) => void;
+  <T extends any[] | [any]>(cases: ReadonlyArray<T>): (name: SmeltTestName, fn: (...args: T) => any, options?: any) => void;
+  <T>(cases: ReadonlyArray<T>): (name: SmeltTestName, fn: (...args: T[]) => any, options?: any) => void;
+}
+interface SmeltCaseApi<Context> {
+  (name: SmeltTestName, fn?: (context: Context) => any, options?: any): void;
+  (name: SmeltTestName, options: object, fn?: (context: Context) => any): void;
+  each: SmeltEach<Context>;
+  for: SmeltEach<Context>;
+  skip: SmeltCaseApi<Context>;
+  only: SmeltCaseApi<Context>;
+  todo: SmeltCaseApi<Context>;
+  concurrent: SmeltCaseApi<Context>;
+  sequential: SmeltCaseApi<Context>;
+  shuffle: SmeltCaseApi<Context>;
+  fails: SmeltCaseApi<Context>;
+  skipIf(condition: any): SmeltCaseApi<Context>;
+  runIf(condition: any): SmeltCaseApi<Context>;
+  extend<T = {}>(fixtures: any): SmeltCaseApi<Context & T>;
+}
+type SmeltHook<Context> = (fn: (context: Context) => any, timeout?: number) => void;
 declare module "vitest" {
   export const vi: SmeltVi;
-  export const describe: any, it: any, test: any, expect: any, expectTypeOf: any, assertType: any;
-  export const beforeAll: any, beforeEach: any, afterAll: any, afterEach: any;
+  export const describe: SmeltCaseApi<void>, suite: SmeltCaseApi<void>;
+  export const it: SmeltCaseApi<SmeltTestContext>, test: SmeltCaseApi<SmeltTestContext>, bench: SmeltCaseApi<void>;
+  export const expect: SmeltTestApi, expectTypeOf: SmeltTestApi, assertType: SmeltTestApi, assert: SmeltTestApi;
+  export const beforeAll: SmeltHook<any>, afterAll: SmeltHook<any>;
+  export const beforeEach: SmeltHook<SmeltTestContext>, afterEach: SmeltHook<SmeltTestContext>;
+  export const onTestFailed: (handler: SmeltProcedure) => void, onTestFinished: (handler: SmeltProcedure) => void;
+  export type Mock<F extends SmeltProcedure = SmeltProcedure> = SmeltMock<F>;
+  export type MockInstance<F extends SmeltProcedure = SmeltProcedure> = SmeltMock<F>;
+  export type MockedFunction<F extends SmeltProcedure> = SmeltMock<F>;
+  export type Mocked<T> = T & { [member: string]: any };
+  export type TestContext = SmeltTestContext;
+  export type TaskContext = SmeltTestContext;
+  export type RunnerTestSuite = any;
+  export type RunnerTestCase = any;
+  export type RunnerTask = any;
+  export type Suite = any;
+  export type Test = any;
+  export type ExpectStatic = SmeltTestApi;
+  export type Assertion<T = any> = SmeltTestApi;
 }
 declare module "@effect/vitest" {
-  export const vi: SmeltVi;
-  export const describe: any, it: any, test: any, expect: any, expectTypeOf: any, assertType: any;
-  export const beforeAll: any, beforeEach: any, afterAll: any, afterEach: any;
+  export * from "vitest";
 }
 declare module "@fast-check/vitest" {
-  export const vi: SmeltVi;
-  export const describe: any, it: any, test: any, expect: any, expectTypeOf: any, assertType: any;
-  export const beforeAll: any, beforeEach: any, afterAll: any, afterEach: any;
+  export * from "vitest";
 }
 "#;
 

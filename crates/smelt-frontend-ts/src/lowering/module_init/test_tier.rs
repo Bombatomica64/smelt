@@ -107,3 +107,19 @@ pub(in crate::lowering) fn ambient_test_builtin_names(
         .filter(|name| !is_imported(name) && !declared.contains(*name))
         .collect()
 }
+
+/// The mock namespaces (`vi`, and Jest's spelling of it, `jest`) a test-tier
+/// module reaches as globals: each one it neither imports nor declares.
+/// Lowering recognizes them by name as the one mock API
+/// (`lowering::testing::is_test_mock_namespace`), import or not.
+pub(in crate::lowering) fn ambient_mock_namespaces(
+    program: &Program<'_>,
+    is_imported: &dyn Fn(&str) -> bool,
+) -> Vec<&'static str> {
+    let declared = ModuleBuilder::program_top_level_binding_names(program);
+    ["vi", "jest"]
+        .into_iter()
+        .filter(|name| crate::lowering::testing::is_test_mock_namespace(name))
+        .filter(|name| !is_imported(name) && !declared.contains(*name))
+        .collect()
+}

@@ -500,15 +500,18 @@ pub fn to_hir_with_options(
     builder.program(&parsed.program)
 }
 
-/// The vitest API names the module `source` at `path` reaches as globals.
+/// The vitest API the module `source` at `path` reaches as globals, as the
+/// specifiers of an import from `"vitest"` that binds them.
 ///
 /// Empty unless it is a test-tier module, and never a name it imports or
 /// declares itself. Lowering treats exactly these names as the test
-/// framework's, so a type checker given them sees the module as Smelt does.
+/// framework's (`describe`, `expect`, ...; `vi` and its Jest spelling `jest`
+/// as the mock namespace), so a type checker given them sees the module as
+/// Smelt does. `jest` is vitest's `vi` (`vi as jest`).
 ///
 /// A source that does not parse has none.
 #[must_use]
-pub fn ambient_test_globals(source: &str, path: &str) -> Vec<&'static str> {
+pub fn ambient_test_globals(source: &str, path: &str) -> Vec<String> {
     let allocator = Allocator::default();
     let parsed = Parser::new(&allocator, source, SourceType::default().with_typescript(true))
         .with_options(ParseOptions::default())
@@ -527,7 +530,17 @@ pub fn ambient_test_globals(source: &str, path: &str) -> Vec<&'static str> {
         .flatten()
         .map(|specifier| specifier.local().name.as_str().to_owned())
         .collect::<HashSet<_>>();
-    module_init::test_tier::ambient_test_builtin_names(&parsed.program, &|name| imported.contains(name))
+    let is_imported = |name: &str| imported.contains(name);
+    let mut specifiers = module_init::test_tier::ambient_test_builtin_names(&parsed.program, &is_imported)
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    specifiers.extend(
+        module_init::test_tier::ambient_mock_namespaces(&parsed.program, &is_imported)
+            .into_iter()
+            .map(|name| if name == "vi" { name.to_owned() } else { format!("vi as {name}") }),
+    );
+    specifiers
 }
 
 /// Declarations, for a type checker, of what this frontend models itself.

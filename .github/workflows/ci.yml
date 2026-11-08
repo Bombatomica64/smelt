@@ -504,8 +504,17 @@ jobs:
         with:
           name: remeda
 
+      # Remeda's types import `type-fest` (a type-only dependency): without it
+      # every such import is unresolved and its uses cascade into ~280
+      # checker errors. With the lockfile's dependencies installed the
+      # checker sees what the library's own `tsc` sees and Remeda type-checks,
+      # so the build runs under the default type gate.
+      - name: Install Remeda's locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: target/compat-repos/remeda
+
       - name: Transpile Remeda to Rust
-        run: target/debug/smelt --manifest-path target/compat-repos/remeda/Smelt.toml build --allow-type-errors
+        run: target/debug/smelt --manifest-path target/compat-repos/remeda/Smelt.toml build
 
       - name: Compile and run generated Remeda tests (regression gate)
         # All 1789 tests pass. The four `randomBigInt` tests that used to fail
@@ -604,6 +613,11 @@ jobs:
           sed -i "/import { assert } from 'chai'/a import { describe, test } from 'vitest'" "$test_file"
           test "$(grep -Fc "import { describe, test } from 'vitest'" "$test_file")" -eq 1
 
+      # The opt-out is for one genuine type error in Radash itself:
+      # `src/async.ts:313` (TS2322, a `Promise<any>` returned where the
+      # conditional return type is expected; `tsc` 5.9.3 and TypeScript 7
+      # report it too). The tests' `chai` import is unresolved here as well
+      # (no `node_modules` in this checkout), 9 more errors.
       - name: Transpile Radash to Rust
         run: target/debug/smelt --manifest-path target/compat-repos/radash/Smelt.toml build --allow-type-errors
 
@@ -653,6 +667,10 @@ jobs:
         with:
           name: ts-pattern
 
+      # The opt-out is for one type error TypeScript 7 reports in ts-pattern's
+      # own tests: `tests/distribute-unions.test.ts:240` (TS2344, a type-level
+      # `Expect<Equal<...>>` that is `false`); `tsgo` 7.0 reports it, `tsc`
+      # 5.9 does not, and Smelt checks with TypeScript 7's checker.
       - name: Transpile ts-pattern (a refused corpus fails here)
         run: target/debug/smelt --manifest-path target/compat-repos/ts-pattern/Smelt.toml build --allow-type-errors
 
@@ -683,7 +701,7 @@ jobs:
       - name: Report Hono source-lowering blockers (advisory)
         run: |
           target/debug/smelt --manifest-path target/compat-repos/hono/Smelt.toml \
-            probe --allow-type-errors --format md | tee hono-probe.md
+            probe --format md | tee hono-probe.md
           echo "--- per-file blockers ---"
           target/debug/smelt --manifest-path target/compat-repos/hono/Smelt.toml \
             check --message-format json | tee hono-blockers.json
@@ -698,7 +716,7 @@ jobs:
         # HARD: the non-test Hono crate is at 0 cargo check errors and links
         # (blocker-logs/hono-current.md), same bar as radash/remeda.
         run: |
-          target/debug/smelt --manifest-path target/compat-repos/hono/Smelt.toml build --allow-type-errors
+          target/debug/smelt --manifest-path target/compat-repos/hono/Smelt.toml build
           cargo check --manifest-path target/compat-repos/hono/dist-smelt/Cargo.toml
 
       - name: Generated Hono test build (pinned error count)
@@ -768,6 +786,11 @@ jobs:
       # G1: probe how far es-toolkit transpiles and gate the blocker count.
       # `smelt probe` runs the whole-crate build itself, so dist-smelt exists
       # afterwards for the compile gates and rust-diagnostics below.
+      # The opt-out is for one type error TypeScript 7 reports in es-toolkit's
+      # tests: `src/function/partial.spec.ts:104` (TS2554, overload
+      # resolution of `partial(curried, placeholder, ...)`; `tsgo` 7.0 reports
+      # it, `tsc` 5.9 does not). The `fast-check` dev dependency is also
+      # unresolved here (no `node_modules`), 3 more errors.
       - name: Probe es-toolkit (JSON report)
         run: |
           target/debug/smelt --manifest-path target/compat-repos/es-toolkit/Smelt.toml \
