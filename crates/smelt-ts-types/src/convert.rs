@@ -204,8 +204,8 @@ impl<'checker> Converter<'checker> {
         };
         let enum_symbol = self.symbol_ref(enum_declaration);
         let value = self.table.reserve();
-        let display = (self.spellings == Spellings::Recorded).then_some(display);
-        self.table.fill(value, TsType { kind: value_kind, display, alias: None });
+        let spelled = (self.spellings == Spellings::Recorded).then_some(display);
+        self.table.fill(value, TsType { kind: value_kind, display: spelled, alias: None });
         TsTypeKind::EnumMember { enum_symbol, value }
     }
 

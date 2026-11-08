@@ -280,7 +280,7 @@ pub(crate) struct EmitContext {
     pub(crate) function_names: HashMap<FuncId, String>,
     /// Static methods sharing their name with an instance method of their
     /// class; see [`function_item::static_method_rust_name`].
-    pub(crate) renamed_static_methods: std::collections::HashSet<FuncId>,
+    pub(crate) renamed_static_methods: HashSet<FuncId>,
     /// Emitted parameter types keyed by Rust function name.
     function_param_types: HashMap<String, Vec<TypeId>>,
     /// Emitted return types keyed by Rust function name.
@@ -510,7 +510,7 @@ impl EmitContext {
         // A static method named like an instance method of its class would be
         // a second associated item of that name in the class's one `impl`
         // block (E0592), so it renders as `<name>_<function id>`.
-        let mut instance_method_names = std::collections::HashSet::<(Symbol, Symbol)>::new();
+        let mut instance_method_names = HashSet::<(Symbol, Symbol)>::new();
         for function in &mir.functions {
             if let HirOrigin::ClassMethod { class, method, .. } = function.origin {
                 instance_method_names.insert((class, method));
@@ -524,7 +524,7 @@ impl EmitContext {
                     if instance_method_names.contains(&(class, method)))
             })
             .map(|function| function.id)
-            .collect::<std::collections::HashSet<_>>();
+            .collect::<HashSet<_>>();
         let mut function_names = HashMap::new();
         let mut function_param_types = HashMap::new();
         let mut function_return_types = HashMap::new();

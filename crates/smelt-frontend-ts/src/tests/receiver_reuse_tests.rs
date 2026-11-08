@@ -11,10 +11,9 @@ use super::*;
 /// A builder class whose `with` returns the builder, and a chain of `links`
 /// `with` calls on a call receiver, each passing one closure.
 fn chain_source(links: usize) -> String {
-    let mut chain = String::from("make()");
-    for index in 0..links {
-        chain.push_str(&format!(".with(() => {index})"));
-    }
+    let chain: String = std::iter::once("make()".to_owned())
+        .chain((0..links).map(|index| format!(".with(() => {index})")))
+        .collect();
     format!(
         "class Builder {{\n  total = 0;\n  with(step: () => number): Builder {{ this.total += step(); return this; }}\n}}\n\
          function make(): Builder {{ return new Builder(); }}\n\

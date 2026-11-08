@@ -170,25 +170,26 @@ impl ModuleBuilder<'_> {
             Some(_) => return Ok(None),
             None => {}
         }
-        let key = self.expression(&member.expression, body)?;
-        if !matches!(self.ctx.krate.types.get(Self::expr_ty(body, key)), Some(Type::Float)) {
+        let index = self.expression(&member.expression, body)?;
+        if !matches!(self.ctx.krate.types.get(Self::expr_ty(body, index)), Some(Type::Float)) {
             return Ok(None);
         }
-        let entries = table
+        let reverse_entries = table
             .into_iter()
-            .map(|(value, name)| {
-                let key = body.push_expr(Expr {
+            .map(|(value, member_name)| {
+                let value_key = body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::String(Self::numeric_property_key_name(value))),
                     ty: string_ty,
                     span,
                 });
-                let name = body.push_expr(Expr { kind: ExprKind::Literal(Literal::String(name)), ty: string_ty, span });
-                (key, name)
+                let name_value =
+                    body.push_expr(Expr { kind: ExprKind::Literal(Literal::String(member_name)), ty: string_ty, span });
+                (value_key, name_value)
             })
             .collect();
         let table_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, string_ty));
-        let table = body.push_expr(Expr { kind: ExprKind::DictLit(entries), ty: table_ty, span });
-        Ok(Some(body.push_expr(Expr { kind: ExprKind::Index { receiver: table, index: key }, ty: string_ty, span })))
+        let reverse_table = body.push_expr(Expr { kind: ExprKind::DictLit(reverse_entries), ty: table_ty, span });
+        Ok(Some(body.push_expr(Expr { kind: ExprKind::Index { receiver: reverse_table, index }, ty: string_ty, span })))
     }
 
     /// Register the enum name as a HIR type alias to its underlying primitive.

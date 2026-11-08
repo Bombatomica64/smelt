@@ -49,7 +49,7 @@ fn emitted_texts() -> Vec<String> {
 fn spells_unqualified(text: &str, name: &str) -> bool {
     text.match_indices(name).any(|(at, _)| {
         let before = text[..at].chars().next_back();
-        let after = text[at + name.len()..].chars().next();
+        let after = text[at.saturating_add(name.len())..].chars().next();
         !before.is_some_and(|ch| ch.is_alphanumeric() || ch == '_' || ch == ':' || ch == '.')
             && !after.is_some_and(|ch| ch.is_alphanumeric() || ch == '_')
     })
