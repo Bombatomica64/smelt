@@ -24,7 +24,7 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn record_key_type_to_hir(
         &mut self,
         key: &TSType<'_>,
-        span: oxc::span::Span,
+        _span: oxc::span::Span,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
         if self.direct_record_key_type_param(key)?.is_some() || self.record_key_surface_holds_symbols(key) {
             return Ok(self.ctx.krate.types.intern(Type::PropKey));
@@ -32,10 +32,13 @@ impl ModuleBuilder<'_> {
         if self.record_key_surface_is_lowerable(key)? {
             return Ok(self.ctx.krate.types.intern(Type::String));
         }
-        Err(SmeltError::unsupported(
-            self.span(span.start, span.end),
-            "Record keys must lower to TypeScript object property keys",
-        ))
+        // Every other key TypeScript accepted is assignable to `PropertyKey`
+        // (the checker enforces `Record<K extends keyof any, V>`): an alias
+        // or indexed access that can hold a symbol (`Extract<.., PropertyKey>`,
+        // a key computed from type-level machinery). The record stores
+        // `ToPropertyKey` of whatever it is given, which is what the
+        // property-key record is.
+        Ok(self.ctx.krate.types.intern(Type::PropKey))
     }
 
     /// Return a direct generic key for `Record<K, V>` without normalizing it.

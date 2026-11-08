@@ -1480,7 +1480,17 @@ fn smelt_register_function_length_once<T: ?Sized + 'static>(function: &::std::rc
 /// A callable object (`{ __smelt_call }`) reports the arity of the callable it
 /// carries; anything else reports `0`, which is what JavaScript answers for a
 /// value with no `length` property.
-fn smelt_function_length(value: &SmeltUnknown) -> f64 { let function = match value { SmeltUnknown::Function(function) => Some(function.clone()), SmeltUnknown::Object(object) => match object.get("__smelt_call") { Some(SmeltUnknown::Function(function)) => Some(function), _ => None }, _ => None }; let Some(function) = function else { return 0.0; }; smelt_read_callable(&function, |meta| meta.identity.as_ref().and_then(|identity| identity.0.length.get())).unwrap_or(0.0) }
+fn smelt_function_length(value: &SmeltUnknown) -> f64 { smelt_function_length_or(value, 0.0) }
+
+/// Read `Function.prototype.length` off an erased value, answering `fallback`
+/// when no representation recorded the arity.
+///
+/// Extracting an erased callable into a `SmeltErasedFunction` uses this so the
+/// struct's `length` is the function's own arity (recorded when it was
+/// erased), not the arity of the variadic signature it is read through: a
+/// `typeof f === "function" && f.length === 1` guard must see the `1` a
+/// one-parameter callback declared.
+fn smelt_function_length_or(value: &SmeltUnknown, fallback: f64) -> f64 { let function = match value { SmeltUnknown::Function(function) => Some(function.clone()), SmeltUnknown::Object(object) => match object.get("__smelt_call") { Some(SmeltUnknown::Function(function)) => Some(function), _ => None }, _ => None }; let Some(function) = function else { return fallback; }; smelt_read_callable(&function, |meta| meta.identity.as_ref().and_then(|identity| identity.0.length.get())).unwrap_or(fallback) }
 
 impl<K, V> Clone for SmeltRecord<K, V> {
     fn clone(&self) -> Self { Self { id: self.id, store: self.store.clone() } }
@@ -2621,7 +2631,22 @@ impl<T: IntoSmeltUnknown + Clone + 'static> IntoSmeltUnknown for SmeltFuture<T> 
 fn smelt_unknown_iterator_items(source: SmeltUnknown) -> Vec<SmeltUnknown> { match source { SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.code_point_strings().into_iter().map(SmeltUnknown::String).collect::<Vec<_>>(), SmeltUnknown::Object(object) => { let Some(SmeltUnknown::Function(next)) = object.get("next") else { panic!("unknown iterator did not return an iterable") }; let mut items = Vec::new(); loop { let step = next(vec![]).unwrap_or(SmeltUnknown::Undefined); let SmeltUnknown::Object(step) = step else { break }; if matches!(step.get("done"), Some(SmeltUnknown::Bool(true))) { break; } items.push(step.get("value").unwrap_or(SmeltUnknown::Undefined)); } items } _ => panic!("unknown iterator did not return an iterable") } }
 
 /// Bind `Function.prototype.apply`/`call` on an erased receiver, or read the field of an object receiver.
-fn smelt_function_method(receiver: SmeltUnknown, method: &str) -> SmeltUnknown { match receiver { SmeltUnknown::Function(function) => { let method = method.to_owned(); SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let receiver_method = smelt_is_receiver_method(&function); let forwarded: Vec<SmeltUnknown> = if method == "apply" { let mut forwarded = if receiver_method { ::std::vec![args.first().map_or(SmeltUnknown::Undefined, Clone::clone)] } else { Vec::new() }; if let Some(SmeltUnknown::Array(values)) = args.get(1) { forwarded.extend(values.clone().into_vec()); } forwarded } else if receiver_method { args.into_iter().collect() } else { args.into_iter().skip(1).collect() }; function(forwarded) })) } SmeltUnknown::Object(map) => match smelt_get_object_field(&map, method) { SmeltUnknown::Undefined => match map.get("__smelt_call") { Some(callable @ SmeltUnknown::Function(_)) => smelt_function_method(callable, method), _ => SmeltUnknown::Undefined }, value => value }, _ => SmeltUnknown::Undefined } }
+fn smelt_function_method(receiver: SmeltUnknown, method: &str) -> SmeltUnknown {
+    match receiver {
+        SmeltUnknown::Function(function) => {
+            let method = method.to_owned();
+            SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| {
+                let receiver_method = smelt_is_receiver_method(&function);
+                let this_arg = args.first().map_or(SmeltUnknown::Undefined, Clone::clone);
+                let forwarded: Vec<SmeltUnknown> = if method == "apply" { let mut forwarded = if receiver_method { ::std::vec![this_arg.clone()] } else { Vec::new() }; if let Some(SmeltUnknown::Array(values)) = args.get(1) { forwarded.extend(values.clone().into_vec()); } forwarded } else if receiver_method { args.into_iter().collect() } else { args.into_iter().skip(1).collect() };
+                let _ = this_arg;
+                function(forwarded)
+            }))
+        }
+        SmeltUnknown::Object(map) => match smelt_get_object_field(&map, method) { SmeltUnknown::Undefined => match map.get("__smelt_call") { Some(callable @ SmeltUnknown::Function(_)) => smelt_function_method(callable, method), _ => SmeltUnknown::Undefined }, value => value },
+        _ => SmeltUnknown::Undefined,
+    }
+}
 
 /// Unwrap a boxed primitive wrapper (or a Date) to the primitive it holds.
 fn smelt_unbox_primitive(value: SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Object(map) => { if map.contains_key("__smelt_number") || map.contains_key("__smelt_boolean") || map.contains_key("__smelt_string") || map.contains_key("__smelt_symbol") { return map.get("value").unwrap_or(SmeltUnknown::Undefined); } if let Some(millis @ SmeltUnknown::Number(_)) = map.get("__smelt_date") { return millis; } SmeltUnknown::Object(map) }, other => other } }
@@ -4412,7 +4437,7 @@ impl IntoSmeltUnknown for SmeltUnion4 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         match self {
             Self::M0(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::<(String, _)>::new(); smelt_object_entries.push(("code".to_owned(), SmeltUnknown::Number(smelt_object_value.code as f64))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Ex".into()))); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) },
-            Self::M1(value) => { let smelt_function_value = value; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>({ let smelt_object_value = (smelt_function_value)(match smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) => value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_to_string(&value), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }); let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::<(String, _)>::new(); smelt_object_entries.push(("code".to_owned(), SmeltUnknown::Number(smelt_object_value.code as f64))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Ex".into()))); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) })); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) } },
+            Self::M1(value) => { let smelt_function_value = value; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>({ let smelt_object_value = (smelt_function_value)(match smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) => value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_to_string(&value), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }); let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::<(String, _)>::new(); smelt_object_entries.push(("code".to_owned(), SmeltUnknown::Number(smelt_object_value.code as f64))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Ex".into()))); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) })); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); smelt_register_function_length_once(&smelt_erased_function, 1.0); SmeltUnknown::Function(smelt_erased_function) } },
         }
     }
 }

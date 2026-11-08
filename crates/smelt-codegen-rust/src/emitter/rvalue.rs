@@ -478,6 +478,9 @@ impl FunctionEmitter<'_> {
             Rvalue::ClosureCall { callee, args } => self.closure_call_rvalue_expr(callee, args, dest_ty),
             Rvalue::ClosureCallSpread { callee, args } => self.closure_call_spread_expr(callee, args, dest_ty),
             Rvalue::ClosureCallRest { callee, items } => self.closure_call_rest_expr(callee, items, dest_ty),
+            Rvalue::ErasedFunctionMethodCall { receiver, method, args } => {
+                self.erased_function_method_call_expr(receiver, *method, args, dest_ty)
+            }
             Rvalue::ListCallback { op, list, callback } => {
                 self.list_callback_expr(*op, list, callback, dest_ty)
             }

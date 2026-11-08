@@ -155,6 +155,9 @@ impl FunctionEmitter<'_> {
         if let Some(key) = self.prop_key_conversion(&operand_expr, source_ty, target)? {
             return Ok(key);
         }
+        if let Some(key) = self.key_union_at_string(&operand_expr.cloned_value(), source_ty, target)? {
+            return Ok(key);
+        }
         // A function operand renders as a borrow of its binding, and a union arm
         // owns its value: the binding may be read again after the injection.
         let owned_text = if matches!(self.mir.types.get(source_ty), Some(Type::Function(_)))
@@ -169,6 +172,15 @@ impl FunctionEmitter<'_> {
         }
         if let Some(projected) = self.project_union_value(&operand_expr, source_ty, target)? {
             return Ok(projected);
+        }
+        // See `rendered_at_type`: a concrete union of callables at the
+        // variadic erased signature crosses through its own adapter.
+        if self.concrete_union_members(source_ty).is_some()
+            && let Some(Type::Function(function)) = self.mir.types.get(target)
+            && self.is_erased_unknown_rest_function(function)
+        {
+            let erased = self.erase_rendered(&operand_expr, source_ty)?;
+            return self.extract_rendered(&erased, target, scope);
         }
         // A tuple at a DIFFERENT tuple type (`[n, accept] as [number, Accept]`
         // returned as `[number, Accept | undefined]`) is coerced element by
@@ -837,6 +849,17 @@ impl FunctionEmitter<'_> {
         }
         if let Some(projected) = self.project_union_value(value_text, source, target)? {
             return Ok(projected);
+        }
+        // A concrete union of callables called through the variadic erased
+        // signature (its arms take different arguments): the value crosses
+        // into the erased carrier through the union's own adapter, then is
+        // read back as the erased callable.
+        if self.concrete_union_members(source).is_some()
+            && let Some(Type::Function(function)) = self.mir.types.get(target)
+            && self.is_erased_unknown_rest_function(function)
+        {
+            let erased = self.erase_rendered(value_text, source)?;
+            return self.extract_rendered(&erased, target, scope);
         }
         if let Some(wrapped) =
             self.callable_interface_from_function_expr(value_text, source, target, scope)?

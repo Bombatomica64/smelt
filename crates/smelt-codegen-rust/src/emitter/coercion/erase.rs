@@ -71,14 +71,16 @@ impl FunctionEmitter<'_> {
                     "{{ let smelt_record = {smelt_owned_text}; SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"
                 ))))
             }
-            // A property-key record erases through its runtime adapter: an
-            // object with its own id, keys in own-key order, symbols under
-            // their reserved spelling.
-            Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::PropKey) => {
+            // A property-key record is an object: an `unknown`-valued one
+            // erases to a second handle on its own store (one JavaScript
+            // object, as the string-keyed record does above); any other is
+            // copied with its id, each value erased.
+            Some(Type::Dict(key, item)) if self.is_prop_key_record_key(*key) => {
+                if self.mir.types.get(*item) == Some(&Type::Unknown) {
+                    return Ok(RustExpr::chain(format!("{text}.share_unknown()")));
+                }
                 let value_wrap = self.dict_erased_value_wrap(operand, *item)?;
-                Ok(RustExpr::chain(self.carrier_format(format_args!(
-                    "smelt_prop_key_record_to_unknown(&{text}, |value| {value_wrap})"
-                ))))
+                Ok(RustExpr::chain(format!("{text}.to_unknown_with(|value| {value_wrap})")))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key).is_none_or(|candidate| !candidate.is_text()) => {
                 let key_wrap = self.property_key_to_string_expr(&RustExpr::path("key"), *key)?;
@@ -496,11 +498,12 @@ impl FunctionEmitter<'_> {
                     "{{ let smelt_record = {smelt_owned_value}; SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"
                 ))))
             }
-            Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::PropKey) => {
+            Some(Type::Dict(key, item)) if self.is_prop_key_record_key(*key) => {
+                if self.mir.types.get(*item) == Some(&Type::Unknown) {
+                    return Ok(RustExpr::chain(format!("({value_text}).share_unknown()")));
+                }
                 let value_wrap = self.erase_rendered(&RustExpr::path("value"), *item)?;
-                Ok(RustExpr::chain(self.carrier_format(format_args!(
-                    "smelt_prop_key_record_to_unknown(&({value_text}), |value| {value_wrap})"
-                ))))
+                Ok(RustExpr::chain(format!("({value_text}).to_unknown_with(|value| {value_wrap})")))
             }
             Some(Type::Dict(key, item)) => {
                 let key_wrap = self.property_key_to_string_expr(&RustExpr::path("key"), *key)?;
@@ -1086,8 +1089,18 @@ impl FunctionEmitter<'_> {
         // object whichever spelling reads it. The rest-vector adapter in
         // `coercion/function_adapter.rs` links itself the same way. The identity is taken
         // before the callable is moved into the adapter.
+        //
+        // An `Rc<dyn Fn>` has nowhere to keep `Function.prototype.length`, so
+        // the adapter records the arity of the type it is erased at, unless
+        // the callable's identity already carries one (a function item's
+        // erased accessor records its declared arity). Without it a
+        // `(first: T, ...rest: any) => T` value read `f.length` as `0` once
+        // erased, and remeda's `isProjection` (`f.length === 1`) took
+        // `firstBy(identity())` for data.
+        let length = function.required_params.unwrap_or_else(|| function.rest.unwrap_or(function.params.len()));
+        let register = smelt_stdlib::runtime_symbols::function_length::REGISTER_ONCE;
         Ok(RustExpr::atom(self.carrier_format(format_args!(
-            "{{ let smelt_function_value = {value_text}; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) {{ smelt_callable_object }} else {{ let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, {ERROR_BOX}>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) }} }}"
+            "{{ let smelt_function_value = {value_text}; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) {{ smelt_callable_object }} else {{ let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, {ERROR_BOX}>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); {register}(&smelt_erased_function, {length}.0); SmeltUnknown::Function(smelt_erased_function) }} }}"
         ))))
     }
 }

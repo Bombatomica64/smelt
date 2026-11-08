@@ -181,11 +181,19 @@ fn stub_path(provider: &Path, extension: &str, package_entry: &str) -> PathBuf {
     provider.with_extension(extension)
 }
 
-/// Where the TypeScript checker reads `source`: its absolute path, with a
+/// Where the TypeScript checker reads `source`: its canonical path, with a
 /// JavaScript extension replaced by its TypeScript one when the text is
 /// TypeScript (a typed version laid at an installed `.js` path).
+///
+/// Canonical, not merely absolute: this is the file's IDENTITY in the
+/// checker's program, and the modules a source imports are resolved to
+/// canonical paths. A test file listed through a symlinked project
+/// (`link/src/x.spec.ts`) located at its absolute spelling made the checker
+/// resolve `./x` to `link/src/x.ts`, a second copy of the program's
+/// `real/src/x.ts`, and the two copies' types did not meet. The name the
+/// facts are filed under stays the spelled path ([`SourceInput::new`]).
 pub(crate) fn checker_location(source: &ManifestSource) -> PathBuf {
-    let absolute = std::path::absolute(&source.path).unwrap_or_else(|_| source.path.clone());
+    let absolute = canonical(&source.path);
     if source.lang != SourceLang::TypeScript {
         return absolute;
     }

@@ -13,8 +13,8 @@ fn smelt_unknown_iterator_items(source: SmeltUnknown) -> Vec<SmeltUnknown> { mat
 //~ `SmeltUnknown::Function` receiver is not an object, so the plain
 //~ erased-object field read (`smelt_get_object_field`) finds nothing and
 //~ the value falls through to a null callback. This helper binds the
-//~ callable directly: `apply` drops the `this` argument and spreads the
-//~ trailing array, `call` drops `this` and forwards the remaining
+//~ callable directly: `apply` installs the `this` argument and spreads the
+//~ trailing array, `call` installs `this` and forwards the remaining
 //~ positional arguments. Object receivers keep the ordinary field read so
 //~ user-defined `.apply`/`.call` properties still resolve — but a
 //~ *callable object* (a JS function carrying properties, erased here to an
@@ -25,7 +25,30 @@ fn smelt_unknown_iterator_items(source: SmeltUnknown) -> Vec<SmeltUnknown> { mat
 //~ field read finds nothing, so `mock.apply(this, args)` actually invokes
 //~ and records the call instead of yielding `undefined`.
 /// Bind `Function.prototype.apply`/`call` on an erased receiver, or read the field of an object receiver.
-fn smelt_function_method(receiver: SmeltUnknown, method: &str) -> SmeltUnknown { match receiver { SmeltUnknown::Function(function) => { let method = method.to_owned(); SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let receiver_method = smelt_is_receiver_method(&function); let forwarded: Vec<SmeltUnknown> = if method == "apply" { let mut forwarded = if receiver_method { ::std::vec![args.first().map_or(SmeltUnknown::Undefined, Clone::clone)] } else { Vec::new() }; if let Some(SmeltUnknown::Array(values)) = args.get(1) { forwarded.extend(values.clone().into_vec()); } forwarded } else if receiver_method { args.into_iter().collect() } else { args.into_iter().skip(1).collect() }; function(forwarded) })) } SmeltUnknown::Object(map) => match smelt_get_object_field(&map, method) { SmeltUnknown::Undefined => match map.get("__smelt_call") { Some(callable @ SmeltUnknown::Function(_)) => smelt_function_method(callable, method), _ => SmeltUnknown::Undefined }, value => value }, _ => SmeltUnknown::Undefined } }
+fn smelt_function_method(receiver: SmeltUnknown, method: &str) -> SmeltUnknown {
+    match receiver {
+        SmeltUnknown::Function(function) => {
+            let method = method.to_owned();
+            SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| {
+                let receiver_method = smelt_is_receiver_method(&function);
+                let this_arg = args.first().map_or(SmeltUnknown::Undefined, Clone::clone);
+                let forwarded: Vec<SmeltUnknown> = if method == "apply" { let mut forwarded = if receiver_method { ::std::vec![this_arg.clone()] } else { Vec::new() }; if let Some(SmeltUnknown::Array(values)) = args.get(1) { forwarded.extend(values.clone().into_vec()); } forwarded } else if receiver_method { args.into_iter().collect() } else { args.into_iter().skip(1).collect() };
+                //~ The first argument is the `this` the callee observes for
+                //~ this one call, as `SmeltErasedFunction::smelt_bind_this`
+                //~ installs it; a program with no `this` read has no channel
+                //~ and nothing to observe.
+// @smelt:if this_channel
+                let _smelt_this_guard = smelt_push_this(this_arg);
+// @smelt:else
+//=                 let _ = this_arg;
+// @smelt:end
+                function(forwarded)
+            }))
+        }
+        SmeltUnknown::Object(map) => match smelt_get_object_field(&map, method) { SmeltUnknown::Undefined => match map.get("__smelt_call") { Some(callable @ SmeltUnknown::Function(_)) => smelt_function_method(callable, method), _ => SmeltUnknown::Undefined }, value => value },
+        _ => SmeltUnknown::Undefined,
+    }
+}
 
 //~ JavaScript `Object.prototype.valueOf` / boxed-primitive unwrapping.
 //~

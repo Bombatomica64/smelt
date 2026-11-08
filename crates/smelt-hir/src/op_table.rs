@@ -2531,6 +2531,21 @@ macro_rules! op_group_custom {
                 args: many @CALLED,
             }
                 => (format!("closure_call {callee}({})", args.join(", ")));
+            /// `f.call(thisArg, ..args)` / `f.apply(thisArg, argsArray)` on an
+            /// erased `f`, resolved at run time as JavaScript resolves it: a
+            /// function (or callable object) runs with `thisArg` as its `this`,
+            /// and an object with its own `call`/`apply` member runs that member
+            /// with the object as `this`. One operation, because the method read
+            /// is not a value the source can observe.
+            ErasedFunctionMethodCall {
+                /// The erased value the method is called on.
+                receiver: one @CALLED,
+                /// `call` or `apply`.
+                method: (sym "method"),
+                /// The source arguments, `thisArg` first.
+                args: many @CALLED,
+            }
+                => (format!("{receiver}.{method}!({})", args.join(", ")));
             /// Call a method through a TypeScript optional-chain receiver.
             OptionalMethod {
                 /// Receiver operand, either `T` or `Option<T>`.

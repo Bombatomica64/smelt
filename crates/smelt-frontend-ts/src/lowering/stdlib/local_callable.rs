@@ -85,7 +85,7 @@ impl ModuleBuilder<'_> {
                         span: self.span(callee_ident.span.start, callee_ident.span.end),
                     })
                 } else {
-                    callee
+                    self.stored_erased_callee(callee, body)
                 };
                 // Dynamically dispatched callees (unknown/type-parameter/erased
                 // callable surfaces) are invoked through the runtime

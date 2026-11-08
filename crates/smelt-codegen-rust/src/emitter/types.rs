@@ -330,6 +330,12 @@ impl FunctionEmitter<'_> {
                 let value = self.rust_type(*value_ty, false, substitution)?;
                 Ok(RustType::composed(format!("SmeltRecord<{key}, {value}>"), [&key, &value]))
             }
+            // A property-key record is an object keyed by `ToPropertyKey`
+            // results; its runtime type seals the key (see `prop_key.rs`).
+            Type::Dict(key, value) if self.is_prop_key_record_key(*key) => {
+                let value_ty = self.rust_type(*value, false, substitution)?;
+                Ok(RustType::composed(self.carrier_format(format_args!("SmeltPropKeyRecord<{value_ty}>")), [&value_ty]).on_carrier())
+            }
             Type::Dict(key, value) if self.dict_uses_js_key_map(*key) => {
                 let key = self.rust_type(*key, false, substitution)?;
                 let value = self.rust_type(*value, false, substitution)?;

@@ -155,7 +155,12 @@ _TEST_FAILED_RE = re.compile(r"^test (\S+)(?: - .*)? \.\.\. FAILED\s*$")
 
 # rustc diagnostic head: "error[E0308]: ..." or "error: ...". The closing
 # "could not compile" and "aborting due to" lines count nothing new.
-_RUSTC_ERROR_RE = re.compile(r"^error(\[E\d+\])?: (?!could not compile|aborting due to)")
+# Cargo's own summaries are not compiler errors: `could not compile`, rustc's
+# `aborting due to`, and, once a test target builds and runs, `test failed, to
+# rerun ...` and `N target(s) failed:`.
+_RUSTC_ERROR_RE = re.compile(
+    r"^error(\[E\d+\])?: (?!could not compile|aborting due to|test failed|\d+ targets? failed)"
+)
 
 
 # Terminal colour: the CI jobs set CARGO_TERM_COLOR=always, so a captured log

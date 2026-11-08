@@ -3961,7 +3961,11 @@ function read(): unknown {
         source.contains("SmeltSymbol::unique(SmeltSymbol::from_spelling(\"Symbol(inline)"),
         "{source}"
     );
-    assert!(source.contains("let item: SmeltJsMap<SmeltPropKey, SmeltUnknown>"), "{source}");
+    // Old requirement: the record was a `SmeltJsMap<SmeltPropKey, _>`. New:
+    // a property-key record is an object, `SmeltPropKeyRecord<_>` over the
+    // object field store, so its erased form shares that store (remeda's
+    // `clone`); the key is still the sealed `SmeltPropKey`.
+    assert!(source.contains("let item: SmeltPropKeyRecord<SmeltUnknown>"), "{source}");
     assert!(
         source.contains("SmeltUnknown::String(\"cat\".into())"),
         "{source}"

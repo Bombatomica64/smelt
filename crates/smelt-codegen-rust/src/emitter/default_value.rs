@@ -53,6 +53,9 @@ impl FunctionEmitter<'_> {
             Type::Dict(key, _) if self.dict_uses_smelt_record(*key) => {
                 Ok(RustExpr::atom("SmeltRecord::new()"))
             }
+            Type::Dict(key, _) if self.is_prop_key_record_key(*key) => {
+                Ok(self.carrier_expr(&RustExpr::atom("SmeltPropKeyRecord::new()")))
+            }
             Type::Dict(key, _) if self.dict_uses_js_key_map(*key) => {
                 Ok(self.carrier_expr(&RustExpr::atom("SmeltJsMap::new()")))
             }

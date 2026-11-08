@@ -15,7 +15,7 @@ impl RuntimeDemand {
             Rvalue::ThisRead => {
                 self.add(Need::ThisRead);
             }
-            Rvalue::BindThis { .. } => {
+            Rvalue::BindThis { .. } | Rvalue::ErasedFunctionMethodCall { .. } => {
                 self.add(Need::ThisChannel);
             }
             Rvalue::Construct { .. } => {

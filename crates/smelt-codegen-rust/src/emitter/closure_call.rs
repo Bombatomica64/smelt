@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::rust::RustExpr;
-use smelt_hir::FunctionType;
+use smelt_hir::{FunctionType, Symbol};
 
 impl FunctionEmitter<'_> {
     /// Install a receiver on a callable value.
@@ -261,9 +261,62 @@ impl FunctionEmitter<'_> {
             return Ok(call_text);
         }
         if !matches!(self.mir.types.get(callee_ty), Some(Type::Function(_))) {
-            return self.default_value(dest_ty);
+            let unknown_ty = self.type_id(Type::Unknown)?;
+            let call_text = self.erased_callee_call_expr(callee, args)?;
+            return self.rendered_at_type(&call_text, unknown_ty, dest_ty, &self.render_scope());
         }
         self.typed_closure_call_expr(callee, args, dest_ty, callee_ty)
+    }
+
+    /// `receiver.call(..)` / `receiver.apply(..)` on an erased receiver
+    /// (`Rvalue::ErasedFunctionMethodCall`).
+    ///
+    /// `smelt_function_method` resolves the member as JavaScript does: on a
+    /// function or callable object it is `Function.prototype.call`/`apply`,
+    /// which installs the leading argument as the callee's `this`; on any
+    /// other object it is the object's own member, called here with the
+    /// object as its `this`.
+    pub(super) fn erased_function_method_call_expr(
+        &self,
+        receiver: &Operand,
+        method: Symbol,
+        args: &[Operand],
+        dest_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        let method_name = self.symbol_name(method)?;
+        let receiver_text = self.erase(receiver)?;
+        let rendered_args = args.iter().map(|arg| self.erase(arg)).collect::<Result<Vec<_>, EmitError>>()?;
+        let args_expr = RustExpr::atom(format!("vec![{}]", rendered_args.join(", ")));
+        // The receiver is `this` for an object's own member; a function's
+        // `call`/`apply` installs its own `this` inside, over this one. The
+        // guard lives across the dispatch.
+        let dispatch = self.dynamic_callable_dispatch_expr(&RustExpr::path("smelt_method"), &args_expr, None);
+        let call_text = RustExpr::atom(self.carrier_format(format_args!(
+            "{{ let smelt_receiver = {receiver_text}; let _smelt_this_guard = smelt_push_this(smelt_receiver.clone()); let smelt_method = smelt_function_method(smelt_receiver, {method_name:?}); {dispatch} }}"
+        )));
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        self.rendered_at_type(&call_text, unknown_ty, dest_ty, &self.render_scope())
+    }
+
+    /// A call of a callee with no static function type left to call it
+    /// through (an `undefined`-able erased value captured before its
+    /// `typeof f === "function"` guard, `Option<SmeltUnknown>`): the callee
+    /// crosses into its erased form and is called through the dynamic
+    /// dispatch, which calls a function or a callable object and throws
+    /// JavaScript's `TypeError` for anything else.
+    ///
+    /// Answering the destination's default instead, as this path once did,
+    /// made `values => lastValue(values)` in es-toolkit's `intersectionBy`
+    /// return `null` without calling `lastValue`.
+    pub(super) fn erased_callee_call_expr(&self, callee: &Operand, args: &[Operand]) -> Result<RustExpr, EmitError> {
+        let callee_text = self.erase(callee)?;
+        let rendered_args = args.iter().map(|arg| self.erase(arg)).collect::<Result<Vec<_>, EmitError>>()?;
+        let args_expr = RustExpr::atom(format!("vec![{}]", rendered_args.join(", ")));
+        Ok(self.dynamic_callable_dispatch_expr(
+            &callee_text,
+            &args_expr,
+            self.prototype_method_not_callable(callee).as_deref(),
+        ))
     }
 
     /// A call of a value whose static type is a function.

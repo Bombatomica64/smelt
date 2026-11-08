@@ -4,12 +4,12 @@
     "values": {
       "concrete": 14073,
       "generic": 228,
-      "erased": 8008
+      "erased": 7974
     },
     "reads": {
       "concrete": 341,
       "generic": 33,
-      "erased": 1053
+      "erased": 1042
     },
     "calls": {
       "concrete": 2136,
@@ -4000,7 +4000,7 @@
       "values": {
         "concrete": 38,
         "generic": 0,
-        "erased": 17
+        "erased": 16
       },
       "reads": {
         "concrete": 1,
@@ -4323,12 +4323,12 @@
       "values": {
         "concrete": 31,
         "generic": 0,
-        "erased": 18
+        "erased": 15
       },
       "reads": {
         "concrete": 1,
         "generic": 0,
-        "erased": 4
+        "erased": 2
       },
       "calls": {
         "concrete": 6,
@@ -5105,12 +5105,12 @@
       "values": {
         "concrete": 17,
         "generic": 0,
-        "erased": 20
+        "erased": 17
       },
       "reads": {
         "concrete": 0,
         "generic": 0,
-        "erased": 7
+        "erased": 5
       },
       "calls": {
         "concrete": 0,
@@ -5496,12 +5496,12 @@
       "values": {
         "concrete": 1,
         "generic": 0,
-        "erased": 20
+        "erased": 18
       },
       "reads": {
         "concrete": 0,
         "generic": 0,
-        "erased": 1
+        "erased": 0
       },
       "calls": {
         "concrete": 1,
@@ -5972,12 +5972,12 @@
       "values": {
         "concrete": 84,
         "generic": 0,
-        "erased": 81
+        "erased": 78
       },
       "reads": {
         "concrete": 8,
         "generic": 0,
-        "erased": 23
+        "erased": 21
       },
       "calls": {
         "concrete": 13,
@@ -6023,7 +6023,7 @@
       "values": {
         "concrete": 3,
         "generic": 0,
-        "erased": 6
+        "erased": 5
       },
       "reads": {
         "concrete": 0,
@@ -6567,12 +6567,12 @@
       "values": {
         "concrete": 17,
         "generic": 0,
-        "erased": 16
+        "erased": 12
       },
       "reads": {
         "concrete": 2,
         "generic": 0,
-        "erased": 2
+        "erased": 1
       },
       "calls": {
         "concrete": 3,
@@ -6720,7 +6720,7 @@
       "values": {
         "concrete": 30,
         "generic": 0,
-        "erased": 18
+        "erased": 17
       },
       "reads": {
         "concrete": 2,
@@ -6788,7 +6788,7 @@
       "values": {
         "concrete": 18,
         "generic": 0,
-        "erased": 9
+        "erased": 8
       },
       "reads": {
         "concrete": 1,
@@ -6958,7 +6958,7 @@
       "values": {
         "concrete": 34,
         "generic": 0,
-        "erased": 16
+        "erased": 13
       },
       "reads": {
         "concrete": 0,
@@ -7111,7 +7111,7 @@
       "values": {
         "concrete": 134,
         "generic": 0,
-        "erased": 67
+        "erased": 64
       },
       "reads": {
         "concrete": 1,
@@ -7145,12 +7145,12 @@
       "values": {
         "concrete": 12,
         "generic": 0,
-        "erased": 23
+        "erased": 18
       },
       "reads": {
         "concrete": 0,
         "generic": 0,
-        "erased": 7
+        "erased": 5
       },
       "calls": {
         "concrete": 0,
@@ -8097,12 +8097,12 @@
       "values": {
         "concrete": 30,
         "generic": 0,
-        "erased": 21
+        "erased": 19
       },
       "reads": {
         "concrete": 0,
         "generic": 0,
-        "erased": 2
+        "erased": 1
       },
       "calls": {
         "concrete": 2,
@@ -10783,7 +10783,7 @@
       "values": {
         "concrete": 1035,
         "generic": 0,
-        "erased": 427
+        "erased": 425
       },
       "reads": {
         "concrete": 5,

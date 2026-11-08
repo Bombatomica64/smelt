@@ -273,7 +273,9 @@ fn generic_record_helpers_instantiate_from_their_arguments() -> TestResult {
         .map(|entry| fs::read_to_string(entry?.path()))
         .collect::<Result<String, _>>()?;
     // Both results are `Record<V, K>` with a type-parameter key, so both are
-    // property-key records (`SmeltJsMap<SmeltPropKey, _>`): whatever `V` a
+    // property-key records (`SmeltPropKeyRecord<_>`, an object store keyed by
+    // the sealed `SmeltPropKey`; it was `SmeltJsMap<SmeltPropKey, _>` until a
+    // record had to share its store with its erased form): whatever `V` a
     // call binds, the record stores `ToPropertyKey` of each key. The values
     // are the inverted KEYS, bound to `K`'s constraint `PropertyKey`, a
     // concrete union, never erased.
@@ -286,8 +288,8 @@ fn generic_record_helpers_instantiate_from_their_arguments() -> TestResult {
     // bind `K := 1` while the value is the string `'1'` (`Object.keys(obj) as
     // K[]`), which no `f64` holds. `property_key_cli_tests` runs that case.
     for typed in [
-        "let s: SmeltJsMap<SmeltPropKey, SmeltUnion",
-        "let r: SmeltJsMap<SmeltPropKey, SmeltUnion",
+        "let s: SmeltPropKeyRecord<SmeltUnion",
+        "let r: SmeltPropKeyRecord<SmeltUnion",
     ] {
         common::ensure(rust.contains(typed), format!("generated crate must spell `{typed}`"))?;
     }

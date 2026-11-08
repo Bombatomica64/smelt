@@ -970,6 +970,11 @@ impl ModuleBuilder<'_> {
         if self.static_member_is_class_static_method(member) {
             return Ok(None);
         }
+        if matches!(member.property.name.as_str(), "call" | "apply")
+            && let Some(expr) = self.erased_function_method_call(member, call, body)?
+        {
+            return Ok(Some(expr));
+        }
         if member.property.name == "call" {
             let callable = self.expression(&member.object, body)?;
             let callable_ty = Self::expr_ty(body, callable);
@@ -1684,6 +1689,56 @@ impl ModuleBuilder<'_> {
             return callee;
         }
         self.bind_this_receiver(callee, receiver, body, span)
+    }
+
+    /// `f.call(thisArg, ..)` / `f.apply(thisArg, args)` on an ERASED `f`
+    /// (`unknown`, or a local of `unknown | undefined`), as one
+    /// [`ExprKind::ErasedFunctionMethodCall`]; `None` for any other receiver,
+    /// and for a spread argument list, which the member-call paths below
+    /// handle.
+    ///
+    /// The member is resolved at run time, as JavaScript resolves it: a
+    /// function runs with `thisArg` as its `this`, an object with its own
+    /// `call` runs that. The typed `call` arm cannot take an erased callee:
+    /// with no arity to go by it bound the leading operand as an argument,
+    /// so `typeof value === "function" ? value.call(object) : value`
+    /// (es-toolkit's `result`) called `value` with `object` as its first
+    /// parameter and no `this`.
+    fn erased_function_method_call(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if Self::call_has_spread_arguments(call) {
+            return Ok(None);
+        }
+        let receiver = self.expression(&member.object, body)?;
+        // A local of `unknown | undefined` read at its narrowed `unknown` is
+        // taken as stored: the operation erases it anyway.
+        let receiver = self.stored_erased_callee(receiver, body);
+        let receiver_ty = Self::expr_ty(body, receiver);
+        let erased = match self.ctx.krate.types.get(receiver_ty) {
+            Some(Type::Unknown) => true,
+            Some(Type::Optional(inner)) => {
+                matches!(self.ctx.krate.types.get(*inner), Some(Type::Unknown))
+                    && matches!(body.expr_at(receiver).map(|expr| &expr.kind), Some(ExprKind::Local(_)))
+            }
+            _ => false,
+        };
+        if !erased {
+            return Ok(None);
+        }
+        let args = call.arguments.iter().map(|argument| self.argument(argument, body)).collect::<Result<Vec<_>, _>>()?;
+        let method = self.intern_source_name(member.property.name.as_str());
+        // not a new erasure: the receiver is already erased, and so is what
+        // calling it answers.
+        let ty = self.unknown_type(NotNewErasure::ErasedUpstream);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ErasedFunctionMethodCall { receiver, method, args },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
     }
 
     /// Return true when a member access names an actual lowered class method.

@@ -230,7 +230,10 @@ impl LoweringCtx<'_> {
                     self.switch_to(target);
                     return Ok(Operand::Copy(Place::Local(dest)));
                 }
-                let receiver_operand = self.lower_expr(*receiver)?;
+                let receiver_operand = match self.erased_optional_field_base(*receiver)? {
+                    Some(stored) => stored,
+                    None => self.lower_expr(*receiver)?,
+                };
                 let receiver_ty = self.hir_expr(*receiver)?.ty;
                 if let Some(bound) = self.type_param_bound(receiver_ty) {
                     return self.assign_temp(
@@ -619,6 +622,18 @@ impl LoweringCtx<'_> {
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::Closure(closure) => self.lower_closure_expr(closure, expr.ty, expr.span)?,
+            // It runs source code (the function `call`/`apply` resolves to),
+            // so inside a `try` it takes the call terminator whose unwind
+            // edge reaches the handler, as a dynamic `ClosureCall` does.
+            ExprKind::ErasedFunctionMethodCall { receiver, method, args } => {
+                let receiver_operand = self.lower_expr(*receiver)?;
+                let lowered_args = args.iter().map(|arg| self.lower_expr(*arg)).collect::<Result<Vec<_>, _>>()?;
+                self.place_source_call_op(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ErasedFunctionMethodCall { receiver: receiver_operand, method: *method, args: lowered_args },
+                )?
+            }
             ExprKind::ClosureCall { callee, args } => {
                 let callee_ty = self.hir_expr(*callee)?.ty;
                 let callee_operand = self.lower_expr(*callee)?;
@@ -722,6 +737,33 @@ impl LoweringCtx<'_> {
         };
         self.exprs.insert(expr_id, operand.clone());
         Ok(operand)
+    }
+
+    /// The stored local a field read takes its receiver from, when the
+    /// receiver is a read of an `unknown | undefined` local at its narrowed
+    /// `unknown`; `None` for any other receiver.
+    ///
+    /// A field read of an erased value erases its base anyway (an absent one
+    /// reads as `undefined`), so the unwrap [`Self::local_read`] would spill
+    /// for the narrowing is not a value of its own: `constructor.prototype`
+    /// after `typeof constructor === "function"` reads the field off the
+    /// stored local. A volatile local keeps its per-evaluation snapshot.
+    fn erased_optional_field_base(&self, receiver: ExprId) -> Result<Option<Operand>, LowerError> {
+        let receiver_expr = self.hir_expr(receiver)?.clone();
+        let ExprKind::Local(local) = receiver_expr.kind else {
+            return Ok(None);
+        };
+        if self.volatile_locals.contains(self.body.id, local)
+            || !matches!(self.krate.types.get(receiver_expr.ty), Some(Type::Unknown))
+        {
+            return Ok(None);
+        }
+        let Some(local_id) = self.locals.get(&local).copied() else {
+            return Ok(None);
+        };
+        let stored_ty = self.mir_local(local_id)?.ty;
+        Ok(matches!(self.krate.types.get(stored_ty), Some(Type::Optional(inner)) if *inner == receiver_expr.ty)
+            .then_some(Operand::Copy(Place::Local(local_id))))
     }
 
     /// The operand reading HIR local `local` at the type of `expr`.

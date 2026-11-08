@@ -897,7 +897,7 @@ mod symbol_family {
     #[test]
     fn enumeration_follows_own_key_order() {
         let symbol = SmeltSymbol::from_spelling("Symbol(s)@1");
-        let map: SmeltJsMap<SmeltPropKey, f64> = [
+        let map: SmeltPropKeyRecord<f64> = [
             ("b".smelt_to_prop_key(), 1.0),
             (symbol.smelt_to_prop_key(), 2.0),
             (10.0_f64.smelt_to_prop_key(), 3.0),
@@ -907,9 +907,11 @@ mod symbol_family {
         ]
         .into_iter()
         .collect();
-        let keys: Vec<String> = smelt_prop_key_string_entries(&map).into_iter().map(|(key, _)| key.to_string()).collect();
+        let keys: Vec<String> = map.string_entries().into_iter().map(|(key, _)| key.to_string()).collect();
         assert_eq!(keys, ["2", "10", "b", "a", "01"], "symbols are not string keys; '01' is not an index");
-        assert_eq!(smelt_prop_key_symbols(&map), vec![symbol], "the symbol key");
+        assert_eq!(map.symbols(), vec![symbol.clone()], "the symbol key");
+        let all: Vec<SmeltPropKey> = map.keys().collect();
+        assert_eq!(all.last(), Some(&symbol.smelt_to_prop_key()), "symbols enumerate after every string");
     }
 
     /// `description`, `String(sym)` and per-evaluation identity.
@@ -932,13 +934,28 @@ mod symbol_family {
     #[test]
     fn a_record_crosses_the_erased_boundary() {
         let symbol = SmeltSymbol::from_spelling("Symbol(s)@1");
-        let map: SmeltJsMap<SmeltPropKey, f64> =
+        let map: SmeltPropKeyRecord<f64> =
             [("a".smelt_to_prop_key(), 1.0), (symbol.smelt_to_prop_key(), 2.0)].into_iter().collect();
         let erased = map.clone().into_smelt_unknown();
         let SmeltUnknown::Object(object) = &erased else { panic!("a record erases to an object") };
         assert_eq!(object.id, map.id, "erasure keeps the record's identity");
-        let back = <SmeltJsMap<SmeltPropKey, f64> as SmeltFromUnknown>::smelt_from_unknown(erased);
+        let back = <SmeltPropKeyRecord<f64> as SmeltFromUnknown>::smelt_from_unknown(erased);
         assert_eq!(back.get(&symbol.smelt_to_prop_key()), Some(2.0), "the symbol key survives");
         assert_eq!(back.get(&"a".smelt_to_prop_key()), Some(1.0), "the string key survives");
+    }
+
+    /// An `unknown`-valued record and its erased form are one object: a write
+    /// through either handle is read through the other.
+    #[test]
+    fn an_unknown_valued_record_shares_its_store_with_its_erased_form() {
+        let mut record: SmeltPropKeyRecord<SmeltUnknown> = SmeltPropKeyRecord::new();
+        let erased = record.share_unknown();
+        record.insert("k".smelt_to_prop_key(), SmeltUnknown::Number(1.0));
+        let SmeltUnknown::Object(object) = &erased else { panic!("a record erases to an object") };
+        assert_eq!(object.id, record.id, "one identity");
+        assert_eq!(object.get("k"), Some(SmeltUnknown::Number(1.0)), "the write is seen through the erased handle");
+        let mut back = SmeltPropKeyRecord::from_shared_unknown(erased);
+        back.insert("m".smelt_to_prop_key(), SmeltUnknown::Number(2.0));
+        assert_eq!(record.get(&"m".smelt_to_prop_key()), Some(SmeltUnknown::Number(2.0)), "and back");
     }
 }

@@ -2,6 +2,7 @@
 //! signature of an interface, that a call's arguments select.
 
 use crate::lowering::ModuleBuilder;
+use crate::lowering::erasure::NotNewErasure;
 use oxc::ast::ast::{Argument, Expression};
 use smelt_hir::{Body, ErasureReason, FunctionType, Type};
 use std::collections::HashMap;
@@ -46,15 +47,53 @@ impl ModuleBuilder<'_> {
             Some(Type::Optional(item)) => {
                 self.function_member_type_for_args(item, arg_count, arg_tys)
             }
-            Some(Type::Union(items)) => items
-                .iter()
-                .copied()
-                .find_map(|item| self.function_member_type_for_args(item, arg_count, arg_tys)),
+            Some(Type::Union(items)) => {
+                let members = items
+                    .iter()
+                    .copied()
+                    .filter_map(|item| self.function_member_type_for_args(item, arg_count, arg_tys))
+                    .collect::<Vec<_>>();
+                self.union_call_signature(&members)
+            }
             Some(Type::Class { name, args }) => {
                 self.interface_call_signature_type_for_args(name, &args, arg_count, arg_tys)
             }
             _ => None,
         }
+    }
+
+    /// The signature a call through a union of callables uses.
+    ///
+    /// One call shape shared by every arm is that shape. Arms whose shapes
+    /// differ (`(() => string) | ((origin: string) => string | null)`, the
+    /// branches of Hono's `findAllowOrigin`) leave no single signature: the
+    /// value at run time is whichever arm it is, and JavaScript hands it every
+    /// argument the call wrote. Taking the first arm dropped the arguments the
+    /// others read. The call is the variadic erased one instead, exactly as a
+    /// union annotation of mismatched callables lowers (`ts_type_shape_to_hir`).
+    fn union_call_signature(&mut self, members: &[smelt_hir::TypeId]) -> Option<smelt_hir::TypeId> {
+        let first = *members.first()?;
+        let shape = |this: &Self, ty: smelt_hir::TypeId| match this.ctx.krate.types.get(ty) {
+            Some(Type::Function(function)) => Some((function.params.len(), function.rest.is_some())),
+            _ => None,
+        };
+        let first_shape = shape(self, first);
+        if members.iter().all(|member| shape(self, *member) == first_shape) {
+            return Some(first);
+        }
+        let item_ty = self.erase(ErasureReason::TypeLevel);
+        let rest_list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+        // not a new erasure: the same mixed-arity decision recorded for the rest item
+        let return_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
+        Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: vec![rest_list_ty],
+            rest: Some(0),
+            required_params: Some(0),
+            mutable_params: Vec::new(),
+            return_ty,
+            is_async: false,
+            may_throw: false,
+        })))
     }
 
     /// Read an argument's type without lowering it into the body.

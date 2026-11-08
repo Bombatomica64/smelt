@@ -159,15 +159,42 @@ impl ModuleBuilder<'_> {
                     self.narrowed_type(name)
                         .unwrap_or_else(|| Self::local_ty(body, local))
                 });
+                // An erased value (`unknown`, or `unknown | undefined`) stays
+                // `unknown`: the guard proves only that it is SOME function,
+                // which its runtime tag already says, so a function type would
+                // add no static shape, only a cast temporary holding the same
+                // erased value. `undefined` is ruled out, so an optional one
+                // narrows to its payload; a call or a field read of it takes
+                // the stored local without an unwrap of its own
+                // (`erased_callee_read_ty`, MIR's
+                // `erased_optional_field_base`). A call goes through the
+                // dynamic dispatch, which passes every argument the source
+                // passes (`f(origin, c)`), and `f.call(t)` is one
+                // `ErasedFunctionMethodCall`.
+                let erased_payload = local_ty.and_then(|ty| match self.ctx.krate.types.get(ty) {
+                    Some(Type::Unknown) => Some(ty),
+                    Some(Type::Optional(inner)) if matches!(self.ctx.krate.types.get(*inner), Some(Type::Unknown)) => {
+                        Some(*inner)
+                    }
+                    _ => None,
+                });
+                if let Some(erased) = erased_payload {
+                    return Some((name.to_owned(), erased));
+                }
                 local_ty
                     .and_then(|ty| self.function_member_type(ty))
                     .unwrap_or_else(|| {
+                        // The guard proves a function but not its arity, so
+                        // the call takes every argument the source passes
+                        // (`f(origin, c)` on an erased `f`): a variadic erased
+                        // signature. A one-parameter one dropped the rest.
                         let unknown_ty =
                             self.erase_with(ErasureReason::RuntimeNarrowing, "typeof function");
+                        let rest_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
                         self.ctx.krate.types.intern(Type::Function(FunctionType {
-                            params: vec![unknown_ty],
-                            rest: None,
-                            required_params: None,
+                            params: vec![rest_ty],
+                            rest: Some(0),
+                            required_params: Some(0),
                             mutable_params: Vec::new(),
                             return_ty: unknown_ty,
                             is_async: false,

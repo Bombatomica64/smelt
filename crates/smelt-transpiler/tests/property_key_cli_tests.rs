@@ -17,8 +17,17 @@
 //!   `PropertyKey` slot keeping its kind.
 //! - **`null` versus `undefined`.** A ternary `c ? null : undefined` (and a
 //!   `null | undefined` annotation) keeps which of the two it returned.
+//! - **Call shapes.** A `string | number | symbol` key into a property-key
+//!   record, a call through callables of different arity, and a call of an
+//!   erased value narrowed to `function`.
+//! - **Objects and functions.** remeda's `setPath` (object rest and spread
+//!   of a property-key record), `clone` (a record filled after it was erased
+//!   into a list) and `isProjection` (`f.length` of an erased callable).
+//! - **Erased functions.** A value `typeof` proves a function: its calls,
+//!   `call`/`apply` with `this`, `length`, and a throw inside `try`.
 //! - **Symlinked paths.** Building through a symlink to the project gives the
-//!   same crate, byte for byte, as building through the real directory.
+//!   same crate as building through the real directory, except for the
+//!   project path the build was given, which reported paths keep as spelled.
 
 mod common;
 
@@ -239,6 +248,60 @@ fn symbols_and_nullish_ternaries_follow_node() -> TestResult {
     ensure_prints_like_node(SYMBOLS_TS, SYMBOLS_OUTPUT, "symbols")
 }
 
+/// Three shapes CI's library gates surfaced, each from accepted source:
+/// radash's `unique` (a `string | number | symbol` key, read through a
+/// `K extends PropertyKey` callback or the item itself, into a property-key
+/// record); Hono's `cors` (calling a union of callables whose arities differ,
+/// which must pass every argument); and calling an erased value narrowed by
+/// `typeof f === 'function'`, whose arity is unknown.
+const CALL_SHAPES_TS: &str = r"// radash's `unique`: a `string | number | symbol` key into a property-key record.
+function uniqueBy<T, K extends string | number | symbol>(array: readonly T[], toKey?: (item: T) => K): T[] {
+  const valueMap = array.reduce((acc, item) => {
+    const key = toKey ? toKey(item) : (item as any as string | number | symbol);
+    if (acc[key]) return acc;
+    acc[key] = item;
+    return acc;
+  }, {} as Record<string | number | symbol, T>);
+  return Object.values(valueMap);
+}
+console.log(uniqueBy([3, 1, 1, 2, 3]).join(','), uniqueBy(['b', 'a', 'b']).join(','), uniqueBy([{ id: 1 }, { id: 1 }], (x) => x.id).length);
+
+// A call through callables of different arity passes every argument (Hono's cors).
+function chooser(mode: string | string[] | ((origin: string, tag: string) => string)) {
+  return ((m) => {
+    if (typeof m === 'string') {
+      if (m === '*') {
+        return () => m;
+      }
+      return (origin: string) => (m === origin ? origin : 'no');
+    } else if (typeof m === 'function') {
+      return m;
+    }
+    return (origin: string) => (m.includes(origin) ? origin : 'no');
+  })(mode);
+}
+console.log(chooser('*')('x', 't'), chooser('a')('a', 't'), chooser(['b'])('b', 't'), chooser((o, t) => o + t)('x', 'y'));
+
+// `typeof f === 'function'` on an erased value does not know its arity.
+function callAny(f: unknown, a: string, b: string): unknown {
+  if (typeof f === 'function') {
+    return f(a, b);
+  }
+  return null;
+}
+console.log(callAny((x: string, y: string) => x + y, 'p', 'q'), callAny(1, 'p', 'q'));
+";
+
+/// What Node prints for [`CALL_SHAPES_TS`].
+const CALL_SHAPES_OUTPUT: &str = "1,2,3 b,a 1\n* a b xy\npq null\n";
+
+/// Union keys reach the record as property keys, and calls through mixed-arity
+/// or erased callables pass every argument.
+#[test]
+fn key_unions_and_mixed_arity_calls_follow_node() -> TestResult {
+    ensure_prints_like_node(CALL_SHAPES_TS, CALL_SHAPES_OUTPUT, "call shapes")
+}
+
 /// A project with a test file (a `test-globs` source) whose callback
 /// parameters only the TypeScript checker types. A build that spells the
 /// project through the symlink named the test file and its checker facts
@@ -301,14 +364,169 @@ fn tree(root: &Path) -> TestResult<Vec<TreeFile>> {
     Ok(files)
 }
 
+/// remeda's `setPath`, `clone` and `isProjection` shapes.
+const OBJECT_IDENTITY_TS: &str = r#"// remeda's `setPath`: an object rest of a property-key record, then a spread of it.
+function setPath(data: unknown, path: readonly PropertyKey[], value: unknown): unknown {
+  const [pivot, ...rest] = path;
+  if (pivot === undefined) {
+    return value;
+  }
+  if (Array.isArray(data)) {
+    const copy = [...data];
+    copy[pivot as number] = setPath(data[pivot as number], rest, value);
+    return copy;
+  }
+  const { [pivot]: currentValue, ...remaining } = data as Record<PropertyKey, unknown>;
+  return { ...remaining, [pivot]: setPath(currentValue, rest, value) };
+}
+const source: unknown = { a: { b: { c: 1 }, e: [1, { f: 2 }] }, x: 3 };
+console.log(JSON.stringify(setPath(source, ["a", "b", "c"], 2)), JSON.stringify(source));
+console.log(JSON.stringify(setPath(source, ["a", "e", 1, "f"], 9)));
+const tag = Symbol("tag");
+const tagged = setPath({ q: 1 }, [tag], 5) as Record<PropertyKey, unknown>;
+console.log(tagged[tag], Object.keys(tagged).join(","));
+
+// remeda's `clone`: a record joins the reference list before it is filled.
+function cloneObject(value: Record<string, unknown>, refTo: unknown[]): unknown {
+  const copied: Record<PropertyKey, unknown> = {};
+  refTo.push(copied);
+  for (const [k, v] of Object.entries(value)) {
+    copied[k] = v;
+  }
+  return copied;
+}
+const refs: unknown[] = [];
+const cloned = cloneObject({ m: 1, n: 2 }, refs);
+console.log(JSON.stringify(refs), refs[0] === cloned);
+
+// remeda's `isProjection`: an erased callable keeps the arity it was declared with.
+type Identity = <T>(first: T, ...rest: any) => T;
+const identityImpl: Identity = (first) => first;
+function identity(): Identity {
+  return identityImpl;
+}
+const isProjection = (x: unknown): boolean => typeof x === "function" && x.length === 1;
+const pair = (a: number, b: number): number => a + b;
+const rules: unknown[] = [identity(), pair, (x: number) => x, "asc"];
+console.log(rules.map(isProjection).join(","));
+"#;
+
+/// What Node prints for [`OBJECT_IDENTITY_TS`].
+const OBJECT_IDENTITY_OUTPUT: &str = concat!(
+    "{\"x\":3,\"a\":{\"e\":[1,{\"f\":2}],\"b\":{\"c\":2}}} {\"a\":{\"b\":{\"c\":1},\"e\":[1,{\"f\":2}]},\"x\":3}\n",
+    "{\"x\":3,\"a\":{\"b\":{\"c\":1},\"e\":[1,{\"f\":9}]}}\n",
+    "5 q\n",
+    "[{\"m\":1,\"n\":2}] true\n",
+    "true,false,true,false\n",
+);
+
+/// A property-key record is an object and an erased callable is a function:
+///
+/// - an object rest (`const { [k]: v, ...rest } = record`) is a new object,
+///   so the source keeps `k`, and spreading it into an object literal copies
+///   every own key (it used to be dropped when the key types differed);
+/// - an `unknown`-valued record and its erased form are ONE object, so a
+///   write after it was pushed into an `unknown[]` is seen there;
+/// - a callable erased at a `(first, ...rest)` type reports `length` 1, and
+///   one pulled back out of an `unknown` keeps the arity it was erased with.
+#[test]
+fn records_stay_objects_and_callables_keep_their_arity() -> TestResult {
+    ensure_prints_like_node(OBJECT_IDENTITY_TS, OBJECT_IDENTITY_OUTPUT, "object identity")
+}
+
+/// es-toolkit's `intersectionBy`, `intersectionWith` and `result` shapes: an
+/// erased value proven a function by `typeof`.
+const ERASED_FUNCTIONS_TS: &str = r#"// es-toolkit's `intersectionBy`: `last(values)` is `unknown | undefined`, and a
+// callback calls it after a `typeof` guard.
+function lastOf<T>(arr: readonly T[]): T | undefined {
+  return arr[arr.length - 1];
+}
+function mapAll(xs: number[], f: (x: number) => unknown): unknown[] {
+  return xs.map(f);
+}
+function run(...values: any[]): unknown[] {
+  const lastValue = lastOf(values);
+  if (typeof lastValue === "function") {
+    const direct = lastValue(5, 1);
+    return mapAll([1, 2], (value) => lastValue(value, 1)).concat([direct]);
+  }
+  return [];
+}
+console.log(JSON.stringify(run((x: number, y: number) => x * 10 + y)));
+
+// es-toolkit's `intersectionWith`: the guarded value becomes a typed comparator.
+function pick(...others: any[]): (x: number, y: number) => boolean {
+  const last = lastOf(others);
+  let comparator = (x: number, y: number) => x === y;
+  if (typeof last === "function") {
+    comparator = last;
+  }
+  return comparator;
+}
+console.log(pick(1, (a: number, b: number) => a < b)(1, 2), pick(1)(1, 2));
+
+// es-toolkit's `result`: `value.call(object)` runs `value` with `object` as `this`.
+function viaCall(obj: unknown, value: unknown): unknown {
+  return typeof value === "function" ? value.call(obj) : value;
+}
+console.log(viaCall({ k: 4 }, function (this: { k: number }) { return this.k; }), viaCall(1, 7));
+const viaApply: unknown = function (this: { k: number }, a: number, b: number) { return this.k * 100 + a * 10 + b; };
+console.log((viaApply as any).apply({ k: 1 }, [2, 3]));
+
+// `length` of an erased function, and a throw from a call inside `try`.
+function len(value: unknown): number {
+  return typeof value === "function" ? value.length : -1;
+}
+console.log(len((a: number, b: number) => a + b), len(3));
+function guarded(value: unknown): string {
+  try {
+    return String(typeof value === "function" ? value.call(null) : value);
+  } catch (error) {
+    return "caught " + (error as Error).message;
+  }
+}
+console.log(guarded(() => { throw new Error("boom"); }), guarded(2));
+
+// remeda's `isCase`: `length` of an element destructured out of an erased array.
+function isCase(maybeCase: unknown): boolean {
+  if (!Array.isArray(maybeCase)) {
+    return false;
+  }
+  const [when, then, ...rest] = maybeCase as readonly unknown[];
+  return typeof when === "function" && when.length <= 1 && typeof then === "function" && then.length <= 1 && rest.length === 0;
+}
+console.log(isCase([(x: number) => x, () => 1]), isCase([(x: number, y: number) => x + y, () => 1]), isCase(3));
+"#;
+
+/// What Node prints for [`ERASED_FUNCTIONS_TS`].
+const ERASED_FUNCTIONS_OUTPUT: &str = "[11,21,51]\ntrue false\n4 7\n123\n2 -1\ncaught boom 2\ntrue false false\n";
+
+/// A value `typeof` proves a function, still erased:
+///
+/// - called through `unknown | undefined` (directly, and captured by a
+///   callback) it is called with every argument, where it used to answer
+///   `null` without being called;
+/// - assigned to a typed function local it is that function;
+/// - `f.call(t)` and `f.apply(t, args)` run it with `t` as its `this` (the
+///   leading operand used to become its first argument), and its throw
+///   reaches an enclosing `try`;
+/// - `f.length` is the arity it was declared with, also for an element
+///   destructured out of an erased array (an `unknown | undefined` local).
+#[test]
+fn erased_functions_are_called_like_javascript() -> TestResult {
+    ensure_prints_like_node(ERASED_FUNCTIONS_TS, ERASED_FUNCTIONS_OUTPUT, "erased functions")
+}
+
 /// Building through `--manifest-path <symlink>/Smelt.toml` emits the crate the
-/// real directory does, byte for byte (sources, erasure and typedness
-/// sidecars), and that crate runs.
+/// real directory does (sources, erasure and typedness sidecars), and that
+/// crate runs. The only difference allowed is the project directory as the
+/// command spelled it, which reported paths (a test file's `// source:`, an
+/// assertion message) keep: identity is canonical, output is not.
 #[cfg(unix)]
 #[test]
 fn a_symlinked_project_builds_like_its_real_directory() -> TestResult {
     let temp = TempProject::new()?;
-    let real = temp.path().join("real");
+    let real = temp.path().join("real_project");
     fs::create_dir_all(real.join("src"))?;
     write_project(&real, SYMLINK_MAIN_TS)?;
     fs::write(real.join("src").join("lib.ts"), SYMLINK_LIB_TS)?;
@@ -316,21 +534,22 @@ fn a_symlinked_project_builds_like_its_real_directory() -> TestResult {
     let manifest = fs::read_to_string(real.join("Smelt.toml"))?
         .replace("roots = [\"src\"]", "roots = [\"src\"]\ntest-globs = [\"*.spec.ts\"]");
     fs::write(real.join("Smelt.toml"), manifest)?;
-    let link = temp.path().join("link");
+    let link = temp.path().join("linked_project");
     std::os::unix::fs::symlink(&real, &link)?;
     let outside = temp.path();
 
-    smelt_in(outside, &["--manifest-path", "real/Smelt.toml", "build"])?;
+    smelt_in(outside, &["--manifest-path", "real_project/Smelt.toml", "build"])?;
     let through_real = tree(&real.join("dist"))?;
     fs::remove_dir_all(real.join("dist"))?;
-    smelt_in(outside, &["--manifest-path", "link/Smelt.toml", "build"])?;
+    smelt_in(outside, &["--manifest-path", "linked_project/Smelt.toml", "build"])?;
     let through_link = tree(&real.join("dist"))?;
 
     ensure(!through_real.is_empty(), "the real-directory build wrote no files")?;
     for ((real_path, real_bytes), (link_path, link_bytes)) in through_real.iter().zip(&through_link) {
         ensure_eq(link_path, real_path, "the symlinked build's file list")?;
+        let link_text = String::from_utf8_lossy(link_bytes).replace("linked_project/", "real_project/");
         ensure(
-            real_bytes == link_bytes,
+            *real_bytes == link_text.into_bytes(),
             format!("{} differs between the real and the symlinked build", real_path.display()),
         )?;
     }

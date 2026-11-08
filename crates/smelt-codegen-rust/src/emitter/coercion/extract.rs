@@ -400,10 +400,18 @@ impl FunctionEmitter<'_> {
             // A property-key record reads its keys back through the inverse of
             // the storage encoding: a reserved `__smelt_symbol` key is the
             // symbol it was written for, every other key the string it is.
-            Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::PropKey) => {
+            // An `unknown`-valued one recovers a second handle on the erased
+            // object's own store, so the record and the value it was read
+            // from stay one object (`data as Record<PropertyKey, unknown>`).
+            Some(Type::Dict(key, item)) if self.is_prop_key_record_key(*key) => {
+                if self.mir.types.get(*item) == Some(&Type::Unknown) {
+                    return Ok(RustExpr::chain(self.carrier_format(format_args!(
+                        "SmeltPropKeyRecord::from_shared_unknown({smelt_owned_text})"
+                    ))));
+                }
                 let item_text = self.extract_rendered(&RustExpr::path("value"), *item, scope)?;
                 Ok(RustExpr::chain(self.carrier_format(format_args!(
-                    "smelt_prop_key_record_from_unknown({smelt_owned_text}, |value| {item_text})"
+                    "SmeltPropKeyRecord::from_unknown_with({smelt_owned_text}, |value| {item_text})"
                 ))))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key).is_none_or(|candidate| !candidate.is_text()) => {
@@ -945,7 +953,7 @@ impl FunctionEmitter<'_> {
             // it throws, so the adapter answers a callable that does.
             let default_callback = "SmeltErasedFunction { callback: ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| smelt_value_not_callable()), length: 0.0, object: None }";
             return Ok(RustExpr::atom(self.carrier_format(format_args!(
-                "{{ let smelt_value = {smelt_owned_text}; let smelt_function = match smelt_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"{SMELT_CALL}\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ SmeltErasedFunction {{ callback: ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| (smelt_function)(smelt_args).unwrap_or_else(|error| smelt_panic_throw(error))), length: {length}.0, object: match smelt_value {{ SmeltUnknown::Object(object) => Some(object), _ => None }} }} }} else {{ {default_callback} }} }}"
+                "{{ let smelt_value = {smelt_owned_text}; let smelt_function = match smelt_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"{SMELT_CALL}\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ SmeltErasedFunction {{ callback: ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| (smelt_function)(smelt_args).unwrap_or_else(|error| smelt_panic_throw(error))), length: smelt_function_length_or(&smelt_value, {length}.0), object: match smelt_value {{ SmeltUnknown::Object(object) => Some(object), _ => None }} }} }} else {{ {default_callback} }} }}"
             ))));
         }
         // The callback slot and its return type render in `scope`, the
