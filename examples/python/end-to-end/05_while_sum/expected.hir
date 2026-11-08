@@ -1,30 +1,28 @@
 module examples/python/end-to-end/05_while_sum/input.py (ModuleId(0))
   body BodyId(0)
-  locals
-    %0 let i: Int
-    %1 let total: Int
+  items
+    global mut i: Int
+    global mut total: Int
   exprs
-    #0: Int = 0
-    #1: Int = 0
-    #2: Int = %0
-    #3: Int = 4
-    #4: Bool = Lt #2, #3
-    #5: Int = %1
-    #6: Int = %0
-    #7: Int = Add #5, #6
-    #8: Int = %0
-    #9: Int = 1
-    #10: Int = Add #8, #9
-    #11: None = @0(console_log)
-    #12: Int = %1
+    #0: Int = global_get @0(i)
+    #1: Int = 4
+    #2: Bool = Lt #0, #1
+    #3: Int = global_get @1(total)
+    #4: Int = global_get @0(i)
+    #5: Int = Add #3, #4
+    #6: Int = global_set @1(total) = #5
+    #7: Int = global_get @0(i)
+    #8: Int = 1
+    #9: Int = Add #7, #8
+    #10: Int = global_set @0(i) = #9
+    #11: None = @2(console_log)
+    #12: Int = global_get @1(total)
     #13: None = call #11(#12)
   stmts
-    s0: let %0: Int = #0
-    s1: let %1: Int = #1
-    s2: #5 = #7
-    s3: #8 = #10
-    s4: while #4 BlockId(1)
-    s5: #13
+    s0: #6
+    s1: #10
+    s2: while #2 BlockId(1)
+    s3: #13
 
 interned types
   t0 = None

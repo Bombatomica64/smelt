@@ -39,6 +39,8 @@ struct ModuleStores<'a> {
     all: HashSet<&'a str>,
     /// The names bound at module level by a form other than a plain one.
     other: HashSet<&'a str>,
+    /// Every plain binding statement of each name, in source order.
+    plain: HashMap<&'a str, Vec<&'a Stmt>>,
 }
 
 impl<'a> ruff_python_ast::visitor::Visitor<'a> for ModuleStores<'a> {
@@ -49,12 +51,14 @@ impl<'a> ruff_python_ast::visitor::Visitor<'a> for ModuleStores<'a> {
             Stmt::Assign(assign) if matches!(assign.targets.as_slice(), [Expr::Name(_)]) => {
                 if let [Expr::Name(target)] = assign.targets.as_slice() {
                     self.all.insert(target.id.as_str());
+                    self.plain.entry(target.id.as_str()).or_default().push(stmt);
                 }
                 self.visit_expr(&assign.value);
             }
             Stmt::AnnAssign(ann) if matches!(ann.target.as_ref(), Expr::Name(_)) => {
                 if let Expr::Name(target) = ann.target.as_ref() {
                     self.all.insert(target.id.as_str());
+                    self.plain.entry(target.id.as_str()).or_default().push(stmt);
                 }
                 if let Some(value) = &ann.value {
                     self.visit_expr(value);
@@ -63,6 +67,7 @@ impl<'a> ruff_python_ast::visitor::Visitor<'a> for ModuleStores<'a> {
             Stmt::AugAssign(aug) if matches!(aug.target.as_ref(), Expr::Name(_)) => {
                 if let Expr::Name(target) = aug.target.as_ref() {
                     self.all.insert(target.id.as_str());
+                    self.plain.entry(target.id.as_str()).or_default().push(stmt);
                 }
                 self.visit_expr(&aug.value);
             }
@@ -126,6 +131,19 @@ impl ModuleBuilder<'_> {
                     None => continue,
                 },
             };
+            // An unannotated name's type is its first value's; Python lets a
+            // later binding change it (`z = 9`, then `z /= 3` is a `float`),
+            // which a module-body local follows and a typed global cannot.
+            if annotation.is_none()
+                && stores.plain.get(name).is_some_and(|bindings| {
+                    bindings
+                        .iter()
+                        .filter(|binding| binding.range() != stmt.range())
+                        .any(|binding| !self.rebind_keeps_type(binding, ty))
+                })
+            {
+                continue;
+            }
             let literal = Self::scalar_literal(value).filter(|literal| self.literal_has_type(literal, ty));
             candidates.push((name, ty, value, literal, stmt.range()));
         }
@@ -255,6 +273,53 @@ impl ModuleBuilder<'_> {
     fn written_module_variable(&self, name: &str) -> Option<ItemId> {
         let variable = self.module_variables.get(name)?;
         (self.scope.kind == FnKind::Module || self.scope.globals.contains(name)).then_some(variable.item)
+    }
+
+    /// Whether a later module-level binding of an unannotated name provably
+    /// leaves it the type `ty` its first value gave it: a value of that
+    /// literal type, or an augmented assignment that stays in it (`+=`, `-=`,
+    /// `*=`, `//=`, `%=` by an `int` literal on an `int`; by a number literal
+    /// on a `float`; `+=` of a string or `*=` by an `int` on a `str`). Any
+    /// other rebinding may change the type.
+    fn rebind_keeps_type(&mut self, binding: &Stmt, ty: TypeId) -> bool {
+        let ty_kind = self.ctx.krate.types.get(ty).cloned();
+        match binding {
+            Stmt::Assign(assign) => self.literal_value_type(&assign.value) == Some(ty),
+            Stmt::AugAssign(aug) => {
+                let operand = match aug.value.as_ref() {
+                    Expr::NumberLiteral(number) => match number.value {
+                        Number::Int(_) => Some(Type::Int),
+                        Number::Float(_) => Some(Type::Float),
+                        Number::Complex { .. } => None,
+                    },
+                    Expr::StringLiteral(_) => Some(Type::PyStr),
+                    _ => None,
+                };
+                match (ty_kind, aug.op, operand) {
+                    (
+                        Some(Type::Int),
+                        Operator::Add | Operator::Sub | Operator::Mult | Operator::FloorDiv | Operator::Mod,
+                        Some(Type::Int),
+                    ) => true,
+                    (
+                        Some(Type::Float),
+                        Operator::Add
+                        | Operator::Sub
+                        | Operator::Mult
+                        | Operator::Div
+                        | Operator::FloorDiv
+                        | Operator::Mod,
+                        Some(Type::Int | Type::Float),
+                    ) => true,
+                    (Some(Type::PyStr), Operator::Add, Some(Type::PyStr))
+                    | (Some(Type::PyStr), Operator::Mult, Some(Type::Int)) => true,
+                    _ => false,
+                }
+            }
+            // An annotated rebinding declares the type; a different one is a
+            // checker error, not a rebinding.
+            _ => true,
+        }
     }
 
     /// Whether `value` is a lambda whose calls need what only its defining
