@@ -2532,7 +2532,7 @@ console.log(lib.iterate(5, (acc, idx) => acc + idx, 0));
     smelt(&["--manifest-path", &manifest, "build"])?;
     let generated = generated_rust_text(project.path())?;
     ensure(
-        generated.contains("move |arg0: &f64, arg1: f64| -> f64"),
+        generated.contains("move |smelt_arg0: &f64, smelt_arg1: f64| -> f64"),
         "the callback adapter is declared at the pinned T = f64",
     )?;
     ensure(
@@ -2567,7 +2567,7 @@ console.log(iterate(2, handler, 0));
     smelt(&["--manifest-path", &manifest, "build"])?;
     let generated = generated_rust_text(project.path())?;
     ensure(
-        generated.contains("move |arg0: &SmeltUnknown, arg1: f64"),
+        generated.contains("move |smelt_arg0: &SmeltUnknown, smelt_arg1: f64"),
         "the site instantiates at the unknown TypeScript infers",
     )?;
     let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
