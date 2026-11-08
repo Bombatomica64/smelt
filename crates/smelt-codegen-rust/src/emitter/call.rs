@@ -145,7 +145,7 @@ impl FunctionEmitter<'_> {
         function: &FunctionType,
         args: &[Operand],
     ) -> Result<RustExpr, EmitError> {
-        self.indirect_call_args_text_with_abi(function, args, None).map(RustExpr::from)
+        self.indirect_call_args_text_with_abi(function, args, None, None).map(RustExpr::from)
     }
 
     /// `indirect_call_args_expr`, with the DECLARED parameter types that decide
@@ -166,11 +166,15 @@ impl FunctionEmitter<'_> {
     /// while the VALUE is still rendered at the substituted type, which is what
     /// it has to be coerced to. Substituting a type parameter at a call site
     /// must not change how the callee is called.
+    /// `slot_callee` is the callee when it is a record slot, so a callable
+    /// argument whose nested ABI the declaration fixes is bridged to it
+    /// (`slot_argument_at_declared_abi`).
     fn indirect_call_args_text_with_abi(
         &self,
         function: &FunctionType,
         args: &[Operand],
         abi_params: Option<&[TypeId]>,
+        slot_callee: Option<&Operand>,
     ) -> Result<String, EmitError> {
         let abi_param = |index: usize, substituted: TypeId| {
             abi_params
@@ -196,7 +200,13 @@ impl FunctionEmitter<'_> {
                     // The parameter is `&T` (see `callback_param_is_shared_reference`).
                     self.shared_reference_argument_expr(arg, target_ty)
                 } else {
-                    self.closure_value_argument_expr(arg, target_ty)
+                    let value = self.closure_value_argument_expr(arg, target_ty)?;
+                    match slot_callee {
+                        Some(callee) => {
+                            self.slot_argument_at_declared_abi(callee, index, target_ty, value)
+                        }
+                        None => Ok(value),
+                    }
                 }
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -1057,6 +1067,7 @@ impl FunctionEmitter<'_> {
             function,
             args,
             declared_abi.as_deref(),
+            Some(indirect_callee),
         )?;
         let suffix = if self.function_value_call_is_fallible(function) {
             "?"

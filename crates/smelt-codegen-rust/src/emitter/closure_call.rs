@@ -346,7 +346,8 @@ impl FunctionEmitter<'_> {
                         // whole-list copy that made array callbacks quadratic.
                         self.shared_reference_argument_expr(arg, *param)?
                     } else {
-                        self.closure_value_argument_expr(arg, *param)?
+                        let value = self.closure_value_argument_expr(arg, *param)?;
+                        self.slot_argument_at_declared_abi(callee, index, *param, value)?
                     };
                     Ok(text)
                 })

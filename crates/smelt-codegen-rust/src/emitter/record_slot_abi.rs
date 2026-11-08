@@ -39,11 +39,11 @@
 use crate::rust::RustExpr;
 use super::FunctionEmitter;
 use crate::EmitError;
-use crate::generic_bindings::{CalleeTypeParamBindings, bind_class_type_params};
+use crate::generic_bindings::{CalleeTypeParamBindings, bind_record_instantiation};
 use crate::type_substitution::TypeSubstitution;
 use super::types::MutablePrefix;
 use smelt_hir::{FunctionType, Symbol, Type, TypeId};
-use smelt_mir::MirField;
+use smelt_mir::{MirField, Operand, Place};
 
 /// How one parameter position is passed on each side of the slot seam.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -100,7 +100,7 @@ impl FunctionEmitter<'_> {
             // are the same type and the seam cannot exist.
             return None;
         }
-        let bindings = bind_class_type_params(self.mir, &names, record_ty);
+        let bindings = bind_record_instantiation(self.mir, &names, record_ty);
         Some((declared_ty, bindings))
     }
 
@@ -175,13 +175,7 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         let (declared, rendered) = (declared.clone(), rendered.clone());
-        let Some(abis) = self.record_slot_param_abis(&declared, &rendered) else {
-            return Ok(None);
-        };
-        if abis
-            .iter()
-            .all(|abi| abi.declared_is_reference == abi.rendered_is_reference)
-        {
+        if !self.slot_abis_differ(&declared, &rendered) {
             return Ok(None);
         }
         // The slot's own Rust type: the DECLARED type rendered at the record's
@@ -195,18 +189,115 @@ impl FunctionEmitter<'_> {
         // `TypeSubstitution::resolve` lets the lexical scope win over a binding
         // for exactly that reason.
         let caller_scope = self.current_function_type_params();
-        let substitution = TypeSubstitution::lexical(&caller_scope).with_bindings(&bindings);
-        let slot_text = self
-            .rust_type(declared_ty, false, &substitution)?
-            .into_string();
+        let slot = TypeSubstitution::lexical(&caller_scope).with_bindings(&bindings);
+        let value_side = TypeSubstitution::lexical(&caller_scope);
+        Ok(Some(self.slot_abi_bridge(
+            value_text,
+            (field.ty, &value_side),
+            (declared_ty, &slot),
+        )?))
+    }
+
+    /// Whether two shapes of one callable slot pass any argument differently,
+    /// at any depth.
+    ///
+    /// The top level compares each parameter's by-shared-reference axis. A
+    /// parameter or return that is itself a callable is compared the same way,
+    /// recursively: `otherwise: (handler: (value: i) => R) => R` declares the
+    /// INNER parameter `&i`, so at `i = number` the slot holds
+    /// `Fn(Rc<dyn Fn(&f64) -> R>) -> R` while the substituted type renders
+    /// `Fn(Rc<dyn Fn(f64) -> R>) -> R`. Only the declaration knows the former.
+    fn slot_abis_differ(&self, left: &FunctionType, right: &FunctionType) -> bool {
+        let Some(abis) = self.record_slot_param_abis(left, right) else {
+            return false;
+        };
+        abis.iter()
+            .any(|abi| abi.declared_is_reference != abi.rendered_is_reference)
+            || left
+                .params
+                .iter()
+                .zip(right.params.iter())
+                .any(|(left_param, right_param)| {
+                    self.nested_slot_callables(*left_param, *right_param).is_some()
+                })
+            || (!left.may_throw
+                && !right.may_throw
+                && self
+                    .nested_slot_callables(left.return_ty, right.return_ty)
+                    .is_some())
+    }
+
+    /// The two function types of one nested callable position, when both are
+    /// callables and their ABIs differ somewhere ([`Self::slot_abis_differ`]).
+    fn nested_slot_callables(
+        &self,
+        left: TypeId,
+        right: TypeId,
+    ) -> Option<(FunctionType, FunctionType)> {
+        if left == right {
+            return None;
+        }
+        let (Some(Type::Function(left_function)), Some(Type::Function(right_function))) =
+            (self.mir.types.get(left), self.mir.types.get(right))
+        else {
+            return None;
+        };
+        self.slot_abis_differ(left_function, right_function)
+            .then(|| (left_function.clone(), right_function.clone()))
+    }
+
+    /// Wrap `value_text`, a callable rendered at `from`, as a callable of the
+    /// Rust type `to` renders, where both describe the same slot and differ
+    /// only in how arguments are passed ([`Self::slot_abis_differ`]).
+    ///
+    /// Each side is a function type plus the environment its type parameters
+    /// render in. Per parameter the closure takes the `to` ABI and forwards the
+    /// `from` ABI: one `&` taken or one `.clone()` where the reference axis
+    /// differs; a nested callable whose own ABI differs is bridged the other
+    /// way round (parameters are contravariant). A nested callable return is
+    /// bridged in the same direction as the slot. No value is converted, so no
+    /// type is erased: both sides are the same Rust types up to `&`.
+    fn slot_abi_bridge(
+        &self,
+        value_text: &RustExpr,
+        (from_ty, from_env): (TypeId, &TypeSubstitution<'_>),
+        (to_ty, to_env): (TypeId, &TypeSubstitution<'_>),
+    ) -> Result<RustExpr, EmitError> {
+        let (Some(Type::Function(from_function)), Some(Type::Function(to_function))) =
+            (self.mir.types.get(from_ty), self.mir.types.get(to_ty))
+        else {
+            return Ok(value_text.clone());
+        };
+        let (from, to) = (from_function.clone(), to_function.clone());
+        let Some(abis) = self.record_slot_param_abis(&to, &from) else {
+            return Ok(value_text.clone());
+        };
+        let slot_text = self.rust_type(to_ty, false, to_env)?.into_string();
         let param_decls = self
-            .callback_arg_decls(&declared, &substitution, MutablePrefix::Apply)?
+            .callback_arg_decls(&to, to_env, MutablePrefix::Apply)?
             .join(", ");
         let forwarded = abis
             .iter()
             .enumerate()
             .map(|(index, abi)| {
-                match (abi.declared_is_reference, abi.rendered_is_reference) {
+                if let (Some(to_param), Some(from_param)) =
+                    (to.params.get(index), from.params.get(index))
+                    && self.nested_slot_callables(*to_param, *from_param).is_some()
+                {
+                    let owned = if abi.declared_is_reference {
+                        RustExpr::chain(format!("arg{index}.clone()")).ending_in_clone()
+                    } else {
+                        RustExpr::path(format!("arg{index}"))
+                    };
+                    let bridged =
+                        self.slot_abi_bridge(&owned, (*to_param, to_env), (*from_param, from_env))?;
+                    return Ok(if abi.rendered_is_reference {
+                        format!("&{bridged}")
+                    } else {
+                        bridged.into_string()
+                    });
+                }
+                Ok(match (abi.declared_is_reference, abi.rendered_is_reference) {
                     // The slot hands the body a borrow, the wrapped callable
                     // wants the value: copy it out, per call, only where the
                     // two genuinely disagree.
@@ -216,15 +307,73 @@ impl FunctionEmitter<'_> {
                     // the end of the statement, so naming it is enough.
                     (false, true) => format!("&arg{index}"),
                     _ => format!("arg{index}"),
-                }
+                })
             })
-            .collect::<Vec<_>>()
+            .collect::<Result<Vec<_>, EmitError>>()?
             .join(", ");
-        Ok(Some(RustExpr::atom(format!(
+        let call = RustExpr::atom(format!("(smelt_slot_callback)({forwarded})"));
+        let returned = if !from.may_throw
+            && !to.may_throw
+            && self.nested_slot_callables(from.return_ty, to.return_ty).is_some()
+        {
+            self.slot_abi_bridge(&call, (from.return_ty, from_env), (to.return_ty, to_env))?
+        } else {
+            call
+        };
+        Ok(RustExpr::atom(format!(
             "{{ let smelt_slot_callback = {value_text}; let smelt_slot_adapted: {slot_text} = \
-             ::std::rc::Rc::new(move |{param_decls}| (smelt_slot_callback)({forwarded})); \
+             ::std::rc::Rc::new(move |{param_decls}| {returned}); \
              smelt_slot_adapted }}"
-        ))))
+        )))
+    }
+
+    /// An argument for parameter `index` of a call through a record slot,
+    /// re-wrapped at the slot's DECLARED ABI when that parameter is a callable
+    /// whose nested ABI the record's instantiation changed.
+    ///
+    /// The call-side sibling of [`Self::record_slot_abi_adapter`]. The top
+    /// level `&`/value choice is already taken from the declaration by the
+    /// caller (`class_field_declared_function_type`); this covers what that
+    /// cannot: a callback argument whose own parameters the declaration passes
+    /// by reference (`m.otherwise((v) => v + 1)` against `otherwise: (handler:
+    /// (value: i) => R) => R` at `i = number` needs `Fn(&f64)`, the argument
+    /// was rendered `Fn(f64)`). Answers `rendered` unchanged otherwise.
+    pub(super) fn slot_argument_at_declared_abi(
+        &self,
+        callee: &Operand,
+        index: usize,
+        substituted_param: TypeId,
+        rendered: RustExpr,
+    ) -> Result<RustExpr, EmitError> {
+        let (Operand::Copy(Place::Field { base, field })
+        | Operand::Move(Place::Field { base, field })) = callee
+        else {
+            return Ok(rendered);
+        };
+        let base_ty = self.local_decl(*base)?.ty;
+        let Some((declared_ty, bindings)) = self.declared_record_field_slot(base_ty, *field) else {
+            return Ok(rendered);
+        };
+        let Some(Type::Function(declared)) = self.mir.types.get(declared_ty) else {
+            return Ok(rendered);
+        };
+        let Some(declared_param) = declared.params.get(index).copied() else {
+            return Ok(rendered);
+        };
+        if self
+            .nested_slot_callables(substituted_param, declared_param)
+            .is_none()
+        {
+            return Ok(rendered);
+        }
+        let caller_scope = self.current_function_type_params();
+        let slot = TypeSubstitution::lexical(&caller_scope).with_bindings(&bindings);
+        let value_side = TypeSubstitution::lexical(&caller_scope);
+        self.slot_abi_bridge(
+            &rendered,
+            (substituted_param, &value_side),
+            (declared_param, &slot),
+        )
     }
 
     /// Whether a value read off `source_field` of the record `source` is

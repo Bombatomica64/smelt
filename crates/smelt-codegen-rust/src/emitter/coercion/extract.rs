@@ -349,9 +349,18 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::List(item)) => {
                 let item_text = self.extract_rendered(&RustExpr::path("value"), *item, scope)?;
-                let char_text =
-                    self.extract_rendered(&self.carrier_expr(&RustExpr::atom("SmeltUnknown::String(ch)")), *item, scope)?;
-                Ok(erased_to_list_expr(text, Some(&item_text), &char_text))
+                let shared = SharedItemConversion::new(item_text);
+                let char_text = match shared.binding() {
+                    Some(_) => RustExpr::atom(self.carrier_format(format_args!(
+                        "{SHARED_ITEM}(SmeltUnknown::String(ch))"
+                    ))),
+                    None => self.extract_rendered(
+                        &self.carrier_expr(&RustExpr::atom("SmeltUnknown::String(ch)")),
+                        *item,
+                        scope,
+                    )?,
+                };
+                Ok(shared.wrap(erased_to_list_expr(text, Some(shared.use_text()), &char_text)))
             }
             Some(Type::Dict(key, item))
                 if self.mir.types.get(*key).is_some_and(Type::is_text)
@@ -362,16 +371,22 @@ impl FunctionEmitter<'_> {
                 ))))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) => {
-                let item_text = self.extract_rendered(&RustExpr::path("value"), *item, scope)?;
-                Ok(RustExpr::atom(self.carrier_format(format_args!(
+                let shared = SharedItemConversion::new(
+                    self.extract_rendered(&RustExpr::path("value"), *item, scope)?,
+                );
+                let item_text = shared.use_text();
+                Ok(shared.wrap(RustExpr::atom(self.carrier_format(format_args!(
                     "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(values) => SmeltRecord::with_id_from_entries(values.id, values.into_iter().map(|(key, value)| (key, {item_text}))), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (JsString::from(index.to_string()), {item_text})).collect(), SmeltUnknown::String(value) => value.units().iter().enumerate().map(|(index, unit)| {{ let value = SmeltUnknown::String(JsString::from_units(&[*unit])); (JsString::from(index.to_string()), {item_text}) }}).collect(), _ => SmeltRecord::new() }}"
-                ))))
+                )))))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key).is_some_and(Type::is_text) => {
-                let item_text = self.extract_rendered(&RustExpr::path("value"), *item, scope)?;
-                Ok(RustExpr::atom(self.carrier_format(format_args!(
+                let shared = SharedItemConversion::new(
+                    self.extract_rendered(&RustExpr::path("value"), *item, scope)?,
+                );
+                let item_text = shared.use_text();
+                Ok(shared.wrap(RustExpr::atom(self.carrier_format(format_args!(
                     "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(values) => SmeltRecord::with_id_from_entries(values.id, values.into_iter().map(|(key, value)| (key.to_string_lossy(), {item_text}))), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), {item_text})).collect(), SmeltUnknown::String(value) => value.code_point_strings().into_iter().enumerate().map(|(index, ch)| {{ let value = SmeltUnknown::String(ch); (index.to_string(), {item_text}) }}).collect(), _ => SmeltRecord::new() }}"
-                ))))
+                )))))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key).is_none_or(|candidate| !candidate.is_text()) => {
                 let key_text = self.rendered_at_type(&RustExpr::path("key"), self.type_id(Type::String)?, *key, scope)?;
@@ -709,6 +724,61 @@ impl FunctionEmitter<'_> {
 /// and must be bound to a temporary before being read twice.
 fn is_trivial_reeval_expr(text: &RustExpr) -> bool {
     !text.contains('(')
+}
+
+/// The closure name a container extraction binds its item conversion to.
+const SHARED_ITEM: &str = "smelt_item";
+
+/// An item conversion that a container extraction spells in several arms.
+///
+/// `List` extraction converts its items in seven arms (array, string, byte
+/// buffer, `arguments`, Map, Set, iterator) and a string-keyed `Dict` in
+/// three, so a nested container spelled inline costs `arms^depth` text: a
+/// record type nested eight levels deep (ts-pattern's `nesting` test) grew
+/// past 12 GB while rendering. A large conversion is therefore bound once as
+/// a closure, `let smelt_item = |value: SmeltUnknown| ..;`, and each arm calls
+/// it, which keeps the text linear in the depth. A small one stays inline,
+/// where it costs less than the binding and keeps the common output as it was.
+struct SharedItemConversion {
+    /// The conversion of an erased `value` to the item type.
+    item: RustExpr,
+    /// Whether the conversion is bound once instead of spelled per arm.
+    bound: bool,
+}
+
+impl SharedItemConversion {
+    /// Above this many bytes an item conversion is bound once.
+    const INLINE_LIMIT: usize = 512;
+
+    /// Decide how `item` (a conversion reading the erased `value`) is spelled.
+    fn new(item: RustExpr) -> Self {
+        let bound = item.as_str().len() > Self::INLINE_LIMIT;
+        Self { item, bound }
+    }
+
+    /// The `let` binding, when the conversion is bound once.
+    fn binding(&self) -> Option<String> {
+        self.bound
+            .then(|| format!("let {SHARED_ITEM} = |value: SmeltUnknown| {};", self.item))
+    }
+
+    /// The text each arm spells for one item: the inline conversion, or a call
+    /// of the bound closure.
+    fn use_text(&self) -> &str {
+        if self.bound {
+            "smelt_item(value)"
+        } else {
+            self.item.as_str()
+        }
+    }
+
+    /// `container`, preceded by the binding its arms call when there is one.
+    fn wrap(&self, container: RustExpr) -> RustExpr {
+        match self.binding() {
+            Some(binding) => RustExpr::atom(format!("{{ {binding} {container} }}")),
+            None => container,
+        }
+    }
 }
 
 /// Emits the ONE arm set that rebuilds a typed `SmeltList` from an erased value.

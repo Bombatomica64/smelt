@@ -808,6 +808,17 @@ impl ModuleBuilder<'_> {
         })
     }
 
+    /// The class symbol `name` resolves to in the current lexical scope: the
+    /// lowered class's own (possibly scope-qualified) name, or the interned
+    /// spelling for a class not lowered yet.
+    fn resolved_class_symbol(&mut self, name: &str) -> smelt_hir::Symbol {
+        let lowered = self.classes.item(name).and_then(|item| match self.item_ref(item) {
+            Item::Class(class) => Some(class.name),
+            _ => None,
+        });
+        lowered.unwrap_or_else(|| self.intern_type_name(name))
+    }
+
     /// A class name in value position: the runtime constructor object.
     ///
     /// `SmeltUnknown` is the honest carrier: a slot can hold any class, and a read
@@ -912,7 +923,12 @@ impl ModuleBuilder<'_> {
         }
 
         let span = self.span(identifier_span.start, identifier_span.end);
-        let class_symbol = self.intern_type_name(name);
+        // The class the name RESOLVES to here, which for a block-local class
+        // (`class None` inside a `describe` callback) is its scoped symbol,
+        // not the source spelling: interning the spelling named a class that
+        // was never lowered and the constructor fell back to an unmodelled
+        // external object.
+        let class_symbol = self.resolved_class_symbol(name);
         // Build closure parameters mirroring the expected constructor signature so
         // the adapter is assignable to the parameter's constructor type.
         let mut closure_body = Body::new(None, span);
