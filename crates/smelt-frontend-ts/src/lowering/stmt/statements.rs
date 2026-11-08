@@ -34,6 +34,61 @@ impl ModuleBuilder<'_> {
         Some(return_ty)
     }
 
+    /// A type-name symbol no class, interface or type alias item of the crate
+    /// carries yet: `base` itself when it is free, else `base` + `R{n}` for the
+    /// first free `n`.
+    ///
+    /// MIR resolves a class by its name symbol and refuses two classes (or two
+    /// interfaces) of one name (audit finding C12), so every place that mints a
+    /// type identity for a declaration that may be lowered more than once — a
+    /// class expression in test setup inlined into each test, a constructor
+    /// function declared in two `it` callbacks of one file — takes its symbol
+    /// from here. Each lowering is a distinct runtime class in JavaScript too
+    /// (a class expression evaluates to a new class every time).
+    pub(in crate::lowering) fn unclaimed_type_symbol(&mut self, base: &str) -> smelt_hir::Symbol {
+        let claimed = |krate: &smelt_hir::Crate, symbol: smelt_hir::Symbol| {
+            krate.items.iter().any(|item| match item {
+                smelt_hir::Item::Class(class) => class.name == symbol,
+                smelt_hir::Item::Interface(interface) => interface.name == symbol,
+                smelt_hir::Item::TypeAlias(alias) => alias.name == symbol,
+                smelt_hir::Item::Function(_)
+                | smelt_hir::Item::Const(_)
+                | smelt_hir::Item::MutableGlobal(_) => false,
+            })
+        };
+        let plain = self.intern_type_name(base);
+        if !claimed(&self.ctx.krate, plain) {
+            return plain;
+        }
+        let mut round: u32 = 1;
+        loop {
+            let candidate = self.intern_type_name(&format!("{base}R{round}"));
+            if !claimed(&self.ctx.krate, candidate) {
+                return candidate;
+            }
+            round = round.saturating_add(1);
+        }
+    }
+
+    /// The class item already lowered from the declaration at `span`, if any.
+    ///
+    /// Test setup is lowered once per test it runs before, so one source
+    /// declaration can reach class lowering several times. A declaration's
+    /// span is unique to it, so an existing class item with the same span IS
+    /// this declaration, and lowering it again would only mint a copy (es-toolkit's
+    /// `isFile.spec.ts` minted six `File` classes from one `beforeAll`).
+    pub(in crate::lowering) fn class_item_lowered_at(
+        &self,
+        span: smelt_hir::Span,
+    ) -> Option<(smelt_hir::ItemId, smelt_hir::Symbol)> {
+        self.ctx.krate.items.iter().enumerate().find_map(|(index, item)| match item {
+            smelt_hir::Item::Class(class) if class.span == span => {
+                Some((smelt_hir::ItemId(u32::try_from(index).ok()?), class.name))
+            }
+            _ => None,
+        })
+    }
+
     /// Give a block-local class its own identity when its name is already taken.
     ///
     /// Two functions may each declare `class Data`: they are different classes,
@@ -45,7 +100,9 @@ impl ModuleBuilder<'_> {
         let name = id.name.as_str();
         let plain = self.intern_type_name(name);
         let taken = self.classes.item(name).is_some()
-            || (self.classes.in_body() && self.classes.declared_in_module(name))
+            || (self.classes.in_body()
+                && (self.classes.declared_in_module(name)
+                    || self.ctx.top_level_type_names.contains(name)))
             || self.ctx.krate.items.iter().any(|item| match item {
                 smelt_hir::Item::Class(lowered) => lowered.name == plain,
                 // An earlier type or interface of the name renders as the same
@@ -74,6 +131,7 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn shadow_outer_type(&mut self, name: &str, start: u32) {
         let plain = self.intern_type_name(name);
         let taken = self.classes.scoped_type_name(name).is_some()
+            || (self.classes.in_body() && self.ctx.top_level_type_names.contains(name))
             || self.ctx.krate.items.iter().any(|item| match item {
                 smelt_hir::Item::TypeAlias(alias) => alias.name == plain,
                 smelt_hir::Item::Interface(interface) => interface.name == plain,

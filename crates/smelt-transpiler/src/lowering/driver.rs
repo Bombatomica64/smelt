@@ -28,7 +28,7 @@ use smelt_hir::{FileId, ModuleId};
 
 use super::{
     ManifestDiagnostic, SourceLang, manifest_diagnostics, manifest_module_identities,
-    manifest_type_renames, scan_written_host_globals,
+    manifest_declared_type_names, manifest_type_renames, scan_written_host_globals,
 };
 use crate::manifest::ManifestSource;
 use crate::python::{PyEnumMembers, PyModuleNamespaces};
@@ -44,6 +44,9 @@ pub(super) struct ManifestSeed {
     /// Rust-facing class names for names declared by more than one module;
     /// see `HirCtx::type_renames`.
     type_renames: HashMap<String, HashMap<String, String>>,
+    /// Every top-level type name of the crate; see
+    /// `HirCtx::top_level_type_names`.
+    top_level_type_names: HashSet<String>,
     /// Crate-unique module identity per module path; see
     /// `HirCtx::module_identities`.
     module_identities: HashMap<String, String>,
@@ -59,10 +62,12 @@ impl ManifestSeed {
         module_names: &[String],
         outside_crate: HashSet<String>,
     ) -> Self {
+        let declared = manifest_declared_type_names(sources);
         Self {
             written_host_globals: scan_written_host_globals(sources),
             project_sources_outside_crate: outside_crate,
-            type_renames: manifest_type_renames(sources),
+            type_renames: manifest_type_renames(sources, &declared),
+            top_level_type_names: declared.into_iter().flatten().collect(),
             module_identities: manifest_module_identities(sources, module_names),
         }
     }
@@ -90,6 +95,7 @@ impl SeededLowering {
             written_host_globals: seed.written_host_globals,
             project_sources_outside_crate: seed.project_sources_outside_crate,
             type_renames: seed.type_renames,
+            top_level_type_names: seed.top_level_type_names,
             module_identities: seed.module_identities,
             ..smelt_frontend_ts::HirCtx::new()
         };

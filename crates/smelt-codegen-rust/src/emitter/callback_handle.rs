@@ -379,10 +379,18 @@ impl FunctionEmitter<'_> {
     ///
     /// Such captures must not force a `move` closure: moving the borrowed
     /// callback prevents later direct uses in the same generated function.
+    ///
+    /// A closure body (emitted through the synthetic [`FuncId::SYNTHETIC`]
+    /// function) has no borrowed parameters: its parameters are rendered as
+    /// owned `Rc<dyn Fn>` handles (`closure_arg_N`), so a closure created in it
+    /// may own a captured callback even when it escapes.
     pub(super) fn capture_is_borrowed_callback_param(
         &self,
         local: LocalId,
     ) -> Result<bool, EmitError> {
+        if self.function.id == FuncId::SYNTHETIC {
+            return Ok(false);
+        }
         let decl = self.local_decl(local)?;
         let local_name = self.local_binding(local)?.text();
         Ok(
@@ -398,11 +406,16 @@ impl FunctionEmitter<'_> {
     }
 
     /// Return true when a closure capture symbol names a borrowed callback parameter.
+    ///
+    /// Never true in a closure body; see [`Self::capture_is_borrowed_callback_param`].
     pub(super) fn capture_symbol_is_borrowed_callback_param(
         &self,
         symbol: Symbol,
         ty: TypeId,
     ) -> Result<bool, EmitError> {
+        if self.function.id == FuncId::SYNTHETIC {
+            return Ok(false);
+        }
         if !matches!(self.mir.types.get(ty), Some(Type::Function(_))) {
             return Ok(false);
         }

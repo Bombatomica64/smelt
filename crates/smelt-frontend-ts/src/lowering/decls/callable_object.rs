@@ -37,7 +37,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use oxc::ast::ast::TSType;
-use smelt_hir::{FunctionType, Interface, Item, Type, TypeParamDef};
+use smelt_hir::{FunctionType, Interface, Type, TypeParamDef};
 
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
@@ -239,7 +239,7 @@ impl ModuleBuilder<'_> {
         } = members;
         self.add_interface_method_fields(&mut fields, &methods);
         self.add_interface_call_signature_field(&mut fields, &call_signatures);
-        let item = self.ctx.krate.push_item(Item::Interface(Interface {
+        let item = self.ctx.krate.upsert_interface(Interface {
             name,
             span,
             type_params,
@@ -247,7 +247,7 @@ impl ModuleBuilder<'_> {
             fields,
             methods,
             decode_facts,
-        }));
+        });
         self.interfaces.register_lowered(LoweredInterface {
             name,
             name_text: name_text.to_owned(),

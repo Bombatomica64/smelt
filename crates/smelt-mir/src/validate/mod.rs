@@ -2,30 +2,37 @@
 //!
 //! Validation is a read-only pass over a [`Mir`] value that reports structural
 //! and dataflow problems as a flat list of [`ValidationError`]s. It never
-//! mutates the IR and never bails early: every function is checked so callers
-//! see the full set of problems in one run.
+//! mutates the IR and never bails early: every body is checked so callers see
+//! the full set of problems in one run. It runs in release builds as well
+//! (`compile` fails on any error), and after every optimization pass in debug
+//! and test builds.
 //!
 //! The checks are split across focused submodules:
 //!
+//! - [`tables`] checks the crate-level tables: function ids equal their
+//!   positions, class member and global initializer ids are in range, and no
+//!   two classes (or two interfaces) share a name.
 //! - [`structure`] verifies that block, local, and terminator references point
-//!   at entities that actually exist in the function.
+//!   at entities that actually exist in a body.
 //! - [`operands`] walks each statement/rvalue and confirms the operands it
-//!   reads reference valid places.
+//!   reads reference valid places and globals.
 //! - [`assignment`] runs the forward definite-assignment dataflow that catches
 //!   reads of locals before they are provably defined.
 //! - [`closures`] enforces the closure-table and capture ABI invariants.
 //!
-//! Shared index/type helpers live in this module so every submodule can reach
-//! them through `super`.
+//! Every body check runs over [`Mir::bodies`], functions and closures alike,
+//! and every type check over [`Mir::visit_types`], the one list of type
+//! positions.
 
 mod assignment;
 mod closures;
 mod operands;
 mod structure;
+mod tables;
 
 use smelt_hir::TypeId;
 
-use crate::Mir;
+use crate::{BodyOwner, Mir};
 
 /// A validation error discovered while checking MIR.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,10 +45,12 @@ pub struct ValidationError {
 #[must_use]
 pub fn validate(mir: &Mir) -> Vec<ValidationError> {
     let mut errors = Vec::new();
+    tables::validate_tables(mir, &mut errors);
     closures::validate_closures(mir, &mut errors);
-    for function in &mir.functions {
-        structure::validate_function(mir, function, &mut errors);
+    for body in mir.bodies() {
+        structure::validate_body(mir, body, &mut errors);
     }
+    mir.visit_types(&mut |ty| validate_type(mir, ty, &mut errors));
     errors
 }
 
@@ -52,32 +61,35 @@ fn validate_type(mir: &Mir, ty: TypeId, errors: &mut Vec<ValidationError>) {
     }
 }
 
+/// Name a body for a diagnostic: the function's id and name, or the
+/// closure's id.
+fn owner_name(mir: &Mir, owner: BodyOwner) -> String {
+    match owner {
+        BodyOwner::Function(id) => {
+            let name = mir
+                .function(id)
+                .and_then(|function| mir.symbols.get(function.name))
+                .unwrap_or("<unknown>");
+            format!("function {id:?} `{name}`")
+        }
+        BodyOwner::Closure(id) => format!("closure {id:?}"),
+    }
+}
+
 /// Convert a local identifier into a vector index.
 fn local_index(local: crate::LocalId) -> usize {
-    u32_to_usize(local.0)
+    local.index()
 }
 
 /// Convert a block identifier into a vector index.
 fn block_index(block: crate::BlockId) -> usize {
-    u32_to_usize(block.0)
-}
-
-/// Convert a function identifier into a vector index.
-fn function_index(function: crate::FuncId) -> usize {
-    u32_to_usize(function.0)
-}
-
-/// Convert a `u32` identifier into a vector index.
-///
-/// MIR identifiers are always small enough to fit in `usize` on supported
-/// targets; the saturating fallback keeps the validators total on the
-/// (unreachable) 16-bit case so an out-of-range id simply fails the existence
-/// check rather than panicking.
-fn u32_to_usize(value: u32) -> usize {
-    usize::try_from(value).unwrap_or(usize::MAX)
+    block.index()
 }
 
 /// Build a validation error with no source span.
 const fn error(message: String) -> ValidationError {
     ValidationError { message }
 }
+
+#[cfg(test)]
+mod tests;

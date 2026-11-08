@@ -79,6 +79,33 @@ impl Crate {
         id
     }
 
+    /// Adds an interface item, or replaces the one already lowered from the
+    /// same declaration, and returns its ID.
+    ///
+    /// One source declaration is one item. A frontend lowers the same
+    /// interface declaration more than once (predeclaration passes, then the
+    /// module's own lowering; a type alias resolved again from another site),
+    /// and each later lowering sees more of the crate, so it REPLACES the
+    /// earlier item (`blocker-logs/hono-crud-perf-round2.md`). The declaration
+    /// is identified by name and span; a same-named interface at another span
+    /// (interface merging, a `.d.ts` then its `.ts`) is a separate item.
+    /// Appending instead left several interfaces of one name, which MIR
+    /// rejects (audit finding C12; radash's `DebounceFunction`, remeda's
+    /// `LazyFunction`).
+    pub fn upsert_interface(&mut self, interface: crate::Interface) -> ItemId {
+        let earlier = self.items.iter().position(|existing| {
+            matches!(existing, Item::Interface(other)
+                if other.name == interface.name && other.span == interface.span)
+        });
+        if let Some(position) = earlier
+            && let Some(slot) = self.items.get_mut(position)
+        {
+            *slot = Item::Interface(interface);
+            return ItemId(id_index(position));
+        }
+        self.push_item(Item::Interface(interface))
+    }
+
     /// Adds a body to the crate and returns its ID.
     pub fn push_body(&mut self, mut body: Body) -> BodyId {
         let id = BodyId(id_index(self.bodies.len()));
@@ -167,4 +194,41 @@ pub struct Import {
     pub alias: Option<Symbol>,
     /// Source location of the import.
     pub span: Span,
+}
+
+#[cfg(test)]
+mod tests {
+    //! One interface declaration is one item (audit C12).
+
+    use crate::{Crate, FileId, Interface, Item, Span, Symbol};
+
+    /// An empty interface `name` declared at `start`.
+    fn interface(name: u32, start: u32) -> Interface {
+        Interface {
+            name: Symbol(name),
+            span: Span::new(FileId(0), start, start + 1),
+            type_params: Vec::new(),
+            extends: Vec::new(),
+            fields: Vec::new(),
+            methods: Vec::new(),
+            decode_facts: Vec::new(),
+        }
+    }
+
+    /// The same declaration lowered again replaces its item; a same-named
+    /// interface at another span is a separate item.
+    #[test]
+    fn an_interface_lowered_twice_is_one_item() {
+        let mut krate = Crate::new();
+        let first = krate.upsert_interface(interface(1, 10));
+        let again = krate.upsert_interface(interface(1, 10));
+        assert_eq!(first, again);
+        assert_eq!(krate.items.len(), 1);
+        let merged = krate.upsert_interface(interface(1, 99));
+        assert_ne!(merged, first);
+        assert_eq!(
+            krate.items.iter().filter(|item| matches!(item, Item::Interface(_))).count(),
+            2
+        );
+    }
 }

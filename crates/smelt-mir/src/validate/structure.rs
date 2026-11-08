@@ -1,42 +1,46 @@
-//! Structural reference validation for a single MIR function.
+//! Structural reference validation for a single MIR body, a function's or a
+//! closure's.
 //!
-//! These checks confirm that a function's skeleton is internally consistent:
+//! These checks confirm that a body's skeleton is internally consistent:
 //! the entry block exists, block indices match their ids, every block has a
 //! terminator, and each statement/terminator only references locals, blocks,
 //! and types that are actually declared. Operand-level existence checks are
 //! delegated to [`super::operands`]; definite-assignment dataflow is delegated
 //! to [`super::assignment`].
 
-use crate::{MirFunction, Mir, Statement, Terminator};
+use crate::{MirBody, Mir, Statement, Terminator};
 
 use super::operands::{
     validate_callee_exists, validate_operand_exists, validate_place_exists, validate_rvalue_exists,
 };
-use super::{ValidationError, assignment, block_index, error, local_index, validate_type};
+use super::{ValidationError, assignment, block_index, error, local_index};
 
-/// Validate one MIR function and append any discovered errors.
-pub(super) fn validate_function(
+/// Validate one MIR body and append any discovered errors.
+///
+/// Runs for every body [`Mir::bodies`] yields, so closure bodies get the same
+/// terminator, id and definite-assignment checks as functions (audit C1).
+pub(super) fn validate_body(
     mir: &Mir,
-    function: &MirFunction,
+    body: MirBody<'_>,
     errors: &mut Vec<ValidationError>,
 ) {
-    validate_entry(function, errors);
-    for (block_idx, block) in function.blocks.iter().enumerate() {
-        validate_block(mir, function, block_idx, block, errors);
+    validate_entry(body, errors);
+    for (block_idx, block) in body.blocks.iter().enumerate() {
+        validate_block(mir, body, block_idx, block, errors);
     }
-    for local in &function.locals {
-        validate_type(mir, local.ty, errors);
+    for &param in body.params {
+        validate_local_exists(body, param, errors);
     }
-    assignment::validate_definite_assignment(mir, function, errors);
+    assignment::validate_definite_assignment(mir, body, errors);
 }
 
 /// Check that the function's declared entry block exists.
-fn validate_entry(function: &MirFunction, errors: &mut Vec<ValidationError>) {
-    let entry_idx = block_index(function.entry);
-    if function.blocks.get(entry_idx).is_none() {
+fn validate_entry(body: MirBody<'_>, errors: &mut Vec<ValidationError>) {
+    let entry_idx = block_index(body.entry);
+    if body.blocks.get(entry_idx).is_none() {
         errors.push(error(format!(
-            "function {:?} has an unknown entry block {:?}",
-            function.id, function.entry
+            "{:?} has an unknown entry block {:?}",
+            body.owner, body.entry
         )));
     }
 }
@@ -45,31 +49,31 @@ fn validate_entry(function: &MirFunction, errors: &mut Vec<ValidationError>) {
 /// terminator references.
 fn validate_block(
     mir: &Mir,
-    function: &MirFunction,
+    body: MirBody<'_>,
     block_idx: usize,
     block: &crate::BasicBlock,
     errors: &mut Vec<ValidationError>,
 ) {
     if block_index(block.id) != block_idx {
         errors.push(error(format!(
-            "function {:?} block index {block_idx} has mismatched id {:?}",
-            function.id, block.id
+            "{:?} block index {block_idx} has mismatched id {:?}",
+            body.owner, block.id
         )));
     }
     if block.terminator.is_none() {
         errors.push(error(format!(
-            "function {:?} block {:?} is missing a terminator",
-            function.id, block.id
+            "{:?} block {:?} is missing a terminator",
+            body.owner, block.id
         )));
     }
 
 
     for stmt in &block.statements {
-        validate_statement(mir, function, stmt, errors);
+        validate_statement(mir, body, stmt, errors);
     }
 
     if let Some(terminator) = &block.terminator {
-        validate_terminator(mir, function, terminator, errors);
+        validate_terminator(mir, body, terminator, errors);
     }
 }
 
@@ -77,18 +81,18 @@ fn validate_block(
 /// entities.
 fn validate_statement(
     mir: &Mir,
-    function: &MirFunction,
+    body: MirBody<'_>,
     stmt: &Statement,
     errors: &mut Vec<ValidationError>,
 ) {
     match stmt {
         Statement::Assign { dest, value } => {
-            validate_rvalue_exists(mir, function, value, errors);
-            validate_local_exists(function, *dest, errors);
+            validate_rvalue_exists(mir, body, value, errors);
+            validate_local_exists(body, *dest, errors);
         }
         Statement::AssignPlace { place, value } => {
-            validate_place_exists(function, place, errors);
-            validate_rvalue_exists(mir, function, value, errors);
+            validate_place_exists(mir, body, place, errors);
+            validate_rvalue_exists(mir, body, value, errors);
         }
         Statement::DictEntryUpdate {
             base,
@@ -98,7 +102,8 @@ fn validate_statement(
             value,
         } => {
             validate_place_exists(
-                function,
+                mir,
+                body,
                 &crate::Place::Index {
                     base: *base,
                     index: Box::new(index.clone()),
@@ -109,9 +114,9 @@ fn validate_statement(
                 },
                 errors,
             );
-            validate_operand_exists(function, default, errors);
-            validate_local_exists(function, *current, errors);
-            validate_rvalue_exists(mir, function, value, errors);
+            validate_operand_exists(mir, body, default, errors);
+            validate_local_exists(body, *current, errors);
+            validate_rvalue_exists(mir, body, value, errors);
         }
     }
 }
@@ -120,12 +125,12 @@ fn validate_statement(
 /// reference valid entities.
 fn validate_terminator(
     mir: &Mir,
-    function: &MirFunction,
+    body: MirBody<'_>,
     terminator: &Terminator,
     errors: &mut Vec<ValidationError>,
 ) {
     match terminator {
-        Terminator::Goto(target) => validate_block_exists(function, *target, errors),
+        Terminator::Goto(target) => validate_block_exists(body, *target, errors),
         Terminator::Call {
             callee,
             args,
@@ -133,16 +138,16 @@ fn validate_terminator(
             target,
             unwind,
         } => {
-            validate_callee_exists(mir, function, callee, errors);
+            validate_callee_exists(mir, body, callee, errors);
             for arg in args {
-                validate_operand_exists(function, arg, errors);
+                validate_operand_exists(mir, body, arg, errors);
             }
-            validate_local_exists(function, *dest, errors);
-            validate_block_exists(function, *target, errors);
+            validate_local_exists(body, *dest, errors);
+            validate_block_exists(body, *target, errors);
             if let Some(handler) = unwind {
-                validate_block_exists(function, handler.catch_block, errors);
+                validate_block_exists(body, handler.catch_block, errors);
                 if let Some(local) = handler.exception_local {
-                    validate_local_exists(function, local, errors);
+                    validate_local_exists(body, local, errors);
                 }
             }
         }
@@ -152,13 +157,13 @@ fn validate_terminator(
             target,
             unwind,
         } => {
-            validate_operand_exists(function, future, errors);
-            validate_local_exists(function, *dest, errors);
-            validate_block_exists(function, *target, errors);
+            validate_operand_exists(mir, body, future, errors);
+            validate_local_exists(body, *dest, errors);
+            validate_block_exists(body, *target, errors);
             if let Some(handler) = unwind {
-                validate_block_exists(function, handler.catch_block, errors);
+                validate_block_exists(body, handler.catch_block, errors);
                 if let Some(local) = handler.exception_local {
-                    validate_local_exists(function, local, errors);
+                    validate_local_exists(body, local, errors);
                 }
             }
         }
@@ -167,53 +172,53 @@ fn validate_terminator(
             then_block,
             else_block,
         } => {
-            validate_operand_exists(function, cond, errors);
-            validate_block_exists(function, *then_block, errors);
-            validate_block_exists(function, *else_block, errors);
+            validate_operand_exists(mir, body, cond, errors);
+            validate_block_exists(body, *then_block, errors);
+            validate_block_exists(body, *else_block, errors);
         }
         Terminator::Match {
             scrutinee,
             arms,
             default,
         } => {
-            validate_operand_exists(function, scrutinee, errors);
+            validate_operand_exists(mir, body, scrutinee, errors);
             for arm in arms {
-                validate_block_exists(function, arm.target, errors);
+                validate_block_exists(body, arm.target, errors);
             }
             if let Some(default_target) = default {
-                validate_block_exists(function, *default_target, errors);
+                validate_block_exists(body, *default_target, errors);
             }
         }
         Terminator::Return(operand) | Terminator::Throw(operand) => {
-            validate_operand_exists(function, operand, errors);
+            validate_operand_exists(mir, body, operand, errors);
         }
     }
 }
 
 /// Ensure a local ID points to an existing local declaration.
 pub(super) fn validate_local_exists(
-    function: &MirFunction,
+    body: MirBody<'_>,
     local: crate::LocalId,
     errors: &mut Vec<ValidationError>,
 ) {
-    if function.locals.get(local_index(local)).is_none() {
+    if body.locals.get(local_index(local)).is_none() {
         errors.push(error(format!(
-            "function {:?} references unknown local {:?}",
-            function.id, local
+            "{:?} references unknown local {:?}",
+            body.owner, local
         )));
     }
 }
 
 /// Ensure a block ID points to an existing basic block.
 pub(super) fn validate_block_exists(
-    function: &MirFunction,
+    body: MirBody<'_>,
     block: crate::BlockId,
     errors: &mut Vec<ValidationError>,
 ) {
-    if function.blocks.get(block_index(block)).is_none() {
+    if body.blocks.get(block_index(block)).is_none() {
         errors.push(error(format!(
-            "function {:?} references unknown block {:?}",
-            function.id, block
+            "{:?} references unknown block {:?}",
+            body.owner, block
         )));
     }
 }

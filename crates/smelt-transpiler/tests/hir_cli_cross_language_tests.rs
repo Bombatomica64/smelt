@@ -496,6 +496,113 @@ console.log(beta.bump());
 console.log(beta.bump());
 ";
 
+/// `alpha.ts` for [`build_runs_two_modules_with_private_and_block_local_same_named_classes`].
+const SAME_NAMED_FOO_ALPHA: &str = r#"class Foo {
+  count: number = 1;
+}
+
+export function alpha(): string {
+  const local = (): string => {
+    class Foo {
+      label: string = "alpha-inner";
+    }
+    return new Foo().label;
+  };
+  return `${new Foo().count}/${local()}`;
+}
+
+"#;
+
+/// `beta.ts` for [`build_runs_two_modules_with_private_and_block_local_same_named_classes`].
+const SAME_NAMED_FOO_BETA: &str = r#"class Foo {
+  name: string = "beta";
+  twice(): string {
+    return this.name + this.name;
+  }
+}
+
+export function beta(): string {
+  const local = (): number => {
+    class Foo {
+      weight: number = 7;
+    }
+    return new Foo().weight;
+  };
+  return `${new Foo().twice()}/${local()}`;
+}
+
+"#;
+
+/// `gamma.ts` for [`build_runs_two_modules_with_private_and_block_local_same_named_classes`]:
+/// a module whose only `Foo` is block-local, lowered BEFORE the modules that
+/// declare `Foo` at their top level (ts-pattern's `class A` in a test callback).
+const SAME_NAMED_FOO_GAMMA: &str = r"export function gamma(): string {
+  const local = (): boolean => {
+    class Foo {
+      flag: boolean = true;
+    }
+    return new Foo().flag;
+  };
+  return `gamma:${local()}`;
+}
+";
+
+/// `main.ts` for [`build_runs_two_modules_with_private_and_block_local_same_named_classes`].
+const SAME_NAMED_FOO_MAIN: &str = r#"import { gamma } from "./gamma";
+import { alpha } from "./alpha";
+import { beta } from "./beta";
+console.log(alpha());
+console.log(beta());
+console.log(gamma());
+"#;
+
+/// Two modules each declare `class Foo` with different fields: privately at
+/// the top level and again inside a local arrow; a third module, lowered
+/// first, declares `Foo` only inside a local arrow.
+/// Each `Foo` must keep its own identity, so every module reads its own fields.
+///
+/// MIR resolves a class by its name symbol and now refuses two classes of one
+/// name (audit finding C12) instead of answering with the first, so all four
+/// declarations need distinct identities for this to build and print each
+/// module's own fields.
+#[test]
+fn build_runs_two_modules_with_private_and_block_local_same_named_classes() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "same-named-foo"
+version = "0.1.0"
+
+[sources]
+roots = ["src"]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "same_named_foo"
+build = true
+"#,
+    )?;
+    fs::write(project_path.join("src/alpha.ts"), SAME_NAMED_FOO_ALPHA)?;
+    fs::write(project_path.join("src/beta.ts"), SAME_NAMED_FOO_BETA)?;
+    fs::write(project_path.join("src/gamma.ts"), SAME_NAMED_FOO_GAMMA)?;
+    fs::write(project_path.join("src/main.ts"), SAME_NAMED_FOO_MAIN)?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(
+        &actual_stdout,
+        &"1/alpha-inner\nbetabeta/7\ngamma:true\n".to_owned(),
+        "each module must read its own `Foo`",
+    )?;
+    Ok(())
+}
+
 #[test]
 fn build_runs_two_modules_exporting_a_same_named_class() -> TestResult {
     // Class identity in HIR is the class's name symbol, and method resolution

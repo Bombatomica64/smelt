@@ -49,6 +49,8 @@ mod transcribe;
 
 /// Closure ABI ownership: construction, escape analysis, and throwing widening.
 mod closures;
+/// Reserved function slots: the one source of `FuncId`s during lowering.
+mod function_slots;
 /// Whole-program MIR analyses that run after core HIR lowering.
 mod passes;
 
@@ -271,7 +273,8 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
     };
     let mut errors = Vec::new();
 
-    let item_functions = assign_function_ids(krate)?;
+    let mut slots = function_slots::FunctionSlots::default();
+    let item_functions = assign_function_ids(krate, &mut slots)?;
     let global_ids = lower_globals(krate, &mut mir, &item_functions, &mut errors);
     let languages = index_source_languages(krate);
     let tables = LoweringTables {
@@ -281,29 +284,71 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
         languages: &languages,
     };
     lower_type_tables(krate, &mut mir, &item_functions);
-    lower_item_functions(krate, &mut mir, &tables, helpers, &mut errors);
+    if let Err(duplicates) = crate::index::NameIndex::new(&mir) {
+        return Err(duplicates
+            .iter()
+            .map(|duplicate| duplicate_declaration_error(krate, &mir, duplicate))
+            .collect());
+    }
+    lower_item_functions(krate, &mut mir, &mut slots, &tables, helpers, &mut errors);
 
     if !errors.is_empty() {
         return Err(errors);
     }
 
-    lower_module_bodies(krate, &mut mir, &tables, helpers, &mut errors);
+    lower_module_bodies(krate, &mut mir, &mut slots, &tables, helpers, &mut errors);
 
-    if errors.is_empty() {
-        run_finalization_passes(&mut mir);
-        Ok(mir)
-    } else {
-        Err(errors)
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+    mir.functions = slots.finish()?;
+    run_finalization_passes(&mut mir).map_err(|error| vec![error])?;
+    Ok(mir)
+}
+
+/// A [`LowerError`] for two declarations of one name, naming where each is.
+///
+/// MIR's class and interface tables are built in HIR item order, so table
+/// position `i` of a kind is the `i`-th HIR item of that kind.
+fn duplicate_declaration_error(
+    krate: &smelt_hir::Crate,
+    mir: &Mir,
+    duplicate: &crate::index::DuplicateName,
+) -> LowerError {
+    let spans: Vec<Span> = krate
+        .items
+        .iter()
+        .filter_map(|item| match (item, duplicate.kind) {
+            (smelt_hir::Item::Class(class), "class") => Some(class.span),
+            (smelt_hir::Item::Interface(interface), "interface") => Some(interface.span),
+            _ => None,
+        })
+        .collect();
+    let locate = |position: usize| {
+        spans.get(position).map_or_else(
+            || "<unknown>".to_owned(),
+            |span| {
+                let path = mir.file_paths.get(&span.file).map_or("<unknown>", String::as_str);
+                format!("{path}@{}", span.start)
+            },
+        )
+    };
+    let (first, second) = duplicate.positions;
+    LowerError {
+        message: format!("{} (at {} and {})", duplicate.message(mir), locate(first), locate(second)),
+        span: spans.get(second).copied(),
     }
 }
 
 /// Assign a stable [`FuncId`] to every HIR function item that has a body.
 ///
 /// The map is built before any body is lowered so calls can resolve their
-/// callees regardless of declaration order. Ids are dense, indexed by insertion
-/// order, matching the order [`Mir::push_function`] later appends functions.
+/// callees regardless of declaration order. Each id is a reserved slot of
+/// `slots`, which the body is later stored into, so an id is its position by
+/// construction.
 fn assign_function_ids(
     krate: &smelt_hir::Crate,
+    slots: &mut function_slots::FunctionSlots,
 ) -> Result<FunctionIds, Vec<LowerError>> {
     let mut item_functions = HashMap::new();
     for (idx, hir_item) in krate.items.iter().enumerate() {
@@ -314,12 +359,8 @@ fn assign_function_ids(
         if let smelt_hir::Item::Function(function) = hir_item
             && function.body.is_some()
         {
-            let function_id = u32_from_usize(
-                item_functions.len(),
-                "MIR function index does not fit in u32",
-            )
-            .map_err(|error| vec![error])?;
-            item_functions.insert(item_id, FuncId(function_id));
+            let function_id = slots.reserve().map_err(|error| vec![error])?;
+            item_functions.insert(item_id, function_id);
         }
     }
     Ok(item_functions)
@@ -560,14 +601,22 @@ fn lower_interface_table_entry(
     });
 }
 
-/// Lower every HIR function item that has a body into a [`MirFunction`].
+/// Lower every HIR function item that has a body into a [`MirFunction`],
+/// stored into the slot [`assign_function_ids`] reserved for it.
 ///
 /// Async functions have their `Promise<T>` return type unwrapped to `T`.
 /// Lowering stops at the first hard error (pushing it to `errors` and breaking)
 /// because later functions may depend on state this one would have produced.
+/// A body id that names no body is such an error: skipping it would leave its
+/// reserved slot empty.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the output table (`mir` plus its reserved function `slots`) and the shared lowering inputs are separate borrows"
+)]
 fn lower_item_functions(
     krate: &smelt_hir::Crate,
     mir: &mut Mir,
+    slots: &mut function_slots::FunctionSlots,
     tables: &LoweringTables<'_>,
     helpers: HelperTypes,
     errors: &mut Vec<LowerError>,
@@ -586,16 +635,15 @@ fn lower_item_functions(
         let Some(body_id) = function.body else {
             continue;
         };
-        let Some(body) = krate.bodies.get(
-            match usize_from_u32(body_id.0, "HIR body index does not fit in usize") {
-                Ok(value) => value,
-                Err(error) => {
-                    errors.push(error);
-                    continue;
-                }
-            },
-        ) else {
-            continue;
+        let Some(body) = usize_from_u32(body_id.0, "HIR body index does not fit in usize")
+            .ok()
+            .and_then(|index| krate.bodies.get(index))
+        else {
+            errors.push(LowerError {
+                message: format!("function item {idx} names missing body {body_id:?}"),
+                span: Some(function.span),
+            });
+            break;
         };
         let return_ty = if function.is_async {
             future_inner_type(krate, function.return_ty).unwrap_or(function.return_ty)
@@ -603,7 +651,11 @@ fn lower_item_functions(
             function.return_ty
         };
         let Some(function_id) = tables.item_functions.get(&item_id).copied() else {
-            continue;
+            errors.push(LowerError {
+                message: format!("function item {idx} has no reserved function id"),
+                span: Some(function.span),
+            });
+            break;
         };
         let shared = LoweringShared {
             krate,
@@ -639,7 +691,10 @@ fn lower_item_functions(
         match LoweringCtx::new(shared, spec, body).and_then(LoweringCtx::lower) {
             Ok((lowered_function, closures)) => {
                 mir.closures.extend(closures);
-                mir.push_function(lowered_function);
+                if let Err(error) = slots.fill(function_id, lowered_function) {
+                    errors.push(error);
+                    break;
+                }
             }
             Err(error) => {
                 errors.push(error);
@@ -653,10 +708,17 @@ fn lower_item_functions(
 ///
 /// Empty test-only module bodies are skipped so they do not produce an empty
 /// `main`. Unlike item lowering, a failure here records the error and continues
-/// to the next module rather than aborting.
+/// to the next module rather than aborting. A module whose body id names no
+/// body is such a failure: dropping it would silently drop the module's
+/// top-level code.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the output table (`mir` plus its reserved function `slots`) and the shared lowering inputs are separate borrows"
+)]
 fn lower_module_bodies(
     krate: &smelt_hir::Crate,
     mir: &mut Mir,
+    slots: &mut function_slots::FunctionSlots,
     tables: &LoweringTables<'_>,
     helpers: HelperTypes,
     errors: &mut Vec<LowerError>,
@@ -668,19 +730,24 @@ fn lower_module_bodies(
         if module_has_test_items(krate, module) && body_is_empty(krate, body_id) {
             continue;
         }
-        let Some(body) = krate.bodies.get(
-            match usize_from_u32(body_id.0, "HIR body index does not fit in usize") {
-                Ok(value) => value,
-                Err(error) => {
-                    errors.push(error);
-                    continue;
-                }
-            },
-        ) else {
+        let Some(body) = usize_from_u32(body_id.0, "HIR body index does not fit in usize")
+            .ok()
+            .and_then(|index| krate.bodies.get(index))
+        else {
+            errors.push(LowerError {
+                message: format!("module `{}` names missing body {body_id:?}", module.name),
+                span: None,
+            });
             continue;
         };
         let name = mir.symbols.intern(&module.name);
-        let function_id = mir.next_function_id();
+        let function_id = match slots.reserve() {
+            Ok(id) => id,
+            Err(error) => {
+                errors.push(error);
+                continue;
+            }
+        };
         let shared = LoweringShared {
             krate,
             item_functions: tables.item_functions,
@@ -718,8 +785,12 @@ fn lower_module_bodies(
                 // here unmarked.
                 function.can_throw = function.can_throw || function.is_async;
                 mir.closures.extend(closures);
-                mir.push_function(function);
+                if let Err(error) = slots.fill(function_id, function) {
+                    errors.push(error);
+                }
             }
+            // The slot stays empty, so `finish` reports it too; the lowering
+            // error is the one that explains why.
             Err(error) => errors.push(error),
         }
     }
@@ -730,7 +801,11 @@ fn lower_module_bodies(
 /// Each step states what it requires of the MIR and what it establishes for
 /// the steps after it; the order below is the only one that satisfies all of
 /// them.
-fn run_finalization_passes(mir: &mut Mir) {
+///
+/// # Errors
+///
+/// The throwing fixpoint did not converge within its round cap.
+fn run_finalization_passes(mir: &mut Mir) -> Result<(), LowerError> {
     // Requires: every body lowered. Establishes: each generic record
     // instantiation the program uses is in the table, so its declaration and
     // record helpers are emitted.
@@ -741,7 +816,7 @@ fn run_finalization_passes(mir: &mut Mir) {
     // Requires: escape facts. Establishes: `can_throw` on every function and
     // closure, and the throwing ABI on every local holding a throwing closure
     // (invariants 3-4 in `closures`) -- jointly, at their fixpoint.
-    run_throwing_fixpoint(mir);
+    run_throwing_fixpoint(mir)?;
     // Requires: final local types (widening retypes function-typed locals).
     // Establishes: an erased record that is mutated is promoted.
     crate::promote_erased_mutated_records(mir);
@@ -751,6 +826,10 @@ fn run_finalization_passes(mir: &mut Mir) {
     // Requires: normalized types. Establishes: every type an inherited member
     // copy is emitted at is in the table, so its declaration is emitted.
     passes::inherited_types::intern_inherited_member_types(mir);
+    // The passes above rewrote tables a by-name lookup may already have
+    // indexed; the index is rebuilt on first use from the MIR as it now is.
+    mir.clear_index();
+    Ok(())
 }
 
 /// Upper bound on [`run_throwing_fixpoint`] rounds.
@@ -771,23 +850,46 @@ const MAX_THROWING_ROUNDS: usize = 32;
 /// type) unchanged. It used to be unrolled exactly twice; no source program is
 /// known to need a third round (a five-closure call chain settles in two), but
 /// the fixpoint makes that a checked property instead of an assumption.
-fn run_throwing_fixpoint(mir: &mut Mir) {
-    let mut state = throwing_state(mir);
-    let mut converged = false;
-    for _ in 0..MAX_THROWING_ROUNDS {
-        passes::throwing::propagate_throwing_functions(mir);
-        closures::widen_throwing_closure_types(mir);
-        let next = throwing_state(mir);
+///
+/// # Errors
+///
+/// The state still changed in round [`MAX_THROWING_ROUNDS`]. That is an error
+/// in every build profile: continuing would emit a half-propagated throwing ABI
+/// (a caller calling a `Result`-returning closure as if it were infallible).
+fn run_throwing_fixpoint(mir: &mut Mir) -> Result<(), LowerError> {
+    run_bounded_fixpoint(mir, MAX_THROWING_ROUNDS, throwing_state, |program| {
+        passes::throwing::propagate_throwing_functions(program);
+        closures::widen_throwing_closure_types(program);
+    })
+}
+
+/// Run `round` until `observe` reports the same state twice in a row, at most
+/// `max_rounds` times.
+///
+/// # Errors
+///
+/// A spanless [`LowerError`] when the state still changed in the last round.
+fn run_bounded_fixpoint<S: PartialEq>(
+    mir: &mut Mir,
+    max_rounds: usize,
+    observe: impl Fn(&Mir) -> S,
+    mut round: impl FnMut(&mut Mir),
+) -> Result<(), LowerError> {
+    let mut state = observe(mir);
+    for _ in 0..max_rounds {
+        round(mir);
+        let next = observe(mir);
         if next == state {
-            converged = true;
-            break;
+            return Ok(());
         }
         state = next;
     }
-    debug_assert!(
-        converged,
-        "throwing propagation/widening did not converge in {MAX_THROWING_ROUNDS} rounds"
-    );
+    Err(LowerError {
+        message: format!(
+            "throwing propagation/widening did not converge in {max_rounds} rounds"
+        ),
+        span: None,
+    })
 }
 
 /// The part of the MIR the throwing fixpoint reads and writes: every body's
@@ -851,5 +953,52 @@ fn future_inner_type(krate: &smelt_hir::Crate, ty: TypeId) -> Option<TypeId> {
     match krate.types.get(ty) {
         Some(Type::Future(inner)) => Some(*inner),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod fixpoint_tests {
+    //! The bounded fixpoint is an error, not a silent stop, in every profile
+    //! (audit finding C9).
+
+    use smelt_hir::{OriginalNameTable, SymbolInterner, TypeInterner};
+
+    use super::run_bounded_fixpoint;
+    use crate::Mir;
+
+    /// An empty program to run rounds over.
+    fn mir() -> Mir {
+        Mir::new(TypeInterner::default(), SymbolInterner::default(), OriginalNameTable::default())
+    }
+
+    /// A round that changes the observed state every time never converges, and
+    /// the fixpoint says so instead of returning half-propagated MIR.
+    #[test]
+    fn a_state_that_never_settles_is_an_error() {
+        let mut program = mir();
+        let mut counter = 0_u32;
+        let result = run_bounded_fixpoint(
+            &mut program,
+            4,
+            |observed| observed.globals.len(),
+            |round| {
+                counter += 1;
+                round.globals.push(crate::MirGlobal {
+                    name: smelt_hir::Symbol(counter),
+                    ty: smelt_hir::TypeId(0),
+                    init: crate::MirGlobalInit::Constant(crate::Constant::None),
+                });
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(counter, 4, "the cap bounds the rounds");
+    }
+
+    /// A state that settles converges without error.
+    #[test]
+    fn a_settling_state_converges() {
+        let mut program = mir();
+        let result = run_bounded_fixpoint(&mut program, 4, |observed| observed.globals.len(), |_| {});
+        assert!(result.is_ok());
     }
 }

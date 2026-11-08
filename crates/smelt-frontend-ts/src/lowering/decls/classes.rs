@@ -77,7 +77,13 @@ impl ModuleBuilder<'_> {
         // reads. `__smelt_class` and the `instanceof` class registry both go
         // through the original name, and JavaScript answers `File` there — the
         // disambiguation exists for the Rust type system, not for the program.
-        let symbol = self.ctx.krate.symbols.intern(&internal_name);
+        // The same expression lowered again keeps its identity; a different
+        // declaration whose internal name is somehow taken gets a fresh one.
+        let span = self.span(class.span.start, class.span.end);
+        if let Some((_, existing)) = self.class_item_lowered_at(span) {
+            return Some(existing);
+        }
+        let symbol = self.unclaimed_type_symbol(&internal_name);
         self.ctx.krate.names.record(symbol, class_source_name);
         self.ctx.local_class_expressions.insert(symbol);
         Some(symbol)
@@ -219,6 +225,14 @@ impl ModuleBuilder<'_> {
         });
         let class_text = class_name_owned.as_str();
         let class_span = self.span(class.span.start, class.span.end);
+        // One source declaration is one class item: lowering it again (test
+        // setup inlined into each test) answers the item it already has.
+        if let Some((item, existing)) = self.class_item_lowered_at(class_span)
+            && existing == class_name
+        {
+            self.classes.register(class_source_name, item);
+            return Ok(item);
+        }
         let materialized = self.materialized_class(&class_source_name).cloned();
         if !class.decorators.is_empty() && materialized.is_none() {
             return Err(SmeltError::specialization_required(

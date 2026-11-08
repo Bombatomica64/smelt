@@ -8,9 +8,56 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use smelt_hir::{BodyId, Language, Span, Symbol, TypeId, Visibility};
 
-/// Unique identifier for a function in MIR.
+/// Unique identifier for a function in MIR: the function's position in
+/// [`Mir::functions`].
+///
+/// `#[non_exhaustive]` makes the tuple constructor private to this crate: other
+/// crates can read `.0` but can only obtain a real id from MIR itself (a
+/// function's `id`, a callee, a class member table), so they cannot fabricate
+/// one that indexes the wrong function. Inside this crate, ids are handed out
+/// only by [`Mir::push_function`] and the lowering's reserved function slots,
+/// both of which make `mir.functions[id.0].id == id` true by construction.
+/// [`FuncId::SYNTHETIC`] names a body that is not in the table at all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct FuncId(pub u32);
+
+impl FuncId {
+    /// The id of a synthetic function the backend builds around a body that is
+    /// not in [`Mir::functions`] (a closure emitted as a function). It indexes
+    /// nothing, so [`Mir::function`] answers `None` for it.
+    pub const SYNTHETIC: Self = Self(u32::MAX);
+
+    /// This id as a position in [`Mir::functions`].
+    #[must_use]
+    pub fn index(self) -> usize {
+        usize::try_from(self.0).unwrap_or(usize::MAX)
+    }
+}
+
+impl LocalId {
+    /// This id as a position in a body's `locals`.
+    #[must_use]
+    pub fn index(self) -> usize {
+        usize::try_from(self.0).unwrap_or(usize::MAX)
+    }
+}
+
+impl BlockId {
+    /// This id as a position in a body's `blocks`.
+    #[must_use]
+    pub fn index(self) -> usize {
+        usize::try_from(self.0).unwrap_or(usize::MAX)
+    }
+}
+
+impl ClosureId {
+    /// This id as a position in [`Mir::closures`].
+    #[must_use]
+    pub fn index(self) -> usize {
+        usize::try_from(self.0).unwrap_or(usize::MAX)
+    }
+}
 
 /// Unique identifier for a basic block in MIR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -129,35 +176,48 @@ impl Mir {
         }
     }
 
-    /// Returns the next available function ID.
-    ///
-    /// The id saturates to `u32::MAX` if the count does not fit in `u32`.
-    #[must_use]
-    pub fn next_function_id(&self) -> FuncId {
-        FuncId(len_to_u32(self.functions.len(), "MIR function count"))
-    }
-
     /// Adds a function to the MIR and returns its ID.
     ///
+    /// The id is the function's position, and it is written into
+    /// `function.id` here, whatever the caller put there: the table, not the
+    /// caller, decides it, so `functions[id].id == id` holds for every push.
     /// The id saturates to `u32::MAX` if the count does not fit in `u32`.
-    pub fn push_function(&mut self, function: MirFunction) -> FuncId {
+    pub fn push_function(&mut self, mut function: MirFunction) -> FuncId {
         let id = FuncId(len_to_u32(self.functions.len(), "MIR function count"));
-        debug_assert_eq!(
-            function.id, id,
-            "MIR function IDs must be insertion ordered"
-        );
+        function.id = id;
         self.functions.push(function);
         id
     }
 
-    /// Adds a closure to the MIR and returns its ID.
+    /// Adds a closure to the MIR and returns its ID, writing it into
+    /// `closure.id` as [`Self::push_function`] does.
     ///
     /// The id saturates to `u32::MAX` if the count does not fit in `u32`.
-    pub fn push_closure(&mut self, closure: MirClosure) -> ClosureId {
+    pub fn push_closure(&mut self, mut closure: MirClosure) -> ClosureId {
         let id = ClosureId(len_to_u32(self.closures.len(), "MIR closure count"));
-        debug_assert_eq!(closure.id, id, "MIR closure IDs must be insertion ordered");
+        closure.id = id;
         self.closures.push(closure);
         id
+    }
+
+    /// The function `id` names, or `None` when it is out of range (or
+    /// [`FuncId::SYNTHETIC`]).
+    #[must_use]
+    pub fn function(&self, id: FuncId) -> Option<&MirFunction> {
+        self.functions.get(id.index())
+    }
+
+    /// The closure `id` names, or `None` when it is out of range.
+    #[must_use]
+    pub fn closure(&self, id: ClosureId) -> Option<&MirClosure> {
+        self.closures.get(id.index())
+    }
+
+    /// The mutable global at `index` in [`Self::globals`], or `None` when it
+    /// is out of range.
+    #[must_use]
+    pub fn global(&self, index: u32) -> Option<&MirGlobal> {
+        self.globals.get(usize::try_from(index).unwrap_or(usize::MAX))
     }
 }
 
@@ -1068,42 +1128,13 @@ pub enum BuiltinFn {
     ConsoleErrorWrite,
 }
 
-/// Visit every type id a function's emission reads: its return type, local
-/// types, and `UnknownCast` targets (the only statement that carries a
-/// type).
+/// Visit every type id a function's emission reads; see
+/// [`MirFunction::visit_types`], the one list of a function's type positions.
 pub fn for_each_function_type(function: &MirFunction, mut visit: impl FnMut(TypeId)) {
-    visit(function.return_ty);
-    for local in &function.locals {
-        visit(local.ty);
-    }
-    for block in &function.blocks {
-        for statement in &block.statements {
-            if let Statement::Assign {
-                value: Rvalue::UnknownCast { target, .. },
-                ..
-            } = statement
-            {
-                visit(*target);
-            }
-        }
-    }
+    function.visit_types(&mut visit);
 }
 
 /// Rewrite every type id [`for_each_function_type`] visits.
 pub fn map_function_types(function: &mut MirFunction, mut map: impl FnMut(TypeId) -> TypeId) {
-    function.return_ty = map(function.return_ty);
-    for local in &mut function.locals {
-        local.ty = map(local.ty);
-    }
-    for block in &mut function.blocks {
-        for statement in &mut block.statements {
-            if let Statement::Assign {
-                value: Rvalue::UnknownCast { target, .. },
-                ..
-            } = statement
-            {
-                *target = map(*target);
-            }
-        }
-    }
+    function.map_types(&mut map);
 }

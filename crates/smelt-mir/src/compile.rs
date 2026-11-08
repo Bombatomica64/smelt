@@ -5,6 +5,7 @@ use std::fmt;
 use std::time::{Duration, Instant};
 
 use crate::{LowerError, Mir, ValidationError, lower_hir, opt, validate};
+use crate::opt::OptimizeError;
 
 /// Why [`compile`] produced no MIR.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12,6 +13,9 @@ use crate::{LowerError, Mir, ValidationError, lower_hir, opt, validate};
 pub enum CompileError {
     /// HIR could not be lowered.
     Lower(Vec<LowerError>),
+    /// Optimization did not converge, or (in debug and test builds) a pass
+    /// left invalid MIR.
+    Optimize(OptimizeError),
     /// The optimized MIR failed validation.
     Validation(Vec<ValidationError>),
 }
@@ -21,6 +25,7 @@ impl fmt::Display for CompileError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Lower(errors) => write!(formatter, "MIR lowering failed:\n{errors:#?}"),
+            Self::Optimize(error) => write!(formatter, "{error}"),
             Self::Validation(errors) => write!(formatter, "MIR validation failed:\n{errors:#?}"),
         }
     }
@@ -32,7 +37,7 @@ impl Error for CompileError {}
 ///
 /// # Errors
 ///
-/// Returns [`CompileError`] when lowering or validation fails.
+/// Returns [`CompileError`] when lowering, optimization or validation fails.
 pub fn compile(krate: &smelt_hir::Crate) -> Result<Mir, CompileError> {
     compile_observed(krate, |_, _| {})
 }
@@ -42,7 +47,7 @@ pub fn compile(krate: &smelt_hir::Crate) -> Result<Mir, CompileError> {
 ///
 /// # Errors
 ///
-/// Returns [`CompileError`] when lowering or validation fails.
+/// Returns [`CompileError`] when lowering, optimization or validation fails.
 pub fn compile_observed(
     krate: &smelt_hir::Crate,
     mut observe: impl FnMut(&'static str, Duration),
@@ -53,8 +58,9 @@ pub fn compile_observed(
     let mut mir = lowered.map_err(CompileError::Lower)?;
 
     let start = Instant::now();
-    opt::optimize(&mut mir);
+    let optimized = opt::try_optimize(&mut mir);
     observe("mir.optimize", start.elapsed());
+    optimized.map_err(CompileError::Optimize)?;
 
     let start = Instant::now();
     let errors = validate(&mir);

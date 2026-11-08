@@ -49,6 +49,8 @@ mod format;
 pub mod ids;
 /// The one table of operations HIR and MIR share.
 pub mod op_table;
+/// Type positions inside carried op-table fields.
+pub mod op_field_types;
 /// HIR top-level items (functions, classes, interfaces).
 mod item;
 /// Crate/module metadata and imports.

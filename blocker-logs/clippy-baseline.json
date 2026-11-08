@@ -14,7 +14,6 @@
       "clippy::shadow_unrelated": 12,
       "clippy::unwrap_used": 11,
       "clippy::wildcard_enum_match_arm": 1,
-      "unreachable_pub": 1,
       "unused_qualifications": 8
     },
     "smelt-frontend-py": {
@@ -30,7 +29,7 @@
       "clippy::chunks_exact_to_as_chunks": 1,
       "clippy::collapsible_if": 9,
       "clippy::if_then_some_else_none": 1,
-      "clippy::indexing_slicing": 145,
+      "clippy::indexing_slicing": 144,
       "clippy::missing_docs_in_private_items": 11,
       "clippy::panic": 3,
       "clippy::shadow_same": 2,
@@ -52,14 +51,13 @@
       "clippy::indexing_slicing": 32,
       "clippy::missing_docs_in_private_items": 1,
       "clippy::panic": 10,
-      "clippy::shadow_reuse": 31,
+      "clippy::shadow_reuse": 30,
       "clippy::shadow_same": 1,
       "clippy::shadow_unrelated": 6,
       "clippy::unreachable": 2,
       "clippy::use_debug": 2,
-      "clippy::wildcard_enum_match_arm": 26,
-      "trivial_casts": 1,
-      "unfulfilled_lint_expectations": 2
+      "clippy::wildcard_enum_match_arm": 16,
+      "trivial_casts": 1
     },
     "smelt-runtime": {
       "clippy::assigning_clones": 3,

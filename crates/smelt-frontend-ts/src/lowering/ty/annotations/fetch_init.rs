@@ -3,7 +3,7 @@
 
 use crate::lowering::ModuleBuilder;
 use crate::lowering::support::source_spelling;
-use smelt_hir::{Field, Item, Type, Visibility};
+use smelt_hir::{Field, Type, Visibility};
 use smelt_stdlib::FetchInitKeyKind;
 
 impl ModuleBuilder<'_> {
@@ -196,7 +196,7 @@ impl ModuleBuilder<'_> {
                 }
             })
             .collect::<Vec<_>>();
-        let item = self.ctx.krate.push_item(Item::Interface(smelt_hir::Interface {
+        let item = self.ctx.krate.upsert_interface(smelt_hir::Interface {
             name,
             span,
             type_params: Vec::new(),
@@ -204,7 +204,7 @@ impl ModuleBuilder<'_> {
             fields,
             methods: Vec::new(),
             decode_facts: Vec::new(),
-        }));
+        });
         self.interfaces.register_lowered(crate::lowering::state::interface_registry::LoweredInterface {
             name,
             name_text: name_text.to_owned(),

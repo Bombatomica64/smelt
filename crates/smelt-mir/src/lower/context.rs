@@ -53,6 +53,14 @@ pub(super) struct LoweringCtx<'hir> {
     /// Mapping of HIR local IDs to MIR local IDs.
     pub(super) locals: HashMap<HirLocalId, LocalId>,
     /// Mapping of HIR expression IDs to lowered operands.
+    ///
+    /// A cached operand is only valid where the block that computed it
+    /// dominates the reuse. That holds when each expression id has one parent;
+    /// should a frontend share an id between two branches, the second branch
+    /// would read a temporary assigned only on the first. That state is not
+    /// prevented here but is caught: definite assignment checks every
+    /// temporary read (now in closure bodies too), after lowering in debug and
+    /// test builds and on the optimized MIR in every build.
     pub(super) exprs: HashMap<ExprId, Operand>,
     /// Lexical control scopes (loops, `try`/`catch` regions) enclosing the
     /// cursor, innermost last. Pushed only through

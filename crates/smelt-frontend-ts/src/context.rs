@@ -336,6 +336,14 @@ pub struct HirCtx {
     /// original name (`krate.names`), because that is what reflection reads:
     /// `instanceof` and `__smelt_class` must still answer `Node`.
     pub type_renames: HashMap<String, HashMap<String, String>>,
+    /// Every type name some module of the crate declares at its top level.
+    ///
+    /// A block-local declaration (a class in a test callback) must not take
+    /// one of these spellings as its Rust name: the top-level declaration may
+    /// lower later, in another module, and claim the same symbol, which MIR
+    /// rejects as two classes of one name (audit finding C12; ts-pattern's
+    /// `class A` in a test callback and at the top of another test file).
+    pub top_level_type_names: HashSet<String>,
     /// Every member name a class, interface or object type of a lowered module
     /// declares, the cheap first question of "does the receiver own this call".
     pub declared_member_names: HashSet<String>,
@@ -407,6 +415,7 @@ impl HirCtx {
             written_host_globals: HashSet::new(),
             project_sources_outside_crate: HashSet::new(),
             type_renames: HashMap::new(),
+            top_level_type_names: HashSet::new(),
             declared_member_names: HashSet::new(),
             local_class_expressions: HashSet::new(),
             module_identities: HashMap::new(),

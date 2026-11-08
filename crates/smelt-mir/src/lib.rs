@@ -48,11 +48,16 @@ pub mod opt;
 mod traversal;
 /// MIR operational type normalization.
 mod type_normalize;
+/// Closure construction sites, the source of capture `source_local`s.
+mod closure_sites;
+/// Every MIR position that holds a type, walked by one visitor.
+mod type_positions;
 /// MIR core data types.
 mod types;
 /// MIR validation and diagnostics.
 mod validate;
 
+pub use closure_sites::{ClosureSite, SiteLookup, sync_capture_sources};
 pub use compile::{CompileError, compile, compile_observed};
 pub use erased_record_promote::promote_erased_mutated_records;
 pub use format::format_compact;
@@ -61,7 +66,7 @@ pub use list_escape::{
 };
 pub use lower::{LowerError, PENDING_THROWN_LOCAL, lower_hir};
 pub use type_normalize::normalize_operational_types;
-pub use traversal::{Body, Read, ReadMut};
+pub use traversal::{Body, BodyOwner, Edge, MirBody, MirBodyMut, Read, ReadMut};
 pub use types::*;
 pub use validate::{ValidationError, validate};
 
@@ -115,6 +120,97 @@ mod tests {
         // final `copy %0` into a `move` (dropping a defensive clone in codegen).
         assert!(output.contains("%1 = call @console_log(move %0) -> bb1"));
         assert!(output.contains("return none"));
+    }
+
+    /// Lowers `source` as one TypeScript file and runs the whole MIR stage.
+    fn compile_ts(source: &str) -> Mir {
+        let mut ctx = HirCtx::new();
+        ok_or_panic(to_hir(source, FileId(0), &mut ctx), "HIR");
+        ok_or_panic(compile(&ctx.krate), "MIR")
+    }
+
+    /// A closure returned from a closure escapes the creating closure's frame,
+    /// so it is marked escaping and owns its captures (audit C3: escape
+    /// analysis used to scan function bodies only).
+    #[test]
+    fn a_closure_returned_from_a_closure_escapes() {
+        let mir = compile_ts(
+            "function outer(): () => () => number {\n  const xs = [1, 2];\n  return (): (() => number) => {\n    const y = 2;\n    return (): number => y + xs.length;\n  };\n}\nconsole.log(outer()()());\n",
+        );
+        assert!(mir.closures.len() >= 2, "{}", format_compact(&mir));
+        for closure in &mir.closures {
+            assert!(closure.escapes, "closure {:?} must escape:\n{}", closure.id, format_compact(&mir));
+            assert!(
+                closure.captures.iter().all(|capture| capture.mode == smelt_hir::CaptureMode::ByValue),
+                "an escaping closure owns its captures"
+            );
+        }
+    }
+
+    /// A mutated record erased by reference AND captured by a closure is
+    /// promoted together with the closure's copy of it, so the capture keeps
+    /// one type on both sides (audit C2).
+    #[test]
+    #[expect(clippy::expect_used, reason = "test fixtures unwrap and index their own known-good shapes")]
+    fn a_promoted_record_is_promoted_inside_the_closure_that_captures_it() {
+        let mir = compile_ts(
+            "function keep(x: unknown): unknown { return x; }\nfunction main(): void {\n  const rec: Record<string, number> = { a: 1 };\n  const alias = keep(rec);\n  rec[\"b\"] = 2;\n  const read = (): number => rec[\"a\"] ?? 0;\n  console.log(read(), alias);\n}\nmain();\n",
+        );
+        let closure = mir.closures.first().expect("the arrow is a closure");
+        let capture = closure.captures.first().expect("it captures `rec`");
+        assert!(
+            matches!(mir.types.get(capture.ty), Some(smelt_hir::Type::Dict(_, value))
+                if matches!(mir.types.get(*value), Some(smelt_hir::Type::Unknown))),
+            "the capture follows the promotion:\n{}",
+            format_compact(&mir)
+        );
+    }
+
+    /// A class name and its field names.
+    type ClassFields = (String, Vec<String>);
+
+    /// Two sibling test blocks each declaring a constructor function `Foo`
+    /// lower to two classes with distinct identities and their own fields,
+    /// rather than two items of one name that a by-name lookup would answer
+    /// with the first (audit C12; es-toolkit's `isEqualWith.spec.ts`).
+    #[test]
+    #[expect(clippy::indexing_slicing, reason = "test fixtures unwrap and index their own known-good shapes")]
+    fn sibling_constructor_functions_get_distinct_class_identities() {
+        let mir = compile_ts(
+            "import { describe, it, expect } from \"vitest\";\ndescribe(\"ctor\", () => {\n  it(\"first\", () => {\n    function Foo() {\n      // @ts-ignore\n      this.a = 1;\n    }\n    Foo.prototype.a = 1;\n    // @ts-ignore\n    expect(new Foo().a).toBe(1);\n  });\n  it(\"second\", () => {\n    function Foo() {\n      // @ts-ignore\n      this.b = 2;\n    }\n    Foo.prototype.b = 2;\n    // @ts-ignore\n    expect(new Foo().b).toBe(2);\n  });\n});\n",
+        );
+        let fields: Vec<ClassFields> = mir
+            .classes
+            .iter()
+            .map(|class| {
+                (
+                    mir.symbols.get(class.name).unwrap_or_default().to_owned(),
+                    class
+                        .fields
+                        .iter()
+                        .map(|field| mir.symbols.get(field.name).unwrap_or_default().to_owned())
+                        .collect(),
+                )
+            })
+            .collect();
+        assert_eq!(fields.len(), 2, "{fields:?}");
+        assert_ne!(fields[0].0, fields[1].0, "distinct identities: {fields:?}");
+        assert_eq!(fields[0].1, ["a"], "{fields:?}");
+        assert_eq!(fields[1].1, ["b"], "{fields:?}");
+    }
+
+    /// Compiling one program twice in one process (so every `HashMap` gets a
+    /// different seed) yields byte-identical MIR and an identical type table
+    /// (audit C14: promotion and integer-range interned in hash order).
+    #[test]
+    fn compiling_twice_gives_identical_mir_and_types() {
+        let source = "function keep(x: unknown): unknown { return x; }\nfunction both(xs: string[]): number {\n  const rec: Record<string, number> = { a: 1 };\n  keep(rec);\n  rec[\"b\"] = 2;\n  let n = 0;\n  for (let i = 0; i < xs.length; i++) { n += xs[i].length; }\n  let j = xs.length - 1;\n  while (j >= 0) { if (xs[j] === \"stop\") { break; } j--; }\n  return n + j + (rec[\"a\"] ?? 0);\n}\nconsole.log(both([\"a\", \"stop\", \"bc\"]));\n";
+        let first = compile_ts(source);
+        for _ in 0_u8..16 {
+            let again = compile_ts(source);
+            assert_eq!(format_compact(&again), format_compact(&first));
+            assert_eq!(again.types.all(), first.types.all());
+        }
     }
 
     /// `const before = x` with `x` written by a closure is a snapshot: aliasing it

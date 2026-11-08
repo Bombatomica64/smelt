@@ -571,12 +571,32 @@ impl ModuleBuilder<'_> {
         if self.classes.contains(class_text.as_str()) {
             return Ok(());
         }
-        let class_name = self.intern_type_name(class_text.as_str());
+        // The registry is scoped, so `contains` above does not see a
+        // same-named constructor function from a sibling block (two `it`
+        // callbacks each declaring `function Foo() { this.a = 1 }`). Its class
+        // item is still in the crate, so this one takes a name of its own,
+        // bound to the source spelling for the rest of its scope.
+        let span = self.span(function.span.start, function.span.end);
+        // The same constructor function lowered again (inherited test setup)
+        // keeps the class it already has.
+        if let Some((item, existing)) = self.class_item_lowered_at(span) {
+            if self.intern_type_name(class_text.as_str()) != existing {
+                self.classes.open_shadow(class_text.as_str());
+                self.classes.bind_scoped_type_name(class_text.clone(), existing);
+            }
+            self.classes.register(class_text, item);
+            return Ok(());
+        }
+        let class_name = self.unclaimed_type_symbol(class_text.as_str());
+        if self.intern_type_name(class_text.as_str()) != class_name {
+            self.ctx.krate.names.record(class_name, class_text.as_str());
+            self.classes.open_shadow(class_text.as_str());
+            self.classes.bind_scoped_type_name(class_text.clone(), class_name);
+        }
         let class_ty = self.ctx.krate.types.intern(Type::Class {
             name: class_name,
             args: Vec::new(),
         });
-        let span = self.span(function.span.start, function.span.end);
 
         // Derive own fields from `this.<name> = …` assignments in the body. The
         // shared `collect_this_member_names_*` helpers only traverse value

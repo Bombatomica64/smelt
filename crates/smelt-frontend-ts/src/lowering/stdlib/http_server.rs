@@ -645,7 +645,7 @@ impl ModuleBuilder<'_> {
                 span: declaration_span,
             })
             .collect::<Vec<_>>();
-        let item = self.ctx.krate.push_item(smelt_hir::Item::Interface(smelt_hir::Interface {
+        let item = self.ctx.krate.upsert_interface(smelt_hir::Interface {
             name,
             span: declaration_span,
             type_params: Vec::new(),
@@ -653,7 +653,7 @@ impl ModuleBuilder<'_> {
             fields,
             methods: Vec::new(),
             decode_facts: Vec::new(),
-        }));
+        });
         self.interfaces.register_lowered(
             crate::lowering::state::interface_registry::LoweredInterface {
                 name,
