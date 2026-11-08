@@ -1,0 +1,12 @@
+pick a {"a":"p"} {"a":"p"}
+omit b {"b":2} {"b":2}
+alias-key a {"a":"alias"} {"a":"alias"}
+alias-generic a {"a":"generic"} {"a":"generic"}
+keyof a,b {"a":"k","b":3} {"a":"k","b":3}
+inherited a,d {"a":"i","d":4} {"a":"i","d":4}
+generic-base v {"v":"b"} {"v":"b"}
+class x {"x":5} {"x":5}
+partial d {"d":6} {"d":6}
+required a,b,c {"a":"r","b":7,"c":true} {"a":"r","b":7,"c":true}
+generic-subset v {"v":8} {"v":8}
+true true
