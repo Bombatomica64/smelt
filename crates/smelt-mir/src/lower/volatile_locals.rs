@@ -28,6 +28,13 @@
 //! getter, so it counts as running code and is snapshotted ahead of a later
 //! sibling that runs code or reads a module global.
 //!
+//! A runtime-modelled op can change its receiver's state without running source
+//! code: `re.test(s)` moves `re.lastIndex` (the op table's `updates_state`
+//! fact). A field read of a value of that receiver's type is snapshotted when a
+//! LATER sibling contains such an op on a value of the same type:
+//! `log(re.lastIndex, re.test(s))`. The rule is keyed by type, as the field
+//! write rule is, and touches no other read.
+//!
 //! [`LoweringCtx::lower_expr`]: super::context::LoweringCtx
 
 use std::collections::{HashMap, HashSet};
@@ -276,16 +283,48 @@ fn receiver_has_fields(body: &Body, types: &TypeInterner, receiver: ExprId) -> b
         .is_none_or(|expr| !matches!(types.get(expr.ty), Some(Type::List(_) | Type::Tuple(_))))
 }
 
+/// The receiver types whose runtime-modelled state the subtree at `id` can
+/// change (see the module docs), memoized per expression.
+fn state_updated_types(
+    body: &Body,
+    id: ExprId,
+    memo: &mut HashMap<ExprId, HashSet<smelt_hir::TypeId>>,
+) -> HashSet<smelt_hir::TypeId> {
+    if let Some(known) = memo.get(&id) {
+        return known.clone();
+    }
+    let mut updated = HashSet::new();
+    if let Some(kind) = expr_kind(body, id) {
+        if let Some(receiver) = kind.state_updated_receiver()
+            && let Some(receiver_expr) = usize::try_from(receiver.0).ok().and_then(|index| body.exprs.get(index))
+        {
+            updated.insert(receiver_expr.ty);
+        }
+        for child in children(kind) {
+            updated.extend(state_updated_types(body, child, memo));
+        }
+    }
+    memo.insert(id, updated.clone());
+    updated
+}
+
 /// The field and element reads of `body` followed by a sibling that can run code.
 fn early_reads(body: &Body, krate: &smelt_hir::Crate, assigned_fields: &FieldWrites) -> HashSet<ExprId> {
     let types = &krate.types;
+    // One memo per question, each keyed by expression within this body and
+    // holding a property of that expression's subtree alone (it runs code, it
+    // reads a module global, the receiver types it updates). None depends on
+    // where the expression sits among its siblings, so an answer is the same
+    // whichever sibling asks first; the ordering rules below combine them.
     let mut memo = HashMap::new();
     let mut global_memo = HashMap::new();
+    let mut state_memo = HashMap::new();
     let mut reads = HashSet::new();
     for expr in &body.exprs {
         let siblings = children(&expr.kind);
         let mut later_runs_code = false;
         let mut later_reads_global = false;
+        let mut later_updates_state: HashSet<smelt_hir::TypeId> = HashSet::new();
         for &child in siblings.iter().rev() {
             // A read that can run a getter happens where it is evaluated: ahead
             // of a later sibling that runs code, or that reads a module global
@@ -316,7 +355,15 @@ fn early_reads(body: &Body, krate: &smelt_hir::Crate, assigned_fields: &FieldWri
             if later_runs_code && is_lazy_read && !is_callable {
                 reads.insert(child);
             }
+            // A field read of a value whose state a later op changes.
+            if let Some(ExprKind::Field { receiver, .. }) = expr_kind(body, child)
+                && let Some(receiver_expr) = usize::try_from(receiver.0).ok().and_then(|index| body.exprs.get(index))
+                && later_updates_state.contains(&receiver_expr.ty)
+            {
+                reads.insert(child);
+            }
             later_runs_code |= can_run_code(body, types, child, &mut memo);
+            later_updates_state.extend(state_updated_types(body, child, &mut state_memo));
         }
     }
     reads
