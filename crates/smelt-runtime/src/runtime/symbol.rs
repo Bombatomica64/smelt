@@ -31,9 +31,9 @@ impl SmeltSymbol {
     //~ time names; later ones append `#<n>`, which no fold produces, so they
     //~ are distinct symbols with the same description.
     /// A `Symbol(d)` evaluation at the site `base` names: a fresh symbol.
-    fn unique(base: SmeltSymbol) -> SmeltSymbol { thread_local! { static SMELT_SYMBOL_EVALUATIONS: ::std::cell::RefCell<::std::collections::HashMap<::std::rc::Rc<str>, u64>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); } let count = SMELT_SYMBOL_EVALUATIONS.with(|counts| { let mut counts = counts.borrow_mut(); let count = counts.entry(base.0.clone()).or_insert(0); let seen = *count; *count += 1; seen }); if count == 0 { base } else { Self(format!("{}#{count}", base.0).into()) } }
+    fn unique(base: Self) -> Self { thread_local! { static SMELT_SYMBOL_EVALUATIONS: ::std::cell::RefCell<::std::collections::HashMap<::std::rc::Rc<str>, u64>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); } let count = SMELT_SYMBOL_EVALUATIONS.with(|counts| { let mut counts = counts.borrow_mut(); let count = counts.entry(base.0.clone()).or_insert(0); let seen = *count; *count += 1; seen }); if count == 0 { base } else { Self(format!("{}#{count}", base.0).into()) } }
     /// The symbol an erased `SmeltUnknown::Symbol` payload names.
-    fn from_shared(spelling: ::std::rc::Rc<str>) -> Self { Self(spelling) }
+    const fn from_shared(spelling: ::std::rc::Rc<str>) -> Self { Self(spelling) }
     /// The opaque spelling this symbol is identified by.
     fn spelling(&self) -> &str { &self.0 }
     //~ `Symbol(d)@<site>` is a unique symbol, `Symbol.for(d)` a registry one,
@@ -70,6 +70,7 @@ impl SmeltJsStrictEq for SmeltSymbol { fn js_strict_eq(&self, other: &Self) -> b
 //~ private to it, so code outside can read a key but only `SmeltToPropKey`
 //~ (and the erased-object decoding, which is the inverse of an encoding this
 //~ module owns) can make one.
+#[allow(clippy::wildcard_imports)]
 mod smelt_prop_key {
     use super::*;
 
@@ -83,9 +84,9 @@ mod smelt_prop_key {
 
     impl SmeltPropKey {
         /// The key when it is a string key.
-        pub fn as_string(&self) -> Option<&JsString> { match &self.0 { SmeltPropKeyRepr::String(text) => Some(text), SmeltPropKeyRepr::Symbol(_) => None } }
+        pub const fn as_string(&self) -> Option<&JsString> { match &self.0 { SmeltPropKeyRepr::String(text) => Some(text), SmeltPropKeyRepr::Symbol(_) => None } }
         /// The key when it is a symbol key.
-        pub fn as_symbol(&self) -> Option<&SmeltSymbol> { match &self.0 { SmeltPropKeyRepr::Symbol(symbol) => Some(symbol), SmeltPropKeyRepr::String(_) => None } }
+        pub const fn as_symbol(&self) -> Option<&SmeltSymbol> { match &self.0 { SmeltPropKeyRepr::Symbol(symbol) => Some(symbol), SmeltPropKeyRepr::String(_) => None } }
         /// The key as the value `Reflect.ownKeys` hands back: a string or a symbol.
         pub fn to_unknown(&self) -> SmeltUnknown { match &self.0 { SmeltPropKeyRepr::String(text) => SmeltUnknown::String(text.clone()), SmeltPropKeyRepr::Symbol(symbol) => symbol.clone().into_smelt_unknown() } }
         /// The string an ERASED object stores this key under: a string key is
@@ -133,18 +134,20 @@ mod smelt_prop_key {
     //~ is `"0"`, `1e21` is `"1e+21"`.
     impl SmeltToPropKey for f64 { fn smelt_to_prop_key(&self) -> SmeltPropKey { smelt_number_to_string(*self).smelt_to_prop_key() } }
     impl SmeltToPropKey for i32 { fn smelt_to_prop_key(&self) -> SmeltPropKey { self.to_string().smelt_to_prop_key() } }
+    #[allow(clippy::cast_precision_loss)]
     impl SmeltToPropKey for i64 { fn smelt_to_prop_key(&self) -> SmeltPropKey { smelt_number_to_string(*self as f64).smelt_to_prop_key() } }
+    #[allow(clippy::cast_precision_loss)]
     impl SmeltToPropKey for usize { fn smelt_to_prop_key(&self) -> SmeltPropKey { smelt_number_to_string(*self as f64).smelt_to_prop_key() } }
     impl SmeltToPropKey for bool { fn smelt_to_prop_key(&self) -> SmeltPropKey { (if *self { "true" } else { "false" }).smelt_to_prop_key() } }
     //~ An absent optional key is `undefined`, whose property key is the
     //~ string `"undefined"`.
-    impl<T: SmeltToPropKey> SmeltToPropKey for Option<T> { fn smelt_to_prop_key(&self) -> SmeltPropKey { match self { Some(value) => value.smelt_to_prop_key(), None => "undefined".smelt_to_prop_key() } } }
+    impl<T: SmeltToPropKey> SmeltToPropKey for Option<T> { fn smelt_to_prop_key(&self) -> SmeltPropKey { self.as_ref().map_or_else(|| "undefined".smelt_to_prop_key(), SmeltToPropKey::smelt_to_prop_key) } }
     impl<T: SmeltToPropKey + ?Sized> SmeltToPropKey for &T { fn smelt_to_prop_key(&self) -> SmeltPropKey { (**self).smelt_to_prop_key() } }
     //~ An erased key: a symbol stays a symbol, everything else is its string.
     //~ `smelt_property_key` already is `ToString` for every other tag, but it
     //~ answers the reserved spelling for a symbol, which is the erased
     //~ storage form and not a key, so the symbol arm is taken first.
-    impl SmeltToPropKey for SmeltUnknown { fn smelt_to_prop_key(&self) -> SmeltPropKey { match self { SmeltUnknown::Symbol(spelling) => SmeltSymbol::from_shared(spelling.clone()).smelt_to_prop_key(), SmeltUnknown::String(text) => text.smelt_to_prop_key(), SmeltUnknown::Null => "null".smelt_to_prop_key(), other => smelt_property_key(other.clone()).smelt_to_prop_key() } } }
+    impl SmeltToPropKey for SmeltUnknown { fn smelt_to_prop_key(&self) -> SmeltPropKey { match self { Self::Symbol(spelling) => SmeltSymbol::from_shared(spelling.clone()).smelt_to_prop_key(), Self::String(text) => text.smelt_to_prop_key(), Self::Null => "null".smelt_to_prop_key(), other => smelt_property_key(other.clone()).smelt_to_prop_key() } } }
 }
 pub use smelt_prop_key::*;
 

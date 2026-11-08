@@ -396,3 +396,4 @@ closure ClosureId(0) -> Bool
   bb0:
     %1 = copy %0 != ""
     return copy %1
+

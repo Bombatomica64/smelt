@@ -97,3 +97,4 @@ fn main (FuncId(7)) -> None throws
     %21 = call @console_log(move %20) -> bb7
   bb7:
     return none
+

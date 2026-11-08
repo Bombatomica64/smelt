@@ -89,7 +89,7 @@ impl FunctionEmitter<'_> {
         {
             return Ok(None);
         }
-        let union_name = super::union::union_name(source);
+        let union_name = union::union_name(source);
         let arms = members
             .iter()
             .enumerate()

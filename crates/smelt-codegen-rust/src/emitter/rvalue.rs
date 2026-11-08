@@ -350,8 +350,8 @@ impl FunctionEmitter<'_> {
             // `SmeltSymbol::description` answers the `Option<JsString>` an
             // optional string is.
             Rvalue::SymbolUnique { base } => {
-                let base = self.operand_expr(base)?;
-                Ok(RustExpr::chain(format!("SmeltSymbol::unique({base})")))
+                let base_text = self.operand_expr(base)?;
+                Ok(RustExpr::chain(format!("SmeltSymbol::unique({base_text})")))
             }
             Rvalue::SymbolDescription { operand } => {
                 let symbol = self.operand_expr(operand)?;

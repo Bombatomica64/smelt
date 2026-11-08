@@ -616,6 +616,20 @@ impl RuntimeDemand {
         {
             self.add(Need::OptionalUnknownRead);
         }
+        // A class METHOD read as a value (`holder[KEY]` before a call) is the
+        // erased bound-method value the emitter renders it as, and its read is
+        // typed through the erased answer, which a program with no other
+        // erased value would otherwise not have.
+        if !self.has(Need::ErasedAnswer) {
+            value.reads(|operand| {
+                if let Operand::Copy(Place::Field { base, field }) | Operand::Move(Place::Field { base, field }) =
+                    operand
+                    && local_class_declares_method(mir, locals, *base, *field)
+                {
+                    self.add(Need::ErasedAnswer);
+                }
+            });
+        }
         // `json()` and friends read through the member's erased host method.
         if !self.has(Need::BodyHostMethod) {
             value.reads(|operand| {
@@ -696,6 +710,26 @@ fn operand_is_class_local(mir: &Mir, locals: &[LocalDecl], operand: &Operand) ->
         .ok()
         .and_then(|index| locals.get(index))
         .is_some_and(|decl| matches!(mir.types.get(decl.ty), Some(Type::Class { .. })))
+}
+
+/// Whether `base` is a local of a class type that declares a method named
+/// `field` (and no field of that name).
+fn local_class_declares_method(mir: &Mir, locals: &[LocalDecl], base: LocalId, field: smelt_hir::Symbol) -> bool {
+    let Some(decl) = usize::try_from(base.0).ok().and_then(|index| locals.get(index)) else {
+        return false;
+    };
+    let Some(Type::Class { name, .. }) = mir.types.get(decl.ty) else {
+        return false;
+    };
+    let Some(class) = crate::classes::find_class(mir, *name) else {
+        return false;
+    };
+    !class.fields.iter().any(|class_field| class_field.name == field)
+        && class
+            .methods
+            .iter()
+            .filter_map(|id| usize::try_from(id.0).ok().and_then(|index| mir.functions.get(index)))
+            .any(|function| function.name == field)
 }
 
 /// Whether `dest` is a type parameter and `source` that parameter's optional.

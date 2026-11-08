@@ -172,3 +172,4 @@ closure ClosureId(0) -> String
   bb0:
     %1 = tuple_index copy %0, 1
     return copy %1
+

@@ -2815,10 +2815,130 @@ fn smelt_symbol_property_key(description: &str) -> String { match description { 
 /// The symbol value spelling a folded symbol key came from.
 fn smelt_folded_symbol_key_spelling(key: &str) -> Option<String> { if let Some(escaped) = key.strip_prefix("__smelt_symbol_unique_") { let (description, offset) = escaped.rsplit_once("_at_")?; return Some(format!("Symbol({})@{offset}", smelt_symbol_key_unescape(description))); } let escaped = key.strip_prefix("__smelt_symbol_for_")?; Some(format!("Symbol.for({})", smelt_symbol_key_unescape(escaped))) }
 
+/// `symbol.description` of the symbol a spelling names.
+fn smelt_symbol_description(spelling: &str) -> Option<String> { if let Some(registry) = spelling.strip_prefix("Symbol.for(").and_then(|rest| rest.strip_suffix(')')) { return Some(registry.to_owned()); } let unique = spelling.rsplit_once('@').filter(|(_, site)| { let site = site.split_once('#').map_or(*site, |(site, _)| site); !site.is_empty() && site.bytes().all(|byte| byte.is_ascii_digit()) }).and_then(|(head, _)| head.strip_prefix("Symbol(").and_then(|rest| rest.strip_suffix(')'))); unique.map_or_else(|| Some(spelling.to_owned()), |unique| (!unique.is_empty()).then(|| unique.to_owned())) }
+
+/// `String(symbol)`: `Symbol(<description>)`, the text JavaScript prints.
+fn smelt_symbol_to_string(spelling: &str) -> String { format!("Symbol({})", smelt_symbol_description(spelling).unwrap_or_default()) }
+
 /// The symbol value a program-written symbol key denotes.
 fn smelt_own_symbol_key_value(key: &str) -> Option<SmeltUnknown> { if let Some(description) = key.strip_prefix("__smelt_symbol:") { return Some(SmeltUnknown::Symbol(description.into())); } smelt_folded_symbol_key_spelling(key).map(|spelling| SmeltUnknown::Symbol(spelling.into())) }
 
 fn smelt_property_key(value: SmeltUnknown) -> String { match value { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(values) => values.into_vec().into_iter().map(smelt_property_key).collect::<Vec<_>>().join(","), SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() } }
+
+/// A JavaScript `symbol` value; see the family notes for its identity rule.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct SmeltSymbol(::std::rc::Rc<str>);
+
+impl SmeltSymbol {
+    /// The symbol a frontend spelling names.
+    fn from_spelling(spelling: &str) -> Self { Self(spelling.into()) }
+    /// A `Symbol(d)` evaluation at the site `base` names: a fresh symbol.
+    fn unique(base: Self) -> Self { thread_local! { static SMELT_SYMBOL_EVALUATIONS: ::std::cell::RefCell<::std::collections::HashMap<::std::rc::Rc<str>, u64>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); } let count = SMELT_SYMBOL_EVALUATIONS.with(|counts| { let mut counts = counts.borrow_mut(); let count = counts.entry(base.0.clone()).or_insert(0); let seen = *count; *count += 1; seen }); if count == 0 { base } else { Self(format!("{}#{count}", base.0).into()) } }
+    /// The symbol an erased `SmeltUnknown::Symbol` payload names.
+    const fn from_shared(spelling: ::std::rc::Rc<str>) -> Self { Self(spelling) }
+    /// The opaque spelling this symbol is identified by.
+    fn spelling(&self) -> &str { &self.0 }
+    /// `symbol.description`: the text the symbol was created with.
+    fn description(&self) -> Option<JsString> { smelt_symbol_description(&self.0).map(JsString::from) }
+    /// `String(symbol)` / `symbol.toString()`: `Symbol(<description>)`.
+    fn to_js_string(&self) -> JsString { JsString::from(smelt_symbol_to_string(&self.0)) }
+    /// The string key an ERASED object stores this symbol's property under.
+    fn storage_key(&self) -> String { smelt_symbol_property_key(&self.0) }
+}
+
+impl ::std::fmt::Debug for SmeltSymbol { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str(&self.to_js_string().to_string()) } }
+impl ::std::fmt::Display for SmeltSymbol { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str(&self.to_js_string().to_string()) } }
+impl Default for SmeltSymbol { fn default() -> Self { Self::from_spelling("Symbol()@0") } }
+impl IntoSmeltUnknown for SmeltSymbol { fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Symbol(self.0) } }
+impl IntoSmeltUnknown for &SmeltSymbol { fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Symbol(self.0.clone()) } }
+impl SmeltFromUnknown for SmeltSymbol { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Symbol(spelling) => Self(spelling), _ => Self::default() } } }
+impl SmeltJsKeyEq for SmeltSymbol { fn same_js_key(&self, other: &Self) -> bool { self == other } fn js_key_hash(&self) -> Option<u64> { Some(smelt_js_hash_one(self)) } }
+impl SmeltJsStrictEq for SmeltSymbol { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }
+
+#[allow(clippy::wildcard_imports)]
+mod smelt_prop_key {
+    use super::*;
+
+    /// A JavaScript property key: the result of `ToPropertyKey`.
+    #[derive(Clone, PartialEq, Eq, Hash)]
+    pub struct SmeltPropKey(SmeltPropKeyRepr);
+
+    /// The two kinds of property key.
+    #[derive(Clone, PartialEq, Eq, Hash)]
+    enum SmeltPropKeyRepr { String(JsString), Symbol(SmeltSymbol) }
+
+    impl SmeltPropKey {
+        /// The key when it is a string key.
+        pub const fn as_string(&self) -> Option<&JsString> { match &self.0 { SmeltPropKeyRepr::String(text) => Some(text), SmeltPropKeyRepr::Symbol(_) => None } }
+        /// The key when it is a symbol key.
+        pub const fn as_symbol(&self) -> Option<&SmeltSymbol> { match &self.0 { SmeltPropKeyRepr::Symbol(symbol) => Some(symbol), SmeltPropKeyRepr::String(_) => None } }
+        /// The key as the value `Reflect.ownKeys` hands back: a string or a symbol.
+        pub fn to_unknown(&self) -> SmeltUnknown { match &self.0 { SmeltPropKeyRepr::String(text) => SmeltUnknown::String(text.clone()), SmeltPropKeyRepr::Symbol(symbol) => symbol.clone().into_smelt_unknown() } }
+        /// The string an ERASED object stores this key under: a string key is
+        /// itself and a symbol key its reserved `__smelt_symbol` spelling.
+        pub fn storage_key(&self) -> JsString { match &self.0 { SmeltPropKeyRepr::String(text) => text.clone(), SmeltPropKeyRepr::Symbol(symbol) => JsString::from(symbol.storage_key()) } }
+        /// The inverse of [`Self::storage_key`]: a key read off an erased object,
+        /// or a string slot holding a symbol key in its reserved spelling.
+        pub fn from_storage_key(key: &JsString) -> Self { if !key.eq_str_prefix("__smelt_symbol") { return Self(SmeltPropKeyRepr::String(key.clone())); } match smelt_own_symbol_key_value(&key.to_string_lossy()) { Some(SmeltUnknown::Symbol(spelling)) => Self(SmeltPropKeyRepr::Symbol(SmeltSymbol::from_shared(spelling))), _ => Self(SmeltPropKeyRepr::String(key.clone())) } }
+        /// The array index this key names, when it is a canonical one.
+        fn array_index(&self) -> Option<u32> { match &self.0 { SmeltPropKeyRepr::String(text) => text.smelt_array_index(), SmeltPropKeyRepr::Symbol(_) => None } }
+        /// Where JavaScript's own-key order puts this key: array indices first
+        /// by value, then string keys, then symbol keys, each of the last two
+        /// in insertion order.
+        pub fn own_key_rank(&self) -> (u8, u32) { match (&self.0, self.array_index()) { (_, Some(index)) => (0, index), (SmeltPropKeyRepr::String(_), None) => (1, 0), (SmeltPropKeyRepr::Symbol(_), None) => (2, 0) } }
+    }
+
+    impl ::std::fmt::Debug for SmeltPropKey { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { match &self.0 { SmeltPropKeyRepr::String(text) => write!(formatter, "{:?}", text.to_string_lossy()), SmeltPropKeyRepr::Symbol(symbol) => write!(formatter, "[{symbol:?}]") } } }
+    impl ::std::fmt::Display for SmeltPropKey { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { match &self.0 { SmeltPropKeyRepr::String(text) => formatter.write_str(&text.to_string_lossy()), SmeltPropKeyRepr::Symbol(symbol) => write!(formatter, "{symbol}") } } }
+    impl Default for SmeltPropKey { fn default() -> Self { Self(SmeltPropKeyRepr::String(JsString::new())) } }
+    impl SmeltJsKeyEq for SmeltPropKey { fn same_js_key(&self, other: &Self) -> bool { self == other } fn js_key_hash(&self) -> Option<u64> { Some(smelt_js_hash_one(self)) } }
+
+    /// JavaScript's `ToPropertyKey`: the one constructor of [`SmeltPropKey`].
+    pub trait SmeltToPropKey {
+        /// The property key this value names.
+        fn smelt_to_prop_key(&self) -> SmeltPropKey;
+    }
+
+    impl SmeltToPropKey for SmeltPropKey { fn smelt_to_prop_key(&self) -> SmeltPropKey { self.clone() } }
+    impl SmeltToPropKey for JsString { fn smelt_to_prop_key(&self) -> SmeltPropKey { SmeltPropKey::from_storage_key(self) } }
+    impl SmeltToPropKey for str { fn smelt_to_prop_key(&self) -> SmeltPropKey { SmeltPropKey::from_storage_key(&JsString::from(self)) } }
+    impl SmeltToPropKey for String { fn smelt_to_prop_key(&self) -> SmeltPropKey { self.as_str().smelt_to_prop_key() } }
+    impl SmeltToPropKey for SmeltSymbol { fn smelt_to_prop_key(&self) -> SmeltPropKey { SmeltPropKey(SmeltPropKeyRepr::Symbol(self.clone())) } }
+    impl SmeltToPropKey for f64 { fn smelt_to_prop_key(&self) -> SmeltPropKey { smelt_number_to_string(*self).smelt_to_prop_key() } }
+    impl SmeltToPropKey for i32 { fn smelt_to_prop_key(&self) -> SmeltPropKey { self.to_string().smelt_to_prop_key() } }
+    #[allow(clippy::cast_precision_loss)]
+    impl SmeltToPropKey for i64 { fn smelt_to_prop_key(&self) -> SmeltPropKey { smelt_number_to_string(*self as f64).smelt_to_prop_key() } }
+    #[allow(clippy::cast_precision_loss)]
+    impl SmeltToPropKey for usize { fn smelt_to_prop_key(&self) -> SmeltPropKey { smelt_number_to_string(*self as f64).smelt_to_prop_key() } }
+    impl SmeltToPropKey for bool { fn smelt_to_prop_key(&self) -> SmeltPropKey { (if *self { "true" } else { "false" }).smelt_to_prop_key() } }
+    impl<T: SmeltToPropKey> SmeltToPropKey for Option<T> { fn smelt_to_prop_key(&self) -> SmeltPropKey { self.as_ref().map_or_else(|| "undefined".smelt_to_prop_key(), SmeltToPropKey::smelt_to_prop_key) } }
+    impl<T: SmeltToPropKey + ?Sized> SmeltToPropKey for &T { fn smelt_to_prop_key(&self) -> SmeltPropKey { (**self).smelt_to_prop_key() } }
+    impl SmeltToPropKey for SmeltUnknown { fn smelt_to_prop_key(&self) -> SmeltPropKey { match self { Self::Symbol(spelling) => SmeltSymbol::from_shared(spelling.clone()).smelt_to_prop_key(), Self::String(text) => text.smelt_to_prop_key(), Self::Null => "null".smelt_to_prop_key(), other => smelt_property_key(other.clone()).smelt_to_prop_key() } } }
+}
+pub use smelt_prop_key::*;
+
+
+/// A property-key record's entries in JavaScript's own-key order: array
+/// indices ascending, then string keys, then symbol keys, each of the last two
+/// in insertion order (`sort_by_key` is stable).
+fn smelt_prop_key_entries<V: Clone>(map: &SmeltJsMap<SmeltPropKey, V>) -> Vec<(SmeltPropKey, V)> { let mut entries: Vec<(SmeltPropKey, V)> = map.iter().collect(); entries.sort_by_key(|(key, _)| key.own_key_rank()); entries }
+
+/// `Object.entries`: the string-keyed entries, in own-key order.
+fn smelt_prop_key_string_entries<V: Clone>(map: &SmeltJsMap<SmeltPropKey, V>) -> Vec<(JsString, V)> { smelt_prop_key_entries(map).into_iter().filter_map(|(key, value)| key.as_string().filter(|text| { let text = text.to_string_lossy(); !text.starts_with("__smelt_proto:") && !text.starts_with("__smelt_method:") && text != "__smelt_class" }).cloned().map(|text| (text, value))).collect() }
+
+/// `Object.getOwnPropertySymbols`: the symbol keys, in insertion order.
+fn smelt_prop_key_symbols<V: Clone>(map: &SmeltJsMap<SmeltPropKey, V>) -> Vec<SmeltSymbol> { map.iter().filter_map(|(key, _)| key.as_symbol().cloned()).collect() }
+
+impl<V: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltJsMap<SmeltPropKey, V> { fn into_smelt_unknown(self) -> SmeltUnknown { smelt_prop_key_record_to_unknown(&self, IntoSmeltUnknown::into_smelt_unknown) } }
+impl<V: SmeltFromUnknown> SmeltFromUnknown for SmeltJsMap<SmeltPropKey, V> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { smelt_prop_key_record_from_unknown(value, V::smelt_from_unknown) } }
+
+/// A property-key record from an erased object's own entries.
+fn smelt_prop_key_record_from_unknown<V>(value: SmeltUnknown, mut item: impl FnMut(SmeltUnknown) -> V) -> SmeltJsMap<SmeltPropKey, V> { match value { SmeltUnknown::Object(values) => values.into_iter().map(|(key, value)| (SmeltPropKey::from_storage_key(&key), item(value))).collect(), SmeltUnknown::Array(values) => values.into_vec().into_iter().enumerate().map(|(index, value)| (index.smelt_to_prop_key(), item(value))).collect(), _ => SmeltJsMap::new() } }
+
+/// A property-key record as an erased object, symbol keys under their reserved
+/// storage spelling.
+fn smelt_prop_key_record_to_unknown<V: Clone>(map: &SmeltJsMap<SmeltPropKey, V>, mut item: impl FnMut(V) -> SmeltUnknown) -> SmeltUnknown { SmeltUnknown::Object(SmeltObject::with_id(map.id, smelt_prop_key_entries(map).into_iter().map(|(key, value)| (key.storage_key(), item(value))).collect())) }
 
 /// Whether an erased Map entry (a `[key, value]` pair) is keyed by `key`.
 fn smelt_map_entry_key_is(entry: &SmeltUnknown, key: &SmeltUnknown) -> bool {
@@ -3531,7 +3651,7 @@ impl ::std::fmt::Display for SmeltUnknown {
             Self::Bool(value) => write!(formatter, "{value}"),
             Self::Number(value) => formatter.write_str(&smelt_number_to_string(*value)),
             Self::String(value) => write!(formatter, "{value}"),
-            Self::Symbol(value) => formatter.write_str(value),
+            Self::Symbol(value) => formatter.write_str(&smelt_symbol_to_string(value)),
             Self::Array(_) | Self::Object(_) => formatter.write_str("[object Object]"),
             Self::Function(_) => formatter.write_str("function () { [native code] }"),
             Self::Promise(_) => formatter.write_str("[object Promise]"),
@@ -3761,7 +3881,7 @@ impl SmeltFromUnknown for i64 {
 
 impl SmeltFromUnknown for String {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        match value { SmeltUnknown::String(value) => value.to_string_lossy(), SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }
+        match value { SmeltUnknown::String(value) => value.to_string_lossy(), SmeltUnknown::Symbol(value) => smelt_symbol_to_string(&value), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }
     }
 }
 
@@ -4465,33 +4585,33 @@ impl SmeltFromUnknown for Request {
 fn main() {
     let req: Request;
     let no_routes: SmeltList<(JsString, JsString)>;
-    let _smelt_tmp_4: Options;
-    let _smelt_tmp_6: Options;
-    let _smelt_tmp_9: Tagged<JsString, f64>;
-    let _smelt_tmp_12: (JsString, JsString);
+    let _smelt_tmp_5: Options;
+    let _smelt_tmp_7: Options;
+    let _smelt_tmp_10: Tagged<JsString, f64>;
     let _smelt_tmp_13: (JsString, JsString);
-    let _smelt_tmp_14: SmeltList<(JsString, JsString)>;
-    let match_: SmeltUnknown = SmeltUnknown::Symbol("Symbol()@663".to_owned().into());
-    let _smelt_tmp_3: JsString = configure(None::<Options>);
-    _smelt_tmp_4 = Options { label: Some(JsString::from("custom")), limit: None::<f64>, tags: None::<SmeltList<JsString>> };
-    let _smelt_tmp_5: JsString = configure(Some(_smelt_tmp_4));
-    _smelt_tmp_6 = Options { label: None::<JsString>, limit: Some(9.0), tags: None::<SmeltList<JsString>> };
-    let _smelt_tmp_7: JsString = configure(Some(_smelt_tmp_6));
-    let _ = { println!("{} {} {}", _smelt_tmp_3, _smelt_tmp_5, _smelt_tmp_7); };
-    _smelt_tmp_9 = Tagged { value: JsString::from("a"), count: 2.0, _smelt_phantom: ::std::marker::PhantomData };
-    let _smelt_tmp_10: JsString = first(_smelt_tmp_9);
-    let _ = { println!("{}", _smelt_tmp_10); };
-    _smelt_tmp_12 = (JsString::from("a"), JsString::from("/x"));
-    _smelt_tmp_13 = (JsString::from("b"), JsString::from("/y"));
-    _smelt_tmp_14 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(JsString, JsString)> = vec![_smelt_tmp_12.clone(), _smelt_tmp_13.clone()]; smelt_list_items }));
-    let _smelt_tmp_15: Request = Request::new(_smelt_tmp_14, Some(JsString::from("ctx")));
-    req = _smelt_tmp_15;
+    let _smelt_tmp_14: (JsString, JsString);
+    let _smelt_tmp_15: SmeltList<(JsString, JsString)>;
+    let match_: SmeltSymbol = SmeltSymbol::unique(SmeltSymbol::from_spelling("Symbol()@663"));
+    let _smelt_tmp_4: JsString = configure(None::<Options>);
+    _smelt_tmp_5 = Options { label: Some(JsString::from("custom")), limit: None::<f64>, tags: None::<SmeltList<JsString>> };
+    let _smelt_tmp_6: JsString = configure(Some(_smelt_tmp_5));
+    _smelt_tmp_7 = Options { label: None::<JsString>, limit: Some(9.0), tags: None::<SmeltList<JsString>> };
+    let _smelt_tmp_8: JsString = configure(Some(_smelt_tmp_7));
+    let _ = { println!("{} {} {}", _smelt_tmp_4, _smelt_tmp_6, _smelt_tmp_8); };
+    _smelt_tmp_10 = Tagged { value: JsString::from("a"), count: 2.0, _smelt_phantom: ::std::marker::PhantomData };
+    let _smelt_tmp_11: JsString = first(_smelt_tmp_10);
+    let _ = { println!("{}", _smelt_tmp_11); };
+    _smelt_tmp_13 = (JsString::from("a"), JsString::from("/x"));
+    _smelt_tmp_14 = (JsString::from("b"), JsString::from("/y"));
+    _smelt_tmp_15 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(JsString, JsString)> = vec![_smelt_tmp_13.clone(), _smelt_tmp_14.clone()]; smelt_list_items }));
+    let _smelt_tmp_16: Request = Request::new(_smelt_tmp_15, Some(JsString::from("ctx")));
+    req = _smelt_tmp_16;
     no_routes = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(JsString, JsString)> = vec![]; smelt_list_items }));
-    let _smelt_tmp_17: JsString = paths(req.clone());
-    let _smelt_tmp_18: JsString = context_of(req);
-    let _smelt_tmp_19: Request = Request::new(no_routes, None::<JsString>);
-    let _smelt_tmp_20: JsString = context_of(_smelt_tmp_19);
-    let _ = { println!("{} {} {}", _smelt_tmp_17, _smelt_tmp_18, _smelt_tmp_20); };
+    let _smelt_tmp_18: JsString = paths(req.clone());
+    let _smelt_tmp_19: JsString = context_of(req);
+    let _smelt_tmp_20: Request = Request::new(no_routes, None::<JsString>);
+    let _smelt_tmp_21: JsString = context_of(_smelt_tmp_20);
+    let _ = { println!("{} {} {}", _smelt_tmp_18, _smelt_tmp_19, _smelt_tmp_21); };
     return;
 }
 

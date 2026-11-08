@@ -58,7 +58,7 @@ fn ensure_prints_like_node(source: &str, expected: &str, name: &str) -> TestResu
 /// symbol keys apart from strings. Every access goes through a generic
 /// `K extends PropertyKey` helper, so the key reaches the record raw (a
 /// number, a string, a symbol) and the record has to convert it.
-const PROPERTY_KEYS_TS: &str = r#"function put<K extends PropertyKey>(r: Record<K, string>, k: K, v: string): void { r[k] = v; }
+const PROPERTY_KEYS_TS: &str = r"function put<K extends PropertyKey>(r: Record<K, string>, k: K, v: string): void { r[k] = v; }
 function get<K extends PropertyKey>(r: Record<K, string>, k: K): string { return r[k]; }
 function has<K extends PropertyKey>(r: Record<K, string>, k: K): boolean { return k in r; }
 function drop<K extends PropertyKey>(r: Record<K, string>, k: K): boolean { return delete r[k]; }
@@ -102,7 +102,7 @@ direct[1] = 'n';
 direct[1.5] = 'f';
 direct[-0] = 'zero';
 console.log(direct['1'], direct['1.5'], direct['0'], Object.keys(direct).join(','), 1 in direct, '1.5' in direct);
-"#;
+";
 
 /// What Node prints for [`PROPERTY_KEYS_TS`].
 const PROPERTY_KEYS_OUTPUT: &str = "uno uno true true 1
@@ -187,7 +187,7 @@ fn invert_and_group_by_follow_node() -> TestResult {
 }
 
 /// Symbol values and the `null`/`undefined` distinction.
-const SYMBOLS_TS: &str = r#"const a = Symbol('a');
+const SYMBOLS_TS: &str = r"const a = Symbol('a');
 const b = Symbol('a');
 const r1 = Symbol.for('reg');
 const r2 = Symbol.for('reg');
@@ -218,7 +218,7 @@ function nil(c: boolean): null | undefined { return c ? null : undefined; }
 console.log(nil(true), nil(false), [pick(true), pick(false), nil(true)]);
 const erased: unknown = pick(true);
 console.log(erased === null, erased === undefined);
-"#;
+";
 
 /// What Node prints for [`SYMBOLS_TS`].
 const SYMBOLS_OUTPUT: &str = "symbol symbol symbol string number
@@ -244,14 +244,14 @@ fn symbols_and_nullish_ternaries_follow_node() -> TestResult {
 /// project through the symlink named the test file and its checker facts
 /// through two different paths, so it typed fewer of them and wrote a
 /// different crate.
-const SYMLINK_MAIN_TS: &str = r#"import { apply, collect } from './lib.ts';
+const SYMLINK_MAIN_TS: &str = r"import { apply, collect } from './lib.ts';
 const doubled = apply([1, 2, 3], (x) => x * 2);
 const words = collect(['a', 'b']);
 console.log(doubled.join(','), words.join(','));
-"#;
+";
 
 /// The imported module of [`SYMLINK_MAIN_TS`].
-const SYMLINK_LIB_TS: &str = r#"export function apply<T, U>(xs: T[], f: (x: T) => U): U[] { return xs.map(f); }
+const SYMLINK_LIB_TS: &str = r"export function apply<T, U>(xs: T[], f: (x: T) => U): U[] { return xs.map(f); }
 export function collect(xs: string[]) {
   const out = [];
   for (const x of xs) { out.push(x + '!'); }
@@ -266,10 +266,10 @@ export function maxBy<T>(items: T[], score: (item: T) => number): T | undefined 
   }
   return best;
 }
-"#;
+";
 
 /// The test file of the symlinked project.
-const SYMLINK_SPEC_TS: &str = r#"import { describe, expect, it } from 'vitest';
+const SYMLINK_SPEC_TS: &str = r"import { describe, expect, it } from 'vitest';
 import { maxBy } from './lib.ts';
 
 describe('maxBy', () => {
@@ -278,10 +278,13 @@ describe('maxBy', () => {
     expect(maxBy(people, person => person.age)).toEqual({ name: 'b', age: 3 });
   });
 });
-"#;
+";
+
+/// Each file of a tree: its path relative to the root, and its bytes.
+type TreeFile = (PathBuf, Vec<u8>);
 
 /// Every file under `root`, relative to it, with its bytes.
-fn tree(root: &Path) -> TestResult<Vec<(PathBuf, Vec<u8>)>> {
+fn tree(root: &Path) -> TestResult<Vec<TreeFile>> {
     let mut files = Vec::new();
     let mut pending = vec![root.to_path_buf()];
     while let Some(dir) = pending.pop() {
