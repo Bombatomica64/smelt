@@ -5,7 +5,7 @@ use crate::lowering::{
     ArrayExpressionElement, Body, Expr, ExprKind, Literal, ModuleBuilder, SetProjectionOp,
     SmeltError, Type,
 };
-use crate::lowering::js_text::js_str_text;
+use crate::lowering::js_text::js_str_literal;
 use oxc::span::GetSpan;
 use smelt_hir::ErasureReason;
 
@@ -43,7 +43,7 @@ impl ModuleBuilder<'_> {
             ArrayExpressionElement::StringLiteral(lit) => {
                 let ty = self.ctx.krate.types.intern(Type::String);
                 Ok(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::String(js_str_text(lit.value).into_owned())),
+                    kind: ExprKind::Literal(js_str_literal(lit.value)),
                     ty,
                     span: self.span(lit.span.start, lit.span.end),
                 }))

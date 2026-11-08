@@ -30,6 +30,7 @@ pub(crate) fn constant_expr(constant: &Constant, js_text: bool) -> RustExpr {
             }
         }
         Constant::String(value) if js_text => RustExpr::js_string_literal(value),
+        Constant::StringUnits(units) => RustExpr::js_string_units_literal(units),
         Constant::String(value) => RustExpr::string_literal(value),
         Constant::Symbol(value) => {
             RustExpr::atom(format!(

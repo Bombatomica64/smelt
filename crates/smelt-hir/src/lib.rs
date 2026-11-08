@@ -109,7 +109,7 @@ pub use erasure::{
     ERASURE_REASONS, ErasureClass, ErasureReason, ErasureReasonInfo, ErasureRecord,
     ErasureSeverity, line_col, normalize_erasures,
 };
-pub use format::{format_compact, type_display};
+pub use format::{format_compact, string_units_text, type_display};
 /// The stdlib element table, re-exported so MIR and codegen name the SAME
 /// type HIR does rather than each reaching for the registry crate.
 pub use smelt_stdlib::TypedArrayElement;

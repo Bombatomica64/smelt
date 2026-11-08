@@ -839,6 +839,7 @@ fn lower_literal(literal: &HirLiteral) -> Constant {
         HirLiteral::Float(value) => Constant::Float(*value),
         HirLiteral::BigInt(digits) => Constant::BigInt(digits.clone()),
         HirLiteral::String(value) => Constant::String(value.clone()),
+        HirLiteral::StringUnits(units) => Constant::StringUnits(units.clone()),
         HirLiteral::Symbol(value) => Constant::Symbol(value.clone()),
         HirLiteral::Undefined => Constant::Undefined,
         HirLiteral::None => Constant::None,

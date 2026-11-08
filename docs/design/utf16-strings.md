@@ -444,3 +444,12 @@ Where the implementation departs from the design above, and why.
   in-pattern spelling and those two sites (a regex literal passed where a
   `string` is expected, a regex literal folded into a `const` string) still
   drop them, as before. `string_units.rs` and `Need::StringUnits` are gone.
+- **Step 6 (lone surrogates).** A string literal value holding a lone
+  surrogate lowers to `Literal::StringUnits` / `Constant::StringUnits` (its
+  exact UTF-16 code units) and is emitted as `JsString::from_units(&[..])`;
+  every other literal stays `Literal::String`. Template quasis and static
+  property names still cross into Rust text lossily (U+FFFD), as before: a
+  lone half there is rare, and a property name is a Rust field spelling.
+  The erased-object key part of this step moved to step 4 (see above).
+  `String.prototype.isWellFormed`/`toWellFormed` exist on `JsStr` but are not
+  yet modelled as frontend string methods.

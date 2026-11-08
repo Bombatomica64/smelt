@@ -49,17 +49,18 @@ const fn empty_union_facts() -> TypeDecodeFacts {
 /// A hashable identity for a literal value, equal exactly when the values are
 /// equal under `Literal`'s `PartialEq` (so `0` and `-0` share one key), or
 /// `None` for a value equal to nothing (`NaN`).
-fn literal_key(value: &Literal) -> Option<(u8, u64, &str)> {
+fn literal_key(value: &Literal) -> Option<(u8, u64, std::borrow::Cow<'_, str>)> {
     match value {
-        Literal::Bool(flag) => Some((0, u64::from(*flag), "")),
-        Literal::Int(number) => Some((1, u64::from_ne_bytes(number.to_ne_bytes()), "")),
+        Literal::Bool(flag) => Some((0, u64::from(*flag), "".into())),
+        Literal::Int(number) => Some((1, u64::from_ne_bytes(number.to_ne_bytes()), "".into())),
         Literal::Float(number) if number.is_nan() => None,
-        Literal::Float(number) => Some((2, (if *number == 0.0 { 0.0_f64 } else { *number }).to_bits(), "")),
-        Literal::String(text) => Some((3, 0, text.as_str())),
-        Literal::Symbol(text) => Some((4, 0, text.as_str())),
-        Literal::BigInt(digits) => Some((7, 0, digits.as_str())),
-        Literal::Undefined => Some((5, 0, "")),
-        Literal::None => Some((6, 0, "")),
+        Literal::Float(number) => Some((2, (if *number == 0.0 { 0.0_f64 } else { *number }).to_bits(), "".into())),
+        Literal::String(text) => Some((3, 0, text.as_str().into())),
+        Literal::Symbol(text) => Some((4, 0, text.as_str().into())),
+        Literal::BigInt(digits) => Some((7, 0, digits.as_str().into())),
+        Literal::StringUnits(units) => Some((8, 0, smelt_hir::string_units_text(units).into())),
+        Literal::Undefined => Some((5, 0, "".into())),
+        Literal::None => Some((6, 0, "".into())),
     }
 }
 
@@ -82,7 +83,7 @@ fn union_facts(
             (Some(mut values), Some(more)) => {
                 for value in more {
                     let fresh = literal_key(&value).is_none_or(|(tag, bits, text)| {
-                        seen.insert((tag, bits, text.to_owned()))
+                        seen.insert((tag, bits, text.into_owned()))
                     });
                     if fresh {
                         values.push(value);

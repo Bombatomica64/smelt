@@ -2,7 +2,7 @@
 //! type-predicate returns, and function bodies.
 
 use crate::lowering::body_arena::BodyArena;
-use crate::lowering::js_text::js_str_text;
+use crate::lowering::js_text::{js_str_literal, js_str_text};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
@@ -3504,7 +3504,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<Option<(Literal, smelt_hir::TypeId)>, SmeltError> {
         let pair = match expr {
             Expression::StringLiteral(literal) => (
-                Literal::String(js_str_text(literal.value).into_owned()),
+                js_str_literal(literal.value),
                 self.ctx.krate.types.intern(Type::String),
             ),
             Expression::BooleanLiteral(literal) => (

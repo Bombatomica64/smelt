@@ -41,8 +41,18 @@ pub(super) fn literal_text(literal: &Literal) -> String {
         }
         Literal::BigInt(digits) => format!("{digits}n"),
         Literal::String(value) => format!("\"{value}\""),
+        Literal::StringUnits(units) => format!("\"{}\"", string_units_text(units)),
         Literal::Symbol(value) => format!("symbol({value:?})"),
         Literal::Undefined => "undefined".to_owned(),
         Literal::None => "none".to_owned(),
     }
+}
+
+/// The text of a string held as UTF-16 code units: its characters, with each
+/// lone surrogate written as the JavaScript escape `\uXXXX`.
+#[must_use]
+pub fn string_units_text(units: &[u16]) -> String {
+    char::decode_utf16(units.iter().copied())
+        .map(|decoded| decoded.map_or_else(|lone| format!("\\u{:04X}", lone.unpaired_surrogate()), String::from))
+        .collect()
 }

@@ -2,7 +2,7 @@
 
 
 use crate::lowering::body_arena::BodyArena;
-use crate::lowering::js_text::js_str_text;
+use crate::lowering::js_text::{js_str_literal, js_str_text};
 use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::state::local_scope::ScopeGroups;
 use crate::lowering::support::{
@@ -703,7 +703,7 @@ return_ty,
                 ty: self.ctx.krate.types.intern(Type::Float),
             }),
             Expression::StringLiteral(lit) => Ok(ConstLiteral {
-                literal: Literal::String(js_str_text(lit.value).into_owned()),
+                literal: js_str_literal(lit.value),
                 ty: self.ctx.krate.types.intern(Type::String),
             }),
             Expression::BooleanLiteral(lit) => Ok(ConstLiteral {

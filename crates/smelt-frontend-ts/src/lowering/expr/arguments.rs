@@ -2,7 +2,7 @@
 
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
-use crate::lowering::js_text::js_str_text;
+use crate::lowering::js_text::js_str_literal;
 use oxc::ast::ast::Argument;
 use oxc::span::GetSpan;
 use oxc::syntax::operator::BinaryOperator;
@@ -41,7 +41,7 @@ impl ModuleBuilder<'_> {
             Argument::StringLiteral(lit) => {
                 let ty = self.ctx.krate.types.intern(Type::String);
                 Ok(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::String(js_str_text(lit.value).into_owned())),
+                    kind: ExprKind::Literal(js_str_literal(lit.value)),
                     ty,
                     span: self.span(lit.span.start, lit.span.end),
                 }))

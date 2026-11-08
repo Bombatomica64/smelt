@@ -3,7 +3,7 @@
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::support::source_spelling;
 use crate::lowering::peel::{Wrappers, peel};
-use crate::lowering::js_text::js_str_text;
+use crate::lowering::js_text::{js_str_literal, js_str_text};
 use std::collections::{HashMap, HashSet};
 
 use indexmap::IndexMap;
@@ -2414,7 +2414,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 ty: self.ctx.krate.types.intern(Type::Float),
             }),
             Expression::StringLiteral(literal) => Some(ConstLiteral {
-                literal: Literal::String(js_str_text(literal.value).into_owned()),
+                literal: js_str_literal(literal.value),
                 ty: self.ctx.krate.types.intern(Type::String),
             }),
             Expression::BooleanLiteral(literal) => Some(ConstLiteral {

@@ -20,6 +20,10 @@ pub enum Literal {
     BigInt(String),
     /// A string literal.
     String(String),
+    /// A JavaScript string literal holding a lone surrogate, as its UTF-16
+    /// code units (`"\uD83D"`). Rust text cannot hold a lone half, so such a
+    /// literal keeps its units; every other string literal is [`Self::String`].
+    StringUnits(Vec<u16>),
     /// A JavaScript symbol literal lowered as an opaque runtime value.
     Symbol(String),
     /// The `undefined` literal value.

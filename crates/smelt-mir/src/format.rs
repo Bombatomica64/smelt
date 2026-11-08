@@ -542,6 +542,7 @@ fn constant_text(constant: &Constant) -> String {
         }
         Constant::BigInt(digits) => format!("{digits}n"),
         Constant::String(value) => format!("\"{value}\""),
+        Constant::StringUnits(units) => format!("\"{}\"", smelt_hir::string_units_text(units)),
         Constant::Symbol(value) => format!("symbol({value:?})"),
         Constant::Undefined => "undefined".to_owned(),
         Constant::None => "none".to_owned(),
