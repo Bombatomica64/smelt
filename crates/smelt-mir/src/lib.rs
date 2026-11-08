@@ -199,6 +199,30 @@ mod tests {
         assert_eq!(fields[1].1, ["b"], "{fields:?}");
     }
 
+    /// A constructor-function field takes the join of the types its writes
+    /// evaluate to; a field written from a parameter stays erased.
+    #[test]
+    fn constructor_function_fields_take_their_written_types() {
+        let mir = compile_ts(
+            "function Point(this: any, x: number) {\n  this.count = 1;\n  if (x > 0) { this.mixed = 2; } else { this.mixed = \"neg\"; }\n  this.fromParam = x;\n}\nPoint.prototype.bump = function (this: any) { this.count = this.count + 1; };\n// @ts-ignore\nconsole.log(new Point(1).count);\n",
+        );
+        let field_ty = |name: &str| {
+            mir.classes
+                .iter()
+                .flat_map(|class| &class.fields)
+                .find(|field| mir.symbols.get(field.name) == Some(name))
+                .and_then(|field| mir.types.get(field.ty))
+                .cloned()
+        };
+        assert_eq!(field_ty("count"), Some(smelt_hir::Type::Float), "{}", format_compact(&mir));
+        assert!(
+            matches!(field_ty("mixed"), Some(smelt_hir::Type::Union(members)) if members.len() == 2),
+            "{}",
+            format_compact(&mir)
+        );
+        assert_eq!(field_ty("from_param"), Some(smelt_hir::Type::Unknown));
+    }
+
     /// Compiling one program twice in one process (so every `HashMap` gets a
     /// different seed) yields byte-identical MIR and an identical type table
     /// (audit C14: promotion and integer-range interned in hash order).

@@ -496,6 +496,70 @@ console.log(beta.bump());
 console.log(beta.bump());
 ";
 
+/// A constructor function whose fields take types from their writes.
+const CONSTRUCTOR_FIELDS_MAIN: &str = r#"function Point(this: any, x: number) {
+  this.label = "p";
+  this.count = 1;
+  if (x > 0) { this.mixed = 2; } else { this.mixed = "neg"; }
+  this.fromParam = x;
+}
+Point.prototype.bump = function (this: any) { this.count = this.count + 41; };
+// @ts-ignore
+const p = new Point(3);
+p.bump();
+console.log(typeof p.count, p.count * 2, typeof p.label, p.label + "!", typeof p.mixed, p.mixed, p.fromParam + 1);
+// @ts-ignore
+const q = new Point(-1);
+console.log(typeof q.mixed, q.mixed);
+"#;
+
+/// A constructor-function class's fields are typed from their
+/// `this.<field> = <expr>` writes, joined into a union when the writes
+/// disagree, and erased only where a write cannot be typed (here, one reading
+/// a parameter). The printed `typeof` and arithmetic results show the typed
+/// fields still behave as JavaScript's do: `node` is the oracle for the
+/// expected stdout, and the generated crate must print the same.
+#[test]
+fn build_runs_constructor_function_fields_at_their_written_types() -> TestResult {
+    let expected = "number 84 string p! number 2 4\nstring neg\n".to_owned();
+    ensure_node_agrees(
+        &[("main.ts", CONSTRUCTOR_FIELDS_MAIN)],
+        "main.ts",
+        &expected,
+        "build_runs_constructor_function_fields_at_their_written_types",
+    )?;
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "constructor-fields"
+version = "0.1.0"
+
+[sources]
+roots = ["src"]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "constructor_fields"
+build = true
+"#,
+    )?;
+    fs::write(project_path.join("src/main.ts"), CONSTRUCTOR_FIELDS_MAIN)?;
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+    let generated = fs::read_to_string(project_path.join("dist/src/main.rs"))?;
+    ensure(
+        generated.contains("count: f64") && generated.contains("label: JsString"),
+        "constructor-function fields must be typed from their writes",
+    )?;
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &expected, "constructor-function field behaviour")?;
+    Ok(())
+}
+
 /// `alpha.ts` for [`build_runs_two_modules_with_private_and_block_local_same_named_classes`].
 const SAME_NAMED_FOO_ALPHA: &str = r#"class Foo {
   count: number = 1;
