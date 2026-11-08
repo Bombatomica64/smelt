@@ -275,7 +275,7 @@ impl LoweringCtx<'_> {
     /// statement's end (`break`) or its loop's next iteration (`continue`).
     pub(super) fn lower_label_exit(&mut self, exit: LoopExit, label: smelt_hir::Symbol) -> Result<(), LowerError> {
         let found = self.scopes.iter().enumerate().rev().find_map(|(depth, scope)| match (exit, scope) {
-            (LoopExit::Break, ControlScope::Label(scope)) if scope.label == label => Some((depth, scope.break_target)),
+            (LoopExit::Break, ControlScope::Label(labelled)) if labelled.label == label => Some((depth, labelled.break_target)),
             (LoopExit::Continue, ControlScope::Loop(targets)) if targets.label == Some(label) => {
                 Some((depth, targets.continue_target))
             }

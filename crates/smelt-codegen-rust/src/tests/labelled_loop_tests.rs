@@ -119,8 +119,8 @@ fn an_irreducible_cycle_is_an_emit_error() {
     else {
         panic!("entry switch");
     };
-    let retarget = |function: &mut smelt_mir::MirFunction, from: BlockId, to: BlockId| {
-        if let Some(block) = function.blocks.iter_mut().find(|block| block.id == from) {
+    let retarget = |target: &mut smelt_mir::MirFunction, from: BlockId, to: BlockId| {
+        if let Some(block) = target.blocks.iter_mut().find(|block| block.id == from) {
             block.terminator = Some(Terminator::Goto(to));
         }
     };

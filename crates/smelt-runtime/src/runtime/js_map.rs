@@ -72,9 +72,11 @@ impl<K: SmeltJsKeyEq, V> SmeltJsMapStore<K, V> {
         let mut store = Self { entries: Vec::with_capacity(entries.len()), index: SmeltJsSlotIndex::new() };
         for (key, value) in entries {
             let hash = key.js_key_hash();
-            match store.position(&key, hash) {
-                Some(slot) => store.entries[slot].1 = value,
-                None => { store.index.remember(store.entries.len(), hash); store.entries.push((key, value)); }
+            if let Some(slot) = store.position(&key, hash) {
+                store.entries[slot].1 = value;
+            } else {
+                store.index.remember(store.entries.len(), hash);
+                store.entries.push((key, value));
             }
         }
         store

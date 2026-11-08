@@ -1003,7 +1003,7 @@ impl ModuleBuilder<'_> {
         // comparison (`JsStrictEq`, which reads each container's id), not
         // value equality: `set(a) is a` is False although the two are equal.
         // For `None` and the immutable scalars `==` gives the same answer.
-        let bin_op = match op {
+        let compared_op = match op {
             CmpOp::Is | CmpOp::IsNot
                 if self.is_identity_container(Self::expr_ty(body, lhs))
                     && self.is_identity_container(Self::expr_ty(body, rhs)) =>
@@ -1015,7 +1015,7 @@ impl ModuleBuilder<'_> {
         let ty = self.intern_type(Type::Bool);
         Ok(body.push_expr(HirExpr {
             kind: ExprKind::BinOp {
-                op: bin_op,
+                op: compared_op,
                 lhs,
                 rhs,
             },

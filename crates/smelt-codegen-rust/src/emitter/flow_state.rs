@@ -166,7 +166,7 @@ impl OpenLoopScope<'_> {
             .bytes()
             .take_while(|byte| *byte == b' ')
             .count();
-        out.insert_str(self.opened_at + indent, &format!("{}: ", loop_label(open.header)));
+        out.insert_str(self.opened_at.saturating_add(indent), &format!("{}: ", loop_label(open.header)));
     }
 }
 

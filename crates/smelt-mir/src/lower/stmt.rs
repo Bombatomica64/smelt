@@ -1011,7 +1011,7 @@ impl FinallyPlan {
 
 /// Whether `stmt` is an iteration statement, the kind a `continue label` can
 /// target.
-fn is_loop_stmt(stmt: &HirStmt) -> bool {
+const fn is_loop_stmt(stmt: &HirStmt) -> bool {
     matches!(
         stmt,
         HirStmt::While { .. }

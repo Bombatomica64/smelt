@@ -856,9 +856,9 @@ impl<T: Clone + ::std::cmp::Eq + ::std::hash::Hash> SmeltPrimSet<T> {
     /// The members, in insertion order, as an owned snapshot.
     fn iter(&self) -> ::std::vec::IntoIter<T> { self.store.borrow().entries.clone().into_iter() }
     fn contains(&self, value: &T) -> bool { self.store.borrow().index.contains(value) }
-    fn insert(&mut self, value: T) -> bool { let mut store = self.store.borrow_mut(); if store.index.contains(&value) { return false; } store.index.insert(value.clone()); store.entries.push(value); true }
-    fn remove(&mut self, value: &T) -> bool { let mut store = self.store.borrow_mut(); if !store.index.remove(value) { return false; } store.entries.retain(|entry| entry != value); true }
-    fn clear(&mut self) { let mut store = self.store.borrow_mut(); store.entries.clear(); store.index.clear(); }
+    #[expect(clippy::needless_pass_by_ref_mut, reason = "the write goes through the shared cell; `&mut` keeps the signature saying it writes, as SmeltJsMap does")] fn insert(&mut self, value: T) -> bool { let mut store = self.store.borrow_mut(); if store.index.contains(&value) { return false; } store.index.insert(value.clone()); store.entries.push(value); true }
+    #[expect(clippy::needless_pass_by_ref_mut, reason = "the write goes through the shared cell; `&mut` keeps the signature saying it writes, as SmeltJsMap does")] fn remove(&mut self, value: &T) -> bool { let mut store = self.store.borrow_mut(); if !store.index.remove(value) { return false; } store.entries.retain(|entry| entry != value); true }
+    #[expect(clippy::needless_pass_by_ref_mut, reason = "the write goes through the shared cell; `&mut` keeps the signature saying it writes, as SmeltJsMap does")] fn clear(&mut self) { let mut store = self.store.borrow_mut(); store.entries.clear(); store.index.clear(); }
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) { for value in iter { self.insert(value); } }
     fn is_disjoint(&self, other: &Self) -> bool { self.iter().all(|value| !other.contains(&value)) }
     fn is_subset(&self, other: &Self) -> bool { self.iter().all(|value| other.contains(&value)) }

@@ -1672,9 +1672,11 @@ impl<K: SmeltJsKeyEq, V> SmeltJsMapStore<K, V> {
         let mut store = Self { entries: Vec::with_capacity(entries.len()), index: SmeltJsSlotIndex::new() };
         for (key, value) in entries {
             let hash = key.js_key_hash();
-            match store.position(&key, hash) {
-                Some(slot) => store.entries[slot].1 = value,
-                None => { store.index.remember(store.entries.len(), hash); store.entries.push((key, value)); }
+            if let Some(slot) = store.position(&key, hash) {
+                store.entries[slot].1 = value;
+            } else {
+                store.index.remember(store.entries.len(), hash);
+                store.entries.push((key, value));
             }
         }
         store
@@ -1816,7 +1818,7 @@ impl<T> SmeltJsSet<T> {
     fn with_id(id: usize) -> Self { Self { id, store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltJsSetStore::new())) } }
     /// Drop every member, in the shared store: every handle sees the set empty.
     /// Needs no `T: Clone` and never copies the members it is about to drop.
-    fn clear(&mut self) { *self.store.borrow_mut() = SmeltJsSetStore::new(); }
+    #[expect(clippy::needless_pass_by_ref_mut, reason = "the write goes through the shared cell; `&mut` keeps the signature saying it writes, as SmeltJsMap does")] fn clear(&mut self) { *self.store.borrow_mut() = SmeltJsSetStore::new(); }
     fn len(&self) -> usize { self.store.borrow().entries.len() }
     fn is_empty(&self) -> bool { self.store.borrow().entries.is_empty() }
 }
@@ -1834,8 +1836,8 @@ impl<T: Clone + IntoSmeltUnknown> SmeltJsSet<T> {
     fn position_with_key(&self, value: &T, key: Option<u64>) -> Option<usize> { let store = self.store.borrow(); store.index.slots(key).iter().copied().find(|slot| Self::same_member(&store.entries[*slot], value)) }
     fn position(&self, value: &T) -> Option<usize> { self.position_with_key(value, Self::member_key(value)) }
     fn contains(&self, value: &T) -> bool { self.position(value).is_some() }
-    fn insert(&mut self, value: T) -> bool { let key = Self::member_key(&value); if self.position_with_key(&value, key).is_some() { return false; } let mut store = self.store.borrow_mut(); let slot = store.entries.len(); store.entries.push(value); store.index.remember(slot, key); true }
-    fn remove(&mut self, value: &T) -> bool { match self.position(value) { Some(slot) => { let mut store = self.store.borrow_mut(); store.entries.remove(slot); store.index.forget(slot); true }, None => false } }
+    #[expect(clippy::needless_pass_by_ref_mut, reason = "the write goes through the shared cell; `&mut` keeps the signature saying it writes, as SmeltJsMap does")] fn insert(&mut self, value: T) -> bool { let key = Self::member_key(&value); if self.position_with_key(&value, key).is_some() { return false; } let mut store = self.store.borrow_mut(); let slot = store.entries.len(); store.entries.push(value); store.index.remember(slot, key); true }
+    #[expect(clippy::needless_pass_by_ref_mut, reason = "the write goes through the shared cell; `&mut` keeps the signature saying it writes, as SmeltJsMap does")] fn remove(&mut self, value: &T) -> bool { match self.position(value) { Some(slot) => { let mut store = self.store.borrow_mut(); store.entries.remove(slot); store.index.forget(slot); true }, None => false } }
     /// The members, in insertion order, as an owned snapshot.
     fn iter(&self) -> ::std::vec::IntoIter<T> { self.store.borrow().entries.clone().into_iter() }
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) { for value in iter { self.insert(value); } }
