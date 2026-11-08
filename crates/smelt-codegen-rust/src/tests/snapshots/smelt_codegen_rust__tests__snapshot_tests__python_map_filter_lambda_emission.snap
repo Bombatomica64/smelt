@@ -16,7 +16,7 @@ fn run() -> () {
     let doubled: SmeltList<i64> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: i64| {
     let _smelt_tmp_1: i64 = closure_arg_0 * 2;
     _smelt_tmp_1
-    }); values.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone()) }).collect::<Vec<_>>() });
+    }); values.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item.clone()) }).collect::<Vec<_>>() });
     let _smelt_tmp_6 = ::std::rc::Rc::new(|closure_arg_0: i64| {
     let _smelt_tmp_1: bool = closure_arg_0 > 1;
     _smelt_tmp_1
@@ -24,7 +24,7 @@ fn run() -> () {
     let positives: SmeltList<i64> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: i64| {
     let _smelt_tmp_1: bool = closure_arg_0 > 1;
     _smelt_tmp_1
-    }); values.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone()) { Some(item.clone()) } else { None }).collect::<Vec<_>>() });
+    }); values.borrow().iter().enumerate().filter_map(|(smelt_index, smelt_item)| if (smelt_callback)(smelt_item.clone()) { Some(smelt_item.clone()) } else { None }).collect::<Vec<_>>() });
     return;
 }
 

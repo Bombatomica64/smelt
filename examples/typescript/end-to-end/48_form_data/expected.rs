@@ -6090,7 +6090,7 @@ impl IntoSmeltUnknown for SmeltUnion12 {
 }
 impl SmeltUnion12 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::String(_)) { return Self::M0(match value.clone() { SmeltUnknown::String(value) => value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }); }
+        if matches!(value, SmeltUnknown::String(_)) { return Self::M0(match value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }); }
         Self::M1(<SmeltBlob as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
     }
 }
@@ -6219,7 +6219,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_20: () = form.clone().append(&JsString::from("a"), SmeltFormDataValue::Text((JsString::from("2")).to_string()));
     let _smelt_tmp_21: () = form.clone().append(&JsString::from("b"), SmeltFormDataValue::Text((JsString::from("x")).to_string()));
     let _smelt_tmp_22: Option<SmeltUnion12> = form.clone().get(&JsString::from("a")).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion12::M0(JsString::from(smelt_text)), SmeltFormDataValue::File(smelt_file) => SmeltUnion12::M1(smelt_file) });
-    let _ = { println!("{}", match &_smelt_tmp_22 { Some(value) => format!("{}", value.clone().into_smelt_unknown()), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", match &_smelt_tmp_22 { Some(smelt_value) => format!("{}", smelt_value.clone().into_smelt_unknown()), None => "undefined".to_owned() }); };
     _smelt_tmp_24 = Into::<SmeltList<_>>::into(SmeltList::new(form.clone().get_all(&JsString::from("a")).into_iter().map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion12::M0(JsString::from(smelt_text)), SmeltFormDataValue::File(smelt_file) => SmeltUnion12::M1(smelt_file) }).collect::<Vec<_>>()));
     _smelt_tmp_25 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnion12> = vec![]; smelt_list_items }));
     _smelt_tmp_26 = Into::<SmeltList<_>>::into(_smelt_tmp_24.borrow().iter().cloned().chain(_smelt_tmp_25.borrow().iter().cloned()).collect::<Vec<_>>());
@@ -6253,7 +6253,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_49 = JsString::join(_smelt_tmp_48.borrow().iter(), &JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_49); };
     _smelt_tmp_51 = form.get(&JsString::from("a")).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion12::M0(JsString::from(smelt_text)), SmeltFormDataValue::File(smelt_file) => SmeltUnion12::M1(smelt_file) });
-    _smelt_tmp_52 = _smelt_tmp_51.map_or_else(|| SmeltUnion12::M0(JsString::from("absent")), |value| value);
+    _smelt_tmp_52 = _smelt_tmp_51.map_or_else(|| SmeltUnion12::M0(JsString::from("absent")), |smelt_value| smelt_value);
     let _ = { println!("{}", _smelt_tmp_52.into_smelt_unknown()); };
     with_files = SmeltFormData::new();
     _smelt_tmp_55 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("hello")]; smelt_list_items }));

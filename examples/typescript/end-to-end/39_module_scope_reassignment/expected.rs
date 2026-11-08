@@ -933,14 +933,14 @@ fn main() {
     }
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_21)); };
     let _ = { println!("{}", smelt_console_number(initialized)); };
-    _smelt_tmp_26 = via_iife.clone().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |arg0: JsString| -> f64 { 0.0 }); smelt_default_callback });
+    _smelt_tmp_26 = via_iife.clone().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> f64 { 0.0 }); smelt_default_callback });
     _smelt_tmp_27 = false;
     let mut _smelt_tmp_28: f64 = 0.0;
     if _smelt_tmp_27 {
     _smelt_tmp_29 = -1.0;
     _smelt_tmp_28 = _smelt_tmp_29;
     } else {
-    _smelt_tmp_30 = via_iife.clone().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |arg0: JsString| -> f64 { 0.0 }); smelt_default_callback });
+    _smelt_tmp_30 = via_iife.clone().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> f64 { 0.0 }); smelt_default_callback });
     _smelt_tmp_31 = (_smelt_tmp_30)(JsString::from("ab"));
     _smelt_tmp_28 = _smelt_tmp_31;
     }
@@ -951,7 +951,7 @@ fn main() {
     _smelt_tmp_35 = -1.0;
     _smelt_tmp_34 = _smelt_tmp_35;
     } else {
-    _smelt_tmp_36 = via_or_assign.clone().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |arg0: JsString| -> f64 { 0.0 }); smelt_default_callback });
+    _smelt_tmp_36 = via_or_assign.clone().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> f64 { 0.0 }); smelt_default_callback });
     _smelt_tmp_37 = (_smelt_tmp_36)(JsString::from("ab"));
     _smelt_tmp_34 = _smelt_tmp_37;
     }
@@ -962,7 +962,7 @@ fn main() {
     _smelt_tmp_41 = -1.0;
     _smelt_tmp_40 = _smelt_tmp_41;
     } else {
-    _smelt_tmp_42 = via_nullish_assign.clone().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |arg0: JsString| -> f64 { 0.0 }); smelt_default_callback });
+    _smelt_tmp_42 = via_nullish_assign.clone().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> f64 { 0.0 }); smelt_default_callback });
     _smelt_tmp_43 = (_smelt_tmp_42)(JsString::from("ab"));
     _smelt_tmp_40 = _smelt_tmp_43;
     }

@@ -1567,7 +1567,7 @@ fn main() {
 use super::*;
 
 pub(crate) fn make(preferred: Option<SmeltHeaders>, extra: Option<SmeltRecord<JsString, JsString>>) -> SmeltResponse {
-    let _smelt_tmp_2: Option<SmeltHeaders> = extra.clone().map(|value| SmeltHeaders::from_pairs(value.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<_>>()));
+    let _smelt_tmp_2: Option<SmeltHeaders> = extra.clone().map(|smelt_value| SmeltHeaders::from_pairs(smelt_value.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<_>>()));
     let _smelt_tmp_3: Option<SmeltHeaders> = preferred.clone().or(_smelt_tmp_2);
     let _smelt_tmp_4: SmeltResponse = SmeltResponse::from_parts(201.0, JsString::new(), match _smelt_tmp_3 { Some(smelt_init_headers) => SmeltHeaders::from_pairs(smelt_init_headers.entries_sorted()), None => SmeltHeaders::new() }, SmeltBody::from_text(&JsString::from("ok")));
     return _smelt_tmp_4;

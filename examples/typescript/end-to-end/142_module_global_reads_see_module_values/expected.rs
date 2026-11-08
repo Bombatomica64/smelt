@@ -4423,10 +4423,10 @@ fn main() {
     let _smelt_tmp_12: f64;
     SMELT_GLOBAL_P_2.with(|_| ());
     SMELT_GLOBAL_ZS_0.with(|_| ());
-    let mut _smelt_tmp_4: SmeltList<f64> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_ZS_0.with(|value| value.borrow().clone()));
+    let mut _smelt_tmp_4: SmeltList<f64> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_ZS_0.with(|smelt_value| smelt_value.borrow().clone()));
     let _smelt_tmp_5: f64 = { let smelt_push_item = 1.0; _smelt_tmp_4.borrow_mut().push(smelt_push_item); _smelt_tmp_4.len() as f64 };
     let _smelt_tmp_6 = ::std::rc::Rc::new(|| {
-    let _smelt_tmp_0: SmeltList<f64> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_ZS_0.with(|value| value.borrow().clone()));
+    let _smelt_tmp_0: SmeltList<f64> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_ZS_0.with(|smelt_value| smelt_value.borrow().clone()));
     let _smelt_tmp_1: f64 = _smelt_tmp_0.len() as f64;
     _smelt_tmp_1
     });
@@ -4434,7 +4434,7 @@ fn main() {
     let greeting: JsString = JsString::from("hello");
     SMELT_GLOBAL_TABLE_3.with(|_| ());
     SMELT_GLOBAL_SNAPSHOT_4.with(|_| ());
-    let _smelt_tmp_9: f64 = { let smelt_global_value = 10.0; SMELT_GLOBAL_SEED_1.with(|value| value.set(smelt_global_value)); smelt_global_value };
+    let _smelt_tmp_9: f64 = { let smelt_global_value = 10.0; SMELT_GLOBAL_SEED_1.with(|smelt_value| smelt_value.set(smelt_global_value)); smelt_global_value };
     let _smelt_tmp_10: JsString = read_p(JsString::from("k"));
     let _ = { println!("{}", _smelt_tmp_10); };
     _smelt_tmp_12 = (cnt)();
@@ -4460,7 +4460,7 @@ pub(crate) fn zero() -> f64 {
 }
 
 pub(crate) fn read_p(key: JsString) -> JsString {
-    let _smelt_tmp_2: SmeltRecord<JsString, (f64, JsString)> = SMELT_GLOBAL_P_2.with(|value| value.borrow().clone());
+    let _smelt_tmp_2: SmeltRecord<JsString, (f64, JsString)> = SMELT_GLOBAL_P_2.with(|smelt_value| smelt_value.borrow().clone());
     let entry: Option<(f64, JsString)> = _smelt_tmp_2.get(&key.clone());
     let _smelt_tmp_4: (f64, JsString) = entry.clone().expect("optional value was absent after narrowing");
     let _smelt_tmp_5: f64 = _smelt_tmp_4.0.clone();
@@ -4477,12 +4477,12 @@ pub(crate) fn greet() -> JsString {
 }
 
 pub(crate) fn lookup(key: JsString) -> f64 {
-    let _smelt_tmp_1: SmeltRecord<JsString, f64> = SMELT_GLOBAL_TABLE_3.with(|value| value.borrow().clone());
+    let _smelt_tmp_1: SmeltRecord<JsString, f64> = SMELT_GLOBAL_TABLE_3.with(|smelt_value| smelt_value.borrow().clone());
     return _smelt_tmp_1.get(&key.clone()).unwrap_or(0.0);
 }
 
 pub(crate) fn snapshot_seed() -> f64 {
-    let _smelt_tmp_0: SmeltRecord<JsString, f64> = SMELT_GLOBAL_SNAPSHOT_4.with(|value| value.borrow().clone());
+    let _smelt_tmp_0: SmeltRecord<JsString, f64> = SMELT_GLOBAL_SNAPSHOT_4.with(|smelt_value| smelt_value.borrow().clone());
     let _smelt_tmp_1: f64 = SMELT_GLOBAL_SEED_1.with(::std::cell::Cell::get);
     let _smelt_tmp_2: f64 = _smelt_tmp_0.get(&JsString::from("seed").clone()).unwrap_or(0.0) + _smelt_tmp_1;
     return _smelt_tmp_2;

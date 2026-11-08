@@ -170,7 +170,7 @@ function collect(): string[] {
         "{source}"
     );
     assert!(
-        source.contains("return (*smelt_capture_values.borrow()).clone();"),
+        source.contains("return ((*smelt_capture_values.borrow())).clone();"),
         "{source}"
     );
 }
@@ -517,8 +517,8 @@ function total(values: number[]): number {
         source.contains("closure_arg_3: &SmeltList<f64>"),
         "{source}"
     );
-    assert!(source.contains("let array = &values"), "{source}");
-    assert!(!source.contains("let array = values.clone()"), "{source}");
+    assert!(source.contains("let smelt_array = &values"), "{source}");
+    assert!(!source.contains("let smelt_array = values.clone()"), "{source}");
 }
 
 /// A closure body that needs an OWNED list still gets one, from the reference.
@@ -923,11 +923,11 @@ const noInitial = values.reduce((acc, value, index) => acc + value + index);
 ",
     );
 
-    assert!(source.contains(".iter().enumerate().map(|(index, item)|"));
-    assert!(source.contains(".iter().enumerate().filter_map(|(index, item)|"));
-    assert!(source.contains(".iter().enumerate().find_map(|(index, item)|"));
-    assert!(source.contains(".iter().enumerate().any(|(index, item)|"));
-    assert!(source.contains(".iter().enumerate().all(|(index, item)|"));
+    assert!(source.contains(".iter().enumerate().map(|(smelt_index, smelt_item)|"));
+    assert!(source.contains(".iter().enumerate().filter_map(|(smelt_index, smelt_item)|"));
+    assert!(source.contains(".iter().enumerate().find_map(|(smelt_index, smelt_item)|"));
+    assert!(source.contains(".iter().enumerate().any(|(smelt_index, smelt_item)|"));
+    assert!(source.contains(".iter().enumerate().all(|(smelt_index, smelt_item)|"));
     assert!(source.matches("loop {").count() >= 2);
     assert!(source.contains(".iter().enumerate().fold("));
     assert!(source.contains("reduce of empty array with no initial value"));
@@ -936,7 +936,7 @@ const noInitial = values.reduce((acc, value, index) => acc + value + index);
     assert!(source.contains("closure_arg_0 * factor"), "{source}");
     assert!(source.contains("closure_arg_0 + factor"));
     assert!(
-        source.contains("(smelt_callback)(&(SmeltUnknown::Number(item.clone() as f64)))"),
+        source.contains("(smelt_callback)(&(SmeltUnknown::Number(smelt_item.clone() as f64)))"),
         "{source}"
     );
     assert!(source.contains("let mut mutable_total"));
@@ -1222,9 +1222,9 @@ const paddedEnd = word.padEnd(3);
 "#,
     );
 
-    assert!(source.contains("pad.repeat(needed.div_ceil(pad.len())).slice(0, needed)"), "{source}");
-    assert!(source.contains("padding + value"));
-    assert!(source.contains("value.to_owned() + &padding"));
+    assert!(source.contains("smelt_pad.repeat(smelt_needed.div_ceil(smelt_pad.len())).slice(0, smelt_needed)"), "{source}");
+    assert!(source.contains("smelt_padding + smelt_value"));
+    assert!(source.contains("smelt_value.to_owned() + &smelt_padding"));
 }
 
 #[test]
@@ -1310,8 +1310,8 @@ const asBool = Boolean("");
     // "inf" are NaN), not an inline `parse::<f64>()` with an empty-string
     // special case; the helper's values are pinned by
     // `js_value_semantics_runtime`.
-    assert!(source.contains("smelt_js_string_to_number(&(digits))"), "{source}");
-    assert!(source.contains("smelt_js_string_to_number(&(JsString::new()))"), "{source}");
+    assert!(source.contains("smelt_js_string_to_number(&digits)"), "{source}");
+    assert!(source.contains("smelt_js_string_to_number(&JsString::new())"), "{source}");
     assert!(source.contains("fn smelt_js_string_to_number(text: &JsStr) -> f64"), "{source}");
     assert!(!source.contains("float() parse failed"));
     assert!(source.contains(".is_empty()"));
@@ -1339,7 +1339,7 @@ export function lexicalRelational(a: string, b: string): boolean {
 
     // The string side of a string-vs-number comparison is ToNumber-coerced.
     assert!(
-        source.contains("smelt_tmp_2: bool = (smelt_js_string_to_number(&(key.clone()))) >= (0.0)"),
+        source.contains("smelt_tmp_2: bool = (smelt_js_string_to_number(&key)) >= (0.0)"),
         "string >= number must ToNumber-coerce the string side: {source}"
     );
     // A raw, non-coerced `String >= 0.0` must never be emitted.
@@ -1441,7 +1441,7 @@ export function firstBad(values: unknown[]): number {
 
     assert!(source.contains("find_map("), "{source}");
     assert!(
-        source.contains(".unwrap_or_else(|error: Box<dyn std::error::Error>| smelt_panic_throw"),
+        source.contains(".unwrap_or_else(|smelt_error: Box<dyn std::error::Error>| smelt_panic_throw"),
         "fallible predicate result was not unwrapped before boolean use: {source}"
     );
 }
@@ -1556,7 +1556,7 @@ export function pickFlag(opts?: { separator?: string | number }): string {
     );
 
     assert!(
-        source.contains(".map(|value| value.into_smelt_unknown())"),
+        source.contains(".map(|smelt_value| smelt_value.into_smelt_unknown())"),
         "optional-union truthiness did not erase its inner union: {source}"
     );
 }
@@ -1680,7 +1680,7 @@ export function measure(str: string, chars?: string | string[]): number {
     );
     assert!(
         source.contains("into_smelt_unknown()")
-            && source.contains("SmeltUnknown::String(value) => value.len()"),
+            && source.contains("SmeltUnknown::String(smelt_value) => smelt_value.len()"),
         "optional union `.length` did not inspect the erased value: {source}"
     );
 }
@@ -1766,7 +1766,7 @@ function f(): number[] {
         "cast followed by `<` was not parenthesized: {out}"
     );
     assert!(
-        out.contains("if (fill_len as f64) < 0.0"),
+        out.contains("if (smelt_fill_len as f64) < 0.0"),
         "expected parenthesized length cast in comparison: {out}"
     );
 }

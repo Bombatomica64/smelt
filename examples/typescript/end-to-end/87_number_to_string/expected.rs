@@ -4585,14 +4585,14 @@ fn main() {
     _smelt_tmp_30 = -f64::INFINITY;
     _smelt_tmp_31 = JsString::from(smelt_number_to_string(_smelt_tmp_30));
     let _ = { println!("{} {} {}", _smelt_tmp_28, _smelt_tmp_29, _smelt_tmp_31); };
-    _smelt_tmp_33 = JsString::join(values.borrow().iter().map(|item| JsString::from({ smelt_number_to_string(*item) })), &JsString::from(" "));
+    _smelt_tmp_33 = JsString::join(values.borrow().iter().map(|smelt_item| JsString::from({ smelt_number_to_string(*smelt_item) })), &JsString::from(" "));
     let _ = { println!("{}", _smelt_tmp_33); };
     keyed = SmeltRecord::from([]);
     keyed.insert(JsString::from(smelt_number_to_string(1000000000000000000000.0)), 1.0);
-    _smelt_tmp_36 = Into::<SmeltList<_>>::into(keyed.keys().filter(|key| !key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&keyed, key)).collect::<Vec<_>>());
+    _smelt_tmp_36 = Into::<SmeltList<_>>::into(keyed.keys().filter(|smelt_key| !smelt_key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&keyed, smelt_key)).collect::<Vec<_>>());
     let _ = { println!("{}", _smelt_tmp_36.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| JsString::new())); };
     _smelt_tmp_38 = SmeltRecord::from([(JsString::from("big"), 1000000000000000000000.0), (JsString::from("small"), 0.0000001)]);
-    _smelt_tmp_39 = JsString::from(smelt_json_stringify(&{ let smelt_record = _smelt_tmp_38.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::Number(value as f64))).collect())) }).expect("JSON serialization failed"));
+    _smelt_tmp_39 = JsString::from(smelt_json_stringify(&{ let smelt_record = _smelt_tmp_38.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(smelt_key, smelt_value)| (smelt_key, SmeltUnknown::Number(smelt_value as f64))).collect())) }).expect("JSON serialization failed"));
     let _ = { println!("{}", _smelt_tmp_39); };
     return;
 }

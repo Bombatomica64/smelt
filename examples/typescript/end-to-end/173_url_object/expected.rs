@@ -5845,7 +5845,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = { println!("{}", _smelt_tmp_40); };
     _smelt_tmp_42 = JsString::from(url.href());
     _smelt_tmp_43 = SmeltRecord::from([(JsString::from("location"), _smelt_tmp_42)]);
-    _smelt_tmp_44 = JsString::from(smelt_json_stringify(&{ let smelt_record = _smelt_tmp_43.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect())) }).expect("JSON serialization failed"));
+    _smelt_tmp_44 = JsString::from(smelt_json_stringify(&{ let smelt_record = _smelt_tmp_43.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(smelt_key, smelt_value)| (smelt_key, SmeltUnknown::String(smelt_value.into()))).collect())) }).expect("JSON serialization failed"));
     let _ = { println!("{}", _smelt_tmp_44); };
     let _smelt_tmp_46: JsString = trim_trailing_slash(JsString::from("https://example.com/the/endpoint/?k=v"))?;
     let _ = { println!("{}", _smelt_tmp_46); };
@@ -5877,7 +5877,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
             let error = smelt_panic_error_value(&*__smelt_panic);
-    _smelt_tmp_67 = matches!(error.clone().clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
+    _smelt_tmp_67 = matches!(error.clone(), SmeltUnknown::Object(smelt_value) if matches!(smelt_value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
     if _smelt_tmp_67 {
     let _ = { println!("{} {}", JsString::from("TypeError"), SmeltInspect::smelt_console_text(&smelt_get_unknown_field(&error.clone(), "message").clone())); };
     }
@@ -5886,7 +5886,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Ok(Err(__smelt_error)) => {
             let error = smelt_thrown_value(&*__smelt_error);
-    _smelt_tmp_67 = matches!(error.clone().clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
+    _smelt_tmp_67 = matches!(error.clone(), SmeltUnknown::Object(smelt_value) if matches!(smelt_value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
     if _smelt_tmp_67 {
     let _ = { println!("{} {}", JsString::from("TypeError"), SmeltInspect::smelt_console_text(&smelt_get_unknown_field(&error.clone(), "message").clone())); };
     }
@@ -5894,7 +5894,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
             let error = smelt_panic_error_value(&*__smelt_panic);
-    _smelt_tmp_67 = matches!(error.clone().clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
+    _smelt_tmp_67 = matches!(error.clone(), SmeltUnknown::Object(smelt_value) if matches!(smelt_value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
     if _smelt_tmp_67 {
     let _ = { println!("{} {}", JsString::from("TypeError"), SmeltInspect::smelt_console_text(&smelt_get_unknown_field(&error.clone(), "message").clone())); };
     }
@@ -5910,7 +5910,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
             let error_1 = smelt_panic_error_value(&*__smelt_panic);
-    _smelt_tmp_71 = matches!(error_1.clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
+    _smelt_tmp_71 = matches!(error_1.clone(), SmeltUnknown::Object(smelt_value) if matches!(smelt_value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
     _smelt_tmp_72 = JsString::from(url.pathname());
     let _ = { println!("{} {}", _smelt_tmp_71, _smelt_tmp_72); };
         }
@@ -5918,14 +5918,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Ok(Err(__smelt_error)) => {
             let error_1 = smelt_thrown_value(&*__smelt_error);
-    _smelt_tmp_71 = matches!(error_1.clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
+    _smelt_tmp_71 = matches!(error_1.clone(), SmeltUnknown::Object(smelt_value) if matches!(smelt_value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
     _smelt_tmp_72 = JsString::from(url.pathname());
     let _ = { println!("{} {}", _smelt_tmp_71, _smelt_tmp_72); };
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
             let error_1 = smelt_panic_error_value(&*__smelt_panic);
-    _smelt_tmp_71 = matches!(error_1.clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
+    _smelt_tmp_71 = matches!(error_1.clone(), SmeltUnknown::Object(smelt_value) if matches!(smelt_value.get("__smelt_error"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == "TypeError"));
     _smelt_tmp_72 = JsString::from(url.pathname());
     let _ = { println!("{} {}", _smelt_tmp_71, _smelt_tmp_72); };
         }

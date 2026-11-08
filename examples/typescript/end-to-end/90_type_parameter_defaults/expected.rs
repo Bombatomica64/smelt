@@ -4435,14 +4435,14 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, U: Clon
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("first") {
-                result.first = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("first") {
+                result.first = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("second") {
-                result.second = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("second") {
+                result.second = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("third") {
-                result.third = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("third") {
+                result.third = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -4464,8 +4464,8 @@ impl SmeltFromUnknown for Holder {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("slot") {
-                result.slot = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("slot") {
+                result.slot = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -4518,11 +4518,11 @@ impl<A: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, B: Clon
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("key") {
-                result.key = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("key") {
+                result.key = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("value") {
-                result.value = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("value") {
+                result.value = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -4575,11 +4575,11 @@ impl<A: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, B: Clon
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("head") {
-                result.head = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("head") {
+                result.head = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("rest") {
-                result.rest = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("rest") {
+                result.rest = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result

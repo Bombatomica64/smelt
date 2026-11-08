@@ -5097,8 +5097,8 @@ impl IntoSmeltUnknown for BoomOptions {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let smelt_absent_keys: [&str; 2] = ["res", "message"];
         SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
-        ("res".to_owned(), self.res.map_or(SmeltUnknown::Undefined, |value| (value).into_smelt_unknown())),
-        ("message".to_owned(), self.message.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
+        ("res".to_owned(), self.res.map_or(SmeltUnknown::Undefined, |smelt_value| (smelt_value).into_smelt_unknown())),
+        ("message".to_owned(), self.message.map_or(SmeltUnknown::Undefined, |smelt_value| SmeltUnknown::String(smelt_value.into()))),
         ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
     }
 }
@@ -5106,8 +5106,8 @@ impl SmeltFromUnknown for BoomOptions {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("message") {
-                result.message = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("message") {
+                result.message = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -5123,7 +5123,7 @@ struct Boom {
 impl IntoSmeltUnknown for Boom {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
-        ("res".to_owned(), self.res.map_or(SmeltUnknown::Undefined, |value| (value).into_smelt_unknown())),
+        ("res".to_owned(), self.res.map_or(SmeltUnknown::Undefined, |smelt_value| (smelt_value).into_smelt_unknown())),
         ("status".to_owned(), SmeltUnknown::Number(self.status as f64)),
         ("message".to_owned(), SmeltUnknown::String(self.message.into())),
         ])))
@@ -5133,11 +5133,11 @@ impl SmeltFromUnknown for Boom {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("status") {
-                result.status = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("status") {
+                result.status = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("message") {
-                result.message = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("message") {
+                result.message = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result

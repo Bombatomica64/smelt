@@ -97,7 +97,7 @@ export function arm(signal: AbortSignal, ms: number): void {
     );
 
     assert!(
-        source.contains("smelt_clear_timeout((*smelt_capture_timeout_id.borrow()).clone())"),
+        source.contains("smelt_clear_timeout(((*smelt_capture_timeout_id.borrow())).clone())"),
         "the forward-read handle must be captured through the shared cell:\n{source}"
     );
     assert!(

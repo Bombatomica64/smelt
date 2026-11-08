@@ -814,7 +814,7 @@ impl Default for RouterInner {
     fn default() -> Self {
         Self {
             log: JsString::new(),
-            pick: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback },
+            pick: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback },
         }
     }
 }
@@ -862,7 +862,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 impl Router {
     fn new() -> Self {
-    let mut this: Self = Router(::std::rc::Rc::new(::std::cell::RefCell::new(RouterInner { log: JsString::new(), pick: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback } })));
+    let mut this: Self = Router(::std::rc::Rc::new(::std::cell::RefCell::new(RouterInner { log: JsString::new(), pick: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback } })));
     this.0.borrow_mut().log = JsString::new();
     let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: JsString| {
     let _smelt_tmp_1: JsString = JsString::from("slow:") + &closure_arg_0.clone();

@@ -825,8 +825,8 @@ fn main() {
     registry = _smelt_tmp_1;
     let _ = registry.add(JsString::from("a"));
     let _ = registry.add(JsString::from("b"));
-    _smelt_tmp_4 = registry.0.borrow().private_log.clone().clone() + &JsString::from(",");
-    _smelt_tmp_5 = _smelt_tmp_4 + &registry.0.borrow().public_log.clone().clone();
+    _smelt_tmp_4 = registry.0.borrow().private_log.clone() + &JsString::from(",");
+    _smelt_tmp_5 = _smelt_tmp_4 + &registry.0.borrow().public_log.clone();
     let _ = { println!("{}", _smelt_tmp_5); };
     return;
 }
@@ -839,12 +839,12 @@ impl Registry {
     return this;
     }
     fn stash(&self, value: JsString) -> () {
-    let _smelt_tmp_2: JsString = self.0.borrow().private_log.clone().clone() + &value.clone();
+    let _smelt_tmp_2: JsString = self.0.borrow().private_log.clone() + &value.clone();
     self.0.borrow_mut().private_log = _smelt_tmp_2;
     return;
     }
     fn keep(&self, value: JsString) -> () {
-    let _smelt_tmp_2: JsString = self.0.borrow().public_log.clone().clone() + &value.clone();
+    let _smelt_tmp_2: JsString = self.0.borrow().public_log.clone() + &value.clone();
     self.0.borrow_mut().public_log = _smelt_tmp_2;
     return;
     }

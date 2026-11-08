@@ -16,7 +16,7 @@ impl FunctionEmitter<'_> {
     /// cannot represent a hole at all, so they keep their ordinary default.
     pub(super) fn array_hole_value(&self, item_ty: TypeId) -> Result<RustExpr, EmitError> {
         if matches!(self.mir.types.get(item_ty), Some(Type::Unknown)) {
-            return Ok(self.carrier_expr(&RustExpr::undefined()));
+            return Ok(self.carrier_expr(self.carrier()?, &RustExpr::undefined()));
         }
         self.default_value(item_ty)
     }
@@ -35,8 +35,8 @@ impl FunctionEmitter<'_> {
             Type::Float => Ok(RustExpr::path("0.0")),
             Type::String => Ok(RustExpr::atom("JsString::new()")),
             Type::PyStr => Ok(RustExpr::atom("String::new()")),
-            Type::Unknown => Ok(self.null_value()),
-            Type::Never => Ok(self.null_value()),
+            Type::Unknown => Ok(self.null_value()?),
+            Type::Never => Ok(self.null_value()?),
             Type::None => Ok(RustExpr::unit()),
             // Annotate the element type: a bare `Vec::new()` is uninferable when
             // the default is used as a `.into_iter()`/`.map()` receiver whose
@@ -50,10 +50,10 @@ impl FunctionEmitter<'_> {
                 Ok(RustExpr::atom("SmeltRecord::new()"))
             }
             Type::Dict(key, _) if self.dict_uses_js_key_map(*key) => {
-                Ok(self.carrier_expr(&RustExpr::atom("SmeltJsMap::new()")))
+                Ok(self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltJsMap::new()")))
             }
             Type::Dict(_, _) => Ok(RustExpr::loose("::indexmap::IndexMap::new()")),
-            Type::JsMap(_, _) => Ok(self.carrier_expr(&RustExpr::atom("SmeltJsMap::new()"))),
+            Type::JsMap(_, _) => Ok(self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltJsMap::new()"))),
             Type::Optional(inner) => Ok(RustExpr::opaque(format!(
                 "None::<{}>",
                 self.rendered_type(self.flatten_optional_inner(*inner))?
@@ -79,9 +79,9 @@ impl FunctionEmitter<'_> {
                     .first()
                     .ok_or_else(|| EmitError::new("concrete union has no members"))?;
                 let arm = self.default_value(first)?;
-                Ok(RustExpr::atom(format!("{}::M0({arm})", union::union_name(ty))).delegating_with([&arm]))
+                Ok(RustExpr::atom(format!("{}::M0({arm})", union::union_name(ty), arm = arm.delimited())).delegating_with([&arm]))
             }
-            Type::TypeParam { .. } | Type::Union(_) => Ok(self.null_value()),
+            Type::TypeParam { .. } | Type::Union(_) => Ok(self.null_value()?),
             Type::Class { .. } if self.is_py_exception_type(ty) => {
                 Ok(RustExpr::atom("SmeltPyException::default()"))
             }
@@ -155,7 +155,7 @@ impl FunctionEmitter<'_> {
                 if self.stdlib_class_of_symbol(*name)?
                     == Some(smelt_stdlib::StdlibClass::ArrayBuffer) =>
             {
-                Ok(self.carrier_expr(&RustExpr::atom("SmeltArrayBuffer::new(0)")))
+                Ok(self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltArrayBuffer::new(0)")))
             }
             // An empty window over empty storage, for the same reason.
             Type::Class { name, .. }
@@ -237,14 +237,14 @@ impl FunctionEmitter<'_> {
             Type::Function(function) => self.function_default_value(function, ty),
             Type::Future(item) => {
                 let item_value = self.default_value(*item)?;
-                Ok(RustExpr::atom(format!("SmeltFuture::resolved({item_value})")).delegating_with([&item_value]))
+                Ok(RustExpr::atom(format!("SmeltFuture::resolved({item_value})", item_value = item_value.delimited())).delegating_with([&item_value]))
             }
             Type::Generator { .. } => Err(EmitError::new(
                 "a generator value has no eager default",
             )),
             Type::GeneratorResult { return_ty, .. } => Ok(RustExpr::atom(format!(
                 "SmeltGeneratorResult::Complete({})",
-                self.default_value(*return_ty)?
+                self.default_value(*return_ty)?.delimited()
             ))),
         }
     }
@@ -302,7 +302,7 @@ impl FunctionEmitter<'_> {
                     .enumerate()
                     .map(|(index, param)| {
                         Ok(format!(
-                            "arg{index}: {}",
+                            "smelt_arg{index}: {}",
                             self.function_type_param(function, index, *param, substitution)?
                         ))
                     })
@@ -320,7 +320,7 @@ impl FunctionEmitter<'_> {
                 let return_value =
                     self.default_value_with_scoped_type_params(function.return_ty, substitution)?;
                 let body = if function.may_throw {
-                    format!("Ok::<_, {ERROR_BOX}>({return_value})")
+                    format!("Ok::<_, {ERROR_BOX}>({return_value})", return_value = return_value.delimited())
                 } else {
                     return_value.into_string()
                 };
@@ -386,7 +386,7 @@ impl FunctionEmitter<'_> {
             .enumerate()
             .map(|(index, param)| {
                 Ok(format!(
-                    "arg{index}: {}",
+                    "smelt_arg{index}: {}",
                     self.function_type_param(function, index, *param, &substitution)?
                 ))
             })
@@ -409,9 +409,9 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(function.return_ty)
         {
             let item_value = self.default_value(*item)?;
-            format!("SmeltFuture::resolved({item_value})")
+            format!("SmeltFuture::resolved({item_value})", item_value = item_value.delimited())
         } else if function.may_throw {
-            format!("Ok::<_, {ERROR_BOX}>({return_value})")
+            format!("Ok::<_, {ERROR_BOX}>({return_value})", return_value = return_value.delimited())
         } else {
             return_value.into_string()
         };

@@ -833,7 +833,7 @@ fn main() {
 use super::*;
 
 pub(crate) fn total_down(start: f64) -> f64 {
-    let smelt_capture_sum_down: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(f64) -> f64>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> f64> = ::std::rc::Rc::new(move |arg0: f64| -> f64 { 0.0 }); smelt_default_callback }));
+    let smelt_capture_sum_down: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(f64) -> f64>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> f64 { 0.0 }); smelt_default_callback }));
     let _smelt_tmp_2 = ::std::rc::Rc::new({
     let smelt_capture_sum_down = ::std::rc::Rc::downgrade(&smelt_capture_sum_down);
     move |closure_arg_0: f64| {
@@ -857,7 +857,7 @@ pub(crate) fn total_down(start: f64) -> f64 {
 }
 
 pub(crate) fn banner(text: JsString, times: f64) -> JsString {
-    let smelt_capture_repeat: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(f64, JsString) -> JsString>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64, JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: f64, arg1: JsString| -> JsString { JsString::new() }); smelt_default_callback }));
+    let smelt_capture_repeat: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(f64, JsString) -> JsString>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64, JsString) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: f64, smelt_arg1: JsString| -> JsString { JsString::new() }); smelt_default_callback }));
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let smelt_capture_repeat = ::std::rc::Rc::downgrade(&smelt_capture_repeat);
     let text = text.clone();
@@ -882,7 +882,7 @@ pub(crate) fn banner(text: JsString, times: f64) -> JsString {
 }
 
 pub(crate) fn trim(label: JsString) -> JsString {
-    let smelt_capture_strip: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(JsString) -> JsString>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback }));
+    let smelt_capture_strip: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(JsString) -> JsString>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback }));
     let suffix: JsString = JsString::from("!");
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let smelt_capture_strip = ::std::rc::Rc::downgrade(&smelt_capture_strip);

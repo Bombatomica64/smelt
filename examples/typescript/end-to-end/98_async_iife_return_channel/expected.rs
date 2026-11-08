@@ -4632,8 +4632,8 @@ impl SmeltFromUnknown for Reply {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("status") {
-                result.status = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("status") {
+                result.status = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result

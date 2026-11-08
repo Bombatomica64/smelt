@@ -872,7 +872,7 @@ fn smelt_global_init__rem__0() -> SmeltList<JsString> {
 fn main() {
     SMELT_GLOBAL_REM_0.with(|_| ());
     let _smelt_tmp_2 = ::std::rc::Rc::new(|| {
-    let mut _smelt_tmp_0: SmeltList<JsString> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_REM_0.with(|value| value.borrow().clone()));
+    let mut _smelt_tmp_0: SmeltList<JsString> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_REM_0.with(|smelt_value| smelt_value.borrow().clone()));
     let _smelt_tmp_1: f64 = { let smelt_push_item = JsString::from("first"); _smelt_tmp_0.borrow_mut().push(smelt_push_item); _smelt_tmp_0.len() as f64 };
     let _smelt_tmp_2 = __smelt_fn_typed_2_0();
     let _smelt_tmp_3: () = take(&*_smelt_tmp_2);
@@ -880,7 +880,7 @@ fn main() {
     });
     let outer = _smelt_tmp_2.clone();
     let _smelt_tmp_3: () = (outer)();
-    let _smelt_tmp_4: SmeltList<JsString> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_REM_0.with(|value| value.borrow().clone()));
+    let _smelt_tmp_4: SmeltList<JsString> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_REM_0.with(|smelt_value| smelt_value.borrow().clone()));
     let _smelt_tmp_5: JsString = JsString::join(_smelt_tmp_4.borrow().iter(), &JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_5); };
     return;
@@ -889,7 +889,7 @@ fn main() {
 type SmeltFnTyped2_0 = ::std::rc::Rc<dyn Fn() -> ()>;
 fn __smelt_fn_typed_2_0() -> SmeltFnTyped2_0 {
     thread_local! { static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped2_0> = ::std::cell::OnceCell::new(); }
-    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| { let smelt_function: SmeltFnTyped2_0 = ::std::rc::Rc::new(|| {
+    SMELT_FN_TYPED.with(|smelt_cell| smelt_cell.get_or_init(|| { let smelt_function: SmeltFnTyped2_0 = ::std::rc::Rc::new(|| {
     let _smelt_tmp_0: () = second__module_main();
     ()
     }); smelt_function }).clone())
@@ -908,7 +908,7 @@ pub(crate) fn take(f: &dyn Fn() -> ()) -> () {
 }
 
 pub(crate) fn second__module_main() -> () {
-    let mut _smelt_tmp_0: SmeltList<JsString> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_REM_0.with(|value| value.borrow().clone()));
+    let mut _smelt_tmp_0: SmeltList<JsString> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_REM_0.with(|smelt_value| smelt_value.borrow().clone()));
     let _smelt_tmp_1: f64 = { let smelt_push_item = JsString::from("second"); _smelt_tmp_0.borrow_mut().push(smelt_push_item); _smelt_tmp_0.len() as f64 };
     return;
 }

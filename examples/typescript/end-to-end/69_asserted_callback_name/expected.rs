@@ -4448,7 +4448,7 @@ fn main() {
     let _smelt_tmp_5: SmeltList<JsString> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: i64, closure_arg_2: &SmeltList<JsString>| {
     let _smelt_tmp_3: bool = is_long(closure_arg_0.clone());
     _smelt_tmp_3
-    }); let smelt_array = words.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value });
+    }); let smelt_array = words.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(smelt_index, smelt_item)| if (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) { Some(smelt_item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value });
     let _smelt_tmp_6: JsString = JsString::join(_smelt_tmp_5.borrow().iter(), &JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_6); };
     _smelt_tmp_8 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: i64, closure_arg_2: &SmeltList<JsString>| {
@@ -4458,7 +4458,7 @@ fn main() {
     _smelt_tmp_9 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: i64, closure_arg_2: &SmeltList<JsString>| {
     let _smelt_tmp_3: bool = is_long(closure_arg_0.clone());
     _smelt_tmp_3
-    }); let smelt_array = words.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value });
+    }); let smelt_array = words.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(smelt_index, smelt_item)| if (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) { Some(smelt_item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value });
     _smelt_tmp_10 = JsString::join(_smelt_tmp_9.borrow().iter(), &JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_10); };
     _smelt_tmp_12 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: i64, closure_arg_2: &SmeltList<JsString>| {
@@ -4468,7 +4468,7 @@ fn main() {
     _smelt_tmp_13 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: i64, closure_arg_2: &SmeltList<JsString>| {
     let _smelt_tmp_3: bool = is_long(closure_arg_0.clone());
     _smelt_tmp_3
-    }); let smelt_array = words.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value });
+    }); let smelt_array = words.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(smelt_index, smelt_item)| if (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) { Some(smelt_item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value });
     _smelt_tmp_14 = JsString::join(_smelt_tmp_13.borrow().iter(), &JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_14); };
     _smelt_tmp_16 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: i64, closure_arg_2: &SmeltList<JsString>| {
@@ -4478,14 +4478,14 @@ fn main() {
     _smelt_tmp_17 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: i64, closure_arg_2: &SmeltList<JsString>| {
     let _smelt_tmp_3: bool = is_long(closure_arg_0.clone());
     _smelt_tmp_3
-    }); let smelt_array = words.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value });
+    }); let smelt_array = words.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(smelt_index, smelt_item)| if (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) { Some(smelt_item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value });
     _smelt_tmp_18 = JsString::join(_smelt_tmp_17.borrow().iter(), &JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_18); };
     _smelt_tmp_20 = __smelt_fn_typed_4_0();
     _smelt_tmp_21 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString| {
     let _smelt_tmp_1: bool = is_long(closure_arg_0.clone());
     _smelt_tmp_1
-    }); words.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone()) { Some(item.clone()) } else { None }).collect::<Vec<_>>() });
+    }); words.borrow().iter().enumerate().filter_map(|(smelt_index, smelt_item)| if (smelt_callback)(smelt_item.clone()) { Some(smelt_item.clone()) } else { None }).collect::<Vec<_>>() });
     _smelt_tmp_22 = JsString::join(_smelt_tmp_21.borrow().iter(), &JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_22); };
     _smelt_tmp_24 = ::std::rc::Rc::new(|closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
@@ -4495,8 +4495,8 @@ fn main() {
     lengths = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
     let _smelt_tmp_1: f64 = closure_arg_0.len() as f64;
     _smelt_tmp_1
-    }); let smelt_array = words.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
-    _smelt_tmp_26 = JsString::join(lengths.borrow().iter().map(|item| JsString::from({ smelt_number_to_string(*item) })), &JsString::from(","));
+    }); let smelt_array = words.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
+    _smelt_tmp_26 = JsString::join(lengths.borrow().iter().map(|smelt_item| JsString::from({ smelt_number_to_string(*smelt_item) })), &JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_26); };
     let _smelt_tmp_28: Checker = Checker::new();
     checker = _smelt_tmp_28;
@@ -4513,7 +4513,7 @@ fn main() {
     let _smelt_tmp_2: bool = checker.matches(closure_arg_0.clone());
     _smelt_tmp_2
     }
-}); let smelt_array = words; let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value });
+}); let smelt_array = words; let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(smelt_index, smelt_item)| if (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) { Some(smelt_item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value });
     _smelt_tmp_31 = JsString::join(_smelt_tmp_30.borrow().iter(), &JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_31); };
     return;
@@ -4546,7 +4546,7 @@ impl Checker {
 type SmeltFnTyped4_0 = ::std::rc::Rc<dyn Fn(JsString) -> bool>;
 fn __smelt_fn_typed_4_0() -> SmeltFnTyped4_0 {
     thread_local! { static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped4_0> = ::std::cell::OnceCell::new(); }
-    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| { let smelt_function: SmeltFnTyped4_0 = ::std::rc::Rc::new(|closure_arg_0: JsString| {
+    SMELT_FN_TYPED.with(|smelt_cell| smelt_cell.get_or_init(|| { let smelt_function: SmeltFnTyped4_0 = ::std::rc::Rc::new(|closure_arg_0: JsString| {
     let _smelt_tmp_1: bool = is_long(closure_arg_0.clone());
     _smelt_tmp_1
     }); smelt_function }).clone())

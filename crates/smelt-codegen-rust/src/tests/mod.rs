@@ -83,6 +83,7 @@ mod name_rule_tests;
 mod edition_tests;
 mod reserved_name_tests;
 mod runtime_demand_tests;
+mod template_hygiene_tests;
 mod part_1_tests;
 mod part_2_tests;
 mod part_3_tests;

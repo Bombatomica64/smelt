@@ -4421,14 +4421,14 @@ impl SmeltFromUnknown for Fields {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("gen") {
-                result.gen_ = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("gen") {
+                result.gen_ = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("dyn") {
-                result.dyn_ = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("dyn") {
+                result.dyn_ = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("priv") {
-                result.priv_ = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("priv") {
+                result.priv_ = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -4452,11 +4452,11 @@ impl SmeltFromUnknown for Machine {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("gen") {
-                result.gen_ = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("gen") {
+                result.gen_ = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("type") {
-                result.type_ = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("type") {
+                result.type_ = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result

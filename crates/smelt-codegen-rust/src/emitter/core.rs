@@ -72,7 +72,8 @@ impl<'mir> FunctionEmitter<'mir> {
             deferred_capture_cells: RefCell::new(HashSet::new()),
             static_typeof_str_locals: HashSet::new(),
             folded_throw_payloads: HashSet::new(),
-            borrowed_callback_names: HashSet::new(),
+            borrowed_callback_locals: HashSet::new(),
+            closure_loops: RefCell::new(Vec::new()),
             by_reference_param_locals: HashSet::new(),
             caches: render_state::AnalysisCaches::default(),
             conversions: render_state::ConversionGuards::default(),
@@ -421,7 +422,8 @@ impl<'mir> FunctionEmitter<'mir> {
     pub(super) fn local_expr(&self, local: LocalId) -> Result<RustExpr, EmitError> {
         let binding = self.local_binding(local)?;
         self.binding_uses.record(binding);
-        Ok(binding.expr())
+        let expr = binding.expr();
+        Ok(if self.binds_borrowed_callback(local)? { expr.borrowed_callback() } else { expr })
     }
 
     /// The Rust name a local is bound to, recording the use.

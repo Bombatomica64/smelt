@@ -5157,7 +5157,7 @@ pub(crate) fn pick(token: JsString, next: JsString, prev: JsString) -> JsString 
     let mut _smelt_tmp_13: Option<JsString> = None::<JsString>;
     if _smelt_tmp_12 {
     _smelt_tmp_14 = pattern.clone();
-    _smelt_tmp_15 = pattern.as_ref().and_then(|_smelt_value| ({ let smelt_len = _smelt_value.len() as i64; let smelt_index = 2.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| _smelt_value.borrow().get(index).cloned()));
+    _smelt_tmp_15 = pattern.as_ref().and_then(|_smelt_value| ({ let smelt_len = _smelt_value.len() as i64; let smelt_index = 2.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|smelt_index| _smelt_value.borrow().get(smelt_index).cloned()));
     _smelt_tmp_13 = _smelt_tmp_15;
     } else {
     _smelt_tmp_13 = Some(JsString::from("none"));
@@ -5180,7 +5180,7 @@ pub(crate) fn pick(token: JsString, next: JsString, prev: JsString) -> JsString 
     let mut _smelt_tmp_13: Option<JsString> = None::<JsString>;
     if _smelt_tmp_12 {
     _smelt_tmp_14 = pattern.clone();
-    _smelt_tmp_15 = pattern.as_ref().and_then(|_smelt_value| ({ let smelt_len = _smelt_value.len() as i64; let smelt_index = 2.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| _smelt_value.borrow().get(index).cloned()));
+    _smelt_tmp_15 = pattern.as_ref().and_then(|_smelt_value| ({ let smelt_len = _smelt_value.len() as i64; let smelt_index = 2.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|smelt_index| _smelt_value.borrow().get(smelt_index).cloned()));
     _smelt_tmp_13 = _smelt_tmp_15;
     } else {
     _smelt_tmp_13 = Some(JsString::from("none"));
@@ -5194,7 +5194,7 @@ pub(crate) fn pick(token: JsString, next: JsString, prev: JsString) -> JsString 
     let mut _smelt_tmp_13: Option<JsString> = None::<JsString>;
     if _smelt_tmp_12 {
     _smelt_tmp_14 = pattern.clone();
-    _smelt_tmp_15 = pattern.as_ref().and_then(|_smelt_value| ({ let smelt_len = _smelt_value.len() as i64; let smelt_index = 2.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| _smelt_value.borrow().get(index).cloned()));
+    _smelt_tmp_15 = pattern.as_ref().and_then(|_smelt_value| ({ let smelt_len = _smelt_value.len() as i64; let smelt_index = 2.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|smelt_index| _smelt_value.borrow().get(smelt_index).cloned()));
     _smelt_tmp_13 = _smelt_tmp_15;
     } else {
     _smelt_tmp_13 = Some(JsString::from("none"));
@@ -5238,7 +5238,7 @@ pub(crate) async fn response_facts() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_6: Option<bool> = maybe.clone().as_ref().map(|_smelt_value| _smelt_value.ok());
     let _smelt_tmp_7: Option<JsString> = maybe.clone().as_ref().map(|_smelt_value| JsString::from(_smelt_value.status_text()));
     let _smelt_tmp_8: Option<f64> = missing.as_ref().map(|_smelt_value| _smelt_value.status());
-    let _ = { println!("{} {} {} {}", match &status { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_6 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_7 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_8 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    let _ = { println!("{} {} {} {}", match &status { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }, match &_smelt_tmp_6 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }, match &_smelt_tmp_7 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }, match &_smelt_tmp_8 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
     _smelt_tmp_10 = !(maybe.clone().is_none());
     if _smelt_tmp_10 {
     _smelt_tmp_11 = maybe.clone().expect("optional value was absent after narrowing");
@@ -5246,7 +5246,7 @@ pub(crate) async fn response_facts() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_13 = _smelt_tmp_12.as_ref().map(|_smelt_value| _smelt_value.locked());
     _smelt_tmp_14 = maybe.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_15 = _smelt_tmp_14.body_used();
-    let _ = { println!("{} {} {}", JsString::from("locked before"), match &_smelt_tmp_13 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, _smelt_tmp_15); };
+    let _ = { println!("{} {} {}", JsString::from("locked before"), match &_smelt_tmp_13 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }, _smelt_tmp_15); };
     _smelt_tmp_17 = maybe.clone().expect("optional value was absent after narrowing");
     let _smelt_tmp_18: SmeltFuture<JsString> = { let smelt_response = _smelt_tmp_17.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(JsString::from(smelt_response.take_text()?)) })) };
     _smelt_tmp_19 = _smelt_tmp_18.await?;
@@ -5255,7 +5255,7 @@ pub(crate) async fn response_facts() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_22 = _smelt_tmp_21.as_ref().map(|_smelt_value| _smelt_value.locked());
     _smelt_tmp_23 = maybe.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_24 = _smelt_tmp_23.body_used();
-    let _ = { println!("{} {} {}", JsString::from("locked after"), match &_smelt_tmp_22 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, _smelt_tmp_24); };
+    let _ = { println!("{} {} {}", JsString::from("locked after"), match &_smelt_tmp_22 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }, _smelt_tmp_24); };
     }
     return Ok(());
 }

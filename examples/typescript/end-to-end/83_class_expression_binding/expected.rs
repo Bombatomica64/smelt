@@ -4498,7 +4498,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSme
         let __smelt_proto = self.__smelt_proto_entries();
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
-        ("items".to_owned(), SmeltUnknown::Array(__smelt_inner.items.clone().into_iter().map(|value| (value).into_smelt_unknown()).collect())),
+        ("items".to_owned(), SmeltUnknown::Array(__smelt_inner.items.clone().into_iter().map(|smelt_value| (smelt_value).into_smelt_unknown()).collect())),
         ]);
         __smelt_entries.extend(__smelt_proto);
         SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries).smelt_with_origin(self.clone()))
@@ -4511,7 +4511,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFr
         let SmeltUnknown::Object(object) = value else { return Self::default() };
         if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(field) = object.get("items") { result.0.borrow_mut().items = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(smelt_field) = object.get("items") { result.0.borrow_mut().items = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
         result
     }
 }
@@ -4709,7 +4709,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSme
         let __smelt_proto = self.__smelt_proto_entries();
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
-        ("items".to_owned(), SmeltUnknown::Array(__smelt_inner.items.clone().into_iter().map(|value| (value).into_smelt_unknown()).collect())),
+        ("items".to_owned(), SmeltUnknown::Array(__smelt_inner.items.clone().into_iter().map(|smelt_value| (smelt_value).into_smelt_unknown()).collect())),
         ]);
         __smelt_entries.extend(__smelt_proto);
         SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries).smelt_with_origin(self.clone()))
@@ -4722,7 +4722,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFr
         let SmeltUnknown::Object(object) = value else { return Self::default() };
         if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(field) = object.get("items") { result.0.borrow_mut().items = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(smelt_field) = object.get("items") { result.0.borrow_mut().items = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
         result
     }
 }

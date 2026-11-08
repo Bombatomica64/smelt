@@ -745,11 +745,11 @@ pub mod boundary {
     /// `JSON.stringify` through the carrier: the runtime's JSON writer.
     pub const JSON_TO_STRING: &str = "smelt_json_stringify(&";
     /// A generated conversion testing for a marker.
-    pub const MARKER_TEST: &str = "if value.contains_key(\"__smelt_";
+    pub const MARKER_TEST: &str = "if smelt_value.contains_key(\"__smelt_";
     /// A generated conversion testing an error brand.
-    pub const ERROR_BRAND_TEST: &str = "if matches!(value.get(\"__smelt_error\")";
+    pub const ERROR_BRAND_TEST: &str = "if matches!(smelt_value.get(\"__smelt_error\")";
     /// A generated conversion testing a class brand.
-    pub const CLASS_BRAND_TEST: &str = "if matches!(value.get(\"__smelt_class\")";
+    pub const CLASS_BRAND_TEST: &str = "if matches!(smelt_value.get(\"__smelt_class\")";
     /// A class's generated keyed field write.
     pub const SET_FIELD_FN: &str = "fn __smelt_set_field(";
     /// A class's generated keyed callable read.

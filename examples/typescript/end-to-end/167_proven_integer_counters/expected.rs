@@ -4519,7 +4519,7 @@ fn main() {
     if !(_smelt_tmp_57) { break; }
     _smelt_tmp_58 = SMELT_GLOBAL_K_0.with(::std::cell::Cell::get);
     _smelt_tmp_59 = _smelt_tmp_58 - 2.0;
-    _smelt_tmp_60 = { let smelt_global_value = _smelt_tmp_59; SMELT_GLOBAL_K_0.with(|value| value.set(smelt_global_value)); smelt_global_value };
+    _smelt_tmp_60 = { let smelt_global_value = _smelt_tmp_59; SMELT_GLOBAL_K_0.with(|smelt_value| smelt_value.set(smelt_global_value)); smelt_global_value };
     }
     _smelt_tmp_61 = SMELT_GLOBAL_K_0.with(::std::cell::Cell::get);
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_61)); };
@@ -4779,7 +4779,7 @@ pub(crate) fn captured(xs: SmeltList<f64>) -> f64 {
     (*smelt_capture_seen.borrow_mut()) = _smelt_tmp_2;
     ()
     }
-}); let smelt_array = xs.clone(); smelt_array.borrow().iter().enumerate().for_each(|(index, item)| { let _ = (smelt_callback)(item.clone(), index as i64, &smelt_array); }); () };
+}); let smelt_array = xs.clone(); smelt_array.borrow().iter().enumerate().for_each(|(smelt_index, smelt_item)| { let _ = (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array); }); () };
     _smelt_tmp_7 = i + 1;
     i = _smelt_tmp_7;
     }

@@ -17,8 +17,13 @@ classifying each into one of three categories:
   program-specific erasure. The emitter writes a stable sentinel comment
   (`// @smelt:prelude-end — generated program below`) between this prelude and
   the program body; the scanner treats everything above it as prelude
-  authoritatively, and falls back to per-line heuristics for files that predate
-  the marker.
+  authoritatively. A module file of a multi-file crate carries no prelude at
+  all and opens with a `// source: <file>` header (`MODULE_SOURCE_HEADER`);
+  every line of such a file is program code, so a program item whose name the
+  emitter minted (a module global's `smelt_global_init__x__0`) is measured like
+  any other. Only output that carries neither sentinel falls back to the
+  per-line `fn smelt_*` heuristics. (Before 2026-11, module files went through
+  that heuristic and their global initializers were counted as prelude.)
 - **Legitimate boundary** — genuine dynamic edges: erased closures/interop
   (`SmeltUnknown::Function`), promises (`SmeltUnknown::Promise`), explicit
   boundary adapters (`IntoSmeltUnknown` / `into_smelt_unknown`), and runtime

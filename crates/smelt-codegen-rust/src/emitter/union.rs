@@ -163,9 +163,9 @@ impl FunctionEmitter<'_> {
             let thrown = if can_throw { ".unwrap_or_else(|error| smelt_panic_throw(error))" } else { "" };
             let call = RustExpr::chain(format!("value.{method_name}({args_text}){thrown}"));
             let converted = self.rendered_at_type(&call, return_ty, dest_ty, &self.render_scope())?;
-            arms.push(format!("{union}::M{index}(value) => {converted}"));
+            arms.push(format!("{union}::M{index}(value) => {converted}", converted = converted.delimited()));
         }
-        Ok(RustExpr::atom(format!("match {receiver_text} {{ {} }}", arms.join(", "))))
+        Ok(RustExpr::atom(format!("match {receiver_text} {{ {} }}", arms.join(", "), receiver_text = receiver_text.delimited())))
     }
 
     /// Resolve and instantiate one union member's declared method return type,
@@ -269,16 +269,16 @@ impl FunctionEmitter<'_> {
     /// the source expression is a place read as often as it is a temporary, so
     /// the clone belongs here rather than at each call site. Cloning a
     /// temporary is redundant but harmless; moving a place is a hard error.
-    pub(super) fn erase_concrete_union_expr(&self, value_text: &RustExpr, ty: TypeId) -> RustExpr {
+    pub(super) fn erase_concrete_union_expr(&self, value_text: &RustExpr, ty: TypeId) -> Result<RustExpr, EmitError> {
         if self.concrete_union_members(ty).is_none() {
-            return value_text.to_owned();
+            return Ok(value_text.to_owned());
         }
         // A caller that already owns a clone needs no second one; `.clone().clone()`
         // is not what a hand-writing Rust team would produce.
         if value_text.has_clone_tail() {
-            return RustExpr::postfix_on(&value_text, self.carrier_format(format_args!("{value_text}.into_smelt_unknown()")));
+            return Ok(value_text.postfix(self.carrier_format(self.carrier()?, format_args!(".into_smelt_unknown()"))));
         }
-        RustExpr::postfix_on(&value_text, self.carrier_format(format_args!("{value_text}.clone().into_smelt_unknown()")))
+        Ok(value_text.postfix(self.carrier_format(self.carrier()?, format_args!(".clone().into_smelt_unknown()"))))
     }
 
     /// Wrap a concrete value in the matching variant of a target union.
@@ -293,7 +293,7 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         if let Some(index) = members.iter().position(|member| *member == source) {
-            return Ok(Some(RustExpr::opaque(format!("{}::M{index}({value_text})", union_name(target)))));
+            return Ok(Some(RustExpr::opaque(format!("{}::M{index}({value_text})", union_name(target), value_text = value_text.delimited()))));
         }
         // A member that is itself a generated union (`number | ResponseOrInit`
         // where `ResponseOrInit = ResponseInit | Response`, kept as its own
@@ -312,7 +312,7 @@ impl FunctionEmitter<'_> {
         if let [(index, member)] = nested.as_slice()
             && let Some(inner) = self.inject_union_value(value_text, source, *member, scope)?
         {
-            return Ok(Some(RustExpr::opaque(format!("{}::M{index}({inner})", union_name(target)))));
+            return Ok(Some(RustExpr::opaque(format!("{}::M{index}({inner})", union_name(target), inner = inner.delimited()))));
         }
         // Structural injection: the source is not an exact member but shares a
         // single member's collection shape (for example an empty
@@ -347,7 +347,7 @@ impl FunctionEmitter<'_> {
         }
         if let [index] = structural.as_slice() {
             let coerced = self.rendered_at_type(value_text, source, members[*index], scope)?;
-            return Ok(Some(RustExpr::opaque(format!("{}::M{index}({coerced})", union_name(target)))));
+            return Ok(Some(RustExpr::opaque(format!("{}::M{index}({coerced})", union_name(target), coerced = coerced.delimited()))));
         }
         // A string-keyed record that fits several object arms (`{ done,
         // hasNext: false }` against `LazyEmpty | LazyNext<T>`, whose literal
@@ -367,7 +367,7 @@ impl FunctionEmitter<'_> {
                 <= 1
         {
             let erased = self.erase_rendered(value_text, source)?;
-            return Ok(Some({ let receiver = union_name(target); RustExpr::atom_on(&receiver, format!("{receiver}::from_smelt_unknown({erased})")) }));
+            return Ok(Some({ let receiver = union_name(target); RustExpr::atom_on(&receiver, format!("{receiver}::from_smelt_unknown({erased})", erased = erased.delimited())) }));
         }
         // An erased source (object-field read, erased return, nullish default)
         // carries a `SmeltUnknown`; reconstruct the concrete union by routing the
@@ -377,7 +377,7 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(source),
             Some(Type::Unknown | Type::TypeParam { .. })
         ) {
-            return Ok(Some({ let receiver = union_name(target); RustExpr::atom_on(&receiver, format!("{receiver}::from_smelt_unknown({value_text})")) }));
+            return Ok(Some({ let receiver = union_name(target); RustExpr::atom_on(&receiver, format!("{receiver}::from_smelt_unknown({value_text})", value_text = value_text.delimited())) }));
         }
         Ok(None)
     }
@@ -551,7 +551,7 @@ impl FunctionEmitter<'_> {
                 .collect::<Result<Vec<_>, EmitError>>()?;
             return Ok(Some(RustExpr::atom(format!(
                 "match {value_text} {{ {} }}",
-                arms.join(", ")
+                arms.join(", "), value_text = value_text.delimited()
             ))));
         }
         if let Some(target_members) = self.concrete_union_members(target) {
@@ -577,7 +577,7 @@ impl FunctionEmitter<'_> {
                     let converted =
                         self.rendered_at_type(&RustExpr::path("value"), *member, target_member, &self.render_scope())?;
                     arms.push(format!(
-                        "{source_name}::M{source_index}(value) => {target_name}::M{target_index}({converted})"
+                        "{source_name}::M{source_index}(value) => {target_name}::M{target_index}({converted})", converted = converted.delimited()
                     ));
                     continue;
                 }
@@ -590,7 +590,7 @@ impl FunctionEmitter<'_> {
                     && let Some(injected) =
                         self.inject_union_value(&RustExpr::path("value"), *member, target, &self.render_scope())?
                 {
-                    arms.push(format!("{source_name}::M{source_index}(value) => {injected}"));
+                    arms.push(format!("{source_name}::M{source_index}(value) => {injected}", injected = injected.delimited()));
                 }
             }
             if arms.is_empty() {
@@ -603,14 +603,14 @@ impl FunctionEmitter<'_> {
             };
             return Ok(Some(RustExpr::atom(format!(
                 "match {value_text} {{ {}{fallback} }}",
-                arms.join(", ")
+                arms.join(", "), value_text = value_text.delimited()
             ))));
         }
         let Some(index) = source_members.iter().position(|member| *member == target) else {
             return Ok(None);
         };
         Ok(Some(RustExpr::atom(format!(
-            "match {value_text} {{ {source_name}::M{index}(value) => value, _ => unreachable!(\"union guard selected an excluded member\") }}"
+            "match {value_text} {{ {source_name}::M{index}(value) => value, _ => unreachable!(\"union guard selected an excluded member\") }}", value_text = value_text.delimited()
         ))))
     }
 
@@ -632,7 +632,7 @@ impl FunctionEmitter<'_> {
         Some(if patterns.is_empty() {
             "false".to_owned()
         } else {
-            format!("matches!({value_text}, {})", patterns.join(" | "))
+            format!("matches!({value_text}, {})", patterns.join(" | "), value_text = value_text.delimited())
         })
     }
 
@@ -647,7 +647,7 @@ impl FunctionEmitter<'_> {
         Some(if patterns.is_empty() {
             "false".to_owned()
         } else {
-            format!("matches!({value_text}, {})", patterns.join(" | "))
+            format!("matches!({value_text}, {})", patterns.join(" | "), value_text = value_text.delimited())
         })
     }
 
@@ -682,7 +682,7 @@ impl FunctionEmitter<'_> {
                     .iter()
                     .map(|pattern| format!("Some({pattern})"))
                     .collect::<Vec<_>>()
-                    .join(" | ")
+                    .join(" | "), value_text = value_text.delimited()
             )
         })
     }
@@ -832,7 +832,7 @@ impl FunctionEmitter<'_> {
                 continue;
             }
             let member_text = self.rust_type(member, false, substitution)?.into_string();
-            body.push_str(&self.carrier_format(format_args!(
+            body.push_str(&self.carrier_format(self.carrier()?, format_args!(
                 "        if let SmeltUnknown::Object(smelt_host) = &value {{ if let Some(smelt_origin) = smelt_host.smelt_origin::<{member_text}>() {{ return Self::M{index}(smelt_origin); }} }}\n"
             )));
         }
@@ -855,12 +855,12 @@ impl FunctionEmitter<'_> {
                 .any(|param| substitution.spells(*param))
             {
                 let member_text = self.rust_type(member, false, substitution)?.into_string();
-                RustExpr::loose(self.carrier_format(format_args!("<{member_text} as SmeltFromUnknown>::smelt_from_unknown(value)")))
+                RustExpr::loose(self.carrier_format(self.carrier()?, format_args!("<{member_text} as SmeltFromUnknown>::smelt_from_unknown(value)")))
             } else {
                 self.extract_rendered(&RustExpr::path("value"), member, &self.render_scope())?
             };
             if Some(position) == order.len().checked_sub(1) {
-                body.push_str(&format!("        Self::M{index}({extracted})\n"));
+                body.push_str(&format!("        Self::M{index}({extracted})\n", extracted = extracted.delimited()));
             } else {
                 let pattern = self.union_member_unknown_pattern(member);
                 let guard = match self.union_member_structural_guard(member, members, index) {
@@ -868,7 +868,7 @@ impl FunctionEmitter<'_> {
                     None => format!("matches!(value, {pattern})"),
                 };
                 body.push_str(&format!(
-                    "        if {guard} {{ return Self::M{index}({extracted}); }}\n"
+                    "        if {guard} {{ return Self::M{index}({extracted}); }}\n", extracted = extracted.delimited()
                 ));
             }
         }
@@ -912,6 +912,18 @@ impl FunctionEmitter<'_> {
             (rank, index)
         });
         order
+    }
+
+    /// Renders one test of a union arm's structural guard.
+    ///
+    /// A guard's text both decides (does this arm have a guard at all?) and is
+    /// emitted inside the union's `from_smelt_unknown` recovery, whose own
+    /// emitter holds the carrier. So it records the carrier use for the generic
+    /// trial, as [`Self::carrier_format`] does, without asking for the
+    /// `CarrierUse` proof a decision-only render has no reason to hold.
+    fn guard_format(&self, template: std::fmt::Arguments<'_>) -> String {
+        self.context.note_carrier_use();
+        template.to_string()
     }
 
     /// Build a structural guard that separates `member` from the arms it shares
@@ -965,7 +977,7 @@ impl FunctionEmitter<'_> {
             return if ambiguous {
                 None
             } else {
-                Some(self.carrier_format(format_args!(
+                Some(self.guard_format(format_args!(
                     "(matches!(&value, SmeltUnknown::Array(smelt_arms) if smelt_arms.len() == {arity}))"
                 )))
             };
@@ -993,8 +1005,8 @@ impl FunctionEmitter<'_> {
                     .any(|sibling| !self.union_member_has_field(*sibling, field))
             })
             .map(|field| {
-                self.carrier_format(format_args!(
-                    "matches!(&value, SmeltUnknown::Object(map) if map.contains_key({field:?}))"
+                self.guard_format(format_args!(
+                    "matches!(&value, SmeltUnknown::Object(smelt_map) if smelt_map.contains_key({field:?}))"
                 ))
             })
             .collect::<Vec<_>>();
@@ -1051,8 +1063,8 @@ impl FunctionEmitter<'_> {
                         .is_some_and(|other| other.iter().all(|value| !literals.contains(value)))
                 });
             if absent_somewhere {
-                tests.push(self.carrier_format(format_args!(
-                    "matches!(&value, SmeltUnknown::Object(map) if map.contains_key({key:?}))"
+                tests.push(self.guard_format(format_args!(
+                    "matches!(&value, SmeltUnknown::Object(smelt_map) if smelt_map.contains_key({key:?}))"
                 )));
             }
             if literal_disjoint
@@ -1101,22 +1113,22 @@ impl FunctionEmitter<'_> {
             .iter()
             .map(|literal| match literal {
                 smelt_hir::Literal::Bool(value) => {
-                    Some(format!("matches!(map.get({key:?}), Some(SmeltUnknown::Bool({value})))"))
+                    Some(format!("matches!(smelt_map.get({key:?}), Some(SmeltUnknown::Bool({value})))"))
                 }
                 smelt_hir::Literal::String(text) => Some(format!(
-                    "matches!(map.get({key:?}), Some(SmeltUnknown::String(smelt_text)) if smelt_text.to_string() == {text:?})"
+                    "matches!(smelt_map.get({key:?}), Some(SmeltUnknown::String(smelt_text)) if smelt_text.to_string() == {text:?})"
                 )),
                 smelt_hir::Literal::Float(number) if number.is_finite() => Some(format!(
-                    "matches!(map.get({key:?}), Some(SmeltUnknown::Number(smelt_number)) if smelt_number == {number:?})"
+                    "matches!(smelt_map.get({key:?}), Some(SmeltUnknown::Number(smelt_number)) if smelt_number == {number:?})"
                 )),
                 smelt_hir::Literal::Int(number) => Some(format!(
-                    "matches!(map.get({key:?}), Some(SmeltUnknown::Number(smelt_number)) if smelt_number == {number}.0)"
+                    "matches!(smelt_map.get({key:?}), Some(SmeltUnknown::Number(smelt_number)) if smelt_number == {number}.0)"
                 )),
                 _ => None,
             })
             .collect::<Option<Vec<_>>>()?;
         Some(format!(
-            "matches!(&value, SmeltUnknown::Object(map) if {})",
+            "matches!(&value, SmeltUnknown::Object(smelt_map) if {})",
             arms.join(" || ")
         ))
     }
@@ -1165,7 +1177,7 @@ impl FunctionEmitter<'_> {
         } else if patterns.len() == members.len() {
             "true".to_owned()
         } else {
-            format!("matches!({value_text}, {})", patterns.join(" | "))
+            format!("matches!({value_text}, {})", patterns.join(" | "), value_text = value_text.delimited())
         })
     }
 
@@ -1210,12 +1222,12 @@ impl FunctionEmitter<'_> {
                 format!("smelt_union_arm.{field_name}")
             };
             arms.push(format!(
-                "{union_enum_name}::M{index}(smelt_union_arm) => {{ {slot} = {rendered_value}; }}"
+                "{union_enum_name}::M{index}(smelt_union_arm) => {{ {slot} = {rendered_value}; }}", rendered_value = rendered_value.delimited()
             ));
         }
         Ok(Some(RustExpr::atom(format!(
             "match &mut {} {{ {} }}",
-            self.local_mut_value(base)?,
+            self.local_mut_value(base)?.tight(),
             arms.join(", ")
         ))))
     }
@@ -1258,7 +1270,7 @@ impl FunctionEmitter<'_> {
             .join(", ");
         Ok(Some(RustExpr::atom(format!(
             "match &{} {{ {arms} }}",
-            self.local_value(base)?
+            self.local_value(base)?.tight()
         ))))
     }
 
@@ -1286,7 +1298,7 @@ impl FunctionEmitter<'_> {
         }
         Ok(Some(RustExpr::atom(format!(
             "match &{} {{ {} }}",
-            self.local_value(base)?,
+            self.local_value(base)?.tight(),
             arms.join(", ")
         ))))
     }
@@ -1361,7 +1373,7 @@ impl FunctionEmitter<'_> {
                         *item,
                         format!(
                             "{}.get({index_text}).cloned().unwrap_or_else(|| {missing})",
-                            list_read_expr(&RustExpr::opaque("smelt_union_arm"))
+                            list_read_expr(&RustExpr::opaque("smelt_union_arm")).tight(), index_text = index_text.delimited(), missing = missing.delimited()
                         ),
                     )
                 }
@@ -1452,7 +1464,7 @@ impl FunctionEmitter<'_> {
         }
         Ok(Some(RustExpr::atom(format!(
             "match &{} {{ {} }}",
-            self.local_value(base)?,
+            self.local_value(base)?.tight(),
             arms.join(", ")
         ))))
     }
@@ -1497,7 +1509,7 @@ impl FunctionEmitter<'_> {
             };
             arms.push(format!("{}::M{position}(smelt_union_arm) => {value}", union_name(base_ty)));
         }
-        Ok(Some(RustExpr::atom(format!("match &{base_text} {{ {} }}", arms.join(", ")))))
+        Ok(Some(RustExpr::atom(format!("match &{base_text} {{ {} }}", arms.join(", "), base_text = base_text.tight()))))
     }
 
     /// The static type and per-arm reads of `receiver.field` on a concrete
@@ -1618,7 +1630,7 @@ impl FunctionEmitter<'_> {
             })
             .collect::<Vec<_>>()
             .join(", ");
-        Ok(Some(RustExpr::atom(format!("match &{receiver_text} {{ {arms} }}"))))
+        Ok(Some(RustExpr::atom(format!("match &{receiver_text} {{ {arms} }}", receiver_text = receiver_text.tight()))))
     }
 
     /// Resolve the one type every arm of a concrete union gives a named field.
@@ -1912,7 +1924,7 @@ pub(crate) fn emit_union_definitions(
         for (member_index, member) in members.iter().enumerate() {
             let erased = emitter.erase_rendered(&RustExpr::path("value"), *member)?;
             output.push_str(&format!(
-                "            Self::M{member_index}(value) => {erased},\n"
+                "            Self::M{member_index}(value) => {erased},\n", erased = erased.delimited()
             ));
         }
         output.push_str("        }\n    }\n}\n");
@@ -1980,7 +1992,7 @@ pub(crate) fn emit_union_definitions(
         let first_default = emitter.default_value(first_member)?;
         output.push_str(&format!("impl{default_generics} Default for {target} {{\n"));
         output.push_str("    fn default() -> Self {\n");
-        output.push_str(&format!("        Self::M0({first_default})\n"));
+        output.push_str(&format!("        Self::M0({first_default})\n", first_default = first_default.delimited()));
         output.push_str("    }\n}\n\n");
     }
     Ok(output)

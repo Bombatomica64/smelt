@@ -42,7 +42,8 @@ def run() -> None:
 "#,
     );
 
-    assert!(source.matches(".clone().clone()").count() >= 1);
+    assert!(source.contains("let copied_items: SmeltPrimSet<i64> = items.clone();"));
+    assert_eq!(source.matches(".clone().clone()").count(), 0);
     assert!(source.contains("vec![]"));
     // A source `set` — Python's included — is the insertion-ordered
     // `SmeltPrimSet` container rather than a Rust `HashSet` (H52). Python
@@ -96,7 +97,7 @@ count: int = values.count(1)
 ",
     );
 
-    assert!(source.contains(".iter().filter(|item| *item == &1).count() as i64;"));
+    assert!(source.contains(".iter().filter(|smelt_item| *smelt_item == &1).count() as i64;"));
 }
 
 #[test]
@@ -108,7 +109,7 @@ index: int = values.index(2)
 ",
     );
 
-    assert!(source.contains(".borrow().iter().position(|item| item == &2)"));
+    assert!(source.contains(".borrow().iter().position(|smelt_item| smelt_item == &2)"));
     assert!(source.contains(".expect(\"list index missing item\") as i64;"));
 }
 
@@ -122,9 +123,9 @@ result: None = values.remove(2)
     );
 
     assert!(source.contains("let mut"));
-    assert!(source.contains(".iter().position(|item| item == &smelt_needle)"));
+    assert!(source.contains(".iter().position(|smelt_item| smelt_item == &smelt_needle)"));
     assert!(source.contains(".expect(\"list remove missing item\")"));
-    assert!(source.contains(".remove(remove_index);"));
+    assert!(source.contains(".remove(smelt_remove_index);"));
     assert!(source.contains("()"));
 }
 
@@ -141,7 +142,7 @@ float_result: None = floats.sort()
 
     assert!(source.contains("let mut"));
     assert!(source.contains(".sort();"));
-    assert!(source.contains(".sort_by(|left, right| left.partial_cmp(right)"));
+    assert!(source.contains(".sort_by(|smelt_left, smelt_right| smelt_left.partial_cmp(smelt_right)"));
     assert!(source.contains(".expect(\"list sort incomparable float\")"));
     assert!(source.matches("()").count() >= 2);
 }
@@ -189,7 +190,7 @@ def run() -> None:
     );
 
     assert!(source.contains("let mut"));
-    assert!(source.contains("if let Some(value) = mapping.get(&\"b\".to_owned()) { value } else { mapping.insert(\"b\".to_owned(), 2.clone()); 2 }"));
+    assert!(source.contains("if let Some(smelt_value) = mapping.get(&\"b\".to_owned()) { smelt_value } else { mapping.insert(\"b\".to_owned(), 2.clone()); 2 }"));
 }
 
 #[test]
@@ -204,7 +205,7 @@ result: None = left.update(right)
 
     assert!(source.contains("let mut"));
     assert!(source.contains(".extend("));
-    assert!(source.contains(".iter().map(|(key, value)| (key.clone(), value.clone()))"));
+    assert!(source.contains(".iter().map(|(smelt_key, smelt_value)| (smelt_key.clone(), smelt_value.clone()))"));
     assert!(source.contains("()"));
 }
 
@@ -352,7 +353,7 @@ has_key: bool = "a" in mapping
     assert!(source.contains(".is_nan();"));
     assert!(source.contains("rand::random::<f64>();"));
     assert!(source.contains("rand::random_range(1..=6);"));
-    assert!(source.contains("rand::random_range(0..choice_items.len())"));
+    assert!(source.contains("rand::random_range(0..smelt_choice_items.len())"));
     assert!(source.contains("random.choice() from empty list"));
     assert!(source.contains(".0 == "));
     assert!(source.contains("SmeltPrimSet::from(["));

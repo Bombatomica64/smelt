@@ -4383,7 +4383,7 @@ impl IntoSmeltUnknown for User {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("name".to_owned(), SmeltUnknown::String(self.name.into())),
-        ("scores".to_owned(), SmeltUnknown::Array(self.scores.into_iter().map(|value| SmeltUnknown::Number(value as f64)).collect())),
+        ("scores".to_owned(), SmeltUnknown::Array(self.scores.into_iter().map(|smelt_value| SmeltUnknown::Number(smelt_value as f64)).collect())),
         ])))
     }
 }
@@ -4391,11 +4391,11 @@ impl SmeltFromUnknown for User {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("name") {
-                result.name = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("name") {
+                result.name = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("scores") {
-                result.scores = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("scores") {
+                result.scores = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -4417,12 +4417,12 @@ fn main() {
     name = present.clone().as_ref().map(|_smelt_value| _smelt_value.name.clone());
     absent_name = missing.as_ref().map(|_smelt_value| _smelt_value.name.clone());
     _smelt_tmp_11 = present.clone().as_ref().map(|_smelt_value| _smelt_value.scores.clone());
-    score = _smelt_tmp_11.as_ref().and_then(|_smelt_value| ({ let smelt_len = _smelt_value.len() as i64; let smelt_index = 0.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| _smelt_value.borrow().get(index).cloned()));
+    score = _smelt_tmp_11.as_ref().and_then(|_smelt_value| ({ let smelt_len = _smelt_value.len() as i64; let smelt_index = 0.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|smelt_index| _smelt_value.borrow().get(smelt_index).cloned()));
     label = present.as_ref().map(|_smelt_value| _smelt_value.label());
-    let _ = { println!("{}", match &name { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    let _ = { println!("{}", match &absent_name { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    let _ = { println!("{}", match &score { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    let _ = { println!("{}", match &label { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", match &name { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", match &absent_name { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", match &score { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", match &label { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
     return;
 }
 

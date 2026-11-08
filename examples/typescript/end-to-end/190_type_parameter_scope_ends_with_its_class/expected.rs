@@ -4597,7 +4597,7 @@ fn smelt_keep_receiver_alive<H: SmeltReferenceHandle>(erased: SmeltUnknown, rece
 // @smelt:prelude-end — generated program below
 
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltReferenceHandle for Holder<T> { type Cell = ::std::cell::RefCell<HolderInner<T>>; fn smelt_handle_cell(&self) -> &::std::rc::Rc<Self::Cell> { &self.0 } fn smelt_from_handle_cell(cell: ::std::rc::Rc<Self::Cell>) -> Self { Self(cell) } }
-impl<T> Drop for Holder<T> { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let shared = self.0.try_borrow().map_or(true, |inner| inner.read.smelt_closure_shared()); if shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
+impl<T> Drop for Holder<T> { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let smelt_shared = self.0.try_borrow().map_or(true, |smelt_inner| smelt_inner.read.smelt_closure_shared()); if smelt_shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
 
 #[allow(dead_code)]
 struct Holder<T>(::std::rc::Rc<::std::cell::RefCell<HolderInner<T>>>);
@@ -4659,7 +4659,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFr
         let SmeltUnknown::Object(object) = value else { return Self::default() };
         if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(field) = object.get("value") { result.0.borrow_mut().value = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(smelt_field) = object.get("value") { result.0.borrow_mut().value = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
         result
     }
 }
@@ -4680,7 +4680,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Holder<
     let _smelt_tmp_2 = ::std::rc::Rc::new({
     let smelt_capture_this = SmeltWeakReceiver::new(&this);
     move || {
-    (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().value.clone()
+    ((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().value).clone()
     }
 });
     this.0.borrow_mut().read = _smelt_tmp_2.clone();
@@ -4688,7 +4688,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Holder<
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let smelt_capture_this = SmeltWeakReceiver::new(&this);
     move || {
-    (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().value.clone()
+    ((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().value).clone()
     }
 });
     this.0.borrow_mut().read = _smelt_tmp_3.clone();

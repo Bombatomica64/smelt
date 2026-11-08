@@ -19,7 +19,7 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("Python str()/repr() of a value with no Python text"));
         }
         let text = self.operand_borrow_expr(value)?;
-        Ok(RustExpr::atom(format!("SmeltPyRepr::{method}(&{text})")))
+        Ok(RustExpr::atom(format!("SmeltPyRepr::{method}(&{text})", text = text.tight())))
     }
 
     /// Whether `ty` is a Python exception, rendered as `SmeltPyException`.
@@ -59,7 +59,7 @@ impl FunctionEmitter<'_> {
         let chain = self.py_class_names_literal(classes)?;
         let arg_texts = args
             .iter()
-            .map(|arg| Ok(format!("SmeltPyException::arg(&{})", self.operand_expr(arg)?)))
+            .map(|arg| Ok(format!("SmeltPyException::arg(&{})", self.operand_expr(arg)?.tight())))
             .collect::<Result<Vec<_>, EmitError>>()?;
         Ok(RustExpr::atom(format!(
             "SmeltPyException::new({chain}, vec![{}])",
@@ -76,9 +76,6 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         let exception_text = self.operand_expr(exception)?;
         let names = self.py_class_names_literal(classes)?;
-        Ok(RustExpr::postfix_on(
-            &exception_text,
-            format!("{exception_text}.caught_by({names}, {catches_unclassified})"),
-        ))
+        Ok(exception_text.postfix(format!(".caught_by({names}, {catches_unclassified})")))
     }
 }

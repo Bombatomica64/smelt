@@ -4863,8 +4863,8 @@ impl IntoSmeltUnknown for InitLike {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let smelt_absent_keys: [&str; 2] = ["headers", "status"];
         SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
-        ("headers".to_owned(), self.headers.map_or(SmeltUnknown::Undefined, |value| (value).into_smelt_unknown())),
-        ("status".to_owned(), self.status.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
+        ("headers".to_owned(), self.headers.map_or(SmeltUnknown::Undefined, |smelt_value| (smelt_value).into_smelt_unknown())),
+        ("status".to_owned(), self.status.map_or(SmeltUnknown::Undefined, |smelt_value| SmeltUnknown::Number(smelt_value as f64))),
         ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
     }
 }
@@ -4872,8 +4872,8 @@ impl SmeltFromUnknown for InitLike {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("status") {
-                result.status = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("status") {
+                result.status = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -4890,7 +4890,7 @@ impl IntoSmeltUnknown for SmeltUnion3 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         match self {
             Self::M0(value) => SmeltUnknown::Number(value as f64),
-            Self::M1(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::<(String, _)>::new(); if let Some(value) = smelt_object_value.headers.clone() { smelt_object_entries.push(("headers".to_owned(), value.clone().into_smelt_unknown())); } if let Some(value) = smelt_object_value.status.clone() { smelt_object_entries.push(("status".to_owned(), SmeltUnknown::Number(value as f64))); } SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) },
+            Self::M1(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::<(String, _)>::new(); if let Some(smelt_value) = smelt_object_value.headers.clone() { smelt_object_entries.push(("headers".to_owned(), smelt_value.clone().into_smelt_unknown())); } if let Some(smelt_value) = smelt_object_value.status.clone() { smelt_object_entries.push(("status".to_owned(), SmeltUnknown::Number(smelt_value as f64))); } SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) },
             Self::M2(value) => value.clone().into_smelt_unknown(),
         }
     }
@@ -4898,7 +4898,7 @@ impl IntoSmeltUnknown for SmeltUnion3 {
 impl SmeltUnion3 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
         if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltResponse>() { return Self::M2(smelt_origin); } }
-        if matches!(value, SmeltUnknown::Number(_)) { return Self::M0(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }); }
+        if matches!(value, SmeltUnknown::Number(_)) { return Self::M0(match value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }); }
         if matches!(value, SmeltUnknown::Object(_)) { return Self::M1(__smelt_from_unknown_record_0((value).into_smelt_unknown())); }
         Self::M2(<SmeltResponse as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
     }
@@ -4934,7 +4934,7 @@ pub enum SmeltUnion7 {
 impl IntoSmeltUnknown for SmeltUnion7 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         match self {
-            Self::M0(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::<(String, _)>::new(); if let Some(value) = smelt_object_value.headers.clone() { smelt_object_entries.push(("headers".to_owned(), value.clone().into_smelt_unknown())); } if let Some(value) = smelt_object_value.status.clone() { smelt_object_entries.push(("status".to_owned(), SmeltUnknown::Number(value as f64))); } SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) },
+            Self::M0(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::<(String, _)>::new(); if let Some(smelt_value) = smelt_object_value.headers.clone() { smelt_object_entries.push(("headers".to_owned(), smelt_value.clone().into_smelt_unknown())); } if let Some(smelt_value) = smelt_object_value.status.clone() { smelt_object_entries.push(("status".to_owned(), SmeltUnknown::Number(smelt_value as f64))); } SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) },
             Self::M1(value) => value.clone().into_smelt_unknown(),
         }
     }
@@ -5021,7 +5021,7 @@ fn main() {
 }
 
 fn __smelt_from_unknown_record_0(smelt_value: SmeltUnknown) -> InitLike {
-    match (smelt_value).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); InitLike { headers: smelt_record_map.get_text("headers").or_else(|| smelt_record_map.get_text("__smelt_proto:headers")).or_else(|| smelt_record_map.get_text("__smelt_method:headers")).cloned().and_then(|value| if smelt_unknown_is_nullish(&value) { None } else { Some(<SmeltHeaders as SmeltFromUnknown>::smelt_from_unknown(value.clone())) }), status: smelt_record_map.get_text("status").or_else(|| smelt_record_map.get_text("__smelt_proto:status")).or_else(|| smelt_record_map.get_text("__smelt_method:status")).cloned().and_then(|value| if smelt_unknown_is_nullish(&value) { None } else { Some(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) }) } } }, _ => Default::default() }
+    match (smelt_value).into_smelt_unknown() { SmeltUnknown::Object(smelt_values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(smelt_values.id, smelt_values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); InitLike { headers: smelt_record_map.get_text("headers").or_else(|| smelt_record_map.get_text("__smelt_proto:headers")).or_else(|| smelt_record_map.get_text("__smelt_method:headers")).cloned().and_then(|smelt_value| if smelt_unknown_is_nullish(&smelt_value) { None } else { Some(<SmeltHeaders as SmeltFromUnknown>::smelt_from_unknown(smelt_value.clone())) }), status: smelt_record_map.get_text("status").or_else(|| smelt_record_map.get_text("__smelt_proto:status")).or_else(|| smelt_record_map.get_text("__smelt_method:status")).cloned().and_then(|smelt_value| if smelt_unknown_is_nullish(&smelt_value) { None } else { Some(match smelt_value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) }) } } }, _ => Default::default() }
 }
 
 // ==== source_main.rs

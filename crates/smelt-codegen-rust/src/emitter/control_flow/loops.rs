@@ -29,7 +29,7 @@ impl FunctionEmitter<'_> {
         }
         out.push_str(&format!(
             "    if !({}) {{ break; }}\n",
-            self.truthy_operand_expr(&Operand::Copy(Place::Local(self.switch_cond_local(block)?)))?
+            self.truthy_operand_expr(&Operand::Copy(Place::Local(self.switch_cond_local(block)?)))?.delimited()
         ));
         Ok(())
     }
@@ -650,7 +650,7 @@ impl FunctionEmitter<'_> {
                 then_block,
                 else_block,
             }) => {
-                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
                 self.emit_condition_region(self.block(*then_block)?, decision, out, visited)?;
                 out.push_str("    } else {\n");
                 self.emit_condition_region(self.block(*else_block)?, decision, out, visited)?;
@@ -688,7 +688,7 @@ impl FunctionEmitter<'_> {
         let loop_declared = self.declared_scope();
         out.push_str("    loop {\n");
         self.emit_condition_region(block, decision, out, &mut BlockIdSet::default())?;
-        out.push_str(&format!("    if {cond_text} {{\n"));
+        out.push_str(&format!("    if {cond_text} {{\n", cond_text = cond_text.delimited()));
         if body_is_then {
             self.emit_block_until_goto(
                 self.block(body_entry)?,
@@ -837,7 +837,7 @@ impl FunctionEmitter<'_> {
                 then_block,
                 else_block,
             }) if break_target.is_some() => {
-                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
                 self.emit_loop_branch(self.block(*then_block)?, stop, break_target, out)?;
                 out.push_str("    } else {\n");
                 self.emit_loop_branch(self.block(*else_block)?, stop, break_target, out)?;
@@ -875,11 +875,11 @@ impl FunctionEmitter<'_> {
                 if *then_block == join && *else_block == join {
                     // Both edges already are the join: no branch to emit.
                 } else if *then_block == join {
-                    out.push_str(&format!("    if !({cond_text}) {{\n"));
+                    out.push_str(&format!("    if !({cond_text}) {{\n", cond_text = cond_text.delimited()));
                     self.emit_join_region_arm(*else_block, join, stop, out)?;
                     out.push_str("    }\n");
                 } else {
-                    out.push_str(&format!("    if {cond_text} {{\n"));
+                    out.push_str(&format!("    if {cond_text} {{\n", cond_text = cond_text.delimited()));
                     self.emit_join_region_arm(*then_block, join, stop, out)?;
                     if *else_block != join {
                         out.push_str("    } else {\n");
@@ -1063,7 +1063,7 @@ impl FunctionEmitter<'_> {
                 // which must declare it again (E0425 `_smelt_tmp_N` when the
                 // else-arm assigned it bare).
                 let branch_declared = self.declared_scope();
-                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
                 // Each branch can legitimately converge on the same join block.
                 // Sharing the recursion guard across siblings makes the later
                 // branch look cyclic and incorrectly emits `continue`.
@@ -1253,7 +1253,7 @@ impl FunctionEmitter<'_> {
         let join_scope = self.flow.push_loop_join_stop(join, continue_target);
         let mut arms = String::new();
         let emitted = (|| -> Result<(), EmitError> {
-            arms.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+            arms.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
             let mut then_visited = visited.clone();
             self.emit_loop_branch_inner(
                 self.block(then_block)?,

@@ -4482,7 +4482,7 @@ struct Respond {
 impl Default for Respond {
     fn default() -> Self {
         Self {
-            __smelt_call: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString, Option<f64>, Option<JsString>) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString, arg1: Option<f64>, arg2: Option<JsString>| -> JsString { JsString::new() }); smelt_default_callback },
+            __smelt_call: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString, Option<f64>, Option<JsString>) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: JsString, smelt_arg1: Option<f64>, smelt_arg2: Option<JsString>| -> JsString { JsString::new() }); smelt_default_callback },
         }
     }
 }
@@ -4502,8 +4502,8 @@ impl SmeltFromUnknown for Respond {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("__smelt_call") {
-                let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
+            if let Some(smelt_field) = object.get("__smelt_call") {
+                let smelt_function = match smelt_field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
                 if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(JsString, Option<f64>, Option<JsString>) -> JsString>>(&smelt_function)) { result.__smelt_call = smelt_origin; }
             }
         }
@@ -4693,7 +4693,7 @@ impl Ctx {
     _smelt_tmp_9.clone()
     }
 });
-    return Respond { __smelt_call: { let smelt_callback = _smelt_tmp_1.clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(JsString, Option<f64>, Option<JsString>) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString, arg1: Option<f64>, arg2: Option<JsString>| (smelt_callback)(arg0, arg1, arg2)); smelt_adapted } };
+    return Respond { __smelt_call: { let smelt_callback = _smelt_tmp_1.clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(JsString, Option<f64>, Option<JsString>) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: JsString, smelt_arg1: Option<f64>, smelt_arg2: Option<JsString>| (smelt_callback)(smelt_arg0, smelt_arg1, smelt_arg2)); smelt_adapted } };
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
     ///

@@ -108,7 +108,7 @@ impl FunctionEmitter<'_> {
         debug_assert_eq!(
             decl_ty,
             body_ty,
-            "callback adapter in `{}` declares arg{index} as `{}` but converts its body from `{}` \
+            "callback adapter in `{}` declares smelt_arg{index} as `{}` but converts its body from `{}` \
              (declared parameter type {declared_param_ty:?}): the declaration environment and the \
              body substitution disagree",
             self.seam_context_name(),

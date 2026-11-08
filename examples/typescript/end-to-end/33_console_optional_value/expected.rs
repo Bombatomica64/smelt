@@ -4384,19 +4384,19 @@ fn main() {
     let _smelt_tmp_7: Option<f64>;
     let _smelt_tmp_9: Option<f64>;
     let _smelt_tmp_2: Option<JsString> = label_of(Some(JsString::from("ada")));
-    let _ = { println!("{}", match &_smelt_tmp_2 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", match &_smelt_tmp_2 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
     let _smelt_tmp_4: Option<JsString> = label_of(None::<JsString>);
-    let _ = { println!("{}", match &_smelt_tmp_4 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", match &_smelt_tmp_4 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
     scores = SmeltJsMap::from([(JsString::from("a"), 1.0)]);
     _smelt_tmp_7 = scores.get(&JsString::from("a"));
-    let _ = { println!("{}", match &_smelt_tmp_7 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", match &_smelt_tmp_7 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
     _smelt_tmp_9 = scores.get(&JsString::from("z"));
-    let _ = { println!("{}", match &_smelt_tmp_9 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", match &_smelt_tmp_9 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
     explicit = Some(JsString::from("set"));
-    let _ = { println!("{}", match &explicit.clone() { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", match &explicit.clone() { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
     let _smelt_tmp_12: Option<JsString> = label_of(Some(JsString::from("ada")));
     let _smelt_tmp_13: Option<JsString> = label_of(None::<JsString>);
-    let _ = { println!("{} {} {}", match &_smelt_tmp_12 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &_smelt_tmp_13 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, match &explicit { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    let _ = { println!("{} {} {}", match &_smelt_tmp_12 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }, match &_smelt_tmp_13 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }, match &explicit { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
     return;
 }
 

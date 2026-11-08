@@ -4461,8 +4461,8 @@ impl SmeltFromUnknown for Route {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("path") {
-                result.path = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("path") {
+                result.path = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -4516,7 +4516,7 @@ impl IntoSmeltUnknown for Session {
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ("name".to_owned(), SmeltUnknown::String((__smelt_inner.name.clone()).into())),
-        ("renew".to_owned(), __smelt_inner.renew.clone().map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Null)),
+        ("renew".to_owned(), __smelt_inner.renew.clone().map_or(SmeltUnknown::Undefined, |smelt_value| SmeltUnknown::Null)),
         ]);
         __smelt_entries.extend(__smelt_proto);
         SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries).smelt_with_origin(self.clone()))
@@ -4529,7 +4529,7 @@ impl SmeltFromUnknown for Session {
         let SmeltUnknown::Object(object) = value else { return Self::default() };
         if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(field) = object.get("name") { result.0.borrow_mut().name = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(smelt_field) = object.get("name") { result.0.borrow_mut().name = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
         result
     }
 }
@@ -4576,8 +4576,8 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFr
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("value") {
-                result.value = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("value") {
+                result.value = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -4630,11 +4630,11 @@ impl<Carried: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> S
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("left") {
-                result.left = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("left") {
+                result.left = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("right") {
-                result.right = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("right") {
+                result.right = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -4658,13 +4658,13 @@ fn main() {
     let _smelt_tmp_7: Session = Session::new(JsString::from("s1"));
     session = _smelt_tmp_7;
     _smelt_tmp_8 = ::std::rc::Rc::new(|closure_arg_0: Session| {
-    let _smelt_tmp_1: JsString = JsString::from("renewed ") + &closure_arg_0.0.borrow().name.clone().clone();
+    let _smelt_tmp_1: JsString = JsString::from("renewed ") + &closure_arg_0.0.borrow().name.clone();
     _smelt_tmp_1.clone()
     });
     session.0.borrow_mut().renew = Some(_smelt_tmp_8.clone());
     let _smelt_tmp_9: JsString = session.label();
     let _ = { println!("{}", _smelt_tmp_9); };
-    _smelt_tmp_11 = session.0.borrow().renew.clone().clone().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn(Session) -> JsString> = ::std::rc::Rc::new(move |arg0: Session| -> JsString { JsString::new() }); smelt_default_callback });
+    _smelt_tmp_11 = session.0.borrow().renew.clone().clone().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn(Session) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: Session| -> JsString { JsString::new() }); smelt_default_callback });
     _smelt_tmp_12 = (_smelt_tmp_11)(session);
     let _ = { println!("{}", _smelt_tmp_12); };
     let _smelt_tmp_14: Cell<JsString> = Cell::new(JsString::from("held"));
@@ -4713,7 +4713,7 @@ impl Session {
     return this;
     }
     fn label(&self) -> JsString {
-    let _smelt_tmp_1: JsString = JsString::from("session ") + &self.0.borrow().name.clone().clone();
+    let _smelt_tmp_1: JsString = JsString::from("session ") + &self.0.borrow().name.clone();
     return _smelt_tmp_1;
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.

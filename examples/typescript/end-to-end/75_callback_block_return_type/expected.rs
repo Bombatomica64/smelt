@@ -4435,10 +4435,10 @@ fn main() {
     _smelt_tmp_27 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("ab"), JsString::from("cde")]; smelt_list_items }));
     let _smelt_tmp_28: SmeltList<f64> = widths(_smelt_tmp_27);
     fifth = Into::<SmeltList<_>>::into(_smelt_tmp_28);
-    _smelt_tmp_30 = fifth.borrow().iter().enumerate().fold(0.0, |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = &fifth; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
+    _smelt_tmp_30 = fifth.borrow().iter().enumerate().fold(0.0, |smelt_acc, (smelt_index, smelt_item)| { let smelt_item = (*smelt_item).clone(); let smelt_index = smelt_index as f64; let smelt_array = &fifth; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
     let _smelt_tmp_2: f64 = closure_arg_0 + closure_arg_1;
     _smelt_tmp_2
-    }); (smelt_callback)(acc, item, ((index as f64).trunc() as i64), array) } });
+    }); (smelt_callback)(smelt_acc, smelt_item, ((smelt_index as f64).trunc() as i64), smelt_array) } });
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_30)); };
     _smelt_tmp_32 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a"), JsString::from("b")]; smelt_list_items }));
     _smelt_tmp_33 = ::std::rc::Rc::new(|closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
@@ -4448,7 +4448,7 @@ fn main() {
     sixth = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
     let _smelt_tmp_1: JsString = closure_arg_0.clone() + &JsString::from("-");
     _smelt_tmp_1.clone()
-    }); let smelt_array = _smelt_tmp_32; let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
+    }); let smelt_array = _smelt_tmp_32; let smelt_value = smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
     _smelt_tmp_35 = { let smelt_unshift_item = JsString::from("start"); sixth.borrow_mut().insert(0, smelt_unshift_item); sixth.len() as f64 };
     _smelt_tmp_36 = JsString::join(sixth.borrow().iter(), &JsString::from("|"));
     let _ = { println!("{}", _smelt_tmp_36); };
@@ -4460,11 +4460,11 @@ fn main() {
     seventh = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
     let step: f64 = closure_arg_0 * 2.0;
     step
-    }); let smelt_array = _smelt_tmp_38; let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
-    _smelt_tmp_42 = seventh.borrow().iter().enumerate().fold(0.0, |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = &seventh; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
+    }); let smelt_array = _smelt_tmp_38; let smelt_value = smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
+    _smelt_tmp_42 = seventh.borrow().iter().enumerate().fold(0.0, |smelt_acc, (smelt_index, smelt_item)| { let smelt_item = (*smelt_item).clone(); let smelt_index = smelt_index as f64; let smelt_array = &seventh; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
     let _smelt_tmp_2: f64 = closure_arg_0 + closure_arg_1;
     _smelt_tmp_2
-    }); (smelt_callback)(acc, item, ((index as f64).trunc() as i64), array) } });
+    }); (smelt_callback)(smelt_acc, smelt_item, ((smelt_index as f64).trunc() as i64), smelt_array) } });
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_42)); };
     return;
 }
@@ -4520,7 +4520,7 @@ pub(crate) fn joined(keys: SmeltList<JsString>) -> SmeltList<JsString> {
     return out.clone();
     }
     }
-    }); let smelt_array = keys.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
+    }); let smelt_array = keys.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
     return _smelt_tmp_2;
 }
 
@@ -4536,7 +4536,7 @@ pub(crate) fn shouted(keys: SmeltList<JsString>) -> SmeltList<JsString> {
     let _smelt_tmp_2: JsString = out.clone() + &JsString::from("!");
     out = _smelt_tmp_2.clone();
     out.clone()
-    }); let smelt_array = keys.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
+    }); let smelt_array = keys.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
     return _smelt_tmp_2;
 }
 
@@ -4550,7 +4550,7 @@ pub(crate) fn upper(keys: SmeltList<JsString>) -> SmeltList<JsString> {
     let _smelt_tmp_1: JsString;
     _smelt_tmp_1 = closure_arg_0.clone() + &JsString::from("?");
     _smelt_tmp_1.clone()
-    }); let smelt_array = keys.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
+    }); let smelt_array = keys.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
     return _smelt_tmp_2;
 }
 
@@ -4574,7 +4574,7 @@ pub(crate) fn classified(keys: SmeltList<JsString>) -> SmeltList<JsString> {
     closure_arg_0.clone()
         }
     }
-    }); let smelt_array = keys.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
+    }); let smelt_array = keys.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
     return _smelt_tmp_2;
 }
 
@@ -4626,6 +4626,6 @@ pub(crate) fn widths(keys: SmeltList<JsString>) -> SmeltList<f64> {
     return total;
     }
     }
-    }); let smelt_array = keys.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
+    }); let smelt_array = keys.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
     return _smelt_tmp_2;
 }

@@ -1,7 +1,6 @@
 //! Assignment statements: a value written to a place, per place shape.
 
 use super::*;
-use crate::rust::RustExpr;
 
 impl FunctionEmitter<'_> {
     /// Emits an assignment to a local, field, or index place.
@@ -18,7 +17,7 @@ impl FunctionEmitter<'_> {
             Place::Global { base, projection } => {
                 let statement = self.global_place_assign_expr(*base, projection, value)?;
                 out.push_str("    ");
-                out.push_str(&statement);
+                out.push_str(statement.as_str());
                 out.push_str(";\n");
                 // The whole statement is emitted; the shared tail below asks
                 // for `place_ty`, which a global place deliberately has not.
@@ -55,12 +54,12 @@ impl FunctionEmitter<'_> {
             if self.local_uses_shared_capture_storage(*local) {
                 out.push_str(&format!(
                     "    let smelt_capture_{name}: ::std::rc::Rc<::std::cell::RefCell<{}>> = ::std::rc::Rc::new(::std::cell::RefCell::new({rendered_value}));\n",
-                    self.capture_cell_type(*local, decl.ty)?
+                    self.capture_cell_type(*local, decl.ty)?, rendered_value = rendered_value.delimited()
                 ));
             } else {
                 out.push_str(&format!(
                     "    let {mutability}{name}: {} = {rendered_value};\n",
-                    self.rendered_type(decl.ty)?
+                    self.rendered_type(decl.ty)?, rendered_value = rendered_value.delimited()
                 ));
             }
             self.mark_local_declared(*local);
@@ -75,11 +74,11 @@ impl FunctionEmitter<'_> {
             .is_some_and(|cell| value_mut_borrows.contains(&cell.cell))
         {
             out.push_str(&format!(
-                "    {{ let smelt_next_value = {rendered_value}; {assignment} = smelt_next_value; }}\n"
+                "    {{ let smelt_next_value = {rendered_value}; {assignment} = smelt_next_value; }}\n", rendered_value = rendered_value.delimited(), assignment = assignment.delimited()
             ));
             return Ok(());
         }
-        out.push_str(&format!("    {assignment} = {rendered_value};\n"));
+        out.push_str(&format!("    {assignment} = {rendered_value};\n", assignment = assignment.delimited(), rendered_value = rendered_value.delimited()));
         Ok(())
     }
 
@@ -106,7 +105,7 @@ impl FunctionEmitter<'_> {
                 self.rvalue_expr_for_dest(value, self.type_id(Type::Float)?)?;
             out.push_str(&format!(
                 "    *{}.last_index.borrow_mut() = ({rendered_value}) as usize;\n",
-                self.local_value(base)?
+                self.local_value(base)?.tight(), rendered_value = rendered_value.delimited()
             ));
             return Ok(true);
         }
@@ -129,11 +128,11 @@ impl FunctionEmitter<'_> {
             // the same bag through the free function.
             if self.is_erased_unknown_rest_function(&function) && !function.may_throw {
                 out.push_str(&format!(
-                    "    {base_text}.smelt_set_property({field_name:?}, {rendered_value});\n"
+                    "    {base_text}.smelt_set_property({field_name:?}, {rendered_value});\n", base_text = base_text.tight(), rendered_value = rendered_value.delimited()
                 ));
             } else {
                 out.push_str(&format!(
-                    "    smelt_set_function_property(&{base_text}, {field_name:?}, {rendered_value});\n"
+                    "    smelt_set_function_property(&{base_text}, {field_name:?}, {rendered_value});\n", base_text = base_text.tight(), rendered_value = rendered_value.delimited()
                 ));
             }
             return Ok(true);
@@ -151,7 +150,7 @@ impl FunctionEmitter<'_> {
             let key_text = self.dict_field_key_expr(*key, field)?;
             out.push_str(&format!(
                 "    {}.insert({key_text}, {rendered_value});\n",
-                self.local_mut_value(base)?,
+                self.local_mut_value(base)?.tight(), key_text = key_text.delimited(), rendered_value = rendered_value.delimited(),
             ));
             return Ok(true);
         }
@@ -176,7 +175,7 @@ impl FunctionEmitter<'_> {
                 self.concrete_union_field_assign_expr(base, field, value)?
             {
                 out.push_str("    ");
-                out.push_str(&statement);
+                out.push_str(statement.as_str());
                 out.push('\n');
                 return Ok(true);
             }
@@ -185,10 +184,10 @@ impl FunctionEmitter<'_> {
             let field_name = self.symbol_source_name(field)?;
             let union_text = self.union_rust_type(base_ty)?;
             let erased =
-                self.erase_concrete_union_expr(&self.local_value(base)?, base_ty);
+                self.erase_concrete_union_expr(&self.local_value(base)?, base_ty)?;
             out.push_str(&format!(
                 "    {{ let smelt_value = {rendered_value}; let mut smelt_erased = {erased}; smelt_index_assign(&mut smelt_erased, {field_name:?}.to_owned(), smelt_value); {} = {union_text}::from_smelt_unknown(smelt_erased); }}\n",
-                self.local_mut_value(base)?
+                self.local_mut_value(base)?.delimited(), rendered_value = rendered_value.delimited(), erased = erased.delimited()
             ));
             return Ok(true);
         }
@@ -228,8 +227,8 @@ impl FunctionEmitter<'_> {
             // `view_write_through`. The value is bound once so the view
             // and the instance receive the same value.
             if self.context.erased_view_write_through() {
-                out.push_str(&self.carrier_format(format_args!(
-                    "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), smelt_value.clone()); smelt_object_write_through(map, {field_name:?}, &smelt_value); }}, SmeltUnknown::Array(values) => {{ values.set_named_property({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Function(function) => {{ smelt_set_function_property(function, {field_name:?}, smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n"
+                out.push_str(&self.carrier_format(self.carrier()?, format_args!(
+                    "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(smelt_map) => {{ smelt_map.insert({field_name:?}.to_owned(), smelt_value.clone()); smelt_object_write_through(smelt_map, {field_name:?}, &smelt_value); }}, SmeltUnknown::Array(smelt_values) => {{ smelt_values.set_named_property({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Function(smelt_function) => {{ smelt_set_function_property(smelt_function, {field_name:?}, smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n", rendered_value = rendered_value.delimited(), base_text = base_text.tight()
                 )));
                 return Ok(true);
             }
@@ -240,12 +239,12 @@ impl FunctionEmitter<'_> {
             // through to the primitive arm replaced the callable with a
             // one-property record, so `(f as any).x = 1` lost `f`.
             if value.reads_local(base) {
-                out.push_str(&self.carrier_format(format_args!(
-                    "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Array(values) => {{ values.set_named_property({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Function(function) => {{ smelt_set_function_property(function, {field_name:?}, smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n"
+                out.push_str(&self.carrier_format(self.carrier()?, format_args!(
+                    "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(smelt_map) => {{ smelt_map.insert({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Array(smelt_values) => {{ smelt_values.set_named_property({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Function(smelt_function) => {{ smelt_set_function_property(smelt_function, {field_name:?}, smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n", rendered_value = rendered_value.delimited(), base_text = base_text.tight()
                 )));
             } else {
-                out.push_str(&self.carrier_format(format_args!(
-                    "    match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), {rendered_value}); }}, SmeltUnknown::Array(values) => {{ values.set_named_property({field_name:?}.to_owned(), {rendered_value}); }}, SmeltUnknown::Function(function) => {{ smelt_set_function_property(function, {field_name:?}, {rendered_value}); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), {rendered_value})]))); }} }}\n"
+                out.push_str(&self.carrier_format(self.carrier()?, format_args!(
+                    "    match &mut {base_text} {{ SmeltUnknown::Object(smelt_map) => {{ smelt_map.insert({field_name:?}.to_owned(), {rendered_value}); }}, SmeltUnknown::Array(smelt_values) => {{ smelt_values.set_named_property({field_name:?}.to_owned(), {rendered_value}); }}, SmeltUnknown::Function(smelt_function) => {{ smelt_set_function_property(smelt_function, {field_name:?}, {rendered_value}); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), {rendered_value})]))); }} }}\n", base_text = base_text.tight(), rendered_value = rendered_value.delimited()
                 )));
             }
             return Ok(true);
@@ -261,9 +260,9 @@ impl FunctionEmitter<'_> {
             let rendered_value = self.rvalue_expr_for_dest(value, value_ty)?;
             out.push_str(&format!(
                 "    {}.{}.insert({}, {rendered_value});\n",
-                self.local_mut_value(base)?,
+                self.local_mut_value(base)?.tight(),
                 smelt_hir::CLASS_INDEX_STORE_FIELD,
-                self.dict_field_key_expr(key_ty, field)?,
+                self.dict_field_key_expr(key_ty, field)?.delimited(), rendered_value = rendered_value.delimited(),
             ));
             return Ok(true);
         }
@@ -310,8 +309,8 @@ impl FunctionEmitter<'_> {
                 };
                 out.push_str(&format!(
                     "    {}.insert({}, {rendered_value});\n",
-                    self.local_mut_value(base)?,
-                    key_text
+                    self.local_mut_value(base)?.tight(),
+                    key_text.delimited(), rendered_value = rendered_value.delimited()
                 ));
             }
             Some(Type::List(item)) => {
@@ -331,7 +330,7 @@ impl FunctionEmitter<'_> {
                 let base_mut = list_write_expr(&self.local_value(base)?);
                 let base_read = self.local_value(base)?;
                 let index_text =
-                    self.normalized_index_expr(&RustExpr::postfix_on(&base_read, format!("{base_read}.len()")), index, negative)?;
+                    self.normalized_index_expr(&base_read.postfix(".len()"), index, negative)?;
                 // Growing past the end leaves JS *holes*, which read as
                 // `undefined`, not `null` (see `array_hole_value`).
                 let default_value = self.array_hole_value(*item)?;
@@ -341,7 +340,7 @@ impl FunctionEmitter<'_> {
                 // live when the write takes its `borrow_mut()`, panicking
                 // "already borrowed". A `let` ends the read guard first.
                 out.push_str(&format!(
-                    "    {{ let smelt_assign_index = {index_text}; let smelt_assign_value = {rendered_value}; if smelt_assign_index >= {base_read}.len() {{ {base_mut}.resize(smelt_assign_index.saturating_add(1), {default_value}); }} {base_mut}[smelt_assign_index] = smelt_assign_value; }}\n"
+                    "    {{ let smelt_assign_index = {index_text}; let smelt_assign_value = {rendered_value}; if smelt_assign_index >= {base_read}.len() {{ {base_mut}.resize(smelt_assign_index.saturating_add(1), {default_value}); }} {base_mut}[smelt_assign_index] = smelt_assign_value; }}\n", index_text = index_text.delimited(), rendered_value = rendered_value.delimited(), base_read = base_read.tight(), base_mut = base_mut.tight(), default_value = default_value.delimited()
                 ));
             }
             Some(Type::Tuple(items)) => {
@@ -353,7 +352,7 @@ impl FunctionEmitter<'_> {
                 let rendered_value = self.rvalue_expr_for_dest(value, item_ty)?;
                 out.push_str(&format!(
                     "    {}.{tuple_index} = {rendered_value};\n",
-                    self.local_mut_value(base)?
+                    self.local_mut_value(base)?.tight(), rendered_value = rendered_value.delimited()
                 ));
             }
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
@@ -382,16 +381,16 @@ impl FunctionEmitter<'_> {
                 if self.concrete_union_members(base_ty).is_some() {
                     let union_text = self.union_rust_type(base_ty)?;
                     let erased = self
-                        .erase_concrete_union_expr(&self.local_value(base)?, base_ty);
+                        .erase_concrete_union_expr(&self.local_value(base)?, base_ty)?;
                     out.push_str(&format!(
                         "    {{ let smelt_key = {key_text}; let smelt_value = {rendered_value}; let mut smelt_erased = {erased}; smelt_index_assign(&mut smelt_erased, smelt_key, smelt_value); {} = {union_text}::from_smelt_unknown(smelt_erased); }}\n",
-                        self.local_mut_value(base)?
+                        self.local_mut_value(base)?.delimited(), key_text = key_text.delimited(), rendered_value = rendered_value.delimited(), erased = erased.delimited()
                     ));
                     return Ok(());
                 }
                 out.push_str(&format!(
                     "    {{ let smelt_key = {key_text}; let smelt_value = {rendered_value}; smelt_index_assign(&mut {}, smelt_key, smelt_value); }}\n",
-                    self.local_mut_value(base)?
+                    self.local_mut_value(base)?.tight(), key_text = key_text.delimited(), rendered_value = rendered_value.delimited()
                 ));
             }
             // A class with an index signature backs keyed writes with a
@@ -419,8 +418,8 @@ impl FunctionEmitter<'_> {
                 };
                 out.push_str(&format!(
                     "    {}.{}.insert({key_text}, {rendered_value});\n",
-                    self.local_mut_value(base)?,
-                    smelt_hir::CLASS_INDEX_STORE_FIELD,
+                    self.local_mut_value(base)?.tight(),
+                    smelt_hir::CLASS_INDEX_STORE_FIELD, key_text = key_text.delimited(), rendered_value = rendered_value.delimited(),
                 ));
             }
             // A computed-key write into a class instance dispatches on
@@ -431,12 +430,12 @@ impl FunctionEmitter<'_> {
                     self.class_keyed_field_write_expr(base, base_ty, index, value)? =>
             {
                 out.push_str("    ");
-                out.push_str(&statement);
+                out.push_str(statement.as_str());
                 out.push('\n');
             }
             _ => {
                 let rendered_value = self.rvalue_expr(value)?;
-                out.push_str(&format!("    let _ = {rendered_value};\n"));
+                out.push_str(&format!("    let _ = {rendered_value};\n", rendered_value = rendered_value.delimited()));
             }
         }
         Ok(())

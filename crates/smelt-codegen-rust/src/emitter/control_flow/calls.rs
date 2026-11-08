@@ -35,12 +35,12 @@ impl FunctionEmitter<'_> {
                 && let Some(adapter) =
                     self.static_call_mut_list_adapter(*func, args, local.ty)?
             {
-                out.push_str(&format!("    let _ = {adapter};\n"));
+                out.push_str(&format!("    let _ = {adapter};\n", adapter = adapter.delimited()));
                 self.mark_local_declared(dest);
                 return Ok(());
             }
             let call_text = self.rendered_call(callee, args)?.into_expression();
-            out.push_str(&format!("    let _ = {call_text};\n"));
+            out.push_str(&format!("    let _ = {call_text};\n", call_text = call_text.delimited()));
             self.mark_local_declared(dest);
             return Ok(());
         }
@@ -54,11 +54,11 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(local.ty),
             Some(Type::Future(_) | Type::Function(_))
         ) {
-            out.push_str(&format!("    let {mutability}{name} = {call_text};\n"));
+            out.push_str(&format!("    let {mutability}{name} = {call_text};\n", call_text = call_text.delimited()));
         } else {
             out.push_str(&format!(
                 "    let {mutability}{name}: {} = {call_text};\n",
-                self.call_dest_type(callee, local.ty)?
+                self.call_dest_type(callee, local.ty)?, call_text = call_text.delimited()
             ));
         }
         self.mark_local_declared(dest);
@@ -98,18 +98,18 @@ impl FunctionEmitter<'_> {
         } else {
             ""
         };
-        let raw_value = RustExpr::loose(format!("{}.await?", self.await_operand_expr(future)?));
+        let raw_value = RustExpr::loose(format!("{}.await?", self.await_operand_expr(future)?.tight()));
         let source_ty = self.awaited_output_ty(future)?;
         let value = self.rendered_at_type(&raw_value, source_ty, local.ty, &self.render_scope())?;
         if matches!(
             self.mir.types.get(local.ty),
             Some(Type::Future(_) | Type::Function(_))
         ) {
-            out.push_str(&format!("    let {mutability}{name} = {value};\n"));
+            out.push_str(&format!("    let {mutability}{name} = {value};\n", value = value.delimited()));
         } else {
             out.push_str(&format!(
                 "    let {mutability}{name}: {} = {value};\n",
-                self.rendered_type(local.ty)?
+                self.rendered_type(local.ty)?, value = value.delimited()
             ));
         }
         self.mark_local_declared(dest);
@@ -166,7 +166,7 @@ impl FunctionEmitter<'_> {
                 self.mark_local_declared(dest);
             }
             out.push_str(&format!(
-                "    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| {call_text})) {{\n"
+                "    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| {call_text})) {{\n", call_text = call_text.delimited()
             ));
             out.push_str("        Ok(__smelt_value) => {\n");
             let mutability = if self.local_binding_needs_mut(dest) {
@@ -189,11 +189,11 @@ impl FunctionEmitter<'_> {
                 self.rendered_at_type(&RustExpr::path("__smelt_value"), source_ty, local.ty, &self.render_scope())?
             };
             if hoist_dest {
-                out.push_str(&format!("            {name} = {value_text};\n"));
+                out.push_str(&format!("            {name} = {value_text};\n", value_text = value_text.delimited()));
             } else if let Some(type_text) = &dest_type_text {
-                out.push_str(&format!("            let {mutability}{name}: {type_text} = {value_text};\n"));
+                out.push_str(&format!("            let {mutability}{name}: {type_text} = {value_text};\n", value_text = value_text.delimited()));
             } else {
-                out.push_str(&format!("            let {mutability}{name} = {value_text};\n"));
+                out.push_str(&format!("            let {mutability}{name} = {value_text};\n", value_text = value_text.delimited()));
             }
             self.mark_local_declared(dest);
             let __smelt_arm_declared = self.declared_scope();
@@ -210,7 +210,7 @@ impl FunctionEmitter<'_> {
             out.push_str("        Err(__smelt_panic) => {\n");
             out.push_str(&format!(
                 "            let __smelt_error = {};\n",
-                crate::thrown::caught_panic_message_expr("__smelt_panic")
+                crate::thrown::caught_panic_message_expr("__smelt_panic").delimited()
             ));
             if let Some(exception_local) = handler.exception_local {
                 let exception_name = self.local_name(exception_local)?;
@@ -236,7 +236,7 @@ impl FunctionEmitter<'_> {
                     }
                     _ => self.default_value(exception_decl.ty)?,
                 };
-                out.push_str(&self.exception_binding_expr(exception_local, &exception_name, &value));
+                out.push_str(self.exception_binding_expr(exception_local, &exception_name, &value).as_str());
                 self.mark_local_declared(exception_local);
             }
             self.emit_continuation(handler.catch_block, arm_continuation, out)?;
@@ -276,7 +276,7 @@ impl FunctionEmitter<'_> {
             self.mark_local_declared(dest);
         }
         out.push_str(&format!(
-            "    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| {raw_call})) {{\n"
+            "    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| {raw_call})) {{\n", raw_call = raw_call.delimited()
         ));
         out.push_str("        Ok(Ok(__smelt_value)) => {\n");
         let value_text = self.rendered_at_type(&RustExpr::path("__smelt_value"), source_ty, local.ty, &self.render_scope())?;
@@ -286,11 +286,11 @@ impl FunctionEmitter<'_> {
             ""
         };
         if hoist_dest {
-            out.push_str(&format!("            {name} = {value_text};\n"));
+            out.push_str(&format!("            {name} = {value_text};\n", value_text = value_text.delimited()));
         } else if let Some(type_text) = &dest_type_text {
-            out.push_str(&format!("            let {mutability}{name}: {type_text} = {value_text};\n"));
+            out.push_str(&format!("            let {mutability}{name}: {type_text} = {value_text};\n", value_text = value_text.delimited()));
         } else {
-            out.push_str(&format!("            let {mutability}{name} = {value_text};\n"));
+            out.push_str(&format!("            let {mutability}{name} = {value_text};\n", value_text = value_text.delimited()));
         }
         self.mark_local_declared(dest);
         // Each of the three arms re-emits the SAME continuation into its own
@@ -311,7 +311,7 @@ impl FunctionEmitter<'_> {
             // value a panic-routed throw parked in `SMELT_PANIC_VALUE`, and a
             // class-and-message record only for a panic with no parked value.)
             let value = self.caught_error_value(exception_decl.ty, &RustExpr::path("__smelt_error"))?;
-            out.push_str(&self.exception_binding_expr(exception_local, &exception_name, &value));
+            out.push_str(self.exception_binding_expr(exception_local, &exception_name, &value).as_str());
             self.mark_local_declared(exception_local);
         }
         self.emit_continuation(handler.catch_block, arm_continuation, out)?;
@@ -320,7 +320,7 @@ impl FunctionEmitter<'_> {
         out.push_str("        Err(__smelt_panic) => {\n");
         out.push_str(&format!(
                 "            let __smelt_error = {};\n",
-                crate::thrown::caught_panic_message_expr("__smelt_panic")
+                crate::thrown::caught_panic_message_expr("__smelt_panic").delimited()
             ));
         if let Some(exception_local) = handler.exception_local {
             let exception_name = self.local_name(exception_local)?;
@@ -341,7 +341,7 @@ impl FunctionEmitter<'_> {
                 }
                 _ => self.default_value(exception_decl.ty)?,
             };
-            out.push_str(&self.exception_binding_expr(exception_local, &exception_name, &value));
+            out.push_str(self.exception_binding_expr(exception_local, &exception_name, &value).as_str());
             self.mark_local_declared(exception_local);
         }
         self.emit_continuation(handler.catch_block, arm_continuation, out)?;
@@ -410,7 +410,7 @@ impl FunctionEmitter<'_> {
             out.push_str(&self.throwing_dest_predeclaration(dest, dest_type_text.as_deref())?);
             self.mark_local_declared(dest);
         }
-        out.push_str(&format!("    match {future_text}.await {{\n"));
+        out.push_str(&format!("    match {future_text}.await {{\n", future_text = future_text.tight()));
         out.push_str("        Ok(__smelt_value) => {\n");
         let mutability = if self.local_binding_needs_mut(dest) {
             "mut "
@@ -455,7 +455,7 @@ impl FunctionEmitter<'_> {
             let exception_name = self.local_name(exception_local)?;
             let exception_decl = self.local_decl(exception_local)?;
             let value = self.caught_error_value(exception_decl.ty, &RustExpr::path("__smelt_error"))?;
-            out.push_str(&self.exception_binding_expr(exception_local, &exception_name, &value));
+            out.push_str(self.exception_binding_expr(exception_local, &exception_name, &value).as_str());
             self.mark_local_declared(exception_local);
         }
         self.emit_continuation(handler.catch_block, arm_continuation, out)?;
@@ -485,9 +485,9 @@ impl FunctionEmitter<'_> {
     /// the unassigned outer binding. Otherwise it is a fresh `let`.
     fn exception_binding_expr(&self, local: LocalId, name: &str, value: &RustExpr) -> RustExpr {
         if self.is_local_declared(local) {
-            RustExpr::loose(format!("            {name} = {value};\n"))
+            RustExpr::loose(format!("            {name} = {value};\n", value = value.delimited()))
         } else {
-            RustExpr::loose(format!("            let {name} = {value};\n"))
+            RustExpr::loose(format!("            let {name} = {value};\n", value = value.delimited()))
         }
     }
 }

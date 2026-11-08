@@ -1,4 +1,4 @@
-//! Debug check that every runtime symbol a generated crate names has a definition.
+//! Check that every runtime symbol a generated crate names has a definition.
 //!
 //! The runtime is selected by [`crate::runtime_demand`], so a missing edge in its
 //! `requires` graph shows up as a call to a helper the crate never declares. That
@@ -11,7 +11,6 @@
 //! parameter) as a definition. It can therefore miss a defect, but it cannot
 //! report a name that is bound somewhere in the crate.
 
-#![cfg(any(debug_assertions, test))]
 #![expect(
     clippy::redundant_pub_crate,
     reason = "crate-visible like every other emitter helper"

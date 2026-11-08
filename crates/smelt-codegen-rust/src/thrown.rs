@@ -74,16 +74,16 @@ pub(crate) const THROWN_VALUE_FN: &str = "smelt_thrown_value";
 ///
 /// `value_text` must already be `SmeltUnknown`-typed; callers erase their
 /// operand first (see `FunctionEmitter::value_at_type`).
-pub(crate) fn throw_expr(value_text: &str) -> RustExpr {
-    RustExpr::postfix_on(&THROW_FN, format!("{THROW_FN}({value_text})"))
+pub(crate) fn throw_expr(value_text: &RustExpr) -> RustExpr {
+    RustExpr::atom(THROW_FN).postfix(format!("({value_text})", value_text = value_text.delimited()))
 }
 
 /// Renders the expression that recovers the original thrown payload.
 ///
 /// `error_text` names a binding holding the caught `Box<dyn std::error::Error>`;
 /// the generated call reborrows it as a trait object so the adapter can downcast.
-pub(crate) fn thrown_value_expr(error_text: &str) -> RustExpr {
-    RustExpr::postfix_on(&THROWN_VALUE_FN, format!("{THROWN_VALUE_FN}(&*{error_text})"))
+pub(crate) fn thrown_value_expr(error_text: &RustExpr) -> RustExpr {
+    RustExpr::atom(THROWN_VALUE_FN).postfix(format!("(&*{})", error_text.parenthesized_if_needed()))
 }
 
 /// Renders the erased error record for one builtin error class and message.
@@ -165,7 +165,7 @@ const PANIC_ERROR_VALUE_FN: &str = "smelt_panic_error_value";
 ///
 /// `panic_text` names the `Box<dyn Any + Send>` a `catch_unwind` answered with.
 pub(crate) fn caught_panic_message_expr(panic_text: &str) -> RustExpr {
-    RustExpr::postfix_on(&PANIC_MESSAGE_FN, format!("{PANIC_MESSAGE_FN}(&*{panic_text})"))
+    RustExpr::atom(PANIC_MESSAGE_FN).postfix(format!("(&*{panic_text})"))
 }
 
 /// Renders the erased error record a `catch` observes for a caught panic.
@@ -174,5 +174,5 @@ pub(crate) fn caught_panic_message_expr(panic_text: &str) -> RustExpr {
 /// payload rather than hard-coded to `Error`, so a `URIError` routed through the
 /// panic channel still answers `error.name === 'URIError'`.
 pub(crate) fn caught_panic_error_value_expr(panic_text: &str) -> RustExpr {
-    RustExpr::postfix_on(&PANIC_ERROR_VALUE_FN, format!("{PANIC_ERROR_VALUE_FN}(&*{panic_text})"))
+    RustExpr::atom(PANIC_ERROR_VALUE_FN).postfix(format!("(&*{panic_text})"))
 }

@@ -54,7 +54,7 @@ fn shorter_callback_and_init_value_monomorphize_the_call() {
     let source = source_for(FIXTURE);
     let uid = emitted_function_body(&source, "fn uid(");
     assert!(
-        uid.contains("move |arg0: &JsString, arg1: f64| -> JsString"),
+        uid.contains("move |smelt_arg0: &JsString, smelt_arg1: f64| -> JsString"),
         "the callback adapter is declared at T = String: {uid}"
     );
     assert!(
@@ -75,8 +75,8 @@ fn value_position_pins_the_call_past_an_unknown_callback_parameter() {
         .unwrap_or_else(|| panic!("`sum` calls iterate: {sum}"));
     assert!(
         call.contains("let _smelt_tmp_2: f64 = iterate(5.0, ")
-            && call.contains("move |arg0: &f64, arg1: f64| -> f64")
-            && call.contains("(&(SmeltUnknown::Number(arg0.clone() as f64)), arg1)")
+            && call.contains("move |smelt_arg0: &f64, smelt_arg1: f64| -> f64")
+            && call.contains("(&(SmeltUnknown::Number(smelt_arg0.clone() as f64)), smelt_arg1)")
             && call.trim_end().ends_with(", 0.0);"),
         "the site is monomorphized at f64: {call}"
     );
@@ -93,7 +93,7 @@ fn demoted_call_site_erases_its_bare_type_param_argument() {
         .find(|line| line.contains("iterate("))
         .unwrap_or_else(|| panic!("`erasedSum` calls iterate: {sum}"));
     assert!(
-        call.contains("move |arg0: &SmeltUnknown"),
+        call.contains("move |smelt_arg0: &SmeltUnknown"),
         "the callback adapter is built for the erased T: {call}"
     );
     assert!(

@@ -595,3 +595,35 @@ fn utility_record_subsets_literal() -> TestResult {
 fn utility_record_subsets_generic() -> TestResult {
     verify_node_parity("utility_record_subsets_generic")
 }
+
+/// Loops inside closure bodies are structured, never a run-time abort: a
+/// do/while back edge on the false arm, an inner loop left into the outer one, a
+/// `try` around a throwing call in one arm of a rejoining branch, `while (true)`
+/// left by `break` and `return`, and a loop headed by a call.
+#[test]
+fn closure_control_flow() -> TestResult {
+    verify_node_parity("closure_control_flow")
+}
+
+/// Program locals spelled like the emitter's template temporaries (`value`,
+/// `item`, `key`, `index`, `acc`, `smelt_needle`, a generator parameter `co`)
+/// keep their own values inside the code those templates splice.
+#[test]
+fn template_hygiene() -> TestResult {
+    verify_node_parity("template_hygiene")
+}
+
+/// An erased object projected into an interface reads each property by its
+/// source spelling (`isHTML`, `URL`, `snake_case`, `camelCase`), never by a
+/// name rebuilt from the Rust field.
+#[test]
+fn record_source_keys() -> TestResult {
+    verify_node_parity("record_source_keys")
+}
+
+/// Loosely binding operands spliced into postfix and operator positions keep
+/// their meaning: `"" + -n`, `(-n).toFixed(1)`, `s + -1`.
+#[test]
+fn splice_precedence() -> TestResult {
+    verify_node_parity("splice_precedence")
+}

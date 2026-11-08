@@ -563,11 +563,11 @@ pub(crate) fn drop_impl_text(
 ) -> String {
     let shared = fields
         .iter()
-        .map(|(field, slot)| format!("inner.{field}{slot}.smelt_closure_shared()"))
+        .map(|(field, slot)| format!("smelt_inner.{field}{slot}.smelt_closure_shared()"))
         .collect::<Vec<_>>()
         .join(" || ");
     format!(
-        "impl{type_params} Drop for {name}{type_args} {{ fn drop(&mut self) {{ if ::std::rc::Rc::strong_count(&self.0) == 1 {{ let shared = self.0.try_borrow().map_or(true, |inner| {shared}); if shared {{ ::std::mem::forget(::std::rc::Rc::clone(&self.0)); }} }} }} }}"
+        "impl{type_params} Drop for {name}{type_args} {{ fn drop(&mut self) {{ if ::std::rc::Rc::strong_count(&self.0) == 1 {{ let smelt_shared = self.0.try_borrow().map_or(true, |smelt_inner| {shared}); if smelt_shared {{ ::std::mem::forget(::std::rc::Rc::clone(&self.0)); }} }} }} }}"
     )
 }
 

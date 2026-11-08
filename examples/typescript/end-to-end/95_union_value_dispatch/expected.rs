@@ -5517,11 +5517,11 @@ impl SmeltFromUnknown for Keyed {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("tag") {
-                result.tag = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("tag") {
+                result.tag = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("kind") {
-                result.kind = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("kind") {
+                result.kind = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -5545,11 +5545,11 @@ impl SmeltFromUnknown for Noted {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("tag") {
-                result.tag = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("tag") {
+                result.tag = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("note") {
-                result.note = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("note") {
+                result.note = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -5571,7 +5571,7 @@ impl IntoSmeltUnknown for SmeltUnion2 {
 }
 impl SmeltUnion2 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(map) if map.contains_key("kind"))) { return Self::M0(<Keyed as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown())); }
+        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(smelt_map) if smelt_map.contains_key("kind"))) { return Self::M0(<Keyed as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown())); }
         Self::M1(<Noted as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown()))
     }
 }
@@ -5613,7 +5613,7 @@ impl IntoSmeltUnknown for SmeltUnion6 {
 }
 impl SmeltUnion6 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::String(_)) { return Self::M0(match value.clone() { SmeltUnknown::String(value) => value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }); }
+        if matches!(value, SmeltUnknown::String(_)) { return Self::M0(match value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }); }
         Self::M1(<SmeltTypedArray as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
     }
 }
@@ -5669,7 +5669,7 @@ pub(crate) async fn body_text(init: SmeltUnion6) -> Result<JsString, Box<dyn std
 
 pub(crate) fn retag(mut value: SmeltUnion2, next: JsString) -> JsString {
     match &mut value { SmeltUnion2::M0(smelt_union_arm) => { smelt_union_arm.tag = next.clone(); }, SmeltUnion2::M1(smelt_union_arm) => { smelt_union_arm.tag = next.clone(); } }
-    return match &value { SmeltUnion2::M0(smelt_union_arm) => smelt_union_arm.tag.clone(), SmeltUnion2::M1(smelt_union_arm) => smelt_union_arm.tag.clone() }.clone();
+    return (match &value { SmeltUnion2::M0(smelt_union_arm) => smelt_union_arm.tag.clone(), SmeltUnion2::M1(smelt_union_arm) => smelt_union_arm.tag.clone() }).clone();
 }
 
 pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {

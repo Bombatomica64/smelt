@@ -4572,7 +4572,7 @@ impl Index {
     let _smelt_tmp_3: bool = _smelt_tmp_2.get(&closure_arg_0.clone()).unwrap_or(false) == true;
     _smelt_tmp_3
     }
-}); let smelt_array = keys.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value });
+}); let smelt_array = keys.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(smelt_index, smelt_item)| if (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) { Some(smelt_item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value });
     return _smelt_tmp_3;
     }
     fn label(&self, keys: SmeltList<JsString>, suffix: JsString) -> SmeltList<JsString> {
@@ -4609,7 +4609,7 @@ impl Index {
     }
     _smelt_tmp_5.clone()
     }
-}); let smelt_array = keys.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
+}); let smelt_array = keys.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
     return _smelt_tmp_4;
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
@@ -4621,8 +4621,8 @@ impl Index {
     fn __smelt_proto_entries(&self) -> Vec<(String, SmeltUnknown)> {
         let mut smelt_proto_entries: Vec<(String, SmeltUnknown)> = Vec::new();
         smelt_proto_entries.push(("__smelt_method:add".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.add(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok({ let () = smelt_result; SmeltUnknown::Undefined }) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Index::add")); SmeltUnknown::Function(smelt_method) }));
-        smelt_proto_entries.push(("__smelt_method:keep".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.keep(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok(SmeltUnknown::Array(smelt_result.into_iter().map(|value| SmeltUnknown::String(value.into())).collect())) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Index::keep")); SmeltUnknown::Function(smelt_method) }));
-        smelt_proto_entries.push(("__smelt_method:label".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.label(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok(SmeltUnknown::Array(smelt_result.into_iter().map(|value| SmeltUnknown::String(value.into())).collect())) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Index::label")); SmeltUnknown::Function(smelt_method) }));
+        smelt_proto_entries.push(("__smelt_method:keep".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.keep(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok(SmeltUnknown::Array(smelt_result.into_iter().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).collect())) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Index::keep")); SmeltUnknown::Function(smelt_method) }));
+        smelt_proto_entries.push(("__smelt_method:label".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.label(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok(SmeltUnknown::Array(smelt_result.into_iter().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).collect())) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Index::label")); SmeltUnknown::Function(smelt_method) }));
         smelt_proto_entries
     }
 }

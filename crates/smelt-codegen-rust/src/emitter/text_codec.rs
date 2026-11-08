@@ -25,7 +25,7 @@ impl FunctionEmitter<'_> {
         };
         let string_ty = self.type_id(Type::String)?;
         let label_text = self.value_at_type(label_operand, string_ty)?;
-        Ok(RustExpr::atom(format!("SmeltTextDecoder::from_label(&{label_text})")))
+        Ok(RustExpr::atom(format!("SmeltTextDecoder::from_label(&{label_text})", label_text = label_text.tight())))
     }
 
     /// Emit one `TextEncoder` member as a method call.
@@ -40,7 +40,7 @@ impl FunctionEmitter<'_> {
         match op {
             smelt_hir::TextEncoderOp::Encoding => {
                 let string_ty = self.type_id(Type::String)?;
-                self.rendered_at_type(&RustExpr::postfix_on(&receiver, format!("{receiver}.encoding()")), string_ty, dest_ty, &self.render_scope())
+                self.rendered_at_type(&receiver.postfix(".encoding()"), string_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::TextEncoderOp::Encode => {
                 // `encode()` with no argument encodes the empty string, which
@@ -49,10 +49,10 @@ impl FunctionEmitter<'_> {
                     None => "\"\"".to_owned(),
                     Some(arg) => {
                         let string_ty = self.type_id(Type::String)?;
-                        format!("&{}", self.value_at_type(arg, string_ty)?)
+                        format!("&{}", self.value_at_type(arg, string_ty)?.tight())
                     }
                 };
-                Ok(RustExpr::postfix_on(&receiver, format!("{receiver}.encode({input})")))
+                Ok(receiver.postfix(format!(".encode({input})")))
             }
         }
     }
@@ -69,15 +69,15 @@ impl FunctionEmitter<'_> {
         let string_ty = self.type_id(Type::String)?;
         match op {
             smelt_hir::TextDecoderOp::Encoding => {
-                self.rendered_at_type(&RustExpr::postfix_on(&receiver, format!("{receiver}.encoding()")), string_ty, dest_ty, &self.render_scope())
+                self.rendered_at_type(&receiver.postfix(".encoding()"), string_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::TextDecoderOp::Decode => {
                 let text = match args.first() {
                     // `decode()` with no argument answers the empty string.
-                    None => RustExpr::postfix_on(&receiver, format!("{receiver}.decode(&SmeltUint8Array::new())")),
+                    None => receiver.postfix(".decode(&SmeltUint8Array::new())"),
                     Some(arg) => {
                         let bytes = self.byte_view_argument_expr(arg)?;
-                        RustExpr::postfix_on(&receiver, format!("{receiver}.decode(&{bytes})"))
+                        receiver.postfix(format!(".decode(&{bytes})", bytes = bytes.tight()))
                     }
                 };
                 self.rendered_at_type(&text, string_ty, dest_ty, &self.render_scope())
@@ -104,7 +104,7 @@ impl FunctionEmitter<'_> {
         }
         let ty = self.operand_ty(arg)?;
         let erased = self.erase_rendered(&text, ty)?;
-        Ok(RustExpr::atom(self.carrier_format(format_args!("SmeltTypedArray::smelt_from_unknown({erased})"))))
+        Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!("SmeltTypedArray::smelt_from_unknown({erased})", erased = erased.delimited()))))
     }
 
     /// Emit a member read or method call on the concrete typed-array family.
@@ -129,20 +129,20 @@ impl FunctionEmitter<'_> {
         let receiver_ty = self.operand_ty(bytes)?;
         let float_ty = self.type_id(Type::Float)?;
         let (text, source_ty) = match op {
-            smelt_hir::ByteArrayOp::Length => (RustExpr::postfix_on(&receiver, format!("{receiver}.length()")), float_ty),
-            smelt_hir::ByteArrayOp::ByteLength => (RustExpr::postfix_on(&receiver, format!("{receiver}.byte_length()")), float_ty),
-            smelt_hir::ByteArrayOp::ByteOffset => (RustExpr::postfix_on(&receiver, format!("{receiver}.byte_offset()")), float_ty),
+            smelt_hir::ByteArrayOp::Length => (receiver.postfix(".length()"), float_ty),
+            smelt_hir::ByteArrayOp::ByteLength => (receiver.postfix(".byte_length()"), float_ty),
+            smelt_hir::ByteArrayOp::ByteOffset => (receiver.postfix(".byte_offset()"), float_ty),
             // `.buffer` SHARES the storage rather than copying it, so a write
             // through a second view over the same buffer is visible here.
             smelt_hir::ByteArrayOp::Buffer => {
-                (RustExpr::postfix_on(&receiver, format!("{receiver}.buffer()")), self.array_buffer_type_id()?)
+                (receiver.postfix(".buffer()"), self.array_buffer_type_id()?)
             }
             smelt_hir::ByteArrayOp::Subarray => (
-                RustExpr::postfix_on(&receiver, format!("{receiver}.subarray({})", self.byte_range_args_expr(args)?)),
+                receiver.postfix(format!(".subarray({})", self.byte_range_args_expr(args)?.delimited())),
                 receiver_ty,
             ),
             smelt_hir::ByteArrayOp::Slice => (
-                RustExpr::postfix_on(&receiver, format!("{receiver}.slice({})", self.byte_range_args_expr(args)?)),
+                receiver.postfix(format!(".slice({})", self.byte_range_args_expr(args)?.delimited())),
                 receiver_ty,
             ),
             // `set` and `fill` are the two mutating members. `set` takes a
@@ -156,13 +156,13 @@ impl FunctionEmitter<'_> {
                 let source_text = self.byte_view_argument_expr(source)?;
                 let offset = match args.get(1) {
                     Some(offset) => {
-                        format!("(({}) as f64).max(0.0) as usize", self.numeric_operand_expr(offset)?)
+                        format!("(({}) as f64).max(0.0) as usize", self.numeric_operand_expr(offset)?.delimited())
                     }
                     None => "0".to_owned(),
                 };
                 let none_ty = self.type_id(Type::None)?;
                 (
-                    RustExpr::postfix_on(&receiver, format!("{receiver}.set_from(&{source_text}, {offset})")),
+                    receiver.postfix(format!(".set_from(&{source_text}, {offset})", source_text = source_text.tight())),
                     none_ty,
                 )
             }
@@ -173,14 +173,14 @@ impl FunctionEmitter<'_> {
                 let value_text = self.numeric_operand_expr(value)?;
                 let range = self.byte_range_args_expr(&args[1..])?;
                 (
-                    RustExpr::postfix_on(&receiver, format!("{receiver}.fill({value_text}, {range})")),
+                    receiver.postfix(format!(".fill({value_text}, {range})", value_text = value_text.delimited(), range = range.delimited())),
                     receiver_ty,
                 )
             }
             smelt_hir::ByteArrayOp::Elements => {
                 let list_ty = self.type_id(Type::List(float_ty))?;
                 (
-                    RustExpr::atom(format!("SmeltList::new({receiver}.to_elements())")),
+                    RustExpr::atom(format!("SmeltList::new({receiver}.to_elements())", receiver = receiver.tight())),
                     list_ty,
                 )
             }
@@ -189,7 +189,7 @@ impl FunctionEmitter<'_> {
                 let list_ty = self.type_id(Type::List(string_ty))?;
                 (
                     RustExpr::atom(format!(
-                        "SmeltList::new((0..{receiver}.length() as usize).map(|index| JsString::from(index.to_string())).collect::<Vec<_>>())"
+                        "SmeltList::new((0..{receiver}.length() as usize).map(|smelt_index| JsString::from(smelt_index.to_string())).collect::<Vec<_>>())", receiver = receiver.tight()
                     )),
                     list_ty,
                 )
@@ -200,7 +200,7 @@ impl FunctionEmitter<'_> {
                 let list_ty = self.type_id(Type::List(pair_ty))?;
                 (
                     RustExpr::atom(format!(
-                        "SmeltList::new({receiver}.to_elements().into_iter().enumerate().map(|(index, element)| (JsString::from(index.to_string()), element)).collect::<Vec<_>>())"
+                        "SmeltList::new({receiver}.to_elements().into_iter().enumerate().map(|(smelt_index, smelt_element)| (JsString::from(smelt_index.to_string()), smelt_element)).collect::<Vec<_>>())", receiver = receiver.tight()
                     )),
                     list_ty,
                 )
@@ -217,11 +217,11 @@ impl FunctionEmitter<'_> {
     /// per call site.
     fn byte_range_args_expr(&self, args: &[Operand]) -> Result<RustExpr, EmitError> {
         let start = match args.first() {
-            Some(start) => format!("({}) as i64", self.numeric_operand_expr(start)?),
+            Some(start) => format!("({}) as i64", self.numeric_operand_expr(start)?.delimited()),
             None => "0".to_owned(),
         };
         let end = match args.get(1) {
-            Some(end) => format!("Some(({}) as i64)", self.numeric_operand_expr(end)?),
+            Some(end) => format!("Some(({}) as i64)", self.numeric_operand_expr(end)?.delimited()),
             None => "None".to_owned(),
         };
         Ok(RustExpr::loose(format!("{start}, {end}")))

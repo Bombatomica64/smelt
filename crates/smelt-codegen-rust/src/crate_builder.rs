@@ -444,7 +444,7 @@ impl<'a> CrateBuilder<'a, BodiesWritten> {
         // item key via the `BTreeMap` for deterministic golden output.
         for (key, body) in context.minted.function_item_accessors.borrow().iter() {
             out.push_str(&format!(
-                "\nfn __smelt_fn_value_{key}() -> SmeltUnknown {{\n    thread_local! {{ static SMELT_FN_VALUE: ::std::cell::OnceCell<SmeltUnknown> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_VALUE.with(|cell| cell.get_or_init(|| {body}).clone())\n}}\n"
+                "\nfn __smelt_fn_value_{key}() -> SmeltUnknown {{\n    thread_local! {{ static SMELT_FN_VALUE: ::std::cell::OnceCell<SmeltUnknown> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_VALUE.with(|smelt_cell| smelt_cell.get_or_init(|| {body}).clone())\n}}\n"
             ));
         }
 
@@ -456,7 +456,7 @@ impl<'a> CrateBuilder<'a, BodiesWritten> {
         // so `needs_erased_function` is necessarily true and the struct is emitted.
         for (key, body) in context.minted.function_item_erased_fn_accessors.borrow().iter() {
             out.push_str(&format!(
-                "\nfn __smelt_fn_erased_{key}() -> SmeltErasedFunction {{\n    thread_local! {{ static SMELT_FN_ERASED: ::std::cell::OnceCell<SmeltErasedFunction> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_ERASED.with(|cell| cell.get_or_init(|| {body}).clone())\n}}\n"
+                "\nfn __smelt_fn_erased_{key}() -> SmeltErasedFunction {{\n    thread_local! {{ static SMELT_FN_ERASED: ::std::cell::OnceCell<SmeltErasedFunction> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_ERASED.with(|smelt_cell| smelt_cell.get_or_init(|| {body}).clone())\n}}\n"
             ));
         }
 
@@ -469,7 +469,7 @@ impl<'a> CrateBuilder<'a, BodiesWritten> {
         // positions that name it.
         for ((key, rendered_type), (ordinal, body)) in context.minted.function_item_typed_accessors.borrow().iter() {
             out.push_str(&format!(
-                "\ntype SmeltFnTyped{key}_{ordinal} = {rendered_type};\nfn __smelt_fn_typed_{key}_{ordinal}() -> SmeltFnTyped{key}_{ordinal} {{\n    thread_local! {{ static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped{key}_{ordinal}> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| {{ let smelt_function: SmeltFnTyped{key}_{ordinal} = {body}; smelt_function }}).clone())\n}}\n"
+                "\ntype SmeltFnTyped{key}_{ordinal} = {rendered_type};\nfn __smelt_fn_typed_{key}_{ordinal}() -> SmeltFnTyped{key}_{ordinal} {{\n    thread_local! {{ static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped{key}_{ordinal}> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_TYPED.with(|smelt_cell| smelt_cell.get_or_init(|| {{ let smelt_function: SmeltFnTyped{key}_{ordinal} = {body}; smelt_function }}).clone())\n}}\n"
             ));
         }
 

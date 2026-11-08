@@ -4537,7 +4537,7 @@ impl IntoSmeltUnknown for HTTPExceptionOptions {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let smelt_absent_keys: [&str; 1] = ["message"];
         SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
-        ("message".to_owned(), self.message.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
+        ("message".to_owned(), self.message.map_or(SmeltUnknown::Undefined, |smelt_value| SmeltUnknown::String(smelt_value.into()))),
         ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
     }
 }
@@ -4545,8 +4545,8 @@ impl SmeltFromUnknown for HTTPExceptionOptions {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("message") {
-                result.message = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("message") {
+                result.message = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -4566,7 +4566,7 @@ impl IntoSmeltUnknown for HTTPException {
         SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("name".to_owned(), SmeltUnknown::String(self.name.into())),
         ("message".to_owned(), SmeltUnknown::String(self.message.into())),
-        ("stack".to_owned(), self.stack.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
+        ("stack".to_owned(), self.stack.map_or(SmeltUnknown::Undefined, |smelt_value| SmeltUnknown::String(smelt_value.into()))),
         ("cause".to_owned(), (self.cause).into_smelt_unknown()),
         ("status".to_owned(), SmeltUnknown::Number(self.status as f64)),
         ])))
@@ -4576,20 +4576,20 @@ impl SmeltFromUnknown for HTTPException {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("name") {
-                result.name = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("name") {
+                result.name = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("message") {
-                result.message = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("message") {
+                result.message = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("stack") {
-                result.stack = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("stack") {
+                result.stack = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("cause") {
-                result.cause = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("cause") {
+                result.cause = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("status") {
-                result.status = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("status") {
+                result.status = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -4609,7 +4609,7 @@ impl IntoSmeltUnknown for GatewayError {
         SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("name".to_owned(), SmeltUnknown::String(self.name.into())),
         ("message".to_owned(), SmeltUnknown::String(self.message.into())),
-        ("stack".to_owned(), self.stack.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
+        ("stack".to_owned(), self.stack.map_or(SmeltUnknown::Undefined, |smelt_value| SmeltUnknown::String(smelt_value.into()))),
         ("cause".to_owned(), (self.cause).into_smelt_unknown()),
         ("status".to_owned(), SmeltUnknown::Number(self.status as f64)),
         ])))
@@ -4619,20 +4619,20 @@ impl SmeltFromUnknown for GatewayError {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("name") {
-                result.name = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("name") {
+                result.name = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("message") {
-                result.message = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("message") {
+                result.message = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("stack") {
-                result.stack = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("stack") {
+                result.stack = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("cause") {
-                result.cause = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("cause") {
+                result.cause = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("status") {
-                result.status = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("status") {
+                result.status = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result

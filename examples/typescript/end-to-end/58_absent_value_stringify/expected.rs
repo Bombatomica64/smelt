@@ -816,10 +816,10 @@ fn main() {
     _smelt_tmp_11 = JsString::new() + &present_text.unwrap_or_else(|| JsString::from("undefined"));
     let _ = { println!("{}", _smelt_tmp_11); };
     missing_count = None::<f64>;
-    _smelt_tmp_13 = JsString::from("count=") + &JsString::from(missing_count.map_or_else(|| "undefined".to_owned(), |value| value.to_string()));
+    _smelt_tmp_13 = JsString::from("count=") + &JsString::from(missing_count.map_or_else(|| "undefined".to_owned(), |smelt_value| smelt_value.to_string()));
     let _ = { println!("{}", _smelt_tmp_13); };
     present_count = Some(3.0);
-    _smelt_tmp_15 = JsString::from("count=") + &JsString::from(present_count.map_or_else(|| "undefined".to_owned(), |value| value.to_string()));
+    _smelt_tmp_15 = JsString::from("count=") + &JsString::from(present_count.map_or_else(|| "undefined".to_owned(), |smelt_value| smelt_value.to_string()));
     let _ = { println!("{}", _smelt_tmp_15); };
     nothing = ();
     _smelt_tmp_17 = JsString::new() + &JsString::from("null");

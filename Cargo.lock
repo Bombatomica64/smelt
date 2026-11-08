@@ -3019,6 +3019,7 @@ dependencies = [
  "smelt-stdlib",
  "stacker",
  "tempfile",
+ "toml",
 ]
 
 [[package]]

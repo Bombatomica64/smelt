@@ -72,15 +72,15 @@ impl FunctionEmitter<'_> {
             if self.list_item_uses_same_value_zero(element_ty) {
                 if self.mir.types.get(element_ty) == Some(&Type::Float) {
                     return Ok(RustExpr::atom(format!(
-                        "{{ let smelt_needle = {item_text}; {borrowed_list_text}.iter().{method_name}(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).map_or(-1.0, |idx| idx as f64) }}"
+                        "{{ let smelt_needle = {item_text}; {borrowed_list_text}.iter().{method_name}(|smelt_item| *smelt_item == smelt_needle || (smelt_item.is_nan() && smelt_needle.is_nan())).map_or(-1.0, |smelt_idx| smelt_idx as f64) }}", item_text = item_text.delimited(), borrowed_list_text = borrowed_list_text.tight()
                     )));
                 }
-                return Ok(RustExpr::atom(self.carrier_format(format_args!(
-                    "{{ let smelt_needle = {item_text}; {borrowed_list_text}.iter().{method_name}(|item| item.same_js_key(&smelt_needle)).map_or(-1.0, |idx| idx as f64) }}"
+                return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                    "{{ let smelt_needle = {item_text}; {borrowed_list_text}.iter().{method_name}(|smelt_item| smelt_item.same_js_key(&smelt_needle)).map_or(-1.0, |smelt_idx| smelt_idx as f64) }}", item_text = item_text.delimited(), borrowed_list_text = borrowed_list_text.tight()
                 ))));
             }
-            return Ok(RustExpr::postfix_on(&borrowed_list_text, format!(
-                "{borrowed_list_text}.iter().{method_name}(|item| item == &{item_text}).map_or(-1.0, |idx| idx as f64)"
+            return Ok(borrowed_list_text.postfix(format!(
+                ".iter().{method_name}(|smelt_item| smelt_item == &{item_text}).map_or(-1.0, |smelt_idx| smelt_idx as f64)", item_text = item_text.tight()
             )));
         };
         // The `fromIndex` form keeps absolute element indexes while restricting
@@ -98,10 +98,10 @@ impl FunctionEmitter<'_> {
             if self.mir.types.get(element_ty) == Some(&Type::Float) {
                 "|item: &f64| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())".to_owned()
             } else {
-                self.carrier_format(format_args!("|item: &{element_type_text}| item.same_js_key(&smelt_needle)"))
+                self.carrier_format(self.carrier()?, format_args!("|smelt_item: &{element_type_text}| smelt_item.same_js_key(&smelt_needle)"))
             }
         } else {
-            format!("|item: &{element_type_text}| *item == smelt_needle")
+            format!("|smelt_item: &{element_type_text}| *smelt_item == smelt_needle")
         };
         let index_text = self.value_at_type(from_index_operand, self.type_id(Type::Float)?)?;
         // Normalize `fromIndex`: truncate toward zero, then translate a negative
@@ -112,10 +112,10 @@ impl FunctionEmitter<'_> {
         // and the predicate is applied to `*item` (`&T`).
         match op {
             smelt_hir::ListSearchOp::Find => Ok(RustExpr::atom(format!(
-                "{{ let smelt_needle = {item_text}; let smelt_predicate = {predicate}; let smelt_list = &{borrowed_list_text}; let smelt_len = smelt_list.len() as i64; let smelt_raw = {index_text} as i64; let smelt_start = if smelt_raw < 0 {{ (smelt_len + smelt_raw).max(0) }} else {{ smelt_raw }} as usize; smelt_list.iter().enumerate().skip(smelt_start).find(|(_, item)| smelt_predicate(*item)).map_or(-1.0, |(idx, _)| idx as f64) }}"
+                "{{ let smelt_needle = {item_text}; let smelt_predicate = {predicate}; let smelt_list = &{borrowed_list_text}; let smelt_len = smelt_list.len() as i64; let smelt_raw = {index_text} as i64; let smelt_start = if smelt_raw < 0 {{ (smelt_len + smelt_raw).max(0) }} else {{ smelt_raw }} as usize; smelt_list.iter().enumerate().skip(smelt_start).find(|(_, smelt_item)| smelt_predicate(*smelt_item)).map_or(-1.0, |(smelt_idx, _)| smelt_idx as f64) }}", item_text = item_text.delimited(), borrowed_list_text = borrowed_list_text.tight(), index_text = index_text.as_cast_operand()
             ))),
             smelt_hir::ListSearchOp::RFind => Ok(RustExpr::atom(format!(
-                "{{ let smelt_needle = {item_text}; let smelt_predicate = {predicate}; let smelt_list = &{borrowed_list_text}; let smelt_len = smelt_list.len() as i64; let smelt_raw = {index_text} as i64; let smelt_end = if smelt_raw < 0 {{ smelt_len + smelt_raw }} else {{ smelt_raw.min(smelt_len - 1) }}; if smelt_end < 0 {{ -1.0 }} else {{ let smelt_take = (smelt_end as usize).saturating_add(1).min(smelt_list.len()); smelt_list.iter().enumerate().take(smelt_take).rev().find(|(_, item)| smelt_predicate(*item)).map_or(-1.0, |(idx, _)| idx as f64) }} }}"
+                "{{ let smelt_needle = {item_text}; let smelt_predicate = {predicate}; let smelt_list = &{borrowed_list_text}; let smelt_len = smelt_list.len() as i64; let smelt_raw = {index_text} as i64; let smelt_end = if smelt_raw < 0 {{ smelt_len + smelt_raw }} else {{ smelt_raw.min(smelt_len - 1) }}; if smelt_end < 0 {{ -1.0 }} else {{ let smelt_take = (smelt_end as usize).saturating_add(1).min(smelt_list.len()); smelt_list.iter().enumerate().take(smelt_take).rev().find(|(_, smelt_item)| smelt_predicate(*smelt_item)).map_or(-1.0, |(smelt_idx, _)| smelt_idx as f64) }} }}", item_text = item_text.delimited(), borrowed_list_text = borrowed_list_text.tight(), index_text = index_text.as_cast_operand()
             ))),
         }
     }
@@ -187,7 +187,7 @@ impl FunctionEmitter<'_> {
         // value rather than a `Result`; a non-throwing callback is used directly.
         let raw_call_text = if function_ty.may_throw {
             RustExpr::atom(format!(
-                "({callback_call_text}).unwrap_or_else(|error: {ERROR_BOX}| smelt_panic_throw(error))"
+                "({callback_call_text}).unwrap_or_else(|smelt_error: {ERROR_BOX}| smelt_panic_throw(smelt_error))", callback_call_text = callback_call_text.delimited()
             ))
         } else {
             callback_call_text
@@ -199,7 +199,7 @@ impl FunctionEmitter<'_> {
         };
         let prefix = format!(
             "let smelt_callback = {closure_expr}; {prefix}",
-            prefix = list_iteration.prefix
+            prefix = list_iteration.prefix, closure_expr = closure_expr.delimited()
         );
         let iter_text = list_iteration.iter_text;
         let borrows_snapshot = list_iteration.borrows_snapshot;
@@ -212,7 +212,7 @@ impl FunctionEmitter<'_> {
                 }
                 Ok(RustExpr::from(iteration_block(
                     &prefix,
-                    &format!("{iter_text}.iter().enumerate().filter_map(|(index, item)| if {call_text} {{ Some(item.clone()) }} else {{ None }}).collect::<Vec<_>>()"),
+                    &format!("{iter_text}.iter().enumerate().filter_map(|(smelt_index, smelt_item)| if {call_text} {{ Some(smelt_item.clone()) }} else {{ None }}).collect::<Vec<_>>()", call_text = call_text.delimited()),
                     borrows_snapshot,
                 )))
             }
@@ -229,7 +229,7 @@ impl FunctionEmitter<'_> {
                 };
                 Ok(RustExpr::from(iteration_block(
                     &prefix,
-                    &format!("{iter_text}.iter().enumerate(){direction}.find_map(|(index, item)| if {call_text} {{ Some(item.clone()) }} else {{ None }})"),
+                    &format!("{iter_text}.iter().enumerate(){direction}.find_map(|(smelt_index, smelt_item)| if {call_text} {{ Some(smelt_item.clone()) }} else {{ None }})", call_text = call_text.delimited()),
                     borrows_snapshot,
                 )))
             }
@@ -246,7 +246,7 @@ impl FunctionEmitter<'_> {
                 };
                 Ok(RustExpr::from(iteration_block(
                     &prefix,
-                    &format!("{iter_text}.iter().enumerate(){direction}.find_map(|(index, item)| if {call_text} {{ Some(index as f64) }} else {{ None }}).unwrap_or(-1.0)"),
+                    &format!("{iter_text}.iter().enumerate(){direction}.find_map(|(smelt_index, smelt_item)| if {call_text} {{ Some(smelt_index as f64) }} else {{ None }}).unwrap_or(-1.0)", call_text = call_text.delimited()),
                     borrows_snapshot,
                 )))
             }
@@ -263,7 +263,7 @@ impl FunctionEmitter<'_> {
                 };
                 Ok(RustExpr::from(iteration_block(
                     &prefix,
-                    &format!("{iter_text}.iter().enumerate().{method}(|(index, item)| {call_text})"),
+                    &format!("{iter_text}.iter().enumerate().{method}(|(smelt_index, smelt_item)| {call_text})", call_text = call_text.delimited()),
                     borrows_snapshot,
                 )))
             }
@@ -302,7 +302,7 @@ impl FunctionEmitter<'_> {
             self.callback_invocation_expr(function_ty, &call_args.join(", "));
         let call_text = if function_ty.may_throw {
             RustExpr::atom(format!(
-                "({callback_call_text}).unwrap_or_else(|error: {ERROR_BOX}| smelt_panic_throw(error))"
+                "({callback_call_text}).unwrap_or_else(|smelt_error: {ERROR_BOX}| smelt_panic_throw(smelt_error))", callback_call_text = callback_call_text.delimited()
             ))
         } else {
             callback_call_text
@@ -310,8 +310,8 @@ impl FunctionEmitter<'_> {
         let value_text =
             self.rendered_at_type(&call_text, function_ty.return_ty, *dest_item_ty, &self.render_scope())?;
         Ok(RustExpr::from(iteration_block(
-            &format!("let smelt_callback = {closure_expr}; {}", list_iteration.prefix),
-            &format!("{}.iter().enumerate().map(|(index, item)| {{ {value_text} }}).collect::<Vec<_>>()", list_iteration.iter_text),
+            &format!("let smelt_callback = {closure_expr}; {}", list_iteration.prefix, closure_expr = closure_expr.delimited()),
+            &format!("{}.iter().enumerate().map(|(smelt_index, smelt_item)| {{ {value_text} }}).collect::<Vec<_>>()", list_iteration.iter_text, value_text = value_text.delimited()),
             list_iteration.borrows_snapshot,
         )))
     }
@@ -341,8 +341,8 @@ impl FunctionEmitter<'_> {
         let call_args = list_iteration.call_args;
         let call_text = self.callback_invocation_expr(function_ty, &call_args.join(", "));
         Ok(RustExpr::atom(format!(
-            "{{ let smelt_callback = {closure_expr}; {}{}.iter().enumerate().for_each(|(index, item)| {{ let _ = {call_text}; }}); () }}",
-            list_iteration.prefix, list_iteration.iter_text
+            "{{ let smelt_callback = {closure_expr}; {}{}.iter().enumerate().for_each(|(smelt_index, smelt_item)| {{ let _ = {call_text}; }}); () }}",
+            list_iteration.prefix, list_iteration.iter_text, closure_expr = closure_expr.delimited(), call_text = call_text.delimited()
         )))
     }
 
@@ -373,27 +373,27 @@ impl FunctionEmitter<'_> {
         let flattened_text = match self.mir.types.get(function_ty.return_ty) {
             Some(Type::List(callback_item_ty)) => {
                 let value_text =
-                    self.rendered_at_type(&RustExpr::path("value"), *callback_item_ty, *dest_item_ty, &self.render_scope())?;
-                format!("smelt_result.into_iter().map(|value| {value_text}).collect::<Vec<_>>()")
+                    self.rendered_at_type(&RustExpr::path("smelt_value"), *callback_item_ty, *dest_item_ty, &self.render_scope())?;
+                format!("smelt_result.into_iter().map(|smelt_value| {value_text}).collect::<Vec<_>>()", value_text = value_text.delimited())
             }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
                 let unknown_ty = self.type_id(Type::Unknown)?;
-                let value_text = self.rendered_at_type(&RustExpr::path("value"), unknown_ty, *dest_item_ty, &self.render_scope())?;
-                self.carrier_format(format_args!(
-                    "match smelt_result {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| {value_text}).collect::<Vec<_>>(), value => vec![{value_text}] }}"
+                let value_text = self.rendered_at_type(&RustExpr::path("smelt_value"), unknown_ty, *dest_item_ty, &self.render_scope())?;
+                self.carrier_format(self.carrier()?, format_args!(
+                    "match smelt_result {{ SmeltUnknown::Array(smelt_values) => smelt_values.into_iter().map(|smelt_value| {value_text}).collect::<Vec<_>>(), smelt_value => vec![{value_text}] }}", value_text = value_text.delimited()
                 ))
             }
             _ => {
                 let value_text =
                     self.rendered_at_type(&RustExpr::path("smelt_result"), function_ty.return_ty, *dest_item_ty, &self.render_scope())?;
-                format!("vec![{value_text}]")
+                format!("vec![{value_text}]", value_text = value_text.delimited())
             }
         };
         Ok(RustExpr::from(iteration_block(
-            &format!("let smelt_callback = {closure_expr}; {}", list_iteration.prefix),
+            &format!("let smelt_callback = {closure_expr}; {}", list_iteration.prefix, closure_expr = closure_expr.delimited()),
             &format!(
-                "{}.iter().enumerate().flat_map(|(index, item)| {{ let smelt_result = {call_text}; {flattened_text} }}).collect::<Vec<_>>()",
-                list_iteration.iter_text
+                "{}.iter().enumerate().flat_map(|(smelt_index, smelt_item)| {{ let smelt_result = {call_text}; {flattened_text} }}).collect::<Vec<_>>()",
+                list_iteration.iter_text, call_text = call_text.delimited()
             ),
             list_iteration.borrows_snapshot,
         )))
@@ -470,13 +470,13 @@ impl FunctionEmitter<'_> {
         // element panicked "unknown is not iterable"). Pack the arguments
         // instead, erased at the boundary the callee already declares.
         if self.is_erased_unknown_rest_function(function_ty) {
-            let item = self.erase_rendered(&RustExpr::chain("item.clone()").ending_in_clone(), element_ty)?;
-            let array = self.erase_rendered(&RustExpr::chain("smelt_array.clone()").ending_in_clone(), list_ty)?;
+            let item = self.erase_rendered(&RustExpr::path("smelt_item").cloned_value(), element_ty)?;
+            let array = self.erase_rendered(&RustExpr::path("smelt_array").cloned_value(), list_ty)?;
             return Ok(ListCallbackIterationParts {
-                prefix: format!("let smelt_array = {owned_list_text}; "),
+                prefix: format!("let smelt_array = {owned_list_text}; ", owned_list_text = owned_list_text.delimited()),
                 iter_text: list_read_expr(&RustExpr::path("smelt_array")).into_string(),
-                call_args: vec![self.carrier_format(format_args!(
-                    "SmeltList::from(vec![{item}, SmeltUnknown::Number(index as f64), {array}])"
+                call_args: vec![self.carrier_format(self.carrier()?, format_args!(
+                    "SmeltList::from(vec![{item}, SmeltUnknown::Number(smelt_index as f64), {array}])", item = item.delimited(), array = array.delimited()
                 ))],
                 borrows_snapshot: true,
             });
@@ -493,16 +493,16 @@ impl FunctionEmitter<'_> {
             // temporary whose lifetime Rust extends to the end of the statement.
             if self.callback_param_is_shared_reference(function_ty, 0, item_param_ty) {
                 if element_ty == item_param_ty {
-                    call_args.push("item".to_owned());
+                    call_args.push("smelt_item".to_owned());
                 } else {
                     call_args.push(format!(
                         "&({})",
-                        self.rendered_at_type(&RustExpr::chain("item.clone()").ending_in_clone(), element_ty, item_param_ty, &self.render_scope())?
+                        self.rendered_at_type(&RustExpr::path("smelt_item").cloned_value(), element_ty, item_param_ty, &self.render_scope())?.delimited()
                     ));
                 }
             } else {
                 call_args.push(self.rendered_at_type(
-                    &RustExpr::chain("item.clone()").ending_in_clone(),
+                    &RustExpr::path("smelt_item").cloned_value(),
                     element_ty,
                     item_param_ty,
                     &self.render_scope(),
@@ -516,9 +516,9 @@ impl FunctionEmitter<'_> {
                 self.type_id(Type::Float)?
             };
             let index_value = if self.mir.types.get(index_param_ty) == Some(&Type::Int) {
-                RustExpr::cast("index as i64")
+                RustExpr::cast("smelt_index as i64")
             } else {
-                RustExpr::cast("index as f64")
+                RustExpr::cast("smelt_index as f64")
             };
             call_args.push(self.rendered_at_type(
                 &index_value,
@@ -544,19 +544,19 @@ impl FunctionEmitter<'_> {
                     // lifetime Rust extends to the end of the statement.
                     call_args.push(format!(
                         "&({})",
-                        self.rendered_at_type(&RustExpr::opaque("smelt_array.clone()"), list_ty, array_param_ty, &self.render_scope())?
+                        self.rendered_at_type(&RustExpr::opaque("smelt_array.clone()"), list_ty, array_param_ty, &self.render_scope())?.delimited()
                     ));
                 }
             } else {
                 call_args.push(self.rendered_at_type(
-                    &RustExpr::chain("smelt_array.clone()").ending_in_clone(),
+                    &RustExpr::path("smelt_array").cloned_value(),
                     list_ty,
                     array_param_ty,
                     &self.render_scope(),
                 )?.into_string());
             }
             (
-                format!("let smelt_array = {owned_list_text}; "),
+                format!("let smelt_array = {owned_list_text}; ", owned_list_text = owned_list_text.delimited()),
                 list_read_expr(&RustExpr::path("smelt_array")),
             )
         } else {
@@ -602,7 +602,7 @@ impl FunctionEmitter<'_> {
                 function_ty,
                 0,
                 item_param_ty,
-                self.rendered_at_type(&self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null")), unknown_ty, item_param_ty, &self.render_scope())?.into_string(),
+                self.rendered_at_type(&self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltUnknown::Null")), unknown_ty, item_param_ty, &self.render_scope())?.into_string(),
             ));
         }
         if let Some(index_param_ty) = function_ty.params.get(1).copied() {
@@ -610,12 +610,12 @@ impl FunctionEmitter<'_> {
                 function_ty,
                 1,
                 index_param_ty,
-                self.rendered_at_type(&RustExpr::cast("index as f64"), float_ty, index_param_ty, &self.render_scope())?.into_string(),
+                self.rendered_at_type(&RustExpr::cast("smelt_index as f64"), float_ty, index_param_ty, &self.render_scope())?.into_string(),
             ));
         }
         let call_text = self.callback_invocation_expr(function_ty, &call_args.join(", "));
         Ok(RustExpr::atom(format!(
-            "{{ let smelt_callback = {closure_expr}; let array_from_length = ({length_text} as f64).max(0.0).floor() as usize; (0..array_from_length).map(|index| {call_text}).collect::<Vec<_>>() }}"
+            "{{ let smelt_callback = {closure_expr}; let smelt_array_from_length = ({length_text} as f64).max(0.0).floor() as usize; (0..smelt_array_from_length).map(|smelt_index| {call_text}).collect::<Vec<_>>() }}", closure_expr = closure_expr.delimited(), length_text = length_text.as_cast_operand(), call_text = call_text.delimited()
         )))
     }
 
@@ -668,7 +668,7 @@ impl FunctionEmitter<'_> {
         // a `Range` is `TrustedLen`, so it pre-allocates and fills in a tight
         // loop, and a primitive hole costs nothing extra for the uniformity.
         Ok(RustExpr::atom(format!(
-            "{{ let array_from_length = ({length_text} as f64).max(0.0).floor() as usize; (0..array_from_length).map(|_| {hole_text}).collect::<Vec<_>>() }}"
+            "{{ let smelt_array_from_length = ({length_text} as f64).max(0.0).floor() as usize; (0..smelt_array_from_length).map(|_| {hole_text}).collect::<Vec<_>>() }}", length_text = length_text.as_cast_operand(), hole_text = hole_text.delimited()
         )))
     }
 
@@ -717,17 +717,17 @@ impl FunctionEmitter<'_> {
         // of the Rust expression that produces each. Only the leading prefix the
         // callback actually declares is forwarded (and coerced) below.
         let float_ty = self.type_id(Type::Float)?;
-        // `index` here names the fold body's `let index = index as f64;` binding
+        // `smelt_index` here names the fold body's `let smelt_index = smelt_index as f64;` binding
         // (see the `fold` closures below), so it is already `f64`. Passing the
         // bare local — rather than a pre-cast `index as f64` string — lets the
         // shared coercion seam emit a single, minimal cast to the callback's
         // declared parameter type instead of stacking a redundant `as f64`
         // (e.g. `(index.trunc() as i64)` for an `i64` param, `index` for `f64`).
         let candidate_args: [(&str, TypeId); 4] = [
-            ("acc", dest_ty),
-            ("item", element_ty),
-            ("index", float_ty),
-            ("array", list_ty),
+            ("smelt_acc", dest_ty),
+            ("smelt_item", element_ty),
+            ("smelt_index", float_ty),
+            ("smelt_array", list_ty),
         ];
         // Whether the callback declares the array parameter by shared reference.
         // When it does, the fold body binds the borrow itself rather than a per-element
@@ -754,7 +754,7 @@ impl FunctionEmitter<'_> {
                     // lifetime Rust extends to the end of the statement.
                     call_args.push(format!(
                         "&({})",
-                        self.rendered_at_type(&RustExpr::path(value_text), source_ty, param_ty, &self.render_scope())?
+                        self.rendered_at_type(&RustExpr::path(value_text), source_ty, param_ty, &self.render_scope())?.delimited()
                     ));
                 } else if index == ARRAY_ARG_INDEX && array_by_ref {
                     // The array position is already bound as a reference (see
@@ -786,9 +786,9 @@ impl FunctionEmitter<'_> {
         // `Move`; a callback that takes it by shared reference binds the same borrow
         // the fold is already iterating, and no copy happens at all.
         let callback_array_text = if array_by_ref {
-            format!("&{borrowed_list_text}")
+            format!("&{borrowed_list_text}", borrowed_list_text = borrowed_list_text.tight())
         } else {
-            format!("{borrowed_list_text}.clone()")
+            format!("{borrowed_list_text}.clone()", borrowed_list_text = borrowed_list_text.tight())
         };
         let callback_closure = match self.closure_operand_expr_for_declared_type(callback) {
             Ok(callback_closure) => callback_closure,
@@ -804,7 +804,7 @@ impl FunctionEmitter<'_> {
         let callback_result_text =
             self.rendered_at_type(&call_expr, callback_return_ty, dest_ty, &self.render_scope())?;
         let callback_text =
-            format!("{{ let smelt_callback = {callback_closure}; {callback_result_text} }}");
+            format!("{{ let smelt_callback = {callback_closure}; {callback_result_text} }}", callback_closure = callback_closure.delimited(), callback_result_text = callback_result_text.delimited());
         // Same read borrow, and the same known limitation, as the shared
         // callback iteration path above: a reducer that writes the array it is
         // reducing panics rather than failing to compile.
@@ -813,11 +813,11 @@ impl FunctionEmitter<'_> {
         if let Some(initial_operand) = initial {
             let initial_text = self.operand_expr(initial_operand)?;
             Ok(RustExpr::opaque(format!(
-                "{list_read}.iter().enumerate(){direction}.fold({initial_text}, |acc, (index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {callback_array_text}; {callback_text} }})"
+                "{list_read}.iter().enumerate(){direction}.fold({initial_text}, |smelt_acc, (smelt_index, smelt_item)| {{ let smelt_item = (*smelt_item).clone(); let smelt_index = smelt_index as f64; let smelt_array = {callback_array_text}; {callback_text} }})", list_read = list_read.tight(), initial_text = initial_text.delimited()
             )))
         } else if dest_ty == element_ty {
             Ok(RustExpr::atom(format!(
-                "{{ let smelt_reduce_items = {list_read}; let mut reduce_items = smelt_reduce_items.iter().enumerate(){direction}; let (_, first) = reduce_items.next().expect(\"reduce of empty array with no initial value\"); reduce_items.fold(first.clone(), |acc, (index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {callback_array_text}; {callback_text} }}) }}"
+                "{{ let smelt_reduce_items = {list_read}; let mut smelt_reduce_items = smelt_reduce_items.iter().enumerate(){direction}; let (_, smelt_first) = smelt_reduce_items.next().expect(\"reduce of empty array with no initial value\"); smelt_reduce_items.fold(smelt_first.clone(), |smelt_acc, (smelt_index, smelt_item)| {{ let smelt_item = (*smelt_item).clone(); let smelt_index = smelt_index as f64; let smelt_array = {callback_array_text}; {callback_text} }}) }}", list_read = list_read.delimited()
             )))
         } else {
             Err(EmitError::new(
@@ -853,15 +853,15 @@ impl FunctionEmitter<'_> {
         if self.list_item_uses_same_value_zero(*item_ty) {
             if self.mir.types.get(*item_ty) == Some(&Type::Float) {
                 return Ok(RustExpr::atom(format!(
-                    "{{ let smelt_needle = {item_text}; {list_text}.iter().filter(|item| **item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).count() as i64 }}"
+                    "{{ let smelt_needle = {item_text}; {list_text}.iter().filter(|smelt_item| **smelt_item == smelt_needle || (smelt_item.is_nan() && smelt_needle.is_nan())).count() as i64 }}", item_text = item_text.delimited(), list_text = list_text.tight()
                 )));
             }
-            return Ok(RustExpr::atom(self.carrier_format(format_args!(
-                "{{ let smelt_needle = {item_text}; {list_text}.iter().filter(|item| item.same_js_key(&smelt_needle)).count() as i64 }}"
+            return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                "{{ let smelt_needle = {item_text}; {list_text}.iter().filter(|smelt_item| smelt_item.same_js_key(&smelt_needle)).count() as i64 }}", item_text = item_text.delimited(), list_text = list_text.tight()
             ))));
         }
         Ok(RustExpr::opaque(format!(
-            "{list_text}.iter().filter(|item| *item == &{item_text}).count() as i64"
+            "{list_text}.iter().filter(|smelt_item| *smelt_item == &{item_text}).count() as i64", list_text = list_text.tight(), item_text = item_text.tight()
         )))
     }
 
@@ -884,8 +884,8 @@ impl FunctionEmitter<'_> {
             ));
         }
         match self.mir.types.get(*item_ty) {
-            Some(Type::Int) => Ok({ let receiver = list_read_expr(&self.operand_expr(list)?); RustExpr::atom_on(&receiver, format!("{receiver}.iter().copied().sum::<i64>()")) }),
-            Some(Type::Float) => Ok({ let receiver = list_read_expr(&self.operand_expr(list)?); RustExpr::atom_on(&receiver, format!("{receiver}.iter().copied().sum::<f64>()")) }),
+            Some(Type::Int) => Ok({ let receiver = list_read_expr(&self.operand_expr(list)?); RustExpr::atom_on(&receiver, format!("{receiver}.iter().copied().sum::<i64>()", receiver = receiver.tight())) }),
+            Some(Type::Float) => Ok({ let receiver = list_read_expr(&self.operand_expr(list)?); RustExpr::atom_on(&receiver, format!("{receiver}.iter().copied().sum::<f64>()", receiver = receiver.tight())) }),
             _ => Err(EmitError::new("list sum supports int and float lists")),
         }
     }
@@ -912,7 +912,7 @@ impl FunctionEmitter<'_> {
             smelt_hir::BoolFoldOp::All => "all",
             smelt_hir::BoolFoldOp::Any => "any",
         };
-        Ok({ let receiver = list_read_expr(&self.operand_expr(list)?); RustExpr::postfix_on(&receiver, format!("{receiver}.iter().copied().{method_name}(|value| value)")) })
+        Ok({ let receiver = list_read_expr(&self.operand_expr(list)?); receiver.postfix(format!(".iter().copied().{method_name}(|smelt_value| smelt_value)")) })
     }
 
     // Sorted-list helpers continue in `list_ordering.rs`.
@@ -938,7 +938,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn concat_spread_expr(&self, value: &Operand) -> Result<RustExpr, EmitError> {
         let value_ty = self.operand_ty(value)?;
         let value_text = self.erase_rendered(&self.operand_expr(value)?, value_ty)?;
-        Ok(RustExpr::chain(format!("smelt_concat_spread({value_text})")))
+        Ok(RustExpr::chain(format!("smelt_concat_spread({value_text})", value_text = value_text.delimited())))
     }
 
     /// `indexOf`-style search, at the destination type.

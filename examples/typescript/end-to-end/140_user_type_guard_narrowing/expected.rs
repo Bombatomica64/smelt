@@ -4396,11 +4396,11 @@ impl SmeltFromUnknown for Req {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("kind") {
-                result.kind = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("kind") {
+                result.kind = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("url") {
-                result.url = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("url") {
+                result.url = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -4424,11 +4424,11 @@ impl SmeltFromUnknown for RawReq {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("kind") {
-                result.kind = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("kind") {
+                result.kind = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("raw") {
-                result.raw = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("raw") {
+                result.raw = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -4468,7 +4468,7 @@ impl IntoSmeltUnknown for SmeltUnion3 {
 }
 impl SmeltUnion3 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(map) if matches!(map.get("kind"), Some(SmeltUnknown::String(smelt_text)) if smelt_text.to_string() == "req")) && matches!(&value, SmeltUnknown::Object(map) if map.contains_key("url"))) { return Self::M0(__smelt_from_unknown_record_0((value).into_smelt_unknown())); }
+        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(smelt_map) if matches!(smelt_map.get("kind"), Some(SmeltUnknown::String(smelt_text)) if smelt_text.to_string() == "req")) && matches!(&value, SmeltUnknown::Object(smelt_map) if smelt_map.contains_key("url"))) { return Self::M0(__smelt_from_unknown_record_0((value).into_smelt_unknown())); }
         Self::M1(__smelt_from_unknown_record_1((value).into_smelt_unknown()))
     }
 }
@@ -4510,8 +4510,8 @@ impl IntoSmeltUnknown for SmeltUnion15 {
 }
 impl SmeltUnion15 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::String(_)) { return Self::M0(match value.clone() { SmeltUnknown::String(value) => value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }); }
-        Self::M1(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN })
+        if matches!(value, SmeltUnknown::String(_)) { return Self::M0(match value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }); }
+        Self::M1(match value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN })
     }
 }
 impl PartialEq for SmeltUnion15 {
@@ -4618,11 +4618,11 @@ impl Checker {
 }
 
 fn __smelt_from_unknown_record_1(smelt_value: SmeltUnknown) -> RawReq {
-    match (smelt_value).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); RawReq { kind: smelt_record_map.get_text("kind").or_else(|| smelt_record_map.get_text("__smelt_proto:kind")).or_else(|| smelt_record_map.get_text("__smelt_method:kind")).cloned().map_or(JsString::new(), |value| match value.clone() { SmeltUnknown::String(value) => value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }), raw: smelt_record_map.get_text("raw").or_else(|| smelt_record_map.get_text("__smelt_proto:raw")).or_else(|| smelt_record_map.get_text("__smelt_method:raw")).cloned().map_or(0.0, |value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) } } }, _ => Default::default() }
+    match (smelt_value).into_smelt_unknown() { SmeltUnknown::Object(smelt_values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(smelt_values.id, smelt_values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); RawReq { kind: smelt_record_map.get_text("kind").or_else(|| smelt_record_map.get_text("__smelt_proto:kind")).or_else(|| smelt_record_map.get_text("__smelt_method:kind")).cloned().map_or(JsString::new(), |smelt_value| match smelt_value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }), raw: smelt_record_map.get_text("raw").or_else(|| smelt_record_map.get_text("__smelt_proto:raw")).or_else(|| smelt_record_map.get_text("__smelt_method:raw")).cloned().map_or(0.0, |smelt_value| match smelt_value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) } } }, _ => Default::default() }
 }
 
 fn __smelt_from_unknown_record_0(smelt_value: SmeltUnknown) -> Req {
-    match (smelt_value).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); Req { kind: smelt_record_map.get_text("kind").or_else(|| smelt_record_map.get_text("__smelt_proto:kind")).or_else(|| smelt_record_map.get_text("__smelt_method:kind")).cloned().map_or(JsString::new(), |value| match value.clone() { SmeltUnknown::String(value) => value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }), url: smelt_record_map.get_text("url").or_else(|| smelt_record_map.get_text("__smelt_proto:url")).or_else(|| smelt_record_map.get_text("__smelt_method:url")).cloned().map_or(JsString::new(), |value| match value.clone() { SmeltUnknown::String(value) => value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }) } } }, _ => Default::default() }
+    match (smelt_value).into_smelt_unknown() { SmeltUnknown::Object(smelt_values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(smelt_values.id, smelt_values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); Req { kind: smelt_record_map.get_text("kind").or_else(|| smelt_record_map.get_text("__smelt_proto:kind")).or_else(|| smelt_record_map.get_text("__smelt_method:kind")).cloned().map_or(JsString::new(), |smelt_value| match smelt_value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }), url: smelt_record_map.get_text("url").or_else(|| smelt_record_map.get_text("__smelt_proto:url")).or_else(|| smelt_record_map.get_text("__smelt_method:url")).cloned().map_or(JsString::new(), |smelt_value| match smelt_value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }) } } }, _ => Default::default() }
 }
 
 // ==== source_main.rs

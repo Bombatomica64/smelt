@@ -16,7 +16,7 @@ fn main() {
     let word: JsString = JsString::from("abc");
     let first: JsString = word.char_at({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).unwrap_or_default();
     let _smelt_tmp_5: f64 = -1.0;
-    let last: Option<JsString> = ({ let smelt_len = word.clone().len() as i64; let smelt_index = _smelt_tmp_5 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| word.clone().char_at(index));
+    let last: Option<JsString> = ({ let smelt_len = word.clone().len() as i64; let smelt_index = _smelt_tmp_5 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|smelt_index| word.clone().char_at(smelt_index));
     let mut joined: JsString = JsString::new();
     let mut _smelt_tmp_7: usize = 0;
     loop {

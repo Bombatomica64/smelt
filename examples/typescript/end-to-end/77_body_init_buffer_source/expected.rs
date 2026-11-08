@@ -6226,7 +6226,7 @@ impl IntoSmeltUnknown for SmeltUnion20 {
 }
 impl SmeltUnion20 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::String(_)) { return Self::M0(match value.clone() { SmeltUnknown::String(value) => value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }); }
+        if matches!(value, SmeltUnknown::String(_)) { return Self::M0(match value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }); }
         Self::M1(<SmeltBlob as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
     }
 }
@@ -6383,7 +6383,7 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     parsed = _smelt_tmp_59.await?;
     _smelt_tmp_61 = parsed.clone().get(&JsString::from("name")).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion20::M0(JsString::from(smelt_text)), SmeltFormDataValue::File(smelt_file) => SmeltUnion20::M1(smelt_file) });
     _smelt_tmp_62 = parsed.get(&JsString::from("kind")).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion20::M0(JsString::from(smelt_text)), SmeltFormDataValue::File(smelt_file) => SmeltUnion20::M1(smelt_file) });
-    let _ = { println!("{} {}", match &_smelt_tmp_61 { Some(value) => format!("{}", value.clone().into_smelt_unknown()), None => "undefined".to_owned() }, match &_smelt_tmp_62 { Some(value) => format!("{}", value.clone().into_smelt_unknown()), None => "undefined".to_owned() }); };
+    let _ = { println!("{} {}", match &_smelt_tmp_61 { Some(smelt_value) => format!("{}", smelt_value.clone().into_smelt_unknown()), None => "undefined".to_owned() }, match &_smelt_tmp_62 { Some(smelt_value) => format!("{}", smelt_value.clone().into_smelt_unknown()), None => "undefined".to_owned() }); };
     _smelt_tmp_64 = SmeltRequest::from_parts_with_init(&JsString::from("https://a.test"), (JsString::from("POST")).to_string(), SmeltHeaders::new(), { let smelt_boundary = smelt_multipart_boundary(); SmeltBody::from_blob(form.to_multipart(&smelt_boundary), format!("multipart/form-data; boundary={smelt_boundary}")) }, { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
     _smelt_tmp_65 = _smelt_tmp_64.headers();
     _smelt_tmp_66 = (_smelt_tmp_65.get(&JsString::from("content-type"))).map(JsString::from);

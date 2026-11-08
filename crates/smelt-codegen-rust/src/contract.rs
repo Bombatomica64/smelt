@@ -15,6 +15,17 @@
 /// the marker and its consumers can never drift apart.
 pub const PRELUDE_END_MARKER: &str = "// @smelt:prelude-end — generated program below";
 
+/// Header line that opens every generated module file, followed by the path of
+/// the source file the module lowers.
+///
+/// A module file holds the lowering of one source file and nothing of the
+/// runtime: the prelude lives in the crate root, above
+/// [`PRELUDE_END_MARKER`]. So this line is provenance: tooling that classifies
+/// `SmeltUnknown` reads every line of a file that carries it as program code,
+/// including program items whose names the emitter minted (a module global's
+/// `smelt_global_init__x__0`), instead of guessing from item names.
+pub const MODULE_SOURCE_HEADER: &str = "// source: ";
+
 /// Name prefix of the generated erased-record-to-class conversion helpers,
 /// `fn <prefix><n>(smelt_value: SmeltUnknown) -> T`.
 ///

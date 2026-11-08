@@ -4571,10 +4571,10 @@ fn main() {
     let paths: SmeltRecord<JsString, (f64, SmeltList<(JsString, f64)>)> = SmeltRecord::from([(JsString::from("/users/:id/posts/:post"), _smelt_tmp_5), (JsString::from("/tags/:tag"), _smelt_tmp_8)]);
     let replacement: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![3.0, 1.0, 2.0]; smelt_list_items }));
     let _smelt_tmp_11: SmeltRecord<JsString, f64> = param_index_map(JsString::from("/users/:id/posts/:post"));
-    _smelt_tmp_12 = JsString::from(smelt_json_stringify(&{ let smelt_record = _smelt_tmp_11.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::Number(value as f64))).collect())) }).expect("JSON serialization failed"));
+    _smelt_tmp_12 = JsString::from(smelt_json_stringify(&{ let smelt_record = _smelt_tmp_11.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(smelt_key, smelt_value)| (smelt_key, SmeltUnknown::Number(smelt_value as f64))).collect())) }).expect("JSON serialization failed"));
     let _ = { println!("{}", _smelt_tmp_12); };
     let _smelt_tmp_14: SmeltRecord<JsString, f64> = param_index_map(JsString::from("/tags/:tag"));
-    _smelt_tmp_15 = JsString::from(smelt_json_stringify(&{ let smelt_record = _smelt_tmp_14.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::Number(value as f64))).collect())) }).expect("JSON serialization failed"));
+    _smelt_tmp_15 = JsString::from(smelt_json_stringify(&{ let smelt_record = _smelt_tmp_14.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(smelt_key, smelt_value)| (smelt_key, SmeltUnknown::Number(smelt_value as f64))).collect())) }).expect("JSON serialization failed"));
     let _ = { println!("{}", _smelt_tmp_15); };
     _smelt_tmp_17 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a"), JsString::from("b"), JsString::from("c")]; smelt_list_items }));
     let _smelt_tmp_18: JsString = visit_order(_smelt_tmp_17);
@@ -4594,8 +4594,8 @@ fn main() {
     _smelt_tmp_29 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, _arg0: &SmeltList<f64>| {
     let _smelt_tmp_2: f64 = closure_arg_0 + closure_arg_1 as f64;
     _smelt_tmp_2
-    }); let smelt_array = replacement; let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
-    _smelt_tmp_30 = JsString::join(_smelt_tmp_29.borrow().iter().map(|item| JsString::from({ smelt_number_to_string(*item) })), &JsString::from(","));
+    }); let smelt_array = replacement; let smelt_value = smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
+    _smelt_tmp_30 = JsString::join(_smelt_tmp_29.borrow().iter().map(|smelt_item| JsString::from({ smelt_number_to_string(*smelt_item) })), &JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_30); };
     return;
 }
@@ -4620,7 +4620,7 @@ pub(crate) fn param_index_map(path: JsString) -> SmeltRecord<JsString, f64> {
     let seed: SmeltRecord<JsString, f64> = SmeltRecord::from([]);
     let _smelt_tmp_13: (f64, SmeltList<(JsString, f64)>) = path_data.clone().expect("optional value was absent after narrowing");
     let _smelt_tmp_14: SmeltList<(JsString, f64)> = Into::<SmeltList<_>>::into(_smelt_tmp_13.1.clone());
-    let _smelt_tmp_16: SmeltRecord<JsString, f64> = _smelt_tmp_14.borrow().iter().enumerate().rev().fold(seed, |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = &_smelt_tmp_14; { let smelt_callback = ::std::rc::Rc::new({
+    let _smelt_tmp_16: SmeltRecord<JsString, f64> = _smelt_tmp_14.borrow().iter().enumerate().rev().fold(seed, |smelt_acc, (smelt_index, smelt_item)| { let smelt_item = (*smelt_item).clone(); let smelt_index = smelt_index as f64; let smelt_array = &_smelt_tmp_14; { let smelt_callback = ::std::rc::Rc::new({
     let path_data = path_data.clone();
     move |mut closure_arg_0: SmeltRecord<JsString, f64>, closure_arg_1: (JsString, f64), closure_arg_2: i64, _arg0: &SmeltList<(JsString, f64)>| {
     let key: JsString = closure_arg_1.clone().0.clone();
@@ -4633,33 +4633,33 @@ pub(crate) fn param_index_map(path: JsString) -> SmeltRecord<JsString, f64> {
     closure_arg_0.insert(key.clone(), _smelt_tmp_11);
     closure_arg_0.clone()
     }
-}); (smelt_callback)(acc, item, ((index as f64).trunc() as i64), array) } });
+}); (smelt_callback)(smelt_acc, smelt_item, ((smelt_index as f64).trunc() as i64), smelt_array) } });
     return _smelt_tmp_16;
 }
 
 pub(crate) fn visit_order(items: SmeltList<JsString>) -> JsString {
-    let _smelt_tmp_2: JsString = items.borrow().iter().enumerate().rev().fold(JsString::new(), |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = &items; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: JsString, closure_arg_2: i64, _arg0: &SmeltList<JsString>| {
+    let _smelt_tmp_2: JsString = items.borrow().iter().enumerate().rev().fold(JsString::new(), |smelt_acc, (smelt_index, smelt_item)| { let smelt_item = (*smelt_item).clone(); let smelt_index = smelt_index as f64; let smelt_array = &items; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: JsString, closure_arg_2: i64, _arg0: &SmeltList<JsString>| {
     let _smelt_tmp_3: JsString = closure_arg_0.clone() + &closure_arg_1.clone();
     let _smelt_tmp_4: JsString = _smelt_tmp_3.clone() + &JsString::from(smelt_number_to_string(closure_arg_2 as f64));
     _smelt_tmp_4.clone()
-    }); (smelt_callback)(acc, item, ((index as f64).trunc() as i64), array) } });
+    }); (smelt_callback)(smelt_acc, smelt_item, ((smelt_index as f64).trunc() as i64), smelt_array) } });
     return _smelt_tmp_2;
 }
 
 pub(crate) fn forward_order(items: SmeltList<JsString>) -> JsString {
-    let _smelt_tmp_2: JsString = items.borrow().iter().enumerate().fold(JsString::new(), |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = &items; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: JsString, closure_arg_2: i64, _arg0: &SmeltList<JsString>| {
+    let _smelt_tmp_2: JsString = items.borrow().iter().enumerate().fold(JsString::new(), |smelt_acc, (smelt_index, smelt_item)| { let smelt_item = (*smelt_item).clone(); let smelt_index = smelt_index as f64; let smelt_array = &items; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: JsString, closure_arg_2: i64, _arg0: &SmeltList<JsString>| {
     let _smelt_tmp_3: JsString = closure_arg_0.clone() + &closure_arg_1.clone();
     let _smelt_tmp_4: JsString = _smelt_tmp_3.clone() + &JsString::from(smelt_number_to_string(closure_arg_2 as f64));
     _smelt_tmp_4.clone()
-    }); (smelt_callback)(acc, item, ((index as f64).trunc() as i64), array) } });
+    }); (smelt_callback)(smelt_acc, smelt_item, ((smelt_index as f64).trunc() as i64), smelt_array) } });
     return _smelt_tmp_2;
 }
 
 pub(crate) fn last_minus_rest(values: SmeltList<f64>) -> f64 {
-    let _smelt_tmp_2: f64 = { let smelt_reduce_items = values.borrow(); let mut reduce_items = smelt_reduce_items.iter().enumerate().rev(); let (_, first) = reduce_items.next().expect("reduce of empty array with no initial value"); reduce_items.fold(first.clone(), |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = &values; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
+    let _smelt_tmp_2: f64 = { let smelt_reduce_items = values.borrow(); let mut smelt_reduce_items = smelt_reduce_items.iter().enumerate().rev(); let (_, smelt_first) = smelt_reduce_items.next().expect("reduce of empty array with no initial value"); smelt_reduce_items.fold(smelt_first.clone(), |smelt_acc, (smelt_index, smelt_item)| { let smelt_item = (*smelt_item).clone(); let smelt_index = smelt_index as f64; let smelt_array = &values; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
     let _smelt_tmp_2: f64 = closure_arg_0 - closure_arg_1;
     _smelt_tmp_2
-    }); (smelt_callback)(acc, item, ((index as f64).trunc() as i64), array) } }) };
+    }); (smelt_callback)(smelt_acc, smelt_item, ((smelt_index as f64).trunc() as i64), smelt_array) } }) };
     return _smelt_tmp_2;
 }
 

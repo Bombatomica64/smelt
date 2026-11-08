@@ -32,9 +32,26 @@ use smelt_stdlib::{BackendDependency, StdlibClass};
 
 use crate::stdlib::{module_hash_set_key_safe, stdlib_class_of_class_symbol};
 
-/// A runtime family, or a backend crate, a program can demand.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Need {
+/// Declares [`Need`] and [`Need::ALL`] from one list, so the list of every
+/// variant cannot miss one: a variant added to the enum is in `ALL` by
+/// construction, which is what the per-need closure test and the bitset bound
+/// rely on.
+macro_rules! declare_needs {
+    ($($(#[$meta:meta])* $variant:ident,)*) => {
+        /// A runtime family, or a backend crate, a program can demand.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub(crate) enum Need {
+            $($(#[$meta])* $variant,)*
+        }
+
+        impl Need {
+            /// Every need, in declaration order.
+            pub(crate) const ALL: &[Self] = &[$(Self::$variant),*];
+        }
+    };
+}
+
+declare_needs! {
     /// The erased `SmeltUnknown` carrier and everything written against it.
     Unknown,
     /// An operation whose answer is erased though nothing has to spell `unknown`:
@@ -228,6 +245,10 @@ pub(crate) enum Need {
     DepIndexMap,
 }
 
+/// [`RuntimeDemand`] holds one bit per [`Need`] in a `u128`: a 129th need would
+/// alias bit 0 in a release build, so the bound is checked where the enum is.
+const _: () = assert!(Need::ALL.len() <= 128, "Need outgrew the u128 demand bitset");
+
 /// The declared dependency graph: a family on the left is written against every
 /// family on the right, so demanding it demands them.
 ///
@@ -259,7 +280,8 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::Record, &[Need::ObjectIds]),
     (Need::PythonDivision, &[Need::PyException]),
     (Need::PythonDictRead, &[Need::PyException]),
-    (Need::PythonListRead, &[Need::PyException]),
+    // The checked read indexes the identity-bearing list it is handed.
+    (Need::PythonListRead, &[Need::PyException, Need::SmeltList]),
     (Need::PrimSet, &[Need::ObjectIds]),
     (Need::DepRegress, &[Need::ObjectIds, Need::JsString]),
     (Need::Date, &[Need::ObjectIds, Need::HostOrigins]),
@@ -298,7 +320,9 @@ const REQUIRES: &[(Need, &[Need])] = &[
         &[Need::Headers, Need::EventEmitter, Need::Timers, Need::ObjectIds, Need::HostOrigins],
     ),
     (Need::FetchServer, &[Need::HttpServer, Need::Response, Need::Request]),
-    (Need::EventEmitter, &[Need::ObjectIds, Need::HostOrigins]),
+    // A listener is stored and compared as an erased callable, and the emitter
+    // record converts through the carrier's `SmeltFromUnknown`.
+    (Need::EventEmitter, &[Need::Unknown, Need::ObjectIds, Need::HostOrigins]),
     (Need::Url, &[Need::UrlSearchParams, Need::HostOrigins]),
     (Need::UrlSearchParams, &[Need::ObjectIds, Need::HostOrigins, Need::DepUrl]),
     (Need::FormData, &[Need::Blob, Need::ObjectIds, Need::HostOrigins, Need::DepUrl]),
@@ -322,6 +346,25 @@ const REQUIRES: &[(Need, &[Need])] = &[
     ),
     (Need::Sqlite, &[Need::Unknown, Need::ByteArray, Need::HostOrigins]),
 ];
+
+/// Proof that the closed demand holds a need: only [`RuntimeDemand::require`]
+/// constructs one, so a runtime use that takes it cannot be written for a
+/// family the program does not carry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Demanded {
+    /// The need demanded; private, so only [`RuntimeDemand::require`] can
+    /// construct the proof.
+    _need: Need,
+}
+
+/// Proof that the program carries the erased runtime carrier: the token every
+/// carrier template takes (see `FunctionEmitter::carrier_format`), obtained
+/// from [`RuntimeDemand::carrier`].
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CarrierUse {
+    /// Private, so only [`RuntimeDemand::carrier`] can construct one.
+    _proof: (),
+}
 
 /// The closed set of everything one program demands of the runtime.
 #[derive(Debug, Clone, Copy, Default)]
@@ -363,10 +406,56 @@ impl RuntimeDemand {
         demand
     }
 
+    /// The demand of a program that needs exactly `needs`, closed over
+    /// [`REQUIRES`]: what the per-need closure check renders.
+    #[cfg(test)]
+    pub(crate) fn closed_over(needs: &[Need]) -> Self {
+        let mut demand = Self::default();
+        for need in needs {
+            demand.add(*need);
+        }
+        demand.close();
+        demand
+    }
+
+    /// Records `need` alone, unclosed, for a test of the bit layout.
+    #[cfg(test)]
+    pub(crate) const fn add_for_test(&mut self, need: Need) {
+        self.add(need);
+    }
+
     /// Whether the program demands `need`.
     #[must_use]
     pub(crate) const fn has(&self, need: Need) -> bool {
         self.needs & bit(need) != 0
+    }
+
+    /// The proof that the program demands `need`, which the emitter needs to
+    /// write that family's runtime text.
+    ///
+    /// # Errors
+    ///
+    /// When the scan did not predict `need`: the use would name runtime items
+    /// the crate does not carry, so it fails here, at the emit site that asked,
+    /// rather than as an undefined symbol in the finished crate.
+    pub(crate) fn require(&self, need: Need) -> Result<Demanded, crate::EmitError> {
+        if self.has(need) {
+            Ok(Demanded { _need: need })
+        } else {
+            Err(crate::EmitError::new(format!(
+                "internal: the emitter wrote a use of the `{need:?}` runtime family, which the runtime demand scan did not predict"
+            )))
+        }
+    }
+
+    /// The proof that the program carries the erased runtime carrier, which
+    /// [`crate::emitter`]'s carrier templates take. See [`Self::require`].
+    ///
+    /// # Errors
+    ///
+    /// When the scan did not predict an erased value.
+    pub(crate) fn carrier(&self) -> Result<CarrierUse, crate::EmitError> {
+        self.require(Need::Unknown).map(|_| CarrierUse { _proof: () })
     }
 
     /// Records `need` as demanded.

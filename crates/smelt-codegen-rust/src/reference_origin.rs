@@ -72,7 +72,7 @@ use crate::rust::RustExpr;
 /// Stamp `handle` (an expression yielding the typed reference handle) as the
 /// origin of the erased object built by `object_ctor`.
 pub(crate) fn with_origin_expr(object_ctor: &str, handle: &str) -> RustExpr {
-    RustExpr::postfix_on(&object_ctor, format!("{object_ctor}.smelt_with_origin({handle}.clone())"))
+    RustExpr::atom(object_ctor).postfix(format!(".smelt_with_origin({handle}.clone())"))
 }
 
 /// Recover a reference record from the record view `record`: the live handle
@@ -80,9 +80,10 @@ pub(crate) fn with_origin_expr(object_ctor: &str, handle: &str) -> RustExpr {
 ///
 /// The handle type is inferred from `rebuild`'s type — both arms of the match
 /// must agree — so a generic record needs no spelled type arguments here.
-pub(crate) fn restore_or_rebuild_expr(record: &str, rebuild: &str) -> RustExpr {
+pub(crate) fn restore_or_rebuild_expr(record: &RustExpr, rebuild: &RustExpr) -> RustExpr {
     RustExpr::atom(format!(
-        "match {record}.smelt_origin() {{ Some(smelt_origin) => smelt_origin, None => {rebuild} }}"
+        "match {}.smelt_origin() {{ Some(smelt_origin) => smelt_origin, None => {rebuild} }}",
+        record.parenthesized_if_needed(), rebuild = rebuild.delimited()
     ))
 }
 
@@ -129,7 +130,7 @@ pub(crate) fn emit_reference_from_smelt_unknown_impl(
             .or_else(|| mir.symbols.get(field.name))
             .unwrap_or("field");
         assigns.push(format!(
-            "if let Some(field) = object.get({key:?}) {{ result.0.borrow_mut().{field_name} = SmeltFromUnknown::smelt_from_unknown(field); }}"
+            "if let Some(smelt_field) = object.get({key:?}) {{ result.0.borrow_mut().{field_name} = SmeltFromUnknown::smelt_from_unknown(smelt_field); }}"
         ));
     }
     writer.line("/// Recover this reference record from an erased value: the live instance");

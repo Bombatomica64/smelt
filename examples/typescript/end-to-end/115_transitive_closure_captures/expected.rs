@@ -4412,7 +4412,7 @@ fn main() {
     let _smelt_tmp_1 = ::std::rc::Rc::new({
     let smelt_captured_closure_arg_0 = closure_arg_0.clone();
     move |closure_arg_0: JsString| {
-    let smelt_capture_walk: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(f64) -> JsString>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> JsString> = ::std::rc::Rc::new(move |arg0: f64| -> JsString { JsString::new() }); smelt_default_callback }));
+    let smelt_capture_walk: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(f64) -> JsString>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> JsString { JsString::new() }); smelt_default_callback }));
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let smelt_captured_closure_arg_0_0 = closure_arg_0.clone();
     let smelt_captured_closure_arg_0 = smelt_captured_closure_arg_0.clone();

@@ -90,8 +90,8 @@ pub(crate) fn leaves_erased_generic(source_item: Option<&Type>) -> bool {
 /// reflexive `From`, or a `Vec<SmeltUnknown>`). The result is the same list
 /// handle: same id, same buffer.
 #[must_use]
-pub(crate) fn list_alias_expr(value: &str) -> RustExpr {
-    RustExpr::postfix_on(&ERASED_GENERIC_LIST_ALIAS_FN, format!("{ERASED_GENERIC_LIST_ALIAS_FN}({value})"))
+pub(crate) fn list_alias_expr(value: &RustExpr) -> RustExpr {
+    RustExpr::atom(ERASED_GENERIC_LIST_ALIAS_FN).postfix(format!("({value})", value = value.delimited()))
 }
 
 /// Renders the erasure of an erased generic list into a `SmeltUnknown::Array`.
@@ -104,6 +104,6 @@ pub(crate) fn list_alias_expr(value: &str) -> RustExpr {
 /// id, so the erased value is the same array. The `SmeltUnknown::Array` tag
 /// stays at the call site so the report still counts the occurrence.
 #[must_use]
-pub(crate) fn array_alias_expr(value: &str) -> RustExpr {
-    RustExpr::atom(format!("SmeltUnknown::Array({ERASED_GENERIC_ARRAY_ALIAS_FN}({value}))"))
+pub(crate) fn array_alias_expr(value: &RustExpr) -> RustExpr {
+    RustExpr::atom(format!("SmeltUnknown::Array({ERASED_GENERIC_ARRAY_ALIAS_FN}({value}))", value = value.delimited()))
 }

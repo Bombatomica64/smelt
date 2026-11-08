@@ -41,6 +41,9 @@ const ELSE: &str = "// @smelt:else";
 /// Directive closing a conditional run of lines.
 const END: &str = "// @smelt:end";
 
+/// Prefix every line directive starts with.
+const DIRECTIVE: &str = "// @smelt:";
+
 /// Directive naming lines the emitter supplies.
 const SLOT: &str = "// @smelt:slot ";
 
@@ -491,13 +494,161 @@ pub enum RenderedLine<'a> {
     Slot(&'a str),
 }
 
+/// Why the runtime's markup cannot be rendered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MarkupError {
+    /// No module declares an item of this name.
+    UnknownItem(String),
+    /// A marker, directive or span does not balance.
+    Unbalanced {
+        /// The module or item the defect is in.
+        within: &'static str,
+        /// The 1-based line, counted within `within`.
+        line: usize,
+        /// What does not balance.
+        reason: &'static str,
+    },
+}
+
+impl std::fmt::Display for MarkupError {
+    /// Names the item, or the defect and where it is.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownItem(name) => write!(formatter, "smelt-runtime does not define `{name}`"),
+            Self::Unbalanced { within, line, reason } => {
+                write!(formatter, "smelt-runtime markup in `{within}` line {line}: {reason}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for MarkupError {}
+
+/// Checks that every item marker of one module's `source` balances: no region
+/// opens inside another, every `item-end` closes one, every region is closed.
+fn check_module(module: &'static str, source: &str) -> Result<(), MarkupError> {
+    let mut open = false;
+    let mut last = 0;
+    for (index, line) in source.lines().enumerate() {
+        let trimmed = line.trim();
+        let unbalanced = |reason| MarkupError::Unbalanced { within: module, line: index.saturating_add(1), reason };
+        last = index.saturating_add(1);
+        if trimmed.starts_with(ITEM_START) {
+            if open {
+                return Err(unbalanced("an item opens inside another item"));
+            }
+            open = true;
+        } else if trimmed == ITEM_END {
+            if !open {
+                return Err(unbalanced("`item-end` closes no item"));
+            }
+            open = false;
+        }
+    }
+    if open {
+        return Err(MarkupError::Unbalanced { within: module, line: last, reason: "an item is never closed" });
+    }
+    Ok(())
+}
+
+/// Checks that the directives and spans of the region called `name` balance.
+///
+/// Rendering trusts this: a stray `end` would otherwise be ignored and a
+/// missing one would make the rest of the item conditional, defects the
+/// all-flags-on text the crate compiles cannot show.
+fn check_region(name: &'static str, text: &str) -> Result<(), MarkupError> {
+    // One entry per open `if`: whether its `else` was seen.
+    let mut open: Vec<bool> = Vec::new();
+    let mut last = 0;
+    for (index, line) in text.lines().enumerate() {
+        let unbalanced = |reason| MarkupError::Unbalanced { within: name, line: index.saturating_add(1), reason };
+        last = index.saturating_add(1);
+        let trimmed = line.trim_start();
+        if trimmed.starts_with(IF) {
+            open.push(false);
+        } else if trimmed == ELSE {
+            match open.last_mut() {
+                None => return Err(unbalanced("`else` without an open `if`")),
+                Some(true) => return Err(unbalanced("a second `else` for one `if`")),
+                Some(seen) => *seen = true,
+            }
+        } else if trimmed == END {
+            if open.pop().is_none() {
+                return Err(unbalanced("`end` without an open `if`"));
+            }
+        } else if trimmed.starts_with(DIRECTIVE) && !trimmed.starts_with(SLOT) {
+            return Err(unbalanced("an unknown `@smelt:` directive"));
+        }
+        check_spans(line).map_err(unbalanced)?;
+    }
+    if !open.is_empty() {
+        return Err(MarkupError::Unbalanced { within: name, line: last, reason: "an `if` is never closed" });
+    }
+    Ok(())
+}
+
+/// Checks that every inline span of `line` opens with a complete
+/// `/*@if EXPR*/`, closes with `/*@end*/` on the same line, and holds no
+/// nested span.
+fn check_spans(line: &str) -> Result<(), &'static str> {
+    let mut rest = line;
+    loop {
+        let next_if = rest.find(SPAN_IF);
+        let next_end = rest.find(SPAN_END);
+        let Some(start) = next_if else {
+            return if next_end.is_some() { Err("`/*@end*/` without an open `/*@if`") } else { Ok(()) };
+        };
+        if next_end.is_some_and(|end| end < start) {
+            return Err("`/*@end*/` without an open `/*@if`");
+        }
+        let after = rest.get(start.saturating_add(SPAN_IF.len())..).unwrap_or_default();
+        let Some((_, body)) = after.split_once("*/") else {
+            return Err("a `/*@if` expression is not closed");
+        };
+        let Some((kept, tail)) = body.split_once(SPAN_END) else {
+            return Err("a `/*@if` span has no `/*@end*/` on its line");
+        };
+        if kept.contains(SPAN_IF) {
+            return Err("a `/*@if` span nests inside another");
+        }
+        rest = tail;
+    }
+}
+
+/// Checks every module's markers and every region's directives and spans,
+/// once; rendering refuses markup that fails.
+///
+/// # Errors
+///
+/// The first defect found, in module then source order.
+pub fn check_markup() -> Result<(), MarkupError> {
+    static CHECKED: OnceLock<Result<(), MarkupError>> = OnceLock::new();
+    CHECKED
+        .get_or_init(|| {
+            for module in MODULES {
+                check_module(module.name, module.source)?;
+                for (name, region) in module_regions(module.source) {
+                    check_region(name, region.text)?;
+                }
+            }
+            Ok(())
+        })
+        .clone()
+}
+
 /// Renders the item called `name` under `flags`, resolving every directive.
 ///
-/// Returns `None` when no module declares the item. Whether the item is emitted
-/// at all is [`item_enabled`]'s question, not this one's.
-#[must_use]
-pub fn render_item(name: &str, flags: &dyn Fn(&str) -> bool) -> Option<Vec<RenderedLine<'static>>> {
-    let region = regions().get(name)?;
+/// Whether the item is emitted at all is [`item_enabled`]'s question, not this
+/// one's.
+///
+/// # Errors
+///
+/// [`MarkupError::UnknownItem`] when no module declares the item, and the
+/// defect [`check_markup`] finds when any markup does not balance.
+pub fn render_item(name: &str, flags: &dyn Fn(&str) -> bool) -> Result<Vec<RenderedLine<'static>>, MarkupError> {
+    check_markup()?;
+    let region = regions().get(name).ok_or_else(|| MarkupError::UnknownItem(name.to_owned()))?;
     let mut lines = Vec::new();
     // One entry per open `if`: whether its current arm is the live one.
     let mut arms: Vec<bool> = Vec::new();
@@ -521,7 +672,7 @@ pub fn render_item(name: &str, flags: &dyn Fn(&str) -> bool) -> Option<Vec<Rende
             lines.push(RenderedLine::Text(resolve_spans(line, flags)));
         }
     }
-    Some(lines)
+    Ok(lines)
 }
 
 /// Resolves the inline spans of one line.
@@ -577,6 +728,56 @@ mod tests {
                 module.name
             );
         }
+    }
+
+    /// Every module's markers and every region's directives and spans balance,
+    /// which is what rendering requires before it resolves any of them.
+    #[test]
+    fn every_region_markup_balances() {
+        assert_eq!(super::check_markup(), Ok(()));
+        for name in item_names() {
+            let text = item_source(name).expect("listed item resolves");
+            assert_eq!(super::check_region(name, text), Ok(()), "item {name}");
+        }
+    }
+
+    /// Each imbalance the renderer could not see is rejected, with its line.
+    #[test]
+    fn unbalanced_directives_are_rejected() {
+        let reason = |text: &str| match super::check_region("t", text) {
+            Err(super::MarkupError::Unbalanced { line, reason, .. }) => Some((line, reason)),
+            _ => None,
+        };
+        assert_eq!(reason("a\n// @smelt:end\n"), Some((2, "`end` without an open `if`")));
+        assert_eq!(reason("// @smelt:if f\nx\n"), Some((2, "an `if` is never closed")));
+        assert_eq!(reason("// @smelt:else\n"), Some((1, "`else` without an open `if`")));
+        assert_eq!(
+            reason("// @smelt:if f\n// @smelt:else\n// @smelt:else\n// @smelt:end\n"),
+            Some((3, "a second `else` for one `if`"))
+        );
+        assert_eq!(reason("// @smelt:iff f\n"), Some((1, "an unknown `@smelt:` directive")));
+        assert_eq!(reason("x /*@if f*/ y\n"), Some((1, "a `/*@if` span has no `/*@end*/` on its line")));
+        assert_eq!(reason("x /*@end*/\n"), Some((1, "`/*@end*/` without an open `/*@if`")));
+        assert_eq!(reason("/*@if f*/a/*@if g*/b/*@end*/c/*@end*/\n"), Some((1, "a `/*@if` span nests inside another")));
+        assert_eq!(reason("x /*@if f\n"), Some((1, "a `/*@if` expression is not closed")));
+        assert_eq!(
+            reason("// @smelt:if f\n// @smelt:if g\n// @smelt:else\n// @smelt:end\n// @smelt:end\nx/*@if a*/y/*@end*/\n"),
+            None
+        );
+    }
+
+    /// Item markers balance per module: none opens inside another, none closes
+    /// nothing, none is left open.
+    #[test]
+    fn unbalanced_item_markers_are_rejected() {
+        let reason = |text: &str| match super::check_module("m", text) {
+            Err(super::MarkupError::Unbalanced { reason, .. }) => Some(reason),
+            _ => None,
+        };
+        assert_eq!(reason("// @smelt:item a\n// @smelt:item b\n"), Some("an item opens inside another item"));
+        assert_eq!(reason("// @smelt:item-end\n"), Some("`item-end` closes no item"));
+        assert_eq!(reason("// @smelt:item a\n"), Some("an item is never closed"));
+        assert_eq!(reason("// @smelt:item a\n// @smelt:item-end\n"), None);
     }
 
     /// Item names are unique across modules, so lookup is unambiguous.

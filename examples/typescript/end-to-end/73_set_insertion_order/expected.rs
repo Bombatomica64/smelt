@@ -4522,7 +4522,7 @@ fn main() {
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_50)); };
     numbers = SmeltJsSet::from([30.0, 10.0, 20.0, 10.0]);
     _smelt_tmp_53 = Into::<SmeltList<_>>::into(numbers.iter().cloned().collect::<Vec<_>>());
-    _smelt_tmp_54 = JsString::join(_smelt_tmp_53.borrow().iter().map(|item| JsString::from({ smelt_number_to_string(*item) })), &JsString::from("|"));
+    _smelt_tmp_54 = JsString::join(_smelt_tmp_53.borrow().iter().map(|smelt_item| JsString::from({ smelt_number_to_string(*smelt_item) })), &JsString::from("|"));
     let _ = { println!("{}", _smelt_tmp_54); };
     flags = SmeltPrimSet::from([true, false, true]);
     _smelt_tmp_57 = Into::<SmeltList<_>>::into(flags.iter().cloned().collect::<Vec<_>>());
@@ -4543,7 +4543,7 @@ fn main() {
     _smelt_tmp_1 = JsString::from("f");
     }
     _smelt_tmp_1.clone()
-    }); let smelt_array = _smelt_tmp_57; let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
+    }); let smelt_array = _smelt_tmp_57; let smelt_value = smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
     _smelt_tmp_60 = JsString::join(_smelt_tmp_59.borrow().iter(), &JsString::from("|"));
     let _ = { println!("{}", _smelt_tmp_60); };
     same = letters.clone();

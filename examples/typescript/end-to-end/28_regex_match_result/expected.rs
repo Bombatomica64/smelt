@@ -1270,20 +1270,20 @@ fn main() {
     if !(_smelt_tmp_15) { break; }
     found = matches.borrow().get(_smelt_tmp_13).cloned().unwrap_or_else(|| SmeltMatch::default());
     whole = found.clone().group_owned(0.0 as usize);
-    _smelt_tmp_17 = found.clone().clone();
+    _smelt_tmp_17 = found.clone();
     letter = _smelt_tmp_17.named_group_owned("letter").clone();
     digit = found.clone().group_owned(2.0 as usize);
-    let _ = { println!("{}", match &whole { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    let _ = { println!("{}", match &letter { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    let _ = { println!("{}", match &digit { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", match &whole { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", match &letter { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", match &digit { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
     let _ = { println!("{}", smelt_console_number(found.index())); };
     let _ = { println!("{}", found.input_owned().clone()); };
     full = found.clone().group_owned(0.0 as usize);
     first = found.clone().group_owned(1.0 as usize);
     second = found.group_owned(2.0 as usize);
-    let _ = { println!("{}", match &full { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    let _ = { println!("{}", match &first { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    let _ = { println!("{}", match &second { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", match &full { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", match &first { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", match &second { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
     _smelt_tmp_13 = _smelt_tmp_13 + 1;
     }
     single = SmeltRegExp::new(JsString::from("(?<year>\\d{4})-(\\d{2})"), JsString::new());
@@ -1292,16 +1292,16 @@ fn main() {
     if _smelt_tmp_32 {
     _smelt_tmp_33 = found_1.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_34 = _smelt_tmp_33.group_owned(0.0 as usize);
-    let _ = { println!("{}", match &_smelt_tmp_34 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", match &_smelt_tmp_34 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
     _smelt_tmp_36 = found_1.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_37 = _smelt_tmp_36.clone().clone();
-    let _ = { println!("{}", match &_smelt_tmp_37.named_group_owned("year").clone() { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    _smelt_tmp_37 = _smelt_tmp_36.clone();
+    let _ = { println!("{}", match &_smelt_tmp_37.named_group_owned("year").clone() { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
     _smelt_tmp_39 = found_1.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_40 = _smelt_tmp_39.group_owned(1.0 as usize);
-    let _ = { println!("{}", match &_smelt_tmp_40 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", match &_smelt_tmp_40 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
     _smelt_tmp_42 = found_1.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_43 = _smelt_tmp_42.group_owned(2.0 as usize);
-    let _ = { println!("{}", match &_smelt_tmp_43 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", match &_smelt_tmp_43 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
     _smelt_tmp_45 = found_1.clone().expect("optional value was absent after narrowing");
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_45.index())); };
     }

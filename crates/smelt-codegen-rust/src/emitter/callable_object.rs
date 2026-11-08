@@ -43,10 +43,10 @@ impl FunctionEmitter<'_> {
         let slot_text = if self.operand_reads_through_ref_cell(callee) {
             format!(
                 "{{ let smelt_callable_slot = {}.{SMELT_CALL}.clone(); smelt_callable_slot }}",
-                self.operand_expr(callee)?
+                self.operand_expr(callee)?.tight()
             )
         } else {
-            format!("{}.{SMELT_CALL}.clone()", self.operand_expr(callee)?)
+            format!("{}.{SMELT_CALL}.clone()", self.operand_expr(callee)?.tight())
         };
         let (call_text, source_ty) =
             if self.is_erased_unknown_rest_function(&function) && !function.may_throw {
@@ -57,7 +57,7 @@ impl FunctionEmitter<'_> {
                     .map(|arg| self.erase(arg))
                     .collect::<Result<Vec<_>, EmitError>>()?;
                 (
-                    RustExpr::postfix_on(&slot_text, format!("{slot_text}.call(vec![{}])", rendered.join(", "))),
+                    RustExpr::atom(slot_text).postfix(format!(".call(vec![{}])", rendered.join(", "))),
                     self.type_id(Type::Unknown)?,
                 )
             } else {
@@ -86,7 +86,7 @@ impl FunctionEmitter<'_> {
                     if self.body_can_propagate_error() {
                         format!("{call}?")
                     } else {
-                        format!("{call}.unwrap_or_else(|error| smelt_panic_throw(error))")
+                        format!("{call}.unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error))")
                     }
                 } else {
                     call
@@ -94,7 +94,7 @@ impl FunctionEmitter<'_> {
                 (RustExpr::from(call), function.return_ty)
             };
         if self.mir.types.get(dest_ty) == Some(&Type::None) {
-            return Ok(Some(RustExpr::atom(format!("{{ {call_text}; () }}"))));
+            return Ok(Some(RustExpr::atom(format!("{{ {call_text}; () }}", call_text = call_text.delimited()))));
         }
         Ok(Some(self.rendered_at_type(&call_text, source_ty, dest_ty, &self.render_scope())?))
     }
@@ -127,18 +127,18 @@ impl FunctionEmitter<'_> {
         callee_text: &RustExpr,
         args_expr: &RustExpr,
         not_callable: Option<&str>,
-    ) -> RustExpr {
+    ) -> Result<RustExpr, EmitError> {
         // `callee_text` is usually already an owned temporary (an operand render
         // clones the local it reads), so take an owned copy rather than
         // deep-copying it a second time.
         let callee_text = &callee_text.cloned_value();
-        RustExpr::atom(self.carrier_format(format_args!(
-            "{{ let smelt_function_value = {callee_text}; let smelt_call_args: Vec<SmeltUnknown> = Into::into({args_expr}); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"{SMELT_CALL}\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| smelt_panic_throw(error)) }} else {{ {fallback} }} }}",
+        Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+            "{{ let smelt_function_value = {callee_text}; let smelt_call_args: Vec<SmeltUnknown> = Into::into({args_expr}); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"{SMELT_CALL}\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error)) }} else {{ {fallback} }} }}",
             fallback = not_callable.map_or_else(
                 || RustExpr::chain("smelt_value_not_callable()"),
                 |description| RustExpr::chain(format!("smelt_throw_not_callable({description:?})"))
-            ),
-        )))
+            ).delimited(), callee_text = callee_text.delimited(), args_expr = args_expr.delimited(),
+        ))))
     }
 
     /// The `TypeError` spelling for a non-callable callee, when it must throw.
@@ -242,13 +242,13 @@ impl FunctionEmitter<'_> {
         {
             let callable_text = self.erase(callable)?;
             let mut entries = vec![format!(
-                "smelt_object.push((JsString::from(\"{SMELT_CALL}\"), {callable_text}));"
+                "smelt_object.push((JsString::from(\"{SMELT_CALL}\"), {callable_text}));", callable_text = callable_text.delimited()
             )];
             for (key, value) in props {
                 let key_text = self.symbol_source_name(*key)?;
                 let value_text = self.erase(value)?;
                 entries.push(format!(
-                    "smelt_object.push((JsString::from({key_text:?}), {value_text}));"
+                    "smelt_object.push((JsString::from({key_text:?}), {value_text}));", value_text = value_text.delimited()
                 ));
             }
             // Dynamic record sources (`Object.assign(fn, def)` with a variable
@@ -258,11 +258,11 @@ impl FunctionEmitter<'_> {
             // spread (a callable's own `__smelt_call` slot is not user data).
             for spread in spreads {
                 let spread_text = self.erase(spread)?;
-                entries.push(self.carrier_format(format_args!(
-                    "if let SmeltUnknown::Object(smelt_spread) = {spread_text} {{ for (smelt_key, smelt_value) in smelt_spread.iter() {{ if smelt_key != \"{SMELT_CALL}\" {{ smelt_object.push((smelt_key, smelt_value)); }} }} }}"
+                entries.push(self.carrier_format(self.carrier()?, format_args!(
+                    "if let SmeltUnknown::Object(smelt_spread) = {spread_text} {{ for (smelt_key, smelt_value) in smelt_spread.iter() {{ if smelt_key != \"{SMELT_CALL}\" {{ smelt_object.push((smelt_key, smelt_value)); }} }} }}", spread_text = spread_text.delimited()
                 )));
             }
-            return Ok(RustExpr::atom(self.carrier_format(format_args!(
+            return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
                 "{{ let mut smelt_object = Vec::new(); {} SmeltUnknown::Object(SmeltObject::new(smelt_object)) }}",
                 entries.join(" ")
             ))));
@@ -364,7 +364,7 @@ impl FunctionEmitter<'_> {
                     "callable object construction is missing a value for required field `{raw_name}`"
                 )));
             };
-            field_text.push(format!("{field_name}: {value}"));
+            field_text.push(format!("{field_name}: {value}", value = value.delimited()));
         }
         self.callable_record_literal(field_text, type_symbol, type_args.len()).map(Some)
     }

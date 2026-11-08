@@ -4725,8 +4725,8 @@ impl SmeltFromUnknown for Circle {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("radius") {
-                result.radius = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("radius") {
+                result.radius = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -4748,8 +4748,8 @@ impl SmeltFromUnknown for Square {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("side") {
-                result.side = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("side") {
+                result.side = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -4773,8 +4773,8 @@ impl IntoSmeltUnknown for SmeltUnion4 {
 }
 impl SmeltUnion4 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::String(_)) { return Self::M2(match value.clone() { SmeltUnknown::String(value) => value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }); }
-        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(map) if map.contains_key("radius"))) { return Self::M0(<Circle as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown())); }
+        if matches!(value, SmeltUnknown::String(_)) { return Self::M2(match value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }); }
+        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(smelt_map) if smelt_map.contains_key("radius"))) { return Self::M0(<Circle as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown())); }
         Self::M1(<Square as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown()))
     }
 }
@@ -4816,7 +4816,7 @@ impl IntoSmeltUnknown for SmeltUnion6 {
 }
 impl SmeltUnion6 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(map) if map.contains_key("radius"))) { return Self::M0(<Circle as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown())); }
+        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(smelt_map) if smelt_map.contains_key("radius"))) { return Self::M0(<Circle as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown())); }
         Self::M1(<Square as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown()))
     }
 }
@@ -4860,8 +4860,8 @@ impl IntoSmeltUnknown for SmeltUnion10 {
 }
 impl SmeltUnion10 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::Number(_)) { return Self::M0(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }); }
-        if matches!(value, SmeltUnknown::String(_)) { return Self::M1(match value.clone() { SmeltUnknown::String(value) => value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }); }
+        if matches!(value, SmeltUnknown::Number(_)) { return Self::M0(match value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }); }
+        if matches!(value, SmeltUnknown::String(_)) { return Self::M1(match value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }); }
         Self::M2(<SmeltUrl as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
     }
 }
@@ -4904,7 +4904,7 @@ impl IntoSmeltUnknown for SmeltUnion15 {
 impl SmeltUnion15 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
         if matches!(value, SmeltUnknown::Object(_)) { return Self::M0(<Square as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown())); }
-        Self::M1(match value.clone() { SmeltUnknown::String(value) => value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) })
+        Self::M1(match value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) })
     }
 }
 impl PartialEq for SmeltUnion15 {
@@ -4945,8 +4945,8 @@ impl IntoSmeltUnknown for SmeltUnion17 {
 }
 impl SmeltUnion17 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::Number(_)) { return Self::M0(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }); }
-        Self::M1(match value.clone() { SmeltUnknown::String(value) => value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) })
+        if matches!(value, SmeltUnknown::Number(_)) { return Self::M0(match value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }); }
+        Self::M1(match value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) })
     }
 }
 impl PartialEq for SmeltUnion17 {
@@ -5107,7 +5107,7 @@ pub(crate) fn normalize(mut input: SmeltUnion10) -> JsString {
     _smelt_tmp_6 = _smelt_tmp_7;
     } else {
     _smelt_tmp_8 = match input.clone() { SmeltUnion10::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_9 = { let value = &_smelt_tmp_8; let target_len = 3.0 as usize; let pad = &JsString::from("0"); let current_len = value.len(); if current_len >= target_len || pad.is_empty() { value.to_owned() } else { let needed = target_len - current_len; let padding: JsString = pad.repeat(needed.div_ceil(pad.len())).slice(0, needed); padding + value } };
+    _smelt_tmp_9 = { let smelt_value = &_smelt_tmp_8; let smelt_target_len = 3.0 as usize; let smelt_pad = &JsString::from("0"); let smelt_current_len = smelt_value.len(); if smelt_current_len >= smelt_target_len || smelt_pad.is_empty() { smelt_value.to_owned() } else { let smelt_needed = smelt_target_len - smelt_current_len; let smelt_padding: JsString = smelt_pad.repeat(smelt_needed.div_ceil(smelt_pad.len())).slice(0, smelt_needed); smelt_padding + smelt_value } };
     _smelt_tmp_10 = JsString::from("#") + &_smelt_tmp_9;
     _smelt_tmp_6 = _smelt_tmp_10;
     }

@@ -4597,7 +4597,7 @@ fn smelt_keep_receiver_alive<H: SmeltReferenceHandle>(erased: SmeltUnknown, rece
 // @smelt:prelude-end — generated program below
 
 impl SmeltReferenceHandle for Ctx { type Cell = ::std::cell::RefCell<CtxInner>; fn smelt_handle_cell(&self) -> &::std::rc::Rc<Self::Cell> { &self.0 } fn smelt_from_handle_cell(cell: ::std::rc::Rc<Self::Cell>) -> Self { Self(cell) } }
-impl Drop for Ctx { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let shared = self.0.try_borrow().map_or(true, |inner| inner.json.smelt_closure_shared() || inner.later.smelt_closure_shared()); if shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
+impl Drop for Ctx { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let smelt_shared = self.0.try_borrow().map_or(true, |smelt_inner| smelt_inner.json.smelt_closure_shared() || smelt_inner.later.smelt_closure_shared()); if smelt_shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
 
 #[allow(dead_code)]
 struct Ctx(::std::rc::Rc<::std::cell::RefCell<CtxInner>>);
@@ -4611,7 +4611,7 @@ impl Default for CtxInner {
     fn default() -> Self {
         Self {
             status: 0.0,
-            json: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback },
+            json: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback },
             later: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn() -> JsString>> = ::std::rc::Rc::new(move || -> ::std::rc::Rc<dyn Fn() -> JsString> { { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { JsString::new() }); smelt_default_callback } }); smelt_default_callback },
         }
     }
@@ -4660,13 +4660,13 @@ impl SmeltFromUnknown for Ctx {
         let SmeltUnknown::Object(object) = value else { return Self::default() };
         if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(field) = object.get("status") { result.0.borrow_mut().status = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(smelt_field) = object.get("status") { result.0.borrow_mut().status = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
         result
     }
 }
 
 impl SmeltReferenceHandle for Sub { type Cell = ::std::cell::RefCell<SubInner>; fn smelt_handle_cell(&self) -> &::std::rc::Rc<Self::Cell> { &self.0 } fn smelt_from_handle_cell(cell: ::std::rc::Rc<Self::Cell>) -> Self { Self(cell) } }
-impl Drop for Sub { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let shared = self.0.try_borrow().map_or(true, |inner| inner.json.smelt_closure_shared() || inner.later.smelt_closure_shared()); if shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
+impl Drop for Sub { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let smelt_shared = self.0.try_borrow().map_or(true, |smelt_inner| smelt_inner.json.smelt_closure_shared() || smelt_inner.later.smelt_closure_shared()); if smelt_shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
 
 #[allow(dead_code)]
 struct Sub(::std::rc::Rc<::std::cell::RefCell<SubInner>>);
@@ -4681,7 +4681,7 @@ impl Default for SubInner {
     fn default() -> Self {
         Self {
             status: 0.0,
-            json: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback },
+            json: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback },
             later: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn() -> JsString>> = ::std::rc::Rc::new(move || -> ::std::rc::Rc<dyn Fn() -> JsString> { { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { JsString::new() }); smelt_default_callback } }); smelt_default_callback },
             extra: 0.0,
         }
@@ -4732,8 +4732,8 @@ impl SmeltFromUnknown for Sub {
         let SmeltUnknown::Object(object) = value else { return Self::default() };
         if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(field) = object.get("status") { result.0.borrow_mut().status = SmeltFromUnknown::smelt_from_unknown(field); }
-        if let Some(field) = object.get("extra") { result.0.borrow_mut().extra = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(smelt_field) = object.get("status") { result.0.borrow_mut().status = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = object.get("extra") { result.0.borrow_mut().extra = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
         result
     }
 }
@@ -4775,12 +4775,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 impl Ctx {
     fn new(code: f64) -> Self {
-    let mut this: Self = Ctx(::std::rc::Rc::new(::std::cell::RefCell::new(CtxInner { status: 0.0, json: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback }, later: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn() -> JsString>> = ::std::rc::Rc::new(move || -> ::std::rc::Rc<dyn Fn() -> JsString> { { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { JsString::new() }); smelt_default_callback } }); smelt_default_callback } })));
+    let mut this: Self = Ctx(::std::rc::Rc::new(::std::cell::RefCell::new(CtxInner { status: 0.0, json: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback }, later: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn() -> JsString>> = ::std::rc::Rc::new(move || -> ::std::rc::Rc<dyn Fn() -> JsString> { { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { JsString::new() }); smelt_default_callback } }); smelt_default_callback } })));
     this.0.borrow_mut().status = 200.0;
     let _smelt_tmp_2 = ::std::rc::Rc::new({
     let smelt_capture_this = SmeltWeakReceiver::new(&this);
     move |closure_arg_0: JsString| {
-    let _smelt_tmp_2: JsString = JsString::new() + &JsString::from(smelt_number_to_string((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().status.clone()));
+    let _smelt_tmp_2: JsString = JsString::new() + &JsString::from(smelt_number_to_string(((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().status).clone()));
     let _smelt_tmp_3: JsString = _smelt_tmp_2.clone() + &JsString::from(":");
     let _smelt_tmp_4: JsString = _smelt_tmp_3.clone() + &closure_arg_0.clone();
     _smelt_tmp_4.clone()
@@ -4793,7 +4793,7 @@ impl Ctx {
     let _smelt_tmp_1 = ::std::rc::Rc::new({
     let smelt_capture_this = smelt_capture_this.clone();
     move || {
-    let _smelt_tmp_1: JsString = JsString::from("later ") + &JsString::from(smelt_number_to_string((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().status.clone()));
+    let _smelt_tmp_1: JsString = JsString::from("later ") + &JsString::from(smelt_number_to_string(((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().status).clone()));
     _smelt_tmp_1.clone()
     }
 });
@@ -4809,7 +4809,7 @@ impl Ctx {
 impl Sub {
     fn new(code: f64) -> Self {
     let _smelt_tmp_3: f64;
-    let mut this: Self = Sub(::std::rc::Rc::new(::std::cell::RefCell::new(SubInner { status: 0.0, json: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback }, later: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn() -> JsString>> = ::std::rc::Rc::new(move || -> ::std::rc::Rc<dyn Fn() -> JsString> { { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { JsString::new() }); smelt_default_callback } }); smelt_default_callback }, extra: 0.0 })));
+    let mut this: Self = Sub(::std::rc::Rc::new(::std::cell::RefCell::new(SubInner { status: 0.0, json: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback }, later: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn() -> JsString>> = ::std::rc::Rc::new(move || -> ::std::rc::Rc<dyn Fn() -> JsString> { { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { JsString::new() }); smelt_default_callback } }); smelt_default_callback }, extra: 0.0 })));
     let _smelt_tmp_2: Self = Self::__smelt_init_Ctx(this, code);
     this = _smelt_tmp_2;
     this.0.borrow_mut().extra = 1.0;
@@ -4823,7 +4823,7 @@ impl Sub {
     let _smelt_tmp_2 = ::std::rc::Rc::new({
     let smelt_capture_this = SmeltWeakReceiver::new(&this);
     move |closure_arg_0: JsString| {
-    let _smelt_tmp_2: JsString = JsString::new() + &JsString::from(smelt_number_to_string((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().status.clone()));
+    let _smelt_tmp_2: JsString = JsString::new() + &JsString::from(smelt_number_to_string(((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().status).clone()));
     let _smelt_tmp_3: JsString = _smelt_tmp_2.clone() + &JsString::from(":");
     let _smelt_tmp_4: JsString = _smelt_tmp_3.clone() + &closure_arg_0.clone();
     _smelt_tmp_4.clone()
@@ -4836,7 +4836,7 @@ impl Sub {
     let _smelt_tmp_1 = ::std::rc::Rc::new({
     let smelt_capture_this = smelt_capture_this.clone();
     move || {
-    let _smelt_tmp_1: JsString = JsString::from("later ") + &JsString::from(smelt_number_to_string((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().status.clone()));
+    let _smelt_tmp_1: JsString = JsString::from("later ") + &JsString::from(smelt_number_to_string(((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().status).clone()));
     _smelt_tmp_1.clone()
     }
 });

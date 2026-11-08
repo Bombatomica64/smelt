@@ -56,6 +56,6 @@ use crate::rust::RustExpr;
 /// both captured by the builder and stamped as the origin.
 pub(crate) fn lazy_reference_object_expr(id_text: &RustExpr, build_body: &str, handle: &str) -> RustExpr {
     RustExpr::atom(format!(
-        "SmeltObject::lazy_with_id({id_text}, {{ let smelt_lazy_handle = {handle}.clone(); move || {{ let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); {build_body}smelt_object_entries }} }}).smelt_with_origin({handle}.clone())"
+        "SmeltObject::lazy_with_id({id_text}, {{ let smelt_lazy_handle = {handle}.clone(); move || {{ let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); {build_body}smelt_object_entries }} }}).smelt_with_origin({handle}.clone())", id_text = id_text.delimited()
     ))
 }

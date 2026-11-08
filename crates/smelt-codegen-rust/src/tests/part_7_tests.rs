@@ -722,11 +722,11 @@ const iso = bump(value as any);
     // because its call site passes an erased argument.
 
     assert!(
-        source.contains("if key != \"__smelt_date\""),
+        source.contains("if smelt_key != \"__smelt_date\""),
         "Date setters must preserve metadata from erased Date receivers: {source}"
     );
     assert!(
-        source.contains("result.insert(key, value)"),
+        source.contains("smelt_result.insert(smelt_key, smelt_value)"),
         "Date metadata must be copied onto the replacement timestamp object: {source}"
     );
 }
@@ -818,7 +818,7 @@ const isoFromUnknown = new Date(value).toISOString();
     );
     assert!(
         source.contains(
-            "SmeltUnknown::String(value) => { let value = value.to_string_lossy(); chrono::DateTime::parse_from_rfc3339(&value)"
+            "SmeltUnknown::String(smelt_value) => { let smelt_value = smelt_value.to_string_lossy(); chrono::DateTime::parse_from_rfc3339(&smelt_value)"
         ),
         "{source}"
     );
@@ -884,7 +884,7 @@ const first = bag["0"];
     // An array's own-key view is its element indices followed by the named
     // properties in its side table, which is exactly `own_entries`.
     assert!(
-        source.contains("SmeltUnknown::Array(values) => values.own_entries().into_iter().map(|(key, value)| (JsString::from(key), value)).collect()"),
+        source.contains("SmeltUnknown::Array(smelt_values) => smelt_values.own_entries().into_iter().map(|(smelt_key, smelt_value)| (JsString::from(smelt_key), smelt_value)).collect()"),
         "{source}"
     );
 }
@@ -929,7 +929,7 @@ const entries = Object.entries(bag);
         "{source}"
     );
     assert!(
-        source.contains("SmeltUnknown::Object(value) => value.smelt_shared_record()"),
+        source.contains("SmeltUnknown::Object(smelt_value) => smelt_value.smelt_shared_record()"),
         "{source}"
     );
 }
@@ -1024,7 +1024,7 @@ const entries = value as Entry<string>[];
     );
 
     assert!(
-        source.contains("values.into_iter().map(|value| value).collect::<Vec<_>>()"),
+        source.contains("smelt_values.into_iter().map(|smelt_value| smelt_value).collect::<Vec<_>>()"),
         "erased helper items should preserve unknown values instead of defaulting: {source}"
     );
     assert!(
@@ -1051,7 +1051,7 @@ export function entries(...args: readonly unknown[]): unknown {
     );
     assert!(
         source.contains(
-            "SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::Array"
+            "SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|smelt_value| SmeltUnknown::Array"
         ),
         "Object.entries callback should return entry arrays, not a null placeholder: {source}"
     );
@@ -1200,8 +1200,8 @@ merged.flush();
     );
 
     assert!(
-        source.contains("SmeltRecord::with_id_from_entries(map.id, map.into_iter())")
-            || source.contains("SmeltRecord::with_id_from_entries(values.id"),
+        source.contains("SmeltRecord::with_id_from_entries(smelt_map.id, smelt_map.into_iter())")
+            || source.contains("SmeltRecord::with_id_from_entries(smelt_values.id"),
         "{source}"
     );
     assert!(source.contains(".remove(&JsString::from(\"call\"))"), "{source}");
@@ -1963,7 +1963,7 @@ export function run(formatLong: FormatLong): string {
     );
     assert!(
         source.contains(
-            "Options { width: smelt_record_map.get_text(\"width\").cloned().map(|value| value) }"
+            "Options { width: smelt_record_map.get_text(\"width\").cloned().map(|smelt_value| smelt_value) }"
         ),
         "{source}"
     );
@@ -2219,9 +2219,9 @@ function run(values: string[]): string[] {
     );
 
     assert!(
-        source.contains(".map(|(index, item)| { ((smelt_callback)(")
+        source.contains(".map(|(smelt_index, smelt_item)| { ((smelt_callback)(")
             && source.contains(
-                ")).unwrap_or_else(|error: Box<dyn std::error::Error>| smelt_panic_throw(error))"
+                ")).unwrap_or_else(|smelt_error: Box<dyn std::error::Error>| smelt_panic_throw(smelt_error))"
             ),
         "{source}"
     );
@@ -2557,11 +2557,11 @@ export function conditional(args: Array<unknown>): unknown {
     );
 
     assert!(
-        source.contains("smelt_forwarded_args.push(arg1"),
+        source.contains("smelt_forwarded_args.push(smelt_arg1"),
         "{source}"
     );
     assert!(
-        source.contains("smelt_forwarded_args.extend(arg2.clone().into_iter()"),
+        source.contains("smelt_forwarded_args.extend(smelt_arg2.clone().into_iter()"),
         "{source}"
     );
     assert!(
@@ -2887,7 +2887,7 @@ function apply(isTwoDigitYear: boolean, year: number, date: number): number {
         .or_else(|| source.find("normalized_two_digit_year: f64 ="))
         .unwrap_or_else(|| panic!("{source}"));
     let setter = source
-        .find("let normalized_year = (normalized_two_digit_year as i32)")
+        .find("let smelt_normalized_year = (normalized_two_digit_year as i32)")
         .unwrap_or_else(|| panic!("{source}"));
     assert!(normalized < setter, "{source}");
     assert!(source.contains(" as f64"), "{source}");
@@ -2904,7 +2904,7 @@ function removeKey(value: unknown, key: string): boolean {
     );
 
     assert!(
-        source.contains("SmeltUnknown::Object(map) => map.remove"),
+        source.contains("SmeltUnknown::Object(smelt_map) => smelt_map.remove"),
         "{source}"
     );
     assert!(source.contains("_ => true"), "{source}");
@@ -2968,7 +2968,7 @@ function isArray(value: unknown): boolean {
 
     assert!(source.contains("SmeltUnknown::String"));
     assert!(source.contains("matches!(value.clone(), SmeltUnknown::String(_))"));
-    assert!(source.contains("SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string()"));
+    assert!(source.contains("SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string()"));
     assert!(source.contains("matches!(value.clone(), SmeltUnknown::Array(_))"));
 }
 
@@ -3011,7 +3011,7 @@ function copy<T>(value: T): unknown[] {
     );
 
     assert!(
-        source.contains("SmeltUnknown::Array(values) => values.into_iter().enumerate()"),
+        source.contains("SmeltUnknown::Array(smelt_values) => smelt_values.into_iter().enumerate()"),
         "{source}"
     );
     assert!(
@@ -3031,7 +3031,7 @@ function first<S extends string>(value: S): string {
     );
 
     assert!(source.contains("SmeltUnknown::String(value)"), "{source}");
-    assert!(source.contains("value.char_at(index)"), "{source}");
+    assert!(source.contains("smelt_value.char_at(smelt_position)"), "{source}");
     assert!(!source.contains("SmeltUnknown::Null.clone()"), "{source}");
 }
 
@@ -3091,7 +3091,7 @@ function assign(out: Record<string, unknown>, key: unknown, value: unknown): Rec
     );
 
     assert!(
-        source.contains("SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string()"),
+        source.contains("SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string()"),
         "{source}"
     );
     assert!(
@@ -3112,7 +3112,7 @@ function widen(values: string[]): unknown[] {
 
     assert!(
         source.contains(
-            "smelt_l.into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>()"
+            "smelt_l.into_iter().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).collect::<Vec<_>>()"
         ),
         "{source}"
     );
@@ -3129,7 +3129,7 @@ function chars(value: string): unknown[] {
     );
 
     assert!(
-        source.contains(".map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>()"),
+        source.contains(".map(|smelt_value| SmeltUnknown::String(smelt_value.into())).collect::<Vec<_>>()"),
         "{source}"
     );
 }
@@ -3239,7 +3239,7 @@ function initialCaps<T extends string>(values: T[]): string[] {
     );
 
     assert!(source.contains("SmeltUnknown::String(value)"), "{source}");
-    assert!(source.contains("value.char_at(index)"), "{source}");
+    assert!(source.contains("smelt_value.char_at(smelt_position)"), "{source}");
     assert!(source.contains(".to_upper_case()"), "{source}");
     assert!(!source.contains("String::new().to_upper_case()") && !source.contains("JsString::new().to_upper_case()"), "{source}");
 }
@@ -3372,11 +3372,11 @@ export function read(): number {
         "{source}"
     );
     assert!(
-        source.contains("::std::rc::Rc::new(move |arg0: JsString|"),
+        source.contains("::std::rc::Rc::new(move |smelt_arg0: JsString|"),
         "{source}"
     );
     assert!(
-        source.contains("smelt_method_receiver.parse(arg0.clone())"),
+        source.contains("smelt_method_receiver.parse(smelt_arg0.clone())"),
         "{source}"
     );
     // These classes store virtual slots, so they are reference classes
@@ -3461,7 +3461,7 @@ const parser: Parser<any> = new ForwardingParser(new YearParser());
         "{source}"
     );
     assert!(
-        source.contains("smelt_method_receiver.parse(arg0.clone())"),
+        source.contains("smelt_method_receiver.parse(smelt_arg0.clone())"),
         "{source}"
     );
     assert!(!source.contains("parse: Default::default()"), "{source}");
@@ -3572,7 +3572,7 @@ export function getDefaultOptions(): DefaultOptions {
     assert!(
         source.contains(
             "fn get_default_options() -> SmeltUnknown {\n    let _smelt_tmp_0: SmeltUnknown = \
-             SMELT_GLOBAL_DEFAULT_OPTIONS_0.with(|value| value.borrow().clone());"
+             SMELT_GLOBAL_DEFAULT_OPTIONS_0.with(|smelt_value| smelt_value.borrow().clone());"
         ),
         "{source}"
     );
@@ -3592,7 +3592,7 @@ const erased: unknown = flags;
     );
 
     assert!(
-        source.contains("if let Some(value) = smelt_object_value.era.clone()"),
+        source.contains("if let Some(smelt_value) = smelt_object_value.era.clone()"),
         "{source}"
     );
     assert!(
@@ -3749,7 +3749,7 @@ function read(output: Record<string, unknown[]>, key: unknown | undefined): unkn
 
     assert!(
         source.contains(
-            ".map_or(JsString::new(), |value| match value.clone() { SmeltUnknown::String(value) => value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string()"
+            ".map_or(JsString::new(), |smelt_value| match smelt_value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string()"
         ),
         "{source}"
     );
@@ -3803,7 +3803,7 @@ function read(options?: Options): number {
     );
 
     assert!(
-        source.contains("SmeltUnknown::Null | SmeltUnknown::Undefined => None, value => Some("),
+        source.contains("SmeltUnknown::Null | SmeltUnknown::Undefined => None, smelt_value => Some("),
         "{source}"
     );
     assert!(source.contains(".or(match"), "{source}");
@@ -4010,7 +4010,7 @@ function keyCount(value: unknown): number {
     );
 
     assert!(
-        source.contains("SmeltUnknown::String(value) => value.units().iter().enumerate()"),
+        source.contains("SmeltUnknown::String(smelt_value) => smelt_value.units().iter().enumerate()"),
         "{source}"
     );
 }
@@ -4060,7 +4060,7 @@ function assign(value: unknown): unknown {
 
     assert!(source.contains("match &mut value"), "{source}");
     assert!(
-        source.contains("SmeltUnknown::Object(map) => { map.insert(\"name\".to_owned(), SmeltUnknown::String(\"Grace\".into())); }"),
+        source.contains("SmeltUnknown::Object(smelt_map) => { smelt_map.insert(\"name\".to_owned(), SmeltUnknown::String(\"Grace\".into())); }"),
         "{source}"
     );
     assert!(
@@ -4220,7 +4220,7 @@ const result = format({ locale: customLocale });
     );
 
     assert!(
-        source.contains("FormatOptions { locale: smelt_record_map.get_text(\"locale\").map(|value|"),
+        source.contains("FormatOptions { locale: smelt_record_map.get_text(\"locale\").map(|smelt_value|"),
         "{source}"
     );
     assert!(source.contains("Locale { code:"), "{source}");
@@ -4327,7 +4327,7 @@ const result = useLocale({ locale: customLocale });
     );
 
     assert!(source.contains("let smelt_adapted:"), "{source}");
-    assert!(source.contains("move |arg0: f64"), "{source}");
+    assert!(source.contains("move |smelt_arg0: f64"), "{source}");
     assert!(source.contains("(smelt_callback)()"), "{source}");
 }
 
@@ -4369,7 +4369,7 @@ const result = useOptions({ locale: customLocale });
     assert!(source.contains("let smelt_adapted:"), "{source}");
     assert!(source.contains("(smelt_callback)()"), "{source}");
     assert!(
-        source.contains("Option<MatchResult>> = ::std::rc::Rc::new(move |arg0: JsString")
+        source.contains("Option<MatchResult>> = ::std::rc::Rc::new(move |smelt_arg0: JsString")
             && source.contains("Some({ let smelt_record_map = (smelt_callback)().clone();"),
         "the provided shorter callback must be adapted to the optional result field: {source}"
     );
@@ -4452,7 +4452,7 @@ const result = format({ locale: customLocale });
     // erased callable through the date's boundary adapter, whose record still
     // carries the `__smelt_date` marker.
     assert!(
-        source.contains("smelt_call_args.push(arg0.clone().into_smelt_unknown())"),
+        source.contains("smelt_call_args.push(smelt_arg0.clone().into_smelt_unknown())"),
         "{source}"
     );
     assert!(source.contains("\"__smelt_date\".to_owned()"), "{source}");
@@ -4544,9 +4544,9 @@ function range(start: number, length: number, step: number): number[] {
     );
 
     assert!(source.contains("array_from_length"), "{source}");
-    assert!(source.contains("(0..array_from_length).map"), "{source}");
+    assert!(source.contains("(0..smelt_array_from_length).map"), "{source}");
     assert!(
-        source.contains("(smelt_callback)(&(SmeltUnknown::Null), index as f64)"),
+        source.contains("(smelt_callback)(&(SmeltUnknown::Null), smelt_index as f64)"),
         "{source}"
     );
 }
@@ -4595,11 +4595,11 @@ const sortByImplementation = <T>(
     );
 
     assert!(
-        source.contains("(smelt_comparator)(&(left.clone()), &(right.clone()))"),
+        source.contains("(smelt_comparator)(&(smelt_left.clone()), &(smelt_right.clone()))"),
         "{source}"
     );
     assert!(
-        source.contains("if ordering < 0.0 { std::cmp::Ordering::Less }"),
+        source.contains("if smelt_ordering < 0.0 { std::cmp::Ordering::Less }"),
         "{source}"
     );
 }
@@ -4690,7 +4690,7 @@ test("nested NaN", () => {
 "#,
     );
     assert!(
-        source.contains("left_item.is_nan() && right_item.is_nan()"),
+        source.contains("smelt_left_item.is_nan() && smelt_right_item.is_nan()"),
         "a float leaf inside a list must compare NaN-equal: {source}"
     );
 }
@@ -4821,7 +4821,7 @@ const firstValue = first.value;
         source.contains("SmeltGenerator<f64, JsString, SmeltUnknown>"),
         "{source}"
     );
-    assert_eq!(source.matches("co.yield_").count(), 6, "{source}");
+    assert_eq!(source.matches("smelt_co.yield_").count(), 6, "{source}");
     assert!(source.contains("return JsString::from(\"done\")"), "{source}");
     assert!(
         source.contains(
@@ -4840,7 +4840,7 @@ const firstValue = first.value;
         "{source}"
     );
     assert!(
-        source.contains("SmeltGeneratorResult::Yielded(value) => { co.yield_"),
+        source.contains("SmeltGeneratorResult::Yielded(smelt_value) => { smelt_co.yield_"),
         "{source}"
     );
     assert!(
@@ -4878,7 +4878,7 @@ async function consume(): Promise<string> {
     );
     assert!(source.contains("smelt_generator.async_resume().await"), "{source}");
     assert!(source.contains("SmeltFuture<SmeltGeneratorResult<f64, JsString>>"), "{source}");
-    assert_eq!(source.matches("co.yield_").count(), 2, "{source}");
+    assert_eq!(source.matches("smelt_co.yield_").count(), 2, "{source}");
     assert!(
         source.matches(".resume(SmeltGeneratorCommand::Next").count() >= 3,
         "{source}"
@@ -4956,7 +4956,7 @@ function wrap<T>(
     assert!(
         source.contains("__smelt_spread.borrow().get(")
             && source
-                .contains("SmeltUnknown::Array(values) => SmeltList::with_storage(values.id,"),
+                .contains("SmeltUnknown::Array(smelt_values) => SmeltList::with_storage(smelt_values.id,"),
         "fixed callback spread calls should read the first fixed parameter from the rest vector: {source}"
     );
     assert!(
@@ -5209,7 +5209,7 @@ function adapt(
     );
 
     assert!(
-        source.contains("SmeltUnknown::Object(SmeltObject::from_unknown_record(((_smelt_adapted_callback)(arg0)).clone()))"),
+        source.contains("SmeltUnknown::Object(SmeltObject::from_unknown_record(((_smelt_adapted_callback)(smelt_arg0)).clone()))"),
         "{source}"
     );
 }
@@ -5275,7 +5275,7 @@ function adapt(
         source.contains("SmeltUnknown::Array(values) => values"),
         "{source}"
     );
-    assert!(source.contains("Some(arg1)"), "{source}");
+    assert!(source.contains("Some(smelt_arg1)"), "{source}");
 }
 
 #[test]
@@ -5289,7 +5289,7 @@ function matchUnknown(value: unknown): string[] | undefined {
     );
 
     assert!(
-        source.contains("SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string()"),
+        source.contains("SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string()"),
         "{source}"
     );
     assert!(source.contains(".match_string(&match "), "{source}");
@@ -6525,7 +6525,7 @@ function lengthOf(value: unknown): number {
     );
 
     assert!(
-        source.contains("smelt_get_object_field(&map, \"length\")"),
+        source.contains("smelt_get_object_field(&smelt_map, \"length\")"),
         "{source}"
     );
     assert!(
@@ -6550,12 +6550,12 @@ export function run(): unknown[] {
 
     assert!(
         source.contains(
-            "SmeltUnknown::String(value) => SmeltUnknown::Number(value.len() as f64)"
+            "SmeltUnknown::String(smelt_value) => SmeltUnknown::Number(smelt_value.len() as f64)"
         ),
         "{source}"
     );
     assert!(
-        source.contains("SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64)"),
+        source.contains("SmeltUnknown::Array(smelt_value) => SmeltUnknown::Number(smelt_value.len() as f64)"),
         "{source}"
     );
 }
@@ -6903,11 +6903,11 @@ function run(): unknown {
     );
 
     assert!(
-        source.contains(".filter_map(|(index, item)|"),
+        source.contains(".filter_map(|(smelt_index, smelt_item)|"),
         "imported filter callback should lower to a filtering closure\n{source}"
     );
     assert!(
-        source.contains("(smelt_callback)(item.clone(), index as i64,"),
+        source.contains("(smelt_callback)(smelt_item.clone(), smelt_index as i64,"),
         "the closure body should call the resolved callback value\n{source}"
     );
 }
@@ -6928,11 +6928,11 @@ function run(): unknown {
     );
 
     assert!(
-        source.contains("smelt_array.borrow().iter().enumerate().map(|(index, item)|"),
+        source.contains("smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)|"),
         "imported map callback should lower to a mapping closure\n{source}"
     );
     assert!(
-        source.contains("(smelt_callback)(item.clone(), index as i64,"),
+        source.contains("(smelt_callback)(smelt_item.clone(), smelt_index as i64,"),
         "the closure body should call the resolved callback value\n{source}"
     );
 }
@@ -7201,13 +7201,13 @@ const isSignal = signal instanceof AbortSignal;
     );
     assert!(
         source.contains(
-            "matches!(controller.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_abortcontroller\"))"
+            "matches!(controller.clone(), SmeltUnknown::Object(smelt_value) if smelt_value.contains_key(\"__smelt_abortcontroller\"))"
         ),
         "instanceof AbortController must check the controller marker\n{source}"
     );
     assert!(
         source.contains(
-            "matches!(signal.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_abortsignal\"))"
+            "matches!(signal.clone(), SmeltUnknown::Object(smelt_value) if smelt_value.contains_key(\"__smelt_abortsignal\"))"
         ),
         "instanceof AbortSignal must check the signal marker\n{source}"
     );
@@ -8351,7 +8351,7 @@ export function run(values: number[]): string | number {
     // with exactly two arguments rather than the runtime's `(acc, item, index,
     // array)` four-argument shape.
     assert!(
-        source.contains("(smelt_callback)(acc, item)"),
+        source.contains("(smelt_callback)(smelt_acc, smelt_item)"),
         "reduce should call the two-parameter callback with two args: {source}"
     );
     assert!(source.contains("fn run("), "{source}");
@@ -8376,7 +8376,7 @@ export function run(values: number[]): string | number {
 "#,
     );
     assert!(source.contains(".iter().enumerate().fold("), "{source}");
-    assert!(source.contains("(smelt_callback)(acc, item)"), "{source}");
+    assert!(source.contains("(smelt_callback)(smelt_acc, smelt_item)"), "{source}");
     assert!(source.contains("fn run("), "{source}");
 }
 
@@ -8448,9 +8448,9 @@ export function sum(values: number[]): number {
 ",
     );
 
-    assert!(source.contains("let array = &mapped;"), "{source}");
-    assert!(!source.contains("let array = mapped;"), "{source}");
-    assert!(!source.contains("let array = mapped.clone();"), "{source}");
+    assert!(source.contains("let smelt_array = &mapped;"), "{source}");
+    assert!(!source.contains("let smelt_array = mapped;"), "{source}");
+    assert!(!source.contains("let smelt_array = mapped.clone();"), "{source}");
 }
 
 /// Seedless reduce has the same ownership requirement after extracting its first
@@ -8467,9 +8467,9 @@ export function sum(values: number[]): number {
 ",
     );
 
-    assert!(source.contains("let array = &reversed;"), "{source}");
-    assert!(!source.contains("let array = reversed;"), "{source}");
-    assert!(!source.contains("let array = reversed.clone();"), "{source}");
+    assert!(source.contains("let smelt_array = &reversed;"), "{source}");
+    assert!(!source.contains("let smelt_array = reversed;"), "{source}");
+    assert!(!source.contains("let smelt_array = reversed.clone();"), "{source}");
 }
 
 /// `reduceRight` renders the same typed `fold` as `reduce`, over the
@@ -8490,7 +8490,7 @@ export function lastMinusRest(values: number[]): number {
 
     assert!(source.contains(".iter().enumerate().rev().fold("), "{source}");
     assert!(
-        source.contains("let mut reduce_items = smelt_reduce_items.iter().enumerate().rev();"),
+        source.contains("let mut smelt_reduce_items = smelt_reduce_items.iter().enumerate().rev();"),
         "{source}"
     );
     assert!(!source.contains("SmeltUnknown"), "{source}");
@@ -8629,7 +8629,7 @@ function sortMixed(values: Array<string | number>): Array<string | number> {
     );
 
     assert!(
-        source.contains(".sort_by(|left, right| (match left.clone().into_smelt_unknown()"),
+        source.contains(".sort_by(|smelt_left, smelt_right| (match smelt_left.clone().into_smelt_unknown()"),
         "union default sort should compare erased string coercions\n{source}"
     );
     assert!(
@@ -9890,7 +9890,7 @@ function adapt(
     // erased ABI and both spellings denote one JavaScript function.
     assert!(
         source.contains(
-            "let smelt_function_value = (_smelt_adapted_callback)(arg0); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone();"
+            "let smelt_function_value = (_smelt_adapted_callback)(smelt_arg0); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone();"
         ),
         "{source}"
     );
@@ -10146,8 +10146,8 @@ export function adapt(f: (...args: unknown[]) => unknown): ErasedBinary {
 
     // Both target arguments are forwarded into the erased rest list, in order.
     assert!(
-        source.contains("smelt_forwarded_args.push(arg0.clone());")
-            && source.contains("smelt_forwarded_args.push(arg1.clone());"),
+        source.contains("smelt_forwarded_args.push(smelt_arg0.clone());")
+            && source.contains("smelt_forwarded_args.push(smelt_arg1.clone());"),
         "erased-rest adapter must forward every target argument, not drop the tail\n{source}"
     );
     // The scalar target arguments must not be spread as if each were the whole
@@ -10432,7 +10432,7 @@ export function wrap(): Record<string, unknown> {
     // The rest copy is materialized from the erased object form, not an empty
     // record.
     assert!(
-        source.contains(".into_smelt_unknown() { SmeltUnknown::Object(map) => SmeltRecord::with_id_from_entries(map.id, map.into_iter())"),
+        source.contains(".into_smelt_unknown() { SmeltUnknown::Object(smelt_map) => SmeltRecord::with_id_from_entries(smelt_map.id, smelt_map.into_iter())"),
         "object rest must copy the erased source object, not Default::default()\n{source}"
     );
     // The extracted key is still removed from the copied rest.
@@ -11020,7 +11020,7 @@ export function clearSlot(handle: unknown): number {
         "an assigned JS `null` must stay observable in an erased Option payload: {source}"
     );
     assert!(
-        source.contains("is_some_and(|value| matches!(value, SmeltUnknown::Null))"),
+        source.contains("is_some_and(|smelt_value| matches!(smelt_value, SmeltUnknown::Null))"),
         "strict `!== null` must test for a present Null payload: {source}"
     );
 }
@@ -11188,7 +11188,7 @@ fn erased_reads_and_writes_reach_a_byte_buffers_bytes() {
     // -buffer attempt lives inside that helper, asserted just below.
     let indexed = source_for("export function f(value: any): any { return value[1]; }");
     assert!(
-        indexed.contains("SmeltUnknown::Object(values) => smelt_get_object_field(&values"),
+        indexed.contains("SmeltUnknown::Object(smelt_values) => smelt_get_object_field(&smelt_values"),
         "an erased index read must resolve an object through the field helper:\n{indexed}"
     );
     let field = source_for("export function f(value: any): any { return value.length; }");
@@ -11243,7 +11243,7 @@ fn an_optional_erased_index_read_resolves_synthesized_properties() {
         "export function f(value: any, key: string): any { return value?.[key] ?? 1; }",
     );
     assert!(
-        source.contains("smelt_get_object_field(&values"),
+        source.contains("smelt_get_object_field(&smelt_values"),
         "an optional erased index read must use the field helper:\n{source}"
     );
 }
@@ -11692,7 +11692,7 @@ export function f(a: number, b: number): unknown[] {
         "the `arguments` iteration door must be emitted:\n{generated}"
     );
     assert!(
-        generated.contains("smelt_arguments_elements(&value)"),
+        generated.contains("smelt_arguments_elements(&smelt_value)"),
         "the erased iterable-to-list coercion must consult it:\n{generated}"
     );
 }
@@ -12953,13 +12953,13 @@ export function fill(b: string[], n: number[], nested: string[][], i: number): u
         "a missing nested-list element must not erase as an empty array:\n{source}"
     );
     assert_eq!(
-        source.matches(".cloned().map(|value| ").count(),
+        source.matches(".cloned().map(|smelt_value| ").count(),
         3,
         "each of the three reads keeps its own fallibility:\n{source}"
     );
     for tail in [
-        ".cloned().map(|value| SmeltUnknown::String(value.into())).unwrap_or(SmeltUnknown::Undefined)",
-        ".cloned().map(|value| SmeltUnknown::Number(value as f64)).unwrap_or(SmeltUnknown::Undefined)",
+        ".cloned().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).unwrap_or(SmeltUnknown::Undefined)",
+        ".cloned().map(|smelt_value| SmeltUnknown::Number(smelt_value as f64)).unwrap_or(SmeltUnknown::Undefined)",
         "collect::<Vec<_>>())) }).unwrap_or(SmeltUnknown::Undefined)",
     ] {
         assert!(
@@ -13026,13 +13026,13 @@ export function pick(value: unknown, index: number): unknown {
 
     assert!(
         source.contains(
-            "and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Undefined)"
+            "and_then(|smelt_position| smelt_values.get(smelt_position).cloned()).unwrap_or(SmeltUnknown::Undefined)"
         ),
         "a missing array element on an erased receiver is `undefined`:\n{source}"
     );
     assert!(
         source.contains(
-            "value.char_at(index).map(|ch| SmeltUnknown::String(ch.into()))).unwrap_or(SmeltUnknown::Undefined)"
+            "smelt_value.char_at(smelt_position).map(|smelt_ch| SmeltUnknown::String(smelt_ch.into()))).unwrap_or(SmeltUnknown::Undefined)"
         ),
         "a missing string character on an erased receiver is `undefined`:\n{source}"
     );
@@ -14141,7 +14141,7 @@ const total = curried(2, 3);
 
     assert!(
         source.contains(
-            "smelt_callback.call(vec![arg0.clone(), (arg1.clone()).into_smelt_unknown()])"
+            "smelt_callback.call(vec![smelt_arg0.clone(), (smelt_arg1.clone()).into_smelt_unknown()])"
         ),
         "both arguments must reach the erased callable:\n{source}"
     );
@@ -14175,7 +14175,7 @@ const seen = reporter(1, 2, 3);
     ));
 
     assert!(
-        source.contains("smelt_callback.call(vec![arg0.clone(), arg1.clone(), arg2.clone()])"),
+        source.contains("smelt_callback.call(vec![smelt_arg0.clone(), smelt_arg1.clone(), smelt_arg2.clone()])"),
         "all three arguments must reach the erased callable:\n{source}"
     );
 }
@@ -15010,7 +15010,7 @@ export function reset(key: string): number {
 
     // The enabling condition: the store really does recover the concrete
     // record, so the trailing value starts out at the global's type.
-    let store = "*value.borrow_mut() = smelt_global_value.clone());";
+    let store = "*smelt_value.borrow_mut() = smelt_global_value.clone());";
     let at = source
         .find(store)
         .unwrap_or_else(|| panic!("no mutable-global store was emitted: {source}"));
@@ -15286,7 +15286,7 @@ export function run(formatLong: FormatLong): string {
 
     assert!(!source.contains("smelt_host_value"), "{source}");
     assert!(
-        source.contains("Options { width: smelt_record_map.get_text(\"width\").cloned().map(|value| value) }"),
+        source.contains("Options { width: smelt_record_map.get_text(\"width\").cloned().map(|smelt_value| smelt_value) }"),
         "{source}"
     );
 }

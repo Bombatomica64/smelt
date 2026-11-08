@@ -4432,7 +4432,7 @@ fn main() {
     let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_6), smelt_console_number(from_range.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0)), smelt_console_number(from_range.borrow().get({ let smelt_normalized = 4.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0))); };
     let _smelt_tmp_8: SmeltGenerator<f64, (), ()> = range(0.0, 10.0, Some(5.0));
     spread_range = Into::<SmeltList<_>>::into(SmeltList::new((_smelt_tmp_8).collect_yields()));
-    _smelt_tmp_10 = JsString::join(spread_range.borrow().iter().map(|item| JsString::from({ smelt_number_to_string(*item) })), &JsString::from(","));
+    _smelt_tmp_10 = JsString::join(spread_range.borrow().iter().map(|smelt_item| JsString::from({ smelt_number_to_string(*smelt_item) })), &JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_10); };
     let _smelt_tmp_12: SmeltGenerator<JsString, (), ()> = labels(3.0);
     names = Into::<SmeltList<_>>::into(SmeltList::new((_smelt_tmp_12).collect_yields()));
@@ -4456,7 +4456,7 @@ use super::*;
 pub(crate) fn range(start: f64, end: f64, step: Option<f64>) -> SmeltGenerator<f64, (), ()> {
     let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None));
     let smelt_generator_producer_input = smelt_generator_input.clone();
-    let smelt_generator = genawaiter::rc::Gen::new(move |co| { let smelt_generator_input = smelt_generator_producer_input; async move {
+    let smelt_generator = genawaiter::rc::Gen::new(move |smelt_co| { let smelt_generator_input = smelt_generator_producer_input; async move {
     let mut _smelt_tmp_6: bool;
     let mut _smelt_tmp_8: ();
     let mut _smelt_tmp_9: f64;
@@ -4465,20 +4465,20 @@ pub(crate) fn range(start: f64, end: f64, step: Option<f64>) -> SmeltGenerator<f
     loop {
     _smelt_tmp_6 = i <= end;
     if !(_smelt_tmp_6) { break; }
-    _smelt_tmp_8 = { co.yield_(i).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command { SmeltGeneratorCommand::Next(value) => value, SmeltGeneratorCommand::Return(value) => return value, SmeltGeneratorCommand::Throw(error) => smelt_panic_throw(smelt_throw(error)) } };
+    _smelt_tmp_8 = { smelt_co.yield_(i).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command { SmeltGeneratorCommand::Next(smelt_value) => smelt_value, SmeltGeneratorCommand::Return(smelt_value) => return smelt_value, SmeltGeneratorCommand::Throw(smelt_error) => smelt_panic_throw(smelt_throw(smelt_error)) } };
     _smelt_tmp_9 = i + step_1;
     i = _smelt_tmp_9;
     }
     return;
     } });
     let mut smelt_generator = smelt_generator;
-    SmeltGenerator::new(move |value| { *smelt_generator_input.borrow_mut() = Some(value); match smelt_generator.resume() { genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value) } })
+    SmeltGenerator::new(move |smelt_value| { *smelt_generator_input.borrow_mut() = Some(smelt_value); match smelt_generator.resume() { genawaiter::GeneratorState::Yielded(smelt_value) => SmeltGeneratorResult::Yielded(smelt_value), genawaiter::GeneratorState::Complete(smelt_value) => SmeltGeneratorResult::Complete(smelt_value) } })
 }
 
 pub(crate) fn labels(count: f64) -> SmeltGenerator<JsString, (), ()> {
     let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None));
     let smelt_generator_producer_input = smelt_generator_input.clone();
-    let smelt_generator = genawaiter::rc::Gen::new(move |co| { let smelt_generator_input = smelt_generator_producer_input; async move {
+    let smelt_generator = genawaiter::rc::Gen::new(move |smelt_co| { let smelt_generator_input = smelt_generator_producer_input; async move {
     let mut _smelt_tmp_2: bool;
     let mut _smelt_tmp_4: JsString;
     let mut _smelt_tmp_5: ();
@@ -4488,12 +4488,12 @@ pub(crate) fn labels(count: f64) -> SmeltGenerator<JsString, (), ()> {
     _smelt_tmp_2 = i < count;
     if !(_smelt_tmp_2) { break; }
     _smelt_tmp_4 = JsString::from("item-") + &JsString::from(smelt_number_to_string(i));
-    _smelt_tmp_5 = { co.yield_(_smelt_tmp_4).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command { SmeltGeneratorCommand::Next(value) => value, SmeltGeneratorCommand::Return(value) => return value, SmeltGeneratorCommand::Throw(error) => smelt_panic_throw(smelt_throw(error)) } };
+    _smelt_tmp_5 = { smelt_co.yield_(_smelt_tmp_4).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command { SmeltGeneratorCommand::Next(smelt_value) => smelt_value, SmeltGeneratorCommand::Return(smelt_value) => return smelt_value, SmeltGeneratorCommand::Throw(smelt_error) => smelt_panic_throw(smelt_throw(smelt_error)) } };
     _smelt_tmp_6 = i + 1.0;
     i = _smelt_tmp_6;
     }
     return;
     } });
     let mut smelt_generator = smelt_generator;
-    SmeltGenerator::new(move |value| { *smelt_generator_input.borrow_mut() = Some(value); match smelt_generator.resume() { genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value) } })
+    SmeltGenerator::new(move |smelt_value| { *smelt_generator_input.borrow_mut() = Some(smelt_value); match smelt_generator.resume() { genawaiter::GeneratorState::Yielded(smelt_value) => SmeltGeneratorResult::Yielded(smelt_value), genawaiter::GeneratorState::Complete(smelt_value) => SmeltGeneratorResult::Complete(smelt_value) } })
 }

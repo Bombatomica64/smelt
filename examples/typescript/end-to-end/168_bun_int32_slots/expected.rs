@@ -1354,7 +1354,7 @@ fn main() {
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_15), smelt_console_number(_smelt_tmp_16)); };
     _smelt_tmp_18 = -4.0;
     _smelt_tmp_19 = SmeltRecord::from([(JsString::from("x"), 3.0), (JsString::from("y"), _smelt_tmp_18)]);
-    p = { let smelt_record_map = _smelt_tmp_19.clone(); Pixel { x: smelt_record_map.get_text("x").cloned().map_or(0, |value| (value as i32)), y: smelt_record_map.get_text("y").cloned().map_or(0, |value| (value as i32)), alpha: smelt_record_map.get_text("alpha").cloned().map(|value| (value as i32)) } };
+    p = { let smelt_record_map = _smelt_tmp_19.clone(); Pixel { x: smelt_record_map.get_text("x").cloned().map_or(0, |smelt_value| (smelt_value as i32)), y: smelt_record_map.get_text("y").cloned().map_or(0, |smelt_value| (smelt_value as i32)), alpha: smelt_record_map.get_text("alpha").cloned().map(|smelt_value| (smelt_value as i32)) } };
     _smelt_tmp_20 = p.x as f64;
     _smelt_tmp_21 = p.y as f64;
     _smelt_tmp_22 = _smelt_tmp_20 + _smelt_tmp_21;
@@ -1367,12 +1367,12 @@ fn main() {
     _smelt_tmp_29 = _smelt_tmp_27 + &JsString::from(smelt_number_to_string(_smelt_tmp_28));
     let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_22), _smelt_tmp_24, _smelt_tmp_29); };
     _smelt_tmp_31 = SmeltRecord::from([(JsString::from("x"), 1.0), (JsString::from("y"), 2.0), (JsString::from("alpha"), 255.0)]);
-    q = { let smelt_record_map = _smelt_tmp_31.clone(); Pixel { x: smelt_record_map.get_text("x").cloned().map_or(0, |value| (value as i32)), y: smelt_record_map.get_text("y").cloned().map_or(0, |value| (value as i32)), alpha: smelt_record_map.get_text("alpha").cloned().map(|value| (value as i32)) } };
+    q = { let smelt_record_map = _smelt_tmp_31.clone(); Pixel { x: smelt_record_map.get_text("x").cloned().map_or(0, |smelt_value| (smelt_value as i32)), y: smelt_record_map.get_text("y").cloned().map_or(0, |smelt_value| (smelt_value as i32)), alpha: smelt_record_map.get_text("alpha").cloned().map(|smelt_value| (smelt_value as i32)) } };
     _smelt_tmp_32 = q.alpha.clone().map(f64::from);
     _smelt_tmp_33 = q.alpha.clone().map(f64::from);
     _smelt_tmp_34 = _smelt_tmp_33.clone().unwrap_or(0.0);
     _smelt_tmp_35 = _smelt_tmp_34 + 1.0;
-    let _ = { println!("{} {}", match &_smelt_tmp_32 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, smelt_console_number(_smelt_tmp_35)); };
+    let _ = { println!("{} {}", match &_smelt_tmp_32 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }, smelt_console_number(_smelt_tmp_35)); };
     _smelt_tmp_37 = 65536.0 as i32;
     _smelt_tmp_38 = 65536.0 as i32;
     let _smelt_tmp_39: i32 = mix(_smelt_tmp_37, _smelt_tmp_38);
@@ -1470,7 +1470,7 @@ pub(crate) fn bits(n: f64) -> i32 {
     let left: i32 = _smelt_tmp_12 as i32;
     let _smelt_tmp_14: f64 = f64::from({ let smelt_uint32_v = (n as f64).trunc(); if smelt_uint32_v.is_finite() { smelt_uint32_v.rem_euclid(4294967296.0) as u32 } else { 0_u32 } }.leading_zeros());
     let zeros: i32 = _smelt_tmp_14 as i32;
-    let _smelt_tmp_16: f64 = ({ let smelt_bit_lhs = { let smelt_bit_v = (n as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (-1.0 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs ^ smelt_bit_rhs) as f64 });
+    let _smelt_tmp_16: f64 = ({ let smelt_bit_lhs = { let smelt_bit_v = (n as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = ((-1.0) as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs ^ smelt_bit_rhs) as f64 });
     let flipped: i32 = _smelt_tmp_16 as i32;
     let _smelt_tmp_18: f64 = masked as f64;
     let _smelt_tmp_19: f64 = shifted as f64;

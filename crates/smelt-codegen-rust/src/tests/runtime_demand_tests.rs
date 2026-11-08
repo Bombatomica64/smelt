@@ -94,3 +94,60 @@ export function orDefault<TDefault = unknown>(value: any, defaultValue?: TDefaul
         "the read must find its helper defined:\n{source}"
     );
 }
+
+/// Every need, closed over the `requires` graph ON ITS OWN, renders a runtime
+/// whose every emitter-prefixed name is defined.
+///
+/// A program's demand is a union of needs, and the scan is free to predict any
+/// of them alone (a late erasure can add `Unknown` to a program that had
+/// nothing else). So each need's closure has to be self-contained: an item
+/// that names a family it did not declare an edge to shows up here, by need,
+/// instead of as an E0425 in the one program that happens to demand it alone.
+/// The program facts a flag can also ask are checked both off and on.
+#[test]
+fn every_need_closes_to_a_self_contained_runtime() {
+    use crate::runtime_prelude::{ProgramFacts, flag_for, rendered_text};
+    let all_facts = ProgramFacts { reference_classes: true, erased_view_write_through: true, reads_this: true };
+    let mut failures = Vec::new();
+    for need in Need::ALL {
+        for facts in [ProgramFacts::default(), all_facts] {
+            let demand = RuntimeDemand::closed_over(&[*need]);
+            let flags = |name: &str| flag_for(&demand, facts, name).unwrap_or(false);
+            let text = rendered_text(&flags);
+            let undefined = runtime_symbols_check::undefined_runtime_symbols([text.as_str()]);
+            if !undefined.is_empty() {
+                failures.push(format!("{need:?} with {facts:?}: {}", undefined.join(", ")));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "needs whose closure names undefined runtime symbols:\n{}", failures.join("\n"));
+}
+
+/// `Need::ALL` holds every need once, at its own discriminant: the bit a need
+/// sets in the demand is its position, so two needs can never share one.
+#[test]
+fn every_need_has_its_own_bit() {
+    for (index, need) in Need::ALL.iter().enumerate() {
+        let bit = RuntimeDemand::closed_over(&[]);
+        assert!(!bit.has(*need), "an empty demand holds nothing");
+        let alone = Need::ALL.iter().position(|other| other == need);
+        assert_eq!(alone, Some(index), "{need:?} is listed twice in Need::ALL");
+    }
+    // Distinct needs set distinct bits: each need alone demands no other.
+    for need in Need::ALL {
+        let mut only = RuntimeDemand::default();
+        only.add_for_test(*need);
+        let shared = Need::ALL.iter().filter(|other| only.has(**other)).count();
+        assert_eq!(shared, 1, "{need:?} shares its bit with another need");
+    }
+}
+
+/// A runtime use the scan did not predict is refused at the site that asks for
+/// it, naming the family, instead of reaching the finished crate.
+#[test]
+fn an_unpredicted_runtime_use_is_refused_by_name() {
+    let typed = demand_of("export function add(a: number, b: number): number { return a + b; }");
+    let refused = typed.carrier().err().map(|error| error.to_string()).unwrap_or_default();
+    assert!(refused.contains("`Unknown` runtime family"), "{refused}");
+    assert!(RuntimeDemand::closed_over(&[Need::Unknown]).carrier().is_ok());
+}

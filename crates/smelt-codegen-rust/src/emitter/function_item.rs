@@ -223,20 +223,20 @@ impl FunctionEmitter<'_> {
     fn emit_generator_wrapper(&self, body: &str, out: &mut String) {
         out.push_str("    let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None));\n");
         out.push_str("    let smelt_generator_producer_input = smelt_generator_input.clone();\n");
-        out.push_str("    let smelt_generator = genawaiter::rc::Gen::new(move |co| { let smelt_generator_input = smelt_generator_producer_input; async move {\n");
+        out.push_str("    let smelt_generator = genawaiter::rc::Gen::new(move |smelt_co| { let smelt_generator_input = smelt_generator_producer_input; async move {\n");
         out.push_str(body);
         out.push_str("    } });\n");
         if self.function.is_async {
             out.push_str("    let smelt_generator = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_generator));\n");
-            out.push_str(&format!("    SmeltAsyncGenerator::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_state = {{ let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }}; Ok::<_, {ERROR_BOX}>(match smelt_state {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value?) }}) }})) }})\n"));
+            out.push_str(&format!("    SmeltAsyncGenerator::new(move |smelt_value| {{ *smelt_generator_input.borrow_mut() = Some(smelt_value); let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_state = {{ let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }}; Ok::<_, {ERROR_BOX}>(match smelt_state {{ genawaiter::GeneratorState::Yielded(smelt_value) => SmeltGeneratorResult::Yielded(smelt_value), genawaiter::GeneratorState::Complete(smelt_value) => SmeltGeneratorResult::Complete(smelt_value?) }}) }})) }})\n"));
         } else {
             out.push_str("    let mut smelt_generator = smelt_generator;\n");
             let completion = if self.function.can_throw {
-            "value.unwrap_or_else(|error| smelt_panic_throw(error))"
+            "smelt_value.unwrap_or_else(|error| smelt_panic_throw(error))"
             } else {
-                "value"
+                "smelt_value"
             };
-            out.push_str(&format!("    SmeltGenerator::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); match smelt_generator.resume() {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete({completion}) }} }})\n"));
+            out.push_str(&format!("    SmeltGenerator::new(move |smelt_value| {{ *smelt_generator_input.borrow_mut() = Some(smelt_value); match smelt_generator.resume() {{ genawaiter::GeneratorState::Yielded(smelt_value) => SmeltGeneratorResult::Yielded(smelt_value), genawaiter::GeneratorState::Complete(smelt_value) => SmeltGeneratorResult::Complete({completion}) }} }})\n"));
         }
     }
 
@@ -308,14 +308,14 @@ impl FunctionEmitter<'_> {
             self.binding_uses.record_early_return();
             out.push_str(&format!(
                 "    return Ok({});\n",
-                self.default_value(return_ty)?
+                self.default_value(return_ty)?.delimited()
             ));
         } else if return_ty == self.none_ty {
             return Ok(());
         } else {
             out.push_str(&format!(
                 "    return {};\n",
-                self.default_value(return_ty)?
+                self.default_value(return_ty)?.delimited()
             ));
         }
         Ok(())
@@ -368,11 +368,11 @@ impl FunctionEmitter<'_> {
                 out.push_str(&format!(
                     "    let smelt_capture_{name}: ::std::rc::Rc<::std::cell::RefCell<{}>> = ::std::rc::Rc::new(::std::cell::RefCell::new({}));\n",
                     self.capture_cell_type(local, decl.ty)?,
-                    if self.is_base_initializer_receiver(local) {
+                    (if self.is_base_initializer_receiver(local) {
                         RustExpr::atom("Default::default()")
                     } else {
                         self.default_value(decl.ty)?
-                    }
+                    }).delimited()
                 ));
             } else if self.predeclared_local_needs_default(local)?
                 || self.local_may_be_used_before_assignment(local)?
@@ -381,7 +381,7 @@ impl FunctionEmitter<'_> {
                     "    let {mutability}{}: {} = {};\n",
                     name,
                     self.local_declaration_type(local, decl.ty)?,
-                    self.local_default_value(local, decl.ty)?
+                    self.local_default_value(local, decl.ty)?.delimited()
                 ));
             } else {
                 out.push_str(&format!(

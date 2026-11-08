@@ -24,7 +24,7 @@ fn program_of(source: &str) -> &str {
 }
 
 /// Fragment of the JS truthiness `match` the `ToBool` primitive cast emits.
-const TRUTHINESS_MATCH: &str = "SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan()";
+const TRUTHINESS_MATCH: &str = "SmeltUnknown::Number(smelt_value) => smelt_value != 0.0 && !smelt_value.is_nan()";
 
 /// The tag check that must never stand in for a truthiness test.
 const BOOL_TAG_CHECK: &str = "SmeltUnknown::Bool(_)";

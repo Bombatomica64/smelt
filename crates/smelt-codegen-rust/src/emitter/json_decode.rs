@@ -80,21 +80,21 @@ pub(crate) fn json_decode_entry_name(ty: TypeId) -> String {
 fn literal_condition(value_text: &RustExpr, literal: &smelt_hir::Literal) -> Option<String> {
     match literal {
         smelt_hir::Literal::String(text) => Some(format!(
-            "matches!({value_text}, SmeltUnknown::String(text) if text.eq_str({text:?}))"
+            "matches!({value_text}, SmeltUnknown::String(text) if text.eq_str({text:?}))", value_text = value_text.delimited()
         )),
         smelt_hir::Literal::StringUnits(units) => Some(format!(
-            "matches!({value_text}, SmeltUnknown::String(text) if text.units() == {units:?})"
+            "matches!({value_text}, SmeltUnknown::String(text) if text.units() == {units:?})", value_text = value_text.delimited()
         )),
         smelt_hir::Literal::Float(number) => Some(format!(
-            "matches!({value_text}, SmeltUnknown::Number(number) if *number == {number:?}_f64)"
+            "matches!({value_text}, SmeltUnknown::Number(number) if *number == {number:?}_f64)", value_text = value_text.delimited()
         )),
         // JSON has no bigint, so no parsed value is ever a bigint literal.
         smelt_hir::Literal::BigInt(_) => None,
         smelt_hir::Literal::Int(number) => Some(format!(
-            "matches!({value_text}, SmeltUnknown::Number(number) if *number == {number}_f64)"
+            "matches!({value_text}, SmeltUnknown::Number(number) if *number == {number}_f64)", value_text = value_text.delimited()
         )),
         smelt_hir::Literal::Bool(flag) => Some(format!(
-            "matches!({value_text}, SmeltUnknown::Bool({flag}))"
+            "matches!({value_text}, SmeltUnknown::Bool({flag}))", value_text = value_text.delimited()
         )),
         smelt_hir::Literal::Symbol(_) | smelt_hir::Literal::Undefined | smelt_hir::Literal::None => {
             None
@@ -311,12 +311,12 @@ impl FunctionEmitter<'_> {
             _ => None,
         };
         if let Some(helper) = primitive {
-            return format!("{helper}({value_text}, path)");
+            return format!("{helper}({value_text}, path)", value_text = value_text.delimited());
         }
         if !deps.contains(&ty) {
             deps.push(ty);
         }
-        format!("{}({value_text}, path)", decoder_fn_name(ty))
+        format!("{}({value_text}, path)", decoder_fn_name(ty), value_text = value_text.delimited())
     }
 
     /// Render the decoder function for one composite type.
@@ -326,7 +326,7 @@ impl FunctionEmitter<'_> {
         let body = match self.mir.types.get(ty).cloned() {
             Some(Type::List(item)) => {
                 let item_call = self.json_decode_call(item, &RustExpr::loose("&item"), deps);
-                self.carrier_format(format_args!(
+                self.carrier_format(self.carrier()?, format_args!(
                     "let SmeltUnknown::Array(items) = value else {{ return smelt_decode_fail(path, {expected:?}, value); }};\n    \
                      let mut decoded = Vec::with_capacity(items.len());\n    \
                      for (index, item) in items.iter().enumerate() {{ let mark = smelt_decode_enter_index(path, index); decoded.push({item_call}?); path.truncate(mark); }}\n    \
@@ -334,14 +334,14 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::Tuple(items)) => {
-                let mut text = self.carrier_format(format_args!(
+                let mut text = self.carrier_format(self.carrier()?, format_args!(
                     "let SmeltUnknown::Array(items) = value else {{ return smelt_decode_fail(path, {expected:?}, value); }};\n    \
                      if items.len() != {len} {{ return smelt_decode_arity_fail(path, {expected:?}, items.len()); }}\n",
                     len = items.len()
                 ));
                 for (index, item) in items.iter().enumerate() {
                     let item_call = self.json_decode_call(*item, &RustExpr::loose(format!("&item_{index}")), deps);
-                    text.push_str(&self.carrier_format(format_args!(
+                    text.push_str(&self.carrier_format(self.carrier()?, format_args!(
                         "    let item_{index} = items.get({index}).unwrap_or(SmeltUnknown::Undefined);\n    \
                          let mark = smelt_decode_enter_index(path, {index}); let item_{index} = {item_call}?; path.truncate(mark);\n"
                     )));
@@ -359,7 +359,7 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Dict(_, value_ty)) => {
                 let item_call = self.json_decode_call(value_ty, &RustExpr::loose("&item"), deps);
-                self.carrier_format(format_args!(
+                self.carrier_format(self.carrier()?, format_args!(
                     "let SmeltUnknown::Object(object) = value else {{ return smelt_decode_fail(path, {expected:?}, value); }};\n    \
                      let mut entries = Vec::with_capacity(object.len());\n    \
                      for (key, item) in object.iter() {{ let mark = smelt_decode_enter_key(path, &key.to_string_lossy()); let decoded = {item_call}?; path.truncate(mark); entries.push((key, decoded)); }}\n    \
@@ -369,7 +369,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Optional(item)) => {
                 let inner = self.flatten_optional_inner(item);
                 let item_call = self.json_decode_call(inner, &RustExpr::path("other"), deps);
-                self.carrier_format(format_args!(
+                self.carrier_format(self.carrier()?, format_args!(
                     "let at = path.len();\n    match value {{ SmeltUnknown::Null => Ok(None), other => {item_call}.map(Some).map_err(|issue| smelt_decode_widen(issue, at, {expected:?})) }}"
                 ))
             }
@@ -403,7 +403,7 @@ impl FunctionEmitter<'_> {
                 ));
             }
         };
-        Ok(self.carrier_format(format_args!(
+        Ok(self.carrier_format(self.carrier()?, format_args!(
             "\n/// Strict JSON decoder for `{expected}`.\nfn {name}(value: &SmeltUnknown, path: &mut String) -> Result<{rust_ty}, SmeltDecodeIssue> {{\n    {body}\n}}\n",
             name = decoder_fn_name(ty)
         )))
@@ -446,7 +446,7 @@ impl FunctionEmitter<'_> {
             .json_decode_interface(ty)
             .ok_or_else(|| EmitError::new("JSON decoder interface is missing"))?;
         let struct_name = self.rendered_type(ty)?;
-        let mut text = self.carrier_format(format_args!(
+        let mut text = self.carrier_format(self.carrier()?, format_args!(
             "let SmeltUnknown::Object(object) = value else {{ return smelt_decode_fail(path, {expected:?}, value); }};\n"
         ));
         let mut inits = Vec::new();
@@ -514,19 +514,19 @@ impl FunctionEmitter<'_> {
             let absent = if facts.may_be_absent {
                 "None".to_owned()
             } else {
-                self.carrier_format(format_args!(
+                self.carrier_format(self.carrier()?, format_args!(
                     "return smelt_decode_fail(path, {value_expected:?}, &SmeltUnknown::Undefined)"
                 ))
             };
             let null_arm = if facts.admits_null {
-                self.carrier_expr(&RustExpr::loose("Some(SmeltUnknown::Null) => None, "))
+                self.carrier_expr(self.carrier()?, &RustExpr::loose("Some(SmeltUnknown::Null) => None, "))
             } else {
                 RustExpr::opaque("")
             };
             text.push_str(&format!(
                 "    let mark = smelt_decode_enter_key(path, {key:?});\n    let at = path.len();\n    \
                  let field_{index} = match object.get({key:?}) {{ {null_arm}Some(field) => {{ {present} }}, None => {absent} }};\n    \
-                 path.truncate(mark);\n"
+                 path.truncate(mark);\n", null_arm = null_arm.delimited()
             ));
             inits.push(format!("{rust_field}: field_{index}"));
         }
@@ -640,7 +640,7 @@ impl FunctionEmitter<'_> {
         let receiver_text = self.operand_expr(receiver)?;
         Ok(RustExpr::atom(format!(
             "{{ let smelt_body_owner = {receiver_text}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_text = smelt_body_owner.take_text()?; {decode}(&smelt_text) }})) }}",
-            decode = json_decode_entry_name(target)
+            decode = json_decode_entry_name(target), receiver_text = receiver_text.tight()
         )))
     }
 }

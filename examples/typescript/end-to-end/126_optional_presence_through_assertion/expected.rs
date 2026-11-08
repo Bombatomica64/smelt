@@ -4463,11 +4463,11 @@ impl SmeltFromUnknown for HandlerSet {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("handler") {
-                result.handler = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("handler") {
+                result.handler = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("score") {
-                result.score = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("score") {
+                result.score = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -4510,7 +4510,7 @@ impl IntoSmeltUnknown for HandlerParamsSet {
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ("handler".to_owned(), SmeltUnknown::String((__smelt_inner.handler.clone()).into())),
         ("score".to_owned(), SmeltUnknown::Number(__smelt_inner.score.clone() as f64)),
-        ("params".to_owned(), SmeltUnknown::Object(SmeltObject::new(__smelt_inner.params.clone().into_iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect()))),
+        ("params".to_owned(), SmeltUnknown::Object(SmeltObject::new(__smelt_inner.params.clone().into_iter().map(|(smelt_key, smelt_value)| (smelt_key, SmeltUnknown::String(smelt_value.into()))).collect()))),
         ]);
         SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries).smelt_with_origin(self.clone()))
     }
@@ -4522,9 +4522,9 @@ impl SmeltFromUnknown for HandlerParamsSet {
         let SmeltUnknown::Object(object) = value else { return Self::default() };
         if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(field) = object.get("handler") { result.0.borrow_mut().handler = SmeltFromUnknown::smelt_from_unknown(field); }
-        if let Some(field) = object.get("score") { result.0.borrow_mut().score = SmeltFromUnknown::smelt_from_unknown(field); }
-        if let Some(field) = object.get("params") { result.0.borrow_mut().params = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(smelt_field) = object.get("handler") { result.0.borrow_mut().handler = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = object.get("score") { result.0.borrow_mut().score = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = object.get("params") { result.0.borrow_mut().params = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
         result
     }
 }
@@ -4562,7 +4562,7 @@ impl IntoSmeltUnknown for Table {
         let __smelt_proto = self.__smelt_proto_entries();
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
-        ("methods".to_owned(), SmeltUnknown::Array(__smelt_inner.methods.clone().into_iter().map(|value| SmeltUnknown::Object(SmeltObject::new(value.into_iter().map(|(key, value)| (key, (value).into_smelt_unknown())).collect()))).collect())),
+        ("methods".to_owned(), SmeltUnknown::Array(__smelt_inner.methods.clone().into_iter().map(|smelt_value| SmeltUnknown::Object(SmeltObject::new(smelt_value.into_iter().map(|(smelt_key, smelt_value)| (smelt_key, (smelt_value).into_smelt_unknown())).collect()))).collect())),
         ]);
         __smelt_entries.extend(__smelt_proto);
         SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries).smelt_with_origin(self.clone()))
@@ -4575,7 +4575,7 @@ impl SmeltFromUnknown for Table {
         let SmeltUnknown::Object(object) = value else { return Self::default() };
         if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(field) = object.get("methods") { result.0.borrow_mut().methods = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(smelt_field) = object.get("methods") { result.0.borrow_mut().methods = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
         result
     }
 }
@@ -4698,11 +4698,11 @@ impl Table {
     _smelt_tmp_10 = m.clone().get(&method.clone());
     _smelt_tmp_11 = m.get(&JsString::from("ALL"));
     _smelt_tmp_12 = _smelt_tmp_10.clone().or(_smelt_tmp_11);
-    set = _smelt_tmp_12.map(|value| { let smelt_struct_value = value.clone(); HandlerParamsSet(::std::rc::Rc::new(::std::cell::RefCell::new(HandlerParamsSetInner { handler: smelt_struct_value.handler.clone(), score: smelt_struct_value.score.clone(), params: SmeltRecord::new() }))) });
+    set = _smelt_tmp_12.map(|smelt_value| { let smelt_struct_value = smelt_value.clone(); HandlerParamsSet(::std::rc::Rc::new(::std::cell::RefCell::new(HandlerParamsSetInner { handler: smelt_struct_value.handler.clone(), score: smelt_struct_value.score.clone(), params: SmeltRecord::new() }))) });
     _smelt_tmp_14 = !(set.clone().is_none());
     if _smelt_tmp_14 {
     _smelt_tmp_15 = set.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_16 = _smelt_tmp_15.0.borrow().handler.clone().clone() + &JsString::from(":");
+    _smelt_tmp_16 = _smelt_tmp_15.0.borrow().handler.clone() + &JsString::from(":");
     _smelt_tmp_17 = set.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_18 = _smelt_tmp_16 + &JsString::from(smelt_number_to_string(_smelt_tmp_17.0.borrow().score.clone()));
     _smelt_tmp_19 = { let smelt_push_item = _smelt_tmp_18; found.borrow_mut().push(smelt_push_item); found.len() as f64 };
@@ -4726,7 +4726,7 @@ impl Table {
     fn __smelt_proto_entries(&self) -> Vec<(String, SmeltUnknown)> {
         let mut smelt_proto_entries: Vec<(String, SmeltUnknown)> = Vec::new();
         smelt_proto_entries.push(("__smelt_method:add".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.add(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(2).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok({ let () = smelt_result; SmeltUnknown::Undefined }) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Table::add")); SmeltUnknown::Function(smelt_method) }));
-        smelt_proto_entries.push(("__smelt_method:lookup".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.lookup(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok(SmeltUnknown::Array(smelt_result.into_iter().map(|value| SmeltUnknown::String(value.into())).collect())) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Table::lookup")); SmeltUnknown::Function(smelt_method) }));
+        smelt_proto_entries.push(("__smelt_method:lookup".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.lookup(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok(SmeltUnknown::Array(smelt_result.into_iter().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).collect())) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Table::lookup")); SmeltUnknown::Function(smelt_method) }));
         smelt_proto_entries
     }
 }

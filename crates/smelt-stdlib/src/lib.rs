@@ -34,7 +34,7 @@ pub use classes::{
     MATCH_GROUPS_CLASS_NAME, PY_EXCEPTION_CLASS_NAME, PY_EXCEPTION_ARGS_CLASS_NAME, OBJECT_PROTOTYPE_MEMBERS, StdlibClass, host_data_property, TYPED_ARRAY_CLASS_NAMES, is_array_non_mutating_method, is_object_prototype_member,
     is_typed_array_class_name, stdlib_class_instance_has_property, typescript_stdlib_class,
 };
-pub use deps::BackendDependency;
+pub use deps::{BackendDependency, CrateRequirement};
 pub use erased_prototype_methods::{
     ERASED_ARRAY_PROTOTYPE_METHODS, ERASED_STRING_PROTOTYPE_METHODS,
     erased_array_prototype_method, erased_string_prototype_method, is_erased_prototype_call, is_erased_prototype_method,

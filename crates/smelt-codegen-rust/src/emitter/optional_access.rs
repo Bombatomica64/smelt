@@ -27,24 +27,24 @@ impl FunctionEmitter<'_> {
             if let Some(Type::Optional(dest_inner)) = self.mir.types.get(dest_ty) {
                 if let Some(Type::Optional(field_inner)) = self.mir.types.get(field_ty) {
                     let mapped = self.optional_inner_map_expr(&value, *field_inner, *dest_inner)?;
-                    return Ok(RustExpr::postfix_on(&receiver_text, format!(
-                        "{receiver_text}.as_ref().and_then(|_smelt_value| {mapped})"
+                    return Ok(receiver_text.postfix(format!(
+                        ".as_ref().and_then(|_smelt_value| {mapped})", mapped = mapped.delimited()
                     )));
                 }
                 if let Some(erased) = self.erased_field_optional_map_expr(&value, field_ty, *dest_inner)? {
-                    return Ok(RustExpr::postfix_on(&receiver_text, format!(
-                        "{receiver_text}.as_ref().and_then(|_smelt_value| {erased})"
+                    return Ok(receiver_text.postfix(format!(
+                        ".as_ref().and_then(|_smelt_value| {erased})", erased = erased.delimited()
                     )));
                 }
                 let mapped = self.rendered_at_type(&value, field_ty, *dest_inner, &self.render_scope())?;
-                return Ok(RustExpr::postfix_on(&receiver_text, format!(
-                    "{receiver_text}.as_ref().map(|_smelt_value| {mapped})"
+                return Ok(receiver_text.postfix(format!(
+                    ".as_ref().map(|_smelt_value| {mapped})", mapped = mapped.delimited()
                 )));
             }
             let mapped = self.rendered_at_type(&value, field_ty, dest_ty, &self.render_scope())?;
-            Ok(RustExpr::postfix_on(&receiver_text, format!(
-                "{receiver_text}.as_ref().map_or({}, |_smelt_value| {mapped})",
-                self.default_value(dest_ty)?
+            Ok(receiver_text.postfix(format!(
+                ".as_ref().map_or({}, |_smelt_value| {mapped})",
+                self.default_value(dest_ty)?.delimited(), mapped = mapped.delimited()
             )))
         } else {
             let value = self.field_access_expr(&receiver_text, inner_ty, field)?;
@@ -56,7 +56,7 @@ impl FunctionEmitter<'_> {
                     return Ok(erased);
                 }
                 let mapped = self.rendered_at_type(&value, field_ty, *dest_inner, &self.render_scope())?;
-                return Ok(RustExpr::chain(format!("Some({mapped})")));
+                return Ok(RustExpr::chain(format!("Some({mapped})", mapped = mapped.delimited())));
             }
             self.rendered_at_type(&value, field_ty, dest_ty, &self.render_scope())
         }
@@ -107,8 +107,8 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         }
         let mapped = self.rendered_at_type(&RustExpr::path("_smelt_field"), field_ty, dest_inner, &self.render_scope())?;
-        Ok(Some(RustExpr::atom(self.carrier_format(format_args!(
-            "match {value_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => None, _smelt_field => Some({mapped}) }}"
+        Ok(Some(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+            "match {value_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => None, _smelt_field => Some({mapped}) }}", value_text = value_text.delimited(), mapped = mapped.delimited()
         )))))
     }
 
@@ -139,8 +139,8 @@ impl FunctionEmitter<'_> {
         if is_optional {
             let value =
                 self.optional_index_access_expr(&RustExpr::path("_smelt_value"), inner_ty, index, result_ty)?;
-            Ok(RustExpr::postfix_on(&receiver_text, format!(
-                "{receiver_text}.as_ref().and_then(|_smelt_value| {value})"
+            Ok(receiver_text.postfix(format!(
+                ".as_ref().and_then(|_smelt_value| {value})", value = value.delimited()
             )))
         } else {
             self.optional_index_access_expr(&receiver_text, inner_ty, index, result_ty)
@@ -182,11 +182,11 @@ impl FunctionEmitter<'_> {
                 }
             };
             if is_optional {
-                return Ok(RustExpr::postfix_on(&receiver_text, format!(
-                    "{receiver_text}.as_ref().map(|_smelt_value| _smelt_value.{rust_method_name}())"
+                return Ok(receiver_text.postfix(format!(
+                    ".as_ref().map(|_smelt_value| _smelt_value.{rust_method_name}())"
                 )));
             }
-            return Ok(RustExpr::chain(format!("Some({receiver_text}.{rust_method_name}())")));
+            return Ok(RustExpr::chain(format!("Some({receiver_text}.{rust_method_name}())", receiver_text = receiver_text.tight())));
         }
         // A method that can throw returns a `Result` in the generated Rust, and
         // `?` cannot cross a closure boundary: `opt.map(|v| v.insert(k, x))`
@@ -200,9 +200,9 @@ impl FunctionEmitter<'_> {
             let call = format!("{method_name}({args_text}){throwing_suffix}");
             if !is_optional {
                 let head = if flattens {
-                    RustExpr::field_on(&receiver_text, format!("{receiver_text}.{call}"))
+                    RustExpr::field_on(&receiver_text, format!("{receiver_text}.{call}", receiver_text = receiver_text.tight()))
                 } else {
-                    RustExpr::chain(format!("Some({receiver_text}.{call})"))
+                    RustExpr::chain(format!("Some({receiver_text}.{call})", receiver_text = receiver_text.tight()))
                 };
                 return Ok(head);
             }
@@ -212,20 +212,20 @@ impl FunctionEmitter<'_> {
                 format!("Some(_smelt_value.{call})")
             };
             return Ok(RustExpr::atom(format!(
-                "match {receiver_text}.as_ref() {{ Some(_smelt_value) => {arm}, None => None }}"
+                "match {receiver_text}.as_ref() {{ Some(_smelt_value) => {arm}, None => None }}", receiver_text = receiver_text.tight()
             )));
         }
         if is_optional {
             if flattens {
-                return Ok(RustExpr::postfix_on(&receiver_text, format!(
-                    "{receiver_text}.as_ref().and_then(|_smelt_value| _smelt_value.{method_name}({args_text}))"
+                return Ok(receiver_text.postfix(format!(
+                    ".as_ref().and_then(|_smelt_value| _smelt_value.{method_name}({args_text}))"
                 )));
             }
-            Ok(RustExpr::postfix_on(&receiver_text, format!(
-                "{receiver_text}.as_ref().map(|_smelt_value| _smelt_value.{method_name}({args_text}))"
+            Ok(receiver_text.postfix(format!(
+                ".as_ref().map(|_smelt_value| _smelt_value.{method_name}({args_text}))"
             )))
         } else {
-            Ok(RustExpr::chain(format!("Some({receiver_text}.{method_name}({args_text}))")))
+            Ok(RustExpr::chain(format!("Some({receiver_text}.{method_name}({args_text}))", receiver_text = receiver_text.tight())))
         }
     }
 
@@ -350,14 +350,14 @@ impl FunctionEmitter<'_> {
             };
             let optional_text = self.value_at_type(optional, scrutinee_ty)?;
             let fallback_text = self.value_at_type(fallback, scrutinee_ty)?;
-            let coalesced = RustExpr::atom(self.carrier_format(format_args!(
-                "match {optional_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => {fallback_text}, value => value }}"
+            let coalesced = RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                "match {optional_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => {fallback_text}, smelt_value => smelt_value }}", optional_text = optional_text.delimited(), fallback_text = fallback_text.delimited()
             )));
             if matches!(
                 self.mir.types.get(dest_ty),
                 Some(Type::Optional(inner)) if self.has_dynamic_shape(*inner)
             ) {
-                return Ok(RustExpr::chain(format!("Some({coalesced})")));
+                return Ok(RustExpr::chain(format!("Some({coalesced})", coalesced = coalesced.delimited())));
             }
             // A concrete-union destination is not an erased boundary: coerce the
             // erased coalesced value into the tagged union (`from_smelt_unknown`)
@@ -389,10 +389,10 @@ impl FunctionEmitter<'_> {
         ) && let Some(read) = self.optional_element_read_expr(optional, optional_ty)?
         {
             let present_text =
-                self.rendered_at_type(&RustExpr::path("value"), optional_ty, dest_ty, &self.render_scope())?;
+                self.rendered_at_type(&RustExpr::path("smelt_value"), optional_ty, dest_ty, &self.render_scope())?;
             let fallback_text = self.value_at_type(fallback, dest_ty)?;
             return Ok(RustExpr::atom(format!(
-                "match {read} {{ Some(value) => {present_text}, None => {fallback_text} }}"
+                "match {read} {{ Some(smelt_value) => {present_text}, None => {fallback_text} }}", read = read.delimited(), present_text = present_text.delimited(), fallback_text = fallback_text.delimited()
             )));
         }
         match self.mir.types.get(optional_ty) {
@@ -400,10 +400,10 @@ impl FunctionEmitter<'_> {
                 if self.has_dynamic_shape(dest_ty)
                 {
                     let optional_text = self.operand_expr(optional)?;
-                    let present_text = self.rendered_at_type(&RustExpr::path("value"), *inner, dest_ty, &self.render_scope())?;
+                    let present_text = self.rendered_at_type(&RustExpr::path("smelt_value"), *inner, dest_ty, &self.render_scope())?;
                     let fallback_text = self.value_at_type(fallback, dest_ty)?;
-                    return Ok(RustExpr::postfix_on(&optional_text, format!(
-                        "{optional_text}.map_or_else(|| {fallback_text}, |value| {present_text})"
+                    return Ok(optional_text.postfix(format!(
+                        ".map_or_else(|| {fallback_text}, |smelt_value| {present_text})", fallback_text = fallback_text.delimited(), present_text = present_text.delimited()
                     )));
                 }
                 let fallback_ty = self.operand_ty(fallback)?;
@@ -420,17 +420,17 @@ impl FunctionEmitter<'_> {
                 {
                     let optional_text = self.operand_expr(optional)?;
                     let fallback_text = self.value_at_type(fallback, fallback_ty)?;
-                    let mapped_value = self.rendered_at_type(&RustExpr::path("value"), fallback_ty, *inner, &self.render_scope())?;
-                    let fallback_option = self.carrier_format(format_args!(
-                        "match {fallback_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => None, value => Some({mapped_value}) }}"
+                    let mapped_value = self.rendered_at_type(&RustExpr::path("smelt_value"), fallback_ty, *inner, &self.render_scope())?;
+                    let fallback_option = self.carrier_format(self.carrier()?, format_args!(
+                        "match {fallback_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => None, smelt_value => Some({mapped_value}) }}", fallback_text = fallback_text.delimited(), mapped_value = mapped_value.delimited()
                     ));
                     if matches!(self.mir.types.get(dest_ty), Some(Type::Optional(dest_inner)) if dest_inner == inner)
                     {
-                        return Ok(RustExpr::postfix_on(&optional_text, format!("{optional_text}.or({fallback_option})")));
+                        return Ok(optional_text.postfix(format!(".or({fallback_option})")));
                     }
-                    let coalesced = RustExpr::postfix_on(&optional_text, format!(
-                        "{optional_text}.unwrap_or_else(|| {fallback_option}.unwrap_or({}))",
-                        self.default_value(*inner)?
+                    let coalesced = optional_text.postfix(format!(
+                        ".unwrap_or_else(|| {fallback_option}.unwrap_or({}))",
+                        self.default_value(*inner)?.delimited()
                     ));
                     if dest_ty == *inner {
                         return Ok(coalesced);
@@ -441,11 +441,11 @@ impl FunctionEmitter<'_> {
                     && fallback_inner == inner
                     && matches!(self.mir.types.get(dest_ty), Some(Type::Optional(dest_inner)) if dest_inner == inner)
                 {
-                    return Ok({ let receiver = self.operand_borrow_expr(optional)?; RustExpr::postfix_on(&receiver, format!("{receiver}.clone().or({})", self.operand_expr(fallback)?)) });
+                    return Ok({ let receiver = self.operand_borrow_expr(optional)?; receiver.postfix(format!(".clone().or({})", self.operand_expr(fallback)?.delimited())) });
                 }
                 // One clone of the optional: `operand_expr` of a place already
                 // ends in `.clone()`, and the coalescing read only borrows.
-                let coalesced = { let receiver = self.operand_borrow_expr(optional)?; RustExpr::postfix_on(&receiver, format!("{receiver}.clone().unwrap_or({})", self.value_at_type(fallback, *inner)?)) };
+                let coalesced = { let receiver = self.operand_borrow_expr(optional)?; receiver.postfix(format!(".clone().unwrap_or({})", self.value_at_type(fallback, *inner)?.delimited())) };
                 if dest_ty == *inner {
                     Ok(coalesced)
                 } else {
@@ -502,13 +502,13 @@ impl FunctionEmitter<'_> {
         // for the key or `None` (missing key -> `undefined`), giving the honest
         // `Option<T>` round-trip result rather than a stub.
         if let Some((key_ty, value_ty)) = self.class_index_store_types(receiver_ty) {
-            let store_text = RustExpr::field_on(&receiver_text, format!("{receiver_text}.{CLASS_INDEX_STORE_FIELD}"));
+            let store_text = RustExpr::field_on(&receiver_text, format!("{receiver_text}.{CLASS_INDEX_STORE_FIELD}", receiver_text = receiver_text.tight()));
             return self.dict_index_optional_read_expr(&store_text, key_ty, value_ty, index);
         }
         match self.mir.types.get(receiver_ty) {
             Some(Type::List(item_ty)) => {
                 let index_text =
-                    self.optional_normalized_index_expr(&RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.len()")), index)?;
+                    self.optional_normalized_index_expr(&receiver_text.postfix(".len()"), index)?;
                 // Read receiver, not a write one: the `.len()` in the index
                 // argument takes a second borrow of the same shared cell, and
                 // only shared borrows may coexist. See `place.rs`'s list index
@@ -518,11 +518,11 @@ impl FunctionEmitter<'_> {
                     && *inner == result_ty
                 {
                     Ok(RustExpr::atom(format!(
-                        "({index_text}).and_then(|index| {read_expr}.get(index).cloned().flatten())"
+                        "({index_text}).and_then(|smelt_index| {read_expr}.get(smelt_index).cloned().flatten())", index_text = index_text.delimited(), read_expr = read_expr.tight()
                     )))
                 } else {
                     Ok(RustExpr::atom(format!(
-                        "({index_text}).and_then(|index| {read_expr}.get(index).cloned())"
+                        "({index_text}).and_then(|smelt_index| {read_expr}.get(smelt_index).cloned())", index_text = index_text.delimited(), read_expr = read_expr.tight()
                     )))
                 }
             }
@@ -535,8 +535,8 @@ impl FunctionEmitter<'_> {
                     index,
                 )?;
                 Ok(RustExpr::atom(format!(
-                    "({index_text}).and_then(|index| {})",
-                    self.string_char_at_text(&receiver_text.parenthesized_if_needed(), "index")
+                    "({index_text}).and_then(|smelt_index| {})",
+                    self.string_char_at_text(&receiver_text.parenthesized_if_needed(), "smelt_index"), index_text = index_text.delimited()
                 )))
             }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
@@ -548,7 +548,7 @@ impl FunctionEmitter<'_> {
                 let key_text = self.property_key_to_string_expr(&index_text, index_ty)?;
                 let numeric_index_text = match self.mir.types.get(index_ty) {
                     Some(Type::Int | Type::Float) => index_text,
-                    Some(Type::Bool) => RustExpr::loose(format!("if {index_text} {{ 1.0 }} else {{ 0.0 }}")),
+                    Some(Type::Bool) => RustExpr::loose(format!("if {index_text} {{ 1.0 }} else {{ 0.0 }}", index_text = index_text.delimited())),
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                     | Some(Type::Class { .. })
                         if self.is_erased_class_type(index_ty)
@@ -563,9 +563,9 @@ impl FunctionEmitter<'_> {
                         // adapter — the same treatment the non-optional read
                         // gives this operand (`unknown_index_expr`).
                         let scrutinee = self
-                            .erase_concrete_union_expr(&index_text.cloned_value(), index_ty);
-                        RustExpr::atom(self.carrier_format(format_args!(
-                            "match {scrutinee} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
+                            .erase_concrete_union_expr(&index_text.cloned_value(), index_ty)?;
+                        RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                            "match {scrutinee} {{ SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),"), scrutinee = scrutinee.delimited()
                         )))
                     }
                     _ => RustExpr::atom("f64::NAN"),
@@ -599,27 +599,27 @@ impl FunctionEmitter<'_> {
                 } else {
                     self.extract_rendered(&RustExpr::path("_smelt_element"), result_ty, &self.render_scope())?.into_string()
                 };
-                let char_at = self.string_char_at_text("value", "index");
+                let char_at = self.string_char_at_text("smelt_value", "smelt_index");
                 let string_some = if result_is_string {
                     char_at
                 } else if result_is_erased {
-                    format!("{char_at}.map(|ch| SmeltUnknown::String(ch.into()))")
+                    format!("{char_at}.map(|smelt_ch| SmeltUnknown::String(smelt_ch.into()))")
                 } else {
-                    self.carrier_format(format_args!(
-                        "{char_at}.map(|ch| {{ let _smelt_element = SmeltUnknown::String(ch.into()); {element_text} }})"
+                    self.carrier_format(self.carrier()?, format_args!(
+                        "{char_at}.map(|smelt_ch| {{ let _smelt_element = SmeltUnknown::String(smelt_ch.into()); {element_text} }})"
                     ))
                 };
                 let array_some = if result_is_string {
-                    self.carrier_expr(&RustExpr::chain(format!(
-                        "values.get(index).cloned().map(|value| match value {{ SmeltUnknown::String(value) => {}, other => {} }})",
-                        self.text_from_unknown_string("value"),
+                    self.carrier_expr(self.carrier()?, &RustExpr::chain(format!(
+                        "smelt_values.get(smelt_index).cloned().map(|smelt_value| match smelt_value {{ SmeltUnknown::String(smelt_value) => {}, other => {} }})",
+                        self.text_from_unknown_string("smelt_value"),
                         self.text_from_string("other.to_string()"),
                     )))
                 } else if result_is_erased {
-                    RustExpr::chain("values.get(index).cloned()")
+                    RustExpr::chain("smelt_values.get(smelt_index).cloned()")
                 } else {
                     RustExpr::chain(format!(
-                        "values.get(index).cloned().map(|_smelt_element| {element_text})"
+                        "smelt_values.get(smelt_index).cloned().map(|_smelt_element| {element_text})"
                     ))
                 };
                 // Read the OBJECT arm through `smelt_get_object_field`, the same
@@ -630,21 +630,21 @@ impl FunctionEmitter<'_> {
                 // an own-field-only `values.get` was blind to all of them.
                 // `Undefined` is the helper's "no such property" answer and maps
                 // back to `None`, which is what the optional-read shape means.
-                let object_field = format!("smelt_get_object_field(&values, &{key_text})");
+                let object_field = format!("smelt_get_object_field(&smelt_values, &{key_text})", key_text = key_text.tight());
                 let object_some = if result_is_string {
-                    self.carrier_format(format_args!(
-                        "match {object_field} {{ SmeltUnknown::Undefined => None, SmeltUnknown::String(value) => Some({}), other => Some({}) }}",
-                        self.text_from_unknown_string("value"),
+                    self.carrier_format(self.carrier()?, format_args!(
+                        "match {object_field} {{ SmeltUnknown::Undefined => None, SmeltUnknown::String(smelt_value) => Some({}), other => Some({}) }}",
+                        self.text_from_unknown_string("smelt_value"),
                         self.text_from_string("other.to_string()"),
                     ))
                 } else if result_is_erased {
-                    self.carrier_format(format_args!("match {object_field} {{ SmeltUnknown::Undefined => None, value => Some(value) }}"))
+                    self.carrier_format(self.carrier()?, format_args!("match {object_field} {{ SmeltUnknown::Undefined => None, smelt_value => Some(smelt_value) }}"))
                 } else {
-                    self.carrier_format(format_args!(
+                    self.carrier_format(self.carrier()?, format_args!(
                         "match {object_field} {{ SmeltUnknown::Undefined => None, _smelt_element => Some({element_text}) }}"
                     ))
                 };
-                let primitive_none = self.carrier_format(format_args!(
+                let primitive_none = self.carrier_format(self.carrier()?, format_args!(
                     "{}SmeltUnknown::Bool(_) | SmeltUnknown::Number(_) | SmeltUnknown::Symbol(_) | SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => None",
                     self.bigint_unknown_arm("SmeltUnknown::BigInt(_) => None,")
                 ));
@@ -655,32 +655,32 @@ impl FunctionEmitter<'_> {
                 // scrutinee. The non-optional index read already erases here
                 // (see `place.rs`'s `Type::Union` arm).
                 let scrutinee =
-                    self.erase_concrete_union_expr(&receiver_text.cloned_value(), receiver_ty);
+                    self.erase_concrete_union_expr(&receiver_text.cloned_value(), receiver_ty)?;
                 // A string key is a property name on every arm: `arr["1"]` reads an
                 // element, `arr["length"]` a property, `arr["x"]` nothing.
                 if self.mir.types.get(self.operand_ty(index)?).is_some_and(Type::is_text) {
-                    return Ok(RustExpr::atom(self.carrier_format(format_args!(
-                        "match {scrutinee} {{ smelt_indexed @ (SmeltUnknown::String(_) | SmeltUnknown::Array(_)) => match smelt_get_unknown_field(&smelt_indexed, &{key_text}).clone() {{ SmeltUnknown::Undefined => None, _smelt_element => Some({element_text}) }}, SmeltUnknown::Object(values) => {object_some}, {primitive_none}, }}"
+                    return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                        "match {scrutinee} {{ smelt_indexed @ (SmeltUnknown::String(_) | SmeltUnknown::Array(_)) => match smelt_get_unknown_field(&smelt_indexed, &{key_text}).clone() {{ SmeltUnknown::Undefined => None, _smelt_element => Some({element_text}) }}, SmeltUnknown::Object(smelt_values) => {object_some}, {primitive_none}, }}", scrutinee = scrutinee.delimited(), key_text = key_text.tight()
                     ))));
                 }
                 Ok(RustExpr::atom(format!(
                     r"match {scrutinee} {{
-                        SmeltUnknown::String(value) => {{
+                        SmeltUnknown::String(smelt_value) => {{
                             let smelt_len = {string_len} as i64;
                             let smelt_index = {numeric_index_text} as i64;
                             let smelt_normalized = if smelt_index < 0 {{ smelt_len + smelt_index }} else {{ smelt_index }};
-                            usize::try_from(smelt_normalized).ok().and_then(|index| {string_some})
+                            usize::try_from(smelt_normalized).ok().and_then(|smelt_index| {string_some})
                         }}
-                        SmeltUnknown::Array(values) => {{
-                            let smelt_len = values.len() as i64;
+                        SmeltUnknown::Array(smelt_values) => {{
+                            let smelt_len = smelt_values.len() as i64;
                             let smelt_index = {numeric_index_text} as i64;
                             let smelt_normalized = if smelt_index < 0 {{ smelt_len + smelt_index }} else {{ smelt_index }};
-                            usize::try_from(smelt_normalized).ok().and_then(|index| {array_some})
+                            usize::try_from(smelt_normalized).ok().and_then(|smelt_index| {array_some})
                         }}
-                        SmeltUnknown::Object(values) => {object_some},
+                        SmeltUnknown::Object(smelt_values) => {object_some},
                         {primitive_none},
                     }}",
-                    string_len = self.string_len_text("value"),
+                    string_len = self.string_len_text("smelt_value"), scrutinee = scrutinee.delimited(), numeric_index_text = numeric_index_text.as_cast_operand(), array_some = array_some.delimited(),
                 )))
             }
             // A tuple has a static width, so a constant index names one field.
@@ -694,7 +694,7 @@ impl FunctionEmitter<'_> {
                     .get(tuple_index)
                     .copied()
                     .ok_or_else(|| EmitError::new("tuple index is out of range"))?;
-                let field = RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.{tuple_index}.clone()")).ending_in_clone();
+                let field = receiver_text.postfix(format!(".{tuple_index}")).cloned_value();
                 if let Some(Type::Optional(element_inner)) = self.mir.types.get(element_ty) {
                     if *element_inner == result_ty {
                         return Ok(field);
@@ -707,11 +707,11 @@ impl FunctionEmitter<'_> {
                     );
                 }
                 if element_ty == result_ty {
-                    return Ok(RustExpr::chain(format!("Some({field})")));
+                    return Ok(RustExpr::chain(format!("Some({field})", field = field.delimited())));
                 }
                 Ok(RustExpr::chain(format!(
                     "Some({})",
-                    self.rendered_at_type(&field, element_ty, result_ty, &self.render_scope())?
+                    self.rendered_at_type(&field, element_ty, result_ty, &self.render_scope())?.delimited()
                 )))
             }
             _ => Ok(RustExpr::path("None")),
@@ -735,7 +735,7 @@ impl FunctionEmitter<'_> {
             self.value_at_type(index, self.type_id(Type::Float)?)?
         };
         Ok(RustExpr::atom(format!(
-            "{{ let smelt_len = {len_expr} as i64; let smelt_index = {index_text} as i64; let smelt_normalized = if smelt_index < 0 {{ smelt_len + smelt_index }} else {{ smelt_index }}; usize::try_from(smelt_normalized).ok() }}"
+            "{{ let smelt_len = {len_expr} as i64; let smelt_index = {index_text} as i64; let smelt_normalized = if smelt_index < 0 {{ smelt_len + smelt_index }} else {{ smelt_index }}; usize::try_from(smelt_normalized).ok() }}", len_expr = len_expr.as_cast_operand(), index_text = index_text.as_cast_operand()
         )))
     }
 }

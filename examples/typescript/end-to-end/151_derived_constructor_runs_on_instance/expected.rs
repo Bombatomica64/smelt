@@ -4592,7 +4592,7 @@ fn smelt_keep_receiver_alive<H: SmeltReferenceHandle>(erased: SmeltUnknown, rece
 // @smelt:prelude-end — generated program below
 
 impl SmeltReferenceHandle for Greeter { type Cell = ::std::cell::RefCell<GreeterInner>; fn smelt_handle_cell(&self) -> &::std::rc::Rc<Self::Cell> { &self.0 } fn smelt_from_handle_cell(cell: ::std::rc::Rc<Self::Cell>) -> Self { Self(cell) } }
-impl Drop for Greeter { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let shared = self.0.try_borrow().map_or(true, |inner| inner.greet.smelt_closure_shared()); if shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
+impl Drop for Greeter { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let smelt_shared = self.0.try_borrow().map_or(true, |smelt_inner| smelt_inner.greet.smelt_closure_shared()); if smelt_shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
 
 #[allow(dead_code)]
 struct Greeter(::std::rc::Rc<::std::cell::RefCell<GreeterInner>>);
@@ -4655,14 +4655,14 @@ impl SmeltFromUnknown for Greeter {
         let SmeltUnknown::Object(object) = value else { return Self::default() };
         if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(field) = object.get("name") { result.0.borrow_mut().name = SmeltFromUnknown::smelt_from_unknown(field); }
-        if let Some(field) = object.get("msg") { result.0.borrow_mut().msg = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(smelt_field) = object.get("name") { result.0.borrow_mut().name = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = object.get("msg") { result.0.borrow_mut().msg = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
         result
     }
 }
 
 impl SmeltReferenceHandle for SmartGreeter { type Cell = ::std::cell::RefCell<SmartGreeterInner>; fn smelt_handle_cell(&self) -> &::std::rc::Rc<Self::Cell> { &self.0 } fn smelt_from_handle_cell(cell: ::std::rc::Rc<Self::Cell>) -> Self { Self(cell) } }
-impl Drop for SmartGreeter { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let shared = self.0.try_borrow().map_or(true, |inner| inner.greet.smelt_closure_shared()); if shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
+impl Drop for SmartGreeter { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let smelt_shared = self.0.try_borrow().map_or(true, |smelt_inner| smelt_inner.greet.smelt_closure_shared()); if smelt_shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
 
 #[allow(dead_code)]
 struct SmartGreeter(::std::rc::Rc<::std::cell::RefCell<SmartGreeterInner>>);
@@ -4725,14 +4725,14 @@ impl SmeltFromUnknown for SmartGreeter {
         let SmeltUnknown::Object(object) = value else { return Self::default() };
         if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(field) = object.get("name") { result.0.borrow_mut().name = SmeltFromUnknown::smelt_from_unknown(field); }
-        if let Some(field) = object.get("msg") { result.0.borrow_mut().msg = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(smelt_field) = object.get("name") { result.0.borrow_mut().name = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = object.get("msg") { result.0.borrow_mut().msg = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
         result
     }
 }
 
 impl SmeltReferenceHandle for AppBase { type Cell = ::std::cell::RefCell<AppBaseInner>; fn smelt_handle_cell(&self) -> &::std::rc::Rc<Self::Cell> { &self.0 } fn smelt_from_handle_cell(cell: ::std::rc::Rc<Self::Cell>) -> Self { Self(cell) } }
-impl Drop for AppBase { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let shared = self.0.try_borrow().map_or(true, |inner| inner.add.smelt_closure_shared() || inner.handle.smelt_closure_shared()); if shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
+impl Drop for AppBase { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let smelt_shared = self.0.try_borrow().map_or(true, |smelt_inner| smelt_inner.add.smelt_closure_shared() || smelt_inner.handle.smelt_closure_shared()); if smelt_shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
 
 #[allow(dead_code)]
 struct AppBase(::std::rc::Rc<::std::cell::RefCell<AppBaseInner>>);
@@ -4748,8 +4748,8 @@ impl Default for AppBaseInner {
         Self {
             routes: SmeltList::new(Vec::<JsString>::new()),
             prefix: JsString::new(),
-            add: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |arg0: JsString| -> f64 { 0.0 }); smelt_default_callback },
-            handle: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback },
+            add: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> f64 { 0.0 }); smelt_default_callback },
+            handle: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback },
         }
     }
 }
@@ -4783,7 +4783,7 @@ impl IntoSmeltUnknown for AppBase {
         let __smelt_id = smelt_reference_object_identity(&self.0);
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
-        ("routes".to_owned(), SmeltUnknown::Array(__smelt_inner.routes.clone().into_iter().map(|value| SmeltUnknown::String(value.into())).collect())),
+        ("routes".to_owned(), SmeltUnknown::Array(__smelt_inner.routes.clone().into_iter().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).collect())),
         ("prefix".to_owned(), SmeltUnknown::String((__smelt_inner.prefix.clone()).into())),
         ("add".to_owned(), smelt_keep_receiver_alive(SmeltUnknown::Null, &self)),
         ("handle".to_owned(), smelt_keep_receiver_alive(SmeltUnknown::Null, &self)),
@@ -4798,14 +4798,14 @@ impl SmeltFromUnknown for AppBase {
         let SmeltUnknown::Object(object) = value else { return Self::default() };
         if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(field) = object.get("routes") { result.0.borrow_mut().routes = SmeltFromUnknown::smelt_from_unknown(field); }
-        if let Some(field) = object.get("prefix") { result.0.borrow_mut().prefix = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(smelt_field) = object.get("routes") { result.0.borrow_mut().routes = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = object.get("prefix") { result.0.borrow_mut().prefix = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
         result
     }
 }
 
 impl SmeltReferenceHandle for App { type Cell = ::std::cell::RefCell<AppInner>; fn smelt_handle_cell(&self) -> &::std::rc::Rc<Self::Cell> { &self.0 } fn smelt_from_handle_cell(cell: ::std::rc::Rc<Self::Cell>) -> Self { Self(cell) } }
-impl Drop for App { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let shared = self.0.try_borrow().map_or(true, |inner| inner.add.smelt_closure_shared() || inner.handle.smelt_closure_shared()); if shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
+impl Drop for App { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let smelt_shared = self.0.try_borrow().map_or(true, |smelt_inner| smelt_inner.add.smelt_closure_shared() || smelt_inner.handle.smelt_closure_shared()); if smelt_shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
 
 #[allow(dead_code)]
 struct App(::std::rc::Rc<::std::cell::RefCell<AppInner>>);
@@ -4821,8 +4821,8 @@ impl Default for AppInner {
         Self {
             routes: SmeltList::new(Vec::<JsString>::new()),
             prefix: JsString::new(),
-            add: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |arg0: JsString| -> f64 { 0.0 }); smelt_default_callback },
-            handle: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback },
+            add: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> f64 { 0.0 }); smelt_default_callback },
+            handle: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback },
         }
     }
 }
@@ -4856,7 +4856,7 @@ impl IntoSmeltUnknown for App {
         let __smelt_id = smelt_reference_object_identity(&self.0);
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
-        ("routes".to_owned(), SmeltUnknown::Array(__smelt_inner.routes.clone().into_iter().map(|value| SmeltUnknown::String(value.into())).collect())),
+        ("routes".to_owned(), SmeltUnknown::Array(__smelt_inner.routes.clone().into_iter().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).collect())),
         ("prefix".to_owned(), SmeltUnknown::String((__smelt_inner.prefix.clone()).into())),
         ("add".to_owned(), smelt_keep_receiver_alive(SmeltUnknown::Null, &self)),
         ("handle".to_owned(), smelt_keep_receiver_alive(SmeltUnknown::Null, &self)),
@@ -4871,14 +4871,14 @@ impl SmeltFromUnknown for App {
         let SmeltUnknown::Object(object) = value else { return Self::default() };
         if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(field) = object.get("routes") { result.0.borrow_mut().routes = SmeltFromUnknown::smelt_from_unknown(field); }
-        if let Some(field) = object.get("prefix") { result.0.borrow_mut().prefix = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(smelt_field) = object.get("routes") { result.0.borrow_mut().routes = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = object.get("prefix") { result.0.borrow_mut().prefix = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
         result
     }
 }
 
 impl SmeltReferenceHandle for PlainApp { type Cell = ::std::cell::RefCell<PlainAppInner>; fn smelt_handle_cell(&self) -> &::std::rc::Rc<Self::Cell> { &self.0 } fn smelt_from_handle_cell(cell: ::std::rc::Rc<Self::Cell>) -> Self { Self(cell) } }
-impl Drop for PlainApp { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let shared = self.0.try_borrow().map_or(true, |inner| inner.add.smelt_closure_shared() || inner.handle.smelt_closure_shared()); if shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
+impl Drop for PlainApp { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let smelt_shared = self.0.try_borrow().map_or(true, |smelt_inner| smelt_inner.add.smelt_closure_shared() || smelt_inner.handle.smelt_closure_shared()); if smelt_shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
 
 #[allow(dead_code)]
 struct PlainApp(::std::rc::Rc<::std::cell::RefCell<PlainAppInner>>);
@@ -4894,8 +4894,8 @@ impl Default for PlainAppInner {
         Self {
             routes: SmeltList::new(Vec::<JsString>::new()),
             prefix: JsString::new(),
-            add: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |arg0: JsString| -> f64 { 0.0 }); smelt_default_callback },
-            handle: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback },
+            add: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> f64 { 0.0 }); smelt_default_callback },
+            handle: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback },
         }
     }
 }
@@ -4929,7 +4929,7 @@ impl IntoSmeltUnknown for PlainApp {
         let __smelt_id = smelt_reference_object_identity(&self.0);
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
-        ("routes".to_owned(), SmeltUnknown::Array(__smelt_inner.routes.clone().into_iter().map(|value| SmeltUnknown::String(value.into())).collect())),
+        ("routes".to_owned(), SmeltUnknown::Array(__smelt_inner.routes.clone().into_iter().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).collect())),
         ("prefix".to_owned(), SmeltUnknown::String((__smelt_inner.prefix.clone()).into())),
         ("add".to_owned(), smelt_keep_receiver_alive(SmeltUnknown::Null, &self)),
         ("handle".to_owned(), smelt_keep_receiver_alive(SmeltUnknown::Null, &self)),
@@ -4944,8 +4944,8 @@ impl SmeltFromUnknown for PlainApp {
         let SmeltUnknown::Object(object) = value else { return Self::default() };
         if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(field) = object.get("routes") { result.0.borrow_mut().routes = SmeltFromUnknown::smelt_from_unknown(field); }
-        if let Some(field) = object.get("prefix") { result.0.borrow_mut().prefix = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(smelt_field) = object.get("routes") { result.0.borrow_mut().routes = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = object.get("prefix") { result.0.borrow_mut().prefix = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
         result
     }
 }
@@ -4998,8 +4998,8 @@ impl SmeltFromUnknown for Tally {
         let SmeltUnknown::Object(object) = value else { return Self::default() };
         if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(field) = object.get("total") { result.0.borrow_mut().total = SmeltFromUnknown::smelt_from_unknown(field); }
-        if let Some(field) = object.get("history") { result.0.borrow_mut().history = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(smelt_field) = object.get("total") { result.0.borrow_mut().total = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = object.get("history") { result.0.borrow_mut().history = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
         result
     }
 }
@@ -5054,9 +5054,9 @@ impl SmeltFromUnknown for DoubleTally {
         let SmeltUnknown::Object(object) = value else { return Self::default() };
         if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(field) = object.get("total") { result.0.borrow_mut().total = SmeltFromUnknown::smelt_from_unknown(field); }
-        if let Some(field) = object.get("history") { result.0.borrow_mut().history = SmeltFromUnknown::smelt_from_unknown(field); }
-        if let Some(field) = object.get("doubled") { result.0.borrow_mut().doubled = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(smelt_field) = object.get("total") { result.0.borrow_mut().total = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = object.get("history") { result.0.borrow_mut().history = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = object.get("doubled") { result.0.borrow_mut().doubled = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
         result
     }
 }
@@ -5078,11 +5078,11 @@ impl SmeltFromUnknown for Point {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("x") {
-                result.x = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("x") {
+                result.x = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("y") {
-                result.y = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("y") {
+                result.y = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -5108,14 +5108,14 @@ impl SmeltFromUnknown for Point3 {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("x") {
-                result.x = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("x") {
+                result.x = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("y") {
-                result.y = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("y") {
+                result.y = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("z") {
-                result.z = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("z") {
+                result.z = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -5145,20 +5145,20 @@ impl SmeltFromUnknown for Point4 {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("x") {
-                result.x = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("x") {
+                result.x = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("y") {
-                result.y = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("y") {
+                result.y = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("z") {
-                result.z = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("z") {
+                result.z = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("w") {
-                result.w = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("w") {
+                result.w = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("tag") {
-                result.tag = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("tag") {
+                result.tag = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -5211,7 +5211,7 @@ impl SmeltFromUnknown for Counter {
         let SmeltUnknown::Object(object) = value else { return Self::default() };
         if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(field) = object.get("count") { result.0.borrow_mut().count = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(smelt_field) = object.get("count") { result.0.borrow_mut().count = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
         result
     }
 }
@@ -5262,7 +5262,7 @@ impl SmeltFromUnknown for FromThree {
         let SmeltUnknown::Object(object) = value else { return Self::default() };
         if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(field) = object.get("count") { result.0.borrow_mut().count = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(smelt_field) = object.get("count") { result.0.borrow_mut().count = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
         result
     }
 }
@@ -5282,8 +5282,8 @@ impl SmeltFromUnknown for Labelled {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("label") {
-                result.label = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("label") {
+                result.label = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -5305,8 +5305,8 @@ impl SmeltFromUnknown for Named {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("label") {
-                result.label = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("label") {
+                result.label = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -5314,7 +5314,7 @@ impl SmeltFromUnknown for Named {
 }
 
 impl SmeltReferenceHandle for Router { type Cell = ::std::cell::RefCell<RouterInner>; fn smelt_handle_cell(&self) -> &::std::rc::Rc<Self::Cell> { &self.0 } fn smelt_from_handle_cell(cell: ::std::rc::Rc<Self::Cell>) -> Self { Self(cell) } }
-impl Drop for Router { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let shared = self.0.try_borrow().map_or(true, |inner| inner.on_error.smelt_closure_shared()); if shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
+impl Drop for Router { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let smelt_shared = self.0.try_borrow().map_or(true, |smelt_inner| smelt_inner.on_error.smelt_closure_shared()); if smelt_shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
 
 #[allow(dead_code)]
 struct Router(::std::rc::Rc<::std::cell::RefCell<RouterInner>>);
@@ -5329,7 +5329,7 @@ impl Default for RouterInner {
         Self {
             label: JsString::new(),
             handler: JsString::new(),
-            on_error: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> Router> = ::std::rc::Rc::new(move |arg0: JsString| -> Router { Default::default() }); smelt_default_callback },
+            on_error: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> Router> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> Router { Default::default() }); smelt_default_callback },
         }
     }
 }
@@ -5379,14 +5379,14 @@ impl SmeltFromUnknown for Router {
         let SmeltUnknown::Object(object) = value else { return Self::default() };
         if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(field) = object.get("label") { result.0.borrow_mut().label = SmeltFromUnknown::smelt_from_unknown(field); }
-        if let Some(field) = object.get("handler") { result.0.borrow_mut().handler = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(smelt_field) = object.get("label") { result.0.borrow_mut().label = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = object.get("handler") { result.0.borrow_mut().handler = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
         result
     }
 }
 
 impl SmeltReferenceHandle for RoutedApp { type Cell = ::std::cell::RefCell<RoutedAppInner>; fn smelt_handle_cell(&self) -> &::std::rc::Rc<Self::Cell> { &self.0 } fn smelt_from_handle_cell(cell: ::std::rc::Rc<Self::Cell>) -> Self { Self(cell) } }
-impl Drop for RoutedApp { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let shared = self.0.try_borrow().map_or(true, |inner| inner.on_error.smelt_closure_shared()); if shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
+impl Drop for RoutedApp { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let smelt_shared = self.0.try_borrow().map_or(true, |smelt_inner| smelt_inner.on_error.smelt_closure_shared()); if smelt_shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
 
 #[allow(dead_code)]
 struct RoutedApp(::std::rc::Rc<::std::cell::RefCell<RoutedAppInner>>);
@@ -5401,7 +5401,7 @@ impl Default for RoutedAppInner {
         Self {
             label: JsString::new(),
             handler: JsString::new(),
-            on_error: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> Router> = ::std::rc::Rc::new(move |arg0: JsString| -> Router { Default::default() }); smelt_default_callback },
+            on_error: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> Router> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> Router { Default::default() }); smelt_default_callback },
         }
     }
 }
@@ -5451,8 +5451,8 @@ impl SmeltFromUnknown for RoutedApp {
         let SmeltUnknown::Object(object) = value else { return Self::default() };
         if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(field) = object.get("label") { result.0.borrow_mut().label = SmeltFromUnknown::smelt_from_unknown(field); }
-        if let Some(field) = object.get("handler") { result.0.borrow_mut().handler = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(smelt_field) = object.get("label") { result.0.borrow_mut().label = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = object.get("handler") { result.0.borrow_mut().handler = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
         result
     }
 }
@@ -5530,9 +5530,9 @@ impl Greeter {
     let _smelt_tmp_1 = ::std::rc::Rc::new({
     let smelt_capture_this = SmeltWeakReceiver::new(&this);
     move || {
-    let _smelt_tmp_1: JsString = JsString::from("base:") + &(*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().name.clone().clone();
+    let _smelt_tmp_1: JsString = JsString::from("base:") + &(((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().name).clone());
     let _smelt_tmp_2: JsString = _smelt_tmp_1.clone() + &JsString::from(":");
-    let _smelt_tmp_3: JsString = _smelt_tmp_2.clone() + &(*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().msg.clone().clone();
+    let _smelt_tmp_3: JsString = _smelt_tmp_2.clone() + &(((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().msg).clone());
     _smelt_tmp_3.clone()
     }
 });
@@ -5557,9 +5557,9 @@ impl SmartGreeter {
     let _smelt_tmp_1 = ::std::rc::Rc::new({
     let smelt_capture_this = SmeltWeakReceiver::new(&this);
     move || {
-    let _smelt_tmp_1: JsString = JsString::from("base:") + &(*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().name.clone().clone();
+    let _smelt_tmp_1: JsString = JsString::from("base:") + &(((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().name).clone());
     let _smelt_tmp_2: JsString = _smelt_tmp_1.clone() + &JsString::from(":");
-    let _smelt_tmp_3: JsString = _smelt_tmp_2.clone() + &(*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().msg.clone().clone();
+    let _smelt_tmp_3: JsString = _smelt_tmp_2.clone() + &(((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().msg).clone());
     _smelt_tmp_3.clone()
     }
 });
@@ -5572,7 +5572,7 @@ impl AppBase {
     fn new(label: JsString) -> Self {
     let _smelt_tmp_5: ::std::rc::Rc<dyn Fn(JsString) -> f64>;
     let _smelt_tmp_6: ::std::rc::Rc<dyn Fn(JsString) -> JsString>;
-    let smelt_capture_this: ::std::rc::Rc<::std::cell::RefCell<AppBase>> = ::std::rc::Rc::new(::std::cell::RefCell::new(AppBase(::std::rc::Rc::new(::std::cell::RefCell::new(AppBaseInner { routes: SmeltList::new(Vec::<JsString>::new()), prefix: JsString::new(), add: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |arg0: JsString| -> f64 { 0.0 }); smelt_default_callback }, handle: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback } })))));
+    let smelt_capture_this: ::std::rc::Rc<::std::cell::RefCell<AppBase>> = ::std::rc::Rc::new(::std::cell::RefCell::new(AppBase(::std::rc::Rc::new(::std::cell::RefCell::new(AppBaseInner { routes: SmeltList::new(Vec::<JsString>::new()), prefix: JsString::new(), add: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> f64 { 0.0 }); smelt_default_callback }, handle: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback } })))));
     let _smelt_tmp_2: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
     (*smelt_capture_this.borrow()).0.borrow_mut().routes = Into::<SmeltList<_>>::into(_smelt_tmp_2);
     (*smelt_capture_this.borrow()).0.borrow_mut().prefix = JsString::new();
@@ -5581,11 +5581,11 @@ impl AppBase {
     _smelt_tmp_5 = ::std::rc::Rc::new({
     let smelt_capture_this = SmeltWeakReceiver::new(&*smelt_capture_this.borrow());
     move |closure_arg_0: JsString| {
-    let mut _smelt_tmp_2: SmeltList<JsString> = Into::<SmeltList<_>>::into((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().routes.clone());
-    let _smelt_tmp_3: JsString = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().prefix.clone().clone() + &closure_arg_0.clone();
+    let mut _smelt_tmp_2: SmeltList<JsString> = Into::<SmeltList<_>>::into(((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().routes).clone());
+    let _smelt_tmp_3: JsString = (((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().prefix).clone()) + &closure_arg_0.clone();
     let _smelt_tmp_4: f64 = { let smelt_push_item = _smelt_tmp_3.clone(); _smelt_tmp_2.borrow_mut().push(smelt_push_item); _smelt_tmp_2.len() as f64 };
     (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow_mut().routes = Into::<SmeltList<_>>::into(_smelt_tmp_2.clone());
-    let _smelt_tmp_5: f64 = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().routes.clone().len() as f64;
+    let _smelt_tmp_5: f64 = ((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().routes).clone().len() as f64;
     _smelt_tmp_5
     }
 });
@@ -5596,8 +5596,8 @@ impl AppBase {
     let mut _smelt_tmp_5: JsString;
     let _smelt_tmp_6: JsString;
     let _smelt_tmp_7: JsString;
-    let full: JsString = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().prefix.clone().clone() + &closure_arg_0.clone();
-    let _smelt_tmp_4: bool = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().routes.clone().borrow().contains(&full.clone());
+    let full: JsString = (((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().prefix).clone()) + &closure_arg_0.clone();
+    let _smelt_tmp_4: bool = ((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().routes).clone().borrow().contains(&full.clone());
     if _smelt_tmp_4 {
     _smelt_tmp_6 = JsString::from("hit ") + &full.clone();
     _smelt_tmp_5 = _smelt_tmp_6.clone();
@@ -5615,7 +5615,7 @@ impl AppBase {
 
 impl App {
     fn new(prefix: JsString) -> Self {
-    let mut this: Self = App(::std::rc::Rc::new(::std::cell::RefCell::new(AppInner { routes: SmeltList::new(Vec::<JsString>::new()), prefix: JsString::new(), add: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |arg0: JsString| -> f64 { 0.0 }); smelt_default_callback }, handle: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback } })));
+    let mut this: Self = App(::std::rc::Rc::new(::std::cell::RefCell::new(AppInner { routes: SmeltList::new(Vec::<JsString>::new()), prefix: JsString::new(), add: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> f64 { 0.0 }); smelt_default_callback }, handle: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback } })));
     let _smelt_tmp_2: Self = Self::__smelt_init_AppBase(this, JsString::from("app"));
     this = _smelt_tmp_2;
     this.0.borrow_mut().prefix = prefix.clone();
@@ -5633,11 +5633,11 @@ impl App {
     _smelt_tmp_5 = ::std::rc::Rc::new({
     let smelt_capture_this = SmeltWeakReceiver::new(&*smelt_capture_this.borrow());
     move |closure_arg_0: JsString| {
-    let mut _smelt_tmp_2: SmeltList<JsString> = Into::<SmeltList<_>>::into((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().routes.clone());
-    let _smelt_tmp_3: JsString = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().prefix.clone().clone() + &closure_arg_0.clone();
+    let mut _smelt_tmp_2: SmeltList<JsString> = Into::<SmeltList<_>>::into(((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().routes).clone());
+    let _smelt_tmp_3: JsString = (((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().prefix).clone()) + &closure_arg_0.clone();
     let _smelt_tmp_4: f64 = { let smelt_push_item = _smelt_tmp_3.clone(); _smelt_tmp_2.borrow_mut().push(smelt_push_item); _smelt_tmp_2.len() as f64 };
     (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow_mut().routes = Into::<SmeltList<_>>::into(_smelt_tmp_2.clone());
-    let _smelt_tmp_5: f64 = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().routes.clone().len() as f64;
+    let _smelt_tmp_5: f64 = ((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().routes).clone().len() as f64;
     _smelt_tmp_5
     }
 });
@@ -5648,8 +5648,8 @@ impl App {
     let mut _smelt_tmp_5: JsString;
     let _smelt_tmp_6: JsString;
     let _smelt_tmp_7: JsString;
-    let full: JsString = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().prefix.clone().clone() + &closure_arg_0.clone();
-    let _smelt_tmp_4: bool = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().routes.clone().borrow().contains(&full.clone());
+    let full: JsString = (((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().prefix).clone()) + &closure_arg_0.clone();
+    let _smelt_tmp_4: bool = ((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().routes).clone().borrow().contains(&full.clone());
     if _smelt_tmp_4 {
     _smelt_tmp_6 = JsString::from("hit ") + &full.clone();
     _smelt_tmp_5 = _smelt_tmp_6.clone();
@@ -5667,7 +5667,7 @@ impl App {
 
 impl PlainApp {
     fn new() -> Self {
-    let mut this: Self = PlainApp(::std::rc::Rc::new(::std::cell::RefCell::new(PlainAppInner { routes: SmeltList::new(Vec::<JsString>::new()), prefix: JsString::new(), add: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |arg0: JsString| -> f64 { 0.0 }); smelt_default_callback }, handle: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback } })));
+    let mut this: Self = PlainApp(::std::rc::Rc::new(::std::cell::RefCell::new(PlainAppInner { routes: SmeltList::new(Vec::<JsString>::new()), prefix: JsString::new(), add: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> f64 { 0.0 }); smelt_default_callback }, handle: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback } })));
     let _smelt_tmp_1: Self = Self::__smelt_init_AppBase(this, JsString::from("plain"));
     this = _smelt_tmp_1;
     this.0.borrow_mut().prefix = JsString::from("#");
@@ -5685,11 +5685,11 @@ impl PlainApp {
     _smelt_tmp_5 = ::std::rc::Rc::new({
     let smelt_capture_this = SmeltWeakReceiver::new(&*smelt_capture_this.borrow());
     move |closure_arg_0: JsString| {
-    let mut _smelt_tmp_2: SmeltList<JsString> = Into::<SmeltList<_>>::into((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().routes.clone());
-    let _smelt_tmp_3: JsString = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().prefix.clone().clone() + &closure_arg_0.clone();
+    let mut _smelt_tmp_2: SmeltList<JsString> = Into::<SmeltList<_>>::into(((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().routes).clone());
+    let _smelt_tmp_3: JsString = (((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().prefix).clone()) + &closure_arg_0.clone();
     let _smelt_tmp_4: f64 = { let smelt_push_item = _smelt_tmp_3.clone(); _smelt_tmp_2.borrow_mut().push(smelt_push_item); _smelt_tmp_2.len() as f64 };
     (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow_mut().routes = Into::<SmeltList<_>>::into(_smelt_tmp_2.clone());
-    let _smelt_tmp_5: f64 = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().routes.clone().len() as f64;
+    let _smelt_tmp_5: f64 = ((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().routes).clone().len() as f64;
     _smelt_tmp_5
     }
 });
@@ -5700,8 +5700,8 @@ impl PlainApp {
     let mut _smelt_tmp_5: JsString;
     let _smelt_tmp_6: JsString;
     let _smelt_tmp_7: JsString;
-    let full: JsString = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().prefix.clone().clone() + &closure_arg_0.clone();
-    let _smelt_tmp_4: bool = (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().routes.clone().borrow().contains(&full.clone());
+    let full: JsString = (((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().prefix).clone()) + &closure_arg_0.clone();
+    let _smelt_tmp_4: bool = ((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().routes).clone().borrow().contains(&full.clone());
     if _smelt_tmp_4 {
     _smelt_tmp_6 = JsString::from("hit ") + &full.clone();
     _smelt_tmp_5 = _smelt_tmp_6.clone();
@@ -5913,22 +5913,22 @@ impl Named {
 
 impl Router {
     fn new() -> Self {
-    let smelt_capture_this: ::std::rc::Rc<::std::cell::RefCell<Router>> = ::std::rc::Rc::new(::std::cell::RefCell::new(Router(::std::rc::Rc::new(::std::cell::RefCell::new(RouterInner { label: JsString::new(), handler: JsString::new(), on_error: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> Router> = ::std::rc::Rc::new(move |arg0: JsString| -> Router { Default::default() }); smelt_default_callback } })))));
+    let smelt_capture_this: ::std::rc::Rc<::std::cell::RefCell<Router>> = ::std::rc::Rc::new(::std::cell::RefCell::new(Router(::std::rc::Rc::new(::std::cell::RefCell::new(RouterInner { label: JsString::new(), handler: JsString::new(), on_error: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> Router> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> Router { Default::default() }); smelt_default_callback } })))));
     (*smelt_capture_this.borrow()).0.borrow_mut().label = JsString::from("r");
     (*smelt_capture_this.borrow()).0.borrow_mut().handler = JsString::from("default");
     let _smelt_tmp_1 = ::std::rc::Rc::new({
     let smelt_capture_this = SmeltWeakReceiver::new(&*smelt_capture_this.borrow());
     move |closure_arg_0: JsString| {
     (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow_mut().handler = closure_arg_0.clone();
-    (*smelt_capture_this.smelt_receiver_cell().borrow()).clone()
+    ((*smelt_capture_this.smelt_receiver_cell().borrow())).clone()
     }
 });
     (*smelt_capture_this.borrow()).0.borrow_mut().on_error = _smelt_tmp_1.clone();
     return ((*smelt_capture_this.borrow())).clone();
     }
     fn describe(&self) -> JsString {
-    let _smelt_tmp_1: JsString = self.0.borrow().label.clone().clone() + &JsString::from(":");
-    let _smelt_tmp_2: JsString = _smelt_tmp_1 + &self.0.borrow().handler.clone().clone();
+    let _smelt_tmp_1: JsString = self.0.borrow().label.clone() + &JsString::from(":");
+    let _smelt_tmp_2: JsString = _smelt_tmp_1 + &self.0.borrow().handler.clone();
     return _smelt_tmp_2;
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
@@ -5946,7 +5946,7 @@ impl Router {
 
 impl RoutedApp {
     fn new() -> Self {
-    let mut this: Self = RoutedApp(::std::rc::Rc::new(::std::cell::RefCell::new(RoutedAppInner { label: JsString::new(), handler: JsString::new(), on_error: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> Router> = ::std::rc::Rc::new(move |arg0: JsString| -> Router { Default::default() }); smelt_default_callback } })));
+    let mut this: Self = RoutedApp(::std::rc::Rc::new(::std::cell::RefCell::new(RoutedAppInner { label: JsString::new(), handler: JsString::new(), on_error: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> Router> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> Router { Default::default() }); smelt_default_callback } })));
     let _smelt_tmp_1: Self = Self::__smelt_init_Router(this);
     this = _smelt_tmp_1;
     this.0.borrow_mut().label = JsString::from("app");
@@ -5960,15 +5960,15 @@ impl RoutedApp {
     let smelt_capture_this = SmeltWeakReceiver::new(&*smelt_capture_this.borrow());
     move |closure_arg_0: JsString| {
     (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow_mut().handler = closure_arg_0.clone();
-    { let smelt_struct_value = (*smelt_capture_this.smelt_receiver_cell().borrow()).clone().clone(); Router(::std::rc::Rc::new(::std::cell::RefCell::new(RouterInner { label: smelt_struct_value.0.borrow().label.clone(), handler: smelt_struct_value.0.borrow().handler.clone(), on_error: smelt_struct_value.0.borrow().on_error.clone() }))) }
+    { let smelt_struct_value = ((*smelt_capture_this.smelt_receiver_cell().borrow())).clone().clone(); Router(::std::rc::Rc::new(::std::cell::RefCell::new(RouterInner { label: smelt_struct_value.0.borrow().label.clone(), handler: smelt_struct_value.0.borrow().handler.clone(), on_error: smelt_struct_value.0.borrow().on_error.clone() }))) }
     }
 });
     (*smelt_capture_this.borrow()).0.borrow_mut().on_error = _smelt_tmp_1.clone();
     return ((*smelt_capture_this.borrow())).clone();
     }
     fn describe(&self) -> JsString {
-    let _smelt_tmp_1: JsString = self.0.borrow().label.clone().clone() + &JsString::from(":");
-    let _smelt_tmp_2: JsString = _smelt_tmp_1 + &self.0.borrow().handler.clone().clone();
+    let _smelt_tmp_1: JsString = self.0.borrow().label.clone() + &JsString::from(":");
+    let _smelt_tmp_2: JsString = _smelt_tmp_1 + &self.0.borrow().handler.clone();
     return _smelt_tmp_2;
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.

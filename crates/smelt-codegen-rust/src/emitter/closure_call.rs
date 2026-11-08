@@ -50,7 +50,7 @@ impl FunctionEmitter<'_> {
                 if !self.callee_uses_erased_call_method(callee)? {
                     return self.value_at_type(callee, dest_ty);
                 }
-                return Ok({ let receiver = self.operand_expr(callee)?; RustExpr::postfix_on(&receiver, format!("{receiver}.smelt_bind_this({receiver_text})")) });
+                return Ok({ let receiver = self.operand_expr(callee)?; receiver.postfix(format!(".smelt_bind_this({receiver_text})", receiver_text = receiver_text.delimited())) });
             }
             let params = (0..function.params.len())
                 .map(|index| format!("smelt_bound_arg_{index}"))
@@ -67,19 +67,19 @@ impl FunctionEmitter<'_> {
             let (bind_receiver, install) =
                 if matches!(self.mir.types.get(receiver_ty), Some(Type::Unknown)) {
                     (
-                        format!("let smelt_bound_this = {receiver_text};"),
+                        format!("let smelt_bound_this = {receiver_text};", receiver_text = receiver_text.delimited()),
                         "smelt_push_this(smelt_bound_this.clone())".to_owned(),
                     )
                 } else {
                     let lazy_erase =
-                        self.erase_rendered(&RustExpr::chain("smelt_bound_receiver.clone()").ending_in_clone(), receiver_ty)?;
+                        self.erase_rendered(&RustExpr::path("smelt_bound_receiver").cloned_value(), receiver_ty)?;
                     (
                         format!(
                             "let smelt_bound_receiver = {}.clone();",
-                            self.operand_expr(receiver)?
+                            self.operand_expr(receiver)?.tight()
                         ),
                         format!(
-                            "smelt_push_this_lazy({{ let smelt_bound_receiver = smelt_bound_receiver.clone(); ::std::rc::Rc::new(move || {lazy_erase}) }})"
+                            "smelt_push_this_lazy({{ let smelt_bound_receiver = smelt_bound_receiver.clone(); ::std::rc::Rc::new(move || {lazy_erase}) }})", lazy_erase = lazy_erase.delimited()
                         ),
                     )
                 };
@@ -104,17 +104,17 @@ impl FunctionEmitter<'_> {
             };
             return Ok(RustExpr::atom(format!(
                 "{{ let smelt_bound_callee = {callee}.clone();                          {bind_receiver}                          let smelt_bound: {ty} = ::std::rc::Rc::new(move |{params}| {{                          let _smelt_this_guard = {install};                          {forwarded} }}); smelt_bound }}",
-                callee = self.operand_expr(callee)?,
+                callee = self.operand_expr(callee)?.tight(),
                 // `impl Trait` is illegal in a `let` annotation, and the
                 // annotation is precisely what drives parameter inference
                 // here, so the boxed `dyn` spelling is required.
-                ty = self.rendered_type(callee_ty)?,
+                ty = self.rendered_type(callee_ty)?, forwarded = forwarded.delimited(),
             )));
         }
         {
             Ok(RustExpr::chain(format!(
                 "smelt_bind_this({}, {receiver_text})",
-                self.erase(callee)?
+                self.erase(callee)?.delimited(), receiver_text = receiver_text.delimited()
             )))
         }
     }
@@ -199,7 +199,7 @@ impl FunctionEmitter<'_> {
             // being mistaken for a spread and flattened into its elements.
             let smelt_call_args = RustExpr::atom(format!("vec![{}]", rendered_args.join(", ")));
             let call_text =
-                self.dynamic_callable_dispatch_expr(&callee_text, &smelt_call_args, self.prototype_method_not_callable(callee).as_deref());
+                self.dynamic_callable_dispatch_expr(&callee_text, &smelt_call_args, self.prototype_method_not_callable(callee).as_deref())?;
             let unknown_ty = self.type_id(Type::Unknown)?;
             if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
                 return Ok(call_text);
@@ -230,15 +230,15 @@ impl FunctionEmitter<'_> {
             let rendered_args = self.indirect_call_args_expr(&function, args)?;
             let raw_call = if function.may_throw {
                 RustExpr::atom(format!(
-                    "(smelt_function)({rendered_args}).unwrap_or_else(|error| smelt_panic_throw(error))"
+                    "(smelt_function)({rendered_args}).unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error))", rendered_args = rendered_args.delimited()
                 ))
             } else {
-                RustExpr::atom(format!("(smelt_function)({rendered_args})"))
+                RustExpr::atom(format!("(smelt_function)({rendered_args})", rendered_args = rendered_args.delimited()))
             };
             let coerced_call =
                 self.rendered_at_type(&raw_call, function.return_ty, inner_dest_ty, &self.render_scope())?;
             let map_expr =
-                RustExpr::postfix_on(&callee_text, format!("{callee_text}.clone().map(|smelt_function| {coerced_call})"));
+                callee_text.postfix(format!(".clone().map(|smelt_function| {coerced_call})", coerced_call = coerced_call.delimited()));
             if dest_is_optional {
                 return Ok(map_expr);
             }
@@ -247,8 +247,8 @@ impl FunctionEmitter<'_> {
             // `undefined` at the destination type.
             let unknown_ty = self.type_id(Type::Unknown)?;
             let undefined_text =
-                self.rendered_at_type(&self.carrier_expr(&RustExpr::undefined()), unknown_ty, dest_ty, &self.render_scope())?;
-            return Ok(RustExpr::postfix_on(&map_expr, format!("{map_expr}.unwrap_or({undefined_text})")));
+                self.rendered_at_type(&self.carrier_expr(self.carrier()?, &RustExpr::undefined()), unknown_ty, dest_ty, &self.render_scope())?;
+            return Ok(map_expr.postfix(format!(".unwrap_or({undefined_text})", undefined_text = undefined_text.delimited())));
         }
         // A callable-object record IS callable: its synthetic
         // `__smelt_call` slot holds the underlying function. Falling
@@ -407,9 +407,9 @@ impl FunctionEmitter<'_> {
         // `Callee::Indirect` arm consults the same helper.
         let uses_erased_call_method = self.callee_uses_erased_call_method(callee)?;
         let call_text = if uses_erased_call_method {
-            RustExpr::postfix_on(&callee_text, format!("{callee_text}.call({args_text})"))
+            callee_text.postfix(format!(".call({args_text})"))
         } else if self.callee_is_borrowed_function_handle(callee)? {
-            RustExpr::postfix_on(&callee_text, format!("{callee_text}({args_text})"))
+            callee_text.postfix(format!("({args_text})"))
         } else if self.operand_reads_through_ref_cell(callee) {
             // The callee was read out of a `RefCell` (a reference
             // class's function-typed field, or a shared closure
@@ -423,10 +423,10 @@ impl FunctionEmitter<'_> {
             // a `Ref` deref is E0507. Twin of the same binding in
             // `call.rs`.
             RustExpr::atom(format!(
-                "{{ let smelt_callable = ::std::clone::Clone::clone(&{callee_text}); (smelt_callable)({args_text}) }}"
+                "{{ let smelt_callable = ::std::clone::Clone::clone(&{callee_text}); (smelt_callable)({args_text}) }}", callee_text = callee_text.tight()
             ))
         } else {
-            RustExpr::atom(format!("({callee_text})({args_text})"))
+            RustExpr::atom(format!("({callee_text})({args_text})", callee_text = callee_text.delimited()))
         };
         self.closure_call_result_expr(callee, dest_ty, callee_ty, call_text, callee_is_erased_rest, uses_erased_call_method)
     }
@@ -457,11 +457,9 @@ impl FunctionEmitter<'_> {
                 // target the wrong output type).
                 let throwing_call_text = if function.may_throw && !returns_future {
                     if self.body_can_propagate_error() {
-                        RustExpr::atom_on(&call_text, format!("{call_text}?"))
+                        RustExpr::atom_on(&call_text, format!("{call_text}?", call_text = call_text.tight()))
                     } else {
-                        RustExpr::postfix_on(&call_text, format!(
-                            "{call_text}.unwrap_or_else(|error| smelt_panic_throw(error))"
-                        ))
+                        call_text.postfix(".unwrap_or_else(|error| smelt_panic_throw(error))")
                     }
                 } else {
                     call_text
@@ -499,7 +497,7 @@ impl FunctionEmitter<'_> {
         // says. Leaving the bare `SmeltUnknown` in it was E0308/E0618
         // at each of those uses (remeda `const fn = lazy(...lazyArgs)`).
         if callee_is_erased_rest && self.mir.types.get(dest_ty) == Some(&Type::None) {
-            return Ok(RustExpr::atom(format!("{{ {rendered_call_text}; () }}")));
+            return Ok(RustExpr::atom(format!("{{ {rendered_call_text}; () }}", rendered_call_text = rendered_call_text.delimited())));
         }
         self.rendered_at_type(&rendered_call_text, source_ty, dest_ty, &self.render_scope())
     }
@@ -559,27 +557,27 @@ impl FunctionEmitter<'_> {
             // The argument list handed to the callee: either the split
             // positional+rest text (reads `smelt_spread_args`) or the
             // packed list verbatim.
-            let inner_args = split_args.as_deref().unwrap_or(args_text);
+            let inner_args = split_args.as_ref().unwrap_or(args_text);
             // See the `ClosureCall` arm: the ABI question is answered by
             // the shared `callee_uses_erased_call_method` helper.
             let uses_erased_call_method = self.callee_uses_erased_call_method(callee)?;
             let inner_call = if uses_erased_call_method {
-                RustExpr::postfix_on(&callee_text, format!("{callee_text}.call({inner_args})"))
+                callee_text.postfix(format!(".call({inner_args})", inner_args = inner_args.delimited()))
             } else if self.callee_is_borrowed_function_handle(callee)? {
-                RustExpr::postfix_on(&callee_text, format!("{callee_text}({inner_args})"))
+                callee_text.postfix(format!("({inner_args})", inner_args = inner_args.delimited()))
             } else {
-                RustExpr::atom(format!("({callee_text})({inner_args})"))
+                RustExpr::atom(format!("({callee_text})({inner_args})", callee_text = callee_text.delimited(), inner_args = inner_args.delimited()))
             };
             // When the arguments were split, bind the packed list once so
             // the positional/rest reads above resolve; otherwise the call
             // stands alone.
             let call_text = if split_args.is_some() {
-                RustExpr::atom(format!("{{ let smelt_spread_args = {args_text}; {inner_call} }}"))
+                RustExpr::atom(format!("{{ let smelt_spread_args = {args_text}; {inner_call} }}", args_text = args_text.delimited(), inner_call = inner_call.delimited()))
             } else {
                 inner_call
             };
             if callee_is_erased_rest && self.mir.types.get(dest_ty) == Some(&Type::None) {
-                return Ok(RustExpr::atom(format!("{{ {call_text}; () }}")));
+                return Ok(RustExpr::atom(format!("{{ {call_text}; () }}", call_text = call_text.delimited())));
             }
             // Same rule as the `ClosureCall` arm above, for the same
             // reason: the erased ABI, `SmeltErasedFunction::call`, always
@@ -616,7 +614,7 @@ impl FunctionEmitter<'_> {
         // (E0308). An already-`Unknown` callee coerces to itself.
         let erased_callee =
             self.rendered_at_type(&callee_text, self.operand_ty(callee)?, unknown_ty, &self.render_scope())?;
-        let call_text = self.dynamic_callable_dispatch_expr(&erased_callee, args_text, self.prototype_method_not_callable(callee).as_deref());
+        let call_text = self.dynamic_callable_dispatch_expr(&erased_callee, args_text, self.prototype_method_not_callable(callee).as_deref())?;
         if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
             return Ok(call_text);
         }
@@ -643,12 +641,12 @@ impl FunctionEmitter<'_> {
             .iter()
             .map(|(case_key, case)| {
                 let case_text = self.value_at_type(case, dest_ty)?;
-                Ok(format!("{case_key:?} => {case_text}"))
+                Ok(format!("{case_key:?} => {case_text}", case_text = case_text.delimited()))
             })
             .collect::<Result<Vec<_>, EmitError>>()?
             .join(", ");
         Ok(RustExpr::atom(format!(
-            "{{ let __smelt_function_key = {key_text}; match __smelt_function_key.to_string().as_str() {{ {cases_text}, _ => panic!(\"unknown function table key: {{}}\", __smelt_function_key) }} }}"
+            "{{ let __smelt_function_key = {key_text}; match __smelt_function_key.to_string().as_str() {{ {cases_text}, _ => panic!(\"unknown function table key: {{}}\", __smelt_function_key) }} }}", key_text = key_text.delimited()
         )))
     }
 
@@ -702,7 +700,7 @@ impl FunctionEmitter<'_> {
             // Each positional reads the erased element at its index (absent
             // arguments become `undefined`, matching JS) and coerces to the
             // declared parameter type.
-            let element = RustExpr::chain(self.carrier_format(format_args!(
+            let element = RustExpr::chain(self.carrier_format(self.carrier()?, format_args!(
                 "smelt_spread_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
             )));
             let coerced = self.rendered_at_type(&element, unknown_ty, *param, &self.render_scope())?;
@@ -715,9 +713,9 @@ impl FunctionEmitter<'_> {
                 "SmeltList::from(smelt_spread_args.iter().skip({rest_index}).cloned().collect::<Vec<_>>())"
             ))
         } else {
-            let item_text = self.rendered_at_type(&RustExpr::path("value"), unknown_ty, *rest_item, &self.render_scope())?;
+            let item_text = self.rendered_at_type(&RustExpr::path("smelt_value"), unknown_ty, *rest_item, &self.render_scope())?;
             RustExpr::atom(format!(
-                "SmeltList::from(smelt_spread_args.iter().skip({rest_index}).cloned().map(|value| {item_text}).collect::<Vec<_>>())"
+                "SmeltList::from(smelt_spread_args.iter().skip({rest_index}).cloned().map(|smelt_value| {item_text}).collect::<Vec<_>>())", item_text = item_text.delimited()
             ))
         };
         rendered.push(rest_text);

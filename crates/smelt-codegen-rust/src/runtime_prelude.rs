@@ -49,9 +49,8 @@ pub(crate) fn emit_entries(
     for entry in entries {
         match entry {
             Entry::Item(name) if item_enabled(name, &flags) => {
-                let lines = render_item(name, &flags).ok_or_else(|| {
-                    EmitError::new(format!("the runtime order names `{name}`, which smelt-runtime does not define"))
-                })?;
+                let lines = render_item(name, &flags)
+                    .map_err(|error| EmitError::new(format!("the runtime order names `{name}`: {error}")))?;
                 for line in lines {
                     match line {
                         RenderedLine::Text(text) => writer.line(text),
@@ -112,12 +111,40 @@ fn emit_slot(writer: &mut CodeWriter, slot: &str, mir: &Mir) -> Result<(), EmitE
     }
 }
 
+/// The facts about a program, beyond its [`RuntimeDemand`], that a runtime
+/// marker's flag can ask.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct ProgramFacts {
+    /// Some record type is emitted as a reference class.
+    pub(crate) reference_classes: bool,
+    /// Erased views of reference classes write through to their fields.
+    pub(crate) erased_view_write_through: bool,
+    /// Some body reads the dynamic `this` receiver channel.
+    pub(crate) reads_this: bool,
+}
+
+impl ProgramFacts {
+    /// The facts of the program `context` emits.
+    pub(crate) fn of(context: &EmitContext) -> Self {
+        Self {
+            reference_classes: context.has_reference_classes(),
+            erased_view_write_through: context.erased_view_write_through(),
+            reads_this: context.program_reads_this(),
+        }
+    }
+}
+
 /// Answers a flag named by a runtime marker, or `None` for a name nothing answers.
 pub(crate) fn flag(context: &EmitContext, name: &str) -> Option<bool> {
-    let demand = context.demand();
+    flag_for(context.demand(), ProgramFacts::of(context), name)
+}
+
+/// Answers a flag named by a runtime marker from a closed `demand` and the
+/// program's other `facts`, or `None` for a name nothing answers.
+pub(crate) fn flag_for(demand: &crate::runtime_demand::RuntimeDemand, facts: ProgramFacts, name: &str) -> Option<bool> {
     match name {
         // A generated object keeps its origin slot for two different reasons.
-        "reference_origins" => Some(context.has_reference_classes() || demand.has(Need::HostOrigins)),
+        "reference_origins" => Some(facts.reference_classes || demand.has(Need::HostOrigins)),
         // Timers and `Date.now()` share one clock.
         "virtual_clock" => Some(demand.has(Need::Timers) || demand.has(Need::DateNow)),
         "crypto_any" => Some(
@@ -127,8 +154,8 @@ pub(crate) fn flag(context: &EmitContext, name: &str) -> Option<bool> {
         ),
         // `[[Construct]]` and the `instanceof` walk share one callable lookup.
         "callable_of" => Some(demand.has(Need::Construct) || demand.has(Need::InstanceOfValue)),
-        "write_through" => Some(context.erased_view_write_through()),
-        "reads_this" => Some(context.program_reads_this()),
+        "write_through" => Some(facts.erased_view_write_through && facts.reference_classes),
+        "reads_this" => Some(facts.reads_this),
         // A Python program's dicts keep insertion order; JavaScript's own-key
         // order moves array-index keys to the front.
         "js_key_order" => Some(!demand.has(Need::PyDictOrder)),

@@ -4461,8 +4461,8 @@ struct AppInner {
 impl Default for AppInner {
     fn default() -> Self {
         Self {
-            error_handler: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString, arg1: JsString| -> JsString { JsString::new() }); smelt_default_callback },
-            other: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString, arg1: JsString| -> JsString { JsString::new() }); smelt_default_callback },
+            error_handler: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: JsString, smelt_arg1: JsString| -> JsString { JsString::new() }); smelt_default_callback },
+            other: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: JsString, smelt_arg1: JsString| -> JsString { JsString::new() }); smelt_default_callback },
         }
     }
 }
@@ -4530,11 +4530,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_2: App = App::new();
     a = _smelt_tmp_2;
     _smelt_tmp_3 = __smelt_fn_typed_5_0();
-    _smelt_tmp_4 = smelt_same_function_identity(&{ let smelt_lhs_fn: ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString> = a.0.borrow().error_handler.clone().clone(); smelt_lhs_fn }, &{ let smelt_rhs_fn: ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString> = _smelt_tmp_3.clone(); smelt_rhs_fn });
+    _smelt_tmp_4 = smelt_same_function_identity(&{ let smelt_lhs_fn: ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString> = a.0.borrow().error_handler.clone(); smelt_lhs_fn }, &{ let smelt_rhs_fn: ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString> = _smelt_tmp_3.clone(); smelt_rhs_fn });
     _smelt_tmp_5 = __smelt_fn_typed_4_0();
-    _smelt_tmp_6 = smelt_same_function_identity(&{ let smelt_lhs_fn: ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString> = a.0.borrow().other.clone().clone(); smelt_lhs_fn }, &{ let smelt_rhs_fn: ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString> = _smelt_tmp_5.clone(); smelt_rhs_fn });
+    _smelt_tmp_6 = smelt_same_function_identity(&{ let smelt_lhs_fn: ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString> = a.0.borrow().other.clone(); smelt_lhs_fn }, &{ let smelt_rhs_fn: ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString> = _smelt_tmp_5.clone(); smelt_rhs_fn });
     _smelt_tmp_7 = __smelt_fn_typed_4_0();
-    _smelt_tmp_8 = smelt_same_function_identity(&{ let smelt_lhs_fn: ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString> = a.0.borrow().error_handler.clone().clone(); smelt_lhs_fn }, &{ let smelt_rhs_fn: ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString> = _smelt_tmp_7.clone(); smelt_rhs_fn });
+    _smelt_tmp_8 = smelt_same_function_identity(&{ let smelt_lhs_fn: ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString> = a.0.borrow().error_handler.clone(); smelt_lhs_fn }, &{ let smelt_rhs_fn: ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString> = _smelt_tmp_7.clone(); smelt_rhs_fn });
     let _ = { println!("{} {} {}", _smelt_tmp_4, _smelt_tmp_6, _smelt_tmp_8); };
     let _smelt_tmp_10: App = App::new();
     b = _smelt_tmp_10;
@@ -4545,7 +4545,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     b.0.borrow_mut().error_handler = _smelt_tmp_11.clone();
     _smelt_tmp_12 = __smelt_fn_typed_5_0();
-    _smelt_tmp_13 = smelt_same_function_identity(&{ let smelt_lhs_fn: ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString> = b.0.borrow().error_handler.clone().clone(); smelt_lhs_fn }, &{ let smelt_rhs_fn: ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString> = _smelt_tmp_12.clone(); smelt_rhs_fn });
+    _smelt_tmp_13 = smelt_same_function_identity(&{ let smelt_lhs_fn: ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString> = b.0.borrow().error_handler.clone(); smelt_lhs_fn }, &{ let smelt_rhs_fn: ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString> = _smelt_tmp_12.clone(); smelt_rhs_fn });
     _smelt_tmp_15 = { let smelt_callable = ::std::clone::Clone::clone(&b.0.borrow().error_handler.clone()); (smelt_callable)(JsString::from("e"), JsString::from("t")) };
     _smelt_tmp_17 = { let smelt_callable = ::std::clone::Clone::clone(&a.0.borrow().error_handler.clone()); (smelt_callable)(JsString::from("e"), JsString::from("t")) };
     let _ = { println!("{} {} {}", _smelt_tmp_13, _smelt_tmp_15, _smelt_tmp_17); };
@@ -4554,7 +4554,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 impl App {
     fn new() -> Self {
-    let mut this: Self = App(::std::rc::Rc::new(::std::cell::RefCell::new(AppInner { error_handler: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString, arg1: JsString| -> JsString { JsString::new() }); smelt_default_callback }, other: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString> = ::std::rc::Rc::new(move |arg0: JsString, arg1: JsString| -> JsString { JsString::new() }); smelt_default_callback } })));
+    let mut this: Self = App(::std::rc::Rc::new(::std::cell::RefCell::new(AppInner { error_handler: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: JsString, smelt_arg1: JsString| -> JsString { JsString::new() }); smelt_default_callback }, other: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: JsString, smelt_arg1: JsString| -> JsString { JsString::new() }); smelt_default_callback } })));
     let _smelt_tmp_1 = __smelt_fn_typed_5_0();
     this.0.borrow_mut().error_handler = _smelt_tmp_1.clone();
     let _smelt_tmp_2 = __smelt_fn_typed_4_0();
@@ -4566,7 +4566,7 @@ impl App {
 type SmeltFnTyped4_0 = ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString>;
 fn __smelt_fn_typed_4_0() -> SmeltFnTyped4_0 {
     thread_local! { static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped4_0> = ::std::cell::OnceCell::new(); }
-    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| { let smelt_function: SmeltFnTyped4_0 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: JsString| {
+    SMELT_FN_TYPED.with(|smelt_cell| smelt_cell.get_or_init(|| { let smelt_function: SmeltFnTyped4_0 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: JsString| {
     let _smelt_tmp_2: JsString = named_handler(closure_arg_0.clone(), closure_arg_1.clone());
     _smelt_tmp_2.clone()
     }); smelt_function }).clone())
@@ -4575,7 +4575,7 @@ fn __smelt_fn_typed_4_0() -> SmeltFnTyped4_0 {
 type SmeltFnTyped5_0 = ::std::rc::Rc<dyn Fn(JsString, JsString) -> JsString>;
 fn __smelt_fn_typed_5_0() -> SmeltFnTyped5_0 {
     thread_local! { static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped5_0> = ::std::cell::OnceCell::new(); }
-    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| { let smelt_function: SmeltFnTyped5_0 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: JsString| {
+    SMELT_FN_TYPED.with(|smelt_cell| smelt_cell.get_or_init(|| { let smelt_function: SmeltFnTyped5_0 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: JsString| {
     let _smelt_tmp_2: JsString = default_handler__module_main(closure_arg_0.clone(), closure_arg_1.clone());
     _smelt_tmp_2.clone()
     }); smelt_function }).clone())

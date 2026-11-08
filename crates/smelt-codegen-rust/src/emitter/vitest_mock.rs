@@ -18,7 +18,7 @@ impl FunctionEmitter<'_> {
         Ok(match implementation {
             Some(implementation) => RustExpr::chain(format!(
                 "smelt_vitest_mock_new(Some({}))",
-                self.value_at_type(implementation, self.type_id(Type::Unknown)?)?
+                self.value_at_type(implementation, self.type_id(Type::Unknown)?)?.delimited()
             )),
             None => RustExpr::chain("smelt_vitest_mock_new(None)"),
         })
@@ -32,8 +32,8 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         Ok(RustExpr::chain(format!(
             "smelt_vitest_mock_called_times(&({}), ({}) as f64)",
-            self.value_at_type(mock, self.type_id(Type::Unknown)?)?,
-            self.value_at_type(count, self.type_id(Type::Float)?)?
+            self.value_at_type(mock, self.type_id(Type::Unknown)?)?.delimited(),
+            self.value_at_type(count, self.type_id(Type::Float)?)?.delimited()
         )))
     }
 
@@ -46,7 +46,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         Ok(RustExpr::chain(format!(
             "smelt_vitest_mock_called_with(&({}), vec![{}], {})",
-            self.value_at_type(mock, self.type_id(Type::Unknown)?)?,
+            self.value_at_type(mock, self.type_id(Type::Unknown)?)?.delimited(),
             args.iter()
                 .map(|arg| self.value_at_type(arg, self.type_id(Type::Unknown)?))
                 .collect::<Result<Vec<_>, _>>()?
@@ -63,8 +63,8 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         Ok(RustExpr::chain(format!(
             "smelt_vitest_spy_on(&({}), &({}))",
-            self.value_at_type(target, self.type_id(Type::Unknown)?)?,
-            self.value_at_type(name, self.type_id(Type::String)?)?
+            self.value_at_type(target, self.type_id(Type::Unknown)?)?.delimited(),
+            self.value_at_type(name, self.type_id(Type::String)?)?.delimited()
         )))
     }
 
@@ -82,8 +82,8 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         Ok(RustExpr::chain(format!(
             "smelt_vitest_asymmetric_equals(&({}), &({}), &mut ::std::collections::HashSet::new())",
-            self.value_at_type(actual, self.type_id(Type::Unknown)?)?,
-            self.value_at_type(expected, self.type_id(Type::Unknown)?)?
+            self.value_at_type(actual, self.type_id(Type::Unknown)?)?.delimited(),
+            self.value_at_type(expected, self.type_id(Type::Unknown)?)?.delimited()
         )))
     }
 
@@ -95,8 +95,8 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         Ok(RustExpr::chain(format!(
             "smelt_vitest_mock_last_resolved_with(&({}), {})",
-            self.value_at_type(mock, self.type_id(Type::Unknown)?)?,
-            self.value_at_type(expected, self.type_id(Type::Unknown)?)?
+            self.value_at_type(mock, self.type_id(Type::Unknown)?)?.delimited(),
+            self.value_at_type(expected, self.type_id(Type::Unknown)?)?.delimited()
         )))
     }
 }

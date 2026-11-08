@@ -55,7 +55,7 @@ function parseValue(value: any): number {
         .map_or(source.as_str(), |(_, program)| program);
 
     assert!(
-        program.contains("SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string()"),
+        program.contains("SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string()"),
         "expected erased input to pass through JavaScript string coercion: {program}"
     );
     assert!(
@@ -408,7 +408,7 @@ const context = tz("Asia/Singapore");
 "#,
     );
 
-    assert!(source.contains("if timestamp_ms.is_finite()"), "{source}");
+    assert!(source.contains("if smelt_timestamp_ms.is_finite()"), "{source}");
     assert!(source.contains("else { f64::NAN }"), "{source}");
 }
 
@@ -450,7 +450,7 @@ function absent<ResultDate extends Date>(
         .map_or(source.as_str(), |(_, program)| program);
     assert!(
         program.contains(
-            "result.clone().as_ref().map_or(true, |value| matches!(value, SmeltUnknown::Null | SmeltUnknown::Undefined))"
+            "result.clone().as_ref().map_or(true, |smelt_value| matches!(smelt_value, SmeltUnknown::Null | SmeltUnknown::Undefined))"
         ),
         "{source}"
     );
@@ -630,8 +630,8 @@ result: None = values.insert(1, 0)
     );
 
     assert!(source.contains("let mut"));
-    assert!(source.contains("let insert_index = usize::try_from(1)"));
-    assert!(source.contains(".insert(insert_index, smelt_insert_item);"));
+    assert!(source.contains("let smelt_insert_index = usize::try_from(1)"));
+    assert!(source.contains(".insert(smelt_insert_index, smelt_insert_item);"));
     assert!(source.contains("()"));
 }
 
@@ -743,7 +743,7 @@ function last<T>(values: readonly T[]): T | undefined {
         "{source}"
     );
     assert!(!source.contains("negative index out of bounds"), "{source}");
-    assert!(source.contains(".and_then(|index|"), "{source}");
+    assert!(source.contains(".and_then(|smelt_index|"), "{source}");
 }
 
 #[test]
@@ -996,7 +996,7 @@ export function contentType(): string {
     // `contentType` reads THROUGH the slot, so it sees the one object.
     assert_eq!(
         source
-            .matches("SMELT_GLOBAL_HEADERS_1.with(|value| value.borrow().clone())")
+            .matches("SMELT_GLOBAL_HEADERS_1.with(|smelt_value| smelt_value.borrow().clone())")
             .count(),
         1,
         "{source}"

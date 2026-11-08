@@ -27,11 +27,11 @@ function find(xs: unknown[], x: unknown, from: number): number {
 ",
     );
     assert!(
-        !source.contains("|item: &_|"),
+        !source.contains("|smelt_item: &_|"),
         "hoisted predicate must not use an uninferable `&_` param:\n{source}"
     );
     assert!(
-        source.contains("let smelt_predicate = |item: &SmeltUnknown|"),
+        source.contains("let smelt_predicate = |smelt_item: &SmeltUnknown|"),
         "expected concrete predicate param type, got:\n{source}"
     );
 }

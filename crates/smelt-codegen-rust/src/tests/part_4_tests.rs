@@ -27,8 +27,8 @@ any_values: bool = any(values)
 ",
     );
 
-    assert!(source.contains(".iter().copied().all(|value| value)"));
-    assert!(source.contains(".iter().copied().any(|value| value)"));
+    assert!(source.contains(".iter().copied().all(|smelt_value| smelt_value)"));
+    assert!(source.contains(".iter().copied().any(|smelt_value| smelt_value)"));
 }
 
 #[test]
@@ -327,9 +327,9 @@ ordered_floats: list[float] = sorted(floats)
 ",
     );
 
-    assert!(source.contains(".clone(); sorted.sort(); sorted"));
+    assert!(source.contains(".clone(); smelt_sorted.sort(); smelt_sorted"));
     assert!(source.contains(
-        ".clone(); sorted.sort_by(|left, right| left.partial_cmp(right).expect(\"sorted incomparable float\")); sorted"
+        ".clone(); smelt_sorted.sort_by(|smelt_left, smelt_right| smelt_left.partial_cmp(smelt_right).expect(\"sorted incomparable float\")); smelt_sorted"
     ));
 }
 
@@ -344,8 +344,8 @@ ordered: list[int] = sorted(values, key=lambda value: value + bias, reverse=True
     );
 
     assert!(source.contains("let mut smelt_sort_key ="));
-    assert!(source.contains("let left_key = (smelt_sort_key)"));
-    assert!(source.contains("right_key.cmp(&left_key)"));
+    assert!(source.contains("let smelt_left_key = (smelt_sort_key)"));
+    assert!(source.contains("smelt_right_key.cmp(&smelt_left_key)"));
 }
 
 #[test]
@@ -358,8 +358,8 @@ ordered: None = values.sort(key=lambda value: value * 2)
     );
 
     assert!(source.contains("let mut smelt_sort_key ="));
-    assert!(source.contains(".sort_by(|left, right|"));
-    assert!(source.contains("left_key.cmp(&right_key)"));
+    assert!(source.contains(".sort_by(|smelt_left, smelt_right|"));
+    assert!(source.contains("smelt_left_key.cmp(&smelt_right_key)"));
 }
 
 #[test]
@@ -458,9 +458,9 @@ for value in range(3):
 ",
     );
 
-    assert!(source.contains("let mut values = Vec::new();"));
-    assert!(source.contains("while current < end"));
-    assert!(source.contains("while current > end"));
+    assert!(source.contains("let mut smelt_values = Vec::new();"));
+    assert!(source.contains("while smelt_current < smelt_end"));
+    assert!(source.contains("while smelt_current > smelt_end"));
     assert!(source.contains("panic!(\"range() arg 3 must not be zero\")"));
 }
 
@@ -957,7 +957,7 @@ for (const entry: [string, number] of mapping) {
     // per-entry `.clone()`.
     assert!(
         source.contains(
-            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>()"
+            ".iter().filter(|(smelt_key, _)| !smelt_key.starts_with(\"__smelt_symbol\") && !smelt_key.starts_with(\"__smelt_proto:\") && !smelt_key.starts_with(\"__smelt_method:\") && smelt_key != \"__smelt_class\").collect::<Vec<_>>()"
         ),
         "{source}"
     );
@@ -1064,7 +1064,7 @@ export function constructed(n: number): unknown[] {
     // gave every slot one buffer and one identity. See `list_from_length_expr`.
     assert_eq!(
         source
-            .matches("(0..array_from_length).map(|_| SmeltUnknown::Undefined)")
+            .matches("(0..smelt_array_from_length).map(|_| SmeltUnknown::Undefined)")
             .count(),
         2,
         "both Array(n) spellings must allocate n holes: {source}"
@@ -1091,11 +1091,11 @@ export function strings(n: number): string[] {
     );
 
     assert!(
-        source.contains("(0..array_from_length).map(|_| 0.0)"),
+        source.contains("(0..smelt_array_from_length).map(|_| 0.0)"),
         "a number[] allocation must hold f64 holes: {source}"
     );
     assert!(
-        source.contains("(0..array_from_length).map(|_| JsString::new())"),
+        source.contains("(0..smelt_array_from_length).map(|_| JsString::new())"),
         "a string[] allocation must hold String holes: {source}"
     );
     assert!(

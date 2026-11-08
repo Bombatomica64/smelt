@@ -4624,7 +4624,7 @@ struct Request {
 impl IntoSmeltUnknown for Request {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
-        ("headers".to_owned(), SmeltUnknown::Object(SmeltObject::new(self.headers.into_iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect()))),
+        ("headers".to_owned(), SmeltUnknown::Object(SmeltObject::new(self.headers.into_iter().map(|(smelt_key, smelt_value)| (smelt_key, SmeltUnknown::String(smelt_value.into()))).collect()))),
         ])))
     }
 }
@@ -4632,8 +4632,8 @@ impl SmeltFromUnknown for Request {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("headers") {
-                result.headers = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("headers") {
+                result.headers = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -4671,7 +4671,7 @@ impl Request {
     }
     fn all(&self) -> SmeltRecord<JsString, JsString> {
     let _smelt_tmp_1: SmeltRecord<JsString, JsString> = SmeltRecord::from([]);
-    let _smelt_tmp_2: SmeltRecord<JsString, JsString> = { _smelt_tmp_1.extend(self.headers.clone().iter().map(|(key, value)| (key.clone(), value.clone()))); _smelt_tmp_1.clone() };
+    let _smelt_tmp_2: SmeltRecord<JsString, JsString> = { _smelt_tmp_1.extend(self.headers.clone().iter().map(|(smelt_key, smelt_value)| (smelt_key.clone(), smelt_value.clone()))); _smelt_tmp_1.clone() };
     return _smelt_tmp_2;
     }
     fn header(&self, name: JsString) -> Option<JsString> {
@@ -4686,8 +4686,8 @@ impl Request {
     #[allow(dead_code)]
     fn __smelt_proto_entries(&self) -> Vec<(String, SmeltUnknown)> {
         let mut smelt_proto_entries: Vec<(String, SmeltUnknown)> = Vec::new();
-        smelt_proto_entries.push(("__smelt_method:all".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.all(); Ok(SmeltUnknown::Object(SmeltObject::new(smelt_result.into_iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect()))) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Request::all")); SmeltUnknown::Function(smelt_method) }));
-        smelt_proto_entries.push(("__smelt_method:header".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.header(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok(smelt_result.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Request::header")); SmeltUnknown::Function(smelt_method) }));
+        smelt_proto_entries.push(("__smelt_method:all".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.all(); Ok(SmeltUnknown::Object(SmeltObject::new(smelt_result.into_iter().map(|(smelt_key, smelt_value)| (smelt_key, SmeltUnknown::String(smelt_value.into()))).collect()))) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Request::all")); SmeltUnknown::Function(smelt_method) }));
+        smelt_proto_entries.push(("__smelt_method:header".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.header(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok(smelt_result.map_or(SmeltUnknown::Undefined, |smelt_value| SmeltUnknown::String(smelt_value.into()))) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Request::header")); SmeltUnknown::Function(smelt_method) }));
         smelt_proto_entries
     }
 }
@@ -4714,12 +4714,12 @@ pub(crate) async fn without_length(req: Request, strip: bool) -> Result<f64, Box
     let _smelt_tmp_3: SmeltRecord<JsString, JsString> = req.all();
     headers = _smelt_tmp_3;
     if strip {
-    _smelt_tmp_4 = headers.remove(&JsString::from("content-length")).is_some();
+    _smelt_tmp_4 = (headers).remove(&JsString::from("content-length")).is_some();
     }
     let _smelt_tmp_5: Option<JsString> = req.header(JsString::from("accept"));
     _smelt_tmp_6 = _smelt_tmp_5.clone().unwrap_or(JsString::from("none"));
     let _ = { println!("{}", _smelt_tmp_6); };
-    _smelt_tmp_8 = Into::<SmeltList<_>>::into(headers.keys().filter(|key| !key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&headers, key)).collect::<Vec<_>>());
+    _smelt_tmp_8 = Into::<SmeltList<_>>::into(headers.keys().filter(|smelt_key| !smelt_key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&headers, smelt_key)).collect::<Vec<_>>());
     _smelt_tmp_9 = _smelt_tmp_8.len() as f64;
     return Ok(_smelt_tmp_9);
 }

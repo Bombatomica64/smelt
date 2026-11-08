@@ -5155,7 +5155,7 @@ impl SmeltFromUnknown for Wrapper {
         let SmeltUnknown::Object(object) = value else { return Self::default() };
         if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(field) = object.get("count") { result.0.borrow_mut().count = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(smelt_field) = object.get("count") { result.0.borrow_mut().count = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
         result
     }
 }
@@ -5176,7 +5176,7 @@ impl IntoSmeltUnknown for SmeltUnion4 {
 impl SmeltUnion4 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
         if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltRequest>() { return Self::M0(smelt_origin); } }
-        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(map) if map.contains_key("raw")) && matches!(&value, SmeltUnknown::Object(map) if map.contains_key("count"))) { return Self::M1(<Wrapper as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown())); }
+        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(smelt_map) if smelt_map.contains_key("raw")) && matches!(&value, SmeltUnknown::Object(smelt_map) if smelt_map.contains_key("count"))) { return Self::M1(<Wrapper as SmeltFromUnknown>::smelt_from_unknown((value).into_smelt_unknown())); }
         Self::M0(<SmeltRequest as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
     }
 }
@@ -5218,7 +5218,7 @@ impl IntoSmeltUnknown for SmeltUnion15 {
 }
 impl SmeltUnion15 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::Bool(_)) { return Self::M0(match value.clone() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }); }
+        if matches!(value, SmeltUnknown::Bool(_)) { return Self::M0(match value.clone() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(smelt_value) => smelt_value, SmeltUnknown::Number(smelt_value) => smelt_value != 0.0 && !smelt_value.is_nan(), SmeltUnknown::String(smelt_value) => !smelt_value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }); }
         Self::M1(<SmeltRegExp as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
     }
 }
@@ -5389,12 +5389,12 @@ pub(crate) fn segments(path: JsString) -> SmeltList<JsString> {
 
 pub(crate) fn pick(node_params: SmeltRecord<JsString, JsString>, params: Option<SmeltRecord<JsString, JsString>>, key: JsString) -> JsString {
     let _smelt_tmp_3: Option<JsString> = params.clone().as_ref().and_then(|_smelt_value| _smelt_value.get(&key.clone()));
-    let _smelt_tmp_4: Option<JsString> = match node_params.get(&key) { Some(value) => Some(value), None => _smelt_tmp_3 };
+    let _smelt_tmp_4: Option<JsString> = match node_params.get(&key) { Some(smelt_value) => Some(smelt_value), None => _smelt_tmp_3 };
     return _smelt_tmp_4.clone().unwrap_or_else(|| JsString::new());
 }
 
 pub(crate) fn pick_or(node_params: SmeltRecord<JsString, JsString>, key: JsString) -> JsString {
-    let _smelt_tmp_2: JsString = match node_params.get(&key) { Some(value) => value, None => JsString::from("fallback") };
+    let _smelt_tmp_2: JsString = match node_params.get(&key) { Some(smelt_value) => smelt_value, None => JsString::from("fallback") };
     return _smelt_tmp_2;
 }
 
@@ -5426,7 +5426,7 @@ pub(crate) fn buckets() -> JsString {
     count = __smelt_for_item.clone().0.clone();
     item = __smelt_for_item.1.clone();
     __smelt_logical_4 = Into::<SmeltList<_>>::into(SmeltList::new(Vec::<JsString>::new()));
-    _smelt_tmp_17 = ({ let smelt_len = queue.clone().len() as i64; let smelt_index = count as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| queue.clone().borrow().get(index).cloned());
+    _smelt_tmp_17 = ({ let smelt_len = queue.clone().len() as i64; let smelt_index = count as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|smelt_index| queue.clone().borrow().get(smelt_index).cloned());
     _smelt_tmp_18 = !(_smelt_tmp_17.is_none());
     _smelt_tmp_19 = !(_smelt_tmp_18);
     if _smelt_tmp_19 {
@@ -5445,7 +5445,7 @@ pub(crate) fn buckets() -> JsString {
     continue;
     }
     }
-    _smelt_tmp_22 = JsString::from(smelt_json_stringify(&{ let smelt_l = queue; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| { let smelt_l = value; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>())) }).collect::<Vec<_>>())) }).expect("JSON serialization failed"));
+    _smelt_tmp_22 = JsString::from(smelt_json_stringify(&{ let smelt_l = queue; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|smelt_value| { let smelt_l = smelt_value; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).collect::<Vec<_>>())) }).collect::<Vec<_>>())) }).expect("JSON serialization failed"));
     return _smelt_tmp_22;
 }
 
@@ -5457,7 +5457,7 @@ pub(crate) fn matches(matcher: SmeltUnion15, part: JsString) -> bool {
     if _smelt_tmp_2 {
     _smelt_tmp_3 = true;
     } else {
-    _smelt_tmp_4 = <SmeltRegExp as SmeltFromUnknown>::smelt_from_unknown(matcher.clone().into_smelt_unknown()).test(&part.clone());
+    _smelt_tmp_4 = (<SmeltRegExp as SmeltFromUnknown>::smelt_from_unknown(matcher.clone().into_smelt_unknown())).test(&part.clone());
     _smelt_tmp_3 = _smelt_tmp_4;
     }
     return _smelt_tmp_3;

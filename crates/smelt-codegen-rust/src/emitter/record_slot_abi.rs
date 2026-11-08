@@ -285,14 +285,14 @@ impl FunctionEmitter<'_> {
                     && self.nested_slot_callables(*to_param, *from_param).is_some()
                 {
                     let owned = if abi.declared_is_reference {
-                        RustExpr::chain(format!("arg{index}.clone()")).ending_in_clone()
+                        RustExpr::path(format!("smelt_arg{index}")).cloned_value()
                     } else {
-                        RustExpr::path(format!("arg{index}"))
+                        RustExpr::path(format!("smelt_arg{index}"))
                     };
                     let bridged =
                         self.slot_abi_bridge(&owned, (*to_param, to_env), (*from_param, from_env))?;
                     return Ok(if abi.rendered_is_reference {
-                        format!("&{bridged}")
+                        format!("&{bridged}", bridged = bridged.tight())
                     } else {
                         bridged.into_string()
                     });
@@ -301,12 +301,12 @@ impl FunctionEmitter<'_> {
                     // The slot hands the body a borrow, the wrapped callable
                     // wants the value: copy it out, per call, only where the
                     // two genuinely disagree.
-                    (true, false) => format!("arg{index}.clone()"),
+                    (true, false) => format!("smelt_arg{index}.clone()"),
                     // The slot hands the body an owned value and the wrapped
                     // callable takes a borrow of it; Rust extends the borrow to
                     // the end of the statement, so naming it is enough.
-                    (false, true) => format!("&arg{index}"),
-                    _ => format!("arg{index}"),
+                    (false, true) => format!("&smelt_arg{index}"),
+                    _ => format!("smelt_arg{index}"),
                 })
             })
             .collect::<Result<Vec<_>, EmitError>>()?
@@ -323,7 +323,7 @@ impl FunctionEmitter<'_> {
         Ok(RustExpr::atom(format!(
             "{{ let smelt_slot_callback = {value_text}; let smelt_slot_adapted: {slot_text} = \
              ::std::rc::Rc::new(move |{param_decls}| {returned}); \
-             smelt_slot_adapted }}"
+             smelt_slot_adapted }}", value_text = value_text.delimited(), returned = returned.delimited()
         )))
     }
 

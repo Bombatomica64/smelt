@@ -15,7 +15,7 @@ fn double(values: SmeltList<f64>) -> SmeltList<f64> {
     let _smelt_tmp_2: SmeltList<f64> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
     let _smelt_tmp_1: f64 = closure_arg_0 * 2.0;
     _smelt_tmp_1
-    }); let smelt_array = values.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
+    }); let smelt_array = values.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
     return _smelt_tmp_2;
 }
 

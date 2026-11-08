@@ -5432,7 +5432,7 @@ impl IntoSmeltUnknown for UnsupportedPathError {
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ("name".to_owned(), SmeltUnknown::String((__smelt_inner.name.clone()).into())),
         ("message".to_owned(), SmeltUnknown::String((__smelt_inner.message.clone()).into())),
-        ("stack".to_owned(), __smelt_inner.stack.clone().map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
+        ("stack".to_owned(), __smelt_inner.stack.clone().map_or(SmeltUnknown::Undefined, |smelt_value| SmeltUnknown::String(smelt_value.into()))),
         ("cause".to_owned(), (__smelt_inner.cause.clone()).into_smelt_unknown()),
         ]);
         SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries).smelt_with_origin(self.clone()))
@@ -5445,10 +5445,10 @@ impl SmeltFromUnknown for UnsupportedPathError {
         let SmeltUnknown::Object(object) = value else { return Self::default() };
         if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(field) = object.get("name") { result.0.borrow_mut().name = SmeltFromUnknown::smelt_from_unknown(field); }
-        if let Some(field) = object.get("message") { result.0.borrow_mut().message = SmeltFromUnknown::smelt_from_unknown(field); }
-        if let Some(field) = object.get("stack") { result.0.borrow_mut().stack = SmeltFromUnknown::smelt_from_unknown(field); }
-        if let Some(field) = object.get("cause") { result.0.borrow_mut().cause = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(smelt_field) = object.get("name") { result.0.borrow_mut().name = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = object.get("message") { result.0.borrow_mut().message = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = object.get("stack") { result.0.borrow_mut().stack = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = object.get("cause") { result.0.borrow_mut().cause = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
         result
     }
 }
@@ -5698,12 +5698,12 @@ pub(crate) fn compile_route(route: JsString) -> Result<SmeltRegExp, Box<dyn std:
         }
         Ok(Err(__smelt_error)) => {
     let _smelt_tmp_4: UnsupportedPathError = UnsupportedPathError::new(None::<JsString>);
-    return Err::<_, Box<dyn std::error::Error>>(smelt_throw({ let smelt_object_value = _smelt_tmp_4; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_reference_object_identity(&smelt_struct_value.0), { let smelt_lazy_handle = smelt_struct_value.clone(); move || { let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("name".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().name.clone()).into()))); smelt_object_entries.push(("message".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().message.clone()).into()))); if let Some(value) = smelt_object_value.0.borrow().stack.clone() { smelt_object_entries.push(("stack".to_owned(), SmeltUnknown::String(value.into()))); } smelt_object_entries.push(("cause".to_owned(), smelt_object_value.0.borrow().cause.clone())); smelt_object_entries.push(("__smelt_error".to_owned(), SmeltUnknown::String("Error".into()))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("UnsupportedPathError".into()))); smelt_object_entries } }).smelt_with_origin(smelt_struct_value.clone())) }));
+    return Err::<_, Box<dyn std::error::Error>>(smelt_throw({ let smelt_object_value = _smelt_tmp_4; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_reference_object_identity(&smelt_struct_value.0), { let smelt_lazy_handle = smelt_struct_value.clone(); move || { let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("name".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().name.clone()).into()))); smelt_object_entries.push(("message".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().message.clone()).into()))); if let Some(smelt_value) = smelt_object_value.0.borrow().stack.clone() { smelt_object_entries.push(("stack".to_owned(), SmeltUnknown::String(smelt_value.into()))); } smelt_object_entries.push(("cause".to_owned(), smelt_object_value.0.borrow().cause.clone())); smelt_object_entries.push(("__smelt_error".to_owned(), SmeltUnknown::String("Error".into()))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("UnsupportedPathError".into()))); smelt_object_entries } }).smelt_with_origin(smelt_struct_value.clone())) }));
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
     let _smelt_tmp_4: UnsupportedPathError = UnsupportedPathError::new(None::<JsString>);
-    return Err::<_, Box<dyn std::error::Error>>(smelt_throw({ let smelt_object_value = _smelt_tmp_4; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_reference_object_identity(&smelt_struct_value.0), { let smelt_lazy_handle = smelt_struct_value.clone(); move || { let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("name".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().name.clone()).into()))); smelt_object_entries.push(("message".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().message.clone()).into()))); if let Some(value) = smelt_object_value.0.borrow().stack.clone() { smelt_object_entries.push(("stack".to_owned(), SmeltUnknown::String(value.into()))); } smelt_object_entries.push(("cause".to_owned(), smelt_object_value.0.borrow().cause.clone())); smelt_object_entries.push(("__smelt_error".to_owned(), SmeltUnknown::String("Error".into()))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("UnsupportedPathError".into()))); smelt_object_entries } }).smelt_with_origin(smelt_struct_value.clone())) }));
+    return Err::<_, Box<dyn std::error::Error>>(smelt_throw({ let smelt_object_value = _smelt_tmp_4; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_reference_object_identity(&smelt_struct_value.0), { let smelt_lazy_handle = smelt_struct_value.clone(); move || { let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("name".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().name.clone()).into()))); smelt_object_entries.push(("message".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().message.clone()).into()))); if let Some(smelt_value) = smelt_object_value.0.borrow().stack.clone() { smelt_object_entries.push(("stack".to_owned(), SmeltUnknown::String(smelt_value.into()))); } smelt_object_entries.push(("cause".to_owned(), smelt_object_value.0.borrow().cause.clone())); smelt_object_entries.push(("__smelt_error".to_owned(), SmeltUnknown::String("Error".into()))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("UnsupportedPathError".into()))); smelt_object_entries } }).smelt_with_origin(smelt_struct_value.clone())) }));
         }
     }
 }
@@ -5728,14 +5728,14 @@ pub(crate) fn describe_compile(route: JsString) -> JsString {
         }
         Ok(Err(__smelt_error)) => {
             let e = smelt_thrown_value(&*__smelt_error);
-    _smelt_tmp_8 = matches!(e.clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_class"), Some(SmeltUnknown::String(smelt_class_name)) if smelt_class_name.eq_str("UnsupportedPathError")));
+    _smelt_tmp_8 = matches!(e.clone(), SmeltUnknown::Object(smelt_value) if matches!(smelt_value.get("__smelt_class"), Some(SmeltUnknown::String(smelt_class_name)) if smelt_class_name.eq_str("UnsupportedPathError")));
     _smelt_tmp_9 = JsString::from("rejected ") + &JsString::from(_smelt_tmp_8.to_string());
     return _smelt_tmp_9;
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
             let e = smelt_panic_error_value(&*__smelt_panic);
-    _smelt_tmp_8 = matches!(e.clone(), SmeltUnknown::Object(value) if matches!(value.get("__smelt_class"), Some(SmeltUnknown::String(smelt_class_name)) if smelt_class_name.eq_str("UnsupportedPathError")));
+    _smelt_tmp_8 = matches!(e.clone(), SmeltUnknown::Object(smelt_value) if matches!(smelt_value.get("__smelt_class"), Some(SmeltUnknown::String(smelt_class_name)) if smelt_class_name.eq_str("UnsupportedPathError")));
     _smelt_tmp_9 = JsString::from("rejected ") + &JsString::from(_smelt_tmp_8.to_string());
     return _smelt_tmp_9;
         }

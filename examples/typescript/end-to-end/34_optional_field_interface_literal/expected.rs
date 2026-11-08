@@ -4388,8 +4388,8 @@ impl IntoSmeltUnknown for Config {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let smelt_absent_keys: [&str; 2] = ["label", "count"];
         SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
-        ("label".to_owned(), self.label.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
-        ("count".to_owned(), self.count.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
+        ("label".to_owned(), self.label.map_or(SmeltUnknown::Undefined, |smelt_value| SmeltUnknown::String(smelt_value.into()))),
+        ("count".to_owned(), self.count.map_or(SmeltUnknown::Undefined, |smelt_value| SmeltUnknown::Number(smelt_value as f64))),
         ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
     }
 }
@@ -4397,11 +4397,11 @@ impl SmeltFromUnknown for Config {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("label") {
-                result.label = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("label") {
+                result.label = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("count") {
-                result.count = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("count") {
+                result.count = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -4416,7 +4416,7 @@ impl IntoSmeltUnknown for Outer {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let smelt_absent_keys: [&str; 1] = ["inner"];
         SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
-        ("inner".to_owned(), self.inner.map_or(SmeltUnknown::Undefined, |value| (value).into_smelt_unknown())),
+        ("inner".to_owned(), self.inner.map_or(SmeltUnknown::Undefined, |smelt_value| (smelt_value).into_smelt_unknown())),
         ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
     }
 }
@@ -4424,8 +4424,8 @@ impl SmeltFromUnknown for Outer {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("inner") {
-                result.inner = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("inner") {
+                result.inner = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result

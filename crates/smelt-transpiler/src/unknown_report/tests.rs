@@ -127,13 +127,13 @@ fn live_callable_field_getter_is_a_boundary() {
 /// holding the same value stays avoidable.
 #[test]
 fn user_class_instanceof_guard_is_a_boundary() {
-    let guard = "    _smelt_tmp_7 = matches!(e.clone().clone(), SmeltUnknown::Object(value) if matches!(value.get(\"__smelt_class\"), Some(SmeltUnknown::String(smelt_class_name)) if matches!(&*smelt_class_name, \"UnsupportedPathError\")));";
+    let guard = "    _smelt_tmp_7 = matches!(e.clone().clone(), SmeltUnknown::Object(smelt_value) if matches!(smelt_value.get(\"__smelt_class\"), Some(SmeltUnknown::String(smelt_class_name)) if matches!(&*smelt_class_name, \"UnsupportedPathError\")));";
     assert_eq!(
         classify_line(guard, false),
         Category::LegitimateBoundary,
         "a caught source-class error recovers its class from the value's marker"
     );
-    let optional = "    let _smelt_tmp_2: bool = matches!(input.clone(), Some(SmeltUnknown::Object(value)) if matches!(value.get(\"__smelt_class\"), Some(SmeltUnknown::String(smelt_class_name)) if matches!(&*smelt_class_name, \"Base\" | \"Derived\")));";
+    let optional = "    let _smelt_tmp_2: bool = matches!(input.clone(), Some(SmeltUnknown::Object(smelt_value)) if matches!(smelt_value.get(\"__smelt_class\"), Some(SmeltUnknown::String(smelt_class_name)) if matches!(&*smelt_class_name, \"Base\" | \"Derived\")));";
     assert_eq!(
         classify_line(optional, false),
         Category::LegitimateBoundary,
@@ -163,19 +163,19 @@ fn user_class_instanceof_guard_is_a_boundary() {
 /// adapter (`into_smelt_unknown`), the adapter does, so it is not avoidable.
 #[test]
 fn host_brand_instanceof_guard_is_a_boundary() {
-    let guard = "    _smelt_tmp_3 = matches!(error.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_domexception\"));";
+    let guard = "    _smelt_tmp_3 = matches!(error.clone(), SmeltUnknown::Object(smelt_value) if smelt_value.contains_key(\"__smelt_domexception\"));";
     assert_eq!(
         classify_line(guard, false),
         Category::LegitimateBoundary,
         "a caught host error recovers its class from the value's brand"
     );
-    let optional = "    let _smelt_tmp_2: bool = matches!(input.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_request\"));";
+    let optional = "    let _smelt_tmp_2: bool = matches!(input.clone(), Some(SmeltUnknown::Object(smelt_value)) if smelt_value.contains_key(\"__smelt_request\"));";
     assert_eq!(
         classify_line(optional, false),
         Category::LegitimateBoundary,
         "the `Option` receiver spelling of the same guard is the same boundary"
     );
-    let multi = "    _smelt_tmp_4 = matches!(buffer.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_arraybuffer\") || value.contains_key(\"__smelt_sharedarraybuffer\"));";
+    let multi = "    _smelt_tmp_4 = matches!(buffer.clone(), SmeltUnknown::Object(smelt_value) if smelt_value.contains_key(\"__smelt_arraybuffer\") || value.contains_key(\"__smelt_sharedarraybuffer\"));";
     assert_eq!(
         classify_line(multi, false),
         Category::LegitimateBoundary,
@@ -220,7 +220,7 @@ fn host_brand_instanceof_guard_is_a_boundary() {
 /// both stay classified as they were.
 #[test]
 fn error_brand_instanceof_guard_is_a_boundary() {
-    let guard = "    _smelt_tmp_3 = matches!(error.clone(), SmeltUnknown::Object(value) if matches!(value.get(\"__smelt_error\"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == \"RangeError\"));";
+    let guard = "    _smelt_tmp_3 = matches!(error.clone(), SmeltUnknown::Object(smelt_value) if matches!(smelt_value.get(\"__smelt_error\"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == \"RangeError\"));";
     assert_eq!(
         classify_line(guard, false),
         Category::LegitimateBoundary,
@@ -864,6 +864,38 @@ fn marker_defines_authoritative_prelude_boundary() {
     assert_eq!(report.category_total(Category::AvoidableErasure), 2);
     assert_eq!(report.category_total(Category::LegitimateBoundary), 0);
 
+    drop(std::fs::remove_dir_all(&dir));
+}
+
+/// A module file names its source in its header, so it holds program code
+/// only: a program item the emitter named with its own prefix (a module
+/// global's initializer) is measured like any other program code instead of
+/// being taken for a runtime helper by its name. Without the header (output
+/// that predates it) the name heuristic still decides.
+#[test]
+fn a_module_file_measures_its_minted_program_items() {
+    let dir = std::env::temp_dir().join(format!("smelt-unknown-module-{}", std::process::id()));
+    drop(std::fs::remove_dir_all(&dir));
+    assert!(std::fs::create_dir_all(&dir).is_ok(), "temp dir");
+    let init = "fn smelt_global_init__table__0() -> SmeltUnknown {\n    SmeltUnknown::Number(1.0)\n}\n";
+    let module = dir.join("source_main.rs");
+    let written = std::fs::write(
+        &module,
+        format!(
+            "// @generated by smelt. Do not edit by hand.\n{header}src/main.ts\nuse super::*;\n\n{init}",
+            header = smelt_codegen_rust::MODULE_SOURCE_HEADER,
+        ),
+    );
+    assert!(written.is_ok(), "module file written");
+    let report = scan_files(std::slice::from_ref(&module)).ok().map(|scan| scan.report);
+    let total = |category| report.as_ref().map(|scanned| scanned.category_total(category));
+    assert_eq!(total(Category::RuntimePrelude), Some(0), "a module file holds no prelude");
+    assert_eq!(total(Category::AvoidableErasure), Some(2), "the initializer is program code");
+
+    let legacy = dir.join("legacy.rs");
+    assert!(std::fs::write(&legacy, init).is_ok(), "legacy file written");
+    let legacy_prelude = scan_files(&[legacy]).ok().map(|scan| scan.report.category_total(Category::RuntimePrelude));
+    assert_eq!(legacy_prelude, Some(2), "no header: the name heuristic decides");
     drop(std::fs::remove_dir_all(&dir));
 }
 

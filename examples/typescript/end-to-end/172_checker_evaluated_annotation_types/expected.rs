@@ -4385,7 +4385,7 @@ impl IntoSmeltUnknown for Config {
         SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("port".to_owned(), SmeltUnknown::Number(self.port as f64)),
         ("host".to_owned(), SmeltUnknown::String(self.host.into())),
-        ("tags".to_owned(), SmeltUnknown::Array(self.tags.into_iter().map(|value| SmeltUnknown::String(value.into())).collect())),
+        ("tags".to_owned(), SmeltUnknown::Array(self.tags.into_iter().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).collect())),
         ])))
     }
 }
@@ -4393,14 +4393,14 @@ impl SmeltFromUnknown for Config {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("port") {
-                result.port = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("port") {
+                result.port = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("host") {
-                result.host = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("host") {
+                result.host = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("tags") {
-                result.tags = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("tags") {
+                result.tags = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result

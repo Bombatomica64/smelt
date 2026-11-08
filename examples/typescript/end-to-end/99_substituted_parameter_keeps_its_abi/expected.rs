@@ -4598,7 +4598,7 @@ fn smelt_keep_receiver_alive<H: SmeltReferenceHandle>(erased: SmeltUnknown, rece
 // @smelt:prelude-end — generated program below
 
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltReferenceHandle for Chain<T> { type Cell = ::std::cell::RefCell<ChainInner<T>>; fn smelt_handle_cell(&self) -> &::std::rc::Rc<Self::Cell> { &self.0 } fn smelt_from_handle_cell(cell: ::std::rc::Rc<Self::Cell>) -> Self { Self(cell) } }
-impl<T> Drop for Chain<T> { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let shared = self.0.try_borrow().map_or(true, |inner| inner.advance.smelt_closure_shared()); if shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
+impl<T> Drop for Chain<T> { fn drop(&mut self) { if ::std::rc::Rc::strong_count(&self.0) == 1 { let smelt_shared = self.0.try_borrow().map_or(true, |smelt_inner| smelt_inner.advance.smelt_closure_shared()); if smelt_shared { ::std::mem::forget(::std::rc::Rc::clone(&self.0)); } } } }
 
 #[allow(dead_code)]
 struct Chain<T>(::std::rc::Rc<::std::cell::RefCell<ChainInner<T>>>);
@@ -4613,7 +4613,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default
     fn default() -> Self {
         Self {
             value: Default::default(),
-            advance: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(&T) -> Chain<T>> = ::std::rc::Rc::new(move |arg0: &T| -> Chain<T> { Default::default() }); smelt_default_callback },
+            advance: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(&T) -> Chain<T>> = ::std::rc::Rc::new(move |smelt_arg0: &T| -> Chain<T> { Default::default() }); smelt_default_callback },
             seen: SmeltList::new(Vec::<T>::new()),
             _smelt_phantom: ::std::marker::PhantomData,
         }
@@ -4651,7 +4651,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSme
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ("value".to_owned(), (__smelt_inner.value.clone()).into_smelt_unknown()),
         ("advance".to_owned(), smelt_keep_receiver_alive(SmeltUnknown::Null, &self)),
-        ("seen".to_owned(), SmeltUnknown::Array(__smelt_inner.seen.clone().into_iter().map(|value| (value).into_smelt_unknown()).collect())),
+        ("seen".to_owned(), SmeltUnknown::Array(__smelt_inner.seen.clone().into_iter().map(|smelt_value| (smelt_value).into_smelt_unknown()).collect())),
         ]);
         SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries).smelt_with_origin(self.clone()))
     }
@@ -4663,8 +4663,8 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFr
         let SmeltUnknown::Object(object) = value else { return Self::default() };
         if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(field) = object.get("value") { result.0.borrow_mut().value = SmeltFromUnknown::smelt_from_unknown(field); }
-        if let Some(field) = object.get("seen") { result.0.borrow_mut().seen = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(smelt_field) = object.get("value") { result.0.borrow_mut().value = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = object.get("seen") { result.0.borrow_mut().seen = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
         result
     }
 }
@@ -4684,7 +4684,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_4.0.borrow().value.clone())); };
     _smelt_tmp_7 = { let smelt_callable = ::std::clone::Clone::clone(&numbers.0.borrow().advance.clone()); (smelt_callable)(&7.0) };
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_7.0.borrow().value.clone())); };
-    _smelt_tmp_9 = JsString::join(numbers.0.borrow().seen.clone().borrow().iter().map(|item| JsString::from({ smelt_number_to_string(*item) })), &JsString::from(","));
+    _smelt_tmp_9 = JsString::join(numbers.0.borrow().seen.clone().borrow().iter().map(|smelt_item| JsString::from({ smelt_number_to_string(*smelt_item) })), &JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_9); };
     let _smelt_tmp_11: Chain<JsString> = Chain::new(JsString::from("a"));
     words = _smelt_tmp_11;
@@ -4698,7 +4698,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Chain<T> {
     fn new(value: T) -> Self {
-    let smelt_capture_this: ::std::rc::Rc<::std::cell::RefCell<Chain<T>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(Chain(::std::rc::Rc::new(::std::cell::RefCell::new(ChainInner { value: Default::default(), advance: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(&T) -> Chain<T>> = ::std::rc::Rc::new(move |arg0: &T| -> Chain<T> { Default::default() }); smelt_default_callback }, seen: SmeltList::new(Vec::<T>::new()), _smelt_phantom: ::std::marker::PhantomData })))));
+    let smelt_capture_this: ::std::rc::Rc<::std::cell::RefCell<Chain<T>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(Chain(::std::rc::Rc::new(::std::cell::RefCell::new(ChainInner { value: Default::default(), advance: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(&T) -> Chain<T>> = ::std::rc::Rc::new(move |smelt_arg0: &T| -> Chain<T> { Default::default() }); smelt_default_callback }, seen: SmeltList::new(Vec::<T>::new()), _smelt_phantom: ::std::marker::PhantomData })))));
     (*smelt_capture_this.borrow()).0.borrow_mut().value = value.clone();
     let _smelt_tmp_2: SmeltList<T> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<T> = vec![value.clone()]; smelt_list_items }));
     (*smelt_capture_this.borrow()).0.borrow_mut().seen = Into::<SmeltList<_>>::into(_smelt_tmp_2);
@@ -4706,10 +4706,10 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Chain<T
     let smelt_capture_this = SmeltWeakReceiver::new(&*smelt_capture_this.borrow());
     move |closure_arg_0: &T| {
     (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow_mut().value = closure_arg_0.clone();
-    let mut _smelt_tmp_2: SmeltList<T> = Into::<SmeltList<_>>::into((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().seen.clone());
+    let mut _smelt_tmp_2: SmeltList<T> = Into::<SmeltList<_>>::into(((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().seen).clone());
     let _smelt_tmp_3: f64 = { let smelt_push_item = closure_arg_0.clone(); _smelt_tmp_2.borrow_mut().push(smelt_push_item); _smelt_tmp_2.len() as f64 };
     (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow_mut().seen = Into::<SmeltList<_>>::into(_smelt_tmp_2.clone());
-    (*smelt_capture_this.smelt_receiver_cell().borrow()).clone()
+    ((*smelt_capture_this.smelt_receiver_cell().borrow())).clone()
     }
 });
     (*smelt_capture_this.borrow()).0.borrow_mut().advance = _smelt_tmp_3.clone();

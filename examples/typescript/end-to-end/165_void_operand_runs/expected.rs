@@ -4670,7 +4670,7 @@ use super::*;
 pub(crate) fn bump() -> f64 {
     let _smelt_tmp_0: f64 = SMELT_GLOBAL_COUNT_0.with(::std::cell::Cell::get);
     let _smelt_tmp_1: f64 = _smelt_tmp_0 + 1.0;
-    let _smelt_tmp_2: f64 = { let smelt_global_value = _smelt_tmp_1; SMELT_GLOBAL_COUNT_0.with(|value| value.set(smelt_global_value)); smelt_global_value };
+    let _smelt_tmp_2: f64 = { let smelt_global_value = _smelt_tmp_1; SMELT_GLOBAL_COUNT_0.with(|smelt_value| smelt_value.set(smelt_global_value)); smelt_global_value };
     let _smelt_tmp_3: f64 = SMELT_GLOBAL_COUNT_0.with(::std::cell::Cell::get);
     return _smelt_tmp_3;
 }

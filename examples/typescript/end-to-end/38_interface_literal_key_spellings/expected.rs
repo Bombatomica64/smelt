@@ -4390,10 +4390,10 @@ impl IntoSmeltUnknown for Shape {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let smelt_absent_keys: [&str; 4] = ["plain", "camelCase", "snake_case", "aVeryLongCamelName"];
         SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
-        ("plain".to_owned(), self.plain.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
-        ("camelCase".to_owned(), self.camel_case.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
-        ("snake_case".to_owned(), self.snake_case.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
-        ("aVeryLongCamelName".to_owned(), self.a_very_long_camel_name.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
+        ("plain".to_owned(), self.plain.map_or(SmeltUnknown::Undefined, |smelt_value| SmeltUnknown::Number(smelt_value as f64))),
+        ("camelCase".to_owned(), self.camel_case.map_or(SmeltUnknown::Undefined, |smelt_value| SmeltUnknown::String(smelt_value.into()))),
+        ("snake_case".to_owned(), self.snake_case.map_or(SmeltUnknown::Undefined, |smelt_value| SmeltUnknown::String(smelt_value.into()))),
+        ("aVeryLongCamelName".to_owned(), self.a_very_long_camel_name.map_or(SmeltUnknown::Undefined, |smelt_value| SmeltUnknown::Number(smelt_value as f64))),
         ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
     }
 }
@@ -4401,17 +4401,17 @@ impl SmeltFromUnknown for Shape {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("plain") {
-                result.plain = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("plain") {
+                result.plain = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("camelCase") {
-                result.camel_case = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("camelCase") {
+                result.camel_case = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("snake_case") {
-                result.snake_case = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("snake_case") {
+                result.snake_case = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("aVeryLongCamelName") {
-                result.a_very_long_camel_name = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("aVeryLongCamelName") {
+                result.a_very_long_camel_name = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -4426,7 +4426,7 @@ impl IntoSmeltUnknown for Wrapper {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let smelt_absent_keys: [&str; 1] = ["innerShape"];
         SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
-        ("innerShape".to_owned(), self.inner_shape.map_or(SmeltUnknown::Undefined, |value| (value).into_smelt_unknown())),
+        ("innerShape".to_owned(), self.inner_shape.map_or(SmeltUnknown::Undefined, |smelt_value| (smelt_value).into_smelt_unknown())),
         ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
     }
 }
@@ -4434,8 +4434,8 @@ impl SmeltFromUnknown for Wrapper {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("innerShape") {
-                result.inner_shape = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("innerShape") {
+                result.inner_shape = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result

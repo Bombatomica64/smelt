@@ -4478,7 +4478,7 @@ fn main() {
     let _smelt_tmp_1: SmeltRegExp = SmeltRegExp::new(JsString::from("^[ad]"), JsString::new());
     let _smelt_tmp_2: bool = _smelt_tmp_1.clone().is_match(&closure_arg_0.clone());
     _smelt_tmp_2
-    }); let smelt_array = words.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value });
+    }); let smelt_array = words.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(smelt_index, smelt_item)| if (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) { Some(smelt_item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value });
     _smelt_tmp_51 = JsString::join(_smelt_tmp_50.borrow().iter(), &JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_51); };
     _smelt_tmp_53 = ::std::rc::Rc::new(|closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
@@ -4490,7 +4490,7 @@ fn main() {
     let _smelt_tmp_1: SmeltRegExp = SmeltRegExp::new(JsString::from("a"), JsString::new());
     let _smelt_tmp_2: bool = _smelt_tmp_1.clone().is_match(&closure_arg_0.clone());
     _smelt_tmp_2
-    }); let smelt_array = words.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().all(|(index, item)| (smelt_callback)(item.clone(), index as i64, &smelt_array)); smelt_value };
+    }); let smelt_array = words.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().all(|(smelt_index, smelt_item)| (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array)); smelt_value };
     let _ = { println!("{}", _smelt_tmp_54); };
     _smelt_tmp_56 = ::std::rc::Rc::new(|closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
     let _smelt_tmp_1: SmeltRegExp = SmeltRegExp::new(JsString::from("^z"), JsString::new());
@@ -4501,7 +4501,7 @@ fn main() {
     let _smelt_tmp_1: SmeltRegExp = SmeltRegExp::new(JsString::from("^z"), JsString::new());
     let _smelt_tmp_2: bool = _smelt_tmp_1.clone().is_match(&closure_arg_0.clone());
     _smelt_tmp_2
-    }); let smelt_array = words; let smelt_value = smelt_array.borrow().iter().enumerate().any(|(index, item)| (smelt_callback)(item.clone(), index as i64, &smelt_array)); smelt_value };
+    }); let smelt_array = words; let smelt_value = smelt_array.borrow().iter().enumerate().any(|(smelt_index, smelt_item)| (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array)); smelt_value };
     let _ = { println!("{}", _smelt_tmp_57); };
     return;
 }

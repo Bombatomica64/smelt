@@ -4502,7 +4502,7 @@ impl IntoSmeltUnknown for Registry {
         let __smelt_proto = self.__smelt_proto_entries();
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
-        ("slots".to_owned(), SmeltUnknown::Array(__smelt_inner.slots.clone().into_iter().map(|value| SmeltUnknown::String(value.into())).collect())),
+        ("slots".to_owned(), SmeltUnknown::Array(__smelt_inner.slots.clone().into_iter().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).collect())),
         ]);
         __smelt_entries.extend(__smelt_proto);
         SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries).smelt_with_origin(self.clone()))
@@ -4515,7 +4515,7 @@ impl SmeltFromUnknown for Registry {
         let SmeltUnknown::Object(object) = value else { return Self::default() };
         if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(field) = object.get("slots") { result.0.borrow_mut().slots = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(smelt_field) = object.get("slots") { result.0.borrow_mut().slots = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
         result
     }
 }
@@ -4529,7 +4529,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     registry = _smelt_tmp_2;
     let _ = registry.add(JsString::from("alpha"));
     let _ = registry.add(JsString::from("beta"));
-    let _ = { println!("{}", registry.__smelt_get_first()?.clone()); };
+    let _ = { println!("{}", (registry.__smelt_get_first()?).clone()); };
     let _smelt_tmp_6: JsString = registry.describe()?;
     let _ = { println!("{}", _smelt_tmp_6); };
     let _smelt_tmp_8: JsString = registry.label();
@@ -4589,7 +4589,7 @@ impl Registry {
     if _smelt_tmp_2 {
     return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String("too many".into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
     } else {
-    _smelt_tmp_5 = JsString::from("first=") + &self.__smelt_get_first()?.clone();
+    _smelt_tmp_5 = JsString::from("first=") + &(self.__smelt_get_first()?).clone();
     return Ok(_smelt_tmp_5);
     }
     }
@@ -4614,7 +4614,7 @@ impl Registry {
     let _smelt_tmp_3: JsString = _smelt_tmp_2.clone() + &smelt_self.__smelt_get_first().unwrap_or_else(|error| smelt_panic_throw(error)).clone();
     _smelt_tmp_3.clone()
     }
-}); let smelt_array = prefix.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
+}); let smelt_array = prefix.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
     return _smelt_tmp_3;
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
@@ -4628,7 +4628,7 @@ impl Registry {
         smelt_proto_entries.push(("__smelt_method:add".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.add(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok({ let () = smelt_result; SmeltUnknown::Undefined }) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Registry::add")); SmeltUnknown::Function(smelt_method) }));
         smelt_proto_entries.push(("__smelt_method:describe".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.describe()?; Ok(SmeltUnknown::String(smelt_result.into())) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Registry::describe")); SmeltUnknown::Function(smelt_method) }));
         smelt_proto_entries.push(("__smelt_method:label".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.label(); Ok(SmeltUnknown::String(smelt_result.into())) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Registry::label")); SmeltUnknown::Function(smelt_method) }));
-        smelt_proto_entries.push(("__smelt_method:tagged".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.tagged(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok(SmeltUnknown::Array(smelt_result.into_iter().map(|value| SmeltUnknown::String(value.into())).collect())) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Registry::tagged")); SmeltUnknown::Function(smelt_method) }));
+        smelt_proto_entries.push(("__smelt_method:tagged".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.tagged(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok(SmeltUnknown::Array(smelt_result.into_iter().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).collect())) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Registry::tagged")); SmeltUnknown::Function(smelt_method) }));
         smelt_proto_entries
     }
 }

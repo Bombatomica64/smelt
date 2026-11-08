@@ -5591,11 +5591,11 @@ impl SmeltFromUnknown for Circle {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("kind") {
-                result.kind = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("kind") {
+                result.kind = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("radius") {
-                result.radius = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("radius") {
+                result.radius = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -5619,11 +5619,11 @@ impl SmeltFromUnknown for Square {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("kind") {
-                result.kind = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("kind") {
+                result.kind = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("side") {
-                result.side = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("side") {
+                result.side = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -5639,7 +5639,7 @@ impl IntoSmeltUnknown for Tree {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("label".to_owned(), SmeltUnknown::String(self.label.into())),
-        ("children".to_owned(), SmeltUnknown::Array(self.children.into_iter().map(|value| (value).into_smelt_unknown()).collect())),
+        ("children".to_owned(), SmeltUnknown::Array(self.children.into_iter().map(|smelt_value| (smelt_value).into_smelt_unknown()).collect())),
         ])))
     }
 }
@@ -5647,11 +5647,11 @@ impl SmeltFromUnknown for Tree {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("label") {
-                result.label = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("label") {
+                result.label = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("children") {
-                result.children = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("children") {
+                result.children = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -5673,10 +5673,10 @@ impl IntoSmeltUnknown for Order {
         let smelt_absent_keys: [&str; 1] = ["note"];
         SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("id".to_owned(), SmeltUnknown::Number(self.id as f64)),
-        ("note".to_owned(), self.note.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
+        ("note".to_owned(), self.note.map_or(SmeltUnknown::Undefined, |smelt_value| SmeltUnknown::String(smelt_value.into()))),
         ("priority".to_owned(), SmeltUnknown::String(self.priority.into())),
-        ("shapes".to_owned(), SmeltUnknown::Array(self.shapes.into_iter().map(|value| (value).into_smelt_unknown()).collect())),
-        ("totals".to_owned(), SmeltUnknown::Object(SmeltObject::new(self.totals.into_iter().map(|(key, value)| (key, SmeltUnknown::Number(value as f64))).collect()))),
+        ("shapes".to_owned(), SmeltUnknown::Array(self.shapes.into_iter().map(|smelt_value| (smelt_value).into_smelt_unknown()).collect())),
+        ("totals".to_owned(), SmeltUnknown::Object(SmeltObject::new(self.totals.into_iter().map(|(smelt_key, smelt_value)| (smelt_key, SmeltUnknown::Number(smelt_value as f64))).collect()))),
         ("range".to_owned(), { let smelt_tuple = self.range; SmeltUnknown::Array(vec![SmeltUnknown::Number(smelt_tuple.0 as f64), SmeltUnknown::Number(smelt_tuple.1 as f64)].into()) }),
         ("tree".to_owned(), (self.tree).into_smelt_unknown()),
         ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
@@ -5686,26 +5686,26 @@ impl SmeltFromUnknown for Order {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("id") {
-                result.id = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("id") {
+                result.id = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("note") {
-                result.note = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("note") {
+                result.note = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("priority") {
-                result.priority = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("priority") {
+                result.priority = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("shapes") {
-                result.shapes = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("shapes") {
+                result.shapes = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("totals") {
-                result.totals = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("totals") {
+                result.totals = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("range") {
-                result.range = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("range") {
+                result.range = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("tree") {
-                result.tree = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("tree") {
+                result.tree = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -5727,7 +5727,7 @@ impl IntoSmeltUnknown for SmeltUnion2 {
 }
 impl SmeltUnion2 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(map) if matches!(map.get("kind"), Some(SmeltUnknown::String(smelt_text)) if smelt_text.to_string() == "circle")) && matches!(&value, SmeltUnknown::Object(map) if map.contains_key("radius"))) { return Self::M0(__smelt_from_unknown_record_0((value).into_smelt_unknown())); }
+        if matches!(value, SmeltUnknown::Object(_)) && (matches!(&value, SmeltUnknown::Object(smelt_map) if matches!(smelt_map.get("kind"), Some(SmeltUnknown::String(smelt_text)) if smelt_text.to_string() == "circle")) && matches!(&value, SmeltUnknown::Object(smelt_map) if smelt_map.contains_key("radius"))) { return Self::M0(__smelt_from_unknown_record_0((value).into_smelt_unknown())); }
         Self::M1(__smelt_from_unknown_record_1((value).into_smelt_unknown()))
     }
 }
@@ -6082,10 +6082,10 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_12 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: SmeltUnion2| {
     let _smelt_tmp_1: f64 = area(closure_arg_0.clone());
     _smelt_tmp_1
-    }); order.shapes.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone()) }).collect::<Vec<_>>() });
-    _smelt_tmp_13 = JsString::join(_smelt_tmp_12.borrow().iter().map(|item| JsString::from({ smelt_number_to_string(*item) })), &JsString::from(","));
+    }); order.shapes.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item.clone()) }).collect::<Vec<_>>() });
+    _smelt_tmp_13 = JsString::join(_smelt_tmp_12.borrow().iter().map(|smelt_item| JsString::from({ smelt_number_to_string(*smelt_item) })), &JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_13); };
-    _smelt_tmp_15 = Into::<SmeltList<_>>::into(order.totals.clone().keys().filter(|key| !key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&order.totals.clone(), key)).collect::<Vec<_>>());
+    _smelt_tmp_15 = Into::<SmeltList<_>>::into(order.totals.clone().keys().filter(|smelt_key| !smelt_key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&order.totals.clone(), smelt_key)).collect::<Vec<_>>());
     _smelt_tmp_16 = JsString::join(_smelt_tmp_15.borrow().iter(), &JsString::from("+"));
     _smelt_tmp_17 = order.totals.clone();
     _smelt_tmp_18 = order.totals.clone();
@@ -6099,7 +6099,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_26 = text.replace_first(&JsString::from("\"id\":42"), &JsString::from("\"id\":7,\"note\":\"rush\""));
     let _smelt_tmp_27: Order = smelt_json_decode_5(&_smelt_tmp_26)?;
     noted = _smelt_tmp_27;
-    let _ = { println!("{} {}", smelt_console_number(noted.id), match &noted.note.clone() { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    let _ = { println!("{} {}", smelt_console_number(noted.id), match &noted.note.clone() { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
     let _smelt_tmp_29: f64 = smelt_json_decode_8(&JsString::from("21"))?;
     let _smelt_tmp_30: f64 = double(_smelt_tmp_29);
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_30)); };
@@ -6123,18 +6123,18 @@ smelt_local.block_on(&smelt_runtime, async move {
 type SmeltFnTyped8_0 = ::std::rc::Rc<dyn Fn(SmeltUnion2) -> f64>;
 fn __smelt_fn_typed_8_0() -> SmeltFnTyped8_0 {
     thread_local! { static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped8_0> = ::std::cell::OnceCell::new(); }
-    SMELT_FN_TYPED.with(|cell| cell.get_or_init(|| { let smelt_function: SmeltFnTyped8_0 = ::std::rc::Rc::new(|closure_arg_0: SmeltUnion2| {
+    SMELT_FN_TYPED.with(|smelt_cell| smelt_cell.get_or_init(|| { let smelt_function: SmeltFnTyped8_0 = ::std::rc::Rc::new(|closure_arg_0: SmeltUnion2| {
     let _smelt_tmp_1: f64 = area(closure_arg_0.clone());
     _smelt_tmp_1
     }); smelt_function }).clone())
 }
 
 fn __smelt_from_unknown_record_0(smelt_value: SmeltUnknown) -> Circle {
-    match (smelt_value).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); Circle { kind: smelt_record_map.get_text("kind").or_else(|| smelt_record_map.get_text("__smelt_proto:kind")).or_else(|| smelt_record_map.get_text("__smelt_method:kind")).cloned().map_or(JsString::new(), |value| match value.clone() { SmeltUnknown::String(value) => value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }), radius: smelt_record_map.get_text("radius").or_else(|| smelt_record_map.get_text("__smelt_proto:radius")).or_else(|| smelt_record_map.get_text("__smelt_method:radius")).cloned().map_or(0.0, |value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) } } }, _ => Default::default() }
+    match (smelt_value).into_smelt_unknown() { SmeltUnknown::Object(smelt_values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(smelt_values.id, smelt_values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); Circle { kind: smelt_record_map.get_text("kind").or_else(|| smelt_record_map.get_text("__smelt_proto:kind")).or_else(|| smelt_record_map.get_text("__smelt_method:kind")).cloned().map_or(JsString::new(), |smelt_value| match smelt_value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }), radius: smelt_record_map.get_text("radius").or_else(|| smelt_record_map.get_text("__smelt_proto:radius")).or_else(|| smelt_record_map.get_text("__smelt_method:radius")).cloned().map_or(0.0, |smelt_value| match smelt_value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) } } }, _ => Default::default() }
 }
 
 fn __smelt_from_unknown_record_1(smelt_value: SmeltUnknown) -> Square {
-    match (smelt_value).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); Square { kind: smelt_record_map.get_text("kind").or_else(|| smelt_record_map.get_text("__smelt_proto:kind")).or_else(|| smelt_record_map.get_text("__smelt_method:kind")).cloned().map_or(JsString::new(), |value| match value.clone() { SmeltUnknown::String(value) => value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }), side: smelt_record_map.get_text("side").or_else(|| smelt_record_map.get_text("__smelt_proto:side")).or_else(|| smelt_record_map.get_text("__smelt_method:side")).cloned().map_or(0.0, |value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) } } }, _ => Default::default() }
+    match (smelt_value).into_smelt_unknown() { SmeltUnknown::Object(smelt_values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(smelt_values.id, smelt_values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); Square { kind: smelt_record_map.get_text("kind").or_else(|| smelt_record_map.get_text("__smelt_proto:kind")).or_else(|| smelt_record_map.get_text("__smelt_method:kind")).cloned().map_or(JsString::new(), |smelt_value| match smelt_value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }), side: smelt_record_map.get_text("side").or_else(|| smelt_record_map.get_text("__smelt_proto:side")).or_else(|| smelt_record_map.get_text("__smelt_method:side")).cloned().map_or(0.0, |smelt_value| match smelt_value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) } } }, _ => Default::default() }
 }
 
 // ==== source_main.rs
@@ -6151,12 +6151,12 @@ pub(crate) fn area(shape: SmeltUnion2) -> f64 {
     let _smelt_tmp_5: f64;
     let _smelt_tmp_1: bool = match &shape { SmeltUnion2::M0(smelt_union_arm) => smelt_union_arm.kind.clone(), SmeltUnion2::M1(smelt_union_arm) => smelt_union_arm.kind.clone() } == "circle";
     if _smelt_tmp_1 {
-    _smelt_tmp_2 = 3.141592653589793 * match smelt_get_unknown_field(&shape.clone().into_smelt_unknown(), "radius").clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN };
-    _smelt_tmp_3 = _smelt_tmp_2 * match smelt_get_unknown_field(&shape.clone().into_smelt_unknown(), "radius").clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN };
+    _smelt_tmp_2 = 3.141592653589793 * match smelt_get_unknown_field(&shape.clone().into_smelt_unknown(), "radius").clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN };
+    _smelt_tmp_3 = _smelt_tmp_2 * match smelt_get_unknown_field(&shape.clone().into_smelt_unknown(), "radius").clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN };
     _smelt_tmp_4 = smelt_math_round(_smelt_tmp_3);
     return _smelt_tmp_4;
     } else {
-    _smelt_tmp_5 = match smelt_get_unknown_field(&shape.clone().into_smelt_unknown(), "side").clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN } * match smelt_get_unknown_field(&shape.clone().into_smelt_unknown(), "side").clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN };
+    _smelt_tmp_5 = match smelt_get_unknown_field(&shape.clone().into_smelt_unknown(), "side").clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN } * match smelt_get_unknown_field(&shape.clone().into_smelt_unknown(), "side").clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN };
     return _smelt_tmp_5;
     }
 }

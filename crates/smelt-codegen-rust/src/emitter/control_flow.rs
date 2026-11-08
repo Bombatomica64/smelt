@@ -359,7 +359,7 @@ impl FunctionEmitter<'_> {
                         Some(Type::None)
                     )
                 {
-                    out.push_str(&format!("    {};\n", self.global_touch_expr(*global)));
+                    out.push_str(&format!("    {};\n", self.global_touch_expr(*global).delimited()));
                     self.mark_local_declared(*dest);
                     return Ok(());
                 }
@@ -404,7 +404,7 @@ impl FunctionEmitter<'_> {
                         || self.predeclared_locals.contains(dest))
                 {
                     let assignment = self.assignment_place_expr(&Place::Local(*dest))?;
-                    out.push_str(&format!("    {assignment} = {rendered_value};\n"));
+                    out.push_str(&format!("    {assignment} = {rendered_value};\n", assignment = assignment.delimited()));
                     return Ok(());
                 }
                 let mutability = if name != "_" && self.local_binding_needs_mut(*dest) {
@@ -638,10 +638,10 @@ impl FunctionEmitter<'_> {
         if self.function.can_throw {
             self.binding_uses.record_early_return();
             Ok(format!(
-                "    return Ok::<_, {ERROR_BOX}>({value});\n"
+                "    return Ok::<_, {ERROR_BOX}>({value});\n", value = value.delimited()
             ))
         } else {
-            Ok(format!("    return {value};\n"))
+            Ok(format!("    return {value};\n", value = value.delimited()))
         }
     }
 }
@@ -704,7 +704,7 @@ impl FunctionEmitter<'_> {
         {
             let future_text = self.operand_expr(operand)?;
             out.push_str(&format!(
-                "    let smelt_adopted = {future_text}.await?;\n"
+                "    let smelt_adopted = {future_text}.await?;\n", future_text = future_text.tight()
             ));
             if body_return_ty == self.none_ty {
                 out.push_str("    let _ = smelt_adopted;\n");
@@ -714,7 +714,7 @@ impl FunctionEmitter<'_> {
                 let value =
                     self.rendered_at_type(&RustExpr::path("smelt_adopted"), item_ty, body_return_ty, &self.render_scope())?;
                 self.binding_uses.record_early_return();
-                out.push_str(&format!("    return Ok({value});\n"));
+                out.push_str(&format!("    return Ok({value});\n", value = value.delimited()));
             }
             return Ok(());
         }
@@ -723,10 +723,10 @@ impl FunctionEmitter<'_> {
                 self.binding_uses.record_early_return();
                 out.push_str(&format!(
                     "    return Ok({});\n",
-                    self.operand_expr(operand)?
+                    self.operand_expr(operand)?.delimited()
                 ));
             } else {
-                out.push_str(&format!("    return {};\n", self.operand_expr(operand)?));
+                out.push_str(&format!("    return {};\n", self.operand_expr(operand)?.delimited()));
             }
         } else if body_return_ty == self.none_ty {
             // A `void`/`None` return still evaluates its operand for
@@ -737,7 +737,7 @@ impl FunctionEmitter<'_> {
             if !matches!(operand, Operand::Const(Constant::None))
                 && self.operand_ty(operand)? != self.none_ty
             {
-                out.push_str(&format!("    {};\n", self.operand_expr(operand)?));
+                out.push_str(&format!("    {};\n", self.operand_expr(operand)?.delimited()));
             }
             if self.function.can_throw || self.function.is_async {
                 self.binding_uses.record_early_return();
@@ -765,11 +765,11 @@ impl FunctionEmitter<'_> {
                         self.rendered_type(body_return_ty)?;
                     self.binding_uses.record_early_return();
                     out.push_str(&format!(
-                        "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n"
+                        "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n", value = value.delimited()
                     ));
                 } else {
                     self.binding_uses.record_early_return();
-                    out.push_str(&format!("    return Ok({value});\n"));
+                    out.push_str(&format!("    return Ok({value});\n", value = value.delimited()));
                 }
             } else {
                 let value = self.value_at_type(operand, body_return_ty)?;
@@ -778,11 +778,11 @@ impl FunctionEmitter<'_> {
                         self.rendered_type(body_return_ty)?;
                     self.binding_uses.record_early_return();
                     out.push_str(&format!(
-                        "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n"
+                        "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n", value = value.delimited()
                     ));
                 } else {
                     self.binding_uses.record_early_return();
-                    out.push_str(&format!("    return Ok({value});\n"));
+                    out.push_str(&format!("    return Ok({value});\n", value = value.delimited()));
                 }
             }
         } else if self.mir.types.get(body_return_ty) == Some(&Type::Unknown)
@@ -793,12 +793,12 @@ impl FunctionEmitter<'_> {
         {
             out.push_str(&format!(
                 "    return {};\n",
-                self.value_at_type(source, body_return_ty)?
+                self.value_at_type(source, body_return_ty)?.delimited()
             ));
         } else {
             out.push_str(&format!(
                 "    return {};\n",
-                self.value_at_type(operand, body_return_ty)?
+                self.value_at_type(operand, body_return_ty)?.delimited()
             ));
         }
         self.flow.record(Flow::Diverges);

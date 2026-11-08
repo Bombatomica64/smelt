@@ -59,7 +59,7 @@ test("adds numbers", () => {
         )
     );
     assert!(source.contains("1.0 + 1.0"));
-    assert!(source.contains("lhs.is_nan() && rhs.is_nan()"));
+    assert!(source.contains("smelt_lhs.is_nan() && smelt_rhs.is_nan()"));
     assert!(source.contains("return Ok(());"));
 }
 
@@ -100,7 +100,7 @@ test("optional unknown", () => {
     );
 
     assert!(
-        source.contains(".as_ref().map_or(true, |value| matches!(value, SmeltUnknown::Undefined))"),
+        source.contains(".as_ref().map_or(true, |smelt_value| matches!(smelt_value, SmeltUnknown::Undefined))"),
         "{source}"
     );
     assert!(
@@ -521,7 +521,7 @@ const mapEntries = mapping.entries();
     // defined over `SmeltJsMap`). Keys therefore have no record-marker filter.
     assert!(
         source.contains(
-            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol\")).collect::<Vec<_>>()"
+            ".keys().filter(|smelt_key| !smelt_key.starts_with(\"__smelt_symbol\")).collect::<Vec<_>>()"
         ),
         "{source}"
     );
@@ -536,19 +536,19 @@ const mapEntries = mapping.entries();
     );
     assert!(
         source.contains(
-            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(_, value)| value).collect::<Vec<_>>()"
+            ".iter().filter(|(smelt_key, _)| !smelt_key.starts_with(\"__smelt_symbol\") && !smelt_key.starts_with(\"__smelt_proto:\") && !smelt_key.starts_with(\"__smelt_method:\") && smelt_key != \"__smelt_class\").map(|(_, smelt_value)| smelt_value).collect::<Vec<_>>()"
         ),
         "{source}"
     );
     assert!(
         source.contains(
-            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>()"
+            ".iter().filter(|(smelt_key, _)| !smelt_key.starts_with(\"__smelt_symbol\") && !smelt_key.starts_with(\"__smelt_proto:\") && !smelt_key.starts_with(\"__smelt_method:\") && smelt_key != \"__smelt_class\").collect::<Vec<_>>()"
         ),
         "{source}"
     );
     assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
     assert!(
-        source.contains(".iter().map(|value| (value.clone(), value.clone())).collect::<Vec<_>>()")
+        source.contains(".iter().map(|smelt_value| (smelt_value.clone(), smelt_value.clone())).collect::<Vec<_>>()")
     );
 }
 
@@ -769,11 +769,11 @@ function splitWord(word: string, limit: number | undefined | string): string[] {
     );
 
     assert!(
-        source.contains("SmeltUnknown::Number(value) => Some(value)"),
+        source.contains("SmeltUnknown::Number(smelt_value) => Some(smelt_value)"),
         "{source}"
     );
     assert!(
-        source.contains("else if split_limit.is_sign_positive()"),
+        source.contains("else if smelt_split_limit.is_sign_positive()"),
         "{source}"
     );
 }
@@ -812,7 +812,7 @@ const numberJoined = numbers.join("-");
     assert!(source.contains(", &JsString::from(\",\"))"), "{source}");
     // A numeric item stringifies the way `String(item)` does, which is
     // JavaScript's rule and not Rust's `Display`.
-    assert!(source.contains(".iter().map(|item| JsString::from({ smelt_number_to_string(*item) }))"), "{source}");
+    assert!(source.contains(".iter().map(|smelt_item| JsString::from({ smelt_number_to_string(*smelt_item) }))"), "{source}");
 }
 
 #[test]
@@ -840,11 +840,11 @@ const last = values.lastIndexOf(2);
     );
 
     assert!(
-        source.contains(".iter().position(|item| *item == smelt_needle"),
+        source.contains(".iter().position(|smelt_item| *smelt_item == smelt_needle"),
         "{source}"
     );
     assert!(
-        source.contains(".iter().rposition(|item| *item == smelt_needle"),
+        source.contains(".iter().rposition(|smelt_item| *smelt_item == smelt_needle"),
         "{source}"
     );
     assert!(
@@ -985,7 +985,7 @@ const sortedByNumber = values.sort((left, right) => left - right);
 
     assert!(source.contains("let mut"));
     assert!(source.contains(".sort_by(|left, right| left.to_string().cmp(&right.to_string()))"));
-    assert!(source.contains("if ordering < 0.0"));
+    assert!(source.contains("if smelt_ordering < 0.0"));
     assert!(source.contains(".clone()"));
 }
 
@@ -1022,14 +1022,14 @@ const entries = values.entries();
     assert!(source.contains("copy_items"));
     assert!(source.contains("fill_index"));
     assert!(source.contains("with_items"));
-    assert!(source.contains(".flat_map(|items| items.borrow().clone().into_iter())"));
-    assert!(source.contains(".flat_map(|items| vec![items.0.clone()])"));
+    assert!(source.contains(".flat_map(|smelt_items| smelt_items.borrow().clone().into_iter())"));
+    assert!(source.contains(".flat_map(|smelt_items| vec![smelt_items.0.clone()])"));
     assert!(source.contains("fn smelt_flat_values"));
     assert!(source.contains("smelt_flat_depth"));
     assert!(source.contains(".iter().enumerate().flat_map("));
     assert!(source.contains(".iter().enumerate().rev().find_map("));
     assert!(source.contains("(0.."));
-    assert!(source.contains(".iter().cloned().enumerate().map(|(idx, item)|"));
+    assert!(source.contains(".iter().cloned().enumerate().map(|(smelt_idx, smelt_item)|"));
 }
 
 /// A source `Map` and a plain object literal erase differently: only the `Map`

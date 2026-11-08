@@ -83,10 +83,7 @@ impl FunctionEmitter<'_> {
         {
             return Ok(Some(self.borrowed_handle_kind(place)?));
         }
-        let callee_text = self.operand_expr(callee)?;
-        if self.is_function_parameter_name(&callee_text)?
-            || self.is_borrowed_callback_capture_name(&callee_text)
-        {
+        if self.operand_expr(callee)?.is_borrowed_callback() {
             let kind = match callee {
                 Operand::Copy(place) | Operand::Move(place) => self.borrowed_handle_kind(place)?,
                 Operand::Const(_) => CallbackHandleKind::BorrowedDyn,
@@ -196,7 +193,7 @@ impl FunctionEmitter<'_> {
         };
         let length = self.operand_function_length(operand)?;
         Ok(Some(RustExpr::loose(format!(
-            "SmeltErasedFunction {{ callback: {callback}, length: {length}.0, object: None }}"
+            "SmeltErasedFunction {{ callback: {callback}, length: {length}.0, object: None }}", callback = callback.delimited()
         ))))
     }
 
@@ -237,11 +234,11 @@ impl FunctionEmitter<'_> {
         };
         let source_is_erased = self.is_erased_unknown_rest_function(source) && !source.may_throw;
         let call = if source_is_erased {
-            RustExpr::postfix_on(&callback_text, format!("{callback_text}.call({args})"))
+            callback_text.postfix(format!(".call({args})"))
         } else if is_borrowed_param {
-            RustExpr::postfix_on(&callback_text, format!("{callback_text}({args})"))
+            callback_text.postfix(format!("({args})"))
         } else {
-            RustExpr::atom(format!("({callback_text})({args})"))
+            RustExpr::atom(format!("({callback_text})({args})", callback_text = callback_text.delimited()))
         };
         // An async callback carries its throw path inside the returned future's
         // `Result`; invoking the callback yields the future directly. Only a
@@ -251,7 +248,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Future(_))
         );
         let call_value = if source.may_throw && !source_returns_future {
-            RustExpr::postfix_on(&call, format!("{call}.unwrap_or_else(|error| smelt_panic_throw(error))"))
+            call.postfix(".unwrap_or_else(|error| smelt_panic_throw(error))")
         } else {
             call
         };
@@ -261,17 +258,17 @@ impl FunctionEmitter<'_> {
         // must not replace the call with a constant. It therefore takes the
         // statement shape of a `void` callback, whose value is never observed.
         let return_text = if matches!(self.mir.types.get(source.return_ty), Some(Type::None | Type::Never)) {
-            let null_text = self.null_value();
-            format!("{{ {call_value}; {null_text} }}")
+            let null_text = self.null_value()?;
+            format!("{{ {call_value}; {null_text} }}", call_value = call_value.delimited(), null_text = null_text.delimited())
         } else {
             self.rendered_at_type(&call_value, source.return_ty, unknown_ty, &self.render_scope())?.into_string()
         };
-        let closure = self.carrier_format(format_args!("move |smelt_args: Vec<SmeltUnknown>| {return_text}"));
+        let closure = self.carrier_format(self.carrier()?, format_args!("move |smelt_args: Vec<SmeltUnknown>| {return_text}"));
         Ok(Some(if is_borrowed_param {
             RustExpr::loose(format!("::std::rc::Rc::new({closure})"))
         } else {
             RustExpr::atom(format!(
-                "{{ let smelt_callback = {function_text}.clone(); ::std::rc::Rc::new({closure}) }}"
+                "{{ let smelt_callback = {function_text}.clone(); ::std::rc::Rc::new({closure}) }}", function_text = function_text.tight()
             ))
         }))
     }
@@ -346,33 +343,17 @@ impl FunctionEmitter<'_> {
             .contains(&(function.id, local)))
     }
 
-    /// Return true when emitted text names a source function parameter.
+    /// Whether `local` holds a borrowed callback: a function-typed source
+    /// parameter the emitted Rust keeps as `&dyn Fn` (or `&F`), or a closure
+    /// local bound to a capture of one.
     ///
-    /// Callback bodies can reference captured source parameters through MIR
-    /// locals that are not themselves in the nested closure parameter list. The
-    /// emitted Rust type is still `&dyn Fn`, so calls must use direct
-    /// callable syntax instead of the `Rc<RefCell<_>>` handle path.
-    pub(super) fn is_function_parameter_name(&self, name: &str) -> Result<bool, EmitError> {
-        Ok(self.function.params.iter().any(|param| {
-            self.local_binding(*param).is_ok_and(|binding| {
-                !matches!(binding, LocalBinding::ClosureArg(_)) && binding.text() == name
-            }) && self.local_decl(*param).is_ok_and(|local| {
-                    matches!(self.mir.types.get(local.ty), Some(Type::Function(_)))
-                })
-                && !self
-                    .function_parameter_requires_owned(*param)
-                    .unwrap_or(false)
-        }))
-    }
-
-    /// Return true for captured callback parameters that keep borrowed Rust type.
-    ///
-    /// Closure MIR currently records captured outer callback parameters as
-    /// ordinary function-typed locals, so name shape is the remaining signal
-    /// that the emitted Rust value is a borrowed `&dyn Fn` rather than
-    /// an owned callable handle.
-    pub(super) fn is_borrowed_callback_capture_name(&self, name: &str) -> bool {
-        self.borrowed_callback_names.contains(name)
+    /// Decided by the local's identity, never by its rendered name, so two
+    /// bindings that happen to share a spelling cannot be confused. The answer
+    /// travels on the rendered expression ([`RustExpr::is_borrowed_callback`]),
+    /// which is what the call and coercion paths ask.
+    pub(super) fn binds_borrowed_callback(&self, local: LocalId) -> Result<bool, EmitError> {
+        Ok(self.borrowed_callback_locals.contains(&local)
+            || self.is_function_parameter_place(&Place::Local(local))?)
     }
 
     /// Return true when a captured local is a borrowed callback parameter.
@@ -471,7 +452,7 @@ impl FunctionEmitter<'_> {
                 && !self.is_erased_unknown_rest_function(function)
             {
                 let owned = self.extract(operand, target, &self.render_scope())?;
-                return Ok(RustExpr::loose(format!("&*({owned})")));
+                return Ok(RustExpr::loose(format!("&*({owned})", owned = owned.delimited())));
             }
             return self.borrowed_default_function_expr(target, callee_bindings);
         }
@@ -486,7 +467,7 @@ impl FunctionEmitter<'_> {
         match operand {
             Operand::Copy(place) | Operand::Move(place) => {
                 let place_expr = self.place_expr(place)?;
-                Ok(RustExpr::loose(format!("&*{place_expr}")))
+                Ok(RustExpr::loose(format!("&*{place_expr}", place_expr = place_expr.tight())))
             }
             Operand::Const(_) => self.borrowed_default_function_expr(target, callee_bindings),
         }
@@ -513,7 +494,7 @@ impl FunctionEmitter<'_> {
             .join(", ");
         let return_value = self.default_value(function.return_ty)?;
         let return_text = if function.may_throw {
-            format!("Ok::<_, {ERROR_BOX}>({return_value})")
+            format!("Ok::<_, {ERROR_BOX}>({return_value})", return_value = return_value.delimited())
         } else {
             return_value.into_string()
         };
@@ -550,7 +531,7 @@ impl FunctionEmitter<'_> {
             MutablePrefix::Ignore,
         )?;
         let args = (0..function.params.len())
-            .map(|index| format!("arg{index}"))
+            .map(|index| format!("smelt_arg{index}"))
             .collect::<Vec<_>>()
             .join(", ");
         // The wrapped callable is CAPTURED by the `move` closure, so naming it
@@ -572,7 +553,7 @@ impl FunctionEmitter<'_> {
         Ok(RustExpr::atom(format!(
             "{{ let smelt_handle_callback = {function_text}.clone(); \
              ::std::rc::Rc::new(move |{}| (smelt_handle_callback)({args})) }}",
-            params.join(", ")
+            params.join(", "), function_text = function_text.tight()
         )))
     }
 }

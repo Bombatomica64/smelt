@@ -4389,9 +4389,9 @@ impl IntoSmeltUnknown for Options {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let smelt_absent_keys: [&str; 3] = ["label", "limit", "tags"];
         SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
-        ("label".to_owned(), self.label.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
-        ("limit".to_owned(), self.limit.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
-        ("tags".to_owned(), self.tags.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Array(value.into_iter().map(|value| SmeltUnknown::String(value.into())).collect()))),
+        ("label".to_owned(), self.label.map_or(SmeltUnknown::Undefined, |smelt_value| SmeltUnknown::String(smelt_value.into()))),
+        ("limit".to_owned(), self.limit.map_or(SmeltUnknown::Undefined, |smelt_value| SmeltUnknown::Number(smelt_value as f64))),
+        ("tags".to_owned(), self.tags.map_or(SmeltUnknown::Undefined, |smelt_value| SmeltUnknown::Array(smelt_value.into_iter().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).collect()))),
         ]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))
     }
 }
@@ -4399,14 +4399,14 @@ impl SmeltFromUnknown for Options {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("label") {
-                result.label = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("label") {
+                result.label = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("limit") {
-                result.limit = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("limit") {
+                result.limit = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("tags") {
-                result.tags = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("tags") {
+                result.tags = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -4431,11 +4431,11 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, N: Clon
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("value") {
-                result.value = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("value") {
+                result.value = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(field) = object.get("count") {
-                result.count = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("count") {
+                result.count = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -4550,7 +4550,7 @@ pub(crate) fn paths(req: Request) -> JsString {
     let _smelt_tmp_3: SmeltList<JsString> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: (JsString, JsString), _arg0: i64, _arg1: &SmeltList<(JsString, JsString)>| {
     let path: JsString = closure_arg_0.clone().1.clone();
     path.clone()
-    }); let smelt_array = _smelt_tmp_1; let smelt_value = smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
+    }); let smelt_array = _smelt_tmp_1; let smelt_value = smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
     let _smelt_tmp_4: JsString = JsString::join(_smelt_tmp_3.borrow().iter(), &JsString::from(","));
     return _smelt_tmp_4;
 }

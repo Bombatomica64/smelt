@@ -4626,7 +4626,7 @@ struct Job {
 impl Default for Job {
     fn default() -> Self {
         Self {
-            run: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> SmeltFuture<JsString>> = ::std::rc::Rc::new(move |arg0: JsString| -> SmeltFuture<JsString> { SmeltFuture::resolved(JsString::new()) }); smelt_default_callback },
+            run: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> SmeltFuture<JsString>> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> SmeltFuture<JsString> { SmeltFuture::resolved(JsString::new()) }); smelt_default_callback },
             label: JsString::new(),
         }
     }
@@ -4648,12 +4648,12 @@ impl SmeltFromUnknown for Job {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("run") {
-                let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
+            if let Some(smelt_field) = object.get("run") {
+                let smelt_function = match smelt_field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };
                 if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(JsString) -> SmeltFuture<JsString>>>(&smelt_function)) { result.run = smelt_origin; }
             }
-            if let Some(field) = object.get("label") {
-                result.label = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("label") {
+                result.label = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result

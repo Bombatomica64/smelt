@@ -5103,8 +5103,8 @@ impl SmeltFromUnknown for Brand {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("_brand") {
-                result._brand = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(smelt_field) = object.get("_brand") {
+                result._brand = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
         }
         result
@@ -5157,7 +5157,7 @@ impl SmeltFromUnknown for Counter {
         let SmeltUnknown::Object(object) = value else { return Self::default() };
         if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(field) = object.get("total") { result.0.borrow_mut().total = SmeltFromUnknown::smelt_from_unknown(field); }
+        if let Some(smelt_field) = object.get("total") { result.0.borrow_mut().total = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
         result
     }
 }
@@ -5290,11 +5290,11 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_16: JsString = join(JsString::from("a"), _smelt_tmp_15);
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_14), _smelt_tmp_16); };
     let _smelt_tmp_18: Option<JsString> = scan__module_main(JsString::from("http://x/?a=1&b"), Some(JsString::from("a")), None::<bool>);
-    let _ = { println!("{}", match &_smelt_tmp_18 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", match &_smelt_tmp_18 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
     let _smelt_tmp_20: Option<JsString> = scan__module_main(JsString::from("http://x/"), Some(JsString::from("a")), None::<bool>);
-    let _ = { println!("{}", match &_smelt_tmp_20 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", match &_smelt_tmp_20 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
     let _smelt_tmp_22: Option<JsString> = scan__module_main(JsString::from("http://x/?z=1&y"), None::<JsString>, Some(true));
-    let _ = { println!("{}", match &_smelt_tmp_22 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", match &_smelt_tmp_22 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
     return Ok(());
 }
 
@@ -5386,7 +5386,7 @@ pub(crate) fn scan__module_main(url: JsString, key: Option<JsString>, multiple: 
     let _smelt_tmp_9: f64 = -1.0;
     let encoded: bool = _smelt_tmp_8 != _smelt_tmp_9;
     let _smelt_tmp_11: bool = !(multiple.clone().clone().unwrap_or(false));
-    let _smelt_tmp_12: bool = if _smelt_tmp_11 { key.clone().clone().map_or(false, |value| !(value).is_empty()) } else { false };
+    let _smelt_tmp_12: bool = if _smelt_tmp_11 { key.clone().clone().map_or(false, |smelt_value| !(smelt_value).is_empty()) } else { false };
     let mut _smelt_tmp_13: bool = false;
     if _smelt_tmp_12 {
     _smelt_tmp_14 = key.clone().expect("optional value was absent after narrowing");

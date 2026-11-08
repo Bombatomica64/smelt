@@ -4890,8 +4890,8 @@ impl IntoSmeltUnknown for SmeltUnion14 {
 }
 impl SmeltUnion14 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::BigInt(_)) { return Self::M0(match value.clone() { SmeltUnknown::BigInt(value) => value, SmeltUnknown::Number(value) => smelt_bigint_from_number(value).unwrap_or_default(), SmeltUnknown::String(value) => smelt_bigint_from_string(&value).unwrap_or_default(), SmeltUnknown::Bool(value) => ::num_bigint::BigInt::from(i64::from(value)), SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => ::num_bigint::BigInt::default() }); }
-        Self::M1(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value), SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN })
+        if matches!(value, SmeltUnknown::BigInt(_)) { return Self::M0(match value.clone() { SmeltUnknown::BigInt(smelt_value) => smelt_value, SmeltUnknown::Number(smelt_value) => smelt_bigint_from_number(smelt_value).unwrap_or_default(), SmeltUnknown::String(smelt_value) => smelt_bigint_from_string(&smelt_value).unwrap_or_default(), SmeltUnknown::Bool(smelt_value) => ::num_bigint::BigInt::from(i64::from(smelt_value)), SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => ::num_bigint::BigInt::default() }); }
+        Self::M1(match value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value), SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN })
     }
 }
 impl PartialEq for SmeltUnion14 {
@@ -5029,53 +5029,53 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_21 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![33.0, 225.0, 158.0, 12.0, 155.0, 171.0, 35.0, 255.0, 255.0, 240.0]; smelt_list_items }));
     let _smelt_tmp_22: ::num_bigint::BigInt = as_big_int(_smelt_tmp_21)?;
     let _ = { println!("{} {}n", JsString::from("ten bytes:"), _smelt_tmp_22); };
-    _smelt_tmp_24 = -&::num_bigint::BigInt::from(7_i64);
+    _smelt_tmp_24 = -(&::num_bigint::BigInt::from(7_i64));
     let _smelt_tmp_25: ::num_bigint::BigInt = smelt_bigint_div(&_smelt_tmp_24, &::num_bigint::BigInt::from(2_i64))?;
-    _smelt_tmp_26 = -&::num_bigint::BigInt::from(2_i64);
+    _smelt_tmp_26 = -(&::num_bigint::BigInt::from(2_i64));
     let _smelt_tmp_27: ::num_bigint::BigInt = smelt_bigint_div(&::num_bigint::BigInt::from(7_i64), &_smelt_tmp_26)?;
-    _smelt_tmp_28 = -&::num_bigint::BigInt::from(7_i64);
-    _smelt_tmp_29 = -&::num_bigint::BigInt::from(2_i64);
+    _smelt_tmp_28 = -(&::num_bigint::BigInt::from(7_i64));
+    _smelt_tmp_29 = -(&::num_bigint::BigInt::from(2_i64));
     let _smelt_tmp_30: ::num_bigint::BigInt = smelt_bigint_div(&_smelt_tmp_28, &_smelt_tmp_29)?;
     let _smelt_tmp_31: ::num_bigint::BigInt = smelt_bigint_div(&huge, &two_53)?;
     let _ = { println!("{} {}n {}n {}n {}n", JsString::from("division:"), _smelt_tmp_25, _smelt_tmp_27, _smelt_tmp_30, _smelt_tmp_31); };
-    _smelt_tmp_33 = -&::num_bigint::BigInt::from(7_i64);
+    _smelt_tmp_33 = -(&::num_bigint::BigInt::from(7_i64));
     let _smelt_tmp_34: ::num_bigint::BigInt = smelt_bigint_rem(&_smelt_tmp_33, &::num_bigint::BigInt::from(2_i64))?;
-    _smelt_tmp_35 = -&::num_bigint::BigInt::from(2_i64);
+    _smelt_tmp_35 = -(&::num_bigint::BigInt::from(2_i64));
     let _smelt_tmp_36: ::num_bigint::BigInt = smelt_bigint_rem(&::num_bigint::BigInt::from(7_i64), &_smelt_tmp_35)?;
-    _smelt_tmp_37 = -&::num_bigint::BigInt::from(7_i64);
-    _smelt_tmp_38 = -&::num_bigint::BigInt::from(2_i64);
+    _smelt_tmp_37 = -(&::num_bigint::BigInt::from(7_i64));
+    _smelt_tmp_38 = -(&::num_bigint::BigInt::from(2_i64));
     let _smelt_tmp_39: ::num_bigint::BigInt = smelt_bigint_rem(&_smelt_tmp_37, &_smelt_tmp_38)?;
     let _smelt_tmp_40: ::num_bigint::BigInt = smelt_bigint_rem(&huge, &two_53)?;
     let _ = { println!("{} {}n {}n {}n {}n", JsString::from("remainder:"), _smelt_tmp_34, _smelt_tmp_36, _smelt_tmp_39, _smelt_tmp_40); };
     let _smelt_tmp_42: ::num_bigint::BigInt = smelt_bigint_shl(&::num_bigint::BigInt::from(1_i64), &::num_bigint::BigInt::from(64_i64))?;
     let _smelt_tmp_43: ::num_bigint::BigInt = smelt_bigint_shl(&::num_bigint::BigInt::from(1_i64), &::num_bigint::BigInt::from(73_i64))?;
-    _smelt_tmp_44 = -&::num_bigint::BigInt::from(3_i64);
+    _smelt_tmp_44 = -(&::num_bigint::BigInt::from(3_i64));
     let _smelt_tmp_45: ::num_bigint::BigInt = smelt_bigint_shl(&_smelt_tmp_44, &::num_bigint::BigInt::from(2_i64))?;
-    _smelt_tmp_46 = -&::num_bigint::BigInt::from(1_i64);
+    _smelt_tmp_46 = -(&::num_bigint::BigInt::from(1_i64));
     let _smelt_tmp_47: ::num_bigint::BigInt = smelt_bigint_shl(&::num_bigint::BigInt::from(5_i64), &_smelt_tmp_46)?;
     let _ = { println!("{} {}n {}n {}n {}n", JsString::from("shift left:"), _smelt_tmp_42, _smelt_tmp_43, _smelt_tmp_45, _smelt_tmp_47); };
-    _smelt_tmp_49 = -&::num_bigint::BigInt::from(5_i64);
+    _smelt_tmp_49 = -(&::num_bigint::BigInt::from(5_i64));
     let _smelt_tmp_50: ::num_bigint::BigInt = smelt_bigint_shr(&_smelt_tmp_49, &::num_bigint::BigInt::from(1_i64))?;
     let _smelt_tmp_51: ::num_bigint::BigInt = smelt_bigint_shr(&::num_bigint::BigInt::from(5_i64), &::num_bigint::BigInt::from(1_i64))?;
-    _smelt_tmp_52 = -&::num_bigint::BigInt::from(1_i64);
+    _smelt_tmp_52 = -(&::num_bigint::BigInt::from(1_i64));
     let _smelt_tmp_53: ::num_bigint::BigInt = smelt_bigint_shr(&_smelt_tmp_52, &::num_bigint::BigInt::from(100_i64))?;
     let _smelt_tmp_54: ::num_bigint::BigInt = smelt_bigint_shr(&huge, &::num_bigint::BigInt::from(13_i64))?;
-    _smelt_tmp_55 = -&huge;
+    _smelt_tmp_55 = -(&huge);
     let _smelt_tmp_56: ::num_bigint::BigInt = smelt_bigint_shr(&_smelt_tmp_55, &::num_bigint::BigInt::from(20_i64))?;
     let _ = { println!("{} {}n {}n {}n {}n {}n", JsString::from("shift right:"), _smelt_tmp_50, _smelt_tmp_51, _smelt_tmp_53, _smelt_tmp_54, _smelt_tmp_56); };
     _smelt_tmp_58 = &huge & &::num_bigint::BigInt::from(65535_i64);
-    _smelt_tmp_59 = -&huge;
+    _smelt_tmp_59 = -(&huge);
     _smelt_tmp_60 = &_smelt_tmp_59 & &::num_bigint::BigInt::from(255_i64);
-    _smelt_tmp_61 = -&::num_bigint::BigInt::from(6_i64);
+    _smelt_tmp_61 = -(&::num_bigint::BigInt::from(6_i64));
     _smelt_tmp_62 = &_smelt_tmp_61 | &::num_bigint::BigInt::from(3_i64);
-    _smelt_tmp_63 = -&::num_bigint::BigInt::from(6_i64);
+    _smelt_tmp_63 = -(&::num_bigint::BigInt::from(6_i64));
     _smelt_tmp_64 = &_smelt_tmp_63 ^ &::num_bigint::BigInt::from(3_i64);
     _smelt_tmp_65 = &::num_bigint::BigInt::from(5_i64) ^ &::num_bigint::BigInt::from(-1_i64);
-    _smelt_tmp_66 = -&huge;
+    _smelt_tmp_66 = -(&huge);
     _smelt_tmp_67 = &_smelt_tmp_66 ^ &::num_bigint::BigInt::from(-1_i64);
     let _ = { println!("{} {}n {}n {}n {}n {}n {}n", JsString::from("bitwise:"), _smelt_tmp_58, _smelt_tmp_60, _smelt_tmp_62, _smelt_tmp_64, _smelt_tmp_65, _smelt_tmp_67); };
     let _smelt_tmp_69: ::num_bigint::BigInt = power(::num_bigint::BigInt::from(2_i64), ::num_bigint::BigInt::from(100_i64))?;
-    _smelt_tmp_70 = -&::num_bigint::BigInt::from(3_i64);
+    _smelt_tmp_70 = -(&::num_bigint::BigInt::from(3_i64));
     let _smelt_tmp_71: ::num_bigint::BigInt = power(_smelt_tmp_70, ::num_bigint::BigInt::from(3_i64))?;
     let _smelt_tmp_72: ::num_bigint::BigInt = power(::num_bigint::BigInt::from(7_i64), ::num_bigint::BigInt::from(0_i64))?;
     let _ = { println!("{} {}n {}n {}n", JsString::from("power:"), _smelt_tmp_69, _smelt_tmp_71, _smelt_tmp_72); };
@@ -5084,9 +5084,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_76: ::num_bigint::BigInt = smelt_bigint_as_int_n(8.0, &::num_bigint::BigInt::from(255_i64))?;
     let _smelt_tmp_77: ::num_bigint::BigInt = smelt_bigint_as_int_n(64.0, &huge)?;
     let _ = { println!("{} {}n {}n {}n", JsString::from("asIntN:"), _smelt_tmp_75, _smelt_tmp_76, _smelt_tmp_77); };
-    _smelt_tmp_79 = -&::num_bigint::BigInt::from(1_i64);
+    _smelt_tmp_79 = -(&::num_bigint::BigInt::from(1_i64));
     let _smelt_tmp_80: ::num_bigint::BigInt = smelt_bigint_as_uint_n(64.0, &_smelt_tmp_79)?;
-    _smelt_tmp_81 = -&::num_bigint::BigInt::from(1_i64);
+    _smelt_tmp_81 = -(&::num_bigint::BigInt::from(1_i64));
     let _smelt_tmp_82: ::num_bigint::BigInt = smelt_bigint_as_uint_n(8.0, &_smelt_tmp_81)?;
     let _smelt_tmp_83: ::num_bigint::BigInt = smelt_bigint_as_uint_n(80.0, &huge)?;
     let _ = { println!("{} {}n {}n {}n", JsString::from("asUintN:"), _smelt_tmp_80, _smelt_tmp_82, _smelt_tmp_83); };
@@ -5103,18 +5103,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_95 = SmeltUnion14::M1(f64::NAN);
     _smelt_tmp_96 = smelt_js_loose_eq(&SmeltUnknown::BigInt((::num_bigint::BigInt::from(1_i64)).clone()), &_smelt_tmp_95.clone().into_smelt_unknown());
     let _ = { println!("{} {} {} {}", JsString::from("compare NaN:"), _smelt_tmp_93, _smelt_tmp_94, _smelt_tmp_96); };
-    _smelt_tmp_98 = &::num_bigint::BigInt::from(2_i64) == &::num_bigint::BigInt::from(2_i64);
+    _smelt_tmp_98 = (&::num_bigint::BigInt::from(2_i64)) == (&::num_bigint::BigInt::from(2_i64));
     _smelt_tmp_99 = &two_53 + &::num_bigint::BigInt::from(1_i64);
     _smelt_tmp_100 = &two_53 + &::num_bigint::BigInt::from(1_i64);
-    _smelt_tmp_101 = &_smelt_tmp_99 == &_smelt_tmp_100;
+    _smelt_tmp_101 = (&_smelt_tmp_99) == (&_smelt_tmp_100);
     _smelt_tmp_102 = &huge + &::num_bigint::BigInt::from(1_i64);
-    _smelt_tmp_103 = &huge != &_smelt_tmp_102;
+    _smelt_tmp_103 = (&huge) != (&_smelt_tmp_102);
     let _ = { println!("{} {} {} {}", JsString::from("strict:"), _smelt_tmp_98, _smelt_tmp_101, _smelt_tmp_103); };
     _smelt_tmp_105 = JsString::from((&huge).to_string());
     let _smelt_tmp_106: JsString = smelt_bigint_to_string_radix(&huge, 16.0).map(JsString::from).map(JsString::from)?;
     let _smelt_tmp_107: JsString = smelt_bigint_to_string_radix(&huge, 2.0).map(JsString::from).map(JsString::from)?;
     _smelt_tmp_108 = _smelt_tmp_107.len() as f64;
-    _smelt_tmp_109 = -&::num_bigint::BigInt::from(255_i64);
+    _smelt_tmp_109 = -(&::num_bigint::BigInt::from(255_i64));
     let _smelt_tmp_110: JsString = smelt_bigint_to_string_radix(&_smelt_tmp_109, 16.0).map(JsString::from).map(JsString::from)?;
     let _ = { println!("{} {} {} {} {}", JsString::from("toString:"), _smelt_tmp_105, _smelt_tmp_106, smelt_console_number(_smelt_tmp_108), _smelt_tmp_110); };
     _smelt_tmp_112 = JsString::from((&two_64).to_string());
@@ -5124,7 +5124,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_116 = &two_53 + &::num_bigint::BigInt::from(1_i64);
     _smelt_tmp_117 = smelt_bigint_to_number(&_smelt_tmp_116);
     _smelt_tmp_118 = smelt_bigint_to_number(&huge);
-    _smelt_tmp_119 = -&two_64;
+    _smelt_tmp_119 = -(&two_64);
     _smelt_tmp_120 = smelt_bigint_to_number(&_smelt_tmp_119);
     let _ = { println!("{} {} {} {}", JsString::from("Number:"), smelt_console_number(_smelt_tmp_117), smelt_console_number(_smelt_tmp_118), smelt_console_number(_smelt_tmp_120)); };
     let _smelt_tmp_122: ::num_bigint::BigInt = smelt_bigint_from_string(&JsString::from("123456789012345678901234567890"))?;
@@ -5132,11 +5132,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_124: ::num_bigint::BigInt = smelt_bigint_from_string(&JsString::from("0x1f"))?;
     _smelt_tmp_125 = (2.0 as f64).powf(60.0 as f64);
     let _smelt_tmp_126: ::num_bigint::BigInt = smelt_bigint_from_number(_smelt_tmp_125)?;
-    let _smelt_tmp_127: ::num_bigint::BigInt = Ok::<::num_bigint::BigInt, Box<dyn ::std::error::Error>>(::num_bigint::BigInt::from(i64::from(true)))?;
+    let _smelt_tmp_127: ::num_bigint::BigInt = (Ok::<::num_bigint::BigInt, Box<dyn ::std::error::Error>>(::num_bigint::BigInt::from(i64::from(true))))?;
     let _ = { println!("{} {}n {}n {}n {}n {}n", JsString::from("BigInt():"), _smelt_tmp_122, _smelt_tmp_123, _smelt_tmp_124, _smelt_tmp_126, _smelt_tmp_127); };
     let _ = { println!("{} {} {} {}", JsString::from("typeof:"), JsString::from("bigint"), JsString::from("bigint"), JsString::from("number")); };
     let _smelt_tmp_130: SmeltList<::num_bigint::BigInt> = both(two_53.clone(), huge.clone());
-    _smelt_tmp_131 = -&::num_bigint::BigInt::from(1_i64);
+    _smelt_tmp_131 = -(&::num_bigint::BigInt::from(1_i64));
     let _smelt_tmp_132: SmeltList<::num_bigint::BigInt> = both(::num_bigint::BigInt::from(1_i64), _smelt_tmp_131);
     _smelt_tmp_133 = _smelt_tmp_132.len() as f64;
     let _ = { println!("{} {} {}", JsString::from("generic:"), SmeltInspect::smelt_console_text(&_smelt_tmp_130), smelt_console_number(_smelt_tmp_133)); };
@@ -5168,8 +5168,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_150 = keyed.contains_key(&_smelt_tmp_149);
     _smelt_tmp_151 = unique.len() as f64;
     _smelt_tmp_152 = unique.contains(&two_64);
-    let _ = { println!("{} {} {} {} {}", JsString::from("collections:"), match &_smelt_tmp_148 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, _smelt_tmp_150, smelt_console_number(_smelt_tmp_151), _smelt_tmp_152); };
-    _smelt_tmp_154 = -&::num_bigint::BigInt::from(1_i64);
+    let _ = { println!("{} {} {} {} {}", JsString::from("collections:"), match &_smelt_tmp_148 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }, _smelt_tmp_150, smelt_console_number(_smelt_tmp_151), _smelt_tmp_152); };
+    _smelt_tmp_154 = -(&::num_bigint::BigInt::from(1_i64));
     _smelt_tmp_155 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<::num_bigint::BigInt> = vec![huge.clone(), _smelt_tmp_154.clone(), two_53.clone(), ::num_bigint::BigInt::from(0_i64)]; smelt_list_items }));
     ordered = Into::<SmeltList<_>>::into({ let mut smelt_comparator = ::std::rc::Rc::new(|closure_arg_0: ::num_bigint::BigInt, closure_arg_1: ::num_bigint::BigInt| {
     let mut _smelt_tmp_3: f64;
@@ -5190,19 +5190,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_3 = _smelt_tmp_6;
     }
     _smelt_tmp_3
-    }); _smelt_tmp_155.borrow_mut().sort_by(|left, right| { let ordering = (smelt_comparator)(left.clone(), right.clone()); if ordering < 0.0 { std::cmp::Ordering::Less } else if ordering > 0.0 { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Equal } }); _smelt_tmp_155.clone() });
-    _smelt_tmp_159 = ordered.borrow().iter().enumerate().fold(::num_bigint::BigInt::from(0_i64), |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = &ordered; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: ::num_bigint::BigInt, closure_arg_1: ::num_bigint::BigInt, _arg0: i64, _arg1: &SmeltList<::num_bigint::BigInt>| {
+    }); _smelt_tmp_155.borrow_mut().sort_by(|smelt_left, smelt_right| { let smelt_ordering = (smelt_comparator)(smelt_left.clone(), smelt_right.clone()); if smelt_ordering < 0.0 { std::cmp::Ordering::Less } else if smelt_ordering > 0.0 { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Equal } }); _smelt_tmp_155.clone() });
+    _smelt_tmp_159 = ordered.borrow().iter().enumerate().fold(::num_bigint::BigInt::from(0_i64), |smelt_acc, (smelt_index, smelt_item)| { let smelt_item = (*smelt_item).clone(); let smelt_index = smelt_index as f64; let smelt_array = &ordered; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: ::num_bigint::BigInt, closure_arg_1: ::num_bigint::BigInt, _arg0: i64, _arg1: &SmeltList<::num_bigint::BigInt>| {
     let _smelt_tmp_2: ::num_bigint::BigInt = &closure_arg_0 + &closure_arg_1;
     _smelt_tmp_2.clone()
-    }); (smelt_callback)(acc, item, ((index as f64).trunc() as i64), array) } });
+    }); (smelt_callback)(smelt_acc, smelt_item, ((smelt_index as f64).trunc() as i64), smelt_array) } });
     let _ = { println!("{} {} {}n", JsString::from("sorted:"), SmeltInspect::smelt_console_text(&ordered), _smelt_tmp_159); };
     zero = ::num_bigint::BigInt::from(0_i64);
     _smelt_tmp_161 = !::num_traits::Zero::is_zero(&::num_bigint::BigInt::from(0_i64));
-    _smelt_tmp_162 = -&::num_bigint::BigInt::from(1_i64);
+    _smelt_tmp_162 = -(&::num_bigint::BigInt::from(1_i64));
     _smelt_tmp_163 = !::num_traits::Zero::is_zero(&_smelt_tmp_162);
-    _smelt_tmp_164 = &zero != &::num_bigint::BigInt::from(0_i64);
+    _smelt_tmp_164 = (&zero) != (&::num_bigint::BigInt::from(0_i64));
     let _smelt_tmp_165: JsString = if _smelt_tmp_164 { JsString::from("yes") } else { JsString::from("no") };
-    _smelt_tmp_166 = &huge != &::num_bigint::BigInt::from(0_i64);
+    _smelt_tmp_166 = (&huge) != (&::num_bigint::BigInt::from(0_i64));
     let _smelt_tmp_167: JsString = if _smelt_tmp_166 { JsString::from("yes") } else { JsString::from("no") };
     let _ = { println!("{} {} {} {} {}", JsString::from("truthy:"), _smelt_tmp_161, _smelt_tmp_163, _smelt_tmp_165, _smelt_tmp_167); };
     return Ok(());

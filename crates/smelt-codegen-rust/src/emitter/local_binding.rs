@@ -162,7 +162,7 @@ pub(super) enum PlaceTarget {
 
 impl PlaceTarget {
     /// The place expression.
-    pub(super) fn text(&self) -> &str {
+    pub(super) fn text(&self) -> &RustExpr {
         match self {
             Self::Direct(text) | Self::SharedCell { text, .. } => text,
         }
@@ -259,8 +259,8 @@ mod tests {
         let weak = SharedCell::named("this", CellUpgrade::WeakReceiver);
         assert_eq!(weak.read_expr().as_str(), "(*smelt_capture_this.smelt_receiver_cell().borrow())");
         let recursive = SharedCell::named("walk", CellUpgrade::SelfRecursive);
-        assert!(recursive.write_expr().starts_with("(*smelt_capture_walk.upgrade()"));
-        assert!(recursive.write_expr().ends_with(".borrow_mut())"));
+        assert!(recursive.write_expr().as_str().starts_with("(*smelt_capture_walk.upgrade()"));
+        assert!(recursive.write_expr().as_str().ends_with(".borrow_mut())"));
     }
 
     #[test]

@@ -967,7 +967,7 @@ pub(crate) fn record(method: JsString, path: JsString, weight: f64) -> JsString 
 pub(crate) fn make_route() -> (JsString, JsString, f64) {
     let _smelt_tmp_0: f64 = SMELT_GLOBAL_EVALUATIONS_0.with(::std::cell::Cell::get);
     let _smelt_tmp_1: f64 = _smelt_tmp_0 + 1.0;
-    let _smelt_tmp_2: f64 = { let smelt_global_value = _smelt_tmp_1; SMELT_GLOBAL_EVALUATIONS_0.with(|value| value.set(smelt_global_value)); smelt_global_value };
+    let _smelt_tmp_2: f64 = { let smelt_global_value = _smelt_tmp_1; SMELT_GLOBAL_EVALUATIONS_0.with(|smelt_value| smelt_value.set(smelt_global_value)); smelt_global_value };
     let _smelt_tmp_3: (JsString, JsString, f64) = (JsString::from("PUT"), JsString::from("/once"), 3.0);
     return _smelt_tmp_3;
 }

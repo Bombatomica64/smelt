@@ -11,7 +11,7 @@ impl FunctionEmitter<'_> {
     /// only on floats, so generated code must cast the receiver before truncating
     /// when the MIR operand may lower to an integer expression.
     pub(super) fn numeric_trunc_f64_expr(&self, value_text: &RustExpr) -> RustExpr {
-        RustExpr::atom(format!("({value_text} as f64).trunc()"))
+        RustExpr::atom(format!("({value_text} as f64).trunc()", value_text = value_text.as_cast_operand()))
     }
 
     /// Converts an operand for len() to its Rust text representation.
@@ -63,7 +63,7 @@ impl FunctionEmitter<'_> {
             // representation is this value" for the call-shape ladder, so the two
             // cannot drift apart again.
             Some(Type::Function(_)) if self.callee_uses_erased_call_method(operand)? => {
-                format!("{receiver_text}.length")
+                format!("{receiver_text}.length", receiver_text = receiver_text.tight())
             }
             // Any other callable is a concrete handle whose arity is fixed by its
             // declared signature, so the count is a compile-time constant.
@@ -75,17 +75,17 @@ impl FunctionEmitter<'_> {
             Some(Type::Optional(inner))
                 if matches!(self.mir.types.get(*inner), Some(Type::String | Type::PyStr)) =>
             {
-                format!("{receiver_text}.as_ref().map_or(0, |value| {})", self.string_len_text("value"))
+                format!("{receiver_text}.as_ref().map_or(0, |smelt_value| {})", self.string_len_text("smelt_value"), receiver_text = receiver_text.tight())
             }
             Some(Type::Optional(inner))
                 if matches!(self.mir.types.get(*inner), Some(Type::List(_))) =>
             {
-                format!("{receiver_text}.as_ref().map_or(0, Vec::len)")
+                format!("{receiver_text}.as_ref().map_or(0, Vec::len)", receiver_text = receiver_text.tight())
             }
             Some(Type::Optional(inner))
                 if matches!(self.mir.types.get(*inner), Some(Type::Unknown)) =>
             {
-                self.carrier_format(format_args!("{receiver_text}.as_ref().map_or(0, SmeltUnknown::len)"))
+                self.carrier_format(self.carrier()?, format_args!("{receiver_text}.as_ref().map_or(0, SmeltUnknown::len)", receiver_text = receiver_text.tight()))
             }
             Some(Type::Optional(inner))
                 if matches!(
@@ -101,10 +101,10 @@ impl FunctionEmitter<'_> {
                 // variant (string char count vs array length vs a length-bearing
                 // object), so erase the borrowed value at this genuinely dynamic
                 // boundary and inspect it, mirroring the non-optional case below.
-                self.carrier_format(format_args!(
-                    "{receiver_text}.as_ref().map_or(0, |value| match value.clone().into_smelt_unknown() {{ SmeltUnknown::String(value) => {string_len}, SmeltUnknown::Array(value) => value.len(), SmeltUnknown::Object(value) => match smelt_get_object_field(&value, \"length\") {{ SmeltUnknown::Number(value) => value as usize, _ => {function_length}(&SmeltUnknown::Object(value)) as usize }}, value @ SmeltUnknown::Function(_) => {function_length}(&value) as usize, _ => 0 }})",
+                self.carrier_format(self.carrier()?, format_args!(
+                    "{receiver_text}.as_ref().map_or(0, |smelt_value| match smelt_value.clone().into_smelt_unknown() {{ SmeltUnknown::String(smelt_value) => {string_len}, SmeltUnknown::Array(smelt_value) => smelt_value.len(), SmeltUnknown::Object(smelt_value) => match smelt_get_object_field(&smelt_value, \"length\") {{ SmeltUnknown::Number(smelt_value) => smelt_value as usize, _ => {function_length}(&SmeltUnknown::Object(smelt_value)) as usize }}, smelt_value @ SmeltUnknown::Function(_) => {function_length}(&smelt_value) as usize, _ => 0 }})",
                     function_length = smelt_stdlib::runtime_symbols::function_length::READ,
-                    string_len = self.string_len_text("value"),
+                    string_len = self.string_len_text("smelt_value"), receiver_text = receiver_text.tight(),
                 ))
             }
             // A callable's `.length` is its declared arity, which the erasure
@@ -119,17 +119,17 @@ impl FunctionEmitter<'_> {
                 // `value`, which is the commonest name in a generic helper) had
                 // its arm binding shadow it and the `Function` fallbacks passed
                 // `&&SmeltObject` where a `&SmeltUnknown` was expected (E0308).
-                self.carrier_format(format_args!(
-                    "{{ let smelt_length_receiver = &{receiver_text}; match smelt_length_receiver {{ SmeltUnknown::String(value) => {string_len}, SmeltUnknown::Array(value) => value.len(), SmeltUnknown::Object(value) => match smelt_get_object_field(value, \"length\") {{ SmeltUnknown::Number(value) => value as usize, _ => {function_length}(smelt_length_receiver) as usize }}, SmeltUnknown::Function(_) => {function_length}(smelt_length_receiver) as usize, _ => 0 }} }}",
+                self.carrier_format(self.carrier()?, format_args!(
+                    "{{ let smelt_length_receiver = &{receiver_text}; match smelt_length_receiver {{ SmeltUnknown::String(smelt_value) => {string_len}, SmeltUnknown::Array(smelt_value) => smelt_value.len(), SmeltUnknown::Object(smelt_value) => match smelt_get_object_field(smelt_value, \"length\") {{ SmeltUnknown::Number(smelt_value) => smelt_value as usize, _ => {function_length}(smelt_length_receiver) as usize }}, SmeltUnknown::Function(_) => {function_length}(smelt_length_receiver) as usize, _ => 0 }} }}",
                     function_length = smelt_stdlib::runtime_symbols::function_length::READ,
-                    string_len = self.string_len_text("value"),
+                    string_len = self.string_len_text("smelt_value"), receiver_text = receiver_text.tight(),
                 ))
             }
             // A fixed-arity tuple (e.g. a `[key, value]` narrowing) has no Rust
             // `.len()` method; its JavaScript `.length` is the compile-time
             // arity, so emit that constant rather than a method call.
             Some(Type::Tuple(items)) => format!("{}", items.len()),
-            _ => format!("{receiver_text}.len()"),
+            _ => format!("{receiver_text}.len()", receiver_text = receiver_text.tight()),
         };
         if let Some(width) = fixed_width {
             return Ok(Self::fixed_int_len_expr(len_expr, is_float_literal, width));
@@ -145,7 +145,7 @@ impl FunctionEmitter<'_> {
         ) {
             return Err(EmitError::new("numeric abs operand must be numeric"));
         }
-        Ok({ let receiver = self.operand_expr(operand)?; RustExpr::postfix_on(&receiver, format!("{receiver}.abs()")) })
+        Ok(self.operand_expr(operand)?.postfix(".abs()"))
     }
 
     /// Converts a numeric rounding operation to Rust text.
@@ -161,7 +161,7 @@ impl FunctionEmitter<'_> {
             return Ok(if matches!(self.mir.types.get(dest_ty), Some(Type::Int)) {
                 operand_expr
             } else {
-                RustExpr::cast(format!("{operand_expr} as f64"))
+                RustExpr::cast(format!("{operand_expr} as f64", operand_expr = operand_expr.as_cast_operand()))
             });
         }
         // `floor`/`ceil`/`trunc` mean the same thing in both languages and map to
@@ -185,14 +185,14 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("numeric round operand must be numeric"));
         };
         let text = match method_name {
-            Some(method_name) => RustExpr::postfix_on(&operand_expr, format!("{operand_expr}.{method_name}()")),
+            Some(method_name) => operand_expr.postfix(format!(".{method_name}()")),
             None => RustExpr::chain(format!(
                 "{helper}({operand_expr})",
-                helper = smelt_stdlib::runtime_symbols::math::ROUND,
+                helper = smelt_stdlib::runtime_symbols::math::ROUND, operand_expr = operand_expr.delimited(),
             )),
         };
         if matches!(self.mir.types.get(dest_ty), Some(Type::Int)) {
-            Ok(RustExpr::cast(format!("{text} as i64")))
+            Ok(RustExpr::cast(format!("{text} as i64", text = text.as_cast_operand())))
         } else {
             Ok(text)
         }
@@ -231,7 +231,7 @@ impl FunctionEmitter<'_> {
         let render_arg = |arg: &Operand| -> Result<String, EmitError> {
             let text = self.value_at_type(arg, dest_ty)?;
             if !dest_is_int && matches!(arg, Operand::Const(Constant::Float(_))) {
-                Ok(format!("({text} as f64)"))
+                Ok(format!("({text} as f64)", text = text.as_cast_operand()))
             } else {
                 Ok(text.into_string())
             }
@@ -243,7 +243,7 @@ impl FunctionEmitter<'_> {
             Some((first, rest)) => {
                 let mut seed = render_arg(first)?;
                 for arg in rest {
-                    seed = RustExpr::postfix_on(&seed, format!("{seed}.{method_name}({})", render_arg(arg)?)).into_string();
+                    seed = RustExpr::atom(seed).postfix(format!(".{method_name}({})", render_arg(arg)?)).into_string();
                 }
                 seed
             }
@@ -258,8 +258,8 @@ impl FunctionEmitter<'_> {
                 _ => return Err(EmitError::new("numeric extrema spread must be a list")),
             };
             let element_text = self.rendered_at_type(&RustExpr::path("smelt_element"), element_ty, dest_ty, &self.render_scope())?;
-            rendered = RustExpr::postfix_on(&list_text, format!(
-                "{list_text}.iter().cloned().fold({rendered}, |smelt_acc, smelt_element| smelt_acc.{method_name}({element_text}))"
+            rendered = list_text.postfix(format!(
+                ".iter().cloned().fold({rendered}, |smelt_acc, smelt_element| smelt_acc.{method_name}({element_text}))", element_text = element_text.delimited()
             )).into_string();
         }
         Ok(RustExpr::from(rendered))
@@ -277,7 +277,7 @@ impl FunctionEmitter<'_> {
         }
         let mut rendered = RustExpr::path("0.0f64");
         for arg in args {
-            rendered = RustExpr::postfix_on(&rendered, format!("{rendered}.hypot({})", self.float_operand_expr(arg)?));
+            rendered = rendered.postfix(format!(".hypot({})", self.float_operand_expr(arg)?.delimited()));
         }
         Ok(rendered)
     }
@@ -309,7 +309,7 @@ impl FunctionEmitter<'_> {
                     "smelt_value.fract() == 0.0 && smelt_value.abs() <= 9007199254740991.0"
                 }
             };
-            return Ok({ let receiver = self.operand_expr(operand)?; RustExpr::postfix_on(&receiver, format!("{receiver}.map_or(false, |smelt_value| {{ let smelt_value = smelt_value as f64; {test} }})")) });
+            return Ok({ let receiver = self.operand_expr(operand)?; receiver.postfix(format!(".map_or(false, |smelt_value| {{ let smelt_value = smelt_value as f64; {test} }})")) });
         }
         // `Number.isSafeInteger` performs NO type coercion: ECMAScript returns
         // `false` for every argument whose type is not Number, so `'1'` is not a
@@ -323,8 +323,8 @@ impl FunctionEmitter<'_> {
                 return Ok(RustExpr::path("false"));
             }
             let value_text = self.value_at_type(operand, self.type_id(Type::Unknown)?)?;
-            return Ok(RustExpr::atom(self.carrier_format(format_args!(
-                "(match {value_text} {{ SmeltUnknown::Number(smelt_value) => smelt_value.fract() == 0.0 && smelt_value.abs() <= 9007199254740991.0, _ => false }})"
+            return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                "(match {value_text} {{ SmeltUnknown::Number(smelt_value) => smelt_value.fract() == 0.0 && smelt_value.abs() <= 9007199254740991.0, _ => false }})", value_text = value_text.delimited()
             ))));
         }
         let operand_expr = if is_numeric_operand {
@@ -335,15 +335,15 @@ impl FunctionEmitter<'_> {
             return Ok(RustExpr::path("false"));
         };
         Ok(match op {
-            smelt_hir::NumericPredicateOp::IsFinite => RustExpr::postfix_on(&operand_expr, format!("{operand_expr}.is_finite()")),
-            smelt_hir::NumericPredicateOp::IsInteger => RustExpr::loose(format!("{operand_expr}.fract() == 0.0")),
+            smelt_hir::NumericPredicateOp::IsFinite => operand_expr.postfix(".is_finite()"),
+            smelt_hir::NumericPredicateOp::IsInteger => RustExpr::loose(format!("{operand_expr}.fract() == 0.0", operand_expr = operand_expr.tight())),
             // `Number.isSafeInteger(x)` is `Number.isInteger(x)` narrowed to the
             // range a double represents exactly. The operand is bound once so a
             // side-effecting expression is not evaluated twice.
             smelt_hir::NumericPredicateOp::IsSafeInteger => RustExpr::atom(format!(
-                "{{ let smelt_value: f64 = {operand_expr}; smelt_value.fract() == 0.0 && smelt_value.abs() <= 9007199254740991.0 }}"
+                "{{ let smelt_value: f64 = {operand_expr}; smelt_value.fract() == 0.0 && smelt_value.abs() <= 9007199254740991.0 }}", operand_expr = operand_expr.delimited()
             )),
-            smelt_hir::NumericPredicateOp::IsNaN => RustExpr::postfix_on(&operand_expr, format!("{operand_expr}.is_nan()")),
+            smelt_hir::NumericPredicateOp::IsNaN => operand_expr.postfix(".is_nan()"),
         })
     }
 
@@ -365,7 +365,7 @@ impl FunctionEmitter<'_> {
             let operand_expr = self.float_operand_expr(operand)?;
             return Ok(RustExpr::atom(format!(
                 "f64::from({}.leading_zeros())",
-                Self::js_to_uint32_expr(&operand_expr)
+                Self::js_to_uint32_expr(&operand_expr).tight()
             )));
         }
         let method_name = match op {
@@ -388,7 +388,7 @@ impl FunctionEmitter<'_> {
         // A literal operand (`Math.sqrt(2)` renders `2.0`) has no inferred
         // float width, and a method call on `{float}` does not compile; pin it
         // with the same `as f64` the binary helpers use.
-        Ok(RustExpr::atom(format!("({operand_expr} as f64).{method_name}()")))
+        Ok(RustExpr::atom(format!("({operand_expr} as f64).{method_name}()", operand_expr = operand_expr.as_cast_operand())))
     }
 
     /// Converts a numeric power operation to Rust text.
@@ -408,7 +408,7 @@ impl FunctionEmitter<'_> {
         }
         let base_text = self.float_operand_expr(base)?;
         let exponent_text = self.float_operand_expr(exponent)?;
-        Ok(RustExpr::atom(format!("({base_text} as f64).powf({exponent_text} as f64)")))
+        Ok(RustExpr::atom(format!("({base_text} as f64).powf({exponent_text} as f64)", base_text = base_text.as_cast_operand(), exponent_text = exponent_text.as_cast_operand())))
     }
 
     /// Converts a two-argument arctangent operation to Rust text.
@@ -428,7 +428,7 @@ impl FunctionEmitter<'_> {
         }
         let y_text = self.float_operand_expr(y_operand)?;
         let x_text = self.float_operand_expr(x_operand)?;
-        Ok(RustExpr::postfix_on(&y_text, format!("{y_text}.atan2({x_text})")))
+        Ok(y_text.postfix(format!(".atan2({x_text})", x_text = x_text.delimited())))
     }
 
     /// Converts an inclusive integer random operation to Rust text.
@@ -444,8 +444,8 @@ impl FunctionEmitter<'_> {
         }
         Ok(RustExpr::atom(format!(
             "rand::random_range({}..={})",
-            self.operand_expr(start)?,
-            self.operand_expr(end)?
+            self.operand_expr(start)?.delimited(),
+            self.operand_expr(end)?.delimited()
         )))
     }
 
@@ -462,14 +462,14 @@ impl FunctionEmitter<'_> {
             let radix_text = if matches!(self.mir.types.get(self.operand_ty(radix)?), Some(Type::Float)) {
                 radix_operand
             } else {
-                RustExpr::cast(format!("{radix_operand} as f64"))
+                RustExpr::cast(format!("{radix_operand} as f64", radix_operand = radix_operand.as_cast_operand()))
             };
             // The frontend lowers a bigint receiver to the fallible
             // `BigIntOp::ToStringRadix` call; this rvalue form only remains
             // should a pass rebuild one, so its throw takes the panic route.
             return Ok(RustExpr::chain(format!(
-                "smelt_bigint_to_string_radix({}, {radix_text}).unwrap_or_else(|error| smelt_panic_throw(error))",
-                self.bigint_ref_expr(operand)?
+                "smelt_bigint_to_string_radix({}, {radix_text}).unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error))",
+                self.bigint_ref_expr(operand)?.delimited(), radix_text = radix_text.delimited()
             )));
         }
         // An ERASED receiver decides at run time, as JavaScript does:
@@ -492,12 +492,12 @@ impl FunctionEmitter<'_> {
             )?;
             let radix_text = self.operand_expr(radix)?;
             let number_text = self.radix_digits_expr(&RustExpr::path("smelt_radix_value"), &radix_text);
-            return Ok(RustExpr::atom(self.carrier_format(format_args!(
+            return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
                 "match {}.clone() {{ SmeltUnknown::Number(smelt_radix_value) => {number_text}, {}_ => {fallback} }}",
-                self.operand_expr(operand)?,
-                self.bigint_unknown_arm(&self.carrier_format(format_args!(
-                    "SmeltUnknown::BigInt(smelt_radix_value) => smelt_bigint_to_string_radix(&smelt_radix_value, {radix_text} as f64).unwrap_or_else(|error| smelt_panic_throw(error)),"
-                )))
+                self.operand_expr(operand)?.tight(),
+                self.bigint_unknown_arm(&self.carrier_format(self.carrier()?, format_args!(
+                    "SmeltUnknown::BigInt(smelt_radix_value) => smelt_bigint_to_string_radix(&smelt_radix_value, {radix_text} as f64).unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error)),", radix_text = radix_text.as_cast_operand()
+                ))), number_text = number_text.delimited(), fallback = fallback.delimited()
             ))));
         }
         if !matches!(
@@ -525,7 +525,7 @@ impl FunctionEmitter<'_> {
         let value_trunc_text = self.numeric_trunc_f64_expr(operand_expr);
         let radix_trunc_text = self.numeric_trunc_f64_expr(radix_text);
         RustExpr::atom(format!(
-            "{{ let value = {value_trunc_text} as i128; let radix = ({radix_trunc_text} as u32).clamp(2, 36); let negative = value < 0; let mut n = value.unsigned_abs(); let mut digits = Vec::new(); if n == 0 {{ digits.push('0'); }} while n > 0 {{ let digit = (n % u128::from(radix)) as u8; digits.push(if digit < 10 {{ (b'0' + digit) as char }} else {{ (b'a' + digit - 10) as char }}); n /= u128::from(radix); }} if negative {{ digits.push('-'); }} digits.iter().rev().collect::<String>() }}"
+            "{{ let smelt_value = {value_trunc_text} as i128; let smelt_radix = ({radix_trunc_text} as u32).clamp(2, 36); let smelt_negative = smelt_value < 0; let mut smelt_n = smelt_value.unsigned_abs(); let mut smelt_digits = Vec::new(); if smelt_n == 0 {{ smelt_digits.push('0'); }} while smelt_n > 0 {{ let smelt_digit = (smelt_n % u128::from(smelt_radix)) as u8; smelt_digits.push(if smelt_digit < 10 {{ (b'0' + smelt_digit) as char }} else {{ (b'a' + smelt_digit - 10) as char }}); smelt_n /= u128::from(smelt_radix); }} if smelt_negative {{ smelt_digits.push('-'); }} smelt_digits.iter().rev().collect::<String>() }}", value_trunc_text = value_trunc_text.as_cast_operand(), radix_trunc_text = radix_trunc_text.as_cast_operand()
         ))
     }
 
@@ -555,7 +555,7 @@ impl FunctionEmitter<'_> {
         let digits_text = self.operand_expr(digits)?;
         let digits_trunc_text = self.numeric_trunc_f64_expr(&digits_text);
         Ok(RustExpr::atom(format!(
-            "{{ let smelt_value: f64 = {value_text}; let smelt_digits = ({digits_trunc_text} as i64).clamp(0, 100) as usize; format!(\"{{:.*}}\", smelt_digits, smelt_value) }}"
+            "{{ let smelt_value: f64 = {value_text}; let smelt_digits = ({digits_trunc_text} as i64).clamp(0, 100) as usize; format!(\"{{:.*}}\", smelt_digits, smelt_value) }}", value_text = value_text.delimited(), digits_trunc_text = digits_trunc_text.as_cast_operand()
         )))
     }
 
@@ -601,7 +601,7 @@ impl FunctionEmitter<'_> {
             let absent =
                 self.parse_int_radix_string_expr(&RustExpr::chain("\"undefined\".to_owned()"), &radix_text);
             return Ok(RustExpr::atom(format!(
-                "match {operand_expr} {{ Some(smelt_present) => {present}, None => {absent} }}"
+                "match {operand_expr} {{ Some(smelt_present) => {present}, None => {absent} }}", operand_expr = operand_expr.delimited(), present = present.delimited(), absent = absent.delimited()
             )));
         }
         Ok(self.parse_int_radix_string_expr(&operand_expr, &radix_text))
@@ -615,7 +615,7 @@ impl FunctionEmitter<'_> {
     /// present and absent arms of an optional operand cannot drift apart.
     fn parse_int_radix_string_expr(&self, string_text: &RustExpr, radix_text: &RustExpr) -> RustExpr {
         let radix_trunc_text = self.numeric_trunc_f64_expr(radix_text);
-        RustExpr::chain(format!("smelt_parse_int(&{string_text}, {radix_trunc_text})"))
+        RustExpr::chain(format!("smelt_parse_int(&{string_text}, {radix_trunc_text})", string_text = string_text.tight(), radix_trunc_text = radix_trunc_text.delimited()))
     }
 
     /// Converts a numeric operand to text usable as an `f64` receiver or argument.
@@ -625,7 +625,7 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(self.operand_ty(operand)?),
             Some(Type::Int)
         ) {
-            Ok(RustExpr::atom(format!("({operand_expr} as f64)")))
+            Ok(RustExpr::atom(format!("({operand_expr} as f64)", operand_expr = operand_expr.as_cast_operand())))
         } else {
             Ok(operand_expr)
         }

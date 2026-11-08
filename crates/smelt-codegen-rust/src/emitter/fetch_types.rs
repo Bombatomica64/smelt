@@ -46,7 +46,7 @@ impl FunctionEmitter<'_> {
         match self.mir.types.get(init_ty) {
             // Another `Headers`: copy its pairs into a fresh list.
             Some(Type::Class { .. }) if self.is_headers_class_type(init_ty)? => {
-                Ok(RustExpr::atom(format!("SmeltHeaders::from_pairs({init_text}.entries_sorted())")))
+                Ok(RustExpr::atom(format!("SmeltHeaders::from_pairs({init_text}.entries_sorted())", init_text = init_text.tight())))
             }
             // `Record<string, string>`: each own entry is one header.
             Some(&Type::Dict(key, value))
@@ -54,7 +54,7 @@ impl FunctionEmitter<'_> {
                     && matches!(self.mir.types.get(value), Some(Type::String | Type::PyStr)) =>
             {
                 Ok(RustExpr::atom(format!(
-                    "SmeltHeaders::from_pairs({init_text}.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<_>>())"
+                    "SmeltHeaders::from_pairs({init_text}.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<_>>())", init_text = init_text.tight()
                 )))
             }
             // `Record<string, string | undefined>`: each own entry is one
@@ -70,12 +70,12 @@ impl FunctionEmitter<'_> {
                         if matches!(self.mir.types.get(inner), Some(Type::String | Type::PyStr))) =>
             {
                 Ok(RustExpr::atom(format!(
-                    "SmeltHeaders::from_pairs({init_text}.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone().map_or_else(|| \"undefined\".to_owned(), |value| value.to_string()))).collect::<Vec<_>>())"
+                    "SmeltHeaders::from_pairs({init_text}.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone().map_or_else(|| \"undefined\".to_owned(), |smelt_value| smelt_value.to_string()))).collect::<Vec<_>>())", init_text = init_text.tight()
                 )))
             }
             // `[string, string][]`: pairs in order.
             Some(&Type::List(item)) if self.is_string_pair_type(item) => Ok(RustExpr::atom(format!(
-                "SmeltHeaders::from_pairs({init_text}.to_vec().into_iter().map(|smelt_pair| (smelt_pair.0, smelt_pair.1)).collect::<Vec<_>>())"
+                "SmeltHeaders::from_pairs({init_text}.to_vec().into_iter().map(|smelt_pair| (smelt_pair.0, smelt_pair.1)).collect::<Vec<_>>())", init_text = init_text.tight()
             ))),
             // `string[][]`: the same initializer written without a tuple
             // annotation, which is what TypeScript infers for a bare
@@ -87,7 +87,7 @@ impl FunctionEmitter<'_> {
                     if matches!(self.mir.types.get(inner), Some(Type::String | Type::PyStr))) =>
             {
                 Ok(RustExpr::atom(format!(
-                    "SmeltHeaders::from_pairs({init_text}.to_vec().into_iter().filter_map(|smelt_pair| {{ let smelt_pair = smelt_pair.to_vec(); Some((smelt_pair.first()?.clone(), smelt_pair.get(1)?.clone())) }}).collect::<Vec<_>>())"
+                    "SmeltHeaders::from_pairs({init_text}.to_vec().into_iter().filter_map(|smelt_pair| {{ let smelt_pair = smelt_pair.to_vec(); Some((smelt_pair.first()?.clone(), smelt_pair.get(1)?.clone())) }}).collect::<Vec<_>>())", init_text = init_text.tight()
                 )))
             }
             // A union initializer. `HeadersInit` IS a union in the spec
@@ -113,10 +113,10 @@ impl FunctionEmitter<'_> {
                     .map(|(index, member)| {
                         let converted =
                             self.headers_conversion_expr(&RustExpr::path("smelt_headers_init"), *member)?;
-                        Ok(format!("{union}::M{index}(smelt_headers_init) => {converted}"))
+                        Ok(format!("{union}::M{index}(smelt_headers_init) => {converted}", converted = converted.delimited()))
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?;
-                Ok(RustExpr::atom(format!("match {init_text} {{ {} }}", arms.join(", "))))
+                Ok(RustExpr::atom(format!("match {init_text} {{ {} }}", arms.join(", "), init_text = init_text.delimited())))
             }
             // An initializer that may be absent. WHATWG's constructor takes
             // `HeadersInit?`, and `new Headers(undefined)` is the empty header
@@ -127,7 +127,7 @@ impl FunctionEmitter<'_> {
             Some(&Type::Optional(inner)) => {
                 let converted = self.headers_conversion_expr(&RustExpr::path("smelt_headers_init"), inner)?;
                 Ok(RustExpr::atom(format!(
-                    "match {init_text} {{ Some(smelt_headers_init) => {converted}, None => SmeltHeaders::new() }}"
+                    "match {init_text} {{ Some(smelt_headers_init) => {converted}, None => SmeltHeaders::new() }}", init_text = init_text.delimited(), converted = converted.delimited()
                 )))
             }
             // The function this stopped in is attached by the emission entry
@@ -137,7 +137,7 @@ impl FunctionEmitter<'_> {
             // mechanism came from.
             _ => Err(EmitError::new(format!(
                 "`new Headers(init)` initializer type is not modeled: {} (initializer `{init_text}`)",
-                self.rendered_type(init_ty)?,
+                self.rendered_type(init_ty)?, init_text = init_text.delimited(),
             ))),
         }
     }
@@ -190,19 +190,19 @@ impl FunctionEmitter<'_> {
             self.value_at_type(arg, string_ty).map(RustExpr::into_string)
         };
         let text = match op {
-            smelt_hir::HeadersOp::Get => RustExpr::postfix_on(&receiver, format!("{receiver}.get(&{})", name(0)?)),
-            smelt_hir::HeadersOp::Has => RustExpr::postfix_on(&receiver, format!("{receiver}.has(&{})", name(0)?)),
+            smelt_hir::HeadersOp::Get => receiver.postfix(format!(".get(&{})", name(0)?)),
+            smelt_hir::HeadersOp::Has => receiver.postfix(format!(".has(&{})", name(0)?)),
             smelt_hir::HeadersOp::Set => {
-                RustExpr::postfix_on(&receiver, format!("{receiver}.set(&{}, &{})", name(0)?, name(1)?))
+                receiver.postfix(format!(".set(&{}, &{})", name(0)?, name(1)?))
             }
             smelt_hir::HeadersOp::Append => {
-                RustExpr::postfix_on(&receiver, format!("{receiver}.append(&{}, &{})", name(0)?, name(1)?))
+                receiver.postfix(format!(".append(&{}, &{})", name(0)?, name(1)?))
             }
-            smelt_hir::HeadersOp::Delete => RustExpr::postfix_on(&receiver, format!("{receiver}.delete(&{})", name(0)?)),
-            smelt_hir::HeadersOp::Keys => RustExpr::postfix_on(&receiver, format!("{receiver}.keys().into_iter().map(JsString::from).collect::<Vec<_>>()")),
-            smelt_hir::HeadersOp::Values => RustExpr::postfix_on(&receiver, format!("{receiver}.values().into_iter().map(JsString::from).collect::<Vec<_>>()")),
-            smelt_hir::HeadersOp::Entries => RustExpr::postfix_on(&receiver, format!("{receiver}.entries_sorted().into_iter().map(|(smelt_name, smelt_value)| (JsString::from(smelt_name), JsString::from(smelt_value))).collect::<Vec<_>>()")),
-            smelt_hir::HeadersOp::GetSetCookie => RustExpr::postfix_on(&receiver, format!("{receiver}.get_set_cookie().into_iter().map(JsString::from).collect::<Vec<_>>()")),
+            smelt_hir::HeadersOp::Delete => receiver.postfix(format!(".delete(&{})", name(0)?)),
+            smelt_hir::HeadersOp::Keys => receiver.postfix(".keys().into_iter().map(JsString::from).collect::<Vec<_>>()"),
+            smelt_hir::HeadersOp::Values => receiver.postfix(".values().into_iter().map(JsString::from).collect::<Vec<_>>()"),
+            smelt_hir::HeadersOp::Entries => receiver.postfix(".entries_sorted().into_iter().map(|(smelt_name, smelt_value)| (JsString::from(smelt_name), JsString::from(smelt_value))).collect::<Vec<_>>()"),
+            smelt_hir::HeadersOp::GetSetCookie => receiver.postfix(".get_set_cookie().into_iter().map(JsString::from).collect::<Vec<_>>()"),
         };
         // The mutating operations are `void` in the source, so their statement
         // form is the call itself; the reads coerce to their destination.
@@ -222,12 +222,12 @@ impl FunctionEmitter<'_> {
             | smelt_hir::HeadersOp::Values
             | smelt_hir::HeadersOp::GetSetCookie => {
                 let list_ty = self.type_id(Type::List(string_ty))?;
-                self.rendered_at_type(&RustExpr::atom(format!("SmeltList::new({text})")), list_ty, dest_ty, &self.render_scope())
+                self.rendered_at_type(&RustExpr::atom(format!("SmeltList::new({text})", text = text.delimited())), list_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::HeadersOp::Entries => {
                 let pair_ty = self.type_id(Type::Tuple(Vec::from([string_ty, string_ty])))?;
                 let list_ty = self.type_id(Type::List(pair_ty))?;
-                self.rendered_at_type(&RustExpr::atom(format!("SmeltList::new({text})")), list_ty, dest_ty, &self.render_scope())
+                self.rendered_at_type(&RustExpr::atom(format!("SmeltList::new({text})", text = text.delimited())), list_ty, dest_ty, &self.render_scope())
             }
         }
     }
@@ -247,27 +247,27 @@ impl FunctionEmitter<'_> {
         let init_ty = self.operand_ty(init)?;
         let init_text = self.operand_expr(init)?;
         match self.mir.types.get(init_ty) {
-            Some(Type::String | Type::PyStr) => Ok(RustExpr::atom(format!("SmeltUrlSearchParams::from_query(&{init_text})"))),
+            Some(Type::String | Type::PyStr) => Ok(RustExpr::atom(format!("SmeltUrlSearchParams::from_query(&{init_text})", init_text = init_text.tight()))),
             Some(Type::Class { .. }) if self.is_url_search_params_class_type(init_ty)? => Ok(
-                RustExpr::atom(format!("SmeltUrlSearchParams::from_pairs({init_text}.entries_in_order())")),
+                RustExpr::atom(format!("SmeltUrlSearchParams::from_pairs({init_text}.entries_in_order())", init_text = init_text.tight())),
             ),
             Some(&Type::Dict(key, value))
                 if matches!(self.mir.types.get(key), Some(Type::String | Type::PyStr))
                     && matches!(self.mir.types.get(value), Some(Type::String | Type::PyStr)) =>
             {
                 Ok(RustExpr::atom(format!(
-                    "SmeltUrlSearchParams::from_pairs({init_text}.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<_>>())"
+                    "SmeltUrlSearchParams::from_pairs({init_text}.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<_>>())", init_text = init_text.tight()
                 )))
             }
             Some(&Type::List(item)) if self.is_string_pair_type(item) => Ok(RustExpr::atom(format!(
-                "SmeltUrlSearchParams::from_pairs({init_text}.to_vec().into_iter().map(|smelt_pair| (smelt_pair.0, smelt_pair.1)).collect::<Vec<_>>())"
+                "SmeltUrlSearchParams::from_pairs({init_text}.to_vec().into_iter().map(|smelt_pair| (smelt_pair.0, smelt_pair.1)).collect::<Vec<_>>())", init_text = init_text.tight()
             ))),
             Some(&Type::List(item))
                 if matches!(self.mir.types.get(item), Some(&Type::List(inner))
                     if matches!(self.mir.types.get(inner), Some(Type::String | Type::PyStr))) =>
             {
                 Ok(RustExpr::atom(format!(
-                    "SmeltUrlSearchParams::from_pairs({init_text}.to_vec().into_iter().filter_map(|smelt_pair| {{ let smelt_pair = smelt_pair.to_vec(); Some((smelt_pair.first()?.clone(), smelt_pair.get(1)?.clone())) }}).collect::<Vec<_>>())"
+                    "SmeltUrlSearchParams::from_pairs({init_text}.to_vec().into_iter().filter_map(|smelt_pair| {{ let smelt_pair = smelt_pair.to_vec(); Some((smelt_pair.first()?.clone(), smelt_pair.get(1)?.clone())) }}).collect::<Vec<_>>())", init_text = init_text.tight()
                 )))
             }
             _ => Err(EmitError::new(format!(
@@ -296,21 +296,21 @@ impl FunctionEmitter<'_> {
             self.value_at_type(arg, string_ty).map(RustExpr::into_string)
         };
         let text = match op {
-            smelt_hir::UrlSearchParamsOp::Get => RustExpr::postfix_on(&receiver, format!("{receiver}.get(&{})", name(0)?)),
-            smelt_hir::UrlSearchParamsOp::GetAll => RustExpr::postfix_on(&receiver, format!("{receiver}.get_all(&{}).into_iter().map(JsString::from).collect::<Vec<_>>()", name(0)?)),
-            smelt_hir::UrlSearchParamsOp::Has => RustExpr::postfix_on(&receiver, format!("{receiver}.has(&{})", name(0)?)),
+            smelt_hir::UrlSearchParamsOp::Get => receiver.postfix(format!(".get(&{})", name(0)?)),
+            smelt_hir::UrlSearchParamsOp::GetAll => receiver.postfix(format!(".get_all(&{}).into_iter().map(JsString::from).collect::<Vec<_>>()", name(0)?)),
+            smelt_hir::UrlSearchParamsOp::Has => receiver.postfix(format!(".has(&{})", name(0)?)),
             smelt_hir::UrlSearchParamsOp::Set => {
-                RustExpr::postfix_on(&receiver, format!("{receiver}.set(&{}, &{})", name(0)?, name(1)?))
+                receiver.postfix(format!(".set(&{}, &{})", name(0)?, name(1)?))
             }
             smelt_hir::UrlSearchParamsOp::Append => {
-                RustExpr::postfix_on(&receiver, format!("{receiver}.append(&{}, &{})", name(0)?, name(1)?))
+                receiver.postfix(format!(".append(&{}, &{})", name(0)?, name(1)?))
             }
-            smelt_hir::UrlSearchParamsOp::Delete => RustExpr::postfix_on(&receiver, format!("{receiver}.delete(&{})", name(0)?)),
-            smelt_hir::UrlSearchParamsOp::Sort => RustExpr::postfix_on(&receiver, format!("{receiver}.sort()")),
-            smelt_hir::UrlSearchParamsOp::ToText => RustExpr::postfix_on(&receiver, format!("{receiver}.to_text()")),
-            smelt_hir::UrlSearchParamsOp::Keys => RustExpr::postfix_on(&receiver, format!("{receiver}.keys().into_iter().map(JsString::from).collect::<Vec<_>>()")),
-            smelt_hir::UrlSearchParamsOp::Values => RustExpr::postfix_on(&receiver, format!("{receiver}.values().into_iter().map(JsString::from).collect::<Vec<_>>()")),
-            smelt_hir::UrlSearchParamsOp::Entries => RustExpr::postfix_on(&receiver, format!("{receiver}.entries_in_order().into_iter().map(|(smelt_name, smelt_value)| (JsString::from(smelt_name), JsString::from(smelt_value))).collect::<Vec<_>>()")),
+            smelt_hir::UrlSearchParamsOp::Delete => receiver.postfix(format!(".delete(&{})", name(0)?)),
+            smelt_hir::UrlSearchParamsOp::Sort => receiver.postfix(".sort()"),
+            smelt_hir::UrlSearchParamsOp::ToText => receiver.postfix(".to_text()"),
+            smelt_hir::UrlSearchParamsOp::Keys => receiver.postfix(".keys().into_iter().map(JsString::from).collect::<Vec<_>>()"),
+            smelt_hir::UrlSearchParamsOp::Values => receiver.postfix(".values().into_iter().map(JsString::from).collect::<Vec<_>>()"),
+            smelt_hir::UrlSearchParamsOp::Entries => receiver.postfix(".entries_in_order().into_iter().map(|(smelt_name, smelt_value)| (JsString::from(smelt_name), JsString::from(smelt_value))).collect::<Vec<_>>()"),
         };
         match op {
             smelt_hir::UrlSearchParamsOp::Set
@@ -332,12 +332,12 @@ impl FunctionEmitter<'_> {
             | smelt_hir::UrlSearchParamsOp::Keys
             | smelt_hir::UrlSearchParamsOp::Values => {
                 let list_ty = self.type_id(Type::List(string_ty))?;
-                self.rendered_at_type(&RustExpr::atom(format!("SmeltList::new({text})")), list_ty, dest_ty, &self.render_scope())
+                self.rendered_at_type(&RustExpr::atom(format!("SmeltList::new({text})", text = text.delimited())), list_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::UrlSearchParamsOp::Entries => {
                 let pair_ty = self.type_id(Type::Tuple(Vec::from([string_ty, string_ty])))?;
                 let list_ty = self.type_id(Type::List(pair_ty))?;
-                self.rendered_at_type(&RustExpr::atom(format!("SmeltList::new({text})")), list_ty, dest_ty, &self.render_scope())
+                self.rendered_at_type(&RustExpr::atom(format!("SmeltList::new({text})", text = text.delimited())), list_ty, dest_ty, &self.render_scope())
             }
         }
     }
@@ -352,7 +352,7 @@ impl FunctionEmitter<'_> {
         field: Symbol,
     ) -> Result<RustExpr, EmitError> {
         match self.symbol_name(field)? {
-            "size" => Ok(RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.size()"))),
+            "size" => Ok(receiver_text.postfix(".size()")),
             other => Err(EmitError::new(format!(
                 "`URLSearchParams.{other}` is not a modeled property"
             ))),
@@ -421,11 +421,11 @@ impl FunctionEmitter<'_> {
                 method,
                 headers,
                 body,
-                &RustExpr::postfix_on(&source, format!("{source}.url()")),
-                &format!("JsString::from({source}.method())"),
-                &format!("{source}.headers()"),
-                &format!("SmeltBody::take_from_source(&{source}.body())"),
-                &format!("{source}.init()"),
+                &source.postfix(".url()"),
+                &format!("JsString::from({source}.method())", source = source.tight()),
+                &format!("{source}.headers()", source = source.tight()),
+                &format!("SmeltBody::take_from_source(&{source}.body())", source = source.tight()),
+                &format!("{source}.init()", source = source.tight()),
                 init_members,
                 source_init_resets_referrer,
             )?
@@ -479,13 +479,13 @@ impl FunctionEmitter<'_> {
             )?;
             let erased = self.erase(input)?;
             let coerced =
-                self.js_string_coercion_match_expr(&RustExpr::path("smelt_input"), self.absent_spelling(), false);
-            RustExpr::atom(self.carrier_format(format_args!(
+                self.js_string_coercion_match_expr(&RustExpr::path("smelt_input"), self.absent_spelling(), false)?;
+            RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
                 "match {erased} {{ \
-                 SmeltUnknown::Object(value) if value.contains_key(\"{SMELT_REQUEST}\") => {{ \
-                 let smelt_input_request = <SmeltRequest as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(value)); \
+                 SmeltUnknown::Object(smelt_value) if smelt_value.contains_key(\"{SMELT_REQUEST}\") => {{ \
+                 let smelt_input_request = <SmeltRequest as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(smelt_value)); \
                  {source_request} }}, \
-                 smelt_input => {{ let smelt_input_url = {coerced}; {source_url} }} }}"
+                 smelt_input => {{ let smelt_input_url = {coerced}; {source_url} }} }}", erased = erased.delimited(), source_request = source_request.delimited(), coerced = coerced.delimited(), source_url = source_url.delimited()
             )))
         };
         // `init.signal` does not become the request's signal: the spec makes
@@ -496,7 +496,7 @@ impl FunctionEmitter<'_> {
         };
         Ok(RustExpr::atom(format!(
             "{{ let smelt_request = {request_text}; smelt_request_follow_signal(smelt_request.id(), {}); smelt_request }}",
-            self.erase(signal)?
+            self.erase(signal)?.delimited(), request_text = request_text.delimited()
         )))
     }
 
@@ -528,7 +528,7 @@ impl FunctionEmitter<'_> {
         let body_expr = self.init_body_expr(body, &RustExpr::opaque(body_default), true)?;
         let init_expr = self.request_init_expr(init_default, init_members, init_is_non_empty)?;
         Ok(RustExpr::atom(format!(
-            "SmeltRequest::from_parts_with_init(&{url_text}, ({method_expr}).to_string(), {headers_expr}, {body_expr}, {init_expr})"
+            "SmeltRequest::from_parts_with_init(&{url_text}, ({method_expr}).to_string(), {headers_expr}, {body_expr}, {init_expr})", url_text = url_text.tight(), method_expr = method_expr.delimited(), headers_expr = headers_expr.delimited(), body_expr = body_expr.delimited(), init_expr = init_expr.delimited()
         )))
     }
 
@@ -593,9 +593,9 @@ impl FunctionEmitter<'_> {
                 )?;
                 statements.push_str(&format!(
                     "if let Some(smelt_init_value) = {} {{ smelt_request_init.{} = {}; }} ",
-                    self.operand_expr(operand)?,
+                    self.operand_expr(operand)?.delimited(),
                     member.field_name(),
-                    Self::stored_member_value(*member, &value),
+                    Self::stored_member_value(*member, &value).delimited(),
                 ));
                 continue;
             }
@@ -603,7 +603,7 @@ impl FunctionEmitter<'_> {
             statements.push_str(&format!(
                 "smelt_request_init.{} = {}; ",
                 member.field_name(),
-                Self::stored_member_value(*member, &value),
+                Self::stored_member_value(*member, &value).delimited(),
             ));
         }
         Ok(RustExpr::atom(format!(
@@ -618,11 +618,11 @@ impl FunctionEmitter<'_> {
     /// The other seven are stored exactly as spelled.
     fn stored_member_value(member: smelt_hir::RequestInitMember, value: &RustExpr) -> RustExpr {
         if matches!(member, smelt_hir::RequestInitMember::Referrer) {
-            return RustExpr::atom(format!("SmeltRequestInit::serialize_referrer(&{value})"));
+            return RustExpr::atom(format!("SmeltRequestInit::serialize_referrer(&{value})", value = value.tight()));
         }
         // The init's text members are host `String`s.
         if !member.is_boolean() {
-            return RustExpr::postfix_on(value, format!("{value}.to_string()"));
+            return value.postfix(".to_string()");
         }
         value.to_owned()
     }
@@ -639,10 +639,10 @@ impl FunctionEmitter<'_> {
         }
         let receiver = self.operand_expr(request)?;
         Ok(match op {
-            smelt_hir::RequestOp::Url => RustExpr::postfix_on(&receiver, format!("{receiver}.url()")),
-            smelt_hir::RequestOp::Method => RustExpr::postfix_on(&receiver, format!("{receiver}.method()")),
-            smelt_hir::RequestOp::Headers => RustExpr::postfix_on(&receiver, format!("{receiver}.headers()")),
-            smelt_hir::RequestOp::BodyUsed => RustExpr::postfix_on(&receiver, format!("{receiver}.body_used()")),
+            smelt_hir::RequestOp::Url => receiver.postfix(".url()"),
+            smelt_hir::RequestOp::Method => receiver.postfix(".method()"),
+            smelt_hir::RequestOp::Headers => receiver.postfix(".headers()"),
+            smelt_hir::RequestOp::BodyUsed => receiver.postfix(".body_used()"),
             // The body HANDLE, or `None` when there is no body. A handle
             // read SHARES the body — the same `Rc` payload and the same
             // `bodyUsed` cell — so handing it to a constructor is the spec's
@@ -651,38 +651,38 @@ impl FunctionEmitter<'_> {
             // `new Response("").body` is a stream, and the payload keeps the
             // two apart.
             smelt_hir::RequestOp::Body => RustExpr::atom(format!(
-                "{{ let smelt_body = {receiver}.body(); if smelt_body.is_empty() {{ None }} else {{ Some(smelt_body) }} }}"
+                "{{ let smelt_body = {receiver}.body(); if smelt_body.is_empty() {{ None }} else {{ Some(smelt_body) }} }}", receiver = receiver.tight()
             )),
-            smelt_hir::RequestOp::Clone => RustExpr::postfix_on(&receiver, format!("{receiver}.tee()")),
-            smelt_hir::RequestOp::Signal => RustExpr::chain(format!("smelt_request_signal({receiver}.id())")),
+            smelt_hir::RequestOp::Clone => receiver.postfix(".tee()"),
+            smelt_hir::RequestOp::Signal => RustExpr::chain(format!("smelt_request_signal({receiver}.id())", receiver = receiver.tight())),
             // A stored `RequestInit` member: a read-only getter over the value
             // the constructor kept, named after the member itself.
             smelt_hir::RequestOp::Init(member) => {
-                RustExpr::postfix_on(&receiver, format!("{receiver}.{}()", member.field_name()))
+                receiver.postfix(format!(".{}()", member.field_name()))
             }
             // Same handle-clone-into-the-block shape as `Response::text`; see
             // the comment there for why the receiver is not moved.
             smelt_hir::RequestOp::Text => RustExpr::atom(format!(
-                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(JsString::from(smelt_request.take_text()?)) }})) }}"
+                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(JsString::from(smelt_request.take_text()?)) }})) }}", receiver = receiver.tight()
             )),
             // Same `text()` + fallible `JSON.parse` shape as `Response::json`.
             smelt_hir::RequestOp::Json => RustExpr::atom(format!(
                 "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_text = smelt_request.take_text()?; {json}(&smelt_text) }})) }}",
-                json = crate::thrown::JSON_PARSE_FN
+                json = crate::thrown::JSON_PARSE_FN, receiver = receiver.tight()
             )),
             // The same single-use reader, handing its bytes plus the request's
             // OWN `Content-Type` to the parser: the encoding (and a multipart
             // boundary) is a header, not a property of the bytes.
             smelt_hir::RequestOp::FormData => RustExpr::atom(format!(
-                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_content_type = smelt_request.headers().get(\"content-type\"); Ok::<_, {ERROR_BOX}>(smelt_form_data_from_body(smelt_content_type, smelt_request.body().take_bytes()?)?) }})) }}"
+                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_content_type = smelt_request.headers().get(\"content-type\"); Ok::<_, {ERROR_BOX}>(smelt_form_data_from_body(smelt_content_type, smelt_request.body().take_bytes()?)?) }})) }}", receiver = receiver.tight()
             )),
             // The two BYTE readers; see the `Response` pair for why they are
             // two members rather than one.
-            smelt_hir::RequestOp::ArrayBuffer => RustExpr::atom(self.carrier_format(format_args!(
-                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltArrayBuffer::from_bytes(smelt_request.body().take_bytes()?)) }})) }}"
+            smelt_hir::RequestOp::ArrayBuffer => RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltArrayBuffer::from_bytes(smelt_request.body().take_bytes()?)) }})) }}", receiver = receiver.tight()
             ))),
             smelt_hir::RequestOp::Bytes => RustExpr::atom(format!(
-                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltTypedArray::from_bytes(smelt_request.body().take_bytes()?)) }})) }}"
+                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltTypedArray::from_bytes(smelt_request.body().take_bytes()?)) }})) }}", receiver = receiver.tight()
             )),
         })
     }
@@ -709,7 +709,7 @@ impl FunctionEmitter<'_> {
         // take the sharing path.
         let body_expr = self.init_body_expr(body, &RustExpr::atom("SmeltBody::empty()"), false)?;
         Ok(RustExpr::atom(format!(
-            "SmeltResponse::from_parts({status_text_expr}, {phrase_expr}, {headers_expr}, {body_expr})"
+            "SmeltResponse::from_parts({status_text_expr}, {phrase_expr}, {headers_expr}, {body_expr})", status_text_expr = status_text_expr.delimited(), phrase_expr = phrase_expr.delimited(), headers_expr = headers_expr.delimited(), body_expr = body_expr.delimited()
         )))
     }
 
@@ -728,7 +728,7 @@ impl FunctionEmitter<'_> {
         // readable until the copy was consumed, where Node reports
         // `source.bodyUsed` true as soon as the copy exists.
         if self.is_request_class_type(body_ty)? {
-            return Ok(RustExpr::atom(format!("SmeltBody::take_from_source(&{body_text}.body())")));
+            return Ok(RustExpr::atom(format!("SmeltBody::take_from_source(&{body_text}.body())", body_text = body_text.tight())));
         }
         // A body HANDLE at the body position is passed straight through: it
         // already IS a `SmeltBody`, and sharing it is what the spec says
@@ -743,7 +743,7 @@ impl FunctionEmitter<'_> {
         // MIME type, as the spec's "extract a body" step does.
         if self.is_blob_class_type(body_ty)? {
             return Ok(RustExpr::atom(format!(
-                "SmeltBody::from_blob({body_text}.to_bytes(), {body_text}.blob_type())"
+                "SmeltBody::from_blob({body_text}.to_bytes(), {body_text}.blob_type())", body_text = body_text.tight()
             )));
         }
         // A `BufferSource` at the body position contributes its BYTES. A VIEW
@@ -753,14 +753,14 @@ impl FunctionEmitter<'_> {
         // content type: the spec's "extract a body" step leaves it unset for a
         // buffer source, unlike a blob or a form.
         if self.is_typed_array_view_class_type(body_ty)? || self.is_array_buffer_class_type(body_ty)? {
-            return Ok(RustExpr::atom(format!("SmeltBody::from_bytes({body_text}.to_bytes())")));
+            return Ok(RustExpr::atom(format!("SmeltBody::from_bytes({body_text}.to_bytes())", body_text = body_text.tight())));
         }
         // A `URLSearchParams` body is its QUERY STRING, with the content type
         // the spec fixes for it. Same shape as the blob arm: the value knows
         // both its bytes and its type.
         if self.is_url_search_params_class_type(body_ty)? {
             return Ok(RustExpr::atom(format!(
-                "SmeltBody::from_blob({body_text}.to_text().into_bytes(), \"application/x-www-form-urlencoded;charset=UTF-8\".to_owned())"
+                "SmeltBody::from_blob({body_text}.to_text().into_bytes(), \"application/x-www-form-urlencoded;charset=UTF-8\".to_owned())", body_text = body_text.tight()
             )));
         }
         // A `FormData` body is `multipart/form-data`, whose boundary is part of
@@ -770,7 +770,7 @@ impl FunctionEmitter<'_> {
         // through the parser that already existed.
         if self.is_form_data_class_type(body_ty)? {
             return Ok(RustExpr::atom(format!(
-                "{{ let smelt_boundary = smelt_multipart_boundary(); SmeltBody::from_blob({body_text}.to_multipart(&smelt_boundary), format!(\"multipart/form-data; boundary={{smelt_boundary}}\")) }}"
+                "{{ let smelt_boundary = smelt_multipart_boundary(); SmeltBody::from_blob({body_text}.to_multipart(&smelt_boundary), format!(\"multipart/form-data; boundary={{smelt_boundary}}\")) }}", body_text = body_text.tight()
             )));
         }
         // A value whose static type is a GENERATED union is dispatched through
@@ -787,12 +787,12 @@ impl FunctionEmitter<'_> {
             let mut arms = Vec::with_capacity(members.len());
             for (index, member) in members.iter().copied().enumerate() {
                 let arm = self.body_conversion_expr(&RustExpr::path("smelt_body_arm"), member)?;
-                arms.push(format!("{union}::M{index}(smelt_body_arm) => {arm}"));
+                arms.push(format!("{union}::M{index}(smelt_body_arm) => {arm}", arm = arm.delimited()));
             }
-            return Ok(RustExpr::atom(format!("match {body_text} {{ {} }}", arms.join(", "))));
+            return Ok(RustExpr::atom(format!("match {body_text} {{ {} }}", arms.join(", "), body_text = body_text.delimited())));
         }
         match self.mir.types.get(body_ty) {
-            Some(Type::String | Type::PyStr) => Ok(RustExpr::atom(format!("SmeltBody::from_text(&{body_text})"))),
+            Some(Type::String | Type::PyStr) => Ok(RustExpr::atom(format!("SmeltBody::from_text(&{body_text})", body_text = body_text.tight()))),
             Some(Type::None) => Ok(RustExpr::atom("SmeltBody::empty()")),
             // An OPTIONAL body. WHATWG's constructor takes `BodyInit?` and an
             // absent body IS the empty body — the same answer the no-argument
@@ -801,7 +801,7 @@ impl FunctionEmitter<'_> {
             Some(&Type::Optional(inner)) => {
                 let present = self.body_conversion_expr(&RustExpr::path("smelt_body_init"), inner)?;
                 Ok(RustExpr::atom(format!(
-                    "match {body_text} {{ Some(smelt_body_init) => {present}, None => SmeltBody::empty() }}"
+                    "match {body_text} {{ Some(smelt_body_init) => {present}, None => SmeltBody::empty() }}", body_text = body_text.delimited(), present = present.delimited()
                 )))
             }
             // An ERASED body. `BodyInit` is a union whose unmodeled arms are
@@ -823,8 +823,8 @@ impl FunctionEmitter<'_> {
                 // each is emitted only where that type is, keyed on the same
                 // gate that decides whether it exists at all.
                 let byte_arm = if self.context.demand().has(Need::ByteArray) {
-                    self.carrier_format(format_args!(
-                        "SmeltUnknown::Object(value) if {elements}(&SmeltUnknown::Object(value.clone())).is_some() => SmeltBody::from_bytes(SmeltTypedArray::smelt_from_unknown(SmeltUnknown::Object(value)).to_bytes()), ",
+                    self.carrier_format(self.carrier()?, format_args!(
+                        "SmeltUnknown::Object(smelt_value) if {elements}(&SmeltUnknown::Object(smelt_value.clone())).is_some() => SmeltBody::from_bytes(SmeltTypedArray::smelt_from_unknown(SmeltUnknown::Object(smelt_value)).to_bytes()), ",
                         elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS,
                     ))
                 } else {
@@ -849,11 +849,11 @@ impl FunctionEmitter<'_> {
                 } else {
                     ""
                 };
-                Ok(RustExpr::atom(self.carrier_format(format_args!(
-                    "match {body_text} {{ SmeltUnknown::String(value) => SmeltBody::from_text(&value.to_string()), \
+                Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                    "match {body_text} {{ SmeltUnknown::String(smelt_value) => SmeltBody::from_text(&smelt_value.to_string()), \
                      SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltBody::empty(), \
                      {byte_arm}{blob_arm}{search_params_arm}{form_data_arm}\
-                     value => panic!(\"body arm is not modeled yet: {{value:?}}\") }}"
+                     smelt_value => panic!(\"body arm is not modeled yet: {{value:?}}\") }}", body_text = body_text.delimited()
                 ))))
             }
             _ => Err(EmitError::new(format!(
@@ -893,11 +893,11 @@ impl FunctionEmitter<'_> {
         receiver: &RustExpr,
     ) -> Result<RustExpr, EmitError> {
         Ok(match op {
-            smelt_hir::ResponseOp::Status => RustExpr::postfix_on(&receiver, format!("{receiver}.status()")),
-            smelt_hir::ResponseOp::Ok => RustExpr::postfix_on(&receiver, format!("{receiver}.ok()")),
-            smelt_hir::ResponseOp::StatusText => RustExpr::postfix_on(&receiver, format!("{receiver}.status_text()")),
-            smelt_hir::ResponseOp::Headers => RustExpr::postfix_on(&receiver, format!("{receiver}.headers()")),
-            smelt_hir::ResponseOp::BodyUsed => RustExpr::postfix_on(&receiver, format!("{receiver}.body_used()")),
+            smelt_hir::ResponseOp::Status => receiver.postfix(".status()"),
+            smelt_hir::ResponseOp::Ok => receiver.postfix(".ok()"),
+            smelt_hir::ResponseOp::StatusText => receiver.postfix(".status_text()"),
+            smelt_hir::ResponseOp::Headers => receiver.postfix(".headers()"),
+            smelt_hir::ResponseOp::BodyUsed => receiver.postfix(".body_used()"),
             // The body HANDLE, or `None` when there is no body. A handle
             // read SHARES the body — the same `Rc` payload and the same
             // `bodyUsed` cell — so handing it to a constructor is the spec's
@@ -906,9 +906,9 @@ impl FunctionEmitter<'_> {
             // `new Response("").body` is a stream, and the payload keeps the
             // two apart.
             smelt_hir::ResponseOp::Body => RustExpr::atom(format!(
-                "{{ let smelt_body = {receiver}.body(); if smelt_body.is_empty() {{ None }} else {{ Some(smelt_body) }} }}"
+                "{{ let smelt_body = {receiver}.body(); if smelt_body.is_empty() {{ None }} else {{ Some(smelt_body) }} }}", receiver = receiver.tight()
             )),
-            smelt_hir::ResponseOp::Clone => RustExpr::postfix_on(&receiver, format!("{receiver}.tee()")),
+            smelt_hir::ResponseOp::Clone => receiver.postfix(".tee()"),
             // `text()` answers a promise, so it is a future here, and the
             // future is fallible because a second read is the spec's
             // `TypeError`. The `?` inside the async block puts that on the same
@@ -922,28 +922,28 @@ impl FunctionEmitter<'_> {
             // the body through the future is observable on the original, which
             // is exactly what the spec says happens.
             smelt_hir::ResponseOp::Text => RustExpr::atom(format!(
-                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(JsString::from(smelt_response.take_text()?)) }})) }}"
+                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(JsString::from(smelt_response.take_text()?)) }})) }}", receiver = receiver.tight()
             )),
             // `json()` is `text()` followed by the fallible `JSON.parse`
             // adapter, so malformed text rejects with the same catchable
             // `SyntaxError` a source-level `JSON.parse` throws.
             smelt_hir::ResponseOp::Json => RustExpr::atom(format!(
                 "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_text = smelt_response.take_text()?; {json}(&smelt_text) }})) }}",
-                json = crate::thrown::JSON_PARSE_FN
+                json = crate::thrown::JSON_PARSE_FN, receiver = receiver.tight()
             )),
             // The two BYTE readers, one `take_bytes` apart: storage owns the
             // bytes, a view is an element window over them. Both consume the
             // body, like every other reader.
-            smelt_hir::ResponseOp::ArrayBuffer => RustExpr::atom(self.carrier_format(format_args!(
-                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltArrayBuffer::from_bytes(smelt_response.body().take_bytes()?)) }})) }}"
+            smelt_hir::ResponseOp::ArrayBuffer => RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltArrayBuffer::from_bytes(smelt_response.body().take_bytes()?)) }})) }}", receiver = receiver.tight()
             ))),
             smelt_hir::ResponseOp::Bytes => RustExpr::atom(format!(
-                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltTypedArray::from_bytes(smelt_response.body().take_bytes()?)) }})) }}"
+                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>(SmeltTypedArray::from_bytes(smelt_response.body().take_bytes()?)) }})) }}", receiver = receiver.tight()
             )),
             // Same shape as `Request::formData`; see the comment there for why
             // the parser is handed the header rather than only the bytes.
             smelt_hir::ResponseOp::FormData => RustExpr::atom(format!(
-                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_content_type = smelt_response.headers().get(\"content-type\"); Ok::<_, {ERROR_BOX}>(smelt_form_data_from_body(smelt_content_type, smelt_response.body().take_bytes()?)?) }})) }}"
+                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_content_type = smelt_response.headers().get(\"content-type\"); Ok::<_, {ERROR_BOX}>(smelt_form_data_from_body(smelt_content_type, smelt_response.body().take_bytes()?)?) }})) }}", receiver = receiver.tight()
             )),
         })
     }
@@ -1004,20 +1004,20 @@ impl FunctionEmitter<'_> {
         Ok(match op {
             smelt_hir::EventEmitterOp::On | smelt_hir::EventEmitterOp::Once => {
                 let once = matches!(op, smelt_hir::EventEmitterOp::Once);
-                RustExpr::atom(self.carrier_format(format_args!(
+                RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
                     "{{ let smelt_listener = match {} {{ SmeltUnknown::Function(smelt_function) => smelt_function, _ => ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Undefined)) }}; {receiver}.add(&{event_text}, smelt_listener, {once}) }}",
-                    listener(1)?
+                    listener(1)?, receiver = receiver.tight(), event_text = event_text.tight()
                 )))
             }
-            smelt_hir::EventEmitterOp::Off => RustExpr::atom(self.carrier_format(format_args!(
+            smelt_hir::EventEmitterOp::Off => RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
                 "{{ let smelt_listener = match {} {{ SmeltUnknown::Function(smelt_function) => smelt_function, _ => ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Undefined)) }}; {receiver}.remove(&{event_text}, &smelt_listener) }}",
-                listener(1)?
+                listener(1)?, receiver = receiver.tight(), event_text = event_text.tight()
             ))),
             smelt_hir::EventEmitterOp::RemoveAll => {
-                RustExpr::postfix_on(&receiver, format!("{receiver}.remove_all(&{event_text})"))
+                receiver.postfix(format!(".remove_all(&{event_text})", event_text = event_text.tight()))
             }
             smelt_hir::EventEmitterOp::ListenerCount => {
-                RustExpr::postfix_on(&receiver, format!("{receiver}.listener_count(&{event_text})"))
+                receiver.postfix(format!(".listener_count(&{event_text})", event_text = event_text.tight()))
             }
             smelt_hir::EventEmitterOp::Emit => {
                 let mut erased = Vec::new();
@@ -1026,7 +1026,7 @@ impl FunctionEmitter<'_> {
                 }
                 RustExpr::loose(format!(
                     "{receiver}.emit(&{event_text}, Vec::from([{}]))?",
-                    erased.join(", ")
+                    erased.join(", "), receiver = receiver.tight(), event_text = event_text.tight()
                 ))
             }
         })
@@ -1045,7 +1045,7 @@ impl FunctionEmitter<'_> {
         if matches!(arg, Operand::Copy(_))
             && matches!(self.mir.types.get(ty), Some(Type::Function(_)))
         {
-            text = RustExpr::postfix_on(&text, format!("{text}.clone()")).ending_in_clone();
+            text = text.cloned_value();
         }
         self.erase_rendered(&text, ty)
     }
@@ -1113,7 +1113,7 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(self.operand_ty(operand)?),
             Some(Type::Optional(_))
         ) {
-            return Ok(RustExpr::postfix_on(&text, format!("{text}.unwrap_or_else(|| {default_text})")));
+            return Ok(text.postfix(format!(".unwrap_or_else(|| {default_text})", default_text = default_text.delimited())));
         }
         Ok(text)
     }
@@ -1142,7 +1142,7 @@ impl FunctionEmitter<'_> {
             let present = self.headers_conversion_expr(&RustExpr::path("smelt_init_headers"), inner)?;
             return Ok(RustExpr::atom(format!(
                 "match {} {{ Some(smelt_init_headers) => {present}, None => {default_text} }}",
-                self.operand_expr(operand)?
+                self.operand_expr(operand)?.delimited(), present = present.delimited(), default_text = default_text.delimited()
             )));
         }
         self.headers_new_expr(Some(operand))
@@ -1171,21 +1171,21 @@ impl FunctionEmitter<'_> {
         let Some(operand) = operand else {
             return Ok(default_text.to_owned());
         };
-        let convert = |body_text: &str, body_ty: TypeId| -> Result<String, EmitError> {
+        let convert = |body_text: &RustExpr, body_ty: TypeId| -> Result<RustExpr, EmitError> {
             if shares_a_request_body && self.is_request_class_type(body_ty)? {
-                return Ok(format!("{body_text}.body()"));
+                return Ok(RustExpr::postfix_on(body_text, format!("{}.body()", body_text.parenthesized_if_needed())));
             }
-            self.body_conversion_expr(&RustExpr::opaque(body_text), body_ty).map(RustExpr::into_string)
+            self.body_conversion_expr(body_text, body_ty)
         };
         let ty = self.operand_ty(operand)?;
         if let Some(&Type::Optional(inner)) = self.mir.types.get(ty) {
-            let present = convert("smelt_init_body", inner)?;
+            let present = convert(&RustExpr::path("smelt_init_body"), inner)?;
             return Ok(RustExpr::atom(format!(
                 "match {} {{ Some(smelt_init_body) => {present}, None => {default_text} }}",
-                self.operand_expr(operand)?
+                self.operand_expr(operand)?.delimited(), present = present.delimited(), default_text = default_text.delimited()
             )));
         }
-        convert(&self.operand_expr(operand)?, ty).map(RustExpr::from)
+        convert(&self.operand_expr(operand)?, ty)
     }
 
 

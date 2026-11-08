@@ -33,7 +33,7 @@ fn tuple_and_list_element_reads_project_each_arm() {
         "outcome[0] should read element 0 of each tuple arm: {body}"
     );
     // `handlers[0]` and `handlers.length` read each list arm directly.
-    assert!(body.contains("smelt_union_arm.borrow().get("), "{body}");
+    assert!(body.contains("(smelt_union_arm).borrow().get("), "{body}");
     assert!(body.contains("(smelt_union_arm.len() as f64)"), "{body}");
     // `head[1]['id']`: each record arm is read by key.
     assert!(body.contains("smelt_union_arm.get(&"), "{body}");

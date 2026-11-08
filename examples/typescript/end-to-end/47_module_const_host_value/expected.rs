@@ -1826,10 +1826,10 @@ fn main() {
     let _smelt_tmp_17: JsString = param_a();
     let _ = { println!("{}", _smelt_tmp_17); };
     let _ = append_param();
-    _smelt_tmp_20 = SMELT_GLOBAL_PARAMS_3.with(|value| value.borrow().clone());
+    _smelt_tmp_20 = SMELT_GLOBAL_PARAMS_3.with(|smelt_value| smelt_value.borrow().clone());
     _smelt_tmp_21 = JsString::from(_smelt_tmp_20.to_text());
     let _ = { println!("{}", _smelt_tmp_21); };
-    _smelt_tmp_23 = SMELT_GLOBAL_HEADERS_2.with(|value| value.borrow().clone());
+    _smelt_tmp_23 = SMELT_GLOBAL_HEADERS_2.with(|smelt_value| smelt_value.borrow().clone());
     _smelt_tmp_24 = (_smelt_tmp_23.get(&JsString::from("content-type"))).map(JsString::from);
     _smelt_tmp_25 = _smelt_tmp_24.clone().unwrap_or(JsString::from("none"));
     let _ = { println!("{}", _smelt_tmp_25); };
@@ -1844,49 +1844,49 @@ fn main() {
 use super::*;
 
 pub(crate) fn encoded_length(text: JsString) -> f64 {
-    let _smelt_tmp_1: SmeltTextEncoder = SMELT_GLOBAL_ENCODER_0.with(|value| value.borrow().clone());
+    let _smelt_tmp_1: SmeltTextEncoder = SMELT_GLOBAL_ENCODER_0.with(|smelt_value| smelt_value.borrow().clone());
     let _smelt_tmp_2: SmeltTypedArray = _smelt_tmp_1.encode(&text.clone());
     let _smelt_tmp_3: f64 = _smelt_tmp_2.length();
     return _smelt_tmp_3;
 }
 
 pub(crate) fn round_trip(text: JsString) -> JsString {
-    let _smelt_tmp_1: SmeltTextDecoder = SMELT_GLOBAL_DECODER_1.with(|value| value.borrow().clone());
-    let _smelt_tmp_2: SmeltTextEncoder = SMELT_GLOBAL_ENCODER_0.with(|value| value.borrow().clone());
+    let _smelt_tmp_1: SmeltTextDecoder = SMELT_GLOBAL_DECODER_1.with(|smelt_value| smelt_value.borrow().clone());
+    let _smelt_tmp_2: SmeltTextEncoder = SMELT_GLOBAL_ENCODER_0.with(|smelt_value| smelt_value.borrow().clone());
     let _smelt_tmp_3: SmeltTypedArray = _smelt_tmp_2.encode(&text.clone());
     let _smelt_tmp_4: JsString = JsString::from(_smelt_tmp_1.decode(&_smelt_tmp_3));
     return _smelt_tmp_4;
 }
 
 pub(crate) fn content_type() -> JsString {
-    let _smelt_tmp_0: SmeltHeaders = SMELT_GLOBAL_HEADERS_2.with(|value| value.borrow().clone());
+    let _smelt_tmp_0: SmeltHeaders = SMELT_GLOBAL_HEADERS_2.with(|smelt_value| smelt_value.borrow().clone());
     let _smelt_tmp_1: Option<JsString> = (_smelt_tmp_0.get(&JsString::from("content-type"))).map(JsString::from);
     let _smelt_tmp_2: JsString = _smelt_tmp_1.clone().unwrap_or(JsString::from("none"));
     return _smelt_tmp_2;
 }
 
 pub(crate) fn add_header() -> () {
-    let _smelt_tmp_0: SmeltHeaders = SMELT_GLOBAL_HEADERS_2.with(|value| value.borrow().clone());
+    let _smelt_tmp_0: SmeltHeaders = SMELT_GLOBAL_HEADERS_2.with(|smelt_value| smelt_value.borrow().clone());
     let _smelt_tmp_1: () = _smelt_tmp_0.set(&JsString::from("x-extra"), &JsString::from("added"));
     return;
 }
 
 pub(crate) fn extra() -> JsString {
-    let _smelt_tmp_0: SmeltHeaders = SMELT_GLOBAL_HEADERS_2.with(|value| value.borrow().clone());
+    let _smelt_tmp_0: SmeltHeaders = SMELT_GLOBAL_HEADERS_2.with(|smelt_value| smelt_value.borrow().clone());
     let _smelt_tmp_1: Option<JsString> = (_smelt_tmp_0.get(&JsString::from("x-extra"))).map(JsString::from);
     let _smelt_tmp_2: JsString = _smelt_tmp_1.clone().unwrap_or(JsString::from("missing"));
     return _smelt_tmp_2;
 }
 
 pub(crate) fn param_a() -> JsString {
-    let _smelt_tmp_0: SmeltUrlSearchParams = SMELT_GLOBAL_PARAMS_3.with(|value| value.borrow().clone());
+    let _smelt_tmp_0: SmeltUrlSearchParams = SMELT_GLOBAL_PARAMS_3.with(|smelt_value| smelt_value.borrow().clone());
     let _smelt_tmp_1: Option<JsString> = (_smelt_tmp_0.get(&JsString::from("a"))).map(JsString::from);
     let _smelt_tmp_2: JsString = _smelt_tmp_1.clone().unwrap_or(JsString::from("none"));
     return _smelt_tmp_2;
 }
 
 pub(crate) fn append_param() -> () {
-    let _smelt_tmp_0: SmeltUrlSearchParams = SMELT_GLOBAL_PARAMS_3.with(|value| value.borrow().clone());
+    let _smelt_tmp_0: SmeltUrlSearchParams = SMELT_GLOBAL_PARAMS_3.with(|smelt_value| smelt_value.borrow().clone());
     let _smelt_tmp_1: () = _smelt_tmp_0.append(&JsString::from("c"), &JsString::from("3"));
     return;
 }

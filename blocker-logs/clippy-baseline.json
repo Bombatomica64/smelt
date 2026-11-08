@@ -2,7 +2,7 @@
   "_comment": "Warn-level clippy lints per crate; see scripts/check_clippy_ratchet.py. A count may only fall.",
   "counts": {
     "smelt-codegen-rust": {
-      "clippy::arithmetic_side_effects": 8,
+      "clippy::arithmetic_side_effects": 6,
       "clippy::as_conversions": 2,
       "clippy::collapsible_if": 2,
       "clippy::exhaustive_enums": 2,
