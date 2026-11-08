@@ -119,6 +119,7 @@ impl ModuleBuilder<'_> {
 
     /// Rebind `name` at the top of the body to the argument, or the default
     /// when the caller left it out.
+    #[expect(clippy::too_many_arguments, reason = "the parameter, its default and where the prologue goes")]
     fn default_prologue(
         &mut self,
         name: &str,

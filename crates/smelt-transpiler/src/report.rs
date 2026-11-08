@@ -263,8 +263,8 @@ mod tests {
         let missing = Path::new("does/not/exist.json");
         let error = load_json::<Probe>(missing, "baseline ").expect_err("missing file");
         assert!(error.starts_with("failed to read baseline `does/not/exist.json`: "), "{error}");
-        let error = load_json::<Probe>(missing, "").expect_err("missing file");
-        assert!(error.starts_with("failed to read `does/not/exist.json`: "), "{error}");
+        let unnamed = load_json::<Probe>(missing, "").expect_err("missing file");
+        assert!(unnamed.starts_with("failed to read `does/not/exist.json`: "), "{unnamed}");
     }
 
     /// The current version round-trips; another version, or none, is refused.

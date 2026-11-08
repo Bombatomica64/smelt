@@ -58,9 +58,10 @@ pub struct CheckDiagnostic {
     pub severity: CheckSeverity,
 }
 
-/// Type-checks `sources` as one program whose project directory is
-/// `project_root`, with `declarations` (stubs of modules the program imports
-/// from another language) laid out beside them and read but not checked.
+/// Type-checks `sources` as one program rooted at `project_root`.
+///
+/// `declarations` (stubs of modules the program imports from another
+/// language) are laid out beside the sources, read but not checked.
 ///
 /// Returns every error and warning ty reports in the given sources; hints and
 /// infos say nothing wrong and are dropped. A source outside `project_root` is

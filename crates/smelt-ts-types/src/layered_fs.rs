@@ -9,6 +9,10 @@
 //! `node_modules` directory: the program's sources come from memory alone,
 //! which is how a typed version laid over an installed file (in memory, at the
 //! installed path) takes the place of what is on disk.
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "the file system is built by the program builder in a sibling module"
+)]
 
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -95,9 +99,9 @@ impl FS for LayeredFs {
                 }
             }
             entries.symlinks = match (entries.symlinks.take(), found.symlinks) {
-                (Some(mut memory), Some(disk)) => {
-                    memory.extend(disk);
-                    Some(memory)
+                (Some(mut in_memory), Some(on_disk)) => {
+                    in_memory.extend(on_disk);
+                    Some(in_memory)
                 }
                 (Some(only), None) | (None, Some(only)) => Some(only),
                 (None, None) => None,

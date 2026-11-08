@@ -457,9 +457,9 @@ impl DependencyCollector {
         else {
             return self.resolve_workspace_package_import(importer_path, import);
         };
-        let candidate = stub_source(&candidate);
-        let canonical_candidate = self.overlay.canonical_path(&candidate)?;
-        if let Some(mut targets) = self.resolve_barrel_import_targets(&candidate, import) {
+        let source_candidate = stub_source(&candidate);
+        let canonical_candidate = self.overlay.canonical_path(&source_candidate)?;
+        if let Some(mut targets) = self.resolve_barrel_import_targets(&source_candidate, import) {
             prepend_unique_dependency(&mut targets, canonical_candidate);
             return Ok(targets);
         }

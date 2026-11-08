@@ -339,7 +339,7 @@ mod tests {
     }
 
     /// A Python factory binding over a TypeScript import is runtime code: the
-    /// module cannot run in CPython, so it is no candidate; and a decorated
+    /// module cannot run in `CPython`, so it is no candidate; and a decorated
     /// TypeScript module makes no Python importer a candidate.
     #[test]
     fn modules_reaching_the_other_language_are_not_factory_candidates() {

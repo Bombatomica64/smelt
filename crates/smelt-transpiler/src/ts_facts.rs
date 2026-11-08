@@ -124,29 +124,30 @@ fn checker_diagnostic(
         .zip(unresolved_specifier(diagnostic))
         .filter(|(source, specifier)| graph.resolved_specifier(&source.path, specifier))
         .map(|(_, specifier)| specifier);
-    let (code, message) = match drifted {
-        Some(specifier) => (
-            DRIFT_CODE,
-            format!(
-                "internal error: the TypeScript checker cannot resolve `{specifier}`, which Smelt resolved; \
-                 the checker's program must hold every module Smelt resolves (a Smelt bug, not a type error)"
-            ),
-        ),
-        None => {
+    let (code, message) = drifted.map_or_else(
+        || {
             let text = format!("TS{}: {}", diagnostic.code, diagnostic.message);
             // An error in a typed version is the typed version's to fix, as
             // a frontend rejection of it is.
-            let message = match found.and_then(|source| source.typed_version.as_deref()) {
-                Some(origin) => format!(
+            let message = found.and_then(|source| source.typed_version.as_deref()).map_or(text.clone(), |origin| {
+                format!(
                     "{text} (in the typed version of '{name}' in {shown}; fix it, or remove it to compile '{name}' untyped)",
                     name = origin.name,
                     shown = origin.shown,
-                ),
-                None => text,
-            };
+                )
+            });
             (CHECK_CODE, message)
-        }
-    };
+        },
+        |specifier| {
+            (
+                DRIFT_CODE,
+                format!(
+                    "internal error: the TypeScript checker cannot resolve `{specifier}`, which Smelt resolved; \
+                     the checker's program must hold every module Smelt resolves (a Smelt bug, not a type error)"
+                ),
+            )
+        },
+    );
     Some(ManifestDiagnostic {
         file: found.map_or_else(|| file.to_owned(), |source| source.path.display().to_string()),
         category: DiagnosticCategory::TypeCheck,
@@ -160,7 +161,7 @@ fn checker_diagnostic(
 
 /// The specifier a "cannot find module" diagnostic names (TS2307, TS2792).
 fn unresolved_specifier(diagnostic: &TsDiagnostic) -> Option<&str> {
-    if !matches!(diagnostic.code, 2307 | 2792) {
+    if !matches!(diagnostic.code, 2307_i32 | 2792_i32) {
         return None;
     }
     let (_, rest) = diagnostic.message.split_once('\'')?;

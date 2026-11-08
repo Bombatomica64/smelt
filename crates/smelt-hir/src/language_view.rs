@@ -86,7 +86,17 @@ fn children(ty: &Type) -> Vec<TypeId> {
         Type::Function(function) => function.params.iter().copied().chain([function.return_ty]).collect(),
         Type::Generator { yield_ty, return_ty, next_ty, .. } => vec![*yield_ty, *return_ty, *next_ty],
         Type::GeneratorResult { yield_ty, return_ty } => vec![*yield_ty, *return_ty],
-        _ => Vec::new(),
+        Type::Bool
+        | Type::Int
+        | Type::Float
+        | Type::FixedInt(_)
+        | Type::BigInt
+        | Type::String
+        | Type::PyStr
+        | Type::Unknown
+        | Type::Never
+        | Type::TypeParam { .. }
+        | Type::None => Vec::new(),
     }
 }
 
@@ -124,7 +134,17 @@ fn map(types: &mut TypeInterner, ty: TypeId, language: SourceLanguage, depth: us
         Type::GeneratorResult { yield_ty, return_ty } => {
             Type::GeneratorResult { yield_ty: each(types, yield_ty), return_ty: each(types, return_ty) }
         }
-        other => other,
+        leaf @ (Type::Bool
+            | Type::Int
+            | Type::Float
+            | Type::FixedInt(_)
+            | Type::BigInt
+            | Type::String
+            | Type::PyStr
+            | Type::Unknown
+            | Type::Never
+            | Type::TypeParam { .. }
+            | Type::None) => leaf,
     };
     types.intern(mapped)
 }

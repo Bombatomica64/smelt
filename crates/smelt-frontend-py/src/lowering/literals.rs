@@ -38,7 +38,10 @@ impl ModuleBuilder<'_> {
         {
             return value;
         }
-        let span = body.exprs.get(value.0 as usize).map_or(Span::new(self.file_id, 0, 0), |expr| expr.span);
+        let span = body
+            .exprs
+            .get(usize::try_from(value.0).unwrap_or(usize::MAX))
+            .map_or_else(|| Span::new(self.file_id, 0, 0), |expr| expr.span);
         let viewed = smelt_hir::language_view::view_in(&mut self.ctx.krate.types, ty, language);
         body.push_expr(HirExpr { kind: ExprKind::TypeAssert { value }, ty: viewed, span })
     }
@@ -554,12 +557,11 @@ impl ModuleBuilder<'_> {
     /// `str * int` or `int * str`: Python's sequence repetition, not arithmetic.
     ///
     /// The string operand keeps its own type (a `str` stays `PyStr`), and a
-    /// count of zero or less yields the empty string, as CPython does; the
+    /// count of zero or less yields the empty string, as `CPython` does; the
     /// emitter clamps an integer count at zero for that. `None` for any other
     /// operand pair, which stays a numeric multiplication.
     fn sequence_repeat(
-        &self,
-        operand_kinds: (Option<Type>, Option<Type>),
+        operand_kinds: &(Option<Type>, Option<Type>),
         lhs: smelt_hir::ExprId,
         rhs: smelt_hir::ExprId,
         span: Span,
@@ -672,7 +674,7 @@ impl ModuleBuilder<'_> {
             (lhs, rhs)
         };
         if op == PythonArithmetic::Plain(BinOp::Mul)
-            && let Some(repeat) = self.sequence_repeat(operand_kinds, lhs, rhs, span, body)
+            && let Some(repeat) = Self::sequence_repeat(&operand_kinds, lhs, rhs, span, body)
         {
             return Ok(repeat);
         }

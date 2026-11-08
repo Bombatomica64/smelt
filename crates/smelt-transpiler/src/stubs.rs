@@ -328,8 +328,8 @@ fn typescript_declaration(krate: &Crate, module_id: ModuleId) -> String {
                     );
                 }
                 if let Some(constructor) = class.constructor.and_then(|id| function_of(krate, id)) {
-                    let params = ts_signature(krate, constructor);
-                    let params = params.rsplit_once("): ").map_or(params.as_str(), |(params, _)| params);
+                    let signature = ts_signature(krate, constructor);
+                    let params = signature.rsplit_once("): ").map_or(signature.as_str(), |(head, _)| head);
                     push_fmt(&mut out, format_args!("  constructor{params});\n"));
                 }
                 for (methods, prefix) in [(&class.methods, ""), (&class.static_methods, "static ")] {

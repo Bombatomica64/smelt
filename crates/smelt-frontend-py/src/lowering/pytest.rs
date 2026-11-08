@@ -271,11 +271,11 @@ impl ModuleBuilder<'_> {
                     Some(default) => this.defaulted_param(param_name_str, param_ty, default, func_span)?,
                     None => None,
                 };
-                let param_ty = defaulted.as_ref().map_or(param_ty, |defaulted| defaulted.optional_ty);
+                let local_ty = defaulted.as_ref().map_or(param_ty, |found| found.optional_ty);
                 let param_name = this.intern_name(param_name_str);
                 let local = fn_body.push_local(LocalDecl {
                     name: Some(param_name),
-                    ty: param_ty,
+                    ty: local_ty,
                     mutable: false,
                     span: this.span(p.range),
                 });
@@ -284,17 +284,17 @@ impl ModuleBuilder<'_> {
                 params.push(Param {
                     name: param_name,
                     local,
-                    ty: param_ty,
+                    ty: local_ty,
                     span: this.span(p.range),
                 });
-                if let Some(defaulted) = defaulted {
-                    pending_defaults.push((param_name_str, local, defaulted, param_with_default.default.as_deref()));
+                if let Some(found) = defaulted
+                    && let Some(default_expr) = param_with_default.default.as_deref()
+                {
+                    pending_defaults.push((param_name_str, local, found, default_expr));
                 }
             }
-            for (name, local, defaulted, default) in pending_defaults {
-                if let Some(default) = default {
-                    this.default_prologue(name, local, &defaulted, default, &mut fn_body)?;
-                }
+            for (pending_name, pending_local, pending_default, default_expr) in pending_defaults {
+                this.default_prologue(pending_name, pending_local, &pending_default, default_expr, &mut fn_body)?;
             }
 
             let mut variadics = FunctionVariadics::default();

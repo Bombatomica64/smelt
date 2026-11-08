@@ -81,10 +81,9 @@ impl ModuleBuilder<'_> {
             }
 
             // `x += value` — augmented assignment.
-            Stmt::AugAssign(aug) => match self.module_variable_aug_assign(aug, body, block) {
-                Some(result) => result,
-                None => self.aug_assign(aug, body, block),
-            },
+            Stmt::AugAssign(aug) => self
+                .module_variable_aug_assign(aug, body, block)
+                .unwrap_or_else(|| self.aug_assign(aug, body, block)),
 
             Stmt::Global(global) => self.global_statement(global),
 

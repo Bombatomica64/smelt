@@ -30,14 +30,17 @@ use common::{
 };
 use smelt_specialize::prereq::missing_prerequisite;
 
+/// Files as `(path relative to their root, contents)`.
+type Files = Vec<(String, String)>;
+
 /// Every file under `dir`, as `(path relative to dir, contents)`, sorted.
 /// A package (`pkg/__init__.py`) or barrel directory keeps its layout.
-fn read_files(dir: &Path) -> TestResult<Vec<(String, String)>> {
+fn read_files(dir: &Path) -> TestResult<Files> {
     let mut files = Vec::new();
     let mut pending = vec![dir.to_path_buf()];
     while let Some(current) = pending.pop() {
-        for entry in fs::read_dir(&current)? {
-            let entry = entry?;
+        for listed in fs::read_dir(&current)? {
+            let entry = listed?;
             let path = entry.path();
             if entry.file_type()?.is_dir() {
                 // A bytecode cache a local oracle run left is not a source.
@@ -97,10 +100,7 @@ fn ensure_oracle_agrees(case: &str, oracle: &Path, entry: &str, expected: &str) 
     let files = read_files(oracle)?;
     let stdout = if entry == "main.ts" {
         if !node_runs_typescript() {
-            return Ok(missing_prerequisite::<Box<dyn std::error::Error>>(
-                case,
-                common::NODE_ORACLE,
-            )?);
+            return missing_prerequisite::<Box<dyn std::error::Error>>(case, common::NODE_ORACLE);
         }
         let borrowed = files
             .iter()
@@ -109,7 +109,7 @@ fn ensure_oracle_agrees(case: &str, oracle: &Path, entry: &str, expected: &str) 
         node_typescript_stdout(&borrowed, entry)?
     } else {
         if !python_runs_corpus() {
-            return Ok(missing_prerequisite::<Box<dyn std::error::Error>>(case, PYTHON_ORACLE)?);
+            return missing_prerequisite::<Box<dyn std::error::Error>>(case, PYTHON_ORACLE);
         }
         python_stdout(&files)?
     };
@@ -286,7 +286,7 @@ fn a_second_build_resolves_sources_not_their_stubs() -> TestResult {
     Ok(())
 }
 
-/// A project module named like a standard-library module CPython never lets
+/// A project module named like a standard-library module `CPython` never lets
 /// a script shadow (`math`) does not replace it: `import math` is the
 /// standard library, as under `python3` and ty.
 #[test]

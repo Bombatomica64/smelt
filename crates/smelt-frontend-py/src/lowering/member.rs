@@ -411,10 +411,10 @@ impl ModuleBuilder<'_> {
     ) -> Option<smelt_hir::ExprId> {
         let node = source.exprs.get(usize::try_from(expr.0).ok()?)?;
         let ty = node.ty;
-        let copy_all = |items: &[smelt_hir::ExprId], body: &mut Body| {
+        let copy_all = |items: &[smelt_hir::ExprId], target: &mut Body| {
             items
                 .iter()
-                .map(|item| Self::copy_pure_const_expr(source, *item, body, span))
+                .map(|item| Self::copy_pure_const_expr(source, *item, target, span))
                 .collect::<Option<Vec<_>>>()
         };
         let kind = match &node.kind {

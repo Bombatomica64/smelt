@@ -363,11 +363,11 @@ fn vanished<'baseline>(
     retired: &[String],
 ) -> impl Iterator<Item = (&'baseline ProgramKey, &'baseline ProgramRecord)> {
     let measured = report.programs.keys().collect::<BTreeSet<_>>();
-    let retired = retired.iter().map(|program| ProgramKey::new(program)).collect::<BTreeSet<_>>();
+    let retired_keys = retired.iter().map(|program| ProgramKey::new(program)).collect::<BTreeSet<_>>();
     baseline
         .programs
         .iter()
-        .filter(move |(program, _)| !measured.contains(program) && !retired.contains(*program))
+        .filter(move |(program, _)| !measured.contains(program) && !retired_keys.contains(*program))
 }
 
 /// Compare a report with its baseline: every judged program, every baseline

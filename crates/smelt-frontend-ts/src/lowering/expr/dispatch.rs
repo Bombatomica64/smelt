@@ -40,7 +40,10 @@ impl ModuleBuilder<'_> {
         {
             return value;
         }
-        let span = body.exprs.get(value.0 as usize).map_or_else(|| self.span(0, 0), |expr| expr.span);
+        let span = body
+            .exprs
+            .get(usize::try_from(value.0).unwrap_or(usize::MAX))
+            .map_or_else(|| self.span(0, 0), |expr| expr.span);
         let viewed = smelt_hir::language_view::view_in(&mut self.ctx.krate.types, ty, language);
         body.push_expr(Expr { kind: ExprKind::TypeAssert { value }, ty: viewed, span })
     }

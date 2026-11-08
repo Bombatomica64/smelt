@@ -34,7 +34,7 @@ pub enum BinOp {
     JsStrictNotEq,
     /// JavaScript `==` between operands whose types can hold values of
     /// different kinds (a `number | bigint`, a `string | number`, `unknown`):
-    /// ECMA-262 IsLooselyEqual, which converts across kinds (`"1" == 1`,
+    /// ECMA-262 `IsLooselyEqual`, which converts across kinds (`"1" == 1`,
     /// `2n == 2`, `null == undefined`). A `==` whose operands are of one kind
     /// is that kind's strict equality and lowers to [`BinOp::Eq`] (primitives)
     /// or [`BinOp::JsStrictEq`] (objects) instead.

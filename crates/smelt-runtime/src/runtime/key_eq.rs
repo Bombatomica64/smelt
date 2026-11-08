@@ -69,13 +69,11 @@ fn smelt_js_loose_eq(left: &SmeltUnknown, right: &SmeltUnknown) -> bool {
     match (left, right) {
         (U::Null | U::Undefined, U::Null | U::Undefined) => true,
         (U::Null | U::Undefined, _) | (_, U::Null | U::Undefined) => false,
-        (U::Number(_), U::Number(_)) | (U::String(_), U::String(_)) | (U::Bool(_), U::Bool(_)) | (U::Symbol(_), U::Symbol(_)) => left.js_strict_eq(right),
-        /*@if bigint*/(U::BigInt(_), U::BigInt(_)) => left.js_strict_eq(right),/*@end*/
+        (U::Number(_), U::Number(_)) | (U::String(_), U::String(_)) | (U::Bool(_), U::Bool(_)) | (U::Symbol(_), U::Symbol(_)) | (U::Array(_) | U::Object(_) | U::Function(_) | U::Promise(_), U::Array(_) | U::Object(_) | U::Function(_) | U::Promise(_)) /*@if bigint*/| (U::BigInt(_), U::BigInt(_))/*@end*/ => left.js_strict_eq(right),
         (U::Bool(value), other) | (other, U::Bool(value)) => smelt_js_loose_eq(&U::Number(if *value { 1.0 } else { 0.0 }), other),
         (U::Number(_), U::String(_)) | (U::String(_), U::Number(_)) => smelt_unknown_to_number(left) == smelt_unknown_to_number(right),
         /*@if bigint*/(U::BigInt(value), U::Number(number)) | (U::Number(number), U::BigInt(value)) => smelt_bigint_compare_number(value, *number) == Some(::std::cmp::Ordering::Equal),/*@end*/
         /*@if bigint*/(U::BigInt(value), U::String(text)) | (U::String(text), U::BigInt(value)) => smelt_bigint_from_string(text).is_ok_and(|parsed| parsed == *value),/*@end*/
-        (U::Array(_) | U::Object(_) | U::Function(_) | U::Promise(_), U::Array(_) | U::Object(_) | U::Function(_) | U::Promise(_)) => left.js_strict_eq(right),
         (U::Array(_) | U::Object(_) | U::Function(_) | U::Promise(_), primitive) => smelt_js_loose_eq(&U::String(smelt_erased_to_js_string(left)), primitive),
         (primitive, U::Array(_) | U::Object(_) | U::Function(_) | U::Promise(_)) => smelt_js_loose_eq(primitive, &U::String(smelt_erased_to_js_string(right))),
         _ => false,

@@ -11,7 +11,7 @@ use smelt_stdlib::RuleId;
 /// What a type checker needs to know of the typed `JSON.parse<T>(text)` this
 /// module lowers: the call takes the target type as its type argument (the
 /// lib's `JSON.parse` has none) and returns it.
-pub(crate) const JSON_PARSE_DECLARATION: &str =
+pub(in crate::lowering) const JSON_PARSE_DECLARATION: &str =
     "interface JSON {\n  parse<T = any>(text: string, reviver?: (this: any, key: string, value: any) => any): T;\n}\n";
 
 impl ModuleBuilder<'_> {

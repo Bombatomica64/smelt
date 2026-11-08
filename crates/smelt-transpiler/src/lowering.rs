@@ -308,12 +308,12 @@ fn lower_run(run: &ManifestLowering, inputs: ModuleInputs<'_>) -> Result<Lowered
             }
             modules.push((source.path.display().to_string(), module));
         }
-        let modules = match run.focus {
+        let focused = match run.focus {
             Some(index) => modules.into_iter().skip(index).take(1).collect(),
             None => modules,
         };
         let sources = LoweredSources::of(&ordered, &run.file_ids);
-        Ok(LoweredCrate { krate: lowering.into_crate(), modules, sources })
+        Ok(LoweredCrate { krate: lowering.into_crate(), modules: focused, sources })
     })
 }
 

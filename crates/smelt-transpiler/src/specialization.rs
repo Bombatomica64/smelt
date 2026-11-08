@@ -122,7 +122,7 @@ pub(crate) fn prepare(
 }
 
 /// Refuses a candidate whose definition-time code imports a module of the
-/// other language: its host (CPython or Node) cannot load that module, so
+/// other language: its host (`CPython` or Node) cannot load that module, so
 /// specialization could only fail inside the guest with a bare import error.
 fn refuse_cross_language_candidates(
     sources: &[&ManifestSource],

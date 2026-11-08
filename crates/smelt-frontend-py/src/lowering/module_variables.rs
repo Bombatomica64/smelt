@@ -122,7 +122,7 @@ impl ModuleBuilder<'_> {
                 continue;
             }
             let ty = match annotation {
-                Some(annotation) => match self.annotation_to_hir(annotation) {
+                Some(annotation_expr) => match self.annotation_to_hir(annotation_expr) {
                     Ok(ty) => ty,
                     Err(_) => continue,
                 },
@@ -221,9 +221,7 @@ impl ModuleBuilder<'_> {
             Expr::Dict(dict) => {
                 let keys = dict.items.iter().map(|item| item.key.as_ref()).collect::<Option<Vec<_>>>()?;
                 let values = dict.items.iter().map(|item| &item.value).collect::<Vec<_>>();
-                let key = self.literal_items_type(keys.into_iter())?;
-                let value = self.literal_items_type(values.into_iter())?;
-                Type::Dict(key, value)
+                Type::Dict(self.literal_items_type(keys)?, self.literal_items_type(values)?)
             }
             _ => return None,
         };
@@ -295,26 +293,24 @@ impl ModuleBuilder<'_> {
                     Expr::StringLiteral(_) => Some(Type::PyStr),
                     _ => None,
                 };
-                match (ty_kind, aug.op, operand) {
+                matches!(
+                    (ty_kind, aug.op, operand),
                     (
                         Some(Type::Int),
                         Operator::Add | Operator::Sub | Operator::Mult | Operator::FloorDiv | Operator::Mod,
                         Some(Type::Int),
-                    ) => true,
-                    (
+                    ) | (
                         Some(Type::Float),
                         Operator::Add
-                        | Operator::Sub
-                        | Operator::Mult
-                        | Operator::Div
-                        | Operator::FloorDiv
-                        | Operator::Mod,
+                            | Operator::Sub
+                            | Operator::Mult
+                            | Operator::Div
+                            | Operator::FloorDiv
+                            | Operator::Mod,
                         Some(Type::Int | Type::Float),
-                    ) => true,
-                    (Some(Type::PyStr), Operator::Add, Some(Type::PyStr))
-                    | (Some(Type::PyStr), Operator::Mult, Some(Type::Int)) => true,
-                    _ => false,
-                }
+                    ) | (Some(Type::PyStr), Operator::Add, Some(Type::PyStr))
+                        | (Some(Type::PyStr), Operator::Mult, Some(Type::Int))
+                )
             }
             // An annotated rebinding declares the type; a different one is a
             // checker error, not a rebinding.
@@ -348,6 +344,7 @@ impl ModuleBuilder<'_> {
     /// The module body's first assignment of a global with a pending
     /// initializer becomes that initializer, touched here so it runs in source
     /// order; every other write stores with `GlobalSet`.
+    #[expect(clippy::too_many_arguments, reason = "the binding, its value and where the write goes")]
     fn module_variable_assign(
         &mut self,
         name: &str,
@@ -373,11 +370,11 @@ impl ModuleBuilder<'_> {
             }
             return Some(self.module_variable_initializer(name, item, ty, value, span, body, block));
         }
-        let value = match self.expression_with_hint(value, body, Some(ty)) {
-            Ok(value) => value,
+        let stored = match self.expression_with_hint(value, body, Some(ty)) {
+            Ok(stored) => stored,
             Err(error) => return Some(Err(error)),
         };
-        let set = body.push_expr(HirExpr { kind: ExprKind::GlobalSet { item, value }, ty, span });
+        let set = body.push_expr(HirExpr { kind: ExprKind::GlobalSet { item, value: stored }, ty, span });
         body.push_stmt_to_block(block, HirStmt::Expr(set));
         Some(Ok(()))
     }

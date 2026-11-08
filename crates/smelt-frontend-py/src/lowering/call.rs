@@ -570,7 +570,7 @@ impl ModuleBuilder<'_> {
                         )?;
                         // A generic callee's result is its return type under
                         // the parameters this call solved.
-                        let return_ty = if type_params.is_empty() {
+                        let call_ty = if type_params.is_empty() {
                             return_ty
                         } else {
                             let solved = std::mem::take(&mut self.last_call_substitutions);
@@ -578,7 +578,7 @@ impl ModuleBuilder<'_> {
                         };
                         return Ok(Some(body.push_expr(HirExpr {
                             kind: ExprKind::Call { callee, args },
-                            ty: return_ty,
+                            ty: call_ty,
                             span,
                         })));
                     }
@@ -869,8 +869,8 @@ impl ModuleBuilder<'_> {
                     smelt_hir::language_view::SourceLanguage::Python,
                 ) == supplied
             {
-                let span = body.exprs.get(arg.0 as usize).map_or(span, |expr| expr.span);
-                *arg = body.push_expr(HirExpr { kind: ExprKind::TypeAssert { value: *arg }, ty: *expected, span });
+                let arg_span = body.exprs.get(usize::try_from(arg.0).unwrap_or(usize::MAX)).map_or(span, |expr| expr.span);
+                *arg = body.push_expr(HirExpr { kind: ExprKind::TypeAssert { value: *arg }, ty: *expected, span: arg_span });
                 continue;
             }
             // A value is an `Optional` of its own type (a defaulted parameter).
@@ -893,10 +893,10 @@ impl ModuleBuilder<'_> {
     fn collect_type_param_names(&self, ty: TypeId, names: &mut Vec<String>) {
         match self.ctx.krate.types.get(ty).cloned() {
             Some(Type::TypeParam { name }) => {
-                if let Some(name) = self.ctx.krate.symbols.get(name)
-                    && !names.iter().any(|known| known == name)
+                if let Some(text) = self.ctx.krate.symbols.get(name)
+                    && !names.iter().any(|known| known == text)
                 {
-                    names.push(name.to_owned());
+                    names.push(text.to_owned());
                 }
             }
             Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
@@ -928,7 +928,7 @@ impl ModuleBuilder<'_> {
         }
         match self.ctx.krate.types.get(ty) {
             Some(Type::TypeParam { name }) => {
-                self.ctx.krate.symbols.get(*name).is_some_and(|name| params.iter().any(|param| param == name))
+                self.ctx.krate.symbols.get(*name).is_some_and(|text| params.iter().any(|param| param == text))
             }
             Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
                 self.mentions_type_params(*item, params)
@@ -940,9 +940,9 @@ impl ModuleBuilder<'_> {
                 items.clone().iter().any(|item| self.mentions_type_params(*item, params))
             }
             Some(Type::Function(function)) => {
-                let function = function.clone();
-                function.params.iter().any(|param| self.mentions_type_params(*param, params))
-                    || self.mentions_type_params(function.return_ty, params)
+                let (fn_params, fn_return) = (function.params.clone(), function.return_ty);
+                fn_params.iter().any(|param| self.mentions_type_params(*param, params))
+                    || self.mentions_type_params(fn_return, params)
             }
             _ => false,
         }
@@ -965,34 +965,36 @@ impl ModuleBuilder<'_> {
         };
         match (expected_ty, supplied_ty) {
             (Type::TypeParam { name }, _) => {
-                if let Some(name) = self.ctx.krate.symbols.get(name)
-                    && params.iter().any(|param| param == name)
+                if let Some(text) = self.ctx.krate.symbols.get(name)
+                    && params.iter().any(|param| param == text)
                 {
-                    solved.entry(name.to_owned()).or_insert(supplied);
+                    solved.entry(text.to_owned()).or_insert(supplied);
                 }
             }
-            (Type::List(expected), Type::List(supplied))
-            | (Type::Set(expected), Type::Set(supplied))
-            | (Type::Optional(expected), Type::Optional(supplied))
-            | (Type::Future(expected), Type::Future(supplied)) => {
-                self.solve_type_params(expected, supplied, params, solved);
+            (Type::List(expected_item), Type::List(supplied_item))
+            | (Type::Set(expected_item), Type::Set(supplied_item))
+            | (Type::Optional(expected_item), Type::Optional(supplied_item))
+            | (Type::Future(expected_item), Type::Future(supplied_item)) => {
+                self.solve_type_params(expected_item, supplied_item, params, solved);
             }
-            (Type::Optional(expected), _) => self.solve_type_params(expected, supplied, params, solved),
+            (Type::Optional(expected_item), _) => self.solve_type_params(expected_item, supplied, params, solved),
             (Type::Dict(expected_key, expected_value), Type::Dict(supplied_key, supplied_value))
             | (Type::JsMap(expected_key, expected_value), Type::JsMap(supplied_key, supplied_value)) => {
                 self.solve_type_params(expected_key, supplied_key, params, solved);
                 self.solve_type_params(expected_value, supplied_value, params, solved);
             }
-            (Type::Tuple(expected), Type::Tuple(supplied)) if expected.len() == supplied.len() => {
-                for (expected, supplied) in expected.into_iter().zip(supplied) {
-                    self.solve_type_params(expected, supplied, params, solved);
+            (Type::Tuple(expected_items), Type::Tuple(supplied_items)) if expected_items.len() == supplied_items.len() => {
+                for (expected_item, supplied_item) in expected_items.into_iter().zip(supplied_items) {
+                    self.solve_type_params(expected_item, supplied_item, params, solved);
                 }
             }
-            (Type::Function(expected), Type::Function(supplied)) if expected.params.len() == supplied.params.len() => {
-                for (expected, supplied) in expected.params.iter().zip(&supplied.params) {
-                    self.solve_type_params(*expected, *supplied, params, solved);
+            (Type::Function(expected_fn), Type::Function(supplied_fn))
+                if expected_fn.params.len() == supplied_fn.params.len() =>
+            {
+                for (expected_param, supplied_param) in expected_fn.params.iter().zip(&supplied_fn.params) {
+                    self.solve_type_params(*expected_param, *supplied_param, params, solved);
                 }
-                self.solve_type_params(expected.return_ty, supplied.return_ty, params, solved);
+                self.solve_type_params(expected_fn.return_ty, supplied_fn.return_ty, params, solved);
             }
             _ => {}
         }
@@ -1324,7 +1326,7 @@ impl ModuleBuilder<'_> {
         // interned with its `scaled_by` rendering, which `intern_name` of the
         // source text would not reproduce.
         let declared_method = match function.owner {
-            FunctionOwner::ClassMethod { method, .. } => Some(method),
+            FunctionOwner::ClassMethod { method: declared, .. } => Some(declared),
             _ => None,
         };
         if dispatch.receiver_free {
@@ -1407,13 +1409,13 @@ impl ModuleBuilder<'_> {
                 return_tys.push(return_ty);
             }
         }
-        let method_symbol = method_symbol?;
+        let shared_symbol = method_symbol?;
         let return_ty = match return_tys.as_slice() {
             [single] => *single,
             [] => return None,
             _ => self.intern_type(Type::Union(return_tys)),
         };
-        Some((return_ty, method_symbol))
+        Some((return_ty, shared_symbol))
     }
 
     /// Resolve a class method by receiver type and name, classifying its

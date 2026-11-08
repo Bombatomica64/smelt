@@ -81,7 +81,7 @@ pub use ruff_python_ast as ast;
 /// local file can shadow: a module built into the interpreter (`math`,
 /// `sys`, …) or `types`.
 ///
-/// CPython imports these from the interpreter whatever is on `sys.path`, and
+/// `CPython` imports these from the interpreter whatever is on `sys.path`, and
 /// ty resolves them the same way, so Smelt's import resolution must not turn
 /// such an import into one of the project's files. The rule and the version
 /// it is decided for are ty's (`ty_module_resolver`), so the two agree.

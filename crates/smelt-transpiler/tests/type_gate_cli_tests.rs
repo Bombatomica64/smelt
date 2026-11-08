@@ -255,10 +255,10 @@ fn cross_language_imports_type_check() -> TestResult {
     )?;
     let typescript = "export function twice(x: number): number {\n  return x * 2;\n}\n";
     let py_main = |argument: &str| format!("from arith import twice\n\nprint(twice({argument}))\n");
-    let (valid, invalid) = (py_main("4.0"), py_main("\"4\""));
+    let (valid_py, invalid_py) = (py_main("4.0"), py_main("\"4\""));
     ensure_gate_sees(
-        build_files(&[("src/arith.ts", typescript), ("src/main.py", &valid)], "main.py", "")?,
-        build_files(&[("src/arith.ts", typescript), ("src/main.py", &invalid)], "main.py", "")?,
+        build_files(&[("src/arith.ts", typescript), ("src/main.py", &valid_py)], "main.py", "")?,
+        build_files(&[("src/arith.ts", typescript), ("src/main.py", &invalid_py)], "main.py", "")?,
         "invalid-argument-type",
     )
 }

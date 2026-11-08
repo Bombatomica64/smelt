@@ -741,6 +741,10 @@ impl ModuleBuilder<'_> {
 /// The JavaScript value kinds a `==` operand's type can hold; see
 /// [`ModuleBuilder::loose_equality_op`].
 #[derive(Default)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "one independent flag per JavaScript value kind an operand may hold"
+)]
 struct ValueKinds {
     /// `number` (and Smelt's integer spellings of it).
     number: bool,
@@ -769,7 +773,7 @@ impl ModuleBuilder<'_> {
     /// What a source `==`/`!=` (`op`, [`BinOp::Eq`]/[`BinOp::NotEq`]) between
     /// values of `lhs` and `rhs` lowers to.
     ///
-    /// ECMA-262 IsLooselyEqual between two values of one kind is that kind's
+    /// ECMA-262 `IsLooselyEqual` between two values of one kind is that kind's
     /// strict equality, and `null`/`undefined` equal each other: so operands of
     /// one primitive kind (with or without `null`) keep [`BinOp::Eq`], whose
     /// typed comparisons are exactly that; operands that are only objects compare

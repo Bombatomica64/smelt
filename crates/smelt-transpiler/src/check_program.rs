@@ -24,7 +24,8 @@
 //! this module, not in the user's program: [`ModuleGraph::resolved_specifier`]
 //! lets the diagnostics turn it into an internal error.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use crate::manifest::ManifestSource;
@@ -75,10 +76,10 @@ impl<'run> ModuleGraph<'run> {
     /// imports: the providers whose stubs one checker needs.
     pub(crate) fn cross_language_providers(&self, provider: Language) -> Vec<&'run ManifestSource> {
         let mut providers: Vec<&ManifestSource> = Vec::new();
-        for importer in self.sources.iter().filter(|source| Language::of(source.lang) == Some(provider.other())) {
+        for importer in self.sources.iter().filter(|source| Language::of(source.lang) == provider.other()) {
             for edge in &importer.resolved_imports {
                 if let Some(target) = self.source_at(&edge.target)
-                    && Language::of(target.lang) == Some(provider)
+                    && Language::of(target.lang) == provider
                     && !providers.iter().any(|known| std::ptr::eq(*known, target))
                 {
                     providers.push(target);
@@ -123,10 +124,10 @@ pub(crate) enum Language {
 
 impl Language {
     /// The language of a source.
-    pub(crate) const fn of(lang: SourceLang) -> Option<Self> {
+    pub(crate) const fn of(lang: SourceLang) -> Self {
         match lang {
-            SourceLang::TypeScript | SourceLang::TypeScriptDeclaration => Some(Self::TypeScript),
-            SourceLang::Python | SourceLang::PythonDeclaration => Some(Self::Python),
+            SourceLang::TypeScript | SourceLang::TypeScriptDeclaration => Self::TypeScript,
+            SourceLang::Python | SourceLang::PythonDeclaration => Self::Python,
         }
     }
 
@@ -215,7 +216,7 @@ pub(crate) fn typescript_program(graph: &ModuleGraph<'_>, stubs: &CrossLanguageS
     let typescript = graph
         .sources()
         .iter()
-        .filter(|source| Language::of(source.lang) == Some(Language::TypeScript))
+        .filter(|source| Language::of(source.lang) == Language::TypeScript)
         .collect::<Vec<_>>();
     let sources = typescript
         .iter()
@@ -224,7 +225,7 @@ pub(crate) fn typescript_program(graph: &ModuleGraph<'_>, stubs: &CrossLanguageS
             let globals = smelt_frontend_ts::ambient_test_globals(&source.source, &source.path.display().to_string());
             if !globals.is_empty() {
                 // Appended, so every span of the lowered text is unchanged.
-                text.push_str(&format!("\n;import {{ {} }} from \"vitest\";\n", globals.join(", ")));
+                let _ = write!(text, "\n;import {{ {} }} from \"vitest\";\n", globals.join(", "));
             }
             smelt_ts_types::SourceInput::new(source.path.display().to_string(), text)
                 .located_at(checker_location(source).display().to_string())
@@ -241,16 +242,16 @@ pub(crate) fn typescript_program(graph: &ModuleGraph<'_>, stubs: &CrossLanguageS
     // A module `[sources] exclude` keeps out of the crate is still what its
     // import means: the checker reads it (its own diagnostics are not the
     // crate's) and resolves the import to it.
-    let mut excluded = BTreeMap::new();
+    let mut excluded = BTreeSet::new();
     for edge in typescript.iter().flat_map(|importer| &importer.excluded_targets) {
         let target = canonical(&edge.target);
         let is_typescript = SourceLang::from_path(&target.display().to_string()).is_ok_and(SourceLang::is_typescript);
         if is_typescript
-            && !excluded.contains_key(&target)
+            && !excluded.contains(&target)
             && let Ok(text) = std::fs::read_to_string(&target)
         {
             declarations.push(smelt_ts_types::SourceInput::new(target.display().to_string(), text));
-            excluded.insert(target, ());
+            excluded.insert(target);
         }
     }
     declarations.push(smelt_ts_types::SourceInput::new(
@@ -265,9 +266,8 @@ pub(crate) fn typescript_program(graph: &ModuleGraph<'_>, stubs: &CrossLanguageS
         for edge in importer.resolved_imports.iter().filter(|edge| is_bare(&edge.specifier)) {
             let Some(target) = graph.source_at(&edge.target) else { continue };
             let location = match Language::of(target.lang) {
-                Some(Language::TypeScript) => checker_location(target),
-                Some(Language::Python) => stub_path(&canonical(&target.path), "d.ts", "index"),
-                None => continue,
+                Language::TypeScript => checker_location(target),
+                Language::Python => stub_path(&canonical(&target.path), "d.ts", "index"),
             };
             module_paths.entry(edge.specifier.clone()).or_insert_with(|| location.display().to_string());
         }
@@ -300,14 +300,14 @@ fn host_module_declarations() -> String {
         let mut body = String::new();
         for export in module.exports {
             if matches!(export.kind, smelt_stdlib::HostExportKind::Value | smelt_stdlib::HostExportKind::ValueAndType) {
-                body.push_str(&format!("  export const {}: any;\n", export.name));
+                let _ = writeln!(body, "  export const {}: any;", export.name);
             }
             if matches!(export.kind, smelt_stdlib::HostExportKind::Type | smelt_stdlib::HostExportKind::ValueAndType) {
-                body.push_str(&format!("  export type {} = any;\n", export.name));
+                let _ = writeln!(body, "  export type {} = any;", export.name);
             }
         }
         for specifier in module.specifiers {
-            text.push_str(&format!("declare module {specifier:?} {{\n{body}}}\n"));
+            let _ = writeln!(text, "declare module {specifier:?} {{\n{body}}}");
         }
     }
     text
