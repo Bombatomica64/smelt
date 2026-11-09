@@ -86,11 +86,9 @@ fn a_valid_program_is_clean() -> TestResult {
 /// `SMELT_TS7=0` runs without the checker, so nothing vouches for the program:
 /// `check` warns that it was not type-checked, and the strict form fails.
 ///
-/// The old requirement was "nothing to report, and `--deny-type-errors`
-/// passes": no checker counted as a clean check. Since lowering relies on a
-/// program that type-checks (the type gate), a run no checker vouched for is
-/// refused like one with errors, and `--allow-type-errors` is the way to lower
-/// it anyway.
+/// Lowering relies on a program that type-checks (the type gate), so a run no
+/// checker vouched for is refused like one with errors, and
+/// `--allow-type-errors` is the way to lower it anyway.
 #[test]
 fn smelt_ts7_zero_leaves_the_program_unverified() -> TestResult {
     let temp = TempProject::new()?;
