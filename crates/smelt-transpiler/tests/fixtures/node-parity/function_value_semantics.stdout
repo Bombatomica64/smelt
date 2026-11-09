@@ -1,0 +1,23 @@
+receiver capture 2
+nested cell 14
+recursive closure 3
+method receiver 3
+erased map 1 1
+forward read 42
+construct 3 6 true
+instanceof other false
+function property true
+create hi true
+handle rebuilt abab
+never callback boom
+join lenient 4
+join strict x
+union read 404 201 200 500 200
+mut generic 1,2,10
+borrowed callback 2,3,4
+method abi 1,5,6
+promise arm k!
+value arm k?
+async cell 2
+timeout handle reached the handler
+zero delay fired

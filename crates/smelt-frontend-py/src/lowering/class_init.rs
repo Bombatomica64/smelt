@@ -241,6 +241,19 @@ return_ty: class_ty,
         }))
     }
 
+    /// Whether a constructor takes no arguments and runs no statements, so a
+    /// subclass inheriting it has nothing to initialize from its base.
+    fn constructor_does_nothing(&self, constructor: ItemId) -> bool {
+        let Item::Function(function) = self.item_ref(constructor) else {
+            return false;
+        };
+        function.params.is_empty()
+            && function
+                .body
+                .and_then(|body| self.ctx.krate.bodies.get(usize::try_from(body.0).ok()?))
+                .is_some_and(|body| body.stmts.is_empty())
+    }
+
     /// Synthesize the initializer Python inherits from a direct base class.
     ///
     /// Smelt flattens base fields into the derived Rust struct, so the base

@@ -166,7 +166,7 @@ impl FunctionEmitter<'_> {
                 self.mark_local_declared(dest);
             }
             out.push_str(&format!(
-                "    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| {call_text})) {{\n", call_text = call_text.delimited()
+                "    match {{ smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| {call_text})); smelt_panic_catch_leave(); smelt_caught }} {{\n", call_text = call_text.delimited()
             ));
             out.push_str("        Ok(__smelt_value) => {\n");
             let mutability = if self.local_binding_needs_mut(dest) {
@@ -276,7 +276,7 @@ impl FunctionEmitter<'_> {
             self.mark_local_declared(dest);
         }
         out.push_str(&format!(
-            "    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| {raw_call})) {{\n", raw_call = raw_call.delimited()
+            "    match {{ smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| {raw_call})); smelt_panic_catch_leave(); smelt_caught }} {{\n", raw_call = raw_call.delimited()
         ));
         out.push_str("        Ok(Ok(__smelt_value)) => {\n");
         let value_text = self.rendered_at_type(&RustExpr::path("__smelt_value"), source_ty, local.ty, &self.render_scope())?;

@@ -1,51 +1,17 @@
-//! Codegen regression tests for JavaScript function-value semantics.
+//! Codegen tests for JavaScript function-value semantics.
 //!
-//! * A method call supplies a receiver. `recv.m(args)` is a call PLUS a
-//!   receiver, so a callable stored as an ordinary property sees the object it
-//!   was read from as its `this`. The bind is installed on the member READ,
-//!   before the call's own coercion re-types it — a read typed `unknown` is
-//!   coerced to a function type synthesized from the argument types, so asking
-//!   the coerced operand which ABI it uses always answered "a concrete
-//!   function" and no ordinary method call carried a receiver at all.
-//! * A receiver that nothing can read is not installed. `this` is only
-//!   observable through a read, so a program containing no `this` carries no
-//!   `SMELT_THIS` channel even though every erased method call binds one.
-//! * An erased `Map` receiver still mutates the map. `Map.prototype.set` on a
-//!   `SmeltUnknown` receiver used to resolve to `undefined`, and the call of an
-//!   `undefined` callee collapses to a null callback, so the write vanished.
-//! * A local read by an EARLIER closure is predeclared and shared. Statements
-//!   lower in source order, but a closure body runs when it is called, so it may
-//!   legitimately read a `const` written below it. The read used to fall through
-//!   to the module-global fallback, which fabricates an empty object for an
-//!   `unknown` type.
+//! Receivers, property bags, construction and forward reads are run in the
+//! `function_value_semantics` Node-parity fixture. These tests pin what the
+//! running program cannot show: the receiver channel is pay-for-use, and a
+//! join or union read keeps its concrete type.
 
 use super::*;
 
-#[test]
-fn a_method_call_installs_the_object_it_was_read_from_as_the_receiver() {
-    let source = source_for(
-        r"
-export function run(): unknown {
-  const callee = function (a: number) { return (a + (this as any).b) as number; };
-  const object = { m: callee, b: 2 };
-  return (object as any).m(1);
-}
-",
-    );
-
-    // One receiver temporary feeds both the member read and the bind, so the
-    // object is evaluated once.
-    assert!(
-        source.contains(
-            "smelt_bind_this(smelt_get_unknown_field(&_smelt_tmp_5.clone(), \"m\").clone(), _smelt_tmp_5.clone())"
-        ),
-        "a method call must bind the read receiver:\n{source}"
-    );
-}
-
+/// `this` is only observable through a read, so a program without one carries no
+/// receiver channel, and a program with one does.
 #[test]
 fn a_program_without_this_carries_no_receiver_channel() {
-    let source = source_for(
+    let without = source_for(
         r"
 export function run(): unknown {
   const object = { m: (a: number) => a + 1 };
@@ -53,302 +19,30 @@ export function run(): unknown {
 }
 ",
     );
-
     assert!(
-        !source.contains("SMELT_THIS"),
-        "a program that never mentions `this` must not carry the channel:\n{source}"
+        !without.contains("SMELT_THIS"),
+        "a program that never mentions `this` must not carry the channel:\n{without}"
     );
     assert!(
-        !source.contains("smelt_bind_this"),
-        "an unobservable receiver bind must be dropped:\n{source}"
+        !without.contains("smelt_bind_this"),
+        "an unobservable receiver bind must be dropped:\n{without}"
     );
-}
 
-#[test]
-fn an_erased_map_carries_its_mutating_members() {
-    let source = source_for(
+    let with = source_for(
         r"
-export function run(cache: Map<string, number> | Record<string, number>): void {
-  (cache as any).set('a', 1);
+export function run(): unknown {
+  const callee = function (this: any, a: number) { return (a + this.b) as number; };
+  const object = { m: callee, b: 2 };
+  return (object as any).m(1);
 }
 ",
     );
-
-    assert!(
-        source.contains("\"set\" => { let store = entry_store.clone();"),
-        "an erased Map must synthesize `set`:\n{source}"
-    );
+    assert!(with.contains("SMELT_THIS"), "{with}");
+    assert!(with.contains("smelt_bind_this"), "{with}");
 }
 
-#[test]
-fn a_local_read_by_an_earlier_closure_is_shared_not_fabricated() {
-    // es-toolkit's `timeout`: the abort handler is written before the timer
-    // handle it clears. The handle must reach the handler, so the local is
-    // reserved before the statement list is lowered and captured through the
-    // shared cell -- the value is assigned after the closure exists.
-    let source = source_for(
-        r"
-export function arm(signal: AbortSignal, ms: number): void {
-  const onAbort = () => { clearTimeout(timeoutId); };
-  const timeoutId = setTimeout(() => { (globalThis as any).fired = true; }, ms);
-  signal.addEventListener('abort', onAbort, { once: true });
-}
-",
-    );
-
-    assert!(
-        source.contains("smelt_clear_timeout(((*smelt_capture_timeout_id.borrow())).clone())"),
-        "the forward-read handle must be captured through the shared cell:\n{source}"
-    );
-    assert!(
-        source.contains("(*smelt_capture_timeout_id.borrow_mut()) = "),
-        "the declaration must write into the reserved local:\n{source}"
-    );
-    assert!(
-        !source.contains("smelt_clear_timeout(SmeltUnknown::Object("),
-        "a forward-referenced local must never be fabricated as an object:\n{source}"
-    );
-}
-
-#[test]
-fn new_through_a_function_value_emits_the_construct_operation() {
-    // JavaScript `new f(args)` on a function value is `[[Construct]]`, not a
-    // call: it allocates an object linked to `f.prototype`, runs `f` with that
-    // object as its receiver, and keeps it unless `f` returned an object. The
-    // lowering used to reuse `ExprKind::ClosureCall`, which expresses none of
-    // that, so `new f()` was indistinguishable from `f()`.
-    let source = source_for(
-        r"
-export function run(make: (...args: unknown[]) => unknown): unknown {
-  return new make(1);
-}
-",
-    );
-
-    assert!(
-        source.contains("smelt_construct("),
-        "`new` through a function value must construct, not call:\n{source}"
-    );
-    assert!(
-        source.contains("fn smelt_construct("),
-        "the construction helper must be emitted:\n{source}"
-    );
-}
-
-#[test]
-fn instanceof_a_function_value_walks_the_prototype_chain() {
-    // Every non-arrow JavaScript function is a constructor, so `x instanceof f`
-    // is a runtime prototype-chain walk. It used to fold to a compile-time
-    // `false` for every function-valued target, on the premise that Smelt's
-    // runtime never constructs closure values with `new`.
-    let source = source_for(
-        r"
-export function run(value: unknown, ctor: (...args: unknown[]) => unknown): boolean {
-  return value instanceof ctor;
-}
-",
-    );
-
-    assert!(
-        source.contains("smelt_instance_of_value("),
-        "`instanceof` a function value must be answered at runtime:\n{source}"
-    );
-    assert!(
-        source.contains("fn smelt_instance_of_value("),
-        "the prototype-chain walk must be emitted:\n{source}"
-    );
-}
-
-#[test]
-fn a_property_write_onto_a_function_value_lands_in_its_property_bag() {
-    // A JavaScript function is an object, so an undeclared property write onto
-    // one is a real store. The write place had no slot for it and the statement
-    // was emitted as a discard (`let _ = value;`), which is how
-    // `wrapper.prototype = Object.create(func.prototype)` silently vanished.
-    let source = source_for(
-        r"
-export function run(func: (...args: unknown[]) => unknown): unknown {
-  const wrapper = function (...args: unknown[]) { return func(...args); };
-  if ((func as any).prototype) {
-    wrapper.prototype = Object.create((func as any).prototype);
-  }
-  return wrapper;
-}
-",
-    );
-
-    assert!(
-        source.contains("smelt_set_property(\"prototype\", ")
-            || source.contains("smelt_set_function_property(&wrapper"),
-        "a property write onto a function value must land:\n{source}"
-    );
-    assert!(
-        source.contains("fn smelt_set_function_property"),
-        "the function-property store must be emitted:\n{source}"
-    );
-}
-
-#[test]
-fn a_property_read_on_a_function_value_reaches_its_property_bag() {
-    // The read side of the same rule: `smelt_get_unknown_field` answered
-    // `undefined` for every field of a `SmeltUnknown::Function`, so
-    // `if (func.prototype)` never took its branch.
-    let source = source_for(
-        r"
-export function run(func: unknown): boolean {
-  return Boolean((func as any).prototype);
-}
-",
-    );
-
-    assert!(
-        source.contains("SmeltUnknown::Function(function) => match smelt_function_value_property("),
-        "an erased property read must consult the function property bag:\n{source}"
-    );
-}
-
-#[test]
-fn object_create_records_a_link_to_its_prototype() {
-    // `Object.create(p)` copies `p`'s own members under the `__smelt_proto:`
-    // prefix so they read as inherited. A copy cannot answer an identity
-    // question, so the prototype itself is also recorded by reference, in the
-    // identity-keyed `SMELT_OBJECT_PROTOTYPES` table that an `instanceof` chain
-    // walk, `v.__proto__` and `Object.getPrototypeOf` all read.
-    let source = source_for(
-        r"
-export function run(prototype: unknown): unknown {
-  return Object.create(prototype as object);
-}
-",
-    );
-
-    assert!(
-        source.contains("smelt_register_object_prototype(object.id, prototype)"),
-        "`Object.create` must record a link to its prototype:\n{source}"
-    );
-    assert!(
-        !source.contains("__smelt_proto:__proto__"),
-        "the prototype link must not be a hidden object entry:\n{source}"
-    );
-}
-
-#[test]
-fn a_callback_handle_rebuilt_in_a_nested_closure_is_cloned_not_moved() {
-    // Round 33, item 5. `next` is a parameter of the middleware closure, bound
-    // by value as an owned `Rc<dyn Fn() -> String>`. The inner `again` closure
-    // captures it and hands it to `call`, which needs its own owned handle, so
-    // the adapter wraps it in a fresh `move` closure. Naming the capture inside
-    // that `move` gives it away — and `again` is an `Fn`, which cannot give a
-    // captured variable away at all (E0507, Hono `main.rs:11023` and `:11077`).
-    //
-    // The handle is cloned in front of the wrapper instead, which is the clone
-    // discipline `function_shape_adapter` and
-    // `rendered_function_shape_adapter` already apply to the callable they
-    // bind. One `Rc` bump per evaluation, not per invocation.
-    //
-    // NON-VACUOUS: without the fix the argument reads
-    // `::std::rc::Rc::new(move || closure_arg_1())`.
-    let source = source_for(
-        r"
-type Next = () => string;
-type Middleware = (label: string, next: Next) => string;
-export function wrap(call: Middleware): Middleware {
-  return (label: string, next: Next) => {
-    const again = () => call(label, next);
-    return again();
-  };
-}
-",
-    );
-
-    assert!(
-        source.contains(
-            "{ let smelt_handle_callback = closure_arg_1.clone(); \
-             ::std::rc::Rc::new(move || (smelt_handle_callback)()) }"
-        ),
-        "the captured handle must be cloned before the wrapper closure:\n{source}"
-    );
-}
-
-/// An `async` callback whose promise flows into a result slot typed
-/// `T | Promise<T>` lands in the union's PROMISE arm: the adapter wraps the
-/// callback's future (re-typed to the arm's awaited output) in that variant
-/// instead of handing a bare `SmeltFuture` to a `SmeltUnion…` slot (E0308 in
-/// Hono's `compose(middleware, async (err, c) => ..)`).
-#[test]
-fn async_callback_into_union_promise_arm_wraps_the_future() {
-    let input = r#"
-type Handler = (key: string) => string | Promise<string>;
-
-export async function run(handler: Handler): Promise<string> {
-  return await handler("k");
-}
-
-export function main(): Promise<string> {
-  const handler = async (key: string) => key + "!";
-  return run(handler);
-}
-"#;
-    let source = source_for(input);
-    assert!(
-        source.contains("::M1({ let smelt_source_future = (_smelt_adapted_callback)"),
-        "the async callback's future must be injected into the promise arm:\n{source}"
-    );
-}
-
-/// `setTimeout(callback)` with the delay omitted is the ordinary timer at delay
-/// `0`, not the shim's `setTimeout(milliseconds)` sleep: the callback must be
-/// registered, never cast to a number of milliseconds.
-#[test]
-fn set_timeout_with_only_a_callback_registers_a_zero_delay_timer() {
-    let input = r#"
-export function main(): void {
-  setTimeout(() => {
-    console.log("fired");
-  });
-}
-"#;
-    let source = source_for(input);
-    assert!(
-        !source.contains("smelt_sleep_ms(_smelt_tmp"),
-        "a callback-only setTimeout must not lower to the millisecond sleep shim:\n{source}"
-    );
-    assert!(source.contains("\"fired\""), "{source}");
-}
-
-#[test]
-fn erasing_a_never_returning_callback_still_calls_it() {
-    // An always-throwing arrow (`() => never`) stored as `Function` must still
-    // be CALLED through its erased adapter: its throw is the call's whole
-    // effect. Erasing its "result" used to replace the call with a constant
-    // `Ok(SmeltUnknown::Null)`, so a `try` around the erased call never saw
-    // the throw (Hono `compose.test.ts`, "500 error").
-    let source = source_for(
-        r#"
-function call(fn: Function): void { fn(); }
-function run(): void {
-  const boom = () => { throw new Error("boom"); };
-  call(boom);
-}
-"#,
-    );
-    assert!(
-        !source.contains("move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Null)"),
-        "the erased adapter must not drop the call: {source}"
-    );
-    assert!(
-        source.contains("(smelt_callback)()?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined)"),
-        "the erased adapter must call the callback and propagate its throw: {source}"
-    );
-}
-
-/// `never` is the bottom type of a function join.
-///
-/// `strict ? rethrow : (err) => handle(err)`, with `rethrow: (err) => never`,
-/// is a callable returning what `handle` returns. Both the frontend's ternary
-/// join and MIR's throwing-closure widening used to take the `never` arm's
-/// return, so the joined slot returned an erased value and `handle`'s `f64`
-/// was adapted into it.
+/// `never` is the bottom type of a function join: the joined slot returns what
+/// the other arm returns, and is fallible because the `never` arm throws.
 #[test]
 fn never_returning_arm_does_not_type_a_function_join() {
     let source = source_for(
@@ -369,24 +63,16 @@ export function chooseHandler(strict: boolean): (err: Failure) => number {
 }
 ",
     );
+    let handler = rust_fn(&source, "choose_handler");
     assert!(
-        source.contains(
-            "let handler: ::std::rc::Rc<dyn Fn(Failure) -> Result<f64, Box<dyn std::error::Error>>>;"
+        handler.starts_with(
+            "fn choose_handler(strict: bool) -> ::std::rc::Rc<dyn Fn(Failure) -> f64> {\nlet handler: ::std::rc::Rc<dyn Fn(Failure) -> Result<f64, Box<dyn std::error::Error>>>;"
         ),
-        "the joined handler must return `handle`'s number (throwing, because `rethrow` throws):\n{source}"
+        "the joined handler must return `handle`'s number, fallibly:\n{handler}"
     );
 }
 
-/// A property read on a concrete union whose arms do not all declare the
-/// property reads it PER ARM, typed: the record arm's optional field, the
-/// `Response` arm's host data property, and `undefined` for the `number` arm
-/// (`(5).status` is `undefined` in JavaScript).
-///
-/// Before, the read went through the erased `smelt_get_unknown_field` path,
-/// and because nothing else in this program is erased the crate had no
-/// `unknown` type to answer with: emission failed with "type table does not
-/// contain literal operand type Unknown". Node prints `404 201 200 500` for
-/// this source; the `fetch_init_runtime` tier runs it.
+/// A union property read answers per arm, typed, never through the erased path.
 #[test]
 fn union_property_read_is_typed_per_arm() {
     let source = source_for(
@@ -399,18 +85,19 @@ export function pickStatus(arg?: number | PlainInit | Response): number {
 }
 ",
     );
-    assert!(
-        source.contains("M0(_) => None")
-            && source.contains("(smelt_union_arm) => smelt_union_arm.status.clone()")
-            && source.contains("(smelt_union_arm) => Some(smelt_union_arm.status())"),
-        "each union arm must answer `status` with its own typed read:\n{source}"
-    );
-    let function = source
-        .split_once("fn pick_status")
-        .and_then(|(_, rest)| rest.split_once("\n}\n"))
-        .map_or("", |(body, _)| body);
-    assert!(
-        !function.is_empty() && !function.contains("smelt_get_unknown_field"),
-        "the read must not be erased:\n{function}"
-    );
+    assert_eq!(rust_fn(&source, "pick_status"), r#"fn pick_status(arg: Option<SmeltUnion3>) -> f64 {
+let mut _smelt_tmp_2: f64;
+let _smelt_tmp_3: Option<f64>;
+let _smelt_tmp_4: f64;
+let _smelt_tmp_1: bool = arg.clone().as_ref().is_some_and(|smelt_value| matches!(smelt_value, SmeltUnion3::M0(_)));
+let mut _smelt_tmp_2: f64 = 0.0;
+if _smelt_tmp_1 {
+_smelt_tmp_2 = arg.clone().clone().map_or(0.0, |smelt_value| match smelt_value { SmeltUnion3::M0(value) => value, _ => unreachable!("union guard selected an excluded member") });
+} else {
+_smelt_tmp_3 = arg.clone().as_ref().and_then(|_smelt_value| match &_smelt_value { SmeltUnion3::M0(_) => None, SmeltUnion3::M1(smelt_union_arm) => smelt_union_arm.status.clone(), SmeltUnion3::M2(smelt_union_arm) => Some(smelt_union_arm.status()) });
+_smelt_tmp_4 = _smelt_tmp_3.clone().unwrap_or(200.0);
+_smelt_tmp_2 = _smelt_tmp_4;
+}
+return _smelt_tmp_2;
+}"#);
 }

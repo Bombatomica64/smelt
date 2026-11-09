@@ -60,6 +60,53 @@ fn declares_fn(line: &str, name: &str) -> bool {
         .is_some_and(|rest| rest.starts_with(['(', '<']))
 }
 
+/// Whole generated declarations named by `specs`, joined by a blank line, for a
+/// test whose requirement is the exact emitted type or body.
+///
+/// A spec is `fn NAME` (the whole function), `sig NAME` (only its signature, for a
+/// claim about the ABI that must not pin the body), or the text a declaration
+/// starts with (`struct Foo`, `impl Bar for Foo`, `trait Foo`, `enum Foo`).
+#[track_caller]
+fn rust_items(source: &str, specs: &[&str]) -> String {
+    let items: Vec<String> = specs
+        .iter()
+        .map(|spec| {
+            if let Some(name) = spec.strip_prefix("fn ") {
+                rust_fn(source, name)
+            } else if let Some(name) = spec.strip_prefix("sig ") {
+                let item = rust_fn(source, name);
+                let first = item.lines().next().unwrap_or_default();
+                first.strip_suffix(" {").unwrap_or(first).to_owned()
+            } else {
+                rust_declaration(source, spec)
+            }
+        })
+        .collect();
+    items.join("\n\n")
+}
+
+/// The generated declaration whose text begins with `prefix`, ignoring a leading
+/// `pub`, with each line's indentation removed.
+#[track_caller]
+fn rust_declaration(source: &str, prefix: &str) -> String {
+    let mut lines = program_body(source)
+        .lines()
+        .map(str::trim)
+        .skip_while(|line| !line.strip_prefix("pub ").unwrap_or(line).starts_with(prefix))
+        .peekable();
+    assert!(lines.peek().is_some(), "no generated declaration starting `{prefix}`:\n{source}");
+    let mut depth = 0_i32;
+    let mut item = Vec::new();
+    for line in lines {
+        item.push(line);
+        depth += brace_delta(line);
+        if depth == 0_i32 && (line.contains('}') || line.ends_with(';')) {
+            return item.join("\n");
+        }
+    }
+    panic!("declaration `{prefix}` has no end:\n{source}");
+}
+
 /// Net `{`/`}` count of one line of Rust, ignoring braces in string literals.
 fn brace_delta(line: &str) -> i32 {
     let mut delta = 0_i32;

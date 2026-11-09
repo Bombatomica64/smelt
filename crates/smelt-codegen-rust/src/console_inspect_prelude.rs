@@ -161,36 +161,18 @@ mod tests {
     use super::*;
     use smelt_runtime::order::CONSOLE_INSPECT;
 
-    /// The core names the trait, the console entry point and the three Node
-    /// layout routines it reproduces.
-    #[test]
-    fn core_names_the_node_layout_routines() {
-        let text = crate::runtime_prelude::rendered_entries(CONSOLE_INSPECT, &|_| false);
-        for expected in [
-            "trait SmeltInspect",
-            "fn smelt_console_text(&self) -> String",
-            "fn smelt_inspect_quote(",
-            "fn smelt_inspect_group(",
-            "fn smelt_inspect_reduce(",
-            "smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10, L 11);",
-        ] {
-            assert!(text.contains(expected), "missing `{expected}`");
-        }
-        // A container impl names its container, so it must not be emitted
-        // without it.
-        assert!(!text.contains("SmeltList<T>"));
-        assert!(!text.contains("SmeltPrimSet<T>"));
-        assert!(!text.contains("for SmeltUnknown"));
-    }
-
-    /// Each container impl is gated on its own container.
+    /// Each container impl is gated on its own container: emitted with it, and
+    /// absent without it, since the impl names the container's type.
     #[test]
     fn container_impls_follow_their_gates() {
-        let text = crate::runtime_prelude::rendered_entries(CONSOLE_INSPECT, &|flag| matches!(flag, "smelt_list" | "prim_set" | "unknown"));
-        assert!(text.contains("SmeltInspect for SmeltList<T>"));
-        assert!(text.contains("SmeltInspect for SmeltPrimSet<T>"));
-        assert!(text.contains("SmeltInspect for SmeltJsMap<K, V>"));
-        assert!(text.contains("SmeltInspect for SmeltUnknown"));
+        let with = crate::runtime_prelude::rendered_entries(CONSOLE_INSPECT, &|flag| matches!(flag, "smelt_list" | "prim_set" | "unknown"));
+        let without = crate::runtime_prelude::rendered_entries(CONSOLE_INSPECT, &|_| false);
+        for gated in ["SmeltInspect for SmeltList<T>", "SmeltInspect for SmeltPrimSet<T>", "SmeltInspect for SmeltJsMap<K, V>", "SmeltInspect for SmeltUnknown"] {
+            assert!(with.contains(gated), "`{gated}` is missing with its container");
+        }
+        for gated in ["SmeltList<T>", "SmeltPrimSet<T>", "for SmeltUnknown"] {
+            assert!(!without.contains(gated), "`{gated}` is emitted without its container");
+        }
     }
 
     /// A shape skips an absent optional property; a class prints every field.
@@ -205,17 +187,35 @@ mod tests {
             ],
             false,
         );
-        assert!(text.contains("entries.push((\"x\", &self.x));"));
-        assert!(text.contains("if let Some(value) = &self.label { entries.push((\"label\", value)); }"));
-        assert!(text.contains("smelt_inspect_object(ctx, depth, \"\", &entries)"));
+        assert_eq!(
+            text,
+            "impl SmeltInspect for Point {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
+        let mut entries: Vec<(&str, &dyn SmeltInspect)> = Vec::new();
+        entries.push((\"x\", &self.x));
+        if let Some(value) = &self.label { entries.push((\"label\", value)); }
+        smelt_inspect_object(ctx, depth, \"\", &entries)
+    }
+}
+"
+        );
         let reference = struct_impl_text(
             "Node",
             "Node",
             &[InspectField { key: "next".to_owned(), rust_name: "next".to_owned(), skip_when_absent: false }],
             true,
         );
-        assert!(reference.contains("let __smelt_inner = self.0.borrow();"));
-        assert!(reference.contains("entries.push((\"next\", &__smelt_inner.next));"));
-        assert!(reference.contains("smelt_inspect_object(ctx, depth, \"Node\", &entries)"));
+        assert_eq!(
+            reference,
+            "impl SmeltInspect for Node {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
+        let __smelt_inner = self.0.borrow();
+        let mut entries: Vec<(&str, &dyn SmeltInspect)> = Vec::new();
+        entries.push((\"next\", &__smelt_inner.next));
+        smelt_inspect_object(ctx, depth, \"Node\", &entries)
+    }
+}
+"
+        );
     }
 }
