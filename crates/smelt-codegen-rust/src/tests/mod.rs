@@ -76,7 +76,7 @@ fn rust_items(source: &str, specs: &[&str]) -> String {
             } else if let Some(name) = spec.strip_prefix("sig ") {
                 let item = rust_fn(source, name);
                 let first = item.lines().next().unwrap_or_default();
-                first.strip_suffix(" {").unwrap_or(first).to_string()
+                first.strip_suffix(" {").unwrap_or(first).to_owned()
             } else {
                 rust_declaration(source, spec)
             }
@@ -101,7 +101,7 @@ fn rust_declaration(source: &str, prefix: &str) -> String {
     for line in &lines[start..] {
         item.push(*line);
         depth += brace_delta(line);
-        if depth == 0 && (line.contains('}') || line.ends_with(';')) {
+        if depth == 0_i32 && (line.contains('}') || line.ends_with(';')) {
             return item.join("\n");
         }
     }
