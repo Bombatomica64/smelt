@@ -6,6 +6,10 @@ class Point {
   move(): Point { return new Point(this.x) }
 }
 
+async function rejecting(): Promise<void> {
+  throw new Error('boom')
+}
+
 function fail(): never {
   throw new RangeError('bad')
 }
@@ -44,4 +48,7 @@ describe('mock calls', () => {
   test('T_equal_class', () => { const a = new Point(1); expect(a.move()).toEqual(a) })
   test('F_equal_class', () => { const a = new Point(1); expect(new Point(2)).toEqual(a) })
   test('F_identity_class', () => { const a = new Point(1); expect(a.move()).toBe(a) })
+  test('T_rejects', async () => { await expect(rejecting()).rejects.toThrow('boom') })
+  test('F_rejects_text', async () => { await expect(rejecting()).rejects.toThrow('other') })
+  test('F_rejects_resolved', async () => { await expect(Promise.resolve(1)).rejects.toThrow('boom') })
 })
