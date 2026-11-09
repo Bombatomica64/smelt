@@ -29,6 +29,40 @@ pub(in crate::lowering) struct LoweredActual {
     pub inverted: bool,
 }
 
+/// One assertion as the source wrote it, whichever library spelled it.
+///
+/// `expect(a).not.toBe(b)`, chai's `expect(a).to.not.equal(b)` and
+/// `assert.notStrictEqual(a, b)` differ only in where the name, the expected
+/// arguments and the actual value sit in the syntax. Each recognizer finds those
+/// three, and the single lowering behind [`ModuleBuilder::matcher_site_statement`]
+/// decides what the assertion means.
+#[derive(Clone, Copy)]
+pub(in crate::lowering) struct MatcherSite<'s, 'a> {
+    /// The matcher's vitest spelling (or a jest alias of one).
+    pub name: &'s str,
+    /// The expected-value arguments, without the actual.
+    pub arguments: &'s [Argument<'a>],
+    /// The whole assertion, for failure messages.
+    pub span: oxc::span::Span,
+    /// Where the value under assertion comes from.
+    pub actual: SiteActual<'s, 'a>,
+}
+
+/// Where a [`MatcherSite`] finds the value under assertion.
+#[derive(Clone, Copy)]
+pub(in crate::lowering) enum SiteActual<'s, 'a> {
+    /// Source that has not been lowered yet; `toThrow` needs it unlowered, to
+    /// invoke a callback inside a `try`.
+    Argument {
+        /// The actual value's source.
+        argument: &'s Argument<'a>,
+        /// Whether a `.not` modifier applies.
+        inverted: bool,
+    },
+    /// A value built by the surrounding lowering (`.resolves`, `.rejects`).
+    Lowered(LoweredActual),
+}
+
 /// The vitest asymmetric matcher factories.
 ///
 /// An asymmetric matcher is a *value*, not an assertion: `expect.any(Number)`
@@ -361,7 +395,57 @@ impl ModuleBuilder<'_> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<bool, SmeltError> {
-        self.expect_matcher_call(call, None, body)
+        if self.expect_matcher_call(call, None, body)? {
+            return Ok(true);
+        }
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(false);
+        };
+        if self.is_expect_namespace(&member.object) {
+            let name = member.property.name.as_str();
+            return Ok(match name {
+                "fail" => {
+                    self.always_failing_assertion("expect.fail(...)", call.span, body);
+                    true
+                }
+                "assertions" | "hasAssertions" | "extend" | "addSnapshotSerializer" => {
+                    self.unmodelled_assertion(&format!("expect.{name}"), call.span, body);
+                    true
+                }
+                _ => false,
+            });
+        }
+        if !self.is_vitest_expect_receiver(&member.object) {
+            return Ok(false);
+        }
+        let name = member.property.name.as_str();
+        // A chai word on vitest's `expect` is a chain the chai recognizer lowers.
+        if Self::is_chai_terminal(name) {
+            return Ok(false);
+        }
+        self.unmodelled_assertion(&format!("expect(...).{name}"), call.span, body);
+        Ok(true)
+    }
+
+    /// Whether `expression` is the framework's `expect` itself.
+    fn is_expect_namespace(&self, expression: &Expression<'_>) -> bool {
+        matches!(
+            expression.get_inner_expression(),
+            Expression::Identifier(identifier)
+                if identifier.name == "expect" && self.imports.is_test_builtin("expect")
+        )
+    }
+
+    /// Whether `expression` is `expect(...)`, `.not`, `.resolves` or `.rejects` of one.
+    fn is_vitest_expect_receiver(&self, expression: &Expression<'_>) -> bool {
+        match expression.get_inner_expression() {
+            Expression::CallExpression(call) => self.is_expect_namespace(&call.callee),
+            Expression::StaticMemberExpression(member) => {
+                matches!(member.property.name.as_str(), "not" | "resolves" | "rejects")
+                    && self.is_vitest_expect_receiver(&member.object)
+            }
+            _ => false,
+        }
     }
 
     /// Return whether the ordinary matcher lowering can assert `name` against an
@@ -390,6 +474,10 @@ impl ModuleBuilder<'_> {
                 | "toHaveBeenLastCalledWith"
                 | "toHaveLastResolvedWith"
                 | "toMatchObject"
+                | "toBeNaN"
+                | "toBeCloseTo"
+                | "toHaveBeenCalledExactlyOnceWith"
+                | "toMatchInlineSnapshot"
         ) || TestMatcher::from_name(name).is_some()
     }
 
@@ -429,9 +517,56 @@ impl ModuleBuilder<'_> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(false);
         };
-        // Every branch below asks about the CANONICAL spelling, so a jest alias
-        // reaches the same implementation as the vitest name it aliases.
-        let canonical = Self::canonical_matcher_name(member.property.name.as_str());
+        let name = member.property.name.as_str();
+        let actual = if let Some(actual) = actual_override {
+            SiteActual::Lowered(actual)
+        } else {
+            // The receiver is only inspected for a name the model knows, so
+            // an ordinary `value.toString()` statement is not reported as a
+            // malformed `expect` chain.
+            if !Self::matcher_name_is_modelled(name) {
+                return Ok(false);
+            }
+            let (expect_call, inverted) =
+                self.expect_call_from_matcher_object(&member.object)?;
+            let Expression::Identifier(expect_ident) = &expect_call.callee else {
+                return Ok(false);
+            };
+            if !self.imports.is_test_builtin(expect_ident.name.as_str())
+                || expect_ident.name.as_str() != "expect"
+            {
+                return Ok(false);
+            }
+            let Some(actual_arg) = expect_call.arguments.first() else {
+                return Err(SmeltError::unsupported(
+                    self.span(expect_call.span.start, expect_call.span.end),
+                    format!("expect(...).{name}(...) requires an actual value"),
+                ));
+            };
+            SiteActual::Argument { argument: actual_arg, inverted }
+        };
+        self.matcher_site_statement(
+            MatcherSite { name, arguments: &call.arguments, span: call.span, actual },
+            body,
+        )
+    }
+
+    /// Whether `name` is a matcher [`Self::matcher_site_statement`] implements.
+    pub(in crate::lowering) fn matcher_name_is_modelled(name: &str) -> bool {
+        let canonical = Self::canonical_matcher_name(name);
+        matches!(canonical, "toThrow" | "toThrowErrorMatchingInlineSnapshot")
+            || Self::matcher_accepts_lowered_actual(canonical)
+    }
+
+    /// Lower one assertion to its failure path, whichever library spelled it.
+    ///
+    /// Returns `false` when the site's name is not a modelled matcher.
+    pub(in crate::lowering) fn matcher_site_statement(
+        &mut self,
+        site: MatcherSite<'_, '_>,
+        body: &mut Body,
+    ) -> Result<bool, SmeltError> {
+        let canonical = Self::canonical_matcher_name(site.name);
         if matches!(
             canonical,
             "toThrow" | "toThrowErrorMatchingInlineSnapshot"
@@ -439,22 +574,22 @@ impl ModuleBuilder<'_> {
             // `toThrow` asserts on a callback, so a pre-lowered value cannot
             // stand in for it; `matcher_accepts_lowered_actual` keeps callers
             // from reaching here with one.
-            if actual_override.is_some() {
+            if matches!(site.actual, SiteActual::Lowered(_)) {
                 return Ok(false);
             }
-            return self.expect_to_throw_statement(call, member, body);
+            return self.expect_to_throw_statement(site, body);
         }
         if matches!(canonical, "toBeUndefined" | "toBeNull" | "toBeDefined") {
-            return self.expect_to_be_none_statement(call, member, actual_override, body, canonical);
+            return self.expect_to_be_none_statement(site, body, canonical);
         }
         if matches!(canonical, "toBeTruthy" | "toBeFalsy") {
-            return self.expect_truthiness_statement(call, member, actual_override, body, canonical);
+            return self.expect_truthiness_statement(site, body, canonical);
         }
         if canonical == "toMatchObject" {
-            return self.expect_match_object_statement(call, member, actual_override, body);
+            return self.expect_match_object_statement(site, body);
         }
         if canonical == "toHaveBeenNthCalledWith" {
-            return self.expect_mock_nth_called_with_statement(call, member, actual_override, body);
+            return self.expect_mock_nth_called_with_statement(site, body);
         }
         if matches!(
             canonical,
@@ -466,27 +601,7 @@ impl ModuleBuilder<'_> {
                 | "toHaveLastResolvedWith"
         ) {
             let matcher_name = canonical;
-            let (actual, inverted) = if let Some(actual) = actual_override {
-                (actual.value, actual.inverted)
-            } else {
-                let (expect_call, inverted) =
-                    self.expect_call_from_matcher_object(&member.object)?;
-                let Expression::Identifier(expect_ident) = &expect_call.callee else {
-                    return Ok(false);
-                };
-                if !self.imports.is_test_builtin(expect_ident.name.as_str())
-                    || expect_ident.name.as_str() != "expect"
-                {
-                    return Ok(false);
-                }
-                let actual_arg = expect_call.arguments.first().ok_or_else(|| {
-                    SmeltError::unsupported(
-                        self.span(expect_call.span.start, expect_call.span.end),
-                        format!("expect(...).{matcher_name}(...) requires an actual value"),
-                    )
-                })?;
-                (self.argument(actual_arg, body)?, inverted)
-            };
+            let (actual, inverted) = self.site_actual(&site, body)?;
             let bool_ty = self.ctx.krate.types.intern(Type::Bool);
             // Both matchers read the live mock state behind the erased actual
             // (`__smelt_vitest_mock` marker). A value that is not a mock has
@@ -496,9 +611,9 @@ impl ModuleBuilder<'_> {
                 // negation of "called exactly zero times", and `toHaveBeenCalledOnce`
                 // is `toHaveBeenCalledTimes(1)`. Reusing the one runtime helper
                 // keeps a single definition of what a recorded call is.
-                if !call.arguments.is_empty() {
+                if !site.arguments.is_empty() {
                     return Err(SmeltError::unsupported(
-                        self.span(call.span.start, call.span.end),
+                        self.span(site.span.start, site.span.end),
                         format!("expect(...).{matcher_name}() does not take arguments"),
                     ));
                 }
@@ -507,7 +622,7 @@ impl ModuleBuilder<'_> {
                 let count = body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::Float(if once { 1.0 } else { 0.0 })),
                     ty: float_ty,
-                    span: self.span(call.span.start, call.span.end),
+                    span: self.span(site.span.start, site.span.end),
                 });
                 let called_times = body.push_expr(Expr {
                     kind: ExprKind::VitestMockCalledTimes {
@@ -515,17 +630,17 @@ impl ModuleBuilder<'_> {
                         count,
                     },
                     ty: bool_ty,
-                    span: self.span(call.span.start, call.span.end),
+                    span: self.span(site.span.start, site.span.end),
                 });
                 if once {
                     called_times
                 } else {
-                    self.unary_bool_expr(UnaryOp::Not, called_times, call.span, body)
+                    self.unary_bool_expr(UnaryOp::Not, called_times, site.span, body)
                 }
             } else if matcher_name == "toHaveBeenCalledTimes" {
-                let count_arg = call.arguments.first().ok_or_else(|| {
+                let count_arg = site.arguments.first().ok_or_else(|| {
                     SmeltError::unsupported(
-                        self.span(call.span.start, call.span.end),
+                        self.span(site.span.start, site.span.end),
                         "expect(...).toHaveBeenCalledTimes(...) requires an expected call count",
                     )
                 })?;
@@ -536,12 +651,12 @@ impl ModuleBuilder<'_> {
                         count,
                     },
                     ty: bool_ty,
-                    span: self.span(call.span.start, call.span.end),
+                    span: self.span(site.span.start, site.span.end),
                 })
             } else if matcher_name == "toHaveLastResolvedWith" {
-                let expected_arg = call.arguments.first().ok_or_else(|| {
+                let expected_arg = site.arguments.first().ok_or_else(|| {
                     SmeltError::unsupported(
-                        self.span(call.span.start, call.span.end),
+                        self.span(site.span.start, site.span.end),
                         "expect(...).toHaveLastResolvedWith(...) requires an expected value",
                     )
                 })?;
@@ -552,11 +667,11 @@ impl ModuleBuilder<'_> {
                         expected,
                     },
                     ty: bool_ty,
-                    span: self.span(call.span.start, call.span.end),
+                    span: self.span(site.span.start, site.span.end),
                 })
             } else {
                 let last = matcher_name == "toHaveBeenLastCalledWith";
-                let args = call
+                let args = site
                     .arguments
                     .iter()
                     .map(|arg| self.argument(arg, body))
@@ -568,53 +683,34 @@ impl ModuleBuilder<'_> {
                         last,
                     },
                     ty: bool_ty,
-                    span: self.span(call.span.start, call.span.end),
+                    span: self.span(site.span.start, site.span.end),
                 })
             };
             let failed = if inverted {
                 matched
             } else {
-                self.unary_bool_expr(UnaryOp::Not, matched, call.span, body)
+                self.unary_bool_expr(UnaryOp::Not, matched, site.span, body)
             };
             self.push_test_failure_if(
                 failed,
                 &format!("expect(...).{matcher_name}(...) failed"),
-                call.span,
+                site.span,
                 body,
             );
             return Ok(true);
         }
+        if matches!(canonical, "toBeNaN" | "toBeCloseTo" | "toMatchInlineSnapshot") {
+            return self.erased_value_matcher_statement(site, canonical, body);
+        }
+        if canonical == "toHaveBeenCalledExactlyOnceWith" {
+            return self.called_exactly_once_with_statement(site, body);
+        }
         let Some(matcher) = TestMatcher::from_name(canonical) else {
             return Ok(false);
         };
-        let mut pending_actual_arg = None;
-        let inverted = if let Some(actual) = actual_override {
-            actual.inverted
-        } else {
-            let (expect_call, inverted) =
-                self.expect_call_from_matcher_object(&member.object)?;
-            let Expression::Identifier(expect_ident) = &expect_call.callee else {
-                return Ok(false);
-            };
-            if !self.imports.is_test_builtin(expect_ident.name.as_str())
-                || expect_ident.name.as_str() != "expect"
-            {
-                return Ok(false);
-            }
-            pending_actual_arg = Some(expect_call.arguments.first().ok_or_else(|| {
-                SmeltError::unsupported(
-                    self.span(expect_call.span.start, expect_call.span.end),
-                    format!(
-                        "expect(...).{}(...) requires an actual value",
-                        matcher.source_name()
-                    ),
-                )
-            })?);
-            inverted
-        };
-        let expected_arg = call.arguments.first().ok_or_else(|| {
+        let expected_arg = site.arguments.first().ok_or_else(|| {
             SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
+                self.span(site.span.start, site.span.end),
                 format!(
                     "expect(...).{}(...) requires an expected value",
                     matcher.source_name()
@@ -622,30 +718,26 @@ impl ModuleBuilder<'_> {
             )
         })?;
         let matchers_before_operands = self.asymmetric_matchers_lowered;
-        let actual = match (actual_override, pending_actual_arg) {
-            (Some(actual), _) => actual.value,
-            (None, Some(actual_arg)) => self.argument(actual_arg, body)?,
-            (None, None) => return Ok(false),
-        };
+        let (actual, inverted) = self.site_actual(&site, body)?;
         // `toBeInstanceOf` asks what `actual instanceof Ctor` asks; the constructor
         // is a name to resolve, not a value to compare against.
         if matcher == TestMatcher::BeInstanceOf {
             let target = expected_arg.as_expression().ok_or_else(|| {
                 SmeltError::unsupported(
-                    self.span(call.span.start, call.span.end),
+                    self.span(site.span.start, site.span.end),
                     "expect(...).toBeInstanceOf(...) requires a constructor",
                 )
             })?;
-            let holds = self.instanceof_test(actual, call.span, target, call.span, body)?;
+            let holds = self.instanceof_test(actual, site.span, target, site.span, body)?;
             let failed = if inverted {
                 holds
             } else {
-                self.unary_bool_expr(UnaryOp::Not, holds, call.span, body)
+                self.unary_bool_expr(UnaryOp::Not, holds, site.span, body)
             };
             self.push_test_failure_if(
                 failed,
                 &format!("expect(...).{}(...) failed", matcher.source_name()),
-                call.span,
+                site.span,
                 body,
             );
             return Ok(true);
@@ -667,13 +759,28 @@ impl ModuleBuilder<'_> {
         // own inferred type and the comparison is the matcher-aware walk, which
         // works on the erased carrier anyway.
         let expected_has_matcher = self.argument_holds_asymmetric_matcher(expected_arg);
+        // A literal with an element the actual's item type cannot hold cannot be
+        // typed from it: the source compares at run time, so both sides erase.
+        let contradicts_actual = matches!(matcher, TestMatcher::Equal | TestMatcher::StrictEqual)
+            && self.literal_contradicts_item_type(expected_arg, Self::expr_ty(body, actual));
         let expected = if matches!(matcher, TestMatcher::Equal | TestMatcher::StrictEqual)
             && !expected_has_matcher
+            && !contradicts_actual
         {
             let actual_ty = Self::expr_ty(body, actual);
             self.argument_with_hint(expected_arg, body, Some(actual_ty))?
         } else {
             self.argument(expected_arg, body)?
+        };
+        let (actual, expected) = if contradicts_actual {
+            let unknown_ty = self.erase_with(ErasureReason::TestHarness, "matcher operands");
+            let span = self.span(site.span.start, site.span.end);
+            (
+                Self::erase_to_unknown(actual, unknown_ty, span, body),
+                Self::erase_to_unknown(expected, unknown_ty, span, body),
+            )
+        } else {
+            (actual, expected)
         };
         // An asymmetric matcher anywhere in either operand changes what the
         // comparison MEANS: `expect(a).toEqual(expect.arrayContaining(b))` asks
@@ -697,7 +804,7 @@ impl ModuleBuilder<'_> {
             TestMatcher::Be | TestMatcher::Equal | TestMatcher::StrictEqual
         ) && !uses_asymmetric_matcher
         {
-            self.erase_unrelated_matcher_operands(actual, expected, call.span, body)
+            self.erase_unrelated_matcher_operands(actual, expected, site.span, body)
         } else {
             (actual, expected)
         };
@@ -714,38 +821,38 @@ impl ModuleBuilder<'_> {
             _ => false,
         };
         let mut failed = if uses_asymmetric_matcher {
-            let holds = self.vitest_asymmetric_equal_expr(actual, expected, call.span, body);
-            self.unary_bool_expr(UnaryOp::Not, holds, call.span, body)
+            let holds = self.vitest_asymmetric_equal_expr(actual, expected, site.span, body);
+            self.unary_bool_expr(UnaryOp::Not, holds, site.span, body)
         } else if use_strict_identity {
             let op = if inverted {
                 BinOp::StrictEq
             } else {
                 BinOp::StrictNotEq
             };
-            self.comparison_expr(op, actual, expected, call.span, body)
+            self.comparison_expr(op, actual, expected, site.span, body)
         } else {
-            self.expect_matcher_failure_expr(matcher, actual, expected, call.span, body)?
+            self.expect_matcher_failure_expr(matcher, actual, expected, site.span, body)?
         };
         if use_strict_identity {
             self.push_test_failure_if(
                 failed,
                 &format!("expect(...).{}(...) failed", matcher.source_name()),
-                call.span,
+                site.span,
                 body,
             );
             return Ok(true);
         }
         if inverted {
-            failed = self.unary_bool_expr(UnaryOp::Not, failed, call.span, body);
+            failed = self.unary_bool_expr(UnaryOp::Not, failed, site.span, body);
         }
-        if let Some(rejected) = self.nullish_actual_rejected_expr(matcher, actual, call.span, body)
+        if let Some(rejected) = self.nullish_actual_rejected_expr(matcher, actual, site.span, body)
         {
-            failed = self.bool_or_expr(rejected, failed, call.span, body);
+            failed = self.bool_or_expr(rejected, failed, site.span, body);
         }
         self.push_test_failure_if(
             failed,
             &format!("expect(...).{}(...) failed", matcher.source_name()),
-            call.span,
+            site.span,
             body,
         );
         Ok(true)
@@ -818,7 +925,7 @@ impl ModuleBuilder<'_> {
     ///
     /// Built as a `Conditional` so `rhs` is only evaluated when `lhs` is
     /// false, exactly as JavaScript `||` does.
-    fn bool_or_expr(
+    pub(in crate::lowering) fn bool_or_expr(
         &mut self,
         lhs: smelt_hir::ExprId,
         rhs: smelt_hir::ExprId,
@@ -847,7 +954,7 @@ impl ModuleBuilder<'_> {
     /// unrelated (neither assignable to the other), so the comparison runs on
     /// the runtime values the way JavaScript's matcher does. Related operands
     /// are returned unchanged and keep their typed comparison.
-    fn erase_unrelated_matcher_operands(
+    pub(in crate::lowering) fn erase_unrelated_matcher_operands(
         &mut self,
         actual: smelt_hir::ExprId,
         expected: smelt_hir::ExprId,
@@ -1007,44 +1114,23 @@ impl ModuleBuilder<'_> {
     /// Lower nullish zero-argument matchers to strict singleton checks.
     pub(in crate::lowering) fn expect_to_be_none_statement(
         &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        member: &oxc::ast::ast::StaticMemberExpression<'_>,
-        actual_override: Option<LoweredActual>,
+        site: MatcherSite<'_, '_>,
         body: &mut Body,
         matcher_name: &str,
     ) -> Result<bool, SmeltError> {
-        if !call.arguments.is_empty() {
+        if !site.arguments.is_empty() {
             return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
+                self.span(site.span.start, site.span.end),
                 format!("expect(...).{matcher_name}() does not take arguments"),
             ));
         }
-        let (mut actual, inverted, actual_span) = if let Some(actual) = actual_override {
-            (
-                actual.value,
-                actual.inverted,
-                self.span(call.span.start, call.span.end),
-            )
-        } else {
-            let (expect_call, inverted) =
-                self.expect_call_from_matcher_object(&member.object)?;
-            let Expression::Identifier(expect_ident) = &expect_call.callee else {
-                return Ok(false);
-            };
-            if !self.imports.is_test_builtin(expect_ident.name.as_str())
-                || expect_ident.name.as_str() != "expect"
-            {
-                return Ok(false);
+        let actual_span = match site.actual {
+            SiteActual::Lowered(_) => self.span(site.span.start, site.span.end),
+            SiteActual::Argument { argument, .. } => {
+                self.span(argument.span().start, argument.span().end)
             }
-            let actual_arg = expect_call.arguments.first().ok_or_else(|| {
-                SmeltError::unsupported(
-                    self.span(expect_call.span.start, expect_call.span.end),
-                    format!("expect(...).{matcher_name}() requires an actual value"),
-                )
-            })?;
-            let span = self.span(actual_arg.span().start, actual_arg.span().end);
-            (self.argument(actual_arg, body)?, inverted, span)
         };
+        let (mut actual, inverted) = self.site_actual(&site, body)?;
         // `expect(record[key]).toBeUndefined()`: the read is typed by the
         // record's value type, so a missing key reads that type's default and
         // can never compare equal to `undefined`. For a value type that is not
@@ -1056,17 +1142,17 @@ impl ModuleBuilder<'_> {
             && let Some(present) = self.keyed_read_contains_key(actual, actual_span, body)
         {
             let mut failed = if matcher_name == "toBeDefined" {
-                self.unary_bool_expr(UnaryOp::Not, present, call.span, body)
+                self.unary_bool_expr(UnaryOp::Not, present, site.span, body)
             } else {
                 present
             };
             if inverted {
-                failed = self.unary_bool_expr(UnaryOp::Not, failed, call.span, body);
+                failed = self.unary_bool_expr(UnaryOp::Not, failed, site.span, body);
             }
             self.push_test_failure_if(
                 failed,
                 &format!("expect(...).{matcher_name}() failed"),
-                call.span,
+                site.span,
                 body,
             );
             return Ok(true);
@@ -1092,7 +1178,7 @@ impl ModuleBuilder<'_> {
         let expected = body.push_expr(Expr {
             kind: ExprKind::Literal(literal),
             ty: none_ty,
-            span: self.span(call.span.start, call.span.end),
+            span: self.span(site.span.start, site.span.end),
         });
         // `toBeDefined` is `toBeUndefined` read the other way round: the same
         // comparison against `undefined`, with the failure condition flipped.
@@ -1101,14 +1187,14 @@ impl ModuleBuilder<'_> {
         } else {
             BinOp::JsStrictNotEq
         };
-        let mut failed = self.comparison_expr(comparison, actual, expected, call.span, body);
+        let mut failed = self.comparison_expr(comparison, actual, expected, site.span, body);
         if inverted {
-            failed = self.unary_bool_expr(UnaryOp::Not, failed, call.span, body);
+            failed = self.unary_bool_expr(UnaryOp::Not, failed, site.span, body);
         }
         self.push_test_failure_if(
             failed,
             &format!("expect(...).{matcher_name}() failed"),
-            call.span,
+            site.span,
             body,
         );
         Ok(true)
@@ -1121,32 +1207,134 @@ impl ModuleBuilder<'_> {
     /// `expect(...)` call behind the matcher. `Ok(None)` means the receiver is
     /// not an `expect(...)` call at all, so the caller falls through to the
     /// ordinary call path.
-    fn matcher_actual(
-        &mut self,
-        member: &oxc::ast::ast::StaticMemberExpression<'_>,
-        actual_override: Option<LoweredActual>,
-        body: &mut Body,
-        matcher_name: &str,
-    ) -> Result<Option<(smelt_hir::ExprId, bool)>, SmeltError> {
-        if let Some(actual) = actual_override {
-            return Ok(Some((actual.value, actual.inverted)));
+    /// Whether `expected`'s literal shape cannot have `actual_ty`'s Rust type: an
+    /// array against a record (a static type the value does not have), or an
+    /// element a scalar list cannot hold (`[22, "hello"]` against `number[]`).
+    fn literal_contradicts_item_type(&self, expected: &Argument<'_>, actual_ty: smelt_hir::TypeId) -> bool {
+        let actual = self.ctx.krate.types.get(actual_ty);
+        let expected = expected.as_expression().map(Expression::get_inner_expression);
+        // A shape the actual's own kind cannot be: the typed literal would not
+        // even have the right Rust type.
+        match (expected, actual) {
+            (Some(Expression::ArrayExpression(_)), Some(Type::Dict(_, _) | Type::Class { .. })) => return true,
+            (Some(Expression::ObjectExpression(_)), Some(Type::List(_) | Type::Tuple(_))) => return true,
+            _ => {}
         }
-        let (expect_call, inverted) = self.expect_call_from_matcher_object(&member.object)?;
-        let Expression::Identifier(expect_ident) = &expect_call.callee else {
-            return Ok(None);
+        let Some(Expression::ArrayExpression(array)) = expected else {
+            return false;
         };
-        if !self.imports.is_test_builtin(expect_ident.name.as_str())
-            || expect_ident.name.as_str() != "expect"
-        {
-            return Ok(None);
+        let Some(Type::List(item)) = actual else {
+            return false;
+        };
+        let item = self.ctx.krate.types.get(*item);
+        array.elements.iter().any(|element| {
+            let Some(element) = element.as_expression() else {
+                return false;
+            };
+            match (element.get_inner_expression(), item) {
+                (Expression::NumericLiteral(_), Some(Type::Float | Type::Int)) => false,
+                (Expression::StringLiteral(_), Some(Type::String)) => false,
+                (Expression::BooleanLiteral(_), Some(Type::Bool)) => false,
+                (
+                    Expression::NumericLiteral(_)
+                    | Expression::StringLiteral(_)
+                    | Expression::BooleanLiteral(_)
+                    | Expression::ObjectExpression(_)
+                    | Expression::ArrayExpression(_),
+                    Some(Type::Float | Type::Int | Type::String | Type::Bool),
+                ) => true,
+                _ => false,
+            }
+        })
+    }
+
+    /// A matcher answered by a runtime check on the erased actual.
+    fn erased_value_matcher_statement(
+        &mut self,
+        site: MatcherSite<'_, '_>,
+        canonical: &str,
+        body: &mut Body,
+    ) -> Result<bool, SmeltError> {
+        if canonical == "toMatchInlineSnapshot" && site.arguments.is_empty() {
+            self.always_failing_assertion(
+                "expect(...).toMatchInlineSnapshot() has no stored snapshot",
+                site.span,
+                body,
+            );
+            return Ok(true);
         }
-        let actual_arg = expect_call.arguments.first().ok_or_else(|| {
-            SmeltError::unsupported(
-                self.span(expect_call.span.start, expect_call.span.end),
-                format!("expect(...).{matcher_name}() requires an actual value"),
-            )
-        })?;
-        Ok(Some((self.argument(actual_arg, body)?, inverted)))
+        let (actual, inverted) = self.site_actual(&site, body)?;
+        let check = match canonical {
+            "toBeNaN" => "is_nan",
+            "toBeCloseTo" => "to_be_close_to",
+            _ => "snapshot",
+        };
+        let arguments = site
+            .arguments
+            .iter()
+            .map(|argument| self.argument(argument, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        let message = format!("expect(...).{canonical}(...)");
+        self.runtime_check(check, actual, &arguments, inverted, site.span, &message, body)?;
+        Ok(true)
+    }
+
+    /// `toHaveBeenCalledExactlyOnceWith`: the call count and the arguments.
+    fn called_exactly_once_with_statement(
+        &mut self,
+        site: MatcherSite<'_, '_>,
+        body: &mut Body,
+    ) -> Result<bool, SmeltError> {
+        let (actual, inverted) = self.site_actual(&site, body)?;
+        let hir_span = self.span(site.span.start, site.span.end);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let float_ty = self.ctx.krate.types.intern(Type::Float);
+        let one = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Float(1.0)),
+            ty: float_ty,
+            span: hir_span,
+        });
+        let args = site
+            .arguments
+            .iter()
+            .map(|argument| self.argument(argument, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        let called_once = body.push_expr(Expr {
+            kind: ExprKind::VitestMockCalledTimes { mock: actual, count: one },
+            ty: bool_ty,
+            span: hir_span,
+        });
+        let with = body.push_expr(Expr {
+            kind: ExprKind::VitestMockCalledWith { mock: actual, args, last: false },
+            ty: bool_ty,
+            span: hir_span,
+        });
+        let not_once = self.unary_bool_expr(UnaryOp::Not, called_once, site.span, body);
+        let not_with = self.unary_bool_expr(UnaryOp::Not, with, site.span, body);
+        let failed = self.bool_or_expr(not_once, not_with, site.span, body);
+        let holds = self.unary_bool_expr(UnaryOp::Not, failed, site.span, body);
+        self.assertion_holds(
+            holds,
+            inverted,
+            "expect(...).toHaveBeenCalledExactlyOnceWith(...)",
+            site.span,
+            body,
+        );
+        Ok(true)
+    }
+
+    /// The value under assertion and whether a `.not` applies, lowered once.
+    pub(in crate::lowering) fn site_actual(
+        &mut self,
+        site: &MatcherSite<'_, '_>,
+        body: &mut Body,
+    ) -> Result<(smelt_hir::ExprId, bool), SmeltError> {
+        Ok(match site.actual {
+            SiteActual::Lowered(actual) => (actual.value, actual.inverted),
+            SiteActual::Argument { argument, inverted } => {
+                (self.argument(argument, body)?, inverted)
+            }
+        })
     }
 
     /// Lower `toBeTruthy` / `toBeFalsy` through JavaScript truthiness.
@@ -1158,37 +1346,31 @@ impl ModuleBuilder<'_> {
     /// the actual value has.
     fn expect_truthiness_statement(
         &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        member: &oxc::ast::ast::StaticMemberExpression<'_>,
-        actual_override: Option<LoweredActual>,
+        site: MatcherSite<'_, '_>,
         body: &mut Body,
         matcher_name: &str,
     ) -> Result<bool, SmeltError> {
-        if !call.arguments.is_empty() {
+        if !site.arguments.is_empty() {
             return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
+                self.span(site.span.start, site.span.end),
                 format!("expect(...).{matcher_name}() does not take arguments"),
             ));
         }
-        let Some((actual, inverted)) =
-            self.matcher_actual(member, actual_override, body, matcher_name)?
-        else {
-            return Ok(false);
-        };
-        let span = self.span(call.span.start, call.span.end);
+        let (actual, inverted) = self.site_actual(&site, body)?;
+        let span = self.span(site.span.start, site.span.end);
         let truthy = self.lowered_condition_expression(actual, span, body)?;
         // `toBeFalsy` asserts the negation, and `.not` inverts whichever of the
         // two was written; the two inversions compose with `!=`.
         let wants_truthy = (matcher_name == "toBeTruthy") != inverted;
         let failed = if wants_truthy {
-            self.unary_bool_expr(UnaryOp::Not, truthy, call.span, body)
+            self.unary_bool_expr(UnaryOp::Not, truthy, site.span, body)
         } else {
             truthy
         };
         self.push_test_failure_if(
             failed,
             &format!("expect(...).{matcher_name}() failed"),
-            call.span,
+            site.span,
             body,
         );
         Ok(true)
@@ -1205,37 +1387,31 @@ impl ModuleBuilder<'_> {
     /// keeps working with no extra machinery.
     fn expect_match_object_statement(
         &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        member: &oxc::ast::ast::StaticMemberExpression<'_>,
-        actual_override: Option<LoweredActual>,
+        site: MatcherSite<'_, '_>,
         body: &mut Body,
     ) -> Result<bool, SmeltError> {
-        let Some((actual, inverted)) =
-            self.matcher_actual(member, actual_override, body, "toMatchObject")?
-        else {
-            return Ok(false);
-        };
-        let expected_arg = call.arguments.first().ok_or_else(|| {
+        let (actual, inverted) = self.site_actual(&site, body)?;
+        let expected_arg = site.arguments.first().ok_or_else(|| {
             SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
+                self.span(site.span.start, site.span.end),
                 "expect(...).toMatchObject(...) requires an expected value",
             )
         })?;
-        let span = self.span(call.span.start, call.span.end);
+        let span = self.span(site.span.start, site.span.end);
         let unknown_ty = self.erase_with(ErasureReason::TestHarness, "toMatchObject");
         let expected = self.argument_with_hint(expected_arg, body, Some(unknown_ty))?;
         let expected = Self::erase_to_unknown(expected, unknown_ty, span, body);
         let matcher = self.vitest_matcher_record_expr("matchObject", vec![expected], span, body);
-        let holds = self.vitest_asymmetric_equal_expr(actual, matcher, call.span, body);
+        let holds = self.vitest_asymmetric_equal_expr(actual, matcher, site.span, body);
         let failed = if inverted {
             holds
         } else {
-            self.unary_bool_expr(UnaryOp::Not, holds, call.span, body)
+            self.unary_bool_expr(UnaryOp::Not, holds, site.span, body)
         };
         self.push_test_failure_if(
             failed,
             "expect(...).toMatchObject(...) failed",
-            call.span,
+            site.span,
             body,
         );
         Ok(true)
@@ -1310,23 +1486,17 @@ impl ModuleBuilder<'_> {
     /// expected arguments, exactly as in `toHaveBeenCalledWith`.
     fn expect_mock_nth_called_with_statement(
         &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        member: &oxc::ast::ast::StaticMemberExpression<'_>,
-        actual_override: Option<LoweredActual>,
+        site: MatcherSite<'_, '_>,
         body: &mut Body,
     ) -> Result<bool, SmeltError> {
-        let Some((actual, inverted)) =
-            self.matcher_actual(member, actual_override, body, "toHaveBeenNthCalledWith")?
-        else {
-            return Ok(false);
-        };
-        let Some(nth_arg) = call.arguments.first() else {
+        let (actual, inverted) = self.site_actual(&site, body)?;
+        let Some(nth_arg) = site.arguments.first() else {
             return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
+                self.span(site.span.start, site.span.end),
                 "expect(...).toHaveBeenNthCalledWith(...) requires a call number",
             ));
         };
-        let span = self.span(call.span.start, call.span.end);
+        let span = self.span(site.span.start, site.span.end);
         let unknown_ty = self.erase_with(ErasureReason::TestHarness, "toHaveBeenNthCalledWith");
         let float_ty = self.ctx.krate.types.intern(Type::Float);
         let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
@@ -1373,7 +1543,7 @@ impl ModuleBuilder<'_> {
             span,
         });
         let mut expected_items = Vec::new();
-        for argument in call.arguments.iter().skip(1) {
+        for argument in site.arguments.iter().skip(1) {
             let lowered = self.argument_with_hint(argument, body, Some(unknown_ty))?;
             expected_items.push(Self::erase_to_unknown(lowered, unknown_ty, span, body));
         }
@@ -1383,16 +1553,16 @@ impl ModuleBuilder<'_> {
             span,
         });
         let expected = Self::erase_to_unknown(expected, unknown_ty, span, body);
-        let holds = self.vitest_asymmetric_equal_expr(nth_call, expected, call.span, body);
+        let holds = self.vitest_asymmetric_equal_expr(nth_call, expected, site.span, body);
         let failed = if inverted {
             holds
         } else {
-            self.unary_bool_expr(UnaryOp::Not, holds, call.span, body)
+            self.unary_bool_expr(UnaryOp::Not, holds, site.span, body)
         };
         self.push_test_failure_if(
             failed,
             "expect(...).toHaveBeenNthCalledWith(...) failed",
-            call.span,
+            site.span,
             body,
         );
         Ok(true)
@@ -1434,27 +1604,14 @@ impl ModuleBuilder<'_> {
     /// matches.
     pub(in crate::lowering) fn expect_to_throw_statement(
         &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        site: MatcherSite<'_, '_>,
         body: &mut Body,
     ) -> Result<bool, SmeltError> {
-        let (expect_call, inverted) = self.expect_call_from_matcher_object(&member.object)?;
-        let Expression::Identifier(expect_ident) = &expect_call.callee else {
+        let SiteActual::Argument { argument: actual_arg, inverted } = site.actual else {
             return Ok(false);
         };
-        if !self.imports.is_test_builtin(expect_ident.name.as_str())
-            || expect_ident.name.as_str() != "expect"
-        {
-            return Ok(false);
-        }
-        let actual_arg = expect_call.arguments.first().ok_or_else(|| {
-            SmeltError::unsupported(
-                self.span(expect_call.span.start, expect_call.span.end),
-                "expect(...).toThrow(...) requires a callback",
-            )
-        })?;
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let span = self.span(call.span.start, call.span.end);
+        let span = self.span(site.span.start, site.span.end);
         let did_throw_name = self.intern_source_name("did_throw");
         let did_throw = body.push_local(LocalDecl {
             name: Some(did_throw_name),
@@ -1584,9 +1741,9 @@ impl ModuleBuilder<'_> {
         // error's SERIALIZATION (`[Error: message]`) with a snapshot, not its
         // message with a substring, so the message rules do not apply to it;
         // it keeps the any-throw check.
-        let compares_expected = Self::canonical_matcher_name(member.property.name.as_str())
+        let compares_expected = Self::canonical_matcher_name(site.name)
             != "toThrowErrorMatchingInlineSnapshot";
-        let (catch_binding, matched) = match call.arguments.first().filter(|_| compares_expected) {
+        let (catch_binding, matched) = match site.arguments.first().filter(|_| compares_expected) {
             Some(expected_arg) => self
                 .expected_error_predicate(expected_arg, body)?
                 .map_or((None, None), |(caught, matched)| (Some(caught), Some(matched))),
@@ -1628,14 +1785,14 @@ impl ModuleBuilder<'_> {
         let failed = if inverted {
             did_throw_check
         } else {
-            self.unary_bool_expr(UnaryOp::Not, did_throw_check, call.span, body)
+            self.unary_bool_expr(UnaryOp::Not, did_throw_check, site.span, body)
         };
         let message = if inverted {
             "expect(...).not.toThrow(...) failed"
         } else {
             "expect(...).toThrow(...) failed"
         };
-        self.push_test_failure_if(failed, message, call.span, body);
+        self.push_test_failure_if(failed, message, site.span, body);
         Ok(true)
     }
 

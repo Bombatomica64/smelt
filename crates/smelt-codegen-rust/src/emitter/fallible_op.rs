@@ -327,6 +327,14 @@ impl FunctionEmitter<'_> {
                     self.type_id(Type::String)?,
                 )
             }
+            Rvalue::FastCheckRun { arbitraries, predicate, parameters } => (
+                RenderedCall::propagating(self.fast_check_run_expr(
+                    arbitraries,
+                    predicate,
+                    parameters.as_ref(),
+                )?),
+                self.type_id(Type::None)?,
+            ),
             other => {
                 return Err(EmitError::new(format!(
                     "internal: `{other:?}` is not a fallible operation"

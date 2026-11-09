@@ -24,6 +24,39 @@ impl FunctionEmitter<'_> {
         })
     }
 
+    /// An assertion rule answered by the runtime over erased operands.
+    pub(super) fn test_runtime_check_expr(
+        &self,
+        check: &str,
+        args: &[Operand],
+    ) -> Result<RustExpr, EmitError> {
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let rendered = args
+            .iter()
+            .map(|arg| Ok(self.value_at_type(arg, unknown_ty)?.delimited().to_owned()))
+            .collect::<Result<Vec<_>, EmitError>>()?;
+        Ok(RustExpr::chain(format!("smelt_test_check({check:?}, vec![{}])", rendered.join(", "))))
+    }
+
+    /// `test.prop(arbitraries, parameters)(name, predicate)`.
+    pub(super) fn fast_check_run_expr(
+        &self,
+        arbitraries: &Operand,
+        predicate: &Operand,
+        parameters: Option<&Operand>,
+    ) -> Result<RustExpr, EmitError> {
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let parameter_text = match parameters {
+            Some(given) => format!("Some(&({}))", self.value_at_type(given, unknown_ty)?.delimited()),
+            None => "None".to_owned(),
+        };
+        Ok(RustExpr::chain(format!(
+            "smelt_fast_check_run(&({}), &({}), {parameter_text})",
+            self.value_at_type(arbitraries, unknown_ty)?.delimited(),
+            self.value_at_type(predicate, unknown_ty)?.delimited(),
+        )))
+    }
+
     /// `toHaveBeenCalledTimes`.
     pub(super) fn vitest_mock_called_times_expr(
         &self,

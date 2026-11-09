@@ -1776,6 +1776,35 @@ macro_rules! op_group_transcribed {
                         args.join(", ")
                     )
                 );
+            /// Whether an assertion-library rule holds for erased operands
+            /// (chai's `include`, an inline snapshot); the first argument is the
+            /// value under assertion.
+            TestRuntimeCheck {
+                /// The rule's name in `smelt_test_check`.
+                check: [String],
+                /// The actual value, then the expected arguments.
+                args: many,
+            }
+                => (format!("test_runtime_check {check} [{}]", args.join(", ")));
+            /// The `fc` object of the `fast-check` model.
+            FastCheckNamespace
+                => ("fast_check_namespace".to_owned());
+            /// `test.prop(arbitraries, parameters)(name, predicate)`: run the property.
+            FastCheckRun {
+                /// The arbitraries: an array of positional ones, or one record.
+                arbitraries: one,
+                /// The property body.
+                predicate: one,
+                /// `numRuns`, `seed`.
+                parameters: opt,
+            }
+                fallible(true)
+                => (
+                    parameters.map_or_else(
+                        || format!("fast_check_run {arbitraries} {predicate}"),
+                        |parameters| format!("fast_check_run {arbitraries} {predicate} {parameters}"),
+                    )
+                );
             /// `vi.restoreAllMocks()`: undo every installed spy, newest first.
             VitestRestoreAllMocks
                 => ("vitest_restore_all_mocks".to_owned());

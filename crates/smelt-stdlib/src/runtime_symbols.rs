@@ -434,6 +434,14 @@ pub mod markers {
     pub const SMELT_BUFFER: &str = "__smelt_buffer";
     /// `__smelt_builtin_namespace`.
     pub const SMELT_BUILTIN_NAMESPACE: &str = "__smelt_builtin_namespace";
+    /// The arbitraries of a `fast-check` property.
+    pub const SMELT_FC_ARBITRARIES: &str = "__smelt_fc_arbitraries";
+    /// The generator of a `fast-check` arbitrary.
+    pub const SMELT_FC_GENERATE: &str = "__smelt_fc_generate";
+    /// A thrown `fc.pre` skip.
+    pub const SMELT_FC_PRECONDITION: &str = "__smelt_fc_precondition";
+    /// The predicate of a `fast-check` property.
+    pub const SMELT_FC_PREDICATE: &str = "__smelt_fc_predicate";
     /// `__smelt_builtin_prototype`.
     pub const SMELT_BUILTIN_PROTOTYPE: &str = "__smelt_builtin_prototype";
     /// `__smelt_call`.
@@ -607,6 +615,10 @@ pub mod markers {
         SMELT_BOOLEAN,
         SMELT_BUFFER,
         SMELT_BUILTIN_NAMESPACE,
+        SMELT_FC_ARBITRARIES,
+        SMELT_FC_GENERATE,
+        SMELT_FC_PRECONDITION,
+        SMELT_FC_PREDICATE,
         SMELT_BUILTIN_PROTOTYPE,
         SMELT_CALL,
         SMELT_CLASS,
