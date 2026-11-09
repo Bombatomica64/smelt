@@ -58,15 +58,15 @@ new Box1().uses();
 new Box1().ignores();
 ",
     );
-    assert_eq!(rust_fn(&source, "uses"), r#"fn uses(&self) -> SmeltFuture<f64> {
+    assert_eq!(rust_fn(&source, "uses"), r"fn uses(&self) -> SmeltFuture<f64> {
 let self_owned = self.clone();
 SmeltFuture::<f64>::from_future_primed(Box::pin(async move {
 return Ok(self_owned.value);
 }))
-}"#);
-    assert_eq!(rust_fn(&source, "ignores"), r#"fn ignores(&self) -> SmeltFuture<f64> {
+}");
+    assert_eq!(rust_fn(&source, "ignores"), r"fn ignores(&self) -> SmeltFuture<f64> {
 SmeltFuture::<f64>::from_future_primed(Box::pin(async move {
 return Ok(2.0);
 }))
-}"#);
+}");
 }
